@@ -1,0 +1,35 @@
+
+Objects:
+class audio()
+# standardized audio file object that contains data for a loaded audio file
+    - original data
+    - current data
+    - sample rate
+    - frame rate
+    - type (Stereo/MonoL/MonoR)
+    - name
+    - length 
+    - processed_status | boolean
+
+class filter()
+    - frequency
+    - type
+    apply(audio_object.current_data)
+    return filtered_song_object_data
+
+
+
+ControlLanguage
+
+    ControlState
+        - Save
+            - Save Tables? Which tables
+        - Log?
+            - Save the event chain table somewhere
+
+        - Undo
+            - Undo to the last state
+        - Roll to
+
+    StateObject
+        - 

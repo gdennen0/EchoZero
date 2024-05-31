@@ -1,0 +1,73 @@
+Date: 05/31/24
+Hello World 
+
+This is just a brainstorming/ideas sesh.
+
+
+Overarching Big goals:
+--Phone Lighting fixture control software
+--NodeC/new lighting workflow standards
+
+
+Shorter Term Goals:
+--Bring a useful program to increase efficiency in lighting programming workflow
+-- Timeline Target:
+Requirements:
+- Torch studio workflow
+- generic platform/standard to process track elements in channels "by type"
+- data flow standardization?? Input/output analysis and tranformation
+- traditional audio analyzation
+- extrapolate events from audio
+- how break audio down into base elements/split stems etc, whats this workflow
+- AI to split stems: https://moises.ai/
+- Stemgen: Open source project to convert song into stems: https://github.com/axeldelafosse/stemgen?tab=readme-ov-file
+
+
+
+
+
+Stem Types:
+-- Vocals
+-- Drums
+-- Guitar
+-- Acoustic Guitar
+-- Electric Guitar
+-- Bass
+-- Piano
+-- Other
+
+Steps:
+- Stem Splitting:
+    - Use existing software
+
+- stem preprocess: 
+    - Input value(Song data, sample rate, etc)
+        - load audio file
+            - convert audio file to audio object
+    - Input transformation(input type/input bias)
+
+    - standard preprocess object:
+        - variables that are set to achieve favorable stem analyzation
+
+- Stem analyzation(standardized_song_data, process_type):
+    https://github.com/DamRsn/NeuralNote (transforms audio to midi??)
+    https://github.com/nathanshaw/drumExtractor
+    essentially just if x qualifications are met via the process_type input variables then mark event
+    - existing Project to analyze drum tracks?
+    - existing project to analyze other stem elements
+
+- Item postprocess/transform:
+    - apply transform output data 
+    - standardize a data format then transform to any type of format
+    - Format:
+        - (Frame number, value)
+            - value can be any event_type sub object that then can contain standardized data?
+            - Leave platform open to add more data to the value of an event at a specific frame number
+        - Converting from one frame rate to another (without data loss)
+
+- Item export:
+    - Transform standard to whatever based on parameters
+
+
+
+Core Middle Level Control Language

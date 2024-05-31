@@ -1,0 +1,9 @@
+File Labeling: 
+ - Concise & Descriptive of file object
+
+ Variables: 
+  - Snake Case
+
+Tables: 
+ - 
+
