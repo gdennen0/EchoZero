@@ -39,6 +39,10 @@ Stem Types:
 Steps:
 - Stem Splitting:
     - Use existing software
+    - Potential V1:
+        i. Audio -> Stems
+        ii. Drum Stems -> Musical Transcription
+        iii. Transcription -> MA XML?
 
 - stem preprocess: 
     - Input value(Song data, sample rate, etc)
@@ -52,10 +56,12 @@ Steps:
 - Stem analyzation(standardized_song_data, process_type):
     https://github.com/DamRsn/NeuralNote (transforms audio to midi??)
     https://github.com/nathanshaw/drumExtractor
+    https://github.com/karaokenerds/python-audio-separator/tree/main (OS Python project to separate stems from source file in 
+    a CLI application)
     essentially just if x qualifications are met via the process_type input variables then mark event
     - existing Project to analyze drum tracks?
     - existing project to analyze other stem elements
-
+    
 - Item postprocess/transform:
     - apply transform output data 
     - standardize a data format then transform to any type of format
