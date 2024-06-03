@@ -20,13 +20,50 @@ Requirements:
 - extrapolate events from audio
 - how break audio down into base elements/split stems etc, whats this workflow
 - AI to split stems: https://moises.ai/
-- Stemgen: Open source project to convert song into stems: https://github.com/axeldelafosse/stemgen?tab=readme-ov-file
+
+Short Term development goals: 
+- flush out ControlLanguage core functionality
+- investigate various stem splitting projects
+- outline flow of information 
+- flush out program objects and function
+    - small thought **develop framework to select different FPS rates, make any rate possible but lets just start with 30 and 25 options?
+
+General Steps:
+
+(1) Ingest Audio || Audio -> Stems
+    (a) Import source audio file
+        (i) transform imported audio to program audio object
+    (b) split audio file into stems
+        (i) https://github.com/karaokenerds/python-audio-separator/tree/main (OS Python project to separate stems from source file in 
+        a CLI application)
+        (ii) Stemgen: Open source project to convert song into stems: https://github.com/axeldelafosse/stemgen?tab=readme-ov-file
+    (c) assign stems to program layer objects
+
+(2) Manipulate Stem Audio || Optimize the audio before being analyzed
+    (a) Apply input transformation(optimize input)
+
+(3) Analyze Stems 
+# Broad strokes here~ essentially just if x qualifications are met via then mark event, develop a system to synthesize data sources
+# Returns List of events 
+    (a) Traditional audio analysis (Should always use this for context)
+        - onset detection
+    (b) Torch studio process to detect events
+
+    (c) Things to look into? 
+        (i) NeuraNote | https://github.com/DamRsn/NeuralNote (transforms audio to midi?)
+        (ii) DrumExtractor | https://github.com/nathanshaw/drumExtracto
+
+(4) Export:
+# Once we figure out our core variables we can sort out how to make an api for this
+# Standardization and easy implementation will be key for this and should be considered from the tip
 
 
 
 
-
-Stem Types:
+================================================================================
+|| Additional Helpful thoughts:
+================================================================================
+Stem Type Categories:
 -- Vocals
 -- Drums
 -- Guitar
@@ -35,45 +72,3 @@ Stem Types:
 -- Bass
 -- Piano
 -- Other
-
-Steps:
-- Stem Splitting:
-    - Use existing software
-    - Potential V1:
-        i. Audio -> Stems
-        ii. Drum Stems -> Musical Transcription
-        iii. Transcription -> MA XML?
-
-- stem preprocess: 
-    - Input value(Song data, sample rate, etc)
-        - load audio file
-            - convert audio file to audio object
-    - Input transformation(input type/input bias)
-
-    - standard preprocess object:
-        - variables that are set to achieve favorable stem analyzation
-
-- Stem analyzation(standardized_song_data, process_type):
-    https://github.com/DamRsn/NeuralNote (transforms audio to midi??)
-    https://github.com/nathanshaw/drumExtractor
-    https://github.com/karaokenerds/python-audio-separator/tree/main (OS Python project to separate stems from source file in 
-    a CLI application)
-    essentially just if x qualifications are met via the process_type input variables then mark event
-    - existing Project to analyze drum tracks?
-    - existing project to analyze other stem elements
-    
-- Item postprocess/transform:
-    - apply transform output data 
-    - standardize a data format then transform to any type of format
-    - Format:
-        - (Frame number, value)
-            - value can be any event_type sub object that then can contain standardized data?
-            - Leave platform open to add more data to the value of an event at a specific frame number
-        - Converting from one frame rate to another (without data loss)
-
-- Item export:
-    - Transform standard to whatever based on parameters
-
-
-
-Core Middle Level Control Language
