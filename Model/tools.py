@@ -1,5 +1,53 @@
 import os
-# Select aduio file and check that it is a valid format
+import datetime
+
+# ---------------------
+# Logging Functionality
+# ---------------------
+
+import datetime
+
+class Log:
+    
+    @staticmethod
+    def time_decorator(func):
+        def wrapper(*args, **kwargs):
+            current_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            print(f"Time: {current_time}")
+            return func(*args, **kwargs)
+        return wrapper
+
+    @staticmethod
+    @time_decorator
+    def debug(message):
+        print(f"DEBUG: {message}")
+
+    @staticmethod
+    @time_decorator
+    def info(message):
+        print(f"INFO: {message}")
+
+    @staticmethod
+    @time_decorator
+    def warning(message):
+        print(f"WARNING: {message}")
+
+    @staticmethod
+    @time_decorator
+    def error(message):
+        print(f"ERROR: {message}")
+
+    @staticmethod
+    @time_decorator
+    def unknown(message, level):
+        print(f"UNKNOWN '{level}': {message}")  # Default if unknown level is passed
+
+
+def prompt(prompt_message):
+    # Prompt user in terminal and return the response
+    response = input(prompt_message)
+    return response
+
 
 def path_exists(path):
     # Checks if the path exists
