@@ -15,7 +15,7 @@ class load_audio(AUDIO_FILE, TARGET_SAMPLERATE):
     def load_audio(self):
         self.waveform, self.samplerate = torchaudio.load(AUDIO_FILE)
         print(f"Loaded Audio Waveform: {self.waveform}")
-        print(f"LOaded Audio Samplerate: {self.samplerate}")
+        print(f"Loaded Audio Samplerate: {self.samplerate}")
 
     def standardize_samplerate(self):
         rate_transform = transforms.Resample(self.samplerate, self.target_samplerate)
