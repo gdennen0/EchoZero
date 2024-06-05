@@ -90,8 +90,14 @@ General Steps:
         # RETURNS: 
         (i) 
 
-Logging/Feedback
-- Decorator
+Tools:
+# Logging Tools
+    (1) log(message, level="")
+        # outputs a message to console with given level for now
+# Validation Tools | These are self explanitory
+    (2) path_exists(path)
+    (3) file_exists(path):
+    (4) is_valid_audio_format(path):
 
 ================================================================================
 || Additional Helpful thoughts:
