@@ -59,6 +59,37 @@ General Steps:
 
 
 
+================================================================================
+|| Application Outline
+================================================================================
+ (1) main.py
+    # application main loop to connect main_control.py actions and main_model.py functions
+ (2) main_control.py
+    # Contains all potential inputs... maybe just keep this one file right now? we can keep the CLI simple until we 
+    can implement the ControlLanguage. Once ControlLanguage is implemented, we can add the lexer pretty easily into this file,
+    without a ton of extra bloat from a whole library of control files (I don't know if this makes sense for now?)
+ (3) main_model.py
+    # Initializes the four model files; ingest_audio.py, stem_manipulation.py, stem_analysis.py, and data_export.py
+    (a) ingest_audio.py:
+        # Converts audio to pytorch tensor, standardizes audio file to project samplerate, and converts file to 
+        stems. Stems are assigned to project layers.
+        (i) load_audio.py:
+            # imports audio file and standardizes it to project samplerate
+            # ARGS: filepath, const_samplerate
+            # RETURNS: audio_tensor
+        (ii) split_stem.py:
+            # converts pytorch tensor to audio stems... stem layers stored in a table
+            # ARGS: audio_tensor
+            # RETURNS: stem_table
+    (b) stem_manipulation.py:
+        # ARGS: stem_table[i]
+        # RETURNS: stem_table[i]
+    (c) stem_analysis.py:
+        # Takes stem input and analysis type (user input) and applies function to convert file to positive or null instance. 
+        # ARGS: analysis_type, stem_table[i]
+        # RETURNS: 
+        (i) 
+
 
 ================================================================================
 || Additional Helpful thoughts:
