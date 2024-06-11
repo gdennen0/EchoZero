@@ -1,4 +1,4 @@
-from Model.tools import Log
+from .tools import Log
 # ===================
 # Audio Object Class
 # ===================
@@ -67,17 +67,16 @@ class audio:
 class audio_model:
     # Model to store instances of audio in
     def __init__(self):
-        self.audio = []
+        self.objects = []
         Log.debug("Initialized Audio Model")
 
-    def add(self, audio_object):
-        name = audio_object.name
-        self.audio.append(audio_object)
-        Log.debug(f"Added audio {name}")
+    def add(self, a):
+        self.objects.append(a)
+        Log.debug(f"Added audio {a.name}")
 
-    def delete(self, audio_object_index):
-        name = self.audio[audio_object_index].name
-        del self.audio[audio_object_index]
-        Log.debug(f"Deleted audio object '{name}' at index: {audio_object_index}")
+    def delete(self, a_index):
+        name = self.objects[a_index].name
+        del self.objects[a_index]
+        Log.debug(f"Deleted audio object '{name}' at index: {a_index}")
 
     
