@@ -1,4 +1,5 @@
-from .tools import Log
+from message import Log
+
 # ===================
 # Audio Object Class
 # ===================
@@ -19,46 +20,46 @@ class audio:
         # Sets the original_data variable & updates the current_data variable? For the time being atleast
         self.original_data = data
         self.set_current_data(data)
-        Log.debug(f"Original data set to {data}")
+        Log.info(f"Original data set to ... a list that im not going to print")
 
     def set_current_data(self, data):
         # Sets the current_data variable 
         self.current_data = data
-        Log.debug(f"Current data set to {data}")
+        Log.info(f"Current data set to ... a list that im not going to print")
 
     def set_tensor(self, t):
         self.tensor = t
-        Log.debug(f"Updated tensor data")
+        Log.info(f"Set tensor data")
         
     def set_sample_rate(self, rate):
         # Sets the sample_rate variable 
         self.sample_rate = rate
-        Log.debug(f"Sample rate set to {rate}")
+        Log.info(f"Sample rate set to {rate}")
 
     def set_frame_rate(self, rate):
         # Sets the frame_rate variable 
         self.frame_rate = rate
-        Log.debug(f"Frame rate set to {rate}")
+        Log.info(f"Frame rate set to {rate}")
 
     def set_type(self, type):
         # Sets the type variable 
         self.type = type
-        Log.debug(f"Type set to {type}")
+        Log.info(f"Type set to {type}")
 
     def set_name(self, name):
         # Sets the name variable 
         self.name = name
-        Log.debug(f"Name set to {name}")
+        Log.info(f"Name set to {name}")
 
     def set_length_ms(self, length):
         # Sets the length_ms variable 
         self.length_ms = length
-        Log.debug(f"Length in ms set to {length}")
+        Log.info(f"Length in ms set to {length}")
 
     def set_processed_status(self, status):
         # Sets the processed_status variable
         self.processed_status = status
-        Log.debug(f"Processed status set to {status}")
+        Log.info(f"Processed status set to {status}")
 
 
 # ==================
@@ -68,15 +69,15 @@ class audio_model:
     # Model to store instances of audio in
     def __init__(self):
         self.objects = []
-        Log.debug("Initialized Audio Model")
+        Log.info("Initialized Audio Model")
 
     def add(self, a):
         self.objects.append(a)
-        Log.debug(f"Added audio {a.name}")
+        Log.info(f"Added audio {a.name} to model")
 
     def delete(self, a_index):
         name = self.objects[a_index].name
         del self.objects[a_index]
-        Log.debug(f"Deleted audio object '{name}' at index: {a_index}")
+        Log.warning(f"Deleted audio object '{name}' at index: {a_index}")
 
     
