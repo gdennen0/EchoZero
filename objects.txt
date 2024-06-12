@@ -11,12 +11,10 @@ class audio()
     - length 
     - processed_status | boolean
 
-class filter()
-    - frequency
-    - type
-    apply(audio_object.current_data)
-    return filtered_song_object_data
-
+class audio_model()
+# Model to store instances of audio in
+    - add
+    - delete
 
 
 ControlLanguage
