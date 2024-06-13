@@ -11,6 +11,21 @@ def prompt(prompt_message):
     response = input(prompt_message)
     return response
 
+def yes_no_prompt(prompt_message):
+    # Prompt user with a yes/no question and return True for yes and False for no
+    valid_yes = {'yes', 'y', 'ye', 'YES', 'Y', 'YE'}
+    valid_no = {'no', 'n', 'NO', 'N'}
+    
+    while True:
+        response = input(prompt_message).strip().lower()
+        if response in valid_yes:
+            return True
+        elif response in valid_no:
+            return False
+        else:
+            print("Please respond with 'yes' or 'no' (or 'y' or 'n').")
+
+
 def path_exists(path):
     # Checks if the path exists
     return os.path.exists(path)
