@@ -80,4 +80,9 @@ class audio_model:
         del self.objects[a_index]
         Log.warning(f"Deleted audio object '{name}' at index: {a_index}")
 
+    def rename(self, a_index, new_name):
+        old_name = self.objects[a_index].name
+        self.objects[a_index].name = new_name
+        Log.info(f"Renamed {old_name} to {new_name}")
+
     

@@ -1,43 +1,20 @@
-import os
-from tools import prompt, path_exists, file_exists, is_valid_audio_format
 from message import Log
-from Model.load_audio import load_audio
+from Control.load_audio import load_audio
+
 # Main Controller Functions
+"""
+Responsible for routing the flow of information properly, this is the applications internal data exchange location
+
+"""
+
 class Control:
-    def __init__(self, model, command):
-        self.model = model          # i can see everything
-        self.command = command      # we have all the power now muahaa
+    def __init__(self, model):
+        self.model = model          # i can see everything   # we have all the power now muahaa
         Log.info("Initialized Control Module")
 
-    def ingest(self,path=None):
-
-        if not path:
-            # Get user input
-            str_path = str(prompt("Please Enter Path:"))
-            abs_path = os.path.abspath(str_path)
-        if path:
-            abs_path = os.path.abspath(path)
-        # validity check
-        if not path_exists(abs_path): # Check if the path is valid
-            Log.error(f"Invalid Path: '{abs_path}'")
-            pass
-        if not file_exists(abs_path):   # Check if the file exists at specified path
-            Log.error(f"File does not exist at specified path")
-            pass
-        if not is_valid_audio_format(abs_path): # Check if audio is in a usable format
-            Log.error(f"Invalid audio format")
-            pass
-        
-        # Load the audio into the model
-        a = load_audio(abs_path) #creates audio object 
-        # add the audio into the model
-        self.command.add_audio(a)
-        Log.info(f"Audio for {a.name} Ingested! yum..")
-
-        
-    def digest():
-        def process_data(self):
-            # Placeholder for digest data process implementation
-            pass
+    def load_audio(self, abs_path):
+        Log.command(f"Command initiated: 'load_audio'")
+        a = load_audio(abs_path)
+        self.model.audio.add(a)
 
     
