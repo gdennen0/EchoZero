@@ -69,11 +69,32 @@ class audio_model:
     # Model to store instances of audio in
     def __init__(self):
         self.objects = []
+        self.selected_audio = None
         Log.info("Initialized Audio Model")
+
+    def select(self, index=None, name=None):
+        if index and not name:
+            if 0 <= index < len(self.objects):
+                self.selected_audio = self.objects[index]
+                Log.info(f"Selected audio {self.selected_audio.name} at index: {index}")
+        if name:
+            for a_index, a in self.objects:
+                if a.name == name:
+                    self.selected_audio = self.objects[a_index]
+                    Log.info(f"Selected audio {a.name}")
+                    pass
+            Log.error(f"Could find an audio object called '{name}'")
+                    
+        else:
+            Log.error("Index out of range")
 
     def add(self, a):
         self.objects.append(a)
         Log.info(f"Added audio {a.name} to model")
+
+    def add_stems(self, stems):
+        # adds passed stems to the selected audio objects stems list
+        self.objects
 
     def delete(self, a_index):
         name = self.objects[a_index].name
