@@ -15,6 +15,7 @@ class audio:
         self.length_ms = None
         self.processed_status = None
         self.tensor = None
+        self.stems = None
 
     def set_original_data(self, data):
         # Sets the original_data variable & updates the current_data variable? For the time being atleast
@@ -77,24 +78,32 @@ class audio_model:
             if 0 <= index < len(self.objects):
                 self.selected_audio = self.objects[index]
                 Log.info(f"Selected audio {self.selected_audio.name} at index: {index}")
-        if name:
+                return
+            else:
+                Log.error("Index out of range")
+        elif name:
             for a_index, a in self.objects:
                 if a.name == name:
                     self.selected_audio = self.objects[a_index]
                     Log.info(f"Selected audio {a.name}")
-                    pass
+                    return
+
             Log.error(f"Could find an audio object called '{name}'")
-                    
         else:
-            Log.error("Index out of range")
+            Log.error(f"Couldn't match provided index/name to an audio object")
+                    
 
     def add(self, a):
+        # adds passed audio object to the models objects list
         self.objects.append(a)
         Log.info(f"Added audio {a.name} to model")
 
     def add_stems(self, stems):
         # adds passed stems to the selected audio objects stems list
-        self.objects
+        if self.selected_audio: # check to see if audio object is selected
+            for stem in stems:
+                self.selected_audio.stems.append(stem)
+                print(f"added stem '{stem.name} to {self.selected_audio.name}")
 
     def delete(self, a_index):
         name = self.objects[a_index].name
