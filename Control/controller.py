@@ -6,6 +6,8 @@ from Control.audio_transformation import stem_separation
 """
 Responsible for routing the flow of information properly, this is the applications internal data exchange location
 
+# Control is the only place that data can be modified from
+
 """
 
 class Control:
@@ -21,5 +23,6 @@ class Control:
     def generate_stems(self, abs_path, output_filepath):
         Log.command(f"Command initiated: 'generate_stems'")
         stems = stem_separation(None, None, abs_path, output_filepath, "Demucs")
+        self.model.audio.add_stems(stems)
 
     
