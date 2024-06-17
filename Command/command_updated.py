@@ -6,28 +6,40 @@ from tools import prompt, yes_no_prompt, path_exists, file_exists, is_valid_audi
 Responsible for Validating and directing input streams to execute the proper control actions
 
 """
+# the command_tools class is responsible for the decorators used in the command class
+class command_tools:
+    def __init__(self, table):
+        self.table = {}
+
+    def function_command(self, func):
+        # Add the function to the table with its name as the key
+        self.table[func.__name__] = func
+        Log.special(f"Registered {func.__name__} in command table.")
+        def wrapper(*args, **kwargs):
+            return func(*args, **kwargs)
+        return wrapper
+    
+
 class Command:
+    command_table = {}
+    tools = command_tools(command_table)
     def __init__(self, model, control):
         self.model = model
         self.control = control
         Log.info("Initialized Command Module")
-        self.commands = {
-            "ingest" : self.ingest,
-            "digest" : self.digest,
-            "list_audio_objects" : self.list_audio_objects,
-            "delete_audio_object" : self.delete_audio_object,
-        }
         self.stems = None
 
-
+    @tools.function_command
     def list_audio_objects(self):
         objects = self.model.audio.objects
         for index, a in enumerate(objects):
             Log.info(f"[{index}] {a.name}")
 
+    @tools.function_command
     def delete_audio_object(self, index):
         self.model.audio.delete(index)
 
+    @tools.function_command
     def ingest(self, path=None, opath=None):
         # BEGIN INPUT VALIDATION
         if not path:
@@ -69,7 +81,9 @@ class Command:
 
         self.ingest_to_stems(abs_path)
 
+
     # ingests audio file and sets output files ready for stem generation
+    @tools.function_command
     def ingest_to_stems(self, abs_path, opath=None):
         if yes_no_prompt("Generate stems from song?"):
             Log.info(f"Initializing stems")
@@ -85,6 +99,7 @@ class Command:
             return
         self.control.generate_stems(abs_path, o_abs_path)
 
+    @tools.function_command
     def digest(self, a=None):
         # apply the pre transformation
         if yes_no_prompt("Apply pre transformation?"):

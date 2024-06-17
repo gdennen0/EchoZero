@@ -13,9 +13,9 @@ FRAMERATE = 30
 def load_audio(audio_path, target_sr=TARGET_SAMPLERATE):
     # Loads all necessary audio data
     audio_data, _ = create_audio_data(audio_path, target_sr)   # creates audio data array using librosa
-    t, _ = create_audio_tensor(audio_path, target_sr)  # creates a tensor object with the audio file
+    t, tsr = create_audio_tensor(audio_path, target_sr)  # creates a tensor object with the audio file
     a = create_audio_object(audio_data, t, target_sr, FRAMERATE, None, "Default")  # creates an audio object and updates the necessary data
-    return a
+    return a, tsr
     
 def create_audio_data(audio_path, target_sr):
     # creates audio data array using librosa

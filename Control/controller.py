@@ -1,5 +1,6 @@
 from message import Log
 from Control.load_audio import load_audio
+from Control.audio_transformation import stem_separation
 
 # Main Controller Functions
 """
@@ -14,7 +15,11 @@ class Control:
 
     def load_audio(self, abs_path):
         Log.command(f"Command initiated: 'load_audio'")
-        a = load_audio(abs_path)
+        a, sr = load_audio(abs_path)
         self.model.audio.add(a)
+
+    def generate_stems(self, abs_path, output_filepath):
+        Log.command(f"Command initiated: 'generate_stems'")
+        stems = stem_separation(None, None, abs_path, output_filepath, "Demucs")
 
     
