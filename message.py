@@ -1,4 +1,4 @@
-from tools import get_current_time
+
 # ---------------------
 # Logging Functionality
 # ---------------------
@@ -51,9 +51,11 @@ class Log:
         output_to_console(type,text,color=color)
         
 def output_to_console(type, text, color="\033[97m"): #color set to white by default
+    from tools import get_current_time
     reset_code_color = "\033[0m"
     print(f"{get_current_time()} |{color}{type}{reset_code_color}| {text}")   
 
 def special_output_to_console(type, text, color="\033[97m"): #color set to white by default
+    from tools import get_current_time
     reset_code_color = "\033[0m"
     print(f"{get_current_time()} {color}|{type}| {text}{reset_code_color}")   

@@ -24,10 +24,10 @@ class pre_transformation:
 
 #stem_separation separates stems from audio data
 class stem_separation:
-    def __init__(self, audio_tensor, sr, input_filepath, output_filepath, ai_model):
+    def __init__(self, audio_tensor, sr, input_file_path, output_filepath, ai_model):
         self.at = audio_tensor
         self.sr = sr
-        self.input_file = input_filepath
+        self.input_file_path = input_file_path
         self.output_filepath = output_filepath
         self.ai_model = ai_model
-        self.generate_stems = stem_generation(self.at, self.sr, self.input_file, self.output_filepath, self.ai_model)
+        self.generate_stems = stem_generation(self.at, self.sr, self.input_file_path, self.output_filepath, self.ai_model)
