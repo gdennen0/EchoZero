@@ -1,5 +1,7 @@
 import datetime
 import os
+from message import Log
+
 
 @staticmethod
 def get_current_time():
@@ -23,9 +25,20 @@ def yes_no_prompt(prompt_message):
         elif response in valid_no:
             return False
         else:
-            print("Please respond with 'yes' or 'no' (or 'y' or 'n').")
+            Log.prompt("Please respond with 'yes' or 'no' (or 'y' or 'n').")
 
-
+def check_audio_path(path):
+    abs_path = os.path.abspath(path)
+    if not path_exists(abs_path): # Check if the path is valid
+        Log.error(f"Invalid Path: '{abs_path}'")
+        return
+    if not file_exists(abs_path):   # Check if the file exists at specified path
+        Log.error(f"File does not exist at specified path")
+        return
+    if not is_valid_audio_format(abs_path): # Check if audio is in a usable format
+        Log.error(f"Invalid audio format")
+        return
+    
 def path_exists(path):
     # Checks if the path exists
     return os.path.exists(path)
@@ -43,3 +56,4 @@ def is_valid_audio_format(path):
 def get_current_time():
     current_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     return current_time
+

@@ -10,19 +10,21 @@ Responsible for routing the flow of information properly, this is the applicatio
 
 """
 
-class Control:
-    def __init__(self, model):
-        self.model = model          # i can see everything   # we have all the power now muahaa
-        Log.info("Initialized Control Module")
+# class Control:
+#     def __init__(self, model):
+#         self.model = model          # i can see everything   # we have all the power now muahaa
+#         Log.info("Initialized Control Module")
 
-    def load_audio(self, abs_path):
-        Log.command(f"Command initiated: 'load_audio'")
-        a, sr = load_audio(abs_path)
-        self.model.audio.add(a)
+#     def load_audio(self, abs_path):
+#         a, sr = load_audio(abs_path)
+#         self.model.audio.add(a)
 
-    def generate_stems(self, abs_path, output_filepath):
-        Log.command(f"Command initiated: 'generate_stems'")
-        stems = stem_separation(None, None, abs_path, output_filepath, "Demucs")
-        self.model.audio.add_stems(stems)
+#     def select_audio(self, index):
+#         self.model.audio.select(index)
+
+#     def generate_stems(self, abs_path, output_filepath):       
+#         Log.command(f"Command initiated: 'generate_stems'")
+#         stems = stem_separation(None, None, abs_path, output_filepath, "Demucs")
+#         self.model.audio.add_stems(stems)
 
     

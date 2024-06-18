@@ -43,8 +43,13 @@ class Log:
     def special(text):
         type = "SPECIAL"
         color = "\x1b[47m"
-        special_output_to_console(type,text,color=color)  
+        special_output_to_console(type,text,color=color)
 
+    def prompt(text):
+        type = "UserInput"
+        color = "\033[97m"
+        output_to_console(type,text,color=color)
+        
 def output_to_console(type, text, color="\033[97m"): #color set to white by default
     reset_code_color = "\033[0m"
     print(f"{get_current_time()} |{color}{type}{reset_code_color}| {text}")   
