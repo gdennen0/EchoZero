@@ -31,13 +31,15 @@ def check_audio_path(path):
     abs_path = os.path.abspath(path)
     if not path_exists(abs_path): # Check if the path is valid
         Log.error(f"Invalid Path: '{abs_path}'")
-        return
+        return False
     if not file_exists(abs_path):   # Check if the file exists at specified path
         Log.error(f"File does not exist at specified path")
-        return
+        return False
     if not is_valid_audio_format(abs_path): # Check if audio is in a usable format
         Log.error(f"Invalid audio format")
-        return
+        return False
+    
+    return True
     
 def path_exists(path):
     # Checks if the path exists

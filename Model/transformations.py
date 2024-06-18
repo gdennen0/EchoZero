@@ -19,8 +19,17 @@ class stem_generation:
         self.model_type = ai_model
         self.model_yaml = None
         self.model = None
+
+        # Log.info(f"Audio tensor set: {self.at}")
+        # Log.info(f"Sample rate set: {self.sr}")
+        # Log.info(f"Input filepath set: {self.input_filepath}")
+        # Log.info(f"Output filepath set: {self.output_file}")
+        # Log.info(f"Model type set: {self.model_type}")
+
+
         self.separator = Separator(log_level=3, output_dir=self.output_file, normalization_threshold=0.9) # Initializes an instance of the separator
         self.stems = self.separate_stems()
+
 
     def load_model(self):
         Log.info(f"Running function Model > load_model")
@@ -80,6 +89,7 @@ class stem_generation:
         output_file_name = f"output_file.wav"
         Log.info(output_file_name)
         try:
+            # Log.info(f"trying to seperate file at path {self.input_filepath}")
             self.separator.separate(self.input_filepath)
         except Exception as e:
             Log.error(f"Error separating stems: {str(e)}")
