@@ -6,6 +6,7 @@ import librosa
 import torchaudio
 import shutil
 from Model.audio import audio
+from .digest import Digest
 
 TARGET_SAMPLERATE = 44100
 FRAMERATE = 30
@@ -20,7 +21,7 @@ class Command:
         Log.info("Initialized Command Module")
         self.commands = {
             "ingest" : self.ingest,
-            "digest" : self.digest,
+            "digest" : Digest,
             "list_audio_objects" : self.list_audio_objects,
             "delete_audio_object" : self.delete_audio_object,
             "select_audio": self.select_audio,
@@ -115,17 +116,6 @@ class Command:
 
         stem_separation(tensor, sr, audio_file_path, stems_path, "Demucs")
         # self.model.audio.add_stems(stems)     
-
-    def digest(self, a=None):
-        # apply the pre transformation
-        if yes_no_prompt("Apply pre transformation?"):
-            Log.info(f"Pre transformation applied to {a.name}")
-        # run onset detection
-        if yes_no_prompt("run offset transformation?"):
-            Log.info("Run offset detection")
-        # apply post transformation
-        if yes_no_prompt("run post transformation?"):
-            Log.info("Apply post transformation")
 
 def create_audio_data(audio_file_path, target_sr):
     # creates audio data array using librosa
