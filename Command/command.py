@@ -1,7 +1,7 @@
 import os
 from message import Log
 from tools import prompt, yes_no_prompt, check_audio_path
-from Control.audio_transformation import stem_separation
+from Model.transformations import stem_generation
 import librosa
 import torchaudio
 import shutil
@@ -113,7 +113,7 @@ class Command:
         stems_path = self.model.audio.get_stems_file_path(a_index)
 
 
-        stem_separation(tensor, sr, audio_file_path, stems_path, "Demucs")
+        stem_generation(tensor, sr, audio_file_path, stems_path, "Demucs") # now refs the Model>transformation.py file...
         # self.model.audio.add_stems(stems)     
 
     def digest(self, a=None):
