@@ -16,12 +16,13 @@ Responsible for Validating and directing input streams to execute the proper con
 
 """
 class Command:
-    def __init__(self, model,):
+    def __init__(self, model):
         self.model = model
         Log.info("Initialized Command Module")
+        self.digest = Digest(self.model)
         self.commands = {
             "ingest" : self.ingest,
-            "digest" : Digest,
+            "digest" : self.digest,
             "list_audio_objects" : self.list_audio_objects,
             "delete_audio_object" : self.delete_audio_object,
             "select_audio": self.select_audio,
@@ -176,7 +177,7 @@ def create_audio_object(audio_file_path, data, tensor, sr, fps, type, name, path
     # creates an audio object and updates the necessary data
     a = audio()
     a.set_audio_file_path(audio_file_path)
-    a.set_original_data(data)
+    a.set_audio(data)
     a.set_tensor(tensor)
     a.set_sample_rate(sr)
     a.set_frame_rate(fps)

@@ -8,8 +8,7 @@ class audio:
     # Audio Object
     def __init__(self):
         self.audio_file_path = None
-        self.original_data = None
-        self.current_data = None
+        self.audio = None
         self.sample_rate = None
         self.frame_rate = None
         self.type = None
@@ -24,16 +23,10 @@ class audio:
         self.audio_file_path = audio_file_path
         Log.info(f"Audio file path set to '{audio_file_path}'")
 
-    def set_original_data(self, data):
+    def set_audio(self, data):
         # Sets the original_data variable & updates the current_data variable? For the time being atleast
-        self.original_data = data
-        self.set_current_data(data)
-        Log.info(f"Original data set to ... a list that im not going to print")
-
-    def set_current_data(self, data):
-        # Sets the current_data variable 
-        self.current_data = data
-        Log.info(f"Current data set to ... a list that im not going to print")
+        self.audio = data
+        Log.info(f"Audio data set to ... a list that im not going to print")
 
     def set_tensor(self, t):
         self.tensor = t
@@ -138,3 +131,6 @@ class audio_model:
     
     def get_sr(self, index):
         return self.objects[index].sample_rate
+    
+    def get_audio(self, index):
+        return self.objects[index].audio
