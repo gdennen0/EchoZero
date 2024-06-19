@@ -1,7 +1,7 @@
 import os
 from message import Log
 from tools import prompt, yes_no_prompt, check_audio_path
-from Control.audio_transformation import stem_separation
+from Model.transformations import stem_generation
 import librosa
 import torchaudio
 import shutil
@@ -103,7 +103,9 @@ class Command:
         self.model.audio.add_audio(a)
 
     def generate_stems(self, a_index=None):
+        generate_stems = True
         Log.command(f"Command initiated: 'generate_stems'")
+        Log.message(f"Enter 'help' for list of commands")
         if a_index is None:
             self.list_audio_objects()
             a_index = int(prompt("Please enter index for audio object you would like to generate stems for: "))
@@ -114,8 +116,48 @@ class Command:
         stems_path = self.model.audio.get_stems_file_path(a_index)
 
 
-        stem_separation(tensor, sr, audio_file_path, stems_path, "Demucs")
-        # self.model.audio.add_stems(stems)     
+        self.stem_init = stem_generation(tensor, sr, audio_file_path, stems_path, "Demucs") # now refs the Model>transformation.py file...
+        # self.model.audio.add_stems(stems)
+        
+        # Print all the first layer of keys in the model_dict dictionary
+        model_keys = self.stem_init.model_dict.keys()
+        Log.info("Available models:")
+        for key in model_keys:
+            Log.info(key)
+
+        # Prompts user for model selection
+        self.ai_model = str(prompt("Please enter model for selection: "))
+
+        # Prints next layer of selected layer of the model_dict
+        model_categories = self.stem_init.model_dict[self.ai_model].keys()
+
+        Log.info("Available Categories:")
+        for key in model_categories:
+            Log.info(key)
+
+        # Prompts user for model category selection
+        self.ai_category = str(prompt("Please enter model category for selection: "))
+
+        model_trainings = self.stem_init.model_dict[self.ai_model][self.ai_category].keys()
+        
+        Log.info("Available Models: ")
+        for key in model_trainings:
+            Log.info(key)
+
+        # Prompts user to select specific model training
+        self.ai_training = str(prompt("Please enter specific trained model: "))
+
+        #assigns selection to model value
+        self.model_value = self.stem_init.model_dict[self.ai_model][self.ai_category][self.ai_training]
+        Log.info(f"Loaded Model: {self.ai_model}, Loaded Training: {self.model_value}")
+        # Loads Model
+        self.stem_init.load_model(self.model_value)
+        
+        # Generates Stems
+        self.stem_init.separate_stems()
+
+
+
 
 def create_audio_data(audio_file_path, target_sr):
     # creates audio data array using librosa

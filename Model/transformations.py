@@ -1,5 +1,5 @@
 from message import Log
-from audio_separator.separator import Separator
+from audio_separator.separator import *
 from message import Log
 import json
 
@@ -27,14 +27,15 @@ class stem_generation:
         # Log.info(f"Model type set: {self.model_type}")
 
 
-        self.separator = Separator(log_level=3, output_dir=self.output_file, normalization_threshold=0.9) # Initializes an instance of the separator
-        self.stems = self.separate_stems()
+        self.separator = Separator(log_level=3, output_dir=self.output_file, normalization_threshold=1.0) # Initializes an instance of the separator
+        #self.stems = self.separate_stems()
 
 
-    def load_model(self):
+    def load_model(self, model_name):
         Log.info(f"Running function Model > load_model")
         #self.separator.load_model(model_filename="f7e0c4bc-ba3fe64a.th")
-        self.separator.load_model(model_filename="kuielab_a_vocals.onnx")
+        self.separator.load_model(model_filename=model_name)
+
 
     # Dictionary (for user selection) of available training models
     model_dict = {
@@ -75,10 +76,7 @@ class stem_generation:
 
         
     def separate_stems(self):
-
-        
         Log.info(f"Running function Model > separate_stems")
-        self.load_model()
 
         # Check if separator is initialized and has the 'separate' method
         if not self.separator or not hasattr(self.separator, 'separate'):
