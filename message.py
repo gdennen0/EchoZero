@@ -57,7 +57,8 @@ class Log:
         header = title.center(header_length, '*')
         output_to_console(log_type, header)
         for index, item in enumerate(list_items):
-            if atrib is None:
+            if not atrib:
+                Log.info("List Atribute is None")
                 wrapped_text = f"Index: {index}: Item: {item[:60]}"
                 output_to_console(log_type, wrapped_text)
             else:
