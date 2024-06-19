@@ -25,7 +25,8 @@ def process_command(input_string, command_obj):
             if action:
                 try:
                     Log.command(f"{cmd} {action}.")
-                    func(action)
+                    method_to_call = getattr(func(), action)
+                    method_to_call()  # Call the method without arguments
                     
                 except Exception as e:
                     Log.error(f"Error executing {cmd}: {str(e)}")
