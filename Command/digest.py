@@ -15,6 +15,36 @@ from Point.point import Onset, HighPassFilter
 
 """
 
+class Digest:
+    def __init__(self, model):
+        self.model = model
+        self.preprocess = PreProcess()
+        self.analyze = Analyze()
+        self.results = []
+
+    def list_results(self):
+        # print(self.results)
+        # Log.list("Analyzation results", self.results, atrib="type")
+        Log.list("Analyzation results", self.results, atrib="data")
+
+    def start(self, audio_index=None):
+        Log.info("Begin Digest")
+        if not audio_index:
+            audio_index = int(prompt("What is the Index of the audio object you would like to digest? "))
+        # Main Pipeline
+        audio = self.model.audio.get_audio(audio_index)
+        pre_processed_data = self.preprocess.start(audio) # run the pre process loop
+        result = self.analyze.start(pre_processed_data) # run the analyze loop
+        if len(result) >=1: # if the length of the list is greather than or euqal to 1
+            for index, item in enumerate(result):   
+                self.results.append(item)
+
+# Generic Result Object 
+class Result:
+    def __init__(self, data, type):
+        self.data = data
+        self.type = type
+
 class PreProcess:
     def __init__(self):
         self.points = []
@@ -22,17 +52,17 @@ class PreProcess:
             HighPassFilter(),
         ]
 
-    def start(self, d):
+    def start(self, data):
         Log.info("Initializing pre processing of data")
         if len(self.points) >= 1:
             for index, point in enumerate(self.points):
                 Log.info(f"Applying pre transform point '{point.name}', at index {index}")
-                d = point.apply(d)
+                data = point.apply(data)
             Log.info("Completed PreProcess") 
-            return d
+            return data
         else:
             Log.info("No PreProcess points found, bypassing preprocess")
-            return d
+            return data
         
     def add(self, point_object_type_index=None):
         while True:
@@ -103,34 +133,3 @@ class Analyze:
             result_object = Result(d, "Audio") # Standardizing the result object so it can always be understood properly
             result_table.append(result_object)
             return result_table
-class Digest:
-    def __init__(self, model):
-        self.model = model
-        self.preprocess = PreProcess()
-        self.analyze = Analyze()
-        self.results = []
-
-    def list_results(self):
-        # print(self.results)
-        Log.list("Analyzation results", self.results, atrib="type")
-        Log.list("Analyzation results", self.results, atrib="data")
-
-    def start(self, audio_index=None):
-        Log.info("Begin Digest")
-        if not audio_index:
-            audio_index = int(prompt("What is the Index of the audio object you would like to digest? "))
-            audio = self.model.audio.get_audio(audio_index)
-            pre_processed_data = self.preprocess.start(audio)
-            result = self.analyze.start(pre_processed_data) 
-
-        if len(result) >=1:
-            for index, item in enumerate(result):
-                Log.info(f"Appending result: @ Index {index} | Type {item.type}")
-                self.results.append(item)
-
-      
-
-class Result:
-    def __init__(self, data, type):
-        self.data = data
-        self.type = type
