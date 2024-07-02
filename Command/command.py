@@ -8,16 +8,19 @@ import shutil
 from Model.audio import audio
 from .digest import Digest
 
-TARGET_SAMPLERATE = 44100
-FRAMERATE = 30
+
+
 
 """
 Responsible for Validating and directing input streams to execute the proper control actions
 
 """
 class Command:
-    def __init__(self, model):
-        self.model = model
+    def __init__(self, project, settings):
+        self.model = project.model
+        self.settings = settings
+        self.project_dir = project.path
+        self.project = project
         Log.info("Initialized Command Module")
         self.digest = Digest(self.model)
         self.commands = {
@@ -27,6 +30,7 @@ class Command:
             "delete_audio_object" : self.delete_audio_object,
             "select_audio": self.select_audio,
             "generate_stems": self.generate_stems,
+            "save":self.project.save,
         }
         self.stems = None
         
@@ -64,12 +68,16 @@ class Command:
                 Log.error(f"Invalid audio path {path}")
                 path = None  # Reset path to prompt again
 
-    def load_audio(self, audio_file_path, target_sr=TARGET_SAMPLERATE):
-        # Loads all necessary audio data
-        audio_data, _ = create_audio_data(audio_file_path, target_sr)   # creates audio data array using librosa
-        t, _ = create_audio_tensor(audio_file_path, target_sr)  # creates a tensor object with the audio file
-        # Name Selection Loop
-        while True:
+    def load_audio(self, audio_file_path, target_sr=None, framerate=None,):
+        if target_sr is None:
+            target_sr = self.settings['AUDIO_TARGET_SAMPLERATE']
+        if framerate is None:
+            framerate = self.settings['AUDIO_FRAMERATE']
+
+        audio_data, _ = create_audio_data(audio_file_path, target_sr)
+        t, _ = create_audio_tensor(audio_file_path, target_sr)
+
+        while True:    # Name Selection Loop
             name = prompt("Please enter audio object name: ")
             # Check if the name already exists in the audio_model objects
             existing_names = [obj.name for obj in self.model.audio.objects]
@@ -77,16 +85,10 @@ class Command:
                 Log.error(f"Name '{name}' already exists in audio objects, please use a unique name")
             else:
                 break
-        # Path Selection 
-        # Check the base path
-        base_path = os.path.join(os.getcwd(), 'Data', 'Audio')  # the dir location for internal audio object storage
-        if not os.path.exists(base_path):
-            os.makedirs(base_path)
-
+        
         # check the path for the audio object
-        # Start of  Selection
-        a_path = os.path.join(base_path, name)
-        stems_path = os.path.join(a_path, "stems")
+        a_path = os.path.join(self.project.path, "audio", name)   # join the name with base path
+        stems_path = os.path.join(a_path, "stems") 
         if os.path.exists(a_path):
             if yes_no_prompt(f"Folder '{a_path}' already exists. Do you want to overwrite it?: "):
                 shutil.rmtree(a_path)
@@ -99,14 +101,22 @@ class Command:
             os.makedirs(a_path)
             os.makedirs(stems_path)
 
+        original_extension = os.path.splitext(audio_file_path)[1]
+        shutil.copy(audio_file_path, os.path.join(a_path, name + original_extension))
+        # os.rename(a_path, os.path.join(a_path,name))
+        Log.info(f"Copied original audio file to: {a_path}")
+
+        
+
+        # copy the original audio into the project folder and create a folder for it
+
         # Create the audio object
-        a = create_audio_object(audio_file_path, audio_data, t, target_sr, FRAMERATE, None, name, a_path)  # creates an audio object and updates the necessary data
-        self.model.audio.add_audio(a)
+        self.model.audio.create_audio_object(self.project_dir, audio_data, t, target_sr, framerate, None, name)  # creates an audio object and updates the necessary data
+
 
     def generate_stems(self, a_index=None):
         generate_stems = True
         Log.command(f"Command initiated: 'generate_stems'")
-        Log.message(f"Enter 'help' for list of commands")
         if a_index is None:
             self.list_audio_objects()
             a_index = int(prompt("Please enter index for audio object you would like to generate stems for: "))
@@ -115,7 +125,6 @@ class Command:
         sr = self.model.audio.get_sr(a_index)
         audio_file_path = self.model.audio.get_audio_file_path(a_index)
         stems_path = self.model.audio.get_stems_file_path(a_index)
-
 
         self.stem_init = stem_generation(tensor, sr, audio_file_path, stems_path, "Demucs") # now refs the Model>transformation.py file...
         # self.model.audio.add_stems(stems)
@@ -171,20 +180,6 @@ def create_audio_tensor(audio_file_path, target_sr):
     # standardise sample rate??
     audio_tensor, sr = torchaudio.load(audio_file_path, target_sr)
     return audio_tensor, sr
-
-def create_audio_object(audio_file_path, data, tensor, sr, fps, type, name, path):
-    Log.info("create_audio_object")
-    # creates an audio object and updates the necessary data
-    a = audio()
-    a.set_audio_file_path(audio_file_path)
-    a.set_audio(data)
-    a.set_tensor(tensor)
-    a.set_sample_rate(sr)
-    a.set_frame_rate(fps)
-    a.set_type(type)
-    a.set_name(name)
-    a.set_path(path)
-    return a
     
 
 

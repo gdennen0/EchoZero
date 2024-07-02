@@ -48,7 +48,7 @@ class Result:
 class PreProcess:
     def __init__(self):
         self.points = []
-        self.point_types = [
+        self.point_types = [    #list of filter objects that are initialized
             HighPassFilter(),
         ]
 
