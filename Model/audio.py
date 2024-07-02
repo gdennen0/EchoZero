@@ -4,10 +4,11 @@ from tools import prompt, path_exists, yes_no_prompt
 # ===================
 # Audio Object Class
 # ===================
+
 class audio:
     # Audio Object
     def __init__(self):
-        self.audio_file_path = None
+        self.directory = None
         self.audio = None
         self.sample_rate = None
         self.frame_rate = None
@@ -17,16 +18,45 @@ class audio:
         self.processed_status = None
         self.tensor = None
         self.stems = None
-        self.path = None
     
-    def set_audio_file_path(self, audio_file_path):
-        self.audio_file_path = audio_file_path
-        Log.info(f"Audio file path set to '{audio_file_path}'")
+    def serialize(self):
+        return {
+            "directory": self.directory,
+            "sample_rate": self.sample_rate,
+            "frame_rate": self.frame_rate,
+            "type": self.type,
+            "name": self.name,
+            "length_ms": self.length_ms,
+            "processed_status": self.processed_status,
+            "tensor": self.tensor is not None,
+            "stems": self.stems is not None,
+        }
+    
+    def deserialize(self, data):
+        self.directory = data.get("directory")
+        self.sample_rate = data.get("sample_rate")
+        self.frame_rate = data.get("frame_rate")
+        self.type = data.get("type")
+        self.name = data.get("name")
+        self.length_ms = data.get("length_ms")
+        self.processed_status = data.get("processed_status")
+        # Note: tensor and stems are not fully restored here, only their existence is noted
+        self.tensor = None if not data.get("tensor") else "Tensor data placeholder"
+        self.stems = None if not data.get("stems") else "Stems data placeholder"
+        
+        # Log summary of all deserialized information
+        Log.info(f"Audio object deserialized with directory: {self.directory}, sample rate: {self.sample_rate}, "
+                 f"frame rate: {self.frame_rate}, type: {self.type}, name: {self.name}, length (ms): {self.length_ms}, "
+                 f"processed status: {self.processed_status}, tensor exists: {self.tensor is not None}, "
+                 f"stems exist: {self.stems is not None}")
+    
+    def set_dir(self, dir):
+        self.directory = dir
+        Log.info(f"Audio directory set to '{self.directory}'")
 
     def set_audio(self, data):
-        # Sets the original_data variable & updates the current_data variable? For the time being atleast
         self.audio = data
-        Log.info(f"Audio data set to ... a list that im not going to print")
+        Log.info(f"Audio data loaded")
 
     def set_tensor(self, t):
         self.tensor = t
@@ -62,10 +92,6 @@ class audio:
         self.processed_status = status
         Log.info(f"Processed status set to {status}")
 
-    def set_path(self, path):
-        self.path = path
-        Log.info(f"Set path to '{path}'")
-
 
 # ==================
 # Audio Model Class
@@ -76,6 +102,26 @@ class audio_model:
         self.objects = []
         self.selected_audio = None
         Log.info("Initialized Audio Model")
+
+    def serialize(self):
+        serialized_objects = []
+        for obj in self.objects:
+            serialized_objects.append(obj.serialize())
+        return serialized_objects
+    
+    def deserialize(self, data):
+        self.objects = []
+        self.selected_audio = None
+        for obj_data in data:
+            new_audio = audio()
+            new_audio.deserialize(obj_data)
+            self.objects.append(new_audio)
+        Log.info("Audio model deserialized successfully")
+    
+    def reset(self):
+        self.objects = []
+        self.selected_audio = None
+        Log.info("Reset Audio Model")
 
     def select(self, index):
         Log.info(f"Attempting to select audio object with index {index}")
@@ -95,8 +141,18 @@ class audio_model:
             Log.info(f"Index: {index}, Audio Name: {object.name}")
         Log.info('*' * 53)
 
-    def add_audio(self, a):
-        # adds passed audio object to the models objects list
+    def create_audio_object(self, dir, data, tensor, sr, fps, type, name):
+        Log.info("create_audio_object")
+        # creates an audio object and updates the necessary data
+        a = audio()
+        a.set_dir(dir + f"/audio/{name}")
+        a.set_audio(data)
+        a.set_tensor(tensor)
+        a.set_sample_rate(sr)
+        a.set_frame_rate(fps)
+        a.set_type(type)
+        a.set_name(name)
+
         self.objects.append(a)
         Log.info(f"Added audio {a.name} to model")
 
@@ -120,10 +176,10 @@ class audio_model:
         Log.info(f"Renamed {old_name} to {new_name}")
     
     def get_audio_file_path(self, index):
-        return self.objects[index].audio_file_path
+        return self.objects[index].directory + f"/{self.objects[index].name}.mp3" # FIX THIS TO HAVE DYNAMIC EXTENSIONS
 
     def get_stems_file_path(self, index):
-        stems_path = self.objects[index].path + "/Stems"
+        stems_path = self.objects[index].directory + "/Stems"
         return stems_path
     
     def get_tensor(self, index):
