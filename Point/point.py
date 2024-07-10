@@ -31,6 +31,9 @@ class HighPassFilter(Point):
 
         
 class Onset(Point):
+    """
+    returns: array of events
+    """
     def __init__(self):
         super().__init__()  # Calls the initializer of the parent 'Point' class
         self.name = "Onset"
