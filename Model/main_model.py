@@ -15,4 +15,11 @@ class Model:
     def deserialize(self, path):
         with open(path, 'r') as file:
             data = json.load(file)
-        self.audio.deserialize(data)
+            # Deserialize audio data if present
+            if 'audio' in data:
+                self.audio.deserialize(data['audio'])
+            # Future deserialization for other categories can be added here
+            # Example:
+            # if 'video' in data:
+            #     self.video.deserialize(data['video'])
+        

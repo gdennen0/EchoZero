@@ -1,5 +1,6 @@
+from Model.audio import event_pool, event
 from message import Log
-from tools import prompt
+from tools import prompt, prompt_selection
 from Point.point import Onset, HighPassFilter
 
 """
@@ -23,21 +24,63 @@ class Digest:
         self.results = []
 
     def list_results(self):
-        # print(self.results)
-        # Log.list("Analyzation results", self.results, atrib="type")
         Log.list("Analyzation results", self.results, atrib="data")
 
-    def start(self, audio_index=None):
+    def start(self):
         Log.info("Begin Digest")
-        if not audio_index:
-            audio_index = int(prompt("What is the Index of the audio object you would like to digest? "))
+        object = self.select_audio_to_digest()
         # Main Pipeline
-        audio = self.model.audio.get_audio(audio_index)
-        pre_processed_data = self.preprocess.start(audio) # run the pre process loop
-        result = self.analyze.start(pre_processed_data) # run the analyze loop
-        if len(result) >=1: # if the length of the list is greather than or euqal to 1
-            for index, item in enumerate(result):   
-                self.results.append(item)
+        pre_processed_data = self.preprocess.start(object.audio) # run the pre process loop
+        result_list = self.analyze.start(pre_processed_data) # run the analyze loop, this returns a list of result objects of the analyze process
+        for result_object in result_list:
+            Log.info(f"Generated result for {result_object.type}")
+            data = result_object.data 
+            ep = event_pool() # create a new instance of  
+            ep.set_name = result_object.type
+            qty = 0
+            for frame_number in data:
+                Log.info(f"adding event for frame number: {frame_number}")
+                e = event()
+                e.set_frame(frame_number)
+                e.set_name("Default")
+                e.set_category("Default")
+                ep.add_event(e)
+                qty = qty + 1
+            object.add_event_pool(ep)
+            Log.info(f"Generated event pool and populated {qty} event objects")
+
+    def select_audio_to_digest(self):
+        audio_selections = []
+        a, _  = prompt_selection("Select an audio object to operate on: ", self.model.audio.objects)
+        audio_selections.append("Self")
+        if a.stems:
+            for stem in a.stems:
+                audio_selections.append(stem.name)
+        sel_obj, selection = prompt_selection("Select audio to analyze", audio_selections)
+        if isinstance(selection, int):
+            if selection == 0:
+                Log.info(f"Selected original audio from audio object {a.name}")
+                return a
+            elif selection > 0:
+                s = a.stems[selection - 1]  # Corrected indexing
+                Log.info(f"Selected stem {s.name} from audio object {a.name}")
+                return s
+            
+        elif isinstance(selection, str):
+            if selection == "Self":
+                Log.info(f"Selected original audio from audio object {a.name}")
+                return a
+            else:
+                for stem in a.stems:
+                    if stem.name == selection:
+                        Log.info(f"Selected stem {stem.name} from audio object {a.name}")
+                        return stem
+        
+        # d_selection, _  = prompt_selection("Select audio to analyze for audio object {}")
+
+        Log.error("Invalid selection")
+        return None
+
 
 # Generic Result Object 
 class Result:
@@ -67,6 +110,7 @@ class PreProcess:
     def add(self, point_object_type_index=None):
         while True:
             try:
+                self.list_point_types()
                 point_object_type_index = int(prompt("What is the index of the Analyze point type you'd like to add? "))
                 if point_object_type_index < len(self.point_types):
                     break
@@ -76,12 +120,27 @@ class PreProcess:
                 Log.error("Invalid input. Please enter a valid integer.")
                 
         point_type = self.point_types[point_object_type_index]
-        Log.info(f"adding point object {point_type.type} into analyze points list")
         self.points.append(point_type)
+        self.list_points()
+        Log.info(f"Added point object: '{point_type.type}' into PreProcess")
 
-    def remove(self, point):
-        Log.info(f"removed point '{point.name}'")
-        self.points.remove(point)
+
+    def remove(self, point_object_type_index=None):
+        while True:
+            try:
+                self.list_point_types()
+                point_object_type_index = int(prompt("What is the index of the Analyze point type you'd like to add? "))
+                if point_object_type_index < len(self.point_types):
+                    break
+                else:
+                    Log.error("Invalid index. Please try again.")
+            except ValueError:
+                Log.error("Invalid input. Please enter a valid integer.")
+            
+        point_type = self.point_types[point_object_type_index]
+        self.points.remove(point_type)
+        self.list_points()
+        Log.info(f"Removed point: '{point_type.type}' from PreProcess")
 
     def list_point_types(self):
         Log.list("Point Types", self.point_types, atrib="type")
@@ -99,6 +158,7 @@ class Analyze:
     def add(self, point_object_type_index=None):
         while True:
             try:
+                self.list_point_types()
                 point_object_type_index = int(prompt("What is the index of the Analyze point type you'd like to add? "))
                 if point_object_type_index < len(self.point_types):
                     break
@@ -108,16 +168,18 @@ class Analyze:
                 Log.error("Invalid input. Please enter a valid integer.")
 
         point_type = self.point_types[point_object_type_index]
-        Log.info(f"adding point object {point_type.type} into analyze points list")
         self.points.append(point_type)
+        self.list_point_types()
+        Log.info(f"Added point object: '{point_type.type}' into Analyze")
+
 
     def list_point_types(self):
-        Log.list("Point Types", self.point_types, atrib="type")
+        Log.list("Available point types: ", self.point_types, atrib="type")
 
     def list_points(self):
-        Log.list("Point Objects", self.points, atrib="type")
+        Log.list("Active point objects: ", self.points, atrib="type")
 
-    def start(self, d):
+    def start(self, d): # pass start the audio data
         result_table = []
         Log.info("Initializing analysis of data")
         if len(self.points) >= 1:
