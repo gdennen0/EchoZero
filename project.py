@@ -21,17 +21,14 @@ class Project:
         Log.info(f"Initialized Project")
 
     def initialize(self):
+        options = {'load': self.load, 'new': self.new}
         while True:
             response = prompt("Do you want to load an existing project or create a new one? (load/new): ").lower()
-            if response == 'load':
-                self.load()
+            if response in options:
+                options[response]()
                 break
-            elif response == 'new':
-                self.new()
-                break
-            else:
-                Log.error("Invalid input. Please enter 'load' or 'new'.")
-
+            Log.error("Invalid input. Please enter 'load' or 'new'.")
+            
     def generate_folders(self):
         # Ensure both 'Data' and 'Audio' folders exist
         audio_path = os.path.join(self.dir, 'Audio')
