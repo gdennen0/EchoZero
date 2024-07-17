@@ -1,2 +1,2 @@
 from .command import *
-from .digest import *
+from .Digest.digest import *

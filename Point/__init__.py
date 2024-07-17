@@ -1,1 +1,1 @@
-from .point import *
+from ..Command.Digest.PointTypes.point import *
