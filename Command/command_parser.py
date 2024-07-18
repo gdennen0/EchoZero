@@ -1,45 +1,47 @@
-import argparse
 from message import Log
 
 class CommandParser:
-    def __init__(self, modules):
-        self.parser = argparse.ArgumentParser(description="Command Line Interface")
-        self.subparsers = self.parser.add_subparsers(dest="command")
-
+    def __init__(self, command):
+        self.modules = command.modules
+        self.commands = None
         Log.info(f"Parser: Registering commands in parser")
-        for module in modules:
-            Log.info(f"Parser: Registering module: {module.name}")
-            subparser = self.subparsers.add_parser(module.name)
-            subparser.set_defaults(func=self._create_module_handler(module))
-
-    def _create_module_handler(self, module):
-        def handler(args):
-            subparser = argparse.ArgumentParser(prog=f"{module.name}")
-            subparsers = subparser.add_subparsers(dest="subcommand")
-            for cmd_item in module.commands:
-                Log.info(f"Parser: Registering command: {cmd_item.name} in module: {module.name}")
-                cmd_subparser = subparsers.add_parser(cmd_item.name)
-                cmd_subparser.set_defaults(func=cmd_item.command)
-            for sub_module in module.sub_modules:
-                Log.info(f"Parser: Registering sub-module: {sub_module.name} in module: {module.name}")
-                sub_module_parser = subparsers.add_parser(sub_module.name)
-                sub_module_parser.set_defaults(func=self._create_module_handler(sub_module))
-            sub_args = subparser.parse_args(args._get_args())
-            if hasattr(sub_args, 'func'):
-                sub_args.func()
-            else:
-                Log.error(f"No function associated with subcommand: {sub_args.subcommand}")
-        return handler
 
     def parse_and_execute(self, input_string):
         try:
-            args = self.parser.parse_args(input_string.split())
-            Log.info(f"Parse args: {args}")
-            if hasattr(args, 'func'):
-                args.func(args)
+            parts = input_string.split()
+            Log.info(f"Parse Parts: {parts}")
+            if not parts:
+                Log.error("No command provided")
+                return
+
+            main_module = None
+            sub_module = None
+            command_item = None
+            for part in parts:
+                for module in self.modules:
+                    if part == module.name:
+                        if not main_module:
+                            main_module = next((mod for mod in self.modules if mod.name == part), None)
+                            Log.info(f"PARSER: Matched base module: {part}")
+                        else:
+                            sub_module = next((mod for mod in main_module.sub_modules if mod.name == part), None)
+                            Log.info(f"PARSER: Matched sub module: {part}")
+                    elif (main_module and part in [cmd.name for cmd in main_module.commands]) or (sub_module and part in [cmd.name for cmd in sub_module.commands]):
+                        if main_module:
+                            if sub_module:
+                                command_item = next((cmd for cmd in sub_module.commands if cmd.name == part), None)
+                            else:
+                                command_item = next((cmd for cmd in main_module.commands if cmd.name == part), None)
+                        else:
+                            command_item = next((cmd for cmd in self.commands if cmd.name == part), None)
+                        Log.info(f"PARSER: Matched command: {part}")
+
+            Log.info(f"Parsed results: main_module: {main_module.name if main_module else 'None'} sub_module: {sub_module.name if sub_module else 'None'} command: {command_item.name if command_item else 'None'}")
+
+            if command_item:
+                command_item.command()
             else:
-                Log.error(f"No function associated with command: {args.command}")
-        except SystemExit as e:
-            Log.error(f"SystemExit occurred when parsing command '{input_string}': {str(e)}")
+                Log.info(f"No command found")
+
         except Exception as e:
             Log.error(f"Error parsing command '{input_string}': {str(e)}")
