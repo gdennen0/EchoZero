@@ -4,6 +4,7 @@ from message import Log
 from tools import prompt_selection
 from .Analyze.analyze import Analyze
 from .PreProcess.pre_process import PreProcess
+from Command.command_item import CommandItem
 
 
 class Digest:
@@ -12,14 +13,26 @@ class Digest:
         self.preprocess = PreProcess()
         self.analyze = Analyze()
         self.results = []
+        self.commands = []
+        self.sub_modules = []
+        self.name = "Digest"
 
-    def get_commands(self):
-        return {
-            "start": self.start,
-            "list_results": self.list_results
-        }
+        self.add_command("results", self.results)
+        self.add_command("start", self.start)
 
-    def list_results(self):
+        self.add_sub_module(self.preprocess)
+        self.add_sub_module(self.analyze)
+
+    def add_command(self, name, command):
+        cmd_item = CommandItem()
+        cmd_item.set_name(name)
+        cmd_item.set_command(command)
+        self.commands.append(cmd_item)
+
+    def add_sub_module(self, sub_module):
+        self.sub_modules.append(sub_module)
+
+    def results(self):
         Log.list("Analyzation results", self.results, atrib="data")
 
     def start(self):
@@ -76,10 +89,3 @@ class Digest:
 
         Log.error("Invalid selection")
         return None
-
-
-# Generic Result Object 
-class Result:
-    def __init__(self, data, type):
-        self.data = data
-        self.type = type

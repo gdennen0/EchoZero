@@ -1,5 +1,6 @@
 import librosa
 from message import Log
+from .point import Point
 
 class Onset(Point):
     """

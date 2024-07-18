@@ -5,7 +5,7 @@ from tools import prompt, check_project_path, prompt_selection, yes_no_prompt
 import os
 import datetime
 
-PROJECT_DIR_BYPASS = "/Users/gdennen/Desktop/Testing"
+PROJECT_DIR_BYPASS = r"C:\Users\griff\Desktop\EZ Testing"
 RECENT_PROJECTS_FILE = "recent_projects.json"
 
 class Project:

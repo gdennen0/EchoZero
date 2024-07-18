@@ -1,4 +1,7 @@
-from PointTypes.onset import Onset
+from Command.Digest.PointTypes.onset import Onset
+from Command.command_item import CommandItem
+from message import Log
+from tools import prompt
 
 class Analyze:
     def __init__(self):
@@ -6,14 +9,23 @@ class Analyze:
         self.point_types = [
             Onset(),
         ]
+        self.commands = []
+        self.sub_modules = []
+        self.name = "Analyze"
 
-    def get_commands(self):
-        return {
-            "start": self.start,
-            "add": self.add,
-            "list_point_types": self.list_point_types,
-            "list_points": self.list_points,
-        }
+        self.add_command("start", self.start)
+        self.add_command("add", self.add)
+        self.add_command("list_point_types", self.list_point_types)
+        self.add_command("list_points", self.list_points)
+
+    def add_command(self, name, command):
+        cmd_item = CommandItem()
+        cmd_item.set_name(name)
+        cmd_item.set_command(command)
+        self.commands.append(cmd_item)
+
+    def add_sub_module(self, sub_module):
+        self.sub_modules.append(sub_module)
 
     def add(self, point_object_type_index=None):
         while True:
@@ -55,3 +67,8 @@ class Analyze:
             result_object = Result(d, "Audio") # Standardizing the result object so it can always be understood properly
             result_table.append(result_object)
             return result_table
+        
+class Result:
+    def __init__(self, data, type):
+        self.data = data
+        self.type = type
