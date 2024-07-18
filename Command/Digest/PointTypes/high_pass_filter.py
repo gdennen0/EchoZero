@@ -1,6 +1,6 @@
 from message import Log
 from scipy.signal import butter, sosfilt
-
+from .point import Point
 
 class HighPassFilter(Point):
     def __init__(self):

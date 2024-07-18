@@ -1,5 +1,7 @@
-from PointTypes.high_pass_filter import HighPassFilter
+from Command.Digest.PointTypes.high_pass_filter import HighPassFilter
 from message import Log
+from Command.command_item import CommandItem
+from tools import prompt
 
 class PreProcess:
     def __init__(self):
@@ -7,13 +9,23 @@ class PreProcess:
         self.point_types = [    #list of filter objects that are initialized
             HighPassFilter(),
         ]
+        self.commands = []
+        self.sub_modules = []
+        self.name = "PreProcess"
 
-    def get_commands(self):
-        return {
-            "start": self.start,
-            "add": self.add,
-            "remove": self.remove,
-        }
+        self.add_command("start", self.start)
+        self.add_command("add", self.add)
+        self.add_command("remove", self.remove)
+
+
+    def add_command(self, name, command):
+        cmd_item = CommandItem()
+        cmd_item.set_name(name)
+        cmd_item.set_command(command)
+        self.commands.append(cmd_item)
+
+    def add_sub_module(self, sub_module):
+        self.sub_modules.append(sub_module)
 
     def start(self, data):
         Log.info("Initializing pre processing of data")
