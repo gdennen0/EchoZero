@@ -5,7 +5,7 @@ from tools import prompt, check_project_path, prompt_selection, yes_no_prompt
 import os
 import datetime
 
-PROJECT_DIR_BYPASS = r"C:\Users\griff\Desktop\EZ Testing"
+PROJECT_DIR_BYPASS = "/Users/gdennen/Desktop/Testing"
 RECENT_PROJECTS_FILE = "recent_projects.json"
 
 class Project:
@@ -28,7 +28,7 @@ class Project:
                 options[response]()
                 break
             Log.error("Invalid input. Please enter 'load' or 'new'.")
-            
+
     def generate_folders(self):
         # Ensure both 'Data' and 'Audio' folders exist
         audio_path = os.path.join(self.dir, 'Audio')
