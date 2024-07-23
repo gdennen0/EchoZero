@@ -4,33 +4,20 @@ from message import Log
 from tools import prompt_selection
 from .Analyze.analyze import Analyze
 from .PreProcess.pre_process import PreProcess
-from Command.command_item import CommandItem
+from Command.command_module import CommandModule
 
 
-class Digest:
-    def __init__(self, model):
-        self.model = model
-        self.preprocess = PreProcess()
-        self.analyze = Analyze()
-        self.results = []
-        self.commands = []
-        self.sub_modules = []
-        self.name = "Digest"
-
+class Digest(CommandModule):
+    def __init__(self, model, settings):
+        super().__init__(model=model)
+        self.settings = settings
+        self.set_name("Digest")
         self.add_command("results", self.results)
         self.add_command("start", self.start)
-
+        self.preprocess = PreProcess(self.settings)
+        self.analyze = Analyze()
         self.add_sub_module(self.preprocess)
         self.add_sub_module(self.analyze)
-
-    def add_command(self, name, command):
-        cmd_item = CommandItem()
-        cmd_item.set_name(name)
-        cmd_item.set_command(command)
-        self.commands.append(cmd_item)
-
-    def add_sub_module(self, sub_module):
-        self.sub_modules.append(sub_module)
 
     def results(self):
         Log.list("Analyzation results", self.results, atrib="data")
@@ -39,24 +26,24 @@ class Digest:
         Log.info("Begin Digest")
         object = self.select_audio_to_digest()
         # Main Pipeline
-        pre_processed_data = self.preprocess.start(object.audio) # run the pre process loop
-        result_list = self.analyze.start(pre_processed_data) # run the analyze loop, this returns a list of result objects of the analyze process
-        for result_object in result_list:
-            Log.info(f"Generated result for {result_object.type}")
-            data = result_object.data 
-            ep = EventPool() # create a new instance of  
-            ep.set_name = result_object.type
-            qty = 0
-            for frame_number in data:
-                Log.info(f"adding event for frame number: {frame_number}")
-                e = Event()
-                e.set_frame(frame_number)
-                e.set_name("Default")
-                e.set_category("Default")
-                ep.add_event(e)
-                qty = qty + 1
-            object.add_event_pool(ep)
-            Log.info(f"Generated event pool and populated {qty} event objects")
+        # pre_processed_data = self.preprocess.start(object) # run the pre process loop
+        self.analyze.start(object) # run the analyze loop, this returns a list of result objects of the analyze process
+        # for result_object in result_list:
+        #     Log.info(f"Generated result for {result_object.type}")
+        #     data = result_object.data 
+        #     ep = EventPool() # create a new instance of  
+        #     ep.set_name = result_object.type
+        #     qty = 0
+        #     for frame_number in data:
+        #         Log.info(f"adding event for frame number: {frame_number}")
+        #         e = Event()
+        #         e.set_frame(frame_number)
+        #         e.set_name("Default")
+        #         e.set_category("Default")
+        #         ep.add_event(e)
+        #         qty = qty + 1
+        #     object.add_event_pool(ep)
+        #     Log.info(f"Generated event pool and populated {qty} event objects")
 
     def select_audio_to_digest(self):
         audio_selections = []

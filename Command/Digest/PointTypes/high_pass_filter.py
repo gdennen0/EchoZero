@@ -3,8 +3,9 @@ from scipy.signal import butter, sosfilt
 from .point import Point
 
 class HighPassFilter(Point):
-    def __init__(self):
+    def __init__(self, settings):
         super().__init__()  # Calls the initializer of the parent 'Point' class
+        self.settings = settings
         self.name = "HighPass Filter"
         self.type = "Filter"
         self.description = "Applies a highpass filter to audio data."

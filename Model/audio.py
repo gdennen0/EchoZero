@@ -19,6 +19,7 @@ class Audio:
         self.event_pools = []
         self.tensor = None
         self.stems = []
+        self.features = None
 
     def serialize(self):
         """
@@ -166,6 +167,19 @@ class Audio:
         Gets the file path of the audio object.
         """
         return self.path
+    
+    def get_features(self):
+        return self.features
+    
+    def add_feature(self, feature):
+        self.features.append(feature)
+        Log.info(f"Added feature to {self.name}")
+
+    def add_features(self, features):
+        if isinstance(features, tuple):
+            Log.error("Features is a tuple, expected a tensor")
+        for feature in features:
+            self.add_feature(feature)
 
     def add_stem(self, path):
         """
@@ -189,3 +203,5 @@ class Audio:
         """
         self.event_pools.append(event_pool_object)
         Log.info(f"Added event pool object to audio object named '{self.name}'")
+
+    

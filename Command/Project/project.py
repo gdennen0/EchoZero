@@ -1,23 +1,12 @@
-from Command.command_item import CommandItem
+from Command.command_module import CommandModule
 
-class Project:
+class Project(CommandModule):
     def __init__(self, project):
+        super().__init__(project=project) 
         self.project = project
-        self.commands = []
-        self.name = "Project"
-        self.sub_modules = []
-
+        self.set_name("Project")
         self.add_command("save", self.save)
         self.add_command("save_as", self.save_as)
-
-    def add_command(self, name, command):
-        cmd_item = CommandItem()
-        cmd_item.set_name(name)
-        cmd_item.set_command(command)
-        self.commands.append(cmd_item)
-
-    def add_sub_module(self, sub_module):
-        self.sub_modules.append(sub_module)
 
     def save(self):
         self.project.save()
