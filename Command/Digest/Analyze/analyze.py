@@ -1,31 +1,22 @@
 from Command.Digest.PointTypes.onset import Onset
-from Command.command_item import CommandItem
+from Command.Digest.PointTypes.percussion_feature_extractor import PercussionFeatureExtractor
+from Command.command_module import CommandModule
 from message import Log
 from tools import prompt
 
-class Analyze:
+class Analyze(CommandModule):
     def __init__(self):
+        super().__init__()
         self.points = []
         self.point_types = [
             Onset(),
+            PercussionFeatureExtractor(),
         ]
-        self.commands = []
-        self.sub_modules = []
-        self.name = "Analyze"
-
+        self.set_name("Analyze")
         self.add_command("start", self.start)
         self.add_command("add", self.add)
         self.add_command("list_point_types", self.list_point_types)
         self.add_command("list_points", self.list_points)
-
-    def add_command(self, name, command):
-        cmd_item = CommandItem()
-        cmd_item.set_name(name)
-        cmd_item.set_command(command)
-        self.commands.append(cmd_item)
-
-    def add_sub_module(self, sub_module):
-        self.sub_modules.append(sub_module)
 
     def add(self, point_object_type_index=None):
         while True:
@@ -39,10 +30,10 @@ class Analyze:
             except ValueError:
                 Log.error("Invalid input. Please enter a valid integer.")
 
-        point_type = self.point_types[point_object_type_index]
-        self.points.append(point_type)
+        point = self.point_types[point_object_type_index]
+        self.points.append(point)
         self.list_point_types()
-        Log.info(f"Added point object: '{point_type.type}' into Analyze")
+        Log.info(f"Added point object: '{point.type}' into Analyze")
 
 
     def list_point_types(self):
@@ -51,21 +42,19 @@ class Analyze:
     def list_points(self):
         Log.list("Active point objects: ", self.points, atrib="type")
 
-    def start(self, d): # pass start the audio data
+    def start(self, audio_object): # pass start the audio data
         result_table = []
         Log.info("Initializing analysis of data")
         if len(self.points) >= 1:
             for index, point in enumerate(self.points):
                 Log.info(f"Point Index: {index}, Name: {point.name}")
-                data = point.apply(d)
-                result_object = Result(data, point.type) # Standardizing the result object so it can always be understood properly
-                result_table.append(result_object)
+                point.apply(audio_object)
             Log.info("Analysis complete")
             return result_table
         else: 
             Log.error("There are no points in the analyze instance")
-            result_object = Result(d, "Audio") # Standardizing the result object so it can always be understood properly
-            result_table.append(result_object)
+            # result_object = Result(d, "Audio") # Standardizing the result object so it can always be understood properly
+            # result_table.append(result_object)
             return result_table
         
 class Result:

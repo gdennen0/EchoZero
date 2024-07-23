@@ -1,31 +1,21 @@
 from Command.Digest.PointTypes.high_pass_filter import HighPassFilter
 from message import Log
-from Command.command_item import CommandItem
+from Command.command_module import CommandModule
 from tools import prompt
 
-class PreProcess:
-    def __init__(self):
+class PreProcess(CommandModule):
+    def __init__(self,settings ):
+        super().__init__(settings=settings)
         self.points = []
         self.point_types = [    #list of filter objects that are initialized
-            HighPassFilter(),
+            HighPassFilter(self.settings),
         ]
-        self.commands = []
-        self.sub_modules = []
-        self.name = "PreProcess"
-
+        self.set_name("PreProcess")
         self.add_command("start", self.start)
         self.add_command("add", self.add)
         self.add_command("remove", self.remove)
-
-
-    def add_command(self, name, command):
-        cmd_item = CommandItem()
-        cmd_item.set_name(name)
-        cmd_item.set_command(command)
-        self.commands.append(cmd_item)
-
-    def add_sub_module(self, sub_module):
-        self.sub_modules.append(sub_module)
+        self.add_command("list_point_types", self.list_point_types)
+        self.add_command("list_points", self.list_points)
 
     def start(self, data):
         Log.info("Initializing pre processing of data")

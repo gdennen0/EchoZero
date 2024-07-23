@@ -4,6 +4,7 @@ from .Digest.digest import Digest
 from message import Log
 from .command_module import CommandModule
 from .command_item import CommandItem
+from .Ingest.ingest import Ingest
 
 
 """
@@ -20,9 +21,10 @@ class Command:
         self.project_dir = project.dir
         self.project = project
         self.modules = []
-        self.add_module(Audio(self.model, self.settings, self.project_dir))
         self.add_module(Project(self.project))
-        self.add_module(Digest(self.model))
+        self.add_module(Audio(self.model, self.settings))
+        self.add_module(Digest(self.model, self.settings))
+        self.add_module(Ingest(self.model, self.project))
         
 
     def add_module(self, module_item):
@@ -31,7 +33,7 @@ class Command:
         cmd_module_item.set_name(module_name)
         Log.info(f"Registering module: {module_name}")
         for cmd_item in module_item.commands:
-            cmd_module_item.add_command(cmd_item)
+            cmd_module_item.add_command(cmd_item.name, cmd_item.command)
             Log.info(f"     Regisering Command: '{cmd_item.name}'")
             if module_item.sub_modules:
                 for sub_module_item in module_item.sub_modules:
@@ -40,7 +42,7 @@ class Command:
                     sub_cmd_module_item.set_name(sub_module_name)
                     Log.info(f"     Registering sub module: {sub_module_name}")
                     for sub_cmd_item in sub_module_item.commands:
-                        sub_cmd_module_item.add_command(sub_cmd_item)
+                        sub_cmd_module_item.add_command(sub_cmd_item.name, sub_cmd_item.command)
                         Log.info(f"          Regisering Command: '{sub_cmd_item.name}'")
 
                     cmd_module_item.add_sub_module(sub_cmd_module_item)
