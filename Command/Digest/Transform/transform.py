@@ -1,25 +1,32 @@
-from Command.Digest.PointTypes.onset import Onset
-from Command.Digest.PointTypes.percussion_feature_extractor import PercussionFeatureExtractor
-from Command.Digest.PointTypes.exctract_percussion_events import ExtractPercussionEvents
-from Command.command_module import CommandModule
+from Command.Digest.Transform.generate_stems import GenerateStems
 from message import Log
+from Command.command_module import CommandModule
 from tools import prompt, prompt_selection
 
-class Analyze(CommandModule):
+class Transform(CommandModule):
     def __init__(self, model):
         super().__init__()
         self.model = model
         self.points = []
         self.point_types = [
-            Onset(),
-            PercussionFeatureExtractor(),
-            ExtractPercussionEvents(),
+            GenerateStems(),
         ]
-        self.set_name("Analyze")
+        self.set_name("Transform")
         self.add_command("start", self.start)
         self.add_command("add", self.add)
         self.add_command("list_point_types", self.list_point_types)
         self.add_command("list_points", self.list_points)
+
+    def start(self): 
+        audio_object = self.select_audio_to_digest()
+        Log.info("[Transform] Begin Transform")
+        if len(self.points) >= 1:
+            for index, point in enumerate(self.points):
+                Log.info(f"[Transform] Applying Point: {point.name} to {audio_object.name}")
+                point.apply(audio_object)
+            Log.info("[Transform] Analysis points completed")
+        else: 
+            Log.error("There are no points in the analyze instance")
 
     def add(self, point_object_type_index=None):
         while True:
@@ -44,22 +51,6 @@ class Analyze(CommandModule):
 
     def list_points(self):
         Log.list("Active point objects: ", self.points, atrib="type")
-
-    def start(self): 
-        """
-        Applys each points analysis/transformation to the audio object
-        
-        """
-        audio_object = self.select_audio_to_digest()
-        Log.info("[Digest][Analyze] Analysis point Begin")
-        if len(self.points) >= 1:
-            for index, point in enumerate(self.points):
-                Log.info(f"[Digest][Analyze] Applying Point: {point.name} to {audio_object.name}")
-                point.apply(audio_object)
-            Log.info("[Digest][Analyze] Analysis points completed")
-        else: 
-            Log.error("There are no points in the analyze instance")
-
 
     def select_audio_to_digest(self):
         audio_selections = []

@@ -1,6 +1,7 @@
 from message import Log
 from tools import create_audio_tensor, create_audio_data
 from .event_pool import EventPool
+import os
 
 class Stem:
     """
@@ -8,6 +9,7 @@ class Stem:
     """
     def __init__(self):
         self.path = None
+        self.directory = None
         self.name = None
         self.audio = None
         self.sample_rate = None
@@ -27,7 +29,15 @@ class Stem:
         Sets the path of the stem.
         """
         self.path = path
+        self.set_dir(path)
         Log.info(f"Set stem path to {self.path}")
+
+    def set_dir(self, path):
+        """
+        Sets the directory of the stem from the given path.
+        """
+        self.directory = os.path.dirname(path)
+        Log.info(f"Set stem directory to {self.directory}")
 
     def set_audio(self, audio):
         """
