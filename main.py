@@ -3,7 +3,7 @@ from listen import main_listen_loop
 import json
 from project import Project
 from Command.command import Command
-from Model.main_model import Model
+
 
 def load_settings():
     with open("settings.json", "r") as file:

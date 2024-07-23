@@ -45,7 +45,7 @@ class Project:
         elif self.dir is None:
             while True:
                 self.dir = prompt("Please specify a project dir: ")
-                if os.dir.exists(self.dir):
+                if os.path.exists(self.dir):
                     break
                 else:
                     Log.error("The specified dir does not exist. Please try again.")
@@ -113,11 +113,11 @@ class Project:
         file_path = os.path.join(self.dir, file_name)
         if os.path.exists(file_path):
             overwrite = yes_no_prompt(f"A save file named '{file_name}' already exists. Do you want to overwrite it? (yes/no): ")
-            if overwrite != 'yes':
+            if not overwrite:
                 Log.warning("Save operation cancelled.")
                 return
         self._save_to_file(file_path)
-        Log.info(f"Project and model data saved successfully in '{file_name}'.")
+        Log.info(f"Project and model data saved successfully to '{file_path}'.")
 
     def save_as(self, name=None):
         if not name:

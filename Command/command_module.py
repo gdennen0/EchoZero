@@ -1,4 +1,5 @@
 from Command.command_item import CommandItem
+from message import Log
 class CommandModule:
     """
         Parent class for command module Command modules are pretty generic 
@@ -27,6 +28,7 @@ class CommandModule:
 
     def add_sub_module(self, sub_module):
         self.sub_modules.append(sub_module)
+        Log.info(f"Adding sub module {sub_module.name}")
 
     def set_name(self, name):
         self.name = name

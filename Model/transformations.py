@@ -68,43 +68,4 @@ class stem_generation:
             "util": {},
         },
     }
-
-# class EZ_Separator(Separator):
-#     def __init__(self, *args, **kwargs):
-#         super().__init__(*args, **kwargs)
-
-#     def separate(self, audio_file_path):
-#         """
-#         Separates the audio file into different stems (e.g., vocals, instruments) using the loaded model.
-
-#         This method takes the path to an audio file, processes it through the loaded separation model, and returns
-#         the separated audio data instead of file paths.
-
-#         Parameters:
-#         - audio_file_path (str): The path to the audio file to be separated.
-
-#         Returns:
-#         - output_data (dict): A dictionary containing the separated audio data.
-#         """
-#         self.logger.info(f"Starting separation process for audio_file_path: {audio_file_path}")
-#         separate_start_time = time.perf_counter()
-
-#         self.logger.debug(f"Normalization threshold set to {self.normalization_threshold}, waveform will lowered to this max amplitude to avoid clipping.")
-
-#         # Run separation method for the loaded model
-#         output_data = self.model_instance.separate(audio_file_path)
-
-#         # Clear GPU cache to free up memory
-#         self.model_instance.clear_gpu_cache()
-
-#         # Unset more separation params to prevent accidentally re-using the wrong source files or output paths
-#         self.model_instance.clear_file_specific_paths()
-
-#         # Remind the user one more time if they used a VIP model, so the message doesn't get lost in the logs
-#         self.print_uvr_vip_message()
-
-#         self.logger.debug("Separation process completed.")
-#         self.logger.info(f'Separation duration: {time.strftime("%H:%M:%S", time.gmtime(int(time.perf_counter() - separate_start_time)))}')
-
-#         return output_data
     

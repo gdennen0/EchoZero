@@ -17,8 +17,3 @@ class Model:
             # Deserialize audio data if present
             if 'audio' in data:
                 self.audio.deserialize(data['audio'])
-            # Future deserialization for other categories can be added here
-            # Example:
-            # if 'video' in data:
-            #     self.video.deserialize(data['video'])
-        

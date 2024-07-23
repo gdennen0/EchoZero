@@ -21,11 +21,11 @@ class Command:
         self.project_dir = project.dir
         self.project = project
         self.modules = []
+
         self.add_module(Project(self.project))
         self.add_module(Audio(self.model, self.settings))
         self.add_module(Digest(self.model, self.settings))
-        self.add_module(Ingest(self.model, self.project))
-        
+        self.add_module(Ingest(self.model, self.project, self.settings))
 
     def add_module(self, module_item):
         module_name = module_item.name
@@ -35,16 +35,16 @@ class Command:
         for cmd_item in module_item.commands:
             cmd_module_item.add_command(cmd_item.name, cmd_item.command)
             Log.info(f"     Regisering Command: '{cmd_item.name}'")
-            if module_item.sub_modules:
-                for sub_module_item in module_item.sub_modules:
-                    sub_module_name = sub_module_item.name
-                    sub_cmd_module_item = CommandModule()
-                    sub_cmd_module_item.set_name(sub_module_name)
-                    Log.info(f"     Registering sub module: {sub_module_name}")
-                    for sub_cmd_item in sub_module_item.commands:
-                        sub_cmd_module_item.add_command(sub_cmd_item.name, sub_cmd_item.command)
-                        Log.info(f"          Regisering Command: '{sub_cmd_item.name}'")
+        if module_item.sub_modules:
+            for sub_module_item in module_item.sub_modules:
+                sub_module_name = sub_module_item.name
+                sub_cmd_module_item = CommandModule()
+                sub_cmd_module_item.set_name(sub_module_name)
+                Log.info(f"     Registering sub module: {sub_module_name}")
+                for sub_cmd_item in sub_module_item.commands:
+                    sub_cmd_module_item.add_command(sub_cmd_item.name, sub_cmd_item.command)
+                    Log.info(f"          Regisering Command: '{sub_cmd_item.name}'")
 
-                    cmd_module_item.add_sub_module(sub_cmd_module_item)
+                cmd_module_item.add_sub_module(sub_cmd_module_item)
                     
         self.modules.append(cmd_module_item)
