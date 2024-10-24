@@ -1,27 +1,46 @@
 import json
-from Model.main_model import Model
 from message import Log
 from tools import prompt, check_project_path, prompt_selection, yes_no_prompt
 import os
 import datetime
+from Container.container import Container
+from command_module import CommandModule
+from Container.ContainerTypes.generic_container import GenericContainer
+
 
 # PROJECT_DIR_BYPASS = "/Users/gdennen/Desktop/Testing"
 PROJECT_DIR_BYPASS = None
 RECENT_PROJECTS_FILE = "recent_projects.json"
 
-class Project:
+class Project(CommandModule):
     def __init__(self, settings):
+        super().__init__()
         self.settings = settings
         self.dir = None
-        self.name = None
-        self.model = Model()
+        self.project_name = None
+        self.name = "Project"
         self.loaded = False
         self.version = settings["APPLICATION_VERSION"]
 
-        self.initialize()
+        self.containers = {}
+        self.container_types = {
+            "generic": GenericContainer,
+        }
+
+        self.initialize_options()
         Log.info(f"Initialized Project")
 
-    def initialize(self):
+        self.add_command("load", self.load)
+        self.add_command("new", self.new)
+        self.add_command("save", self.save)
+        self.add_command("save_as", self.save_as)
+        self.add_command("add_container", self.add_container)
+        self.add_command("remove_container", self.remove_container)
+        self.add_command("list_containers", self.list_containers)
+        self.add_command("clear_containers", self.clear_containers)
+        self.add_command("list_container_types", self.list_container_types)
+
+    def initialize_options(self):
         options = {'load': self.load, 'new': self.new}
         while True:
             response = prompt("Do you want to load an existing project or create a new one? (load/new): ").lower()
@@ -30,13 +49,13 @@ class Project:
                 break
             Log.error("Invalid input. Please enter 'load' or 'new'.")
 
-    def generate_folders(self):
-        # Ensure both 'Data' and 'Audio' folders exist
-        audio_path = os.path.join(self.dir, 'Audio')
+    # def generate_folders(self):
+    #     # Ensure both 'Data' and 'Audio' folders exist
+    #     audio_path = os.path.join(self.dir, 'Audio')
 
-        if not os.path.exists(audio_path):
-            os.makedirs(audio_path)
-            Log.info("Created 'Audio' folder inside the project dir.")
+    #     if not os.path.exists(audio_path):
+    #         os.makedirs(audio_path)
+    #         Log.info("Created 'Audio' folder inside the project dir.")
 
     def new(self, dir=PROJECT_DIR_BYPASS, name=None):
         if dir is not None:
@@ -49,11 +68,9 @@ class Project:
                     break
                 else:
                     Log.error("The specified dir does not exist. Please try again.")
-        if self.name is None:
-            self.name = prompt("Please specify a project name: ")
-
-        self.model.reset()
-        self.generate_folders()
+        if self.project_name is None:
+            self.project_name = prompt("Please specify a project name: ")
+        # self.generate_folders()
         Log.special(f"New project creation complete!")
 
     def load(self):
@@ -91,10 +108,8 @@ class Project:
                 project_info = project_data.get('project', {})
                 self.dir = project_info.get('directory', self.dir)
                 self.version = project_info.get('version', self.version)
-                self.name = project_info.get('name', self.name)
+                self.project_name = project_info.get('project_name', self.project_name)
                 
-            self.model.reset()
-            self.model.deserialize(path)
             self._save_recent_project(path)
             Log.info(f"Loaded project from {path}")
         except FileNotFoundError:
@@ -105,11 +120,11 @@ class Project:
             Log.error(f"An unexpected error occurred: {str(e)}")
 
     def save(self):
-        if not self.dir or not self.name:
+        if not self.dir or not self.project_name:
             Log.error("Project directory or name is not set. Cannot save the project.")
             return
 
-        file_name = f"{self.name}.json"
+        file_name = f"{self.project_name}.json"
         file_path = os.path.join(self.dir, file_name)
         if os.path.exists(file_path):
             overwrite = yes_no_prompt(f"A save file named '{file_name}' already exists. Do you want to overwrite it? (yes/no): ")
@@ -126,8 +141,8 @@ class Project:
             Log.error("Project directory is not set. Cannot save the project.")
             return
 
-        self.name = name
-        file_name = f"{self.name}.json"
+        self.project_name = name
+        file_name = f"{self.project_name}.json"
         file_path = os.path.join(self.dir, file_name)
         if os.path.exists(file_path):
             overwrite = prompt(f"A save file named '{file_name}' already exists. Do you want to overwrite it? (yes/no): ")
@@ -145,9 +160,8 @@ class Project:
                     'version': self.version,
                     'date': datetime.datetime.now().strftime("%Y-%m-%d"),
                     'time': datetime.datetime.now().strftime("%H:%M:%S"),
-                    'name': self.name,
+                    'project_name': self.project_name,
                 },
-                'audio': self.model.serialize()
             }
             json.dump(project_data, file, indent=4, separators=(',', ': '))  # Added separators for better distinction of dict items
         self._save_recent_project(file_path)
@@ -176,3 +190,27 @@ class Project:
                     json.dump([], file, indent=4)
                 Log.info("RECENT_PROJECTS_FILE has been reset.")
         return valid_paths
+
+
+    def add_container(self, container):
+        if isinstance(container, Container):
+            self.containers[container.name] = container
+        else:
+            Log.error("The provided object is not an instance of Container.")
+
+    def remove_container(self, container_name):
+        if container_name in self.containers:
+            del self.containers[container_name]
+        else:
+            Log.error(f"Container with name '{container_name}' not found in project.")
+
+    def list_containers(self):
+        for container in self.containers:
+            Log.info(f"Container: {container}")
+
+    def clear_containers(self):
+        self.containers = {}
+
+    def list_container_types(self):
+        for container_type in self.container_types:
+            Log.info(f"Container Type: {container_type}")

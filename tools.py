@@ -128,10 +128,10 @@ def create_audio_data(audio_file_path, target_sr):
         # creates audio data array using librosa
         # standardise sample rate??
         data, sr = librosa.load(audio_file_path, sr=target_sr)
-        return data, sr
+        return data
     except Exception as e:
         Log.error(f"An error occurred while creating audio data: {e}")
-        return None, None
+        return None
 
 def create_audio_tensor(audio_file_path, target_sr):
     try:

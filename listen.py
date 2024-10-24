@@ -1,7 +1,7 @@
 import sys
 from tools import prompt
 from message import Log
-from Command.command_parser import CommandParser
+from command_parser import CommandParser
 
 def main_listen_loop(command):
     Log.info("Listening for commands")

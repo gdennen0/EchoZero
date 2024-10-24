@@ -2,18 +2,22 @@ from message import Log
 from listen import main_listen_loop
 import json
 from project import Project
-from Command.command import Command
+from command import Command
+from Container.ContainerTypes.generic_container import GenericContainer
 
-
-def load_settings():
+def fetch_saved_settings():
     with open("settings.json", "r") as file:
         settings = json.load(file)
-        Log.info(f"Settings loaded: {settings}")
+        if not isinstance(settings, dict):
+            Log.error("Settings file does not contain a valid dictionary")
+            return {}
+        # Log.info(f"Settings loaded: {settings}")
         return settings
 
 def main():
-    project = Project(load_settings())
-    command = Command(project, load_settings())
+    project = Project(fetch_saved_settings())  #initializes project with settings.json data
+    command = Command(project)
+
     main_listen_loop(command)
 
 if __name__ == "__main__":
