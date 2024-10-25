@@ -1,27 +1,29 @@
-from Block.BlockTypes.Analyze.AnalyzeAudioBlock import AnalyzeAudioBlock
-from Block.BlockTypes.Export.ExportBlock import ExportBlock
-from Block.BlockTypes.Load.LoadAudioBlock import LoadAudioBlock
-from Block.BlockTypes.Transform.TransformAudioBlock import TransformAudioBlock   
 
+from command_module import CommandModule
+from message import Log
 
 # Generic Container
 
-class Container:
+class Container(CommandModule):
     def __init__(self):
+        super().__init__()
         self.blocks = {}
-        self.block_types = {
-            "loadAudio": LoadAudioBlock(),
-            "transformAudio": TransformAudioBlock(),
-            "analyzeAudio": AnalyzeAudioBlock(),
-            "export": ExportBlock(),
-        }
-        self.commands = {}
+        self.block_types = {}
+        self.add_command("add_block", self.add_block)
+        self.add_command("remove_block", self.remove_block)
+        self.add_command("list_blocks", self.list_blocks)
+        self.add_command("start", self.start)
 
-    def add_block(self, block):
-        if hasattr(block, 'name'):
-            self.blocks[block.name] = block
+    def add_block_type(self, block_name, block_type):
+        self.block_types[block_name] = block_type
+
+
+    def add_block(self, block_name):
+        if block_name in self.block_types:
+            self.blocks[block_name] = self.block_types[block_name]()
+            Log.info(f"Added block: {block_name}")
         else:
-            raise AttributeError("The block does not have a 'name' attribute")
+            raise ValueError(f"Block type '{block_name}' not found in container")
         
     def remove_block(self, block_name):
         if block_name in self.blocks:

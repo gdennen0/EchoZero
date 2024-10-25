@@ -3,6 +3,7 @@ from command_module import CommandModule
 
 class Block(CommandModule):
     def __init__(self):
+        super().__init__()
         self.name = None
         self.type = None
         self.parts = []
