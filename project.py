@@ -192,21 +192,27 @@ class Project(CommandModule):
         return valid_paths
 
 
-    def add_container(self, container):
-        if isinstance(container, Container):
+    def add_container(self, container_type):
+        if container_type in self.container_types:
+            container = self.container_types[container_type]()
             self.containers[container.name] = container
+            Log.info(f"Added container: {container.name}")
         else:
-            Log.error("The provided object is not an instance of Container.")
+            Log.error(f"Invalid container type: {container_type}")
 
     def remove_container(self, container_name):
         if container_name in self.containers:
             del self.containers[container_name]
+            Log.info(f"Removed container: {container_name}")
         else:
             Log.error(f"Container with name '{container_name}' not found in project.")
 
     def list_containers(self):
-        for container in self.containers:
-            Log.info(f"Container: {container}")
+        if not self.containers:
+            Log.info("There are no containers")
+        else:
+            for container in self.containers:
+                Log.info(f"Container: {container}")
 
     def clear_containers(self):
         self.containers = {}

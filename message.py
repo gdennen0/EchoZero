@@ -38,6 +38,11 @@ class Log:
         log_type = "UNKNOWN"
         color = "\033[90m" # Grey
         output_to_console(log_type,text,color=color)
+
+    def parser(text):
+        log_type = "PARSER"
+        color = "\033[97m" # White
+        output_to_console(log_type,text,color=color)
     
     def special(text):
         log_type = "SPECIAL"
