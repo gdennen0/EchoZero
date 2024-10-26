@@ -2,19 +2,13 @@ from command_item import CommandItem
 from message import Log
 class CommandModule:
     """
-        Parent class for command module Command modules are pretty generic 
-        but outline general program functionality for example Audio and Digest classes
-
-        name = the name of the module (ex. "Audio")
-        commands = a list of command items
-        sub_modules = a list of sub modules 
     
     """
     def __init__(self):
+        self.name = ""
         self.commands = []
-        self.sub_modules = []
-        self.name = None
-
+        self.sub_modules = {}
+        self.containers = {}
 
     def add_command(self, name, command):
         cmd_item = CommandItem()
@@ -32,3 +26,10 @@ class CommandModule:
     def list_commands(self):
         for command in self.commands:
             Log.info(f"Command: {command.name}")
+
+    def add_container(self, container):
+        self.containers.append(container)
+
+    def add_block(self, block):
+        # This method should be called on a container module
+        self.blocks.append(block)
