@@ -40,6 +40,8 @@ class Project(CommandModule):
         self.add_command("clear_containers", self.clear_containers)
         self.add_command("list_container_types", self.list_container_types)
 
+        self.add_container("generic")
+
     def initialize_options(self):
         options = {'load': self.load, 'new': self.new}
         while True:
@@ -57,19 +59,27 @@ class Project(CommandModule):
     #         os.makedirs(audio_path)
     #         Log.info("Created 'Audio' folder inside the project dir.")
 
+    # def new(self, dir=PROJECT_DIR_BYPASS, name=None):
+    #     if dir is not None:
+    #         self.dir = dir
+    #         Log.info(f"Set project dir to '{dir}'")
+    #     elif self.dir is None:
+    #         while True:
+    #             self.dir = prompt("Please specify a project dir: ")
+    #             if os.path.exists(self.dir):
+    #                 break
+    #             else:
+    #                 Log.error("The specified dir does not exist. Please try again.")
+    #     if self.project_name is None:
+    #         self.project_name = prompt("Please specify a project name: ")
+    #     # self.generate_folders()
+    #     Log.special(f"New project creation complete!")
+
     def new(self, dir=PROJECT_DIR_BYPASS, name=None):
-        if dir is not None:
-            self.dir = dir
-            Log.info(f"Set project dir to '{dir}'")
-        elif self.dir is None:
-            while True:
-                self.dir = prompt("Please specify a project dir: ")
-                if os.path.exists(self.dir):
-                    break
-                else:
-                    Log.error("The specified dir does not exist. Please try again.")
-        if self.project_name is None:
-            self.project_name = prompt("Please specify a project name: ")
+        self.dir = PROJECT_DIR_BYPASS
+        Log.info(f"Set project dir to '{dir}'")
+        self.project_name = "EZ"
+        Log.info(f"Set project name to '{name}'")
         # self.generate_folders()
         Log.special(f"New project creation complete!")
 
@@ -192,7 +202,7 @@ class Project(CommandModule):
         return valid_paths
 
 
-    def add_container(self, container_type):
+    def add_container(self, container_type): # A container is the primary structure for execution of blocks
         if container_type in self.container_types:
             container = self.container_types[container_type]()
             self.containers[container.name] = container

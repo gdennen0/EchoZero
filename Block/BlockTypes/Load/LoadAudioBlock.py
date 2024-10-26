@@ -9,7 +9,8 @@ class LoadAudioBlock(Block):
         super().__init__()
         self.name = "LoadAudio"
         self.selected_file = None
-        self.audio_dir = "./audio/sources"
+        self.audio_dir = os.path.join(os.path.dirname(__file__), "..", "..", "..", "sources", "audio")
+        
         self.add_command("select_file", self.select_file)
 
     def select_file(self):
@@ -18,7 +19,7 @@ class LoadAudioBlock(Block):
             Log.list("Audio Files", audio_files)
             self.selected_file = prompt_selection("Please select an audio file: ", audio_files)
             Log.info(f"Selected file: {self.selected_file}")
-            
+
         except Exception as e:
             Log.error(f"Error listing audio files: {e}")
             return
