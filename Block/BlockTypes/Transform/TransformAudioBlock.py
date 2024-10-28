@@ -1,6 +1,7 @@
 from Block.block import Block
 from message import Log
 from Block.BlockTypes.Transform.Parts.Filter import Filter
+from Model.Audio.audio_data import AudioData
 
 
 class TransformAudioBlock(Block):
@@ -9,6 +10,8 @@ class TransformAudioBlock(Block):
         self.name = "TransformAudio"
         self.type = "Transform"
         self.add_part_type(Filter())
+        self.add_input_type(AudioData())
+
         self.add_command("add_part", self.AddPart)
         self.add_command("remove_part", self.RemovePart)
         self.add_command("list_parts", self.ListParts)

@@ -1,0 +1,42 @@
+
+Objects:
+class audio()
+# standardized audio file object that contains data for a loaded audio file
+    - original data
+    - current data
+    - sample rate
+    - frame rate
+    - type (Stereo/MonoL/MonoR)
+    - name
+    - length 
+    - processed_status | boolean
+
+class filter()
+    # Main class for filter objects
+    - name
+    - type
+    - frequency
+    apply(audio_object.current_data)
+    return filtered_song_object_data
+
+class layer()
+    # main class for layer Objects
+    - name
+    - type | String (Vocals, Drums, Guitar, Acoustic Guitar, Electric Guitar, Bass, Piano,Other)
+    - color
+    - events = []  #event items directly assigned to this list with the frame number as the list index and the value being an event class
+
+class event()
+    # Main class for event objects
+    - name
+    - type
+    - color
+
+ControlLanguage
+    ControlState
+        - Save
+        - Undo
+            - Undo to the last state
+        - RollTo
+    StateObject
+        - Save the state of all tables

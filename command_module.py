@@ -29,7 +29,3 @@ class CommandModule:
 
     def add_container(self, container):
         self.containers.append(container)
-
-    def add_block(self, block):
-        # This method should be called on a container module
-        self.blocks.append(block)
