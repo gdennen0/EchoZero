@@ -9,6 +9,7 @@ class Block(CommandModule):
         self.type = None
         self.parts = []
         self.part_types = []
+        self.input_types = []
         self.add_command("add_part", self.AddPart)
         self.add_command("remove_part", self.RemovePart)
         self.add_command("list_parts", self.ListParts)
@@ -40,6 +41,17 @@ class Block(CommandModule):
     def list_part_types(self):
         Log.info("Listing part types")
         return self.part_types
+    
+    def add_input_type(self, input_type):
+        self.input_types.append(input_type)
+        Log.info(f"Added input type: {input_type}")
+
+    def remove_input_type(self, input_type):
+        self.input_types.remove(input_type)
+        Log.info(f"Removed input type {input_type}")
+
+    def add_output_type(self, output_type)
+        
 
 
 

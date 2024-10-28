@@ -1,0 +1,74 @@
+Date: 05/31/24
+Hello World 
+
+This is just a brainstorming/ideas sesh.
+
+
+Overarching Big goals:
+--Phone Lighting fixture control software
+--NodeC/new lighting workflow standards
+
+
+Shorter Term Goals:
+--Bring a useful program to increase efficiency in lighting programming workflow
+
+Requirements:
+- Torch studio workflow
+- generic platform/standard to process track elements in channels "by type"
+- data flow standardization?? Input/output analysis and tranformation
+- traditional audio analyzation
+- extrapolate events from audio
+- how break audio down into base elements/split stems etc, whats this workflow
+- AI to split stems: https://moises.ai/
+
+Short Term development goals: 
+- flush out ControlLanguage core functionality
+- investigate various stem splitting projects
+- outline flow of information 
+- flush out program objects and function
+    - small thought **develop framework to select different FPS rates, make any rate possible but lets just start with 30 and 25 options?
+
+General Steps:
+
+(1) Ingest Audio || Audio -> Stems
+    (a) Import source audio file
+        (i) transform imported audio to program audio object
+    (b) split audio file into stems
+        (i) https://github.com/karaokenerds/python-audio-separator/tree/main (OS Python project to separate stems from source file in 
+        a CLI application)
+        (ii) Stemgen: Open source project to convert song into stems: https://github.com/axeldelafosse/stemgen?tab=readme-ov-file
+    (c) assign stems to program layer objects
+
+(2) Manipulate Stem Audio || Optimize the audio before being analyzed
+    (a) Apply input transformation(optimize input)
+
+(3) Analyze Stems 
+# Broad strokes here~ essentially just if x qualifications are met via then mark event, develop a system to synthesize data sources
+# Returns List of events 
+    (a) Traditional audio analysis (Should always use this for context)
+        - onset detection
+    (b) Torch studio process to detect events
+
+    (c) Things to look into? 
+        (i) NeuraNote | https://github.com/DamRsn/NeuralNote (transforms audio to midi?)
+        (ii) DrumExtractor | https://github.com/nathanshaw/drumExtracto
+
+(4) Export:
+# Once we figure out our core variables we can sort out how to make an api for this
+# Standardization and easy implementation will be key for this and should be considered from the tip
+
+
+
+
+================================================================================
+|| Additional Helpful thoughts:
+================================================================================
+Stem Type Categories:
+-- Vocals
+-- Drums
+-- Guitar
+-- Acoustic Guitar
+-- Electric Guitar
+-- Bass
+-- Piano
+-- Other
