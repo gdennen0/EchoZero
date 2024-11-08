@@ -34,13 +34,8 @@ class Container(CommandModule):
     def list_blocks(self):
         for block_name, block in self.blocks.items():
             print(f"{block_name}: {block.__class__.__name__}")
-    
 
-    def start(self):
-        audio = self.blocks["load_audio"].start()
-        transformed_audio = self.blocks["transform_audio"].start(audio)
-        AnalysisResults = self.blocks["analyze_audio"].start(transformed_audio)
-        self.blocks["export"].start(AnalysisResults)
+            
 
 
 
