@@ -61,16 +61,19 @@ class Block(CommandModule, ABC):
         Log.info(f"Set type: {type}")
 
     def add_part(self, part_name=None):
-        if part_name:
-            for part_type in self.part_types:
-                if part_type.name == part_name:
-                    self.parts.append(part_type)
-                    Log.info(f"Added part: {part_name}")
-                    return      
-            Log.error(f"Part type {part_name} not found in part types list.")
-        else:
-            part, _ = prompt_selection("Please select a part type to add: ", self.part_types)
-            self.add_part(part)
+            if part_name: # if part name is specified, add the part type with that name string
+                part_type = str(part_name)
+                for part_type in self.part_types: # iterate through part types
+                    Log.info(f"Checking part type name '{part_type.name}' against '{part_name}'")
+                    if part_type.name == part_name: 
+                        self.parts.append(part_type)
+                        Log.info(f"Added part: {part_name}")
+                        return      
+                Log.error(f"Part type {part_name} not found in part types list.")
+            else:
+                part_type, _ = prompt_selection("Please select a part type to add: ", self.part_types)
+                self.parts.append(part_type)
+                Log.info(f"Added part: {part_type.name}")
 
     def remove_part(self, part_name=None):
         if part_name:
@@ -81,9 +84,9 @@ class Block(CommandModule, ABC):
                     return
             Log.error(f"Part {part_name} not found in parts list.")
         else:
-            part, _ = prompt_selection("Please select a part to remove: ", self.parts)
-            self.remove_part(part)
-            Log.info(f"Removed part: {part}")
+            part_type, _ = prompt_selection("Please select a part to remove: ", self.parts)
+            self.parts.remove(part_type)
+            Log.info(f"Removed part: {part_type.name}")
 
     def list_parts(self):
         Log.info("Listing parts")

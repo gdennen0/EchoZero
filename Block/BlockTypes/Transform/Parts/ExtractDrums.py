@@ -21,6 +21,7 @@ class ExtractDrums(Part):
         self.set_type("Transform")
         self.add_input_type(AudioData)
         self.add_output_type(AudioData)
+        self.add_command("set_log_level", self.set_log_level)
 
         self.log_level = DEFAULT_LOG_LEVEL
         self.output_dir = DEFAULT_OUTPUT_DIR
@@ -45,10 +46,11 @@ class ExtractDrums(Part):
             filename = f'{stem_name}.wav'
             filepath = os.path.join(self.output_dir, filename)
             # sf.write(filepath, stem_source, sample_rate) # write the stem to a file
-            # Log.info(f"Stem {stem_name} written to {filepath}")
+            Log.info(f"Stem {stem_name} written to {filepath}")
             stem_filenames.append(filename)
-        if stem_sources["drums"]:
-            audio_object.set_data(stem_sources["drums"]) # update the audio object to the drum stem
+            # Log.info(f"Stem source: {stem_name}")
+        if stem_sources["Drums"]:
+            audio_object.set_data(stem_sources["Drums"]) # update the audio object to the drum stem
         return audio_object #this returns the audio object with the transformation applied
     
 
