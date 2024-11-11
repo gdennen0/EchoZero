@@ -12,9 +12,9 @@ class TransformAudioBlock(Block):
         self.add_part_type(ExtractDrums())
         self.add_input_type(AudioData())
 
-        self.add_command("add_part", self.add_part)
-        self.add_command("remove_part", self.remove_part)
-        self.add_command("list_parts", self.list_parts)
+        #self.add_command("add_part", self.add_part)
+        #self.add_command("remove_part", self.remove_part)
+        #self.add_command("list_parts", self.list_parts)
         self.add_command("clear_parts", self.clear_parts)
         self.add_command("start", self.start)
         self.add_command("list_part_types", self.list_part_types)

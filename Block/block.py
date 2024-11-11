@@ -87,6 +87,9 @@ class Block(CommandModule, ABC):
             part_type, _ = prompt_selection("Please select a part to remove: ", self.parts)
             self.parts.remove(part_type)
             Log.info(f"Removed part: {part_type.name}")
+            part_type, _ = prompt_selection("Please select a part to remove: ", self.parts)
+            self.parts.remove(part_type)
+            Log.info(f"Removed part: {part_type.name}")
 
     def list_parts(self):
         Log.info("Listing parts")
