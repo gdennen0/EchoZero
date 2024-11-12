@@ -1,6 +1,6 @@
 from command_module import CommandModule
 from message import Log
-from abc import ABC, abstractmethod
+from abc import ABC
 
 class Part(CommandModule, ABC): # Inherit CommandModule and ABC (Abstract Base Class)
     def __init__(self):

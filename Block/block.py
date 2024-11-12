@@ -13,13 +13,27 @@ class Block(CommandModule, ABC):
         self.part_types = []
         self.input_types = []
         self.output_types = []
+        self.input_ports = [] # pointer to the output port of another block/container
+        self.output_ports = []
         self.data = None
+        self.container = None  # Reference to parent container
 
         self.add_command("add_part", self.add_part)
         self.add_command("remove_part", self.remove_part)
         self.add_command("list_parts", self.list_parts)
+        self.add_command("add_input", self.add_input_port)
+
+    def set_container(self, container):
+        self.container = container
+        Log.info(f"Set container: {container.name}")
 
     def start(self, input_data):
+        Log.info("Start method is depriciated, passing")
+        pass
+
+        if not self.input_ports:
+            Log.error("No input ports available.")
+            return None
         Log.info(f"Starting block {self.name}")
         if self._validate_input(input_data):
             result = self._process_parts(input_data)
@@ -31,6 +45,39 @@ class Block(CommandModule, ABC):
         else:
             Log.error(f"Input data {input_data} is not a valid input type.")
             return None
+        
+    def reload(self):
+        Log.info(f"Reloading block {self.name}")
+        check if input_port exists
+        grab the data from input_port.output_ports
+        iterate through the ports 
+        check if the port type is in the input_types list
+        pass
+    
+    def add_input_port(self, input_port_name=None):
+        if input_port_name:
+            for input_type in self.input_types:
+                if input_type.name == input_port_name:
+                    self.input_ports.append(input_type)
+                    Log.info(f"Added input port: {input_port_name}")
+                    return
+            Log.error(f"Input type {input_port_name} not found in input types list.")
+        else:
+            input_type, _ = prompt_selection("Please select an input type to add: ", self.input_types)
+            self.input_ports.append(input_type)
+            Log.info(f"Added input port: {input_type.name}")
+
+
+
+    def add_output_port(self, output_port_name=None):
+        if output_port_name:
+            self.output_ports.append(output_port_name)
+            Log.info(f"Added output port: {output_port_name}")
+            return
+        else:
+            output_type, _ = prompt_selection("Please select an output type to add: ", self.output_types)
+            self.output_ports.append(output_type)
+            Log.info(f"Added output port: {output_type.name}")
 
     def _validate_input(self, input_data):
         if input_data in self.input_types:

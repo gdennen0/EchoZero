@@ -20,7 +20,9 @@ class Container(CommandModule):
 
     def add_block(self, block_name):
         if block_name in self.block_types:
-            self.blocks[block_name] = self.block_types[block_name]()
+            block = self.block_types[block_name]()
+            block.set_container(self)  # Set container reference
+            self.blocks[block_name] = block
             Log.info(f"Added block: {block_name}")
         else:
             raise ValueError(f"Block type '{block_name}' not found in container")
