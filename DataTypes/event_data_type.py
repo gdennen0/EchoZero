@@ -11,9 +11,3 @@ class EventData(DataType):
 
     def add_item(self, item):
         self.items.append(item)
-
-class EventItem(DataType):
-    def __init__(self):
-        super().__init__()
-        pass
-

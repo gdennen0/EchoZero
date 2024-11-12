@@ -142,4 +142,9 @@ def create_audio_tensor(audio_file_path, target_sr):
     except Exception as e:
         Log.error(f"An error occurred while creating audio tensor: {e}")
         return None, None
-
+    
+def get_object_by_name(object_list, object_name):
+    for object in object_list:
+        if object.name == object_name:
+            return object
+    return None
