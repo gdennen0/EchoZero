@@ -36,7 +36,6 @@ class Container(CommandModule):
     def list_blocks(self):
         for block_name, block in self.blocks.items():
             print(f"{block_name}: {block.__class__.__name__}")
-
             
 
 
