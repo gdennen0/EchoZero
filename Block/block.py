@@ -3,6 +3,8 @@ from message import Log
 from abc import ABC, abstractmethod
 from Block.part import Part  # Assuming Part is defined in Block/part.py
 from tools import prompt_selection
+from Connections.port import Port
+from Connections.connection import Connection
 
 class Block(CommandModule, ABC):
     def __init__(self):
@@ -16,15 +18,20 @@ class Block(CommandModule, ABC):
         self.input_ports = [] # pointer to the output port of another block/container
         self.output_ports = []
         self.data = None
-        self.container = None  # Reference to parent container
+        self.parent_container = None  # Reference to parent container
+        self.ports = []
 
         self.add_command("add_part", self.add_part)
         self.add_command("remove_part", self.remove_part)
         self.add_command("list_parts", self.list_parts)
-        self.add_command("add_input", self.add_input_port)
+        self.add_command("add_port", self.add_port)
+        self.add_command("remove_port", self.remove_port)
 
-    def set_container(self, container):
-        self.container = container
+        self.add_port(type="input")
+        self.add_port(type="output")
+
+    def set_parent_container(self, container):
+        self.parent_container = container
         Log.info(f"Set container: {container.name}")
 
     def start(self, input_data):
@@ -46,28 +53,45 @@ class Block(CommandModule, ABC):
             Log.error(f"Input data {input_data} is not a valid input type.")
             return None
         
-    def reload(self):
-        Log.info(f"Reloading block {self.name}")
-        check if input_port exists
-        grab the data from input_port.output_ports
-        iterate through the ports 
-        check if the port type is in the input_types list
-        pass
+    # def reload(self):
+    #     Log.info(f"Reloading block {self.name}")
+    #     check if input_port exists
+    #     grab the data from input_port.output_ports
+    #     iterate through the ports 
+    #     check if the port type is in the input_types list
+    #     pass
     
-    def add_input_port(self, input_port_name=None):
-        if input_port_name:
-            for input_type in self.input_types:
-                if input_type.name == input_port_name:
-                    self.input_ports.append(input_type)
-                    Log.info(f"Added input port: {input_port_name}")
-                    return
-            Log.error(f"Input type {input_port_name} not found in input types list.")
+    def add_port(self, type=None):
+        if type:
+            port = Port(type) # create new port object
+            self.ports.append(port)
+            Log.info(f"Added {type} port")
+            return
+
         else:
             input_type, _ = prompt_selection("Please select an input type to add: ", self.input_types)
-            self.input_ports.append(input_type)
+            port = Port(input_type, "default")
+            self.ports.append(port)
             Log.info(f"Added input port: {input_type.name}")
 
 
+    def connect(self, self_port=None , connecting_port=None):
+        if not self_port:
+            self_port, _ = prompt_selection("Please select a port to connect: ", self.ports)
+        if not other_port:
+            other_port, _ = prompt_selection("Please select a port to connect: ", self.ports)
+        if self_port and other_port:
+            connection = Connection(self_port, other_port)
+            self_port.connect(connection)
+            other_port.connect(connection)
+            Log.info(f"Connected {self_port.name} to {other_port.name}")
+        else:
+            if not self_port:
+                self_port, _ = prompt_selection("Please select a port to connect: ", self.ports)
+            if not other_port:
+                other_port, _ = prompt_selection("Please select a port to connect: ", self.ports)
+            self.connect(self_port, other_port)
+            Log.info(f"Connected {self_port.name} to {other_port.name}")
 
     def add_output_port(self, output_port_name=None):
         if output_port_name:
