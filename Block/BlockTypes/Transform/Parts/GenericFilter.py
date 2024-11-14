@@ -18,8 +18,8 @@ class GenericFilter(Part):
         self.add_command("set_filter_type", self.set_filter_type)
         self.add_command("start", self.start)
 
-        self.add_input_type(AudioData)
-        self.add_output_type(AudioData)
+        self.add_input_type(AudioData())
+        self.add_output_type(AudioData())
 
         Log.info(f"GenericFilter initialized")
 

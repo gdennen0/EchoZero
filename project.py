@@ -39,6 +39,7 @@ class Project(CommandModule):
         self.add_command("list_containers", self.list_containers)
         self.add_command("clear_containers", self.clear_containers)
         self.add_command("list_container_types", self.list_container_types)
+        self.add_command("list_commands", self.list_commands)
 
         self.add_container("generic")
 
@@ -230,3 +231,43 @@ class Project(CommandModule):
     def list_container_types(self):
         for container_type in self.container_types:
             Log.info(f"Container Type: {container_type}")
+
+    def list_commands(self):
+        indent_unit = '    '  # Define the indentation unit (e.g., 4 spaces or any other characters)
+        
+        module_name = self.name
+        Log.info(f"Module: {module_name}")
+        
+        # Register top-level commands
+        for cmd in self.commands:
+            Log.info(f"{indent_unit}Command: '{cmd.name}'")
+        
+        # Register containers and their blocks
+        for container_name, container in self.containers.items():
+            Log.info(f"Container: {container_name}")
+            
+            # Register container-level commands
+            for cmd in container.commands:
+                Log.info(f"{indent_unit}Command: '{cmd.name}'")
+            
+            # Register blocks within the container
+            if hasattr(container, 'blocks'):
+                for block_name, block in container.blocks.items():
+                    Log.info(f"{indent_unit}Block: {block_name}")
+                    
+                    # Register block-level commands
+                    for cmd in block.commands:
+                        Log.info(f"{indent_unit * 2}Command: '{cmd.name}'")
+    
+                    for part in block.parts:
+                        Log.info(f"{indent_unit * 2}Part: {part.name}")
+                        for cmd in part.commands:
+                            Log.info(f"{indent_unit * 3}Command: '{cmd.name}'")
+                    for input_port in block.input_ports:
+                        Log.info(f"{indent_unit * 2}Input Port: {input_port.name}")
+                        for cmd in input_port.commands:
+                            Log.info(f"{indent_unit * 3}Command: '{cmd.name}'")
+                    for output_port in block.output_ports:
+                        Log.info(f"{indent_unit * 2}Output Port: {output_port.name}")
+                        for cmd in output_port.commands:
+                            Log.info(f"{indent_unit * 3}Command: '{cmd.name}'")
