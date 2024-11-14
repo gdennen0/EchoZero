@@ -7,21 +7,20 @@ from message import Log
 class Container(CommandModule):
     def __init__(self):
         super().__init__()
+        Log.info(f"Creating Instance of the Container Object")
         self.blocks = {}
         self.block_types = {}
         self.add_command("add_block", self.add_block)
         self.add_command("remove_block", self.remove_block)
         self.add_command("list_blocks", self.list_blocks)
-        self.add_command("start", self.start)
 
     def add_block_type(self, block_name, block_type):
         self.block_types[block_name] = block_type
 
-
     def add_block(self, block_name):
         if block_name in self.block_types:
             block = self.block_types[block_name]()
-            block.set_container(self)  # Set container reference
+            block.set_parent_container(self)  # Set container reference
             self.blocks[block_name] = block
             Log.info(f"Added block: {block_name}")
         else:

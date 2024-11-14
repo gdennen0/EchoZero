@@ -19,9 +19,3 @@ class GenericContainer(Container):
         self.add_block("analyzeAudio")
         self.add_block("export")
 
-    def start(self):
-        audio = self.blocks["loadAudio"].start()
-        transformed_audio = self.blocks["transformAudio"].start(audio)
-        AnalysisResults = self.blocks["analyzeAudio"].start(transformed_audio)
-        self.blocks["export"].start(AnalysisResults)
-

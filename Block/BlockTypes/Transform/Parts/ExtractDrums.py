@@ -19,8 +19,9 @@ class ExtractDrums(Part):
         super().__init__()
         self.set_name("extract_drums")
         self.set_type("Transform")
-        self.add_input_type(AudioData)
-        self.add_output_type(AudioData)
+        self.add_input_type(AudioData())
+        self.add_output_type(AudioData())
+
         self.add_command("set_log_level", self.set_log_level)
 
         self.log_level = DEFAULT_LOG_LEVEL

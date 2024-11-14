@@ -2,11 +2,11 @@ from message import Log
 from tools import prompt
 
 class Connection:
-    def __init__(self, input_port, output_port):
-        self.input_port = input_port
-        self.output_port = output_port
+    def __init__(self, port1, port2):
+        self.port1 = port1
+        self.port2 = port2
         self.name = "Connection"
-        self.description = f"{input_port.name} -> {output_port.name}"
+        self.description = f"{port1.name} -> {port2.name}"
 
     def set_name(self, name=None):
         if name:
@@ -22,15 +22,15 @@ class Connection:
             self.description = prompt(f"Please enter a description for the connection: ")
             Log.info(f"Connection description set to: {self.description}")
 
-    def set_input_port(self, input_port):
-        self.input_port = input_port
-        self.description = f"{input_port.name} -> {self.output_port.name}"
-        Log.info(f"'{self.name}' Connection input port set to: {input_port.name}")
+    def set_port1(self, port1):
+        self.port1 = port1
+        self.description = f"{port1.name} -> {self.port2.name}"
+        Log.info(f"'{self.name}' Connection input port set to: {port1.name}")
 
-    def set_output_port(self, output_port):
-        self.output_port = output_port
-        self.description = f"{self.input_port.name} -> {output_port.name}"
-        Log.info(f"'{self.name}' Connection output port set to: {output_port.name}")
+    def set_output_port(self, port2):
+        self.port2 = port2
+        self.description = f"{self.port1.name} -> {port2.name}"
+        Log.info(f"'{self.name}' Connection output port set to: {port2.name}")
 
     
 

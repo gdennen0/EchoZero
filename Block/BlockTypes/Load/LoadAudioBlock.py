@@ -4,11 +4,10 @@ import os
 from tools import prompt_selection
 from DataTypes.audio_data_type import AudioData
 import librosa
+from Connections.port_types.audio_port import AudioPort
 
 class LoadAudioBlock(Block):
-    """
-    This is a bespoke block type that doesnt follow block/part rules. Just a simple block that loads an audio file.
-    """
+
 
     def __init__(self):
         super().__init__()
@@ -18,7 +17,10 @@ class LoadAudioBlock(Block):
         self.selected_file_data = None
         self.set_name("LoadAudio")
         self.add_command("select_file", self.select_file)
-        self.add_output_type(AudioData)
+        self.add_output_type(AudioData())
+
+        self.add_port_type(AudioPort)
+        self.add_output_port(port_name="AudioPort")
 
     def select_file(self):
         try:
@@ -27,11 +29,12 @@ class LoadAudioBlock(Block):
             selected_file, _ = prompt_selection("Please select an audio file: ", audio_files)
             self.selected_file_path = os.path.join(self.AUDIO_SOURCE_DIR, selected_file)
             Log.info(f"Selected file: {self.selected_file_path}")
+            self.load_file()
         except Exception as e:
             Log.error(f"Error listing audio files: {e}")
             return
 
-    def start(self):
+    def load_file(self):
         if self.selected_file_path:
             SAMPLE_RATE = 44100
             try:
@@ -43,7 +46,7 @@ class LoadAudioBlock(Block):
                 audio_data.set_name = os.path.basename(audio_data.path)
                 audio_data.set_length_ms = len(audio_data.data) / audio_data.sample_rate * 1000
                 Log.info(f"Audio data generated from path: {self.selected_file_path}")
-                return audio_data
+                self.set_data(audio_data)
             except Exception as e:
                 Log.error(f"Error generating audio data from path: {e}")
 
