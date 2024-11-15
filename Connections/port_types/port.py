@@ -53,6 +53,7 @@ class Port(CommandModule):
         try:
             if name:
                 self.data = getattr(self.parent_block, name)
+                Log.info(f"Linked attribute {name} to port {self.name}")
             else:
                 name = prompt(f"Please enter the name of the attribute to link to: ")
                 self.data = getattr(self.parent_block, name)
@@ -74,32 +75,38 @@ class Port(CommandModule):
     def create_connection(self):
         external_ports = []
         for block_name, block in self.parent_block.parent_container.blocks.items():
-            for input_port in block.input_ports:
-                if input_port not in self.parent_block.input_ports:
-                    external_ports.append(input_port)
-            for output_port in block.output_ports:
-                if output_port not in self.parent_block.output_ports:
-                    external_ports.append(output_port)
+            if self.type == "output":
+                for input_port in block.input_ports:
+                    if input_port not in self.parent_block.input_ports:
+                        external_ports.append(input_port)
+            elif self.type == "input":
+                for output_port in block.output_ports:
+                    if output_port not in self.parent_block.output_ports:
+                        external_ports.append(output_port)
         if not external_ports:
             Log.error(f"No external ports found to connect to")
             return
+        if self.type == "output":
+            output = self
+        elif self.type == "input":
+            input = self
         connecting_port, _ = prompt_selection_with_type_and_parent_block(f"Please select the port to connect to: ", external_ports)
-        connection = Connection(self, connecting_port)
+        connection = Connection(input, output)
         self.add_connection(connection)
+        connecting_port.add_connection(connection)
 
     def add_connection(self, connection):
         if connection:
             self.connections.append(connection)
-            Log.info(f"'{self.name}' Port connected to '{connection.port2.name}' Port")
+            Log.info(f"Block '{connection.input.parent_block.name}' Port '{connection.input.name}' connected to Block pro'{connection.output.parent_block.name}' Port '{connection.output.name}'")
         else:
             Log.error(f"Error adding connection to Block {self.parent_block.name} port {self.name}")
 
     def disconnect(self, connection):
-        self.connections.remove(connection) 
-        Log.info(f"'{self.name}' Port disconnected from '{connection.port2.name}' Port")
-
+        connection.input.connections.remove(connection)
+        connection.output.connections.remove(connection)
+        Log.info(f"Block '{connection.input.parent_block.name}' Port '{connection.input.name}' disconnected from Block '{connection.output.parent_block.name}' Port '{connection.output.name}'")
+   
     def list_connections(self):
         for connection in self.connections:
-            Log.info(f"Connection: {connection.port1.parent_block.name}:{connection.port1.type}>{connection.port1.name} <-> {connection.port2.parent_block.name}:{connection.port2.type}>{connection.port2.name}")
-
-
+            Log.info(f"Block '{connection.input.parent_block.name} Port '{connection.input.name}' <--> Block '{connection.output.parent_block.name}' Port '{connection.output.name}'")

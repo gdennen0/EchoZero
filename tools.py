@@ -31,7 +31,7 @@ def prompt_selection(prompt_text, options):
             Log.info(f"{i}: {obj}")
     while True:
         selection = prompt(f"Please enter the key or index for your selection (or 'e' to exit): ")
-        if selection.lower() in ['e', 'exit']:
+        if not selection:
             Log.info("Selection exited by user.")
             return None, None
         if selection.isdigit():

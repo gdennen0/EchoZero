@@ -22,10 +22,11 @@ class CommandParser:
 
         # Parse main module
         main_module = self._get_matching_module(remaining_parts)
+        selected_module = None
         if main_module:
             Log.parser(f"Matched main module: {main_module.name}")
             remaining_parts.pop(0)  # Remove main module from the list
-
+            selected_module = main_module
             # Parse container
             container = self._get_matching_container(main_module, remaining_parts)
             if container:
@@ -61,7 +62,11 @@ class CommandParser:
             )
             command_item.command(*args)
         else:
-            Log.parser("No command found")
+            Log.parser("No command found, please select from the following commands:")
+            if hasattr(selected_module, "commands"):
+                selected_module.list_commands()
+            else:
+                Log.parser(f"No commands found for {selected_module.name}")
 
     def _get_matching_module(self, parts):
         if not parts:
@@ -104,7 +109,7 @@ class CommandParser:
             return None, None
         Log.parser(f"attempting to match command '{remaining_parts[0]}' within module {selected_module.name} ")
         for command in selected_module.commands:
-            Log.parser(f"Command: {command.name}")
+            # Log.parser(f"Command: {command.name}")
             if command.name.lower() == remaining_parts[0]:
                 return command, remaining_parts[1:]
         return None, None
