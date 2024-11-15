@@ -26,11 +26,12 @@ class TransformAudioBlock(Block):
         self.add_command("start", self.start)
         self.add_command("list_part_types", self.list_part_types)
 
-    def start(self, audio):
+    def start(self, data):
         Log.info(f"TransformAudio Block started")
-        result = audio
+        result = data
         for part in self.parts:
             result = part.start(result)
             Log.info(f"TransformAudio Part {part.name} completed")
+            self.set_data(result)
 
         return result

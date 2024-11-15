@@ -5,6 +5,7 @@ from Block.part import Part  # Assuming Part is defined in Block/part.py
 from tools import prompt_selection, prompt_selection_with_type, prompt_selection_with_type_and_parent_block
 from Connections.port_types.port import Port
 from Connections.connection import Connection
+import time
 
 class Block(CommandModule, ABC):
     def __init__(self):
@@ -29,80 +30,117 @@ class Block(CommandModule, ABC):
         self.add_command("list_ports", self.list_ports)
         self.add_command("create_connection", self.create_connection)
         self.add_command("list_connections", self.list_connections)
+        self.add_command("reload", self.reload)
+        self.add_command("list_data", self.list_data)
 
     def set_parent_container(self, container):
         self.parent_container = container
         Log.info(f"Set container: {container.name}")
-
-    def start(self, input_data):
-        Log.info("Start method is depriciated, passing")
-        pass
-
-        if not self.input_ports:
-            Log.error("No input ports available.")
-            return None
-        Log.info(f"Starting block {self.name}")
-        if self._validate_input(input_data):
-            result = self._process_parts(input_data)
-            if self._validate_output(result):
-                return result
-            else:
-                Log.error(f"Result {result} not in output types {self.output_types}")
-                return None
-        else:
-            Log.error(f"Input data {input_data} is not a valid input type.")
-            return None
         
-    # def reload(self):
-    #     Log.info(f"Reloading block {self.name}")
-    #     check if input_port exists
-    #     grab the data from input_port.output_ports
-    #     iterate through the ports 
-    #     check if the port type is in the input_types list
-    #     pass
+    def reload(self):
+        start_time = time.time()
+        Log.info(f"Reloading block {self.name}")
+        new_data = self.pull_port_data()
+        results = self._process_parts(new_data)
+        if results:
+            self.set_data(results)
+            Log.info(f"Reloaded block {self.name} with results: {results}")
+        else:
+            Log.error(f"Failed to reload block {self.name}")
+        elapsed_time = time.time() - start_time
+        Log.info(f"Reloaded block {self.name} in {elapsed_time:.2f} seconds")
 
-    def create_connection(self, port1=None , port2=None):
+    def pull_port_data(self):
+        # Log.info(f"Pulling data from Block '{self.name}' {len(self.input_ports)} input ports")
+        data = []
+        for input_port in self.input_ports:
+            for connection in input_port.connections:
+                Log.info(f"Pulling data from Block '{connection.output.parent_block.name}' port: {connection.output.name}")
+                Log.info(f"data: {connection.output.parent_block.data}")
+                data.append(connection.output.parent_block.data)
+                Log.info(f"Pulled data {connection.output.data_type.name} from Block '{connection.output.parent_block.name}' Port '{connection.output.name}'")
+        if not data:
+            Log.error(f"No data found in Block '{self.name}' input ports")
+
+        return data
+    
+    def _process_parts(self, input_data):
+        result = input_data
+        Log.info(f"_process_parts received input_data of {input_data}")
+        for part in self.parts:
+            Log.info(f"BEGIN ** Processing Block {self.name} part {part.name}")
+            result = part.start(result)
+            if result is None:
+                Log.error(f"Part {part.name} failed to process the data.")
+                return None
+        return result
+
+    def create_connection(self, input=None , output=None):
         # Start of Selection
-        if not port1:
+        if not input and not output:
             combined_ports = self.input_ports + self.output_ports
-            port1, _ = prompt_selection_with_type("Please select a local port to connect: ", combined_ports)
-
-        if not port2:
-            if port1.type == "input":
+            local_port_selection, _ = prompt_selection_with_type("Please select a base port to connect: ", combined_ports)
+        
+            if local_port_selection.type == "input":
+                input = local_port_selection
                 external_ports = []
                 for block_name, block in self.parent_container.blocks.items():
                     for output_port in block.output_ports:
                         if output_port not in self.output_ports:
                             external_ports.append(output_port)
-            elif port1.type == "output":
+        
+            elif local_port_selection.type == "output":
+                output = local_port_selection
                 external_ports = []
                 for block_name, block in self.parent_container.blocks.items():
                     for input_port in block.input_ports:
                         if input_port not in self.input_ports:
                             external_ports.append(input_port)
+
             if external_ports:
-                port2, _ = prompt_selection_with_type_and_parent_block(f"Please select an external port to connect to Block {self.name}", external_ports)
+                output, _ = prompt_selection_with_type_and_parent_block(f"Please select an external port to connect to Block {self.name}", external_ports)
             else:
                 Log.error("No external ports available.")
                 return
+            # Start Generation Here
+            if input and not output:
+                # Only input is provided, find an external output to connect to
+                external_outputs = []
+                for block_name, block in self.parent_container.blocks.items():
+                    for out_port in block.output_ports:
+                        if out_port not in self.output_ports:
+                            external_outputs.append(out_port)
+                if external_outputs:
+                    output, _ = prompt_selection_with_type_and_parent_block(
+                        f"Please select an external output port to connect to Block {block_name}",
+                        external_outputs
+                    )
+                else:
+                    Log.error("No external output ports available to connect.")
+                    return
+            elif output and not input:
+                # Only output is provided, find an external input to connect from
+                external_inputs = []
+                for block_name, block in self.parent_container.blocks.items():
+                    for in_port in block.input_ports:
+                        if in_port not in self.input_ports:
+                            external_inputs.append(in_port)
+                if external_inputs:
+                    input, _ = prompt_selection_with_type_and_parent_block(
+                        f"Please select an external input port to connect from Block {block_name}",
+                        external_inputs
+                    )
+                else:
+                    Log.error("No external input ports available to connect.")
+                    return
             
-        if port1 and port2:
-            if port1.type == port2.type:
-                Log.error("Cannot connect ports of the same type")
-                self.connect()
-            else:
-                connection = Connection(port1, port2)
-                port1.add_connection(connection)
-                port2.add_connection(connection)
-                Log.info(f"Connected {port1.name} to {port2.name}")
+        if input and output:
+            connection = Connection(input, output)
+            input.add_connection(connection)
+            output.add_connection(connection)
+            Log.info(f"Connected {input.name} to {output.name}")
         else:
-            if not self_port:
-                self_port, _ = prompt_selection(f"Please select a port to connect to Block {self.name}", self.ports)
-            if not other_port:
-                other_port, _ = prompt_selection(f"Please select a port to connect to Block {self.name}", self.ports)
-            self.connect(self_port, other_port)
-            Log.info(f"Connected Block '{self.name}' port '{self_port.name}' to Block '{other_port.parent_block.name}' port '{other_port.name}'")
-
+            Log.error("Failed to create connection, either input or output is not specified")
 
     def list_connections(self):
         Log.info(f"Block {self.name} connections:")
@@ -188,16 +226,6 @@ class Block(CommandModule, ABC):
             Log.error(f"Input data {input_data} is not a valid input type.")
             return False
 
-    def _process_parts(self, input_data):
-        result = input_data
-        for part in self.parts:
-            Log.info(f"Processing with part {part.name} in Block {self.name}")
-            result = part.start(result)
-            if result is None:
-                Log.error(f"Part {part.name} failed to process the data.")
-                return None
-        return result
-
     def _validate_output(self, result):
         return result in self.output_types
 
@@ -234,11 +262,12 @@ class Block(CommandModule, ABC):
             Log.error(f"Part {part_name} not found in parts list.")
         else:
             part_type, _ = prompt_selection("Please select a part to remove: ", self.parts)
+            if not part_type:
+                Log.error("No part selected")
+                return
             self.parts.remove(part_type)
             Log.info(f"Removed part: {part_type.name} from Block {self.name}")
-            part_type, _ = prompt_selection("Please select a part to remove: ", self.parts)
-            self.parts.remove(part_type)
-            Log.info(f"Removed part: {part_type.name} from Block {self.name}")
+
 
     def list_parts(self):
         Log.info(f"Block {self.name} current parts:")
@@ -294,3 +323,7 @@ class Block(CommandModule, ABC):
     def set_data(self, data):
         self.data = data
         Log.info(f"Block '{self.name}' 'data' value set to: {data.name}")
+
+    def list_data(self):
+        Log.info(f"Block '{self.name}' 'data' value: {self.data}")
+        return self.data
