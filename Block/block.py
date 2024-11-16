@@ -322,7 +322,17 @@ class Block(CommandModule, ABC):
     
     def set_data(self, data):
         self.data = data
-        Log.info(f"Block '{self.name}' 'data' value set to: {data.name}")
+        if isinstance(self.data, list):
+            Log.info(f"Block '{self.name}' 'data' set to a list with {len(self.data)} items")
+            for item in self.data:
+                if hasattr(item, 'name'):
+                    Log.info(f"- {item.name}")
+                else:
+                    Log.info(f"- {item}")
+        elif hasattr(self.data, 'name'):
+            Log.info(f"Block '{self.name}' 'data' value set to: {self.data.name}")
+        else:
+            Log.info(f"Block '{self.name}' 'data' value set to: {self.data}")
 
     def list_data(self):
         Log.info(f"Block '{self.name}' 'data' value: {self.data}")

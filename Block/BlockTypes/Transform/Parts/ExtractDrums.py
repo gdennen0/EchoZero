@@ -57,9 +57,8 @@ class ExtractDrums(Part):
                 Log.info(f"Stem source: {stem_name}")
                 if stem_name == "Drums":
                     audio_object.set_data(stem_source) # update the audio object to the drum stem
-                    results.append(audio_object)
                     Log.info(f"Drums stem found and set")
-        return results
+        return audio_object
     
 
 # Core Methods
