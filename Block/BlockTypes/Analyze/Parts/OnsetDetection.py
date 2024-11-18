@@ -3,7 +3,8 @@ from message import Log
 import librosa
 import numpy as np
 from tools import prompt_selection
-from DataTypes.event_data_type import EventData, EventItem
+from DataTypes.event_data_type import EventData
+from DataTypes.event_item_type import EventItem
 from DataTypes.audio_data_type import AudioData
 
 

@@ -6,6 +6,7 @@ from tools import create_audio_data
 class AudioData(DataType):
     def __init__(self):
         super().__init__()
+        self.set_name("AudioData")
         self.path = None
         self.sample_rate = None
         self.frame_rate = None
@@ -16,6 +17,7 @@ class AudioData(DataType):
             Log.error(f"Overwriting existing path value: {self.path}")
         self.path = path
         Log.info(f"Path set to {path}")
+
     def set_sample_rate(self, rate):
         if self.sample_rate:
             Log.error(f"Overwriting existing sample rate value: {self.sample_rate}")

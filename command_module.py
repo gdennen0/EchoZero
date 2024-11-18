@@ -16,10 +16,6 @@ class CommandModule:
         cmd_item.set_command(command)
         self.commands.append(cmd_item)
 
-    def add_sub_module(self, sub_module):
-        self.sub_modules.append(sub_module)
-        Log.info(f"Adding sub module {sub_module.name}")
-
     def set_name(self, name):
         self.name = name
 
