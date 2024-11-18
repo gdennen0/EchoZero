@@ -13,6 +13,9 @@ from pythonosc.udp_client import SimpleUDPClient
 
 DEFAULT_EXPORT_IP = "127.0.0.1"
 DEFAULT_EXPORT_IP_PORT = 8000
+DEFAULT_CONSOLE_OS = {1:"ConsoleHardware",
+                    2:"Windows",
+                    3:"Mac"}
 
 class ExportMA3Block(Block):
     def __init__(self):
@@ -29,6 +32,7 @@ class ExportMA3Block(Block):
         self.ip_port = DEFAULT_EXPORT_IP_PORT
         self.client = None
         self.cmd = None
+        self.console_os = None
 
         # Add commands
         self.add_command("select_timecode_pool", self.select_timecode_pool)
@@ -146,8 +150,6 @@ class ExportMA3Block(Block):
 
 
 
-
-
     def establish_lua_connection(self):
         pass
 
@@ -207,6 +209,9 @@ class osc_interaction():
         self.client = SimpleUDPClient(self.ip, self.ip_port)
         Log.info(f"OSC Client initialized at {self.ip}:{self.ip_port}")
         self.client.send_message("/cmd", self.cmd)
+    
+    def connection_os(self):
+        prompt_selection("Please select MA3 instance type: ", DEFAULT_CONSOLE_OS)
 
 
 t_server = osc_interaction()
