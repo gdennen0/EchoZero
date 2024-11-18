@@ -19,8 +19,9 @@ class ExtractDrums(Part):
         super().__init__()
         self.set_name("extract_drums")
         self.set_type("Transform")
-        self.add_input_type(AudioData)
-        self.add_output_type(AudioData)
+        self.add_input_type(AudioData())
+        self.add_output_type(AudioData())
+
         self.add_command("set_log_level", self.set_log_level)
 
         self.log_level = DEFAULT_LOG_LEVEL
@@ -33,25 +34,31 @@ class ExtractDrums(Part):
 
         Log.info(f"ExtractDrums initialized")
 
-    def start(self, audio_object):
-        if not isinstance(audio_object, AudioData):
-            Log.error(f"Input is not an AudioData object")
-            return
-        
-        stem_sources = self.separator.separate(audio_object) #this should return a dict of numpy arrays and stem names for keys
-        stem_filenames = []
-        sample_rate = audio_object.sample_rate
+    def start(self, data):
+        results = []
+        Log.info(f"Extract Drums Start Sequence Executed")
+        Log.info(f"Processing {len(data)} Audio Objects data: {data}")
+        for audio_object in data:
+            Log.info(f"Processing Audio Object: {audio_object.name}")
+            if not isinstance(audio_object, AudioData):
+                Log.error(f"Input is not an AudioData object")
+                return
+            
+            stem_sources = self.separator.separate(audio_object) #this should return a dict of numpy arrays and stem names for keys
+            stem_filenames = []
+            sample_rate = audio_object.sample_rate
 
-        for stem_name, stem_source in stem_sources.items():
-            filename = f'{stem_name}.wav'
-            filepath = os.path.join(self.output_dir, filename)
-            # sf.write(filepath, stem_source, sample_rate) # write the stem to a file
-            Log.info(f"Stem {stem_name} written to {filepath}")
-            stem_filenames.append(filename)
-            # Log.info(f"Stem source: {stem_name}")
-        if stem_sources["Drums"]:
-            audio_object.set_data(stem_sources["Drums"]) # update the audio object to the drum stem
-        return audio_object #this returns the audio object with the transformation applied
+            for stem_name, stem_source in stem_sources.items():
+                filename = f'{stem_name}.wav'
+                filepath = os.path.join(self.output_dir, filename)
+                # sf.write(filepath, stem_source, sample_rate) # write the stem to a file
+                # Log.info(f"Stem {stem_name} written to {filepath}")
+                stem_filenames.append(filename)
+                Log.info(f"Stem source: {stem_name}")
+                if stem_name == "Drums":
+                    audio_object.set_data(stem_source) # update the audio object to the drum stem
+                    Log.info(f"Drums stem found and set")
+        return audio_object
     
 
 # Core Methods

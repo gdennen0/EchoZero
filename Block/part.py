@@ -1,10 +1,11 @@
 from command_module import CommandModule
 from message import Log
-from abc import ABC, abstractmethod
+from abc import ABC
 
 class Part(CommandModule, ABC): # Inherit CommandModule and ABC (Abstract Base Class)
     def __init__(self):
         super().__init__()
+        Log.info(f"Creating Instance of the Part Object")
         self.name = None
         self.type = None
         self.input_types = []
@@ -26,8 +27,8 @@ class Part(CommandModule, ABC): # Inherit CommandModule and ABC (Abstract Base C
 
     def add_input_type(self, input_type):
         self.input_types.append(input_type)
-        Log.info(f"Added input type: {input_type}")
+        Log.info(f"Added input type: {input_type.name}")
 
     def add_output_type(self, output_type):
         self.output_types.append(output_type)
-        Log.info(f"Added output type: {output_type}")
+        Log.info(f"Added output type: {output_type.name}")

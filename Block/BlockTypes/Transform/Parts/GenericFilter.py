@@ -18,8 +18,8 @@ class GenericFilter(Part):
         self.add_command("set_filter_type", self.set_filter_type)
         self.add_command("start", self.start)
 
-        self.add_input_type(AudioData)
-        self.add_output_type(AudioData)
+        self.add_input_type(AudioData())
+        self.add_output_type(AudioData())
 
         Log.info(f"GenericFilter initialized")
 
@@ -48,35 +48,36 @@ class GenericFilter(Part):
         Log.info(f"Cutoff set to {self.cutoff}")
 
     def start(self, audio_data):
-        if not isinstance(audio_data, AudioData):
-            Log.error("Input is not an instance of AudioData")
-            return audio_data
+        for audio_object in audio_data:
+            if not isinstance(audio_object, AudioData):
+                Log.error("Input is not an instance of AudioData")
+                return audio_object
 
-        if self.filter_type is None:
-            Log.error("No filter type set for filtering.")
-            return audio_data
+            if self.filter_type is None:
+                Log.error("No filter type set for filtering.")
+                return audio_data
 
-        Log.info(f"Applying {self.filter_type} filter to the audio data.")
+            Log.info(f"Applying {self.filter_type} filter to the audio data.")
 
-        try:
-            y = audio_data.audio
-            sr = audio_data.sample_rate
+            try:
+                y = audio_object.audio
+                sr = audio_object.sample_rate
 
-            if self.filter_type == "lowpass":
-                y_filtered = librosa.effects.low_pass(y, sr=sr, cutoff=self.cutoff)
-            elif self.filter_type == "highpass":
-                y_filtered = librosa.effects.high_pass(y, sr=sr, cutoff=self.cutoff)
-            elif self.filter_type == "bandpass":
-                y_filtered = librosa.effects.band_pass(y, sr=sr, low=self.cutoff_low, high=self.cutoff_high)
-            elif self.filter_type == "notch":
-                y_filtered = librosa.effects.notch_filter(y, sr=sr, freq=self.cutoff)
-            else:
-                Log.error(f"Invalid filter type: {self.filter_type}, filter not applied.")
-                y_filtered = y
+                if self.filter_type == "lowpass":
+                    y_filtered = librosa.effects.low_pass(y, sr=sr, cutoff=self.cutoff)
+                elif self.filter_type == "highpass":
+                    y_filtered = librosa.effects.high_pass(y, sr=sr, cutoff=self.cutoff)
+                elif self.filter_type == "bandpass":
+                    y_filtered = librosa.effects.band_pass(y, sr=sr, low=self.cutoff_low, high=self.cutoff_high)
+                elif self.filter_type == "notch":
+                    y_filtered = librosa.effects.notch_filter(y, sr=sr, freq=self.cutoff)
+                else:
+                    Log.error(f"Invalid filter type: {self.filter_type}, filter not applied.")
+                    y_filtered = y
 
-            audio_data.set_audio(y_filtered)
-            Log.info(f"{self.filter_type} filter applied successfully")
-            return audio_data
-        except Exception as e:
-            Log.error(f"Error applying librosa filter: {e}")
-            return audio_data
+                audio_object.set_audio(y_filtered)
+                Log.info(f"{self.filter_type} filter applied successfully")
+                return audio_object
+            except Exception as e:
+                Log.error(f"Error applying librosa filter: {e}")
+                return audio_object
