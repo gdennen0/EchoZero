@@ -1,13 +1,11 @@
-from command_module import CommandModule
+from Command.command_module import CommandModule
 from message import Log
-from abc import ABC
-
-class Part(CommandModule, ABC): # Inherit CommandModule and ABC (Abstract Base Class)
+class Part():
     def __init__(self):
-        super().__init__()
         Log.info(f"Creating Instance of the Part Object")
         self.name = None
         self.type = None
+        self.command = CommandModule()
         self.input_types = []
         self.output_types = []
 

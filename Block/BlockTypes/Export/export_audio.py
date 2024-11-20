@@ -31,11 +31,11 @@ class ExportAudioBlock(Block):
         self.supported_file_types = ["wav", "mp3", "flac", "aac"]
 
         # Add commands
-        self.add_command("select_file_type", self.select_file_type)
-        self.add_command("set_audio_settings", self.set_audio_settings)
-        self.add_command("set_destination_path", self.set_destination_path)
-        self.add_command("export", self.export)
-        self.add_command("reload", self.reload)
+        self.command.add("select_file_type", self.select_file_type)
+        self.command.add("set_audio_settings", self.set_audio_settings)
+        self.command.add("set_destination_path", self.set_destination_path)
+        self.command.add("export", self.export)
+        self.command.add("reload", self.reload)
 
         # Add port types and ports
         self.add_port_type(AudioPort)

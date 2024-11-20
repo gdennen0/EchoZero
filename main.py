@@ -2,7 +2,7 @@ from message import Log
 from listen import main_listen_loop
 import json
 from project import Project
-from command import Command
+from Command.command import Command
 from Container.ContainerTypes.generic_container import GenericContainer
 
 def fetch_saved_settings():

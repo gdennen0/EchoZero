@@ -1,13 +1,13 @@
 from ..connection import Connection
 from message import Log
 from tools import prompt, prompt_selection, prompt_selection_with_type_and_parent_block
-from command_module import CommandModule
+from Command.command_module import CommandModule
 
-class Port(CommandModule):
+class Port():
     def __init__(self):
-        super().__init__()
         Log.info(f"Creating Instance of the Port Object")
         self.type = None
+        self.command = CommandModule()
         self.port_types = ["input", "output"]
         self.name = None
         self.data = None
@@ -15,12 +15,11 @@ class Port(CommandModule):
         self.connections = []
         self.parent_block = None
 
-
-        self.add_command("set_name", self.set_name)
-        self.add_command("set_type", self.set_type)
-        self.add_command("link_attribute", self.link_attribute)
-        self.add_command("list_connections", self.list_connections)
-        self.add_command("create_connection", self.create_connection)
+        self.command.add("set_name", self.set_name)
+        self.command.add("set_type", self.set_type)
+        self.command.add("link_attribute", self.link_attribute)
+        self.command.add("list_connections", self.list_connections)
+        self.command.add("create_connection", self.create_connection)
 
     def set_parent_block(self, block):
         self.parent_block = block

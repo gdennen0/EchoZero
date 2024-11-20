@@ -22,9 +22,9 @@ class TransformAudioBlock(Block):
         self.add_input_port("AudioPort")
         self.link_port_attribute("input", "AudioPort", "data")
 
-        self.add_command("clear_parts", self.clear_parts)
-        self.add_command("start", self.start)
-        self.add_command("list_part_types", self.list_part_types)
+        self.command.add("clear_parts", self.clear_parts)
+        self.command.add("start", self.start)
+        self.command.add("list_part_types", self.list_part_types)
 
     def start(self, data):
         Log.info(f"TransformAudio Block started")

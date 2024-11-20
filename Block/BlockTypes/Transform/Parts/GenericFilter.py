@@ -14,9 +14,9 @@ class GenericFilter(Part):
         self.cutoff = None
         self.cutoff_low = None
         self.cutoff_high = None
-        self.add_command("list_filter_types", self.list_filter_types)
-        self.add_command("set_filter_type", self.set_filter_type)
-        self.add_command("start", self.start)
+        self.command.add("list_filter_types", self.list_filter_types)
+        self.command.add("set_filter_type", self.set_filter_type)
+        self.command.add("start", self.start)
 
         self.add_input_type(AudioData())
         self.add_output_type(AudioData())
