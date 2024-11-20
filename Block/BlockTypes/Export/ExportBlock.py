@@ -6,7 +6,6 @@ class ExportBlock(Block):
         super().__init__()
         self.name = "Export"
         self.parts = []
-        
 
     def add_part(self, part):
         self.parts.append(part)

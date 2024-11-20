@@ -1,18 +1,15 @@
-from command_module import CommandModule
+from Command.command_module import CommandModule
 from message import Log
-from abc import ABC, abstractmethod
-from Block.part import Part  # Assuming Part is defined in Block/part.py
 from tools import prompt_selection, prompt_selection_with_type, prompt_selection_with_type_and_parent_block
-from Connections.port_types.port import Port
 from Connections.connection import Connection
 import time
 
-class Block(CommandModule, ABC):
+class Block():
     def __init__(self):
-        super().__init__()
         Log.info(f"Creating Instance of the Block Object")
         self.name = None
         self.type = None
+        self.command = CommandModule()
         self.parts = []
         self.part_types = []
         self.input_types = []
@@ -24,14 +21,14 @@ class Block(CommandModule, ABC):
         self.input_ports = []
         self.output_ports = []
     
-        self.add_command("add_part", self.add_part)
-        self.add_command("remove_part", self.remove_part)
-        self.add_command("list_parts", self.list_parts)
-        self.add_command("list_ports", self.list_ports)
-        self.add_command("create_connection", self.create_connection)
-        self.add_command("list_connections", self.list_connections)
-        self.add_command("reload", self.reload)
-        self.add_command("list_data", self.list_data)
+        self.command.add("add_part", self.add_part)
+        self.command.add("remove_part", self.remove_part)
+        self.command.add("list_parts", self.list_parts)
+        self.command.add("list_ports", self.list_ports)
+        self.command.add("create_connection", self.create_connection)
+        self.command.add("list_connections", self.list_connections)
+        self.command.add("reload", self.reload)
+        self.command.add("list_data", self.list_data)
 
     def set_parent_container(self, container):
         self.parent_container = container
@@ -41,7 +38,7 @@ class Block(CommandModule, ABC):
         start_time = time.time()
         Log.info(f"Reloading block {self.name}")
         new_data = self.pull_port_data()
-        results = self._process_parts(new_data)
+        results = self.process_parts(new_data)
         if results:
             self.set_data(results)
             Log.info(f"Reloaded block {self.name} with results: {results}")
@@ -64,7 +61,7 @@ class Block(CommandModule, ABC):
 
         return data
     
-    def _process_parts(self, input_data):
+    def process_parts(self, input_data):
         result = input_data
         Log.info(f"_process_parts received input_data of {input_data}")
         for part in self.parts:

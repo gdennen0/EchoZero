@@ -30,11 +30,11 @@ class ExportMA3Block(Block):
         self.osc_connection = OSC_Connection(self.ip, self.ip_port)
 
         # Add commands
-        self.add_command("select_timecode_pool", self.select_timecode_pool)
-        self.add_command("select_sequence_pool", self.select_sequence_pool)
-        self.add_command("export", self.export)
-        self.add_command("reload", self.reload)
-        self.add_command("establish_connection", self.establish_connection)
+        self.command.add("select_timecode_pool", self.select_timecode_pool)
+        self.command.add("select_sequence_pool", self.select_sequence_pool)
+        self.command.add("export", self.export)
+        self.command.add("reload", self.reload)
+        self.command.add("establish_connection", self.establish_connection)
 
         # Add port types and ports
         self.add_port_type(EventPort)

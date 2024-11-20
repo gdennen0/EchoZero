@@ -16,12 +16,11 @@ class LoadAudioBlock(Block):
         self.selected_file_path = None
         self.selected_file_data = None
         self.set_name("LoadAudio")
-        self.add_command("select_file", self.select_file)
+        self.command.add("select_file", self.select_file)
         self.add_output_type(AudioData())
 
         self.add_port_type(AudioPort)
         self.add_output_port(port_name="AudioPort")
-        self.link_port_attribute("output", "AudioPort", "data")
 
     def select_file(self):
         try:

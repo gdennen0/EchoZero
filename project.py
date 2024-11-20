@@ -4,7 +4,7 @@ from tools import prompt, check_project_path, prompt_selection, yes_no_prompt
 import os
 import datetime
 from Container.container import Container
-from command_module import CommandModule
+from Command.command_module import CommandModule
 from Container.ContainerTypes.generic_container import GenericContainer
 
 
@@ -12,7 +12,7 @@ from Container.ContainerTypes.generic_container import GenericContainer
 PROJECT_DIR_BYPASS = None
 RECENT_PROJECTS_FILE = "recent_projects.json"
 
-class Project(CommandModule):
+class Project():
     def __init__(self, settings):
         super().__init__()
         self.settings = settings
@@ -27,19 +27,20 @@ class Project(CommandModule):
             "generic": GenericContainer,
         }
 
+        self.command = CommandModule()
         self.initialize_options()
         Log.info(f"Initialized Project")
 
-        self.add_command("load", self.load)
-        self.add_command("new", self.new)
-        self.add_command("save", self.save)
-        self.add_command("save_as", self.save_as)
-        self.add_command("add_container", self.add_container)
-        self.add_command("remove_container", self.remove_container)
-        self.add_command("list_containers", self.list_containers)
-        self.add_command("clear_containers", self.clear_containers)
-        self.add_command("list_container_types", self.list_container_types)
-        self.add_command("list_commands", self.list_commands)
+        self.command.add("load", self.load)
+        self.command.add("new", self.new)
+        self.command.add("save", self.save)
+        self.command.add("save_as", self.save_as)
+        self.command.add("add_container", self.add_container)
+        self.command.add("remove_container", self.remove_container)
+        self.command.add("list_containers", self.list_containers)
+        self.command.add("clear_containers", self.clear_containers)
+        self.command.add("list_container_types", self.list_container_types)
+        self.command.add("list_commands", self.list_commands)
 
         self.add_container("generic")
 
@@ -239,7 +240,7 @@ class Project(CommandModule):
         Log.info(f"Module: {module_name}")
         
         # Register top-level commands
-        for cmd in self.commands:
+        for cmd in self.command.get_commands():
             Log.info(f"{indent_unit}Command: '{cmd.name}'")
         
         # Register containers and their blocks
@@ -247,7 +248,7 @@ class Project(CommandModule):
             Log.info(f"Container: {container_name}")
             
             # Register container-level commands
-            for cmd in container.commands:
+            for cmd in container.command.get_commands():
                 Log.info(f"{indent_unit}Command: '{cmd.name}'")
             
             # Register blocks within the container
@@ -256,18 +257,18 @@ class Project(CommandModule):
                     Log.info(f"{indent_unit}Block: {block_name}")
                     
                     # Register block-level commands
-                    for cmd in block.commands:
+                    for cmd in block.command.get_commands():
                         Log.info(f"{indent_unit * 2}Command: '{cmd.name}'")
     
                     for part in block.parts:
                         Log.info(f"{indent_unit * 2}Part: {part.name}")
-                        for cmd in part.commands:
+                        for cmd in part.command.get_commands():
                             Log.info(f"{indent_unit * 3}Command: '{cmd.name}'")
                     for input_port in block.input_ports:
                         Log.info(f"{indent_unit * 2}Input Port: {input_port.name}")
-                        for cmd in input_port.commands:
+                        for cmd in input_port.command.get_commands():
                             Log.info(f"{indent_unit * 3}Command: '{cmd.name}'")
                     for output_port in block.output_ports:
                         Log.info(f"{indent_unit * 2}Output Port: {output_port.name}")
-                        for cmd in output_port.commands:
+                        for cmd in output_port.command.get_commands():
                             Log.info(f"{indent_unit * 3}Command: '{cmd.name}'")

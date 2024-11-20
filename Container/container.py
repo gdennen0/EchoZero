@@ -1,18 +1,18 @@
 
-from command_module import CommandModule
+from Command.command_module import CommandModule
 from message import Log
 
 # Generic Container
 
-class Container(CommandModule):
+class Container():
     def __init__(self):
-        super().__init__()
         Log.info(f"Creating Instance of the Container Object")
+        self.command = CommandModule()
         self.blocks = {}
         self.block_types = {}
-        self.add_command("add_block", self.add_block)
-        self.add_command("remove_block", self.remove_block)
-        self.add_command("list_blocks", self.list_blocks)
+        self.command.add("add_block", self.add_block)
+        self.command.add("remove_block", self.remove_block)
+        self.command.add("list_blocks", self.list_blocks)
 
     def add_block_type(self, block_name, block_type):
         self.block_types[block_name] = block_type
