@@ -13,7 +13,7 @@ class OSC_Connection():
         self.ip:str = ip
         self.ip_port:str = ip_port
 
-        self.tc_pool:str = None
+        self.tc_pool:int = None
         self.seq_pool:int = None
         self.framerate:int = None
 
@@ -27,7 +27,7 @@ class OSC_Connection():
 
         self.keep_running = True  # Flag to control the server running state
 
-    def check_variables(self):
+    def check_variables(self, method):
         while True:
             if self.client:
                 if self.ip:
@@ -38,13 +38,13 @@ class OSC_Connection():
                                     self.osc_ready = True
                                     break
                                 else:
-                                    self.get_framerate()
+                                    method()
                                     continue
                             else:
                                 self.seq_pool = int(prompt("Please set target Sequence Pool: "))
                                 continue
                         else:
-                            self.tc_pool = str(prompt("Please set target Timecode Pool.TrackGroup.Track: "))
+                            self.tc_pool = str(prompt("Please set target Timecode Pool: "))
                             continue
                     else:
                         self.ip_port = str(prompt("Please set IP Port: "))
@@ -56,12 +56,25 @@ class OSC_Connection():
                 self.establish_osc_client()
                 continue
 
-    def get_framerate(self):
+    def MA_import_template_xml(self):
         # Import Plugin to send data
         self.cmd_via_osc("Import Library \"template.xml\" at Plugin 999 /o")
         self.cmd_via_osc("Call Plugin 999")
         self.establish_osc_server(self.handlers)
 
+    def MA_set_tc_events(self, event_list:str):
+        self._cue = 1
+        self.cmd_via_osc("Clear")
+        self.cmd_via_osc("Clear")
+        self.cmd_via_osc("Clear")
+        for event in event_list:
+            Log.info(f"Storing Event at: {event}")
+            self.cmd_via_osc(f"Off Timecode {self.tc_pool}")
+            self.cmd_via_osc(f"Set Timecode {self.tc_pool} \"CURSOR\" \"{event_list}\"")
+            self.cmd_via_osc(f"Record Timecode {self.tc_pool}")
+            self.cmd_via_osc(f"Go Sequence {self.seq_pool} Cue {self._cue}")
+            self.cmd_via_osc(f"Off Timecode {self.tc_pool}")
+            self._cue += 1
 
     def establish_osc_client(self):
         self.client = SimpleUDPClient(self.ip, self.ip_port)
@@ -82,8 +95,7 @@ class OSC_Connection():
 
         dispatcher = Dispatcher()
         for address, handler in handlers.items():
-            # Wrap the original handler to include a stop mechanism
-            def stop_handler(address, *args):
+            def stop_handler(address, *args, handler=handler):
                 handler(address, *args)  # Call the original handler
                 if self._is_valid_osc_message(args):  # Assuming this method checks message validity
                     self.keep_running = False  # Set the flag to False to stop the server
@@ -95,8 +107,14 @@ class OSC_Connection():
         self._run_server()
 
     def _run_server(self):
-        while self.keep_running:
-            self.server.handle_request()  # Handle one request at a time
+        try:
+            while self.keep_running:
+                self.server.handle_request()
+        except KeyboardInterrupt:
+            pass  # Allow server to be stopped with Ctrl+C
+        finally:
+            self.server.server_close()  # Ensure the server is closed properly outside of the request handling thread
+        Log.info(f"Framerate: {self.framerate}")
 
     def _is_valid_osc_message(self, *args):
         if args[0]:
