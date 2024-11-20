@@ -73,7 +73,13 @@ class ExportMA3Block(Block):
             # Check if OS is set:
             if self.ma_file_transfer.os:
                 # method in osc connection that checks if all variables are valid before continuing
-                self.osc_connection.check_variables()
+                self.osc_connection.check_variables(self.osc_connection.MA_import_template_xml())
+                if self.osc_connection.osc_ready:
+                    # rest of the prog.
+                    self.osc_connection.check_variables(self.osc_connection.MA_set_tc_events(self.data))
+                    break
+                else:
+                    continue
                 # start server listener...
                 #self.osc_connection.establish_osc_server(self.osc_connection.handlers)
                 # Exit listener when variable is passed
