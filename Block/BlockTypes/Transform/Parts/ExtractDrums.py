@@ -2,8 +2,7 @@ from message import Log
 from audio_separator.separator import Separator
 from tools import prompt_selection
 import os
-from Block.part import Part
-from DataTypes.audio_data_type import AudioData
+from Data.Types.audio_data import AudioData
 from message import Log
 import soundfile as sf
 
@@ -15,12 +14,11 @@ DEFAULT_MODEL = "kuielab_a_drums.onnx"
 
 # Separates audio file into stems
 class ExtractDrums(Part):
+    name = "ExtractDrums"
     def __init__(self):
         super().__init__()
-        self.set_name("extract_drums")
+        self.set_name("extract_drums")  # maybe uncessary now?
         self.set_type("Transform")
-        self.add_input_type(AudioData())
-        self.add_output_type(AudioData())
 
         self.command.add("set_log_level", self.set_log_level)
 

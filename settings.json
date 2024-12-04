@@ -1,8 +1,6 @@
 {
     "APPLICATION_NAME": "Audio Processing Suite",
-    "APPLICATION_VERSION": "0.1.0",
-    "APPLICATION_AUTHOR": "Dakota And Griffin",
-    "AUDIO_TARGET_SAMPLERATE": 22050,
-    "AUDIO_FRAMERATE": 30,
-    "APPLICATION_DIRECTORY": "~/Projects/Ideas"
+    "APPLICATION_DIRECTORY": "~/Projects/Ideas",
+    "PROJECT_NAME": "Untitled Project",
+    "PROJECT_SAVE_DIRECTORY": "~/Users/gdennen/Desktop"
 }

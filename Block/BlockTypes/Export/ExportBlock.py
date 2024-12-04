@@ -1,10 +1,11 @@
 from Block.block import Block
 from message import Log
 class ExportBlock(Block):
+    name = "Export"
     # The export block is used to export the analysis results to a file
     def __init__(self):
         super().__init__()
-        self.name = "Export"
+        self.set_name("Export") # maybe unnecessary now?
         self.parts = []
 
     def add_part(self, part):

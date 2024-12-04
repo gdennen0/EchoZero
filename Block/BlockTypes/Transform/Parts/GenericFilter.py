@@ -1,13 +1,13 @@
 from message import Log
-from Block.part import Part
 import librosa
 from tools import prompt_selection
-from DataTypes.audio_data_type import AudioData
+from Data.Types.audio_data import AudioData
 
 class GenericFilter(Part):
+    name = "GenericFilter"
     def __init__(self):
         super().__init__()
-        self.name = "GenericFilter"
+        self.set_name("GenericFilter")  # maybe uncessary now?
         self.block_type = "Transform"
         self.filter_types = ["lowpass", "highpass", "bandpass", "bandstop"]
         self.filter_type = None
@@ -17,9 +17,6 @@ class GenericFilter(Part):
         self.command.add("list_filter_types", self.list_filter_types)
         self.command.add("set_filter_type", self.set_filter_type)
         self.command.add("start", self.start)
-
-        self.add_input_type(AudioData())
-        self.add_output_type(AudioData())
 
         Log.info(f"GenericFilter initialized")
 

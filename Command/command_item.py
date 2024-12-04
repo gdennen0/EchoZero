@@ -5,6 +5,7 @@ class CommandItem:
         command = pointer to the command 
 
     """
+
     def __init__(self, name=None, command=None):
         self.name = name
         self.command = command

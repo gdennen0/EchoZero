@@ -1,37 +1,17 @@
 from Block.block import Block
 from message import Log
 from Block.BlockTypes.Transform.Parts.GenericFilter import GenericFilter
-from DataTypes.audio_data_type import AudioData
-from Block.BlockTypes.Transform.Parts.ExtractDrums import ExtractDrums
-from Connections.port_types.audio_port import AudioPort
+from Data.Types.audio_data import AudioData
+from Port.PortTypes.audio_port import AudioPort
 
 class TransformAudioBlock(Block):
+    name = "TransformAudio"
     def __init__(self):
         super().__init__()
-        self.name = "TransformAudio"
+        self.set_name("TransformAudio")  # maybe uncessary now
         self.type = "Transform"
-        self.add_part_type(GenericFilter())
-        self.add_part_type(ExtractDrums())
 
-        self.add_input_type(AudioData())
-        self.add_output_type(AudioData())
+        self.port.add_port_type(AudioPort)
+        self.port.add_input("AudioPort")
+        self.port.add_output("AudioPort")
 
-        self.add_port_type(AudioPort)
-        self.add_output_port("AudioPort")
-        self.link_port_attribute("output", "AudioPort", "data")
-        self.add_input_port("AudioPort")
-        self.link_port_attribute("input", "AudioPort", "data")
-
-        self.command.add("clear_parts", self.clear_parts)
-        self.command.add("start", self.start)
-        self.command.add("list_part_types", self.list_part_types)
-
-    def start(self, data):
-        Log.info(f"TransformAudio Block started")
-        result = data
-        for part in self.parts:
-            result = part.start(result)
-            Log.info(f"TransformAudio Part {part.name} completed")
-            self.set_data(result)
-
-        return result
