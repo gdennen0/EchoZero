@@ -2,31 +2,30 @@ from Block.block import Block
 from message import Log
 import os
 from tools import prompt_selection
-from DataTypes.audio_data_type import AudioData
+from Data.Types.audio_data import AudioData
 import librosa
-from Connections.port_types.audio_port import AudioPort
+from Port.PortTypes.audio_port import AudioPort
 
 class LoadAudioBlock(Block):
-
-
+    name = "LoadAudio"
     def __init__(self):
         super().__init__()
         self.AUDIO_SOURCE_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "..", "sources", "audio")
         
         self.selected_file_path = None
         self.selected_file_data = None
-        self.set_name("LoadAudio")
-        self.command.add("select_file", self.select_file)
-        self.add_output_type(AudioData())
+        self.set_name("LoadAudio")  # maybe unnecessary now?
 
-        self.add_port_type(AudioPort)
-        self.add_output_port(port_name="AudioPort")
+        self.port.add_port_type(AudioPort)
+        self.port.add_output("AudioPort")
+        self.command.add("select_file", self.select_file)
+
 
     def select_file(self):
         try:
             audio_files = [f for f in os.listdir(self.AUDIO_SOURCE_DIR) if os.path.isfile(os.path.join(self.AUDIO_SOURCE_DIR, f))]
             Log.list("Audio Files", audio_files)
-            selected_file, _ = prompt_selection("Please select an audio file: ", audio_files)
+            selected_file = prompt_selection("Please select an audio file: ", audio_files)
             self.selected_file_path = os.path.join(self.AUDIO_SOURCE_DIR, selected_file)
             Log.info(f"Selected file: {self.selected_file_path}")
             self.load_file()
@@ -53,3 +52,6 @@ class LoadAudioBlock(Block):
         else:
             Log.error("No file selected. Please select a file first.")
             return
+
+    def process(self, input_data):
+        self.load_file()

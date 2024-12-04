@@ -1,11 +1,9 @@
-from Block.part import Part
 from message import Log
 import librosa
-import numpy as np
 from tools import prompt_selection
-from DataTypes.event_data_type import EventData
-from DataTypes.event_item_type import EventItem
-from DataTypes.audio_data_type import AudioData
+from Data.Types.event_data import EventData
+from Data.Types.event_item import EventItem
+from Data.Types.audio_data import AudioData
 
 
 DEFAULT_ONSET_METHOD = "default"
@@ -16,13 +14,12 @@ DEFAULT_POST_AVG = 3
 DEFAULT_DELTA = 0.7
 DEFAULT_WAIT = 30
 
-class OnsetDetection(Part):
+class OnsetDetection(Part): 
+    name = "OnsetDetection"
     def __init__(self):
         super().__init__()
-        self.name = "OnsetDetection"
+        self.set_name("OnsetDetection")  # maybe unnecessary now?
         self.type = "Analyze"
-        self.add_input_type(AudioData())
-        self.add_output_type(AudioData())
 
         self.detections = []
         self.onset_method = DEFAULT_ONSET_METHOD
