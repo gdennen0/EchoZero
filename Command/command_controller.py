@@ -1,5 +1,6 @@
 from Command.command_item import CommandItem
-from message import Log
+from Utils.message import Log
+
 class CommandController:
     """
     

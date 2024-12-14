@@ -1,0 +1,2 @@
+- Investigate using UID for Project Items
+- Investigate Threading for Command, Project, Blocks, Inputs/Outputs
