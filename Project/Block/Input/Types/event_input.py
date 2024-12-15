@@ -19,3 +19,12 @@ class EventInput(Input):
     
     def load(self, data):
         self.name = data.get("name")
+        self.type = data.get("type")
+        self.data_type = data.get("data_type")
+        connected_output = data.get("connected_output")
+        if connected_output:
+            connected_block_name = connected_output.split('.')[0]
+            connected_block = self.parent_block.parent.get_block(connected_block_name)
+            output_name = data.get("connected_output").split('.')[2]
+            connected_output = connected_block.output.get(output_name)
+            self.connect(connected_output)
