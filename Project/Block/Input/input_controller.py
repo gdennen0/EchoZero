@@ -1,6 +1,6 @@
 from Utils.tools import prompt_selection, prompt, generate_unique_name
 from Utils.message import Log
-from Command.command_controller import CommandController
+from Project.Command.command_controller import CommandController
 from Project.Block.Input.input import Input
 
 from queue import Queue

@@ -1,4 +1,4 @@
-from Command.command_controller import CommandController
+from Project.Command.command_controller import CommandController
 from Project.Data.data_controller import DataController
 from Project.Block.Input.input_controller import InputController
 from Project.Block.Output.output_controller import OutputController
@@ -7,6 +7,9 @@ from Utils.tools import prompt_selection, prompt_selection_with_type_and_parent_
 from abc import ABC, abstractmethod
 from Utils.message import Log
 from Utils.tools import gtimer
+
+import threading
+import queue
 
 class Block(ABC):
     def __init__(self):
@@ -20,7 +23,30 @@ class Block(ABC):
         self.command.add("reload", self.reload)
         self.command.add("connect", self.connect)
 
+
+    def enqueue_command(self, command_name, *args, **kwargs):
+        """
+        Enqueues a command for asynchronous execution.
+        """
+        self.command.enqueue_command(command_name, *args, **kwargs)
+
+
+    def process_commands(self):
+        while True:
+            command = self.command_queue.get()
+            if command is None:
+                break  # Allows graceful shutdown
+            with self.lock:
+                try:
+                    command()
+                except Exception as e:
+                    Log.error(f"Error executing command in block {self.name}: {e}")
+            self.command_queue.task_done()
+
     def reload(self):
+        """
+        Reloads the block by pulling data, processing it, and pushing the results.
+        """
         Log.info(f"Reloading block {self.name}")
         timer = gtimer()
         timer.start()
@@ -72,6 +98,9 @@ class Block(ABC):
         }
     
     def connect(self):
+        """
+        Connects an input port to an output port.
+        """
         if self.input.get_all():
             Log.info(f"Select which {self.name} input you would like to connect")
             input = prompt_selection("Select input port: ", self.input.get_all())
@@ -90,7 +119,6 @@ class Block(ABC):
         if input and external_output:
             input.connect(external_output)
 
-
     def _get_external_outputs(self):
         # get all the external outputs from the blocks
         external_outputs = []
@@ -101,3 +129,9 @@ class Block(ABC):
                 for external_output in block.output.get_all():
                     external_outputs.append(external_output)
         return external_outputs
+    
+    def shutdown(self):
+        """
+        Shuts down the block's command controller.
+        """
+        self.command.shutdown()

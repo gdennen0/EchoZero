@@ -1,15 +1,23 @@
 from Utils.message import Log
 from Project.project import Project
-from Command.command_parser import CommandParser
-from Utils.tools import prompt
+from Project.Command.command_parser import CommandParser
+from Project.Interface.Types.CLI.cli_interface import CLIInterface
 
 def main():
     project = Project() # main data structure 
     parser = CommandParser(project) # command parser module
-    Log.info("Listening for commands")
-    while True:
-        user_input = prompt("Enter command: ")
-        parser.parse_and_execute(user_input)
+    cli_interface = CLIInterface(parser)
+    try:    
+        Log.info("Listening for commands")
+        while True:
+            cli_interface.start()
+
+    except KeyboardInterrupt:
+        Log.info("Shutting down project...")
+        project.shutdown_all_blocks()
+        interface.stop()
+        Log.info("Project shutdown complete.")
+
 
 if __name__ == "__main__":
     main()
