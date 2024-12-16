@@ -3,13 +3,15 @@ from Utils.message import Log
 from Utils.tools import prompt, check_project_path, prompt_selection, yes_no_prompt, generate_unique_name
 import os
 import sys
-from Command.command_controller import CommandController
+from Project.Command.command_controller import CommandController
 import importlib.util
 import json
 from collections import defaultdict, deque
+from typing import List
+from Project.Block.block import Block
 
-PROJECT_DIR_BYPASS = None
 RECENT_PROJECTS_FILE = os.path.join(os.getcwd(), "Utils", "recent_projects.json")
+
 class Project():
     def __init__(self):
         super().__init__()
@@ -19,7 +21,6 @@ class Project():
         self.loaded = False
         self.block_types = []
         self.blocks = []
-
         self.command = CommandController()
 
         self.load_block_types()
@@ -44,7 +45,6 @@ class Project():
         self.initialize_project()
         # self.list_commands()
 
-        # Start of Selection
     def initialize_project(self):
         options = {
             'l': self.load, 
@@ -78,7 +78,6 @@ class Project():
         Log.special(f"New project creation complete!")
         return True
 
-
     def load(self, load_path=None):
         if not load_path:
             load_path = prompt("Please enter the path of the project to load: ")
@@ -89,7 +88,6 @@ class Project():
         self.add_recent_project(load_path)
         Log.info(f"Project '{self.name}' loaded successfully from {load_path}")
         return True
-
 
     def load_project(self, file_path):
         Log.info(f"Starting to load project from '{file_path}'.")
@@ -159,13 +157,13 @@ class Project():
             block_data = project_data['blocks'][block_name]
             self.load_block(block_name, block_data)
             
-
     def load_block(self, name, info):
         for block in self.blocks:
             if block.name == name:
                 block.load(info)
                 Log.info(f"Block '{block.name}' loaded successfully.")
                 return
+        Log.error(f"Block '{name}' not found in project '{self.name}'.")
 
     def list_commands(self):
         indent_unit = '    '  # Define the indentation unit (e.g., 4 spaces or any other characters)
@@ -214,6 +212,7 @@ class Project():
         return project_data
 
         # Start of Selection
+    
     def add_recent_project(self, project_path):
         with open(RECENT_PROJECTS_FILE, 'r') as file:
             recent_projects = json.load(file)
@@ -293,7 +292,6 @@ class Project():
                     self.blocks.append(block)
                     Log.info(f"Added block: {block_type_name}")
 
-    
     def get_block(self, block_name):
         for block in self.blocks:
             Log.info(f"GET BLOCK: Block Name '{block.name}' vs {block_name}")
@@ -327,3 +325,12 @@ class Project():
 
     def get_blocks(self):
         return self.blocks
+    
+    def shutdown_all_blocks(self):
+        """
+        Shuts down all blocks in the project.
+        """
+        Log.info(f"Shutting down all blocks in project '{self.name}'.")
+        for block in self.blocks:
+            block.shutdown()
+        Log.info(f"All blocks in project '{self.name}' have been shut down.")

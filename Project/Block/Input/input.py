@@ -1,6 +1,6 @@
 from Utils.message import Log
 from Utils.tools import prompt, prompt_selection, prompt_selection_with_type_and_parent_block
-from Command.command_controller import CommandController
+from Project.Command.command_controller import CommandController
 from Project.Data.data_controller import DataController
 from Project.Block.Output.output import Output
 
@@ -103,7 +103,7 @@ class Input:
         self.name = data.get("name")
         self.type = data.get("type")
         self.data_type = data.get("data_type")
-    
+
         connected_output = data.get("connected_output")
         if connected_output:
             connected_block_name = connected_output.split('.')[0]

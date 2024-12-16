@@ -1,6 +1,6 @@
 from Utils.message import Log
 from Utils.tools import prompt
-from Command.command_controller import CommandController
+from Project.Command.command_controller import CommandController
 from Project.Data.data_controller import DataController
 
 class Output:
