@@ -296,12 +296,9 @@ class Project():
     
     def get_block(self, block_name):
         for block in self.blocks:
-            Log.info(f"GET BLOCK: Block Name '{block.name}' vs {block_name}")
             if block.name == block_name:
-                Log.info(f"GET BLOCK: Block found")
                 return block
             
-        Log.info(f"GET BLOCK: Block not found")
         return None
         
     def remove_block(self, block_name):

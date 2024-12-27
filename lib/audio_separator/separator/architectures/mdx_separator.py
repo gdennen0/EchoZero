@@ -8,9 +8,9 @@ import onnxruntime as ort
 import numpy as np
 import onnx2torch
 from tqdm import tqdm
-from audio_separator.separator.uvr_lib_v5 import spec_utils
-from audio_separator.separator.uvr_lib_v5.stft import STFT
-from audio_separator.separator.common_separator import CommonSeparator
+from lib.audio_separator.separator.uvr_lib_v5 import spec_utils
+from lib.audio_separator.separator.uvr_lib_v5.stft import STFT
+from lib.audio_separator.separator.common_separator import CommonSeparator
 
 
 class MDXSeparator(CommonSeparator):

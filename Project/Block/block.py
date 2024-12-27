@@ -19,6 +19,7 @@ class Block(ABC):
         self.command = CommandController()
         self.command.add("reload", self.reload)
         self.command.add("connect", self.connect)
+        self.command.add("disconnect", self.disconnect)
 
     def reload(self):
         Log.info(f"Reloading block {self.name}")
@@ -27,19 +28,26 @@ class Block(ABC):
         self.input.pull_all() # Pull data from connected external output ports to local input ports
         
         input_data = []
-        for input in self.input.items():
-            for data_item in input.data.get_all():
-                input_data.append(data_item) # add each collected data item from the inputs to the input_data list
+        if len(self.input.get_all()) > 0:
+            for input in self.input.items():
+                for data_item in input.data.get_all():
+                    input_data.append(data_item) # add each collected data item from the inputs to the input_data list
+        else:
+            Log.warning(f"There are no inputs in {self.name}")
+
 
         results = self.process(input_data) # process the input data
 
         if results:
             self.data.clear()
             for result in results:
-                self.data.add(result)
-                Log.info(f"Reload result added to data controller: {result.name}")
+                if result:
+                    self.data.add(result)
+                    Log.info(f"Reload result added to data controller: {result.name}")
+                else:
+                    Log.error(f"Reload result is None")
         else:
-            Log.error(f"Reload Process Failed because block {self.name} process method didn't return any results.")
+            Log.error(f"Reload Process Failed because block {self.name} processing didn't return any results.")
 
         self.output.push_all(self.data.get_all()) # push the results to the output ports
 
@@ -89,6 +97,15 @@ class Block(ABC):
         
         if input and external_output:
             input.connect(external_output)
+
+    def disconnect(self):
+        if self.input.get_all():
+            Log.info(f"Select which {self.name} input you would like to disconnect from an external output")
+            input = prompt_selection("Select input port: ", self.input.get_all())
+            input.disconnect()
+        else:
+            Log.error("This block does not have any inputs")
+            return
 
 
     def _get_external_outputs(self):

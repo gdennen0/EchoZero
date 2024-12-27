@@ -77,6 +77,11 @@ class Input:
         else:
             Log.error(f"Error connecting Block {self.parent_block.name} port {self.name}. Connection must be an output port, got {type(connected_output)}")
             
+
+    def disconnect(self):
+        self.connected_output = None
+        Log.info(f"Disconnected '{self.parent_block.name}' {self.type} port '{self.name}'")
+
     def list_connection(self):
         Log.info(f"Connected output port: {self.connected_output.name}")
             

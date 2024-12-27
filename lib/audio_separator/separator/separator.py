@@ -17,7 +17,7 @@ import requests
 import torch
 import onnxruntime as ort
 from tqdm import tqdm
-
+import importlib.util
 
 class Separator:
     """
@@ -670,7 +670,13 @@ class Separator:
         self.logger.debug(f"Importing module for model type {model_type}: {separator_classes[model_type]}")
 
         module_name, class_name = separator_classes[model_type].split(".")
-        module = importlib.import_module(f"audio_separator.separator.architectures.{module_name}")
+        
+        application_directory = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        module_file_name = f"{module_name}.py"
+        base_path = os.path.join(application_directory, "separator", "architectures", module_file_name)
+        spec = importlib.util.spec_from_file_location(module_name, base_path)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
         separator_class = getattr(module, class_name)
 
         self.logger.debug(f"Instantiating separator class for model type {model_type}: {separator_class}")

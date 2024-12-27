@@ -14,36 +14,33 @@ class CommandParser:
 
         # Split the input string into parts
         all_input_parts = input_string.lower().split()
-        Log.parser(f"All input parts: {all_input_parts}")
+        # Log.parser(f"All input parts: {all_input_parts}")
         remaining_parts = all_input_parts.copy()
 
         selected_module = self.project
         block = self._get_matching_block(remaining_parts)
         if block:
-            Log.parser(f"Matched block: {block.name}")
             remaining_parts.pop(0)  # Remove block from the list
             selected_module = block
             input_match = self._get_matching_input(block, remaining_parts)
             output_match = self._get_matching_output(block, remaining_parts)
             if input_match or output_match:
                 selected_module = input_match if input_match else output_match
-                Log.parser(f"Matched {'input' if input_match else 'output'}: {selected_module.name}")
                 remaining_parts.pop(0)  # Remove input/output type from the list
-            else:
-                Log.parser("No input/output found.")
-        else:
-            Log.parser("No block found.")
 
         if remaining_parts: 
             command_item, args = self._get_command(selected_module, remaining_parts)
-            if command_item:
-                Log.parser(f"Matched command: {command_item.name}")
-                command_item.command(*args)
-            else:
-                Log.parser("No command found.")
-                if hasattr(selected_module, "command"):
-                    Log.parser("Please select from the following commands instead:")
-                    selected_module.command.list_commands()
+
+        Log.parser(', '.join(filter(None, [f"Matched block: {block.name}" if block else None, f"Matched port: {port.name}" if port else None, f"Command item: {command_item.name}" if command_item else None])))
+
+        if command_item: # Execute Command
+            command_item.command(*args)
+
+        if (block or port) and not command_item:
+            if hasattr(selected_module, "command"):
+                Log.parser("Command not found. Please select from the following commands:")
+                selected_module.command.list_commands()
+        
 
     def _get_matching_block(self, parts):
         if not parts:

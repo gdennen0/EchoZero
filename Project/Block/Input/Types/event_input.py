@@ -13,8 +13,17 @@ class EventInput(Input):
             "name": self.name,
             "type": self.type,
             "data_type": self.data_type,
-            "data": self.data.save()
+            "data": self.data.save(),
         }   
+        # Add connected output info only if it exists
+        if self.connected_output:
+            try:
+                save_data["connected_output"] = f"{self.connected_output.parent_block.name}.output.{self.connected_output.name}"
+            except AttributeError:
+                save_data["connected_output"] = None
+        else:
+            save_data["connected_output"] = None
+            
         return save_data
     
     def load(self, data):

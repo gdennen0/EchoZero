@@ -11,6 +11,7 @@ class AudioData(Data):
         self.sample_rate = None
         self.frame_rate = None
         self.length_ms = None
+        self.source = None
 
     def set_path(self, path):
         if self.path:
@@ -35,6 +36,12 @@ class AudioData(Data):
             Log.error(f"Overwriting existing length value: {self.length_ms}")
         self.length_ms = length
         Log.info(f"Length in ms set to {length}")
+
+    def set_source(self, source):
+        self.source = source
+
+    def get_source(self):
+        return self.source
 
     def save(self):
         return {"name":self.name, 

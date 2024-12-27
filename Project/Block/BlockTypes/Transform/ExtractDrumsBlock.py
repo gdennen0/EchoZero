@@ -4,7 +4,7 @@ from Project.Block.Input.Types.audio_input import AudioInput
 from Project.Block.Output.Types.audio_output import AudioOutput
 
 from Utils.message import Log
-from audio_separator.separator import Separator
+from lib.audio_separator.separator.separator import Separator
 from Utils.tools import prompt_selection
 import os
 from Utils.message import Log
@@ -61,8 +61,7 @@ class ExtractDrumsBlock(Block):
                         audio_object.set_frame_rate(object.frame_rate)
                         audio_object.set_length_ms(object.length_ms)
                         audio_object.set_path(object.path)
-    
-                        audio_object.set_data(stem_data)
+                        audio_object.set_data(stem_data.mean(axis=1))
                         processed_data.append(audio_object) # update the audio object to the drum stem
                         Log.info(f"Drums stem found and set")
             return processed_data
