@@ -3,11 +3,11 @@ import sys
 from pathlib import Path
 import torch
 import numpy as np
-from audio_separator.separator.common_separator import CommonSeparator
-from audio_separator.separator.uvr_lib_v5.demucs.apply import apply_model, demucs_segments
-from audio_separator.separator.uvr_lib_v5.demucs.hdemucs import HDemucs
-from audio_separator.separator.uvr_lib_v5.demucs.pretrained import get_model as get_demucs_model
-from audio_separator.separator.uvr_lib_v5 import spec_utils
+from lib.audio_separator.separator.common_separator import CommonSeparator
+from lib.audio_separator.separator.uvr_lib_v5.demucs.apply import apply_model, demucs_segments
+from lib.audio_separator.separator.uvr_lib_v5.demucs.hdemucs import HDemucs
+from lib.audio_separator.separator.uvr_lib_v5.demucs.pretrained import get_model as get_demucs_model
+from lib.audio_separator.separator.uvr_lib_v5 import spec_utils
 
 DEMUCS_4_SOURCE = ["drums", "bass", "other", "vocals"]
 

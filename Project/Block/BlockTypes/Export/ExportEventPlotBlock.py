@@ -5,6 +5,7 @@ import os
 import matplotlib.pyplot as plt
 from Project.Data.Types.event_data import EventData
 from Project.Block.Input.Types.event_input import EventInput
+import numpy as np
 
 class ExportEventPlotBlock(Block):
     name = "ExportEventPlot"
@@ -16,7 +17,7 @@ class ExportEventPlotBlock(Block):
 
         # Add attributes
         self.file_type = "png"
-        self.destination_path = "/tmp"
+        self.destination_path = os.path.join(os.getcwd(), "tmp")
         self.supported_file_types = ["png", "jpg", "jpeg"]
 
         # Add port types and ports
@@ -79,30 +80,36 @@ class ExportEventPlotBlock(Block):
             Log.error("Destination path not set.")
             return
 
-        for event_output in self.data.get_all():
-            event_data = event_output.data
-            plot_file_name = f"{event_output.name}_event_plot.{self.file_type}"
-            plot_file_path = os.path.join(self.destination_path, plot_file_name)
-            self.export_event_plot(event_data, plot_file_path)
-            Log.info(f"Exported event plot to {plot_file_path}")
+        if len(self.data.get_all()) > 0:
+            for event_data in self.data.get_all():
+                Log.info(f"Exporting event plot for {event_data.name}")
+                Log.info(f"Event data items: {event_data.items}")
+                plot_file_name = f"{event_data.name}_event_plot.{self.file_type}"
+                plot_file_path = os.path.join(self.destination_path, plot_file_name)
+                self.export_event_plot(event_data, plot_file_path)
+        else:
+            Log.error("No event data available to export.")
+            return
 
     def export_event_plot(self, event_data, path):
         """Export event data as a plot image."""
-        if not isinstance(event_data, EventData):
-            Log.error("Input data is not of type EventData.")
-            return
-
+    
         event_times = [item.time for item in event_data.items if item.time is not None]
 
         if not event_times:
             Log.error("No event times available to plot.")
             return
-
+        # Start of Selection
         plt.figure(figsize=(10, 4))
-        plt.eventplot(event_times, lineoffsets=1, colors='b')
+        # Plot the audio waveform in the background
+        y = self.audio_data.data
+        sr = self.audio_data.sample_rate
+        audio_times = np.linspace(0, len(y) / sr, num=len(y))
+        plt.plot(audio_times, y, color='gray', alpha=0.5)
+        plt.eventplot(event_times, lineoffsets=0.5, linelengths=0.9, colors='b')
         plt.xlabel('Time (s)')
         plt.yticks([])
-        plt.title('Event Plot')
+        plt.title('Event Plot with Audio Waveform')
         plt.tight_layout()
         try:
             plt.savefig(path)
@@ -126,11 +133,19 @@ class ExportEventPlotBlock(Block):
             "input": self.input.save(),
             "output": self.output.save()
         }
-
+    
     def load(self, data):
-        self.file_type = data.get("file_type", "png")
-        self.destination_path = data.get("destination_path", "/tmp")
-        self.supported_file_types = data.get("supported_file_types", ["png", "jpg", "jpeg"])
-        self.input.load(data.get("input"))
-        self.output.load(data.get("output"))
+        file_type = data.get("file_type")
+        if file_type is not None:
+            self.file_type = file_type
+        destination_path = data.get("destination_path")
+        if destination_path is not None:
+            self.destination_path = destination_path
+        supported_file_types = data.get("supported_file_types")
+        if supported_file_types is not None:
+            self.supported_file_types = supported_file_types
+        input_data = data.get("input")
+        if input_data is not None:
+            self.input.load(input_data)
+        self.reload()
 

@@ -119,7 +119,7 @@ def main():
 
     logger.setLevel(log_level)
 
-    from audio_separator.separator import Separator
+    from lib.audio_separator.separator import Separator
 
     if args.env_info:
         separator = Separator()

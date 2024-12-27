@@ -11,11 +11,11 @@ from tqdm import tqdm
 # Check if we really need the rerun_mp3 function, remove if not
 import audioread
 
-from audio_separator.separator.common_separator import CommonSeparator
-from audio_separator.separator.uvr_lib_v5 import spec_utils
-from audio_separator.separator.uvr_lib_v5.vr_network import nets
-from audio_separator.separator.uvr_lib_v5.vr_network import nets_new
-from audio_separator.separator.uvr_lib_v5.vr_network.model_param_init import ModelParameters
+from lib.audio_seperator.separator.common_separator import CommonSeparator
+from lib.audio_seperator.separator.uvr_lib_v5 import spec_utils
+from lib.audio_seperator.separator.uvr_lib_v5.vr_network import nets
+from lib.audio_seperator.separator.uvr_lib_v5.vr_network import nets_new
+from lib.audio_seperator.separator.uvr_lib_v5.vr_network.model_param_init import ModelParameters
 
 
 class VRSeparator(CommonSeparator):

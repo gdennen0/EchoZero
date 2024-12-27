@@ -22,6 +22,8 @@ def prompt_selection(prompt_text, options):
     Log.info(prompt_text)
     if isinstance(options, dict):
         options_list = list(options.keys())
+    elif isinstance(options, set):
+        options_list = list(options)
     else:
         options_list = options
     for i, obj in enumerate(options_list):

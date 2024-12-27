@@ -8,12 +8,20 @@ class EventData(Data):
         self.type = "EventData"
         self.description = "A collection of events"
         self.items = []
+        self.source = None
 
     def add_item(self, item):
         self.items.append(item)
 
+    def set_source(self, source):
+        self.source = source
+
+    def get_source(self):
+        return self.source
+
     def save(self):
         return {"name":self.name, 
+                "type":self.type,
                 "description":self.description, 
                 "items":[item.save() for item in self.items]
                 }

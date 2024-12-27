@@ -44,6 +44,7 @@ class LoadAudioBlock(Block):
                 audio_data.set_data(y)
                 audio_data.name = os.path.basename(audio_data.path)
                 audio_data.length_ms = len(audio_data.data) / audio_data.sample_rate * 1000
+                audio_data.set_source(self)
                 Log.info(f"Audio data generated from path: {self.selected_file_path}")
                 return audio_data
             except Exception as e:

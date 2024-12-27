@@ -90,10 +90,11 @@ class OutputController:
         return save_data
     
     def load(self, data):
-        self.name = data.get("name")
-        for output_data in data.get("outputs"):
-            for output_type in self.output_types:
-                if output_type.name == output_data.get("type"):
-                    new_output = output_type(self.parent_block)
-                    new_output.load(output_data)
-                    self.outputs.append(new_output)
+        if data:
+            self.name = data.get("name")
+            for output_data in data.get("outputs"):
+                for output_type in self.output_types:
+                    if output_type.name == output_data.get("type"):
+                        new_output = output_type(self.parent_block)
+                        new_output.load(output_data)
+                        self.outputs.append(new_output)
