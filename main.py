@@ -1,7 +1,7 @@
-from Utils.message import Log
-from Project.project import Project
-from Command.command_parser import CommandParser
-from Utils.tools import prompt
+from src.Utils.message import Log
+from src.Project.project import Project
+from src.Command.command_parser import CommandParser
+from src.Utils.tools import prompt
 
 def main():
     project = Project() # main data structure 
