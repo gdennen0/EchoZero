@@ -17,13 +17,14 @@ class OSCOutput(Output):
         super().push()
 
     def save(self):
-        return {
+        metadata = {
             "name": self.name,
             "type": self.type,
             "data_type": self.data_type
         }
+        return metadata
 
-    def load(self, data):
+    def load(self, metadata, block_dir):
         self.name = data.get("name")
         self.type = data.get("type")
         self.data_type = data.get("data_type")

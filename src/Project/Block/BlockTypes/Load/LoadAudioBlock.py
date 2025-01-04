@@ -7,7 +7,7 @@ import librosa
 from src.Utils.message import Log
 import os
 from pathlib import Path
-
+import json
 class LoadAudioBlock(Block):
     name = "LoadAudio"
     def __init__(self):
@@ -27,11 +27,15 @@ class LoadAudioBlock(Block):
         audio_files = [f for f in os.listdir(self.audio_source_dir) if os.path.isfile(os.path.join(self.audio_source_dir, f))]
         Log.list("Audio Files", audio_files)
         selected_file = prompt_selection("Please select an audio file: ", audio_files)
-        self.selected_file_path = os.path.join(self.audio_source_dir, selected_file)
+        self.set_selected_file_path(os.path.join(self.audio_source_dir, selected_file))
         Log.info(f"Selected file: {self.selected_file_path}")
 
         self.reload()
         return
+    
+    def set_selected_file_path(self, path):
+        self.selected_file_path = path
+        Log.info(f"Set selected file path: {self.selected_file_path}")
 
     def load_file(self):
         if self.selected_file_path:
@@ -60,17 +64,34 @@ class LoadAudioBlock(Block):
         audio_data.append(self.load_file())
         return audio_data
 
-
-    def save(self):
+    def get_metadata(self):
         return {
             "name": self.name,
             "type": self.type,
             "selected_file_path": self.selected_file_path,
-            "data": self.data.save(),
             "input": self.input.save(),
-            "output": self.output.save()
+            "output": self.output.save(),
+            "metadata": self.data.get_metadata()
         }
 
-    def load(self, data):
-        self.selected_file_path = data.get("selected_file_path")
-        self.reload()
+    def save(self, save_dir):
+        self.data.save(save_dir)
+
+    def load(self, block_dir):
+        block_metadata = self.get_metadata_from_dir(block_dir)
+
+        # load attributes
+        self.set_name(block_metadata.get("name"))
+        self.set_type(block_metadata.get("type"))
+        self.set_selected_file_path(block_metadata.get("selected_file_path"))
+
+        # load sub components attributes
+        self.data.load(block_metadata.get("metadata"), block_dir)
+        self.input.load(block_metadata.get("input"))
+        self.output.load(block_metadata.get("output"))
+
+        # push the results to the output ports
+        self.output.push_all(self.data.get_all())
+
+
+

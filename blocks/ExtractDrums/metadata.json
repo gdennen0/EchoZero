@@ -1,0 +1,41 @@
+{
+    "name": "ExtractDrums",
+    "type": "ExtractDrums",
+    "log_level": 3,
+    "output_dir": "/Users/gdennen/Projects/Ideas/tmp",
+    "normalization_threshold": 1.0,
+    "model": "kuielab_a_drums.onnx",
+    "input": {
+        "name": "InputController",
+        "inputs": [
+            {
+                "name": "AudioInput",
+                "type": "AudioInput",
+                "data_type": "AudioData",
+                "connected_output": "LoadAudio.output.AudioOutput"
+            }
+        ]
+    },
+    "output": {
+        "name": "OutputController",
+        "outputs": [
+            {
+                "name": "AudioOutput",
+                "type": "AudioOutput",
+                "data_type": "AudioData"
+            }
+        ]
+    },
+    "metadata": {
+        "name": "data_controller",
+        "metadata": [
+            {
+                "name": "AudioData",
+                "path": "/Users/gdennen/Projects/Ideas/sources/audio/3 LETS GO ON THE RUN.mp3",
+                "sample_rate": 44100,
+                "frame_rate": null,
+                "length_ms": 162909.09297052157
+            }
+        ]
+    }
+}

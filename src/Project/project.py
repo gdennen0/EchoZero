@@ -7,10 +7,44 @@ from src.Command.command_controller import CommandController
 import importlib.util
 import json
 from collections import defaultdict, deque
+import zipfile
+import shutil
 
+PROJECT_VERSION = "0.0.1"
 PROJECT_DIR_BYPASS = None
 RECENT_PROJECTS_FILE = os.path.join(os.getcwd(), "data", "recent_projects.json")
 class Project():
+    """
+    Project is the main container for all blocks and data in the project.
+
+    Project is the main container for all blocks and data in the project.
+
+    Attributes:
+        name (str): The name of the project.
+        save_directory (str): The directory where the project will be saved.
+        application_directory (str): The directory where the application is running.
+        loaded (bool): A flag indicating whether the project is loaded.
+        block_types (list): A list of available block types.
+        blocks (list): A list of blocks in the project.
+        command (CommandController): The command controller for the project.
+
+    Methods:
+        __init__(): Initializes a new instance of the Project class.
+        initialize_project(): Prompts the user to load an existing project or create a new one.
+        load_block_types(): Loads the available block types.
+        load(): Loads a project from a file.
+        new(): Creates a new project.
+        recent(): Loads a recent project.
+        add_block(block_type, block_name): Adds a new block to the project.
+        list_commands(): Lists all available commands.
+        list_block_types(): Lists all available block types.
+        list_blocks(): Lists all blocks in the project.
+        save(): Saves the project to a file.
+        save_as(): Prompts the user to save the project with a new name and directory.
+        build_project_data(): Builds the project data for saving.
+        add_recent_project(project_path): Adds a project to the list of recent projects.
+    """
+
     def __init__(self):
         super().__init__()
         self.name = None
@@ -42,9 +76,7 @@ class Project():
         self.command.add("projectdata", self.project_data)
 
         self.initialize_project()
-        # self.list_commands()
 
-        # Start of Selection
     def initialize_project(self):
         options = {
             'l': self.load, 
@@ -55,7 +87,9 @@ class Project():
             'recent': self.recent
         }
         while True:
-            response = prompt("Do you want to load an existing project or create a new one? (l/load, n/new, r/recent): ").lower()
+            response = prompt("Do you want to load an existing project or create a new one? (l/load, n/new, r/recent): ")
+            if response: 
+                response = response.lower()
             if response in options:
                 if options[response]():
                     break
@@ -92,72 +126,124 @@ class Project():
 
 
     def load_project(self, file_path):
-        Log.info(f"Starting to load project from '{file_path}'.")
-        
-        Log.info(f"Opening project file '{file_path}'.")
-        with open(file_path, 'r') as file:
-            project_data = json.load(file)
-        Log.info("Project data loaded successfully.")
+        projectdata_dir = os.path.join(self.application_directory, "tmp", "projectdata")
+        if os.path.exists(projectdata_dir):
+            for root, dirs, files in os.walk(projectdata_dir, topdown=False):
+                for name in files:
+                    os.remove(os.path.join(root, name))
+                for name in dirs:
+                    os.rmdir(os.path.join(root, name))
+            os.rmdir(projectdata_dir)
 
-        dependencies = defaultdict(list)
-        in_degree = defaultdict(int)
+        with zipfile.ZipFile(file_path, 'r') as project_file:
+            project_file.extractall(projectdata_dir)
 
-        self.name = project_data.get("name")
-        self.save_directory = project_data.get("save_directory")
+            metadata_path = os.path.join(projectdata_dir, 'metadata.json')
+            if os.path.exists(metadata_path):
+                with open(metadata_path, 'r') as metadata_file:
+                    project_data = json.load(metadata_file)
+                    Log.info(f"-"*50)
+                    Log.info(f"Project Name: {project_data.get('name')}")
+                    Log.info(f"Save Directory: {project_data.get('save_directory')}")
+                    Log.info(f"-"*50)
 
-        Log.info("Building dependency graph.")
-        for block_name, block_data in project_data['blocks'].items():
-            # Add block based on its type
-            Log.info(f"---> block_name: {block_name}")
-            for block_type in self.block_types:
-                if block_type.name == block_data.get('type'):
-                    self.add_block(block_type_name=block_type.name)
-                    break
+                    self.set_name(project_data.get("name"))
+                    self.set_save_directory(project_data.get("save_directory"))
+
+                    blocks_list = project_data.get("blocks", [])
+                    for block_name in blocks_list:
+                        Log.info(f"Added block to add: {block_name}")
+                        self.add_block(block_name)
+                    Log.info("Completed adding blocks to project")
+                    Log.info(f"-"*50)
+
             else:
-                Log.warning(f"Unknown block type '{block_data.get('type')}' for block '{block_name}'.")
-                continue  # Skip processing dependencies for unknown block types
+                Log.error(f"Metadata file not found in {projectdata_dir}")
+                
+        blocks_dir = os.path.join(projectdata_dir, 'blocks')
+        if os.path.exists(blocks_dir):
+            for block_folder in os.listdir(blocks_dir):
+                block_folder_path = os.path.join(blocks_dir, block_folder)
+                if os.path.isdir(block_folder_path):
+                    metadata_path = os.path.join(block_folder_path, 'metadata.json')
+                    if os.path.exists(metadata_path):
+                        with open(metadata_path, 'r') as metadata_file:
+                            Log.info(f"Begin Loading block: {block_folder}")
+                            block_metadata = json.load(metadata_file)
+                            for block in self.blocks:
+                                if block.name == block_metadata.get("name"):
+                                    block.load(block_folder_path)
+                                    Log.info(f"Loaded block: {block.name}")
+                    else:
+                        Log.error(f"Metadata file not found in {block_folder_path}")
+        else:
+            Log.error(f"Blocks directory not found in {projectdata_dir}")  
 
-            # Validate 'input' before accessing 'inputs'
-            input_data = block_data.get('input')
-            if not input_data or 'inputs' not in input_data:
-                Log.warning(f"No input data for block '{block_name}'. Skipping dependency processing.")
-                continue
 
-            for input_item in input_data['inputs']:
-                connected_output = input_item.get('connected_output')
-                if connected_output:
-                    dependent_block = connected_output.split('.')[0]  # Extract block name
-                    dependencies[dependent_block].append(block_name)
-                    in_degree[block_name] += 1
-                    Log.debug(f"Block '{block_name}' depends on '{dependent_block}'.")
-                else:
-                    Log.info(f"No connected_output found for block '{block_name}'.")
+    # def load_project(self, file_path):
+    #     Log.info(f"Starting to load project from '{file_path}'.")
+    #     with open(file_path, 'r') as file:
+    #         project_data = json.load(file)
+    #     Log.info("Project data loaded successfully.")
 
-        # Proceed with topological sort as before
-        Log.info("Initializing queue with blocks that have no dependencies.")
-        queue = deque([block for block in project_data['blocks'] if in_degree[block] == 0])
-        Log.info(f"Initial load queue: {list(queue)}")
-        loading_order = []
+    #     dependencies = defaultdict(list)
+    #     in_degree = defaultdict(int)
 
-        while queue:
-            current = queue.popleft()
-            loading_order.append(current)
-            Log.info(f"Processing block '{current}'.")
-            for dependent in dependencies[current]:
-                in_degree[dependent] -= 1
-                Log.debug(f"Decremented in_degree of '{dependent}' to {in_degree[dependent]}.")
-                if in_degree[dependent] == 0:
-                    queue.append(dependent)
-                    Log.info(f"Added block '{dependent}' to queue as its in_degree is now 0.")
+    #     self.name = project_data.get("name")
+    #     self.save_directory = project_data.get("save_directory")
 
-        if len(loading_order) != len(project_data['blocks']):
-            Log.error("Cyclic dependency detected!")
-            raise Exception("Cyclic dependency detected!")
+    #     Log.info("Building dependency graph.")
+    #     for block_name, block_data in project_data['blocks'].items():
+    #         Log.info(f"---> block_name: {block_name}")
+    #         for block_type in self.block_types:
+    #             if block_type.name == block_data.get('type'):
+    #                 self.add_block(block_type_name=block_type.name)
+    #                 break
+    #         else:
+    #             Log.warning(f"Unknown block type '{block_data.get('type')}' for block '{block_name}'.")
+    #             continue  # Skip processing dependencies for unknown block types
 
-        Log.info(f"Loading blocks in the following order: {loading_order}")
-        for block_name in loading_order:
-            block_data = project_data['blocks'][block_name]
-            self.load_block(block_name, block_data)
+    #         # Validate 'input' before accessing 'inputs'
+    #         input_data = block_data.get('input')
+    #         if not input_data or 'inputs' not in input_data:
+    #             Log.warning(f"No input data for block '{block_name}'. Skipping dependency processing.")
+    #             continue
+
+    #         for input_item in input_data['inputs']:
+    #             connected_output = input_item.get('connected_output')
+    #             if connected_output:
+    #                 dependent_block = connected_output.split('.')[0]  # Extract block name
+    #                 dependencies[dependent_block].append(block_name)
+    #                 in_degree[block_name] += 1
+    #                 Log.debug(f"Block '{block_name}' depends on '{dependent_block}'.")
+    #             else:
+    #                 Log.info(f"No connected_output found for block '{block_name}'.")
+
+    #     # Proceed with topological sort as before
+    #     Log.info("Initializing queue with blocks that have no dependencies.")
+    #     queue = deque([block for block in project_data['blocks'] if in_degree[block] == 0])
+    #     Log.info(f"Initial load queue: {list(queue)}")
+    #     loading_order = []
+
+    #     while queue:
+    #         current = queue.popleft()
+    #         loading_order.append(current)
+    #         Log.info(f"Processing block '{current}'.")
+    #         for dependent in dependencies[current]:
+    #             in_degree[dependent] -= 1
+    #             Log.debug(f"Decremented in_degree of '{dependent}' to {in_degree[dependent]}.")
+    #             if in_degree[dependent] == 0:
+    #                 queue.append(dependent)
+    #                 Log.info(f"Added block '{dependent}' to queue as its in_degree is now 0.")
+
+    #     if len(loading_order) != len(project_data['blocks']):
+    #         Log.error("Cyclic dependency detected!")
+    #         raise Exception("Cyclic dependency detected!")
+
+    #     Log.info(f"Loading blocks in the following order: {loading_order}")
+    #     for block_name in loading_order:
+    #         block_data = project_data['blocks'][block_name]
+    #         self.load_block(block_name, block_data)
             
 
     def load_block(self, name, info):
@@ -188,15 +274,60 @@ class Project():
                     Log.info(f"{indent_unit * 3}Command: '{cmd.name}'")
 
     def save(self):
-        if self.save_directory:
-            save_path = os.path.join(self.save_directory, f"{self.name}.json")
-            project_data = self.build_project_data()
-            self.add_recent_project(save_path)
-            with open(save_path, 'w') as file:
-                json.dump(project_data, file, indent=4)
-            Log.info(f"Project saved successfully to {save_path}")
-        else:
+        if not self.save_directory:
             Log.error("No save directory set. Please set one before saving.")
+            return
+        
+        project_root = os.path.join(self.save_directory, self.name)
+        if not os.path.exists(project_root):
+            os.makedirs(project_root, exist_ok=True)
+
+        project_json = {
+            "name": self.name,
+            "version": PROJECT_VERSION,
+            "save_directory": self.save_directory,
+            "loaded": self.loaded,
+            "blocks": [block.name for block in self.blocks]
+        }
+        
+        project_json_path = os.path.join(project_root, "metadata.json")
+        with open(project_json_path, 'w') as file:
+            json.dump(project_json, file, indent=4)
+        
+        blocks_dir = os.path.join(project_root, "blocks")
+        os.makedirs(blocks_dir, exist_ok=True)
+
+
+        for block in self.blocks:
+            block_name = block.name
+            block_dir = os.path.join(blocks_dir, block_name)
+            os.makedirs(block_dir, exist_ok=True)
+            metadata = block.get_metadata()
+            block.save(block_dir)
+
+            metadata_path = os.path.join(block_dir, "metadata.json")
+            with open(metadata_path, 'w') as file:
+                json.dump(metadata, file, indent=4)
+
+
+        # Define the path for the zip file with .ez extension
+        zip_path = os.path.join(self.save_directory, f"{self.name}.ez")
+
+        # Create a zip file
+        with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zip_ref:
+            for root, _, files in os.walk(project_root):
+                for file in files:
+                    full_path = os.path.join(root, file)
+                    rel_path = os.path.relpath(full_path, start=project_root)
+                    zip_ref.write(full_path, arcname=rel_path)
+
+        # Optional: Remove the unzipped folder after creating the .ez file
+        shutil.rmtree(project_root)
+        self.add_recent_project(zip_path)
+
+        Log.info(f"Project saved successfully to {zip_path}")
+
+
 
     def save_as(self):
         self.name = prompt("Please enter the name of the project: ")
@@ -209,7 +340,7 @@ class Project():
             "name" : self.name,
             "save_directory" : self.save_directory,
             "loaded" : self.loaded,
-            "blocks": {block.name : block.save() for block in self.blocks}
+            "blocks": {block.name : block.get_metadata() for block in self.blocks}
         }
         return project_data
 
@@ -324,3 +455,17 @@ class Project():
 
     def get_blocks(self):
         return self.blocks
+    
+    def set_name(self, name):
+        self.name = name
+        Log.info(f"Set project name to {name}")
+
+    def get_name(self):
+        return self.name
+    
+    def set_save_directory(self, save_directory):
+        self.save_directory = save_directory
+        Log.info(f"Set project save directory to {save_directory}")
+
+    def get_save_directory(self):
+        return self.save_directory

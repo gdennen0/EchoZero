@@ -3,6 +3,8 @@ from src.Utils.message import Log
 from src.Command.command_controller import CommandController
 from src.Project.Block.Input.input import Input
 from queue import Queue
+import json
+import os
 
 class InputController:
     def __init__(self, parent_block):
@@ -72,22 +74,21 @@ class InputController:
 
     def save(self):
         input_data = [input.save() for input in self.inputs]
-        return {
+        metadata = {
             "name": self.name, 
             "inputs": input_data} if input_data else None
+        return metadata
     
-    def load(self, data):
+    def load(self, metadata):
+        if metadata is None:
+            Log.warning(f"No metadata found for input controller {self.parent_block.name} / not initialized")
+            return
         Log.info(f"Loading input controller for block {self.parent_block.name}")
-        self.name = data.get("name") # get controller name
-        for input_data in data.get("inputs"):
+        self.name = metadata.get("name") # get controller name
+        for input_data in metadata.get("inputs"):
             input_name = input_data.get("name")
             for input in self.inputs:
                 if input.name == input_name:    
-                    Log.info(f"Matched local input {input.name} with saved input {input_name}")
-                    Log.info(f'input name: {input.name}')
-                    Log.info(f'input type: {input.type}')
-                    Log.info(f'input data type: {input.data_type}')
-                    Log.info(f'input connected output: {input.connected_output}')
                     input.load(input_data)
                     
 

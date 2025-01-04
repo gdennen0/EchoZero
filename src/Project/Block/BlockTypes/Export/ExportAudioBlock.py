@@ -5,6 +5,7 @@ from src.Utils.tools import prompt_selection, prompt
 import os
 from pydub import AudioSegment
 import soundfile as sf
+import json
 
 
 DEFAULT_EXPORT_AUDIO_PATH = os.path.join(os.getcwd(), "tmp")
@@ -97,6 +98,18 @@ class ExportAudioBlock(Block):
                     Log.error(f"Failed to create destination directory: {e}")
         Log.info(f"Set destination path: {self.destination_path}")
 
+    def set_file_type(self, file_type):
+        self.file_type = file_type
+        Log.info(f"Set file type: {self.file_type}")
+
+    def set_audio_settings(self, audio_settings):
+        self.audio_settings = audio_settings
+        Log.info(f"Set audio settings: {self.audio_settings}")
+
+    def set_destination_path(self, destination_path):
+        self.destination_path = destination_path
+        Log.info(f"Set destination path: {self.destination_path}")
+
     def export(self):
         """Command to export the audio data based on settings."""
         if not self.data:
@@ -165,23 +178,38 @@ class ExportAudioBlock(Block):
         Log.info(f"Exported AAC file to {path}")
 
 
-    def save(self):
+    def get_metadata(self):
         return {
             "name": self.name,
             "type": self.type,
             "file_type": self.file_type,
             "destination_path": self.destination_path,
-            "audio_settings": self.audio_settings,            
-            "data": self.data.save(),
+            "audio_settings": self.audio_settings,
             "input": self.input.save(),
-            "output": self.output.save()
+            "output": self.output.save(),
+            "metadata": self.data.get_metadata()
         }
 
-    def load(self, data):
-        self.file_type = data.get("file_type")
-        self.destination_path = data.get("destination_path")
-        self.audio_settings = data.get("audio_settings")
-        self.input.load(data.get("input")) # just need to reconnect the inputs
+    def save(self, save_dir):
+        # does not save any data, just metadata
+        pass
 
-        self.reload()
+    def load(self, block_dir):
+        block_metadata = self.get_metadata_from_dir(block_dir)
+
+        # load attributes
+        self.set_name(block_metadata.get("name"))
+        self.set_type(block_metadata.get("type"))
+        self.set_file_type(block_metadata.get("file_type"))
+        self.set_destination_path(block_metadata.get("destination_path"))
+        self.set_audio_settings(block_metadata.get("audio_settings"))
+        
+        # load sub components attributes
+        self.data.load(block_metadata.get("metadata"), block_dir)
+        self.input.load(block_metadata.get("input"))
+        self.output.load(block_metadata.get("output"))
+
+        # push the results to the output ports
+        self.output.push_all(self.data.get_all())
+
 

@@ -8,7 +8,7 @@ from lib.audio_separator.separator.separator import Separator
 from src.Utils.tools import prompt_selection
 import os
 from src.Utils.message import Log
-
+import json
 
 DEFAULT_LOG_LEVEL = 3
 DEFAULT_OUTPUT_DIR = os.path.join(os.getcwd(), "tmp")
@@ -92,7 +92,8 @@ class ExtractDrumsBlock(Block):
         model_value = model_dict[ai_model][ai_category][ai_training]
         return model_value
     
-    def save(self):
+
+    def get_metadata(self):
         return {
             "name": self.name,
             "type": self.type,
@@ -100,19 +101,40 @@ class ExtractDrumsBlock(Block):
             "output_dir": self.output_dir,
             "normalization_threshold": self.normalization_threshold,
             "model": self.model,
-            "data": self.data.save(),
             "input": self.input.save(),
-            "output": self.output.save()
+            "output": self.output.save(),
+            "metadata": self.data.get_metadata()
         }
+    
+    def save(self, save_dir):
+        self.data.save(save_dir)
 
-    def load(self, data):
-        self.log_level = data.get("log_level")
-        self.output_dir = data.get("output_dir")
-        self.normalization_threshold = data.get("normalization_threshold")
-        self.model = data.get("model")
-        self.input.load(data.get("input")) # just need to reconnect the inputs
+    # def load(self, metadata, block_dir):
+    #     self.log_level = data.get("log_level")
+    #     self.output_dir = data.get("output_dir")
+    #     self.normalization_threshold = data.get("normalization_threshold")
+    #     self.model = data.get("model")
+    #     self.input.load(data.get("input")) # just need to reconnect the inputs
 
-        self.reload()
+    #     self.reload()
+    def load(self, block_dir):
+        block_metadata = self.get_metadata_from_dir(block_dir)
+
+        # load attributes
+        self.set_name(block_metadata.get("name"))
+        self.set_type(block_metadata.get("type"))
+        self.set_log_level(block_metadata.get("log_level"))
+        self.set_output_dir(block_metadata.get("output_dir"))
+        self.set_normalization_threshold(block_metadata.get("normalization_threshold"))
+        self.set_model(block_metadata.get("model"))
+
+        # load sub components attributes
+        self.data.load(block_metadata.get("metadata"), block_dir)
+        self.input.load(block_metadata.get("input"))
+        self.output.load(block_metadata.get("output"))
+
+        # push the results to the output ports
+        self.output.push_all(self.data.get_all())
 
 
 # Dictionary (for user selection) of available training models

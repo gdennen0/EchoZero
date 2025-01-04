@@ -1,0 +1,45 @@
+{
+    "name": "ManualClassify",
+    "type": "ManualClassify",
+    "input": {
+        "name": "InputController",
+        "inputs": [
+            {
+                "name": "EventInput",
+                "type": "EventInput",
+                "data_type": "EventData",
+                "connected_output": "DetectOnsets.output.EventOutput"
+            }
+        ]
+    },
+    "output": {
+        "name": "OutputController",
+        "outputs": [
+            {
+                "name": "EventOutput",
+                "type": "EventOutput",
+                "data_type": "EventData"
+            }
+        ]
+    },
+    "metadata": {
+        "name": "data_controller",
+        "metadata": [
+            {
+                "name": "OnsetEvents",
+                "type": "EventData",
+                "description": "Event data of single onsets from audio",
+                "items": [
+                    {
+                        "name": "onset_0",
+                        "description": "no description set",
+                        "classification": null,
+                        "type": "EventItem",
+                        "time": 0.19736961451247165,
+                        "source": "DetectOnsets"
+                    }
+                ]
+            }
+        ]
+    }
+}

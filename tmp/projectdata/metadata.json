@@ -1,0 +1,12 @@
+{
+    "name": "testing4",
+    "version": "0.0.1",
+    "save_directory": "/Users/gdennen/Desktop/EZTesting",
+    "loaded": false,
+    "blocks": [
+        "LoadAudio",
+        "DetectOnsets",
+        "ManualClassify",
+        "DetectPercussion"
+    ]
+}

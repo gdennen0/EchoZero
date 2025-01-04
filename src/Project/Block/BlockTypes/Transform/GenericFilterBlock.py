@@ -6,7 +6,8 @@ from src.Project.Block.Output.Types.audio_output import AudioOutput
 from src.Utils.message import Log
 import librosa
 from src.Utils.tools import prompt_selection
-
+import json
+import os
 class GenericFilterBlock(Block):
     name = "GenericFilter"
     def __init__(self):
@@ -56,6 +57,12 @@ class GenericFilterBlock(Block):
             self.cutoff = prompt_selection("Please enter the cutoff frequencies: ")
             Log.info(f"Cutoff set to {self.cutoff}")
 
+    def set_cutoff_low(self, cutoff_low):
+        self.cutoff_low = cutoff_low
+
+    def set_cutoff_high(self, cutoff_high):
+        self.cutoff_high = cutoff_high
+
     def start(self, audio_data):
         for audio_object in audio_data:
             if not isinstance(audio_object, AudioData):
@@ -92,22 +99,37 @@ class GenericFilterBlock(Block):
         processed_data.append(self.start(audio_data))
         return processed_data
     
-
-    def save(self):
+    def get_metadata(self):
         return {
             "name": self.name,
             "type": self.type,
             "filter_type": self.filter_type,
             "cutoff": self.cutoff,
             "cutoff_low": self.cutoff_low,
-            "cutoff_high": self.cutoff_high
-        }
+            "cutoff_high": self.cutoff_high,
+            "input": self.input.save(),
+            "output": self.output.save(),
+            "metadata": self.data.get_metadata()
+        }   
+    
+    def save(self, save_dir):
+        self.data.save(save_dir)
 
+    def load(self, block_dir):
+        block_metadata = self.get_metadata_from_dir(block_dir)
 
-    def load(self, data):
-        self.filter_type = data.get("filter_type")
-        self.cutoff = data.get("cutoff")
-        self.cutoff_low = data.get("cutoff_low")
-        self.cutoff_high = data.get("cutoff_high")
+        # load attributes
+        self.set_name(block_metadata.get("name"))
+        self.set_type(block_metadata.get("type"))
+        self.set_filter_type(block_metadata.get("filter_type"))
+        self.set_cutoff(block_metadata.get("cutoff"))
+        self.set_cutoff_low(block_metadata.get("cutoff_low"))
+        self.set_cutoff_high(block_metadata.get("cutoff_high"))
 
-        self.reload()
+        # load sub components attributes
+        self.data.load(block_metadata.get("metadata"), block_dir)
+        self.input.load(block_metadata.get("input"))
+        self.output.load(block_metadata.get("output"))
+
+        # push the results to the output ports
+        self.output.push_all(self.data.get_all())

@@ -6,7 +6,7 @@ import matplotlib.pyplot as plt
 from src.Project.Data.Types.event_data import EventData
 from src.Project.Block.Input.Types.event_input import EventInput
 import numpy as np
-
+import json
 class ExportEventPlotBlock(Block):
     name = "ExportEventPlot"
     def __init__(self):
@@ -68,6 +68,14 @@ class ExportEventPlotBlock(Block):
             self.destination_path = path
             Log.info(f"Set destination path: {self.destination_path}")
 
+    def set_file_type(self, file_type):
+        self.file_type = file_type
+        Log.info(f"Set file type: {self.file_type}")
+
+    def set_destination_path(self, path):
+        self.destination_path = path
+        Log.info(f"Set destination path: {self.destination_path}")
+
     def export(self):
         """Command to export the event plot based on settings."""
         if not self.data:
@@ -122,30 +130,39 @@ class ExportEventPlotBlock(Block):
     def process(self, input_data):
         # Pass through data without modification
         return input_data
+    
+    def save(self, save_dir):
+        # does not save any data, just metadata
+        pass
 
-    def save(self):
-        return {
+    def get_metadata(self):
+        metadata = {
             "name": self.name,
             "type": self.type,
             "file_type": self.file_type,
             "destination_path": self.destination_path,
-            "supported_file_types": self.supported_file_types,
             "input": self.input.save(),
-            "output": self.output.save()
+            "output": self.output.save(),
+            "metadata": self.data.get_metadata()
         }
+        return metadata
     
-    def load(self, data):
-        file_type = data.get("file_type")
-        if file_type is not None:
-            self.file_type = file_type
-        destination_path = data.get("destination_path")
-        if destination_path is not None:
-            self.destination_path = destination_path
-        supported_file_types = data.get("supported_file_types")
-        if supported_file_types is not None:
-            self.supported_file_types = supported_file_types
-        input_data = data.get("input")
-        if input_data is not None:
-            self.input.load(input_data)
-        self.reload()
+    def load(self, block_dir):
+        # get block metadata
+        block_metadata = self.get_metadata_from_dir(block_dir)          
+
+        # load attributes
+        self.set_name(block_metadata.get("name"))
+        self.set_type(block_metadata.get("type"))
+        self.set_file_type(block_metadata.get("file_type"))
+        self.set_destination_path(block_metadata.get("destination_path"))
+
+        # load sub components attributes
+        self.data.load(block_metadata.get("metadata"), block_dir)
+        self.input.load(block_metadata.get("input"))
+        self.output.load(block_metadata.get("output"))
+
+        # push the results to the output ports
+        self.output.push_all(self.data.get_all())
+
 

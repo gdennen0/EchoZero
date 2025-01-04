@@ -10,31 +10,30 @@ class AudioInput(Input):
 
     def save(self):
         # Create base save data
-        save_data = {
+        metadata = {
             "name": self.name,
             "type": self.type,
             "data_type": self.data_type,
-            "data": self.data.save()
         }
         
         # Add connected output info only if it exists
         if self.connected_output:
             try:
-                save_data["connected_output"] = f"{self.connected_output.parent_block.name}.output.{self.connected_output.name}"
+                metadata["connected_output"] = f"{self.connected_output.parent_block.name}.output.{self.connected_output.name}"
             except AttributeError:
-                save_data["connected_output"] = None
+                metadata["connected_output"] = None
         else:
-            save_data["connected_output"] = None
+            metadata["connected_output"] = None
             
-        return save_data
+        return metadata
     
-    def load(self, data):
-        self.name = data.get("name")
-        connected_output = data.get("connected_output")
+    def load(self, metadata):
+        self.name = metadata.get("name")
+        connected_output = metadata.get("connected_output")
         if connected_output:
             connected_block_name = connected_output.split('.')[0]
             connected_block = self.parent_block.parent.get_block(connected_block_name)
-            output_name = data.get("connected_output").split('.')[2]
+            output_name = metadata.get("connected_output").split('.')[2]
             connected_output = connected_block.output.get(output_name)
             self.connect(connected_output)
         else:

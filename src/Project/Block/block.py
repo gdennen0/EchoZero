@@ -4,9 +4,11 @@ from src.Project.Block.Input.input_controller import InputController
 from src.Project.Block.Output.output_controller import OutputController
 
 from src.Utils.tools import prompt_selection, prompt_selection_with_type_and_parent_block
-from abc import ABC, abstractmethod
+from abc import ABC, abstractmethod     
 from src.Utils.message import Log
 from src.Utils.tools import gtimer
+import os
+import json
 
 class Block(ABC):
     def __init__(self):
@@ -21,6 +23,7 @@ class Block(ABC):
         self.command.add("connect", self.connect)
         self.command.add("disconnect", self.disconnect)
         self.command.add("list_connections", self.list_connections)
+        self.command.add("list_commands", self.command.list_commands)
 
     def reload(self):
         Log.info(f"Reloading block {self.name}")
@@ -70,16 +73,19 @@ class Block(ABC):
     def set_parent(self, parent):
         self.parent = parent
         Log.info(f"Set parent: {parent.name}")
-
-    def save(self):
+        
+    def get_metadata(self):
         return {
             "name": self.name,
             "type": self.type,
-            "data": self.data.save(),
+            "metadata": self.data.get_metadata(),
             "input": self.input.save(),
             "output": self.output.save()
         }
-    
+
+    def save(self, save_dir):
+        self.data.save(save_dir)    
+
     def connect(self):
         if self.input.get_all():
             Log.info(f"Select which {self.name} input you would like to connect")
@@ -121,6 +127,25 @@ class Block(ABC):
         return external_outputs
     
     def list_connections(self):
-        for input in self.input.get_all():
+        if self.input.get_all():
             Log.info(f"Listing connections for block '{self.name}'")
-            Log.info(f"Input: {input.name}, Connection: {input.get_connected_output_address()}")
+            for input in self.input.get_all():
+                if input: 
+                    Log.info(f"Input: {input.name}, Connection: {input.get_connected_output_address().name}")
+
+        else:
+            Log.error("This block does not have any inputs")
+
+        if self.output.get_all():
+            Log.info(f"Listing connections for block '{self.name}'")
+            for output in self.output.get_all():
+                Log.info(f"Output: {output.name}, Connection: {output.get_connected_input_address().name}")
+        else:
+            Log.error("This block does not have any outputs")
+
+
+    def get_metadata_from_dir(self, dir):
+        block_metadata_path = os.path.join(dir, 'metadata.json')
+        with open(block_metadata_path, 'r') as block_metadata_file:
+            block_metadata = json.load(block_metadata_file)
+        return block_metadata

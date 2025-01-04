@@ -64,21 +64,29 @@ class OSCBlock(Block):
         processed_data = input_data
         return processed_data
 
-    def save(self):
+    def get_metadata(self):
         return {
             "name": self.name,
             "type": self.type,
-            "data": self.data.save(),
             "input": self.input.save(),
             "output": self.output.save(),
-            # Add any OSC-specific settings here
+            "metadata": self.data.get_metadata()
         }
+       
+    def save(self, save_dir):
+        self.data.save(save_dir)
 
-    def load(self, data):
-        self.name = data.get("name")
-        self.type = data.get("type")
-        self.data.load(data.get("data"))
-        self.input.load(data.get("input"))
-        self.output.load(data.get("output"))
-        # Load any OSC-specific settings here
-        Log.info(f"OSCBlock '{self.name}' loaded successfully.")
+    def load(self, block_dir):
+        block_metadata = self.get_metadata_from_dir(block_dir)
+
+        # load attributes
+        self.set_name(block_metadata.get("name"))
+        self.set_type(block_metadata.get("type"))
+
+        # load sub components attributes
+        self.data.load(block_metadata.get("metadata"), block_dir)
+        self.input.load(block_metadata.get("input"))
+        self.output.load(block_metadata.get("output"))
+
+        # push the results to the output ports
+        self.output.push_all(self.data.get_all())

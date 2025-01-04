@@ -3,7 +3,6 @@ from src.Utils.message import Log
 from src.Command.command_controller import CommandController
 from src.Project.Block.Output.output import Output
 
-
 class OutputController:
     def __init__(self, parent_block):
         self.parent_block = parent_block
@@ -83,18 +82,18 @@ class OutputController:
             output_data.append(output.save())
         if not output_data:
             return None
-        save_data = {
+        metadata = {
             "name": self.name,
             "outputs": output_data
         }
-        return save_data
+        return metadata 
     
-    def load(self, data):
-        if data:
-            self.name = data.get("name")
-            for output_data in data.get("outputs"):
-                for output_type in self.output_types:
-                    if output_type.name == output_data.get("type"):
-                        new_output = output_type(self.parent_block)
-                        new_output.load(output_data)
-                        self.outputs.append(new_output)
+    def load(self, metadata):
+        if metadata:
+            self.name = metadata.get("name")
+            for output_data in metadata.get("outputs"):
+                output_name = output_data.get("name")
+                for output in self.outputs:
+                    if output.name == output_name:
+                        output.load(output_data)
+

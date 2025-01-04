@@ -94,7 +94,7 @@ class Input:
             
     def save(self):
         # Create base save data
-        save_data = {
+        metadata = {
             "name": self.name,
             "type": self.type,
             "data_type": self.data_type
@@ -103,20 +103,20 @@ class Input:
         # Add connected output info only if it exists
         if self.connected_output:
             try:
-                save_data["connected_output"] = f"{self.connected_output.parent_block.name}.output.{self.connected_output.name}"
+                metadata["connected_output"] = f"{self.connected_output.parent_block.name}.output.{self.connected_output.name}"
             except AttributeError:
-                save_data["connected_output"] = None
+                metadata["connected_output"] = None
         else:
-            save_data["connected_output"] = None
+            metadata["connected_output"] = None
             
-        return save_data
+        return metadata
     
-    def load(self, data):
-        self.name = data.get("name")
-        self.type = data.get("type")
-        self.data_type = data.get("data_type")
+    def load(self, metadata):
+        self.name = metadata.get("name")
+        self.type = metadata.get("type")
+        self.data_type = metadata.get("data_type")
     
-        connected_output = data.get("connected_output")
+        connected_output = metadata.get("connected_output")
         if connected_output:
             connected_block_name = connected_output.split('.')[0]
             connected_block = self.parent_block.parent.get_block(connected_block_name)

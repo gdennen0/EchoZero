@@ -11,7 +11,7 @@ import os
 from pathlib import Path
 import numpy as np
 from src.Project.Data.Types.audio_data import AudioData
-
+import json
 
 DEFAULT_ONSET_METHOD = "default"
 DEFAULT_PRE_MAX = 3
@@ -19,13 +19,12 @@ DEFAULT_POST_MAX = 3
 DEFAULT_PRE_AVG = 3
 DEFAULT_POST_AVG = 3
 DEFAULT_DELTA = 0.5
-DEFAULT_WAIT = 30
+DEFAULT_WAIT = 10
 
 class DetectOnsetsBlock(Block):
     """
-    A refactored block that detects onsets in audio using Librosa and extracts individual
-    audio clips for each detected onset. This version refines the end time of each onset
-    by analyzing the short-time energy, helping avoid extra noise or trailing audio.
+    Detects onsets in audio using Librosa and extracts individual audio clips for each detected onset.
+    Refines the end time of each onset by analyzing the short-time energy, helping avoid extra noise or trailing audio.
     """
     name = "DetectOnsets"
 
@@ -75,6 +74,14 @@ class DetectOnsetsBlock(Block):
 
             # Detect onset frames
             onset_frames = librosa.onset.onset_detect(
+                # onset_envelope: The array representing the onset strength curve of the audio
+                # sr: The sample rate of the audio signal
+                # pre_max: Number of frames before the current frame to use for local maximum filtering
+                # post_max: Number of frames after the current frame to use for local maximum filtering
+                # pre_avg: Number of frames before the current frame to use for local average filtering
+                # post_avg: Number of frames after the current frame to use for local average filtering
+                # delta: Onset detection threshold that determines how steep the increase in energy must be
+                # wait: Minimum number of frames to wait between consecutive onsets
                 onset_envelope=onset_envelope,
                 sr=sample_rate,
                 pre_max=self.pre_max,
@@ -84,6 +91,8 @@ class DetectOnsetsBlock(Block):
                 delta=self.delta,
                 wait=self.wait,
             )
+
+        
 
             onset_time_list = librosa.frames_to_time(onset_frames, sr=sample_rate)
 
@@ -119,6 +128,7 @@ class DetectOnsetsBlock(Block):
 
                 # Embed audio data in event
                 onset_audio_data = AudioData()
+                onset_audio_data.set_name(f"onset_{i}")
                 onset_audio_data.set_data(onset_clip)
                 onset_audio_data.set_sample_rate(sample_rate)
                 onset_audio_data.set_path(audio_data.path)
@@ -135,15 +145,23 @@ class DetectOnsetsBlock(Block):
         Calculates the onset-strength envelope based on the selected onset method.
         """
         if self.onset_method == "energy":
+            # We define a wrapper so that 'sr' is not passed as a keyword argument to rms().
+            def custom_rms_wrapper(y, sr, n_fft, hop_length, center=True, **kwargs):
+                # librosa.feature.rms does not accept 'sr', so we ignore it here
+                # and pass the rest to the function. We also take the first row ([0])
+                # since rms() returns a shape of (1, number_of_frames).
+                return librosa.feature.rms(
+                    y=y,
+                    frame_length=n_fft,
+                    hop_length=hop_length,
+                    center=center,
+                    **kwargs
+                )[0]
+
             return librosa.onset.onset_strength(
-                y=audio_waveform, 
-                sr=sample_rate, 
-                feature=librosa.feature.rms
-            )
-        elif self.onset_method == "spectral_flux":
-            return librosa.onset.onset_strength(
-                y=audio_waveform, 
-                sr=sample_rate
+                y=audio_waveform,
+                sr=sample_rate,
+                feature=custom_rms_wrapper
             )
         elif self.onset_method == "melspectrogram":
             return librosa.onset.onset_strength(
@@ -157,7 +175,6 @@ class DetectOnsetsBlock(Block):
                 y=audio_waveform, 
                 sr=sample_rate
             )
-
 
     def refine_onset_end(self, audio_waveform, sr, onset_time, next_onset_time, max_length_time=1.0):
         """
@@ -223,10 +240,7 @@ class DetectOnsetsBlock(Block):
         valid_methods = {
             "default", 
             "energy", 
-            "spectral_flux", 
-            "complex", 
             "mel_spectrogram",
-            "rms",
         }
         if onset_method:
             if onset_method in valid_methods:
@@ -324,10 +338,8 @@ class DetectOnsetsBlock(Block):
         Log.info(f"Delta: {self.delta}")
         Log.info(f"Wait: {self.wait}")
 
-    def save(self):
-        """
-        Save the current configuration of this block.
-        """
+
+    def get_metadata(self):
         return {
             "name": self.name,
             "type": self.type,
@@ -338,24 +350,33 @@ class DetectOnsetsBlock(Block):
             "post_avg": self.post_avg,
             "delta": self.delta,
             "wait": self.wait,
-            "data": self.data.save(),
             "input": self.input.save(),
             "output": self.output.save(),
+            "metadata": self.data.get_metadata()
         }
 
-    def load(self, data):
-        """
-        Load parameters and restore block state from saved data.
-        """
-        self.set_name(name=data.get("name"))
-        self.set_type(type=data.get("type"))
-        self.set_onset_method(onset_method=data.get("onset_method"))
-        self.set_pre_max(pre_max=data.get("pre_max"))
-        self.set_post_max(post_max=data.get("post_max"))
-        self.set_pre_avg(pre_avg=data.get("pre_avg"))
-        self.set_post_avg(post_avg=data.get("post_avg"))
-        self.set_delta(delta=data.get("delta"))
-        self.set_wait(wait=data.get("wait"))
+    def save(self, save_dir):
+        self.data.save(save_dir)
 
-        self.input.load(data.get("input"))
-        self.reload()
+    def load(self, block_dir):
+        block_metadata = self.get_metadata_from_dir(block_dir)          
+
+        # load attributes
+        self.set_name(block_metadata.get("name"))
+        self.set_type(block_metadata.get("type"))
+        self.set_onset_method(block_metadata.get("onset_method"))
+        self.set_pre_max(block_metadata.get("pre_max"))
+        self.set_post_max(block_metadata.get("post_max"))
+        self.set_pre_avg(block_metadata.get("pre_avg"))
+        self.set_post_avg(block_metadata.get("post_avg"))
+        self.set_delta(block_metadata.get("delta"))
+        self.set_wait(block_metadata.get("wait"))
+
+        # load sub components attributes
+        self.data.load(block_metadata.get("metadata"), block_dir)
+        self.input.load(block_metadata.get("input"))
+        self.output.load(block_metadata.get("output"))  
+        
+        # push the results to the output ports       
+        self.output.push_all(self.data.get_all())
+                        

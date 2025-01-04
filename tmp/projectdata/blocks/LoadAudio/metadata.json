@@ -1,0 +1,29 @@
+{
+    "name": "LoadAudio",
+    "type": "LoadAudio",
+    "selected_file_path": "/Users/gdennen/Projects/Ideas/sources/audio/3 LETS GO ON THE RUN.mp3",
+    "input": null,
+    "output": {
+        "name": "OutputController",
+        "outputs": [
+            {
+                "name": "AudioOutput",
+                "type": "AudioOutput",
+                "data_type": "AudioData"
+            }
+        ]
+    },
+    "metadata": {
+        "name": "data_controller",
+        "metadata": [
+            {
+                "name": "3 LETS GO ON THE RUN.mp3",
+                "type": "AudioData",
+                "path": "/Users/gdennen/Projects/Ideas/tmp/projectdata/blocks/LoadAudio/3 LETS GO ON THE RUN.mp3/3 LETS GO ON THE RUN.mp3.wav",
+                "sample_rate": 44100,
+                "frame_rate": null,
+                "length_ms": 162909.09297052157
+            }
+        ]
+    }
+}

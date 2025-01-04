@@ -10,13 +10,12 @@ class AudioOutput(Output):
 
     def save(self):
         # Create base save data
-        save_data = {
+        metadata = {
             "name": self.name,
             "type": self.type,
             "data_type": self.data_type,
-            "data": self.data.save()
-        }   
-        return save_data
+        }       
+        return metadata
     
-    def load(self, data):
-        self.name = data.get("name")
+    def load(self, metadata):
+        self.name = metadata.get("name")

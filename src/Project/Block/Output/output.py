@@ -2,7 +2,8 @@ from src.Utils.message import Log
 from src.Utils.tools import prompt
 from src.Command.command_controller import CommandController
 from src.Project.Data.data_controller import DataController
-
+import json
+import os
 class Output:
     """
     Output is responsible for holding the last data from its parent block and delivering it to the input port of the connected block
@@ -48,15 +49,17 @@ class Output:
         else:
             Log.error(f"Invalid data type: {data_type.name}. Valid data types: {self.allowed_data_types}")
 
-
     def save(self):
-        return {
+        metadata = {
             "name": self.name,
             "type": self.type,
-            "data_type": self.data_type.name
+            "data_type": None
         }
+        if self.data_type:
+            metadata["data_type"] = self.data_type
+        return metadata
 
-    def load(self, data):
-        self.name = data.get("name")
-        self.type = data.get("type")
-        self.data_type = data.get("data_type")
+    def load(self, metadata):
+        self.name = metadata.get("name")
+        self.type = metadata.get("type")
+        self.data_type = metadata.get("data_type")
