@@ -21,11 +21,11 @@ class EventData(Data):
 
     def add_item(self, item):
         self.items.append(item)
-        Log.info(f"Added item: {item.name} to event data: {self.name}")
+        # Log.info(f"Added item: {item.name} to event data: {self.name}")
 
     def set_source(self, source):
         self.source = source
-        Log.info(f"Set source for event data: {self.name} to {source}")
+        # Log.info(f"Set source for event data: {self.name} to {source}")
 
     def get_source(self):
         return self.source

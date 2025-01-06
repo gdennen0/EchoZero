@@ -9,6 +9,8 @@ import numpy as np
 import json
 class ExportEventPlotBlock(Block):
     name = "ExportEventPlot"
+    type = "ExportEventPlot"
+    
     def __init__(self):
         super().__init__()
         # Set attributes

@@ -37,7 +37,7 @@ class DataController(ABC):
     
     def set_name(self, name):
         self.name = name
-        Log.info(f"Set data controller name to {name}")
+        # Log.info(f"Set data controller name to {name}")
     
     def get_name(self):
         return self.name
@@ -48,10 +48,10 @@ class DataController(ABC):
             Log.error("Lists of data cannot be added to a data controller")
         else:
             self.data.append(data)
-            if data.name:
-                Log.info(f"Added data {data.name}")
-            else:
-                Log.info(f"Added data {data}")
+            # if data.name:
+            #     Log.info(f"Added data {data.name}")
+            # else:
+            #     Log.info(f"Added data {data}")
 
     def clear(self):
         """clears the data list"""
@@ -60,7 +60,7 @@ class DataController(ABC):
     def set_parent(self, parent_object):
         """sets the parent of the data controller"""
         self.parent = parent_object
-        Log.info(f'Set data modules parent to {parent_object.name}')
+        # Log.info(f'Set data modules parent to {parent_object.name}')
 
     def get_metadata(self):
         metadata = {
@@ -77,23 +77,22 @@ class DataController(ABC):
             item.save(item_dir)
     
     def load(self, data_controller_metadata, block_dir): 
-        self.set_name(data_controller_metadata.get("name"))
+        if data_controller_metadata:
+            self.set_name(data_controller_metadata.get("name"))
 
-        data_items = data_controller_metadata.get("metadata")
-        for data_item in data_items: 
-            data_item_name = data_item.get("name")
-            data_item_type = data_item.get("type")
-            data_item_dir = os.path.join(block_dir, data_item_name)
+            data_items = data_controller_metadata.get("metadata")
+            for data_item in data_items: 
+                data_item_name = data_item.get("name")
+                data_item_type = data_item.get("type")
+                data_item_dir = os.path.join(block_dir, data_item_name)
 
-            Log.info(f"Data item name: {data_item_name}")
-            Log.info(f"Data item type: {data_item_type}")
-            Log.info(f"Data item dir: {data_item_dir}")
+                for data_type in self.data_types:
+                    if data_item_type == data_type.type:
+                        new_data_item = data_type()
 
-            for data_type in self.data_types:
-                if data_item_type == data_type.type:
-                    new_data_item = data_type()
+                        new_data_item.load(data_item, data_item_dir)
 
-                    new_data_item.load(data_item, data_item_dir)
-
-                    self.add(new_data_item)
-                    break
+                        self.add(new_data_item)
+                        break
+        else:
+            Log.warning("No name found in data controller metadata")

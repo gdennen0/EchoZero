@@ -10,6 +10,8 @@ import json
 import os
 class GenericFilterBlock(Block):
     name = "GenericFilter"
+    type = "GenericFilter"
+    
     def __init__(self):
         super().__init__()
         self.name = "GenericFilter"

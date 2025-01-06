@@ -20,6 +20,8 @@ import plotly.graph_objs as go
 import threading
 import scipy.io.wavfile as wavfile
 import socket
+from flask import request
+import requests
 
 class ManualClassifyBlock(Block):
     """
@@ -29,6 +31,7 @@ class ManualClassifyBlock(Block):
     """
 
     name = "ManualClassify"
+    type = "ManualClassify"
 
     def __init__(self):
         super().__init__()
@@ -55,6 +58,8 @@ class ManualClassifyBlock(Block):
         self.command.add("classify_event", self.set_classification)
         self.command.add("start_ui", self.start_ui)
         self.command.add("get_url", self.get_url)
+        self.command.add("stop_ui", self.stop_ui)
+        self.command.add("reload_ui", self.reload_ui)
 
         self.start_ui()
 
@@ -240,7 +245,19 @@ class ManualClassifyBlock(Block):
             self.selected_event = self.get_audio_events()[0]
 
         self._app = dash.Dash(__name__)
-        self._app.title = "Manual Audio Classification"
+        self._app.title = self.name
+
+        # Define Shutdown Route
+        @self._app.server.route('/shutdown', methods=['POST'])
+        def shutdown():
+            func = request.environ.get('werkzeug.server.shutdown')
+            if func is None:
+                Log.error("Not running with the Werkzeug Server")
+                raise RuntimeError('Not running with the Werkzeug Server')
+            func()
+            Log.info("Shutdown function called.")
+            return 'Server shutting down...'
+
 
         # UI Layout (always shows classification / logs):
         self._app.layout = dcc.Tabs([
@@ -422,6 +439,26 @@ class ManualClassifyBlock(Block):
         self._server_thread.start()
         Log.info(f"Dash UI started at http://{self.host}:{self.port}")   
 
+    def stop_ui(self):
+        """
+        Stops the Dash UI and its server thread.
+        """
+        try:
+            shutdown_url = f"http://{self.host}:{self.port}/shutdown"
+            response = requests.post(shutdown_url)
+            if response.status_code == 200:
+                Log.info("Dash UI shutdown successfully.")
+            else:
+                Log.error(f"Failed to shutdown Dash UI. Status Code: {response.status_code}")
+        except Exception as e:
+            Log.error(f"Error shutting down Dash UI: {e}")
+
+    def reload_ui(self):
+        """
+        Reloads the Dash UI.
+        """
+        self.stop_ui()
+        self.start_ui()
 
     def save(self, save_dir):
         self.data.save(save_dir)

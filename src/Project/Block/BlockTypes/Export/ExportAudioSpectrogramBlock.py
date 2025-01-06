@@ -15,6 +15,8 @@ DEFAULT_EXPORT_SPECTROGRAM_SAMPLE_RATE = 44100
 
 class ExportAudioSpectrogramBlock(Block):
     name = "ExportAudioSpectrogram"
+    type = "ExportAudioSpectrogram"
+    
     def __init__(self):
         super().__init__()
         # Set attributes

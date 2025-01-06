@@ -26,25 +26,25 @@ class AudioData(Data):
         if self.path:
             Log.warning(f"{self.name} {self.type} overwriting existing path value: {self.path}")
         self.path = path
-        Log.info(f"Path set to {path}")
+        # Log.info(f"Path set to {path}")
 
     def set_sample_rate(self, rate):
-        if self.sample_rate:
-            Log.warning(f"{self.name} {self.type} overwriting existing sample rate value: {self.sample_rate}")
+        # if self.sample_rate:
+            # Log.warning(f"{self.name} {self.type} overwriting existing sample rate value: {self.sample_rate}")
         self.sample_rate = rate
-        Log.info(f"Sample rate set to {rate}")
+        # Log.info(f"Sample rate set to {rate}")
 
     def set_frame_rate(self, rate):
         if self.frame_rate:
             Log.warning(f"{self.name} {self.type} overwriting existing frame rate value: {self.frame_rate}")
         self.frame_rate = rate
-        Log.info(f"Frame rate set to {rate}")
+        # Log.info(f"Frame rate set to {rate}")
 
     def set_length_ms(self, length):
         if self.length_ms:
             Log.warning(f"{self.name} {self.type} overwriting existing length value: {self.length_ms}")
         self.length_ms = length
-        Log.info(f"Length in ms set to {length}")
+        # Log.info(f"Length in ms set to {length}")
 
     def set_source(self, source):
         self.source = source
@@ -63,7 +63,8 @@ class AudioData(Data):
         }
 
     def save(self, save_dir):
-        sf.write(os.path.join(save_dir, f"{self.name}.wav"), self.data, self.sample_rate)
+        data_to_save = self.data.squeeze()
+        sf.write(os.path.join(save_dir, f"{self.name}.wav"), data_to_save, self.sample_rate)
 
     def load(self, data_item_metadata, data_item_dir):
         self.set_name(data_item_metadata.get("name"))

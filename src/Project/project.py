@@ -72,8 +72,6 @@ class Project():
         self.command.add("add_block", self.add_block)
         self.command.add("addblock", self.add_block)
         self.command.add("add", self.add_block)
-        self.command.add("project_data", self.project_data)
-        self.command.add("projectdata", self.project_data)
 
         self.initialize_project()
 
@@ -151,9 +149,10 @@ class Project():
                     self.set_save_directory(project_data.get("save_directory"))
 
                     blocks_list = project_data.get("blocks", [])
-                    for block_name in blocks_list:
-                        Log.info(f"Added block to add: {block_name}")
-                        self.add_block(block_name)
+                    for block in blocks_list:
+                        block_type = block.get("type")
+                        block_name = block.get("name")
+                        self.add_block(type=block_type, name=block_name)
                     Log.info("Completed adding blocks to project")
                     Log.info(f"-"*50)
 
@@ -178,74 +177,7 @@ class Project():
                         Log.error(f"Metadata file not found in {block_folder_path}")
         else:
             Log.error(f"Blocks directory not found in {projectdata_dir}")  
-
-
-    # def load_project(self, file_path):
-    #     Log.info(f"Starting to load project from '{file_path}'.")
-    #     with open(file_path, 'r') as file:
-    #         project_data = json.load(file)
-    #     Log.info("Project data loaded successfully.")
-
-    #     dependencies = defaultdict(list)
-    #     in_degree = defaultdict(int)
-
-    #     self.name = project_data.get("name")
-    #     self.save_directory = project_data.get("save_directory")
-
-    #     Log.info("Building dependency graph.")
-    #     for block_name, block_data in project_data['blocks'].items():
-    #         Log.info(f"---> block_name: {block_name}")
-    #         for block_type in self.block_types:
-    #             if block_type.name == block_data.get('type'):
-    #                 self.add_block(block_type_name=block_type.name)
-    #                 break
-    #         else:
-    #             Log.warning(f"Unknown block type '{block_data.get('type')}' for block '{block_name}'.")
-    #             continue  # Skip processing dependencies for unknown block types
-
-    #         # Validate 'input' before accessing 'inputs'
-    #         input_data = block_data.get('input')
-    #         if not input_data or 'inputs' not in input_data:
-    #             Log.warning(f"No input data for block '{block_name}'. Skipping dependency processing.")
-    #             continue
-
-    #         for input_item in input_data['inputs']:
-    #             connected_output = input_item.get('connected_output')
-    #             if connected_output:
-    #                 dependent_block = connected_output.split('.')[0]  # Extract block name
-    #                 dependencies[dependent_block].append(block_name)
-    #                 in_degree[block_name] += 1
-    #                 Log.debug(f"Block '{block_name}' depends on '{dependent_block}'.")
-    #             else:
-    #                 Log.info(f"No connected_output found for block '{block_name}'.")
-
-    #     # Proceed with topological sort as before
-    #     Log.info("Initializing queue with blocks that have no dependencies.")
-    #     queue = deque([block for block in project_data['blocks'] if in_degree[block] == 0])
-    #     Log.info(f"Initial load queue: {list(queue)}")
-    #     loading_order = []
-
-    #     while queue:
-    #         current = queue.popleft()
-    #         loading_order.append(current)
-    #         Log.info(f"Processing block '{current}'.")
-    #         for dependent in dependencies[current]:
-    #             in_degree[dependent] -= 1
-    #             Log.debug(f"Decremented in_degree of '{dependent}' to {in_degree[dependent]}.")
-    #             if in_degree[dependent] == 0:
-    #                 queue.append(dependent)
-    #                 Log.info(f"Added block '{dependent}' to queue as its in_degree is now 0.")
-
-    #     if len(loading_order) != len(project_data['blocks']):
-    #         Log.error("Cyclic dependency detected!")
-    #         raise Exception("Cyclic dependency detected!")
-
-    #     Log.info(f"Loading blocks in the following order: {loading_order}")
-    #     for block_name in loading_order:
-    #         block_data = project_data['blocks'][block_name]
-    #         self.load_block(block_name, block_data)
             
-
     def load_block(self, name, info):
         for block in self.blocks:
             if block.name == name:
@@ -287,7 +219,7 @@ class Project():
             "version": PROJECT_VERSION,
             "save_directory": self.save_directory,
             "loaded": self.loaded,
-            "blocks": [block.name for block in self.blocks]
+            "blocks": [{"name": block.name, "type": block.type} for block in self.blocks]
         }
         
         project_json_path = os.path.join(project_root, "metadata.json")
@@ -335,15 +267,6 @@ class Project():
 
         self.save()
 
-    def build_project_data(self):
-        project_data = {
-            "name" : self.name,
-            "save_directory" : self.save_directory,
-            "loaded" : self.loaded,
-            "blocks": {block.name : block.get_metadata() for block in self.blocks}
-        }
-        return project_data
-
         # Start of Selection
     def add_recent_project(self, project_path):
         with open(RECENT_PROJECTS_FILE, 'r') as file:
@@ -355,12 +278,6 @@ class Project():
         recent_projects.insert(0, project_path)
         with open(RECENT_PROJECTS_FILE, 'w') as file:
             json.dump(recent_projects, file, indent=4)
-
-    def project_data(self):
-        project_data = self.build_project_data()
-        # formatted_data = project_data
-        formatted_data = json.dumps(project_data, indent=4)
-        Log.info(formatted_data)
 
     def get_main_dir(self):
         try:
@@ -403,26 +320,33 @@ class Project():
         self.block_types.append(block_type)
         Log.info(f"Initialized block type: {block_type.name}")
 
-    def add_block(self, block_type_name=None):
-        if not block_type_name:
+    def add_block(self, type=None, name=None):
+        if not type:
             block_type = prompt_selection("Please select the block type: ", self.block_types)
             if block_type is None:
                 Log.info("Block creation exited")
                 return
             block = block_type()
             block.set_parent(self)
-            new_name = generate_unique_name(block_type.name, self.blocks)
-            block.name =  new_name  
-
+            if not name:
+                new_name = generate_unique_name(block_type.type, self.blocks)
+                block.set_name(new_name)
+            else:
+                block.set_name(name)
             self.blocks.append(block)
             Log.info(f"Added block: {new_name}")
         else:
             for block_type in self.block_types:
-                if block_type.name == block_type_name:
+                if block_type.type == type:
                     block = block_type()
                     block.set_parent(self)
+                    if not name:
+                        new_name = generate_unique_name(block_type.type, self.blocks)
+                        block.set_name(new_name)
+                    else:
+                        block.set_name(name)
                     self.blocks.append(block)
-                    Log.info(f"Added block: {block_type_name}")
+                    Log.info(f"Added block: {name}")
 
     
     def get_block(self, block_name):

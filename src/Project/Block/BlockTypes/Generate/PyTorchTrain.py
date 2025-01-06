@@ -2,16 +2,34 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 import numpy as np
+from torch.utils.data import DataLoader, random_split, TensorDataset
+from dataclasses import dataclass, field
+import os
+
 from src.Project.Block.block import Block
 from src.Project.Data.Types.event_data import EventData
 from src.Project.Data.Types.event_item import EventItem
 from src.Project.Block.Input.Types.event_input import EventInput
 from src.Project.Block.Output.Types.event_output import EventOutput
+from src.Utils.message import Log
+
+@dataclass
+class Config:
+    input_size: int = 44100  # Example: 1 second at 44.1kHz
+    hidden_layers: list = field(default_factory=lambda: [256, 128, 64])
+    output_size: int = None
+    learning_rate: float = 1e-4
+    batch_size: int = 32
+    epochs: int = 200
+    patience: int = 15
+    validation_split: float = 0.3
+    save_dir: str = field(default_factory=lambda: os.path.join(os.getcwd(), "models"))
+    model_name: str = "EZ_model"
 
 class PyTorchTrain(Block):
     """
-    A block that trains a simple PyTorch model to detect specific percussion types
-    (e.g., kick, snare, hi-hat, etc.) based on manual classifications.
+    A block that trains a PyTorch model to detect specific percussion types
+    based on manual classifications.
     """
     name = "PyTorchTrain"
     type = "PyTorchTrain"
@@ -26,84 +44,205 @@ class PyTorchTrain(Block):
         
         self.output.add_type(EventOutput)
         self.output.add("EventOutput")
-
-        # Simple two-layer network; adjust as needed.
-        self.model = nn.Sequential(
-            nn.Linear(44100, 32),  # example dimension if each audio slice is 1 second at 44.1kHz
-            nn.ReLU(),
-            nn.Linear(32, 3)      # e.g., 3-class classification (kick, snare, other)
-        )
+        
+        self.config = Config()
+        self.model = None
         self.criterion = nn.CrossEntropyLoss()
-        self.optimizer = optim.Adam(self.model.parameters(), lr=1e-3)
-        self.label_map = {"kick": 0, "snare": 1, "other": 2}  # example set of classes
+        self.label_map = None
+        self.optimizer = None
 
-        # Add commands for flexibility (optional)
         self.command.add("train_model", self.train_model)
         self.command.add("save_model", self.save_model)
 
+    def load_model(self):
+        self.config.output_size = len(self.label_map)
+        self.model = self.build_model()
+        self.optimizer = optim.Adam(self.model.parameters(), lr=self.config.learning_rate)
+
+    def build_model(self):
+        layers = []
+        input_dim = self.config.input_size
+        for hidden_dim in self.config.hidden_layers:
+            layers.append(nn.Linear(input_dim, hidden_dim))
+            layers.append(nn.ReLU())
+            input_dim = hidden_dim
+        layers.append(nn.Linear(input_dim, self.config.output_size))
+        return nn.Sequential(*layers)
+
     def process(self, event_data_list):
-        """
-        By default, just pass the data through (no modification).
-        Usually training is triggered by invoking the "train_model" command separately.
-        """
+        self.prepare_label_map(event_data_list)
+        self.load_model()
+
+        desired_length = self.config.input_size
+
+        for event_data in event_data_list:
+            for event_item in event_data.items:
+
+                length = len(event_item.data.get())
+                if length > self.config.input_size:
+                    event_item.data.set(event_item.data.get()[:self.config.input_size][np.newaxis, :])  # shape: (1, 44100)
+                elif length < self.config.input_size:
+                    pad_width = self.config.input_size - length
+                    event_item.data.set(np.pad(event_item.data.get(), (0, pad_width))[np.newaxis, :])
+                else:
+                    event_item.data.set(event_item.data.get()[np.newaxis, :])
+
         return event_data_list
+
+    def prepare_label_map(self, event_data_list):
+        classifications = {item.classification for event_data in event_data_list
+                           if isinstance(event_data, EventData)
+                           for item in event_data.items
+                           if item.classification}
+        classifications.add("unclassified")
+        self.label_map = {label: idx for idx, label in enumerate(sorted(classifications))}
+        Log.info(f"Generated label map: {self.label_map}")
 
     def train_model(self):
         """
         Loads the labeled events from self.data,
-        extracts waveforms and labels, and runs a small training loop.
+        extracts waveforms and labels, and runs a training loop.
         """
+
+        if not self.model:
+            Log.error("Model not loaded. Cannot train. Please reload PyTorchTrain block.")
+            return
+
+        try:
+            labeled_waveforms, labels = self.extract_training_data()
+            if not labeled_waveforms:
+                Log.warning("No labeled data found. Cannot train.")
+                return
+
+            dataset = self.create_datasets(labeled_waveforms, labels)
+            self.run_training_loop(dataset)
+            Log.info("Training complete.")
+        except Exception as e:
+            Log.error(f"An error occurred during training: {e}")
+            raise
+
+    def extract_training_data(self):
         labeled_waveforms = []
         labels = []
 
-        # Gather all labeled event items from the input
-        for event_data in self.data:
+        for event_data in self.data.get_all():
             if not isinstance(event_data, EventData):
                 continue
             for item in event_data.items:
-                # Only use items having a classification from the manual block
                 if item.classification:
-                    # Convert classification string to a numerical label (e.g. "kick" -> 0)
-                    label = self.label_map.get(item.classification, self.label_map["other"])
-                    audio_samples = item.data.data  # raw waveform (numpy array)
-                    # Ensure we have a fixed-size input; if not, pad or trim
-                    audio_samples = self._prepare_audio_samples(audio_samples)
-                    labeled_waveforms.append(audio_samples)
+                    label = self.label_map.get(item.classification, self.label_map["unclassified"])
+                    labeled_waveforms.append(item.data.get())
                     labels.append(label)
 
-        if not labeled_waveforms:
-            print("No labeled data found. Cannot train.")
-            return
+        return labeled_waveforms, labels
 
-        # Convert to tensors
+    def create_datasets(self, labeled_waveforms, labels):
         x_data = torch.tensor(np.vstack(labeled_waveforms), dtype=torch.float)
         y_data = torch.tensor(labels, dtype=torch.long)
+        return TensorDataset(x_data, y_data)
 
-        # Basic training loop
-        epochs = 5
-        for epoch in range(epochs):
+    def run_training_loop(self, dataset):
+        train_size = int((1 - self.config.validation_split) * len(dataset))
+        val_size = len(dataset) - train_size
+        train_dataset, val_dataset = random_split(dataset, [train_size, val_size])
+
+        train_loader = DataLoader(train_dataset, batch_size=self.config.batch_size, shuffle=True)
+        val_loader = DataLoader(val_dataset, batch_size=self.config.batch_size, shuffle=False)
+
+        scheduler = optim.lr_scheduler.ReduceLROnPlateau(self.optimizer, 'min', patience=5)
+
+        best_val_loss = float('inf')
+        trigger_times = 0
+
+        for epoch in range(1, self.config.epochs + 1):
+            self.model.train()
+            train_loss = self.train_one_epoch(train_loader)
+
+            val_loss = self.validate(val_loader)
+            scheduler.step(val_loss)
+
+            Log.info(f"Epoch {epoch}/{self.config.epochs} - Train Loss: {train_loss:.4f} - Val Loss: {val_loss:.4f}")
+
+            if val_loss < best_val_loss:
+                best_val_loss = val_loss
+                self.save_checkpoint()
+                trigger_times = 0
+            else:
+                trigger_times += 1
+                if trigger_times >= self.config.patience:
+                    Log.warning("Early stopping triggered")
+                    break
+
+    def train_one_epoch(self, loader):
+        running_loss = 0.0
+        for inputs, targets in loader:
             self.optimizer.zero_grad()
-            outputs = self.model(x_data)
-            loss = self.criterion(outputs, y_data)
+            outputs = self.model(inputs)
+            loss = self.criterion(outputs, targets)
             loss.backward()
             self.optimizer.step()
-            print(f"Epoch {epoch+1}/{epochs}, Loss: {loss.item():.4f}")
+            running_loss += loss.item()
+        return running_loss / len(loader)
 
-        print("Training complete.")
+    def validate(self, loader):
+        self.model.eval()
+        val_loss = 0.0
+        with torch.no_grad():
+            for inputs, targets in loader:
+                outputs = self.model(inputs)
+                loss = self.criterion(outputs, targets)
+                val_loss += loss.item()
+        return val_loss / len(loader)
 
-    def save_model(self, path="pytorch_percussion_model.pt"):
-        torch.save(self.model.state_dict(), path)
-        print(f"Model saved to {path}")
+    def save_checkpoint(self):
+        checkpoint = {
+            'model_state_dict': self.model.state_dict(),
+            'optimizer_state_dict': self.optimizer.state_dict(),
+            'label_map': self.label_map
+        }
+        os.makedirs(self.config.save_dir, exist_ok=True)
+        checkpoint_path = os.path.join(self.config.save_dir, f"{self.config.model_name}_best.pt")
+        torch.save(checkpoint, checkpoint_path)
+        Log.info(f"Checkpoint saved at {checkpoint_path}")
 
-    def _prepare_audio_samples(self, audio_samples, desired_length=44100):
-        """
-        Pad or trim the waveform to a fixed length for the model.
-        """
-        length = len(audio_samples)
-        if length > desired_length:
-            return audio_samples[:desired_length][np.newaxis, :]  # shape: (1, 44100)
-        elif length < desired_length:
-            pad_width = desired_length - length
-            return np.pad(audio_samples, (0, pad_width))[np.newaxis, :]
-        else:
-            return audio_samples[np.newaxis, :]
+    def save_model(self):
+        save_data = {
+            "state_dict": self.model.state_dict(),
+            "label_map": self.label_map
+        }
+        os.makedirs(self.config.save_dir, exist_ok=True)
+        model_path = os.path.join(self.config.save_dir, f"{self.config.model_name}.pt")
+        torch.save(save_data, model_path)
+        Log.info(f"Model and label map saved to {model_path}")
+
+    def set_label_map(self, label_map):
+        self.label_map = label_map
+
+    def get_metadata(self):
+        return {
+            "name": self.name,
+            "type": self.type,
+            "label_map": self.label_map,
+            "input": self.input.save(),
+            "output": self.output.save(),
+            "metadata": self.data.get_metadata()
+        }
+
+    def save(self, save_dir):
+        self.data.save(save_dir)
+
+    def load(self, block_dir):
+        block_metadata = self.get_metadata_from_dir(block_dir)
+
+        # Load attributes
+        self.set_name(block_metadata.get("name"))
+        self.set_type(block_metadata.get("type"))
+        self.set_label_map(block_metadata.get("label_map"))
+        
+        # Load sub-components attributes
+        self.data.load(block_metadata.get("metadata"), block_dir)
+        self.input.load(block_metadata.get("input"))
+        self.output.load(block_metadata.get("output"))
+
+        # Push loaded data to output 
+        self.output.push_all(self.data.get_all())

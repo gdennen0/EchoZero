@@ -80,11 +80,11 @@ class Block(ABC):
 
     def set_type(self, type):
         self.type = type
-        Log.info(f"Set type: {type}")
+        # Log.info(f"Set type: {type}")
 
     def set_parent(self, parent):
         self.parent = parent
-        Log.info(f"Set parent: {parent.name}")
+        # Log.info(f"Set parent: {parent.name}")
         
     def get_metadata(self):
         return {
@@ -151,18 +151,15 @@ class Block(ABC):
         if self.input.get_all():
             Log.info(f"Listing connections for block '{self.name}'")
             for input in self.input.get_all():
-                if input: 
-                    Log.info(f"Input: {input.name}, Connection: {input.get_connected_output_address().name}")
+                if input and input.get_connected_output_address() is not None: 
+                    Log.info(f"Input: {input.name}, Connection: {input.get_connected_output_address()}")
+                elif input is None:
+                    Log.error(f"Input is None")
+                elif input.get_connected_output_address() is None:
+                    Log.error(f"Inputs connected output address is None")
 
         else:
             Log.error("This block does not have any inputs")
-
-        if self.output.get_all():
-            Log.info(f"Listing connections for block '{self.name}'")
-            for output in self.output.get_all():
-                Log.info(f"Output: {output.name}, Connection: {output.get_connected_input_address().name}")
-        else:
-            Log.error("This block does not have any outputs")
 
 
     def get_metadata_from_dir(self, dir):

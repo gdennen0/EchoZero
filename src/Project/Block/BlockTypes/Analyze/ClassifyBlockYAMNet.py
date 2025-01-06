@@ -20,6 +20,7 @@ class ClassifyBlockYAMNet(Block):
     This block uses YAMNet to classify audio events, focusing solely on percussion.
     """
     name = "ClassifyYAMNet"
+    type = "ClassifyYAMNet"
     
     DEFAULT_OUTPUT_DIR = os.path.join(os.getcwd(), "tmp")
     DEFAULT_SAMPLE_RATE = 16000  # YAMNet expects 16kHz

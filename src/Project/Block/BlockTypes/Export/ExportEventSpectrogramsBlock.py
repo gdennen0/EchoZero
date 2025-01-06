@@ -15,6 +15,7 @@ DEFAULT_EXPORT_SPECTROGRAM_SAMPLE_RATE = 44100
 
 class ExportEventSpectrogramsBlock(Block):
     name = "ExportEventSpectrogram"
+    type = "ExportEventSpectrogram"
     def __init__(self):
         super().__init__()
         # Set attributes

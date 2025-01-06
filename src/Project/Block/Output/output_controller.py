@@ -65,7 +65,7 @@ class OutputController:
 
     def set_name(self, name):
         self.name = name
-        Log.info(f"Set output controller name to {self.name}")
+        # Log.info(f"Set output controller name to {self.name}")
 
     def push_all(self, new_data):
         """ this method will likely expand in the future but for now if a data type within the new_data list matches the data type of an output, the data is pushed to the output """

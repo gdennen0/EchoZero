@@ -27,7 +27,8 @@ class DetectPercussionBlock(Block):
     ensuring a single clean percussion sample.
     """
     name = "DetectPercussion"
-
+    type = "DetectPercussion"
+    
     def __init__(self):
         super().__init__()
         self.name = "DetectPercussion"

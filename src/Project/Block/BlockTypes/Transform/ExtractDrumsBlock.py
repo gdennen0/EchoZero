@@ -18,6 +18,8 @@ DEFAULT_MODEL = "kuielab_a_drums.onnx"
 # Separates audio file into stems
 class ExtractDrumsBlock(Block):
     name = "ExtractDrums"
+    type = "ExtractDrums"
+    
     def __init__(self):
         super().__init__()
         self.name = "ExtractDrums"

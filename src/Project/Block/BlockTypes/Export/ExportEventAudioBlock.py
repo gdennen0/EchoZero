@@ -16,6 +16,8 @@ DEFAULT_EXPORT_AUDIO_SAMPLE_RATE = 44100
 
 class ExportEventAudioBlock(Block):
     name = "ExportEventAudio"
+    type = "ExportEventAudio"
+    
     def __init__(self):
         super().__init__()
         self.name = "ExportEventAudio"

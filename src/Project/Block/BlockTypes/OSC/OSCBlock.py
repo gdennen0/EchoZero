@@ -7,6 +7,8 @@ from src.Project.Block.Output.Types.osc_output import OSCOutput
 
 class OSCBlock(Block):
     name = "OSCBlock"
+    type = "OSCBlock"
+    
     def __init__(self):
         super().__init__()
         self.name = "OSCBlock"

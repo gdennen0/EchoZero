@@ -51,8 +51,9 @@ class CommandParser:
         if not parts:
             return None
         for block in self.project.get_blocks():
-            if block.name.lower() == parts[0]:
-                return block
+            if block is not None:   
+                if block.name.lower() == parts[0]:
+                    return block
         return None
             
     def _get_matching_input(self, block, parts):

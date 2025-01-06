@@ -10,6 +10,8 @@ from pathlib import Path
 import json
 class LoadAudioBlock(Block):
     name = "LoadAudio"
+    type = "LoadAudio"
+    
     def __init__(self):
         super().__init__()
         self.name = "LoadAudio" 

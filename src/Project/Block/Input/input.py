@@ -40,7 +40,7 @@ class Input:
     def add_data_type(self, data_type):
         if data_type not in self.data_types:
             self.data_types.append(data_type)
-            Log.info(f"Added data type {data_type} to input {self.name}")
+            # Log.info(f"Added data type {data_type} to input {self.name}")
         else:
             Log.error(f"Data type {data_type} already exists in input {self.name}")
 

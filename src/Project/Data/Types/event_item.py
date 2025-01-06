@@ -37,19 +37,19 @@ class EventItem(Data):
     
     def set_time(self, time):
         self.time = time
-        Log.info(f"Set time for item: {self.name} to {time}")
+        # Log.info(f"Set time for item: {self.name} to {time}")
 
     def set_source(self, source):
         self.source = source
-        Log.info(f"Set source for item: {self.name} to {source}")
+        # Log.info(f"Set source for item: {self.name} to {source}")
 
     def set_confidence(self, confidence):
         self.confidence = confidence
-        Log.info(f"Set confidence for item: {self.name} to {confidence}")
+        # Log.info(f"Set confidence for item: {self.name} to {confidence}")
 
     def set_classification(self, classification):
         self.classification = classification
-        Log.info(f"Set classification for item: {self.name} to {classification}")
+        # Log.info(f"Set classification for item: {self.name} to {classification}")
 
     def save(self, save_dir):
         if self.data:

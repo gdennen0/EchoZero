@@ -19,14 +19,14 @@ class InputController:
 
     def set_parent_block(self, parent_block):
         self.parent_block = parent_block
-        Log.info(f"Set input controller parent block to {self.parent_block.name}")
+        # Log.info(f"Set input controller parent block to {self.parent_block.name}")
 
     def add_type(self, input_type):
         if input_type not in self.input_types:
             self.input_types.append(input_type)
         else:
             Log.error(f"Input type {input_type} already exists")
-        Log.info(f"Added input type {input_type.name}")
+        # Log.info(f"Added input type {input_type.name}")
 
     def add(self, name):
         for input_type in self.input_types:
@@ -37,7 +37,7 @@ class InputController:
                 new_input.name = input_name
                 new_input.parent_block = self.parent_block
                 self.inputs.append(new_input)
-                Log.info(f"Added new input: {input_name} of type: {input_type.name}")
+                # Log.info(f"Added new input: {input_name} of type: {input_type.name}")
                 return
             
     def pull_all(self):
@@ -71,7 +71,7 @@ class InputController:
 
     def set_name(self, name):
         self.name = name
-        Log.info(f"Set port controller name to {self.name}")
+        # Log.info(f"Set port controller name to {self.name}")
 
     def save(self):
         input_data = [input.save() for input in self.inputs]

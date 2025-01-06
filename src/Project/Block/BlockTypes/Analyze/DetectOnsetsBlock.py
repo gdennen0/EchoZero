@@ -27,6 +27,7 @@ class DetectOnsetsBlock(Block):
     Refines the end time of each onset by analyzing the short-time energy, helping avoid extra noise or trailing audio.
     """
     name = "DetectOnsets"
+    type = "DetectOnsets"
 
     def __init__(self):
         super().__init__()
