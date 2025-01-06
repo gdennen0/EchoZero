@@ -364,13 +364,14 @@ class DetectOnsetsBlock(Block):
         # load attributes
         self.set_name(block_metadata.get("name"))
         self.set_type(block_metadata.get("type"))
-        self.set_onset_method(block_metadata.get("onset_method"))
-        self.set_pre_max(block_metadata.get("pre_max"))
-        self.set_post_max(block_metadata.get("post_max"))
-        self.set_pre_avg(block_metadata.get("pre_avg"))
-        self.set_post_avg(block_metadata.get("post_avg"))
-        self.set_delta(block_metadata.get("delta"))
-        self.set_wait(block_metadata.get("wait"))
+
+        self.set_onset_method(onset_method=block_metadata.get("onset_method"))
+        self.set_pre_max(pre_max=block_metadata.get("pre_max"))
+        self.set_post_max(post_max=block_metadata.get("post_max"))
+        self.set_pre_avg(pre_avg=block_metadata.get("pre_avg"))
+        self.set_post_avg(post_avg=block_metadata.get("post_avg"))
+        self.set_delta(delta=block_metadata.get("delta"))
+        self.set_wait(wait=block_metadata.get("wait"))
 
         # load sub components attributes
         self.data.load(block_metadata.get("metadata"), block_dir)

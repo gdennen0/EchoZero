@@ -1,6 +1,13 @@
 {
     "name": "DetectPercussion",
     "type": "DetectPercussion",
+    "pre_max": 3,
+    "post_max": 3,
+    "pre_avg": 3,
+    "post_avg": 3,
+    "delta": 0.3,
+    "wait": 10,
+    "rise_threshold": 0.1,
     "input": {
         "name": "InputController",
         "inputs": [
@@ -8,7 +15,7 @@
                 "name": "AudioInput",
                 "type": "AudioInput",
                 "data_type": "AudioData",
-                "connected_output": "LoadAudio.output.AudioOutput"
+                "connected_output": "ExtractDrums.output.AudioOutput"
             }
         ]
     },
@@ -24,6 +31,2224 @@
     },
     "metadata": {
         "name": "data_controller",
-        "metadata": []
+        "metadata": [
+            {
+                "name": "PercussionEvents",
+                "type": "EventData",
+                "description": "Detected percussion slices from audio",
+                "items": [
+                    {
+                        "name": "percussion_0",
+                        "description": "no description set",
+                        "classification": null,
+                        "type": "EventItem",
+                        "time": 3.982222222222222,
+                        "source": "DetectPercussion",
+                        "confidence": null,
+                        "metadata": {
+                            "name": "percussion_0",
+                            "type": "AudioData",
+                            "path": "/Users/gdennen/Projects/Ideas/tmp/projectdata/blocks/DetectPercussion/PercussionEvents/percussion_0/data/percussion_0.wav",
+                            "sample_rate": 44100,
+                            "frame_rate": null,
+                            "length_ms": null
+                        }
+                    },
+                    {
+                        "name": "percussion_1",
+                        "description": "no description set",
+                        "classification": null,
+                        "type": "EventItem",
+                        "time": 5.433469387755102,
+                        "source": "DetectPercussion",
+                        "confidence": null,
+                        "metadata": {
+                            "name": "percussion_1",
+                            "type": "AudioData",
+                            "path": "/Users/gdennen/Projects/Ideas/tmp/projectdata/blocks/DetectPercussion/PercussionEvents/percussion_1/data/percussion_1.wav",
+                            "sample_rate": 44100,
+                            "frame_rate": null,
+                            "length_ms": null
+                        }
+                    },
+                    {
+                        "name": "percussion_2",
+                        "description": "no description set",
+                        "classification": null,
+                        "type": "EventItem",
+                        "time": 9.787210884353742,
+                        "source": "DetectPercussion",
+                        "confidence": null,
+                        "metadata": {
+                            "name": "percussion_2",
+                            "type": "AudioData",
+                            "path": "/Users/gdennen/Projects/Ideas/tmp/projectdata/blocks/DetectPercussion/PercussionEvents/percussion_2/data/percussion_2.wav",
+                            "sample_rate": 44100,
+                            "frame_rate": null,
+                            "length_ms": null
+                        }
+                    },
+                    {
+                        "name": "percussion_3",
+                        "description": "no description set",
+                        "classification": null,
+                        "type": "EventItem",
+                        "time": 14.512471655328799,
+                        "source": "DetectPercussion",
+                        "confidence": null,
+                        "metadata": {
+                            "name": "percussion_3",
+                            "type": "AudioData",
+                            "path": "/Users/gdennen/Projects/Ideas/tmp/projectdata/blocks/DetectPercussion/PercussionEvents/percussion_3/data/percussion_3.wav",
+                            "sample_rate": 44100,
+                            "frame_rate": null,
+                            "length_ms": null
+                        }
+                    },
+                    {
+                        "name": "percussion_4",
+                        "description": "no description set",
+                        "classification": null,
+                        "type": "EventItem",
+                        "time": 17.77487528344671,
+                        "source": "DetectPercussion",
+                        "confidence": null,
+                        "metadata": {
+                            "name": "percussion_4",
+                            "type": "AudioData",
+                            "path": "/Users/gdennen/Projects/Ideas/tmp/projectdata/blocks/DetectPercussion/PercussionEvents/percussion_4/data/percussion_4.wav",
+                            "sample_rate": 44100,
+                            "frame_rate": null,
+                            "length_ms": null
+                        }
+                    },
+                    {
+                        "name": "percussion_5",
+                        "description": "no description set",
+                        "classification": null,
+                        "type": "EventItem",
+                        "time": 18.471473922902494,
+                        "source": "DetectPercussion",
+                        "confidence": null,
+                        "metadata": {
+                            "name": "percussion_5",
+                            "type": "AudioData",
+                            "path": "/Users/gdennen/Projects/Ideas/tmp/projectdata/blocks/DetectPercussion/PercussionEvents/percussion_5/data/percussion_5.wav",
+                            "sample_rate": 44100,
+                            "frame_rate": null,
+                            "length_ms": null
+                        }
+                    },
+                    {
+                        "name": "percussion_6",
+                        "description": "no description set",
+                        "classification": null,
+                        "type": "EventItem",
+                        "time": 19.969160997732427,
+                        "source": "DetectPercussion",
+                        "confidence": null,
+                        "metadata": {
+                            "name": "percussion_6",
+                            "type": "AudioData",
+                            "path": "/Users/gdennen/Projects/Ideas/tmp/projectdata/blocks/DetectPercussion/PercussionEvents/percussion_6/data/percussion_6.wav",
+                            "sample_rate": 44100,
+                            "frame_rate": null,
+                            "length_ms": null
+                        }
+                    },
+                    {
+                        "name": "percussion_7",
+                        "description": "no description set",
+                        "classification": null,
+                        "type": "EventItem",
+                        "time": 23.974603174603175,
+                        "source": "DetectPercussion",
+                        "confidence": null,
+                        "metadata": {
+                            "name": "percussion_7",
+                            "type": "AudioData",
+                            "path": "/Users/gdennen/Projects/Ideas/tmp/projectdata/blocks/DetectPercussion/PercussionEvents/percussion_7/data/percussion_7.wav",
+                            "sample_rate": 44100,
+                            "frame_rate": null,
+                            "length_ms": null
+                        }
+                    },
+                    {
+                        "name": "percussion_8",
+                        "description": "no description set",
+                        "classification": null,
+                        "type": "EventItem",
+                        "time": 24.694421768707482,
+                        "source": "DetectPercussion",
+                        "confidence": null,
+                        "metadata": {
+                            "name": "percussion_8",
+                            "type": "AudioData",
+                            "path": "/Users/gdennen/Projects/Ideas/tmp/projectdata/blocks/DetectPercussion/PercussionEvents/percussion_8/data/percussion_8.wav",
+                            "sample_rate": 44100,
+                            "frame_rate": null,
+                            "length_ms": null
+                        }
+                    },
+                    {
+                        "name": "percussion_9",
+                        "description": "no description set",
+                        "classification": null,
+                        "type": "EventItem",
+                        "time": 25.077551020408162,
+                        "source": "DetectPercussion",
+                        "confidence": null,
+                        "metadata": {
+                            "name": "percussion_9",
+                            "type": "AudioData",
+                            "path": "/Users/gdennen/Projects/Ideas/tmp/projectdata/blocks/DetectPercussion/PercussionEvents/percussion_9/data/percussion_9.wav",
+                            "sample_rate": 44100,
+                            "frame_rate": null,
+                            "length_ms": null
+                        }
+                    },
+                    {
+                        "name": "percussion_10",
+                        "description": "no description set",
+                        "classification": null,
+                        "type": "EventItem",
+                        "time": 25.44907029478458,
+                        "source": "DetectPercussion",
+                        "confidence": null,
+                        "metadata": {
+                            "name": "percussion_10",
+                            "type": "AudioData",
+                            "path": "/Users/gdennen/Projects/Ideas/tmp/projectdata/blocks/DetectPercussion/PercussionEvents/percussion_10/data/percussion_10.wav",
+                            "sample_rate": 44100,
+                            "frame_rate": null,
+                            "length_ms": null
+                        }
+                    },
+                    {
+                        "name": "percussion_11",
+                        "description": "no description set",
+                        "classification": null,
+                        "type": "EventItem",
+                        "time": 25.623219954648526,
+                        "source": "DetectPercussion",
+                        "confidence": null,
+                        "metadata": {
+                            "name": "percussion_11",
+                            "type": "AudioData",
+                            "path": "/Users/gdennen/Projects/Ideas/tmp/projectdata/blocks/DetectPercussion/PercussionEvents/percussion_11/data/percussion_11.wav",
+                            "sample_rate": 44100,
+                            "frame_rate": null,
+                            "length_ms": null
+                        }
+                    },
+                    {
+                        "name": "percussion_12",
+                        "description": "no description set",
+                        "classification": null,
+                        "type": "EventItem",
+                        "time": 25.98312925170068,
+                        "source": "DetectPercussion",
+                        "confidence": null,
+                        "metadata": {
+                            "name": "percussion_12",
+                            "type": "AudioData",
+                            "path": "/Users/gdennen/Projects/Ideas/tmp/projectdata/blocks/DetectPercussion/PercussionEvents/percussion_12/data/percussion_12.wav",
+                            "sample_rate": 44100,
+                            "frame_rate": null,
+                            "length_ms": null
+                        }
+                    },
+                    {
+                        "name": "percussion_13",
+                        "description": "no description set",
+                        "classification": null,
+                        "type": "EventItem",
+                        "time": 26.888707482993198,
+                        "source": "DetectPercussion",
+                        "confidence": null,
+                        "metadata": {
+                            "name": "percussion_13",
+                            "type": "AudioData",
+                            "path": "/Users/gdennen/Projects/Ideas/tmp/projectdata/blocks/DetectPercussion/PercussionEvents/percussion_13/data/percussion_13.wav",
+                            "sample_rate": 44100,
+                            "frame_rate": null,
+                            "length_ms": null
+                        }
+                    },
+                    {
+                        "name": "percussion_14",
+                        "description": "no description set",
+                        "classification": null,
+                        "type": "EventItem",
+                        "time": 27.248616780045353,
+                        "source": "DetectPercussion",
+                        "confidence": null,
+                        "metadata": {
+                            "name": "percussion_14",
+                            "type": "AudioData",
+                            "path": "/Users/gdennen/Projects/Ideas/tmp/projectdata/blocks/DetectPercussion/PercussionEvents/percussion_14/data/percussion_14.wav",
+                            "sample_rate": 44100,
+                            "frame_rate": null,
+                            "length_ms": null
+                        }
+                    },
+                    {
+                        "name": "percussion_15",
+                        "description": "no description set",
+                        "classification": null,
+                        "type": "EventItem",
+                        "time": 28.827573696145123,
+                        "source": "DetectPercussion",
+                        "confidence": null,
+                        "metadata": {
+                            "name": "percussion_15",
+                            "type": "AudioData",
+                            "path": "/Users/gdennen/Projects/Ideas/tmp/projectdata/blocks/DetectPercussion/PercussionEvents/percussion_15/data/percussion_15.wav",
+                            "sample_rate": 44100,
+                            "frame_rate": null,
+                            "length_ms": null
+                        }
+                    },
+                    {
+                        "name": "percussion_16",
+                        "description": "no description set",
+                        "classification": null,
+                        "type": "EventItem",
+                        "time": 29.80281179138322,
+                        "source": "DetectPercussion",
+                        "confidence": null,
+                        "metadata": {
+                            "name": "percussion_16",
+                            "type": "AudioData",
+                            "path": "/Users/gdennen/Projects/Ideas/tmp/projectdata/blocks/DetectPercussion/PercussionEvents/percussion_16/data/percussion_16.wav",
+                            "sample_rate": 44100,
+                            "frame_rate": null,
+                            "length_ms": null
+                        }
+                    },
+                    {
+                        "name": "percussion_17",
+                        "description": "no description set",
+                        "classification": null,
+                        "type": "EventItem",
+                        "time": 30.162721088435376,
+                        "source": "DetectPercussion",
+                        "confidence": null,
+                        "metadata": {
+                            "name": "percussion_17",
+                            "type": "AudioData",
+                            "path": "/Users/gdennen/Projects/Ideas/tmp/projectdata/blocks/DetectPercussion/PercussionEvents/percussion_17/data/percussion_17.wav",
+                            "sample_rate": 44100,
+                            "frame_rate": null,
+                            "length_ms": null
+                        }
+                    },
+                    {
+                        "name": "percussion_18",
+                        "description": "no description set",
+                        "classification": null,
+                        "type": "EventItem",
+                        "time": 30.53424036281179,
+                        "source": "DetectPercussion",
+                        "confidence": null,
+                        "metadata": {
+                            "name": "percussion_18",
+                            "type": "AudioData",
+                            "path": "/Users/gdennen/Projects/Ideas/tmp/projectdata/blocks/DetectPercussion/PercussionEvents/percussion_18/data/percussion_18.wav",
+                            "sample_rate": 44100,
+                            "frame_rate": null,
+                            "length_ms": null
+                        }
+                    },
+                    {
+                        "name": "percussion_19",
+                        "description": "no description set",
+                        "classification": null,
+                        "type": "EventItem",
+                        "time": 31.2540589569161,
+                        "source": "DetectPercussion",
+                        "confidence": null,
+                        "metadata": {
+                            "name": "percussion_19",
+                            "type": "AudioData",
+                            "path": "/Users/gdennen/Projects/Ideas/tmp/projectdata/blocks/DetectPercussion/PercussionEvents/percussion_19/data/percussion_19.wav",
+                            "sample_rate": 44100,
+                            "frame_rate": null,
+                            "length_ms": null
+                        }
+                    },
+                    {
+                        "name": "percussion_20",
+                        "description": "no description set",
+                        "classification": null,
+                        "type": "EventItem",
+                        "time": 31.451428571428572,
+                        "source": "DetectPercussion",
+                        "confidence": null,
+                        "metadata": {
+                            "name": "percussion_20",
+                            "type": "AudioData",
+                            "path": "/Users/gdennen/Projects/Ideas/tmp/projectdata/blocks/DetectPercussion/PercussionEvents/percussion_20/data/percussion_20.wav",
+                            "sample_rate": 44100,
+                            "frame_rate": null,
+                            "length_ms": null
+                        }
+                    },
+                    {
+                        "name": "percussion_21",
+                        "description": "no description set",
+                        "classification": null,
+                        "type": "EventItem",
+                        "time": 31.62557823129252,
+                        "source": "DetectPercussion",
+                        "confidence": null,
+                        "metadata": {
+                            "name": "percussion_21",
+                            "type": "AudioData",
+                            "path": "/Users/gdennen/Projects/Ideas/tmp/projectdata/blocks/DetectPercussion/PercussionEvents/percussion_21/data/percussion_21.wav",
+                            "sample_rate": 44100,
+                            "frame_rate": null,
+                            "length_ms": null
+                        }
+                    },
+                    {
+                        "name": "percussion_22",
+                        "description": "no description set",
+                        "classification": null,
+                        "type": "EventItem",
+                        "time": 31.79972789115646,
+                        "source": "DetectPercussion",
+                        "confidence": null,
+                        "metadata": {
+                            "name": "percussion_22",
+                            "type": "AudioData",
+                            "path": "/Users/gdennen/Projects/Ideas/tmp/projectdata/blocks/DetectPercussion/PercussionEvents/percussion_22/data/percussion_22.wav",
+                            "sample_rate": 44100,
+                            "frame_rate": null,
+                            "length_ms": null
+                        }
+                    },
+                    {
+                        "name": "percussion_23",
+                        "description": "no description set",
+                        "classification": null,
+                        "type": "EventItem",
+                        "time": 33.0768253968254,
+                        "source": "DetectPercussion",
+                        "confidence": null,
+                        "metadata": {
+                            "name": "percussion_23",
+                            "type": "AudioData",
+                            "path": "/Users/gdennen/Projects/Ideas/tmp/projectdata/blocks/DetectPercussion/PercussionEvents/percussion_23/data/percussion_23.wav",
+                            "sample_rate": 44100,
+                            "frame_rate": null,
+                            "length_ms": null
+                        }
+                    },
+                    {
+                        "name": "percussion_24",
+                        "description": "no description set",
+                        "classification": null,
+                        "type": "EventItem",
+                        "time": 33.436734693877554,
+                        "source": "DetectPercussion",
+                        "confidence": null,
+                        "metadata": {
+                            "name": "percussion_24",
+                            "type": "AudioData",
+                            "path": "/Users/gdennen/Projects/Ideas/tmp/projectdata/blocks/DetectPercussion/PercussionEvents/percussion_24/data/percussion_24.wav",
+                            "sample_rate": 44100,
+                            "frame_rate": null,
+                            "length_ms": null
+                        }
+                    },
+                    {
+                        "name": "percussion_25",
+                        "description": "no description set",
+                        "classification": null,
+                        "type": "EventItem",
+                        "time": 34.13333333333333,
+                        "source": "DetectPercussion",
+                        "confidence": null,
+                        "metadata": {
+                            "name": "percussion_25",
+                            "type": "AudioData",
+                            "path": "/Users/gdennen/Projects/Ideas/tmp/projectdata/blocks/DetectPercussion/PercussionEvents/percussion_25/data/percussion_25.wav",
+                            "sample_rate": 44100,
+                            "frame_rate": null,
+                            "length_ms": null
+                        }
+                    },
+                    {
+                        "name": "percussion_26",
+                        "description": "no description set",
+                        "classification": null,
+                        "type": "EventItem",
+                        "time": 34.34231292517007,
+                        "source": "DetectPercussion",
+                        "confidence": null,
+                        "metadata": {
+                            "name": "percussion_26",
+                            "type": "AudioData",
+                            "path": "/Users/gdennen/Projects/Ideas/tmp/projectdata/blocks/DetectPercussion/PercussionEvents/percussion_26/data/percussion_26.wav",
+                            "sample_rate": 44100,
+                            "frame_rate": null,
+                            "length_ms": null
+                        }
+                    },
+                    {
+                        "name": "percussion_27",
+                        "description": "no description set",
+                        "classification": null,
+                        "type": "EventItem",
+                        "time": 34.528072562358275,
+                        "source": "DetectPercussion",
+                        "confidence": null,
+                        "metadata": {
+                            "name": "percussion_27",
+                            "type": "AudioData",
+                            "path": "/Users/gdennen/Projects/Ideas/tmp/projectdata/blocks/DetectPercussion/PercussionEvents/percussion_27/data/percussion_27.wav",
+                            "sample_rate": 44100,
+                            "frame_rate": null,
+                            "length_ms": null
+                        }
+                    },
+                    {
+                        "name": "percussion_28",
+                        "description": "no description set",
+                        "classification": null,
+                        "type": "EventItem",
+                        "time": 34.690612244897956,
+                        "source": "DetectPercussion",
+                        "confidence": null,
+                        "metadata": {
+                            "name": "percussion_28",
+                            "type": "AudioData",
+                            "path": "/Users/gdennen/Projects/Ideas/tmp/projectdata/blocks/DetectPercussion/PercussionEvents/percussion_28/data/percussion_28.wav",
+                            "sample_rate": 44100,
+                            "frame_rate": null,
+                            "length_ms": null
+                        }
+                    },
+                    {
+                        "name": "percussion_29",
+                        "description": "no description set",
+                        "classification": null,
+                        "type": "EventItem",
+                        "time": 36.165079365079364,
+                        "source": "DetectPercussion",
+                        "confidence": null,
+                        "metadata": {
+                            "name": "percussion_29",
+                            "type": "AudioData",
+                            "path": "/Users/gdennen/Projects/Ideas/tmp/projectdata/blocks/DetectPercussion/PercussionEvents/percussion_29/data/percussion_29.wav",
+                            "sample_rate": 44100,
+                            "frame_rate": null,
+                            "length_ms": null
+                        }
+                    },
+                    {
+                        "name": "percussion_30",
+                        "description": "no description set",
+                        "classification": null,
+                        "type": "EventItem",
+                        "time": 38.2897052154195,
+                        "source": "DetectPercussion",
+                        "confidence": null,
+                        "metadata": {
+                            "name": "percussion_30",
+                            "type": "AudioData",
+                            "path": "/Users/gdennen/Projects/Ideas/tmp/projectdata/blocks/DetectPercussion/PercussionEvents/percussion_30/data/percussion_30.wav",
+                            "sample_rate": 44100,
+                            "frame_rate": null,
+                            "length_ms": null
+                        }
+                    },
+                    {
+                        "name": "percussion_31",
+                        "description": "no description set",
+                        "classification": null,
+                        "type": "EventItem",
+                        "time": 39.021133786848075,
+                        "source": "DetectPercussion",
+                        "confidence": null,
+                        "metadata": {
+                            "name": "percussion_31",
+                            "type": "AudioData",
+                            "path": "/Users/gdennen/Projects/Ideas/tmp/projectdata/blocks/DetectPercussion/PercussionEvents/percussion_31/data/percussion_31.wav",
+                            "sample_rate": 44100,
+                            "frame_rate": null,
+                            "length_ms": null
+                        }
+                    },
+                    {
+                        "name": "percussion_32",
+                        "description": "no description set",
+                        "classification": null,
+                        "type": "EventItem",
+                        "time": 39.5784126984127,
+                        "source": "DetectPercussion",
+                        "confidence": null,
+                        "metadata": {
+                            "name": "percussion_32",
+                            "type": "AudioData",
+                            "path": "/Users/gdennen/Projects/Ideas/tmp/projectdata/blocks/DetectPercussion/PercussionEvents/percussion_32/data/percussion_32.wav",
+                            "sample_rate": 44100,
+                            "frame_rate": null,
+                            "length_ms": null
+                        }
+                    },
+                    {
+                        "name": "percussion_33",
+                        "description": "no description set",
+                        "classification": null,
+                        "type": "EventItem",
+                        "time": 41.40117913832199,
+                        "source": "DetectPercussion",
+                        "confidence": null,
+                        "metadata": {
+                            "name": "percussion_33",
+                            "type": "AudioData",
+                            "path": "/Users/gdennen/Projects/Ideas/tmp/projectdata/blocks/DetectPercussion/PercussionEvents/percussion_33/data/percussion_33.wav",
+                            "sample_rate": 44100,
+                            "frame_rate": null,
+                            "length_ms": null
+                        }
+                    },
+                    {
+                        "name": "percussion_34",
+                        "description": "no description set",
+                        "classification": null,
+                        "type": "EventItem",
+                        "time": 47.78666666666667,
+                        "source": "DetectPercussion",
+                        "confidence": null,
+                        "metadata": {
+                            "name": "percussion_34",
+                            "type": "AudioData",
+                            "path": "/Users/gdennen/Projects/Ideas/tmp/projectdata/blocks/DetectPercussion/PercussionEvents/percussion_34/data/percussion_34.wav",
+                            "sample_rate": 44100,
+                            "frame_rate": null,
+                            "length_ms": null
+                        }
+                    },
+                    {
+                        "name": "percussion_35",
+                        "description": "no description set",
+                        "classification": null,
+                        "type": "EventItem",
+                        "time": 55.960090702947845,
+                        "source": "DetectPercussion",
+                        "confidence": null,
+                        "metadata": {
+                            "name": "percussion_35",
+                            "type": "AudioData",
+                            "path": "/Users/gdennen/Projects/Ideas/tmp/projectdata/blocks/DetectPercussion/PercussionEvents/percussion_35/data/percussion_35.wav",
+                            "sample_rate": 44100,
+                            "frame_rate": null,
+                            "length_ms": null
+                        }
+                    },
+                    {
+                        "name": "percussion_36",
+                        "description": "no description set",
+                        "classification": null,
+                        "type": "EventItem",
+                        "time": 59.41986394557823,
+                        "source": "DetectPercussion",
+                        "confidence": null,
+                        "metadata": {
+                            "name": "percussion_36",
+                            "type": "AudioData",
+                            "path": "/Users/gdennen/Projects/Ideas/tmp/projectdata/blocks/DetectPercussion/PercussionEvents/percussion_36/data/percussion_36.wav",
+                            "sample_rate": 44100,
+                            "frame_rate": null,
+                            "length_ms": null
+                        }
+                    },
+                    {
+                        "name": "percussion_37",
+                        "description": "no description set",
+                        "classification": null,
+                        "type": "EventItem",
+                        "time": 59.779773242630384,
+                        "source": "DetectPercussion",
+                        "confidence": null,
+                        "metadata": {
+                            "name": "percussion_37",
+                            "type": "AudioData",
+                            "path": "/Users/gdennen/Projects/Ideas/tmp/projectdata/blocks/DetectPercussion/PercussionEvents/percussion_37/data/percussion_37.wav",
+                            "sample_rate": 44100,
+                            "frame_rate": null,
+                            "length_ms": null
+                        }
+                    },
+                    {
+                        "name": "percussion_38",
+                        "description": "no description set",
+                        "classification": null,
+                        "type": "EventItem",
+                        "time": 59.97714285714286,
+                        "source": "DetectPercussion",
+                        "confidence": null,
+                        "metadata": {
+                            "name": "percussion_38",
+                            "type": "AudioData",
+                            "path": "/Users/gdennen/Projects/Ideas/tmp/projectdata/blocks/DetectPercussion/PercussionEvents/percussion_38/data/percussion_38.wav",
+                            "sample_rate": 44100,
+                            "frame_rate": null,
+                            "length_ms": null
+                        }
+                    },
+                    {
+                        "name": "percussion_39",
+                        "description": "no description set",
+                        "classification": null,
+                        "type": "EventItem",
+                        "time": 60.70857142857143,
+                        "source": "DetectPercussion",
+                        "confidence": null,
+                        "metadata": {
+                            "name": "percussion_39",
+                            "type": "AudioData",
+                            "path": "/Users/gdennen/Projects/Ideas/tmp/projectdata/blocks/DetectPercussion/PercussionEvents/percussion_39/data/percussion_39.wav",
+                            "sample_rate": 44100,
+                            "frame_rate": null,
+                            "length_ms": null
+                        }
+                    },
+                    {
+                        "name": "percussion_40",
+                        "description": "no description set",
+                        "classification": null,
+                        "type": "EventItem",
+                        "time": 61.55609977324263,
+                        "source": "DetectPercussion",
+                        "confidence": null,
+                        "metadata": {
+                            "name": "percussion_40",
+                            "type": "AudioData",
+                            "path": "/Users/gdennen/Projects/Ideas/tmp/projectdata/blocks/DetectPercussion/PercussionEvents/percussion_40/data/percussion_40.wav",
+                            "sample_rate": 44100,
+                            "frame_rate": null,
+                            "length_ms": null
+                        }
+                    },
+                    {
+                        "name": "percussion_41",
+                        "description": "no description set",
+                        "classification": null,
+                        "type": "EventItem",
+                        "time": 62.71709750566893,
+                        "source": "DetectPercussion",
+                        "confidence": null,
+                        "metadata": {
+                            "name": "percussion_41",
+                            "type": "AudioData",
+                            "path": "/Users/gdennen/Projects/Ideas/tmp/projectdata/blocks/DetectPercussion/PercussionEvents/percussion_41/data/percussion_41.wav",
+                            "sample_rate": 44100,
+                            "frame_rate": null,
+                            "length_ms": null
+                        }
+                    },
+                    {
+                        "name": "percussion_42",
+                        "description": "no description set",
+                        "classification": null,
+                        "type": "EventItem",
+                        "time": 62.86802721088436,
+                        "source": "DetectPercussion",
+                        "confidence": null,
+                        "metadata": {
+                            "name": "percussion_42",
+                            "type": "AudioData",
+                            "path": "/Users/gdennen/Projects/Ideas/tmp/projectdata/blocks/DetectPercussion/PercussionEvents/percussion_42/data/percussion_42.wav",
+                            "sample_rate": 44100,
+                            "frame_rate": null,
+                            "length_ms": null
+                        }
+                    },
+                    {
+                        "name": "percussion_43",
+                        "description": "no description set",
+                        "classification": null,
+                        "type": "EventItem",
+                        "time": 63.785215419501135,
+                        "source": "DetectPercussion",
+                        "confidence": null,
+                        "metadata": {
+                            "name": "percussion_43",
+                            "type": "AudioData",
+                            "path": "/Users/gdennen/Projects/Ideas/tmp/projectdata/blocks/DetectPercussion/PercussionEvents/percussion_43/data/percussion_43.wav",
+                            "sample_rate": 44100,
+                            "frame_rate": null,
+                            "length_ms": null
+                        }
+                    },
+                    {
+                        "name": "percussion_44",
+                        "description": "no description set",
+                        "classification": null,
+                        "type": "EventItem",
+                        "time": 64.47020408163266,
+                        "source": "DetectPercussion",
+                        "confidence": null,
+                        "metadata": {
+                            "name": "percussion_44",
+                            "type": "AudioData",
+                            "path": "/Users/gdennen/Projects/Ideas/tmp/projectdata/blocks/DetectPercussion/PercussionEvents/percussion_44/data/percussion_44.wav",
+                            "sample_rate": 44100,
+                            "frame_rate": null,
+                            "length_ms": null
+                        }
+                    },
+                    {
+                        "name": "percussion_45",
+                        "description": "no description set",
+                        "classification": null,
+                        "type": "EventItem",
+                        "time": 64.63274376417233,
+                        "source": "DetectPercussion",
+                        "confidence": null,
+                        "metadata": {
+                            "name": "percussion_45",
+                            "type": "AudioData",
+                            "path": "/Users/gdennen/Projects/Ideas/tmp/projectdata/blocks/DetectPercussion/PercussionEvents/percussion_45/data/percussion_45.wav",
+                            "sample_rate": 44100,
+                            "frame_rate": null,
+                            "length_ms": null
+                        }
+                    },
+                    {
+                        "name": "percussion_46",
+                        "description": "no description set",
+                        "classification": null,
+                        "type": "EventItem",
+                        "time": 65.19002267573696,
+                        "source": "DetectPercussion",
+                        "confidence": null,
+                        "metadata": {
+                            "name": "percussion_46",
+                            "type": "AudioData",
+                            "path": "/Users/gdennen/Projects/Ideas/tmp/projectdata/blocks/DetectPercussion/PercussionEvents/percussion_46/data/percussion_46.wav",
+                            "sample_rate": 44100,
+                            "frame_rate": null,
+                            "length_ms": null
+                        }
+                    },
+                    {
+                        "name": "percussion_47",
+                        "description": "no description set",
+                        "classification": null,
+                        "type": "EventItem",
+                        "time": 65.6195918367347,
+                        "source": "DetectPercussion",
+                        "confidence": null,
+                        "metadata": {
+                            "name": "percussion_47",
+                            "type": "AudioData",
+                            "path": "/Users/gdennen/Projects/Ideas/tmp/projectdata/blocks/DetectPercussion/PercussionEvents/percussion_47/data/percussion_47.wav",
+                            "sample_rate": 44100,
+                            "frame_rate": null,
+                            "length_ms": null
+                        }
+                    },
+                    {
+                        "name": "percussion_48",
+                        "description": "no description set",
+                        "classification": null,
+                        "type": "EventItem",
+                        "time": 65.8053514739229,
+                        "source": "DetectPercussion",
+                        "confidence": null,
+                        "metadata": {
+                            "name": "percussion_48",
+                            "type": "AudioData",
+                            "path": "/Users/gdennen/Projects/Ideas/tmp/projectdata/blocks/DetectPercussion/PercussionEvents/percussion_48/data/percussion_48.wav",
+                            "sample_rate": 44100,
+                            "frame_rate": null,
+                            "length_ms": null
+                        }
+                    },
+                    {
+                        "name": "percussion_49",
+                        "description": "no description set",
+                        "classification": null,
+                        "type": "EventItem",
+                        "time": 66.1536507936508,
+                        "source": "DetectPercussion",
+                        "confidence": null,
+                        "metadata": {
+                            "name": "percussion_49",
+                            "type": "AudioData",
+                            "path": "/Users/gdennen/Projects/Ideas/tmp/projectdata/blocks/DetectPercussion/PercussionEvents/percussion_49/data/percussion_49.wav",
+                            "sample_rate": 44100,
+                            "frame_rate": null,
+                            "length_ms": null
+                        }
+                    },
+                    {
+                        "name": "percussion_50",
+                        "description": "no description set",
+                        "classification": null,
+                        "type": "EventItem",
+                        "time": 68.09251700680272,
+                        "source": "DetectPercussion",
+                        "confidence": null,
+                        "metadata": {
+                            "name": "percussion_50",
+                            "type": "AudioData",
+                            "path": "/Users/gdennen/Projects/Ideas/tmp/projectdata/blocks/DetectPercussion/PercussionEvents/percussion_50/data/percussion_50.wav",
+                            "sample_rate": 44100,
+                            "frame_rate": null,
+                            "length_ms": null
+                        }
+                    },
+                    {
+                        "name": "percussion_51",
+                        "description": "no description set",
+                        "classification": null,
+                        "type": "EventItem",
+                        "time": 71.43619047619048,
+                        "source": "DetectPercussion",
+                        "confidence": null,
+                        "metadata": {
+                            "name": "percussion_51",
+                            "type": "AudioData",
+                            "path": "/Users/gdennen/Projects/Ideas/tmp/projectdata/blocks/DetectPercussion/PercussionEvents/percussion_51/data/percussion_51.wav",
+                            "sample_rate": 44100,
+                            "frame_rate": null,
+                            "length_ms": null
+                        }
+                    },
+                    {
+                        "name": "percussion_52",
+                        "description": "no description set",
+                        "classification": null,
+                        "type": "EventItem",
+                        "time": 72.49269841269842,
+                        "source": "DetectPercussion",
+                        "confidence": null,
+                        "metadata": {
+                            "name": "percussion_52",
+                            "type": "AudioData",
+                            "path": "/Users/gdennen/Projects/Ideas/tmp/projectdata/blocks/DetectPercussion/PercussionEvents/percussion_52/data/percussion_52.wav",
+                            "sample_rate": 44100,
+                            "frame_rate": null,
+                            "length_ms": null
+                        }
+                    },
+                    {
+                        "name": "percussion_53",
+                        "description": "no description set",
+                        "classification": null,
+                        "type": "EventItem",
+                        "time": 74.26902494331065,
+                        "source": "DetectPercussion",
+                        "confidence": null,
+                        "metadata": {
+                            "name": "percussion_53",
+                            "type": "AudioData",
+                            "path": "/Users/gdennen/Projects/Ideas/tmp/projectdata/blocks/DetectPercussion/PercussionEvents/percussion_53/data/percussion_53.wav",
+                            "sample_rate": 44100,
+                            "frame_rate": null,
+                            "length_ms": null
+                        }
+                    },
+                    {
+                        "name": "percussion_54",
+                        "description": "no description set",
+                        "classification": null,
+                        "type": "EventItem",
+                        "time": 75.25587301587302,
+                        "source": "DetectPercussion",
+                        "confidence": null,
+                        "metadata": {
+                            "name": "percussion_54",
+                            "type": "AudioData",
+                            "path": "/Users/gdennen/Projects/Ideas/tmp/projectdata/blocks/DetectPercussion/PercussionEvents/percussion_54/data/percussion_54.wav",
+                            "sample_rate": 44100,
+                            "frame_rate": null,
+                            "length_ms": null
+                        }
+                    },
+                    {
+                        "name": "percussion_55",
+                        "description": "no description set",
+                        "classification": null,
+                        "type": "EventItem",
+                        "time": 76.138231292517,
+                        "source": "DetectPercussion",
+                        "confidence": null,
+                        "metadata": {
+                            "name": "percussion_55",
+                            "type": "AudioData",
+                            "path": "/Users/gdennen/Projects/Ideas/tmp/projectdata/blocks/DetectPercussion/PercussionEvents/percussion_55/data/percussion_55.wav",
+                            "sample_rate": 44100,
+                            "frame_rate": null,
+                            "length_ms": null
+                        }
+                    },
+                    {
+                        "name": "percussion_56",
+                        "description": "no description set",
+                        "classification": null,
+                        "type": "EventItem",
+                        "time": 80.51519274376417,
+                        "source": "DetectPercussion",
+                        "confidence": null,
+                        "metadata": {
+                            "name": "percussion_56",
+                            "type": "AudioData",
+                            "path": "/Users/gdennen/Projects/Ideas/tmp/projectdata/blocks/DetectPercussion/PercussionEvents/percussion_56/data/percussion_56.wav",
+                            "sample_rate": 44100,
+                            "frame_rate": null,
+                            "length_ms": null
+                        }
+                    },
+                    {
+                        "name": "percussion_57",
+                        "description": "no description set",
+                        "classification": null,
+                        "type": "EventItem",
+                        "time": 80.68934240362812,
+                        "source": "DetectPercussion",
+                        "confidence": null,
+                        "metadata": {
+                            "name": "percussion_57",
+                            "type": "AudioData",
+                            "path": "/Users/gdennen/Projects/Ideas/tmp/projectdata/blocks/DetectPercussion/PercussionEvents/percussion_57/data/percussion_57.wav",
+                            "sample_rate": 44100,
+                            "frame_rate": null,
+                            "length_ms": null
+                        }
+                    },
+                    {
+                        "name": "percussion_58",
+                        "description": "no description set",
+                        "classification": null,
+                        "type": "EventItem",
+                        "time": 81.43238095238095,
+                        "source": "DetectPercussion",
+                        "confidence": null,
+                        "metadata": {
+                            "name": "percussion_58",
+                            "type": "AudioData",
+                            "path": "/Users/gdennen/Projects/Ideas/tmp/projectdata/blocks/DetectPercussion/PercussionEvents/percussion_58/data/percussion_58.wav",
+                            "sample_rate": 44100,
+                            "frame_rate": null,
+                            "length_ms": null
+                        }
+                    },
+                    {
+                        "name": "percussion_59",
+                        "description": "no description set",
+                        "classification": null,
+                        "type": "EventItem",
+                        "time": 81.79229024943311,
+                        "source": "DetectPercussion",
+                        "confidence": null,
+                        "metadata": {
+                            "name": "percussion_59",
+                            "type": "AudioData",
+                            "path": "/Users/gdennen/Projects/Ideas/tmp/projectdata/blocks/DetectPercussion/PercussionEvents/percussion_59/data/percussion_59.wav",
+                            "sample_rate": 44100,
+                            "frame_rate": null,
+                            "length_ms": null
+                        }
+                    },
+                    {
+                        "name": "percussion_60",
+                        "description": "no description set",
+                        "classification": null,
+                        "type": "EventItem",
+                        "time": 82.5469387755102,
+                        "source": "DetectPercussion",
+                        "confidence": null,
+                        "metadata": {
+                            "name": "percussion_60",
+                            "type": "AudioData",
+                            "path": "/Users/gdennen/Projects/Ideas/tmp/projectdata/blocks/DetectPercussion/PercussionEvents/percussion_60/data/percussion_60.wav",
+                            "sample_rate": 44100,
+                            "frame_rate": null,
+                            "length_ms": null
+                        }
+                    },
+                    {
+                        "name": "percussion_61",
+                        "description": "no description set",
+                        "classification": null,
+                        "type": "EventItem",
+                        "time": 82.8952380952381,
+                        "source": "DetectPercussion",
+                        "confidence": null,
+                        "metadata": {
+                            "name": "percussion_61",
+                            "type": "AudioData",
+                            "path": "/Users/gdennen/Projects/Ideas/tmp/projectdata/blocks/DetectPercussion/PercussionEvents/percussion_61/data/percussion_61.wav",
+                            "sample_rate": 44100,
+                            "frame_rate": null,
+                            "length_ms": null
+                        }
+                    },
+                    {
+                        "name": "percussion_62",
+                        "description": "no description set",
+                        "classification": null,
+                        "type": "EventItem",
+                        "time": 83.24353741496599,
+                        "source": "DetectPercussion",
+                        "confidence": null,
+                        "metadata": {
+                            "name": "percussion_62",
+                            "type": "AudioData",
+                            "path": "/Users/gdennen/Projects/Ideas/tmp/projectdata/blocks/DetectPercussion/PercussionEvents/percussion_62/data/percussion_62.wav",
+                            "sample_rate": 44100,
+                            "frame_rate": null,
+                            "length_ms": null
+                        }
+                    },
+                    {
+                        "name": "percussion_63",
+                        "description": "no description set",
+                        "classification": null,
+                        "type": "EventItem",
+                        "time": 84.30004535147393,
+                        "source": "DetectPercussion",
+                        "confidence": null,
+                        "metadata": {
+                            "name": "percussion_63",
+                            "type": "AudioData",
+                            "path": "/Users/gdennen/Projects/Ideas/tmp/projectdata/blocks/DetectPercussion/PercussionEvents/percussion_63/data/percussion_63.wav",
+                            "sample_rate": 44100,
+                            "frame_rate": null,
+                            "length_ms": null
+                        }
+                    },
+                    {
+                        "name": "percussion_64",
+                        "description": "no description set",
+                        "classification": null,
+                        "type": "EventItem",
+                        "time": 84.70639455782313,
+                        "source": "DetectPercussion",
+                        "confidence": null,
+                        "metadata": {
+                            "name": "percussion_64",
+                            "type": "AudioData",
+                            "path": "/Users/gdennen/Projects/Ideas/tmp/projectdata/blocks/DetectPercussion/PercussionEvents/percussion_64/data/percussion_64.wav",
+                            "sample_rate": 44100,
+                            "frame_rate": null,
+                            "length_ms": null
+                        }
+                    },
+                    {
+                        "name": "percussion_65",
+                        "description": "no description set",
+                        "classification": null,
+                        "type": "EventItem",
+                        "time": 85.05469387755102,
+                        "source": "DetectPercussion",
+                        "confidence": null,
+                        "metadata": {
+                            "name": "percussion_65",
+                            "type": "AudioData",
+                            "path": "/Users/gdennen/Projects/Ideas/tmp/projectdata/blocks/DetectPercussion/PercussionEvents/percussion_65/data/percussion_65.wav",
+                            "sample_rate": 44100,
+                            "frame_rate": null,
+                            "length_ms": null
+                        }
+                    },
+                    {
+                        "name": "percussion_66",
+                        "description": "no description set",
+                        "classification": null,
+                        "type": "EventItem",
+                        "time": 85.42621315192744,
+                        "source": "DetectPercussion",
+                        "confidence": null,
+                        "metadata": {
+                            "name": "percussion_66",
+                            "type": "AudioData",
+                            "path": "/Users/gdennen/Projects/Ideas/tmp/projectdata/blocks/DetectPercussion/PercussionEvents/percussion_66/data/percussion_66.wav",
+                            "sample_rate": 44100,
+                            "frame_rate": null,
+                            "length_ms": null
+                        }
+                    },
+                    {
+                        "name": "percussion_67",
+                        "description": "no description set",
+                        "classification": null,
+                        "type": "EventItem",
+                        "time": 86.18086167800453,
+                        "source": "DetectPercussion",
+                        "confidence": null,
+                        "metadata": {
+                            "name": "percussion_67",
+                            "type": "AudioData",
+                            "path": "/Users/gdennen/Projects/Ideas/tmp/projectdata/blocks/DetectPercussion/PercussionEvents/percussion_67/data/percussion_67.wav",
+                            "sample_rate": 44100,
+                            "frame_rate": null,
+                            "length_ms": null
+                        }
+                    },
+                    {
+                        "name": "percussion_68",
+                        "description": "no description set",
+                        "classification": null,
+                        "type": "EventItem",
+                        "time": 87.2257596371882,
+                        "source": "DetectPercussion",
+                        "confidence": null,
+                        "metadata": {
+                            "name": "percussion_68",
+                            "type": "AudioData",
+                            "path": "/Users/gdennen/Projects/Ideas/tmp/projectdata/blocks/DetectPercussion/PercussionEvents/percussion_68/data/percussion_68.wav",
+                            "sample_rate": 44100,
+                            "frame_rate": null,
+                            "length_ms": null
+                        }
+                    },
+                    {
+                        "name": "percussion_69",
+                        "description": "no description set",
+                        "classification": null,
+                        "type": "EventItem",
+                        "time": 88.71183673469388,
+                        "source": "DetectPercussion",
+                        "confidence": null,
+                        "metadata": {
+                            "name": "percussion_69",
+                            "type": "AudioData",
+                            "path": "/Users/gdennen/Projects/Ideas/tmp/projectdata/blocks/DetectPercussion/PercussionEvents/percussion_69/data/percussion_69.wav",
+                            "sample_rate": 44100,
+                            "frame_rate": null,
+                            "length_ms": null
+                        }
+                    },
+                    {
+                        "name": "percussion_70",
+                        "description": "no description set",
+                        "classification": null,
+                        "type": "EventItem",
+                        "time": 89.06013605442178,
+                        "source": "DetectPercussion",
+                        "confidence": null,
+                        "metadata": {
+                            "name": "percussion_70",
+                            "type": "AudioData",
+                            "path": "/Users/gdennen/Projects/Ideas/tmp/projectdata/blocks/DetectPercussion/PercussionEvents/percussion_70/data/percussion_70.wav",
+                            "sample_rate": 44100,
+                            "frame_rate": null,
+                            "length_ms": null
+                        }
+                    },
+                    {
+                        "name": "percussion_71",
+                        "description": "no description set",
+                        "classification": null,
+                        "type": "EventItem",
+                        "time": 89.77995464852607,
+                        "source": "DetectPercussion",
+                        "confidence": null,
+                        "metadata": {
+                            "name": "percussion_71",
+                            "type": "AudioData",
+                            "path": "/Users/gdennen/Projects/Ideas/tmp/projectdata/blocks/DetectPercussion/PercussionEvents/percussion_71/data/percussion_71.wav",
+                            "sample_rate": 44100,
+                            "frame_rate": null,
+                            "length_ms": null
+                        }
+                    },
+                    {
+                        "name": "percussion_72",
+                        "description": "no description set",
+                        "classification": null,
+                        "type": "EventItem",
+                        "time": 90.1166439909297,
+                        "source": "DetectPercussion",
+                        "confidence": null,
+                        "metadata": {
+                            "name": "percussion_72",
+                            "type": "AudioData",
+                            "path": "/Users/gdennen/Projects/Ideas/tmp/projectdata/blocks/DetectPercussion/PercussionEvents/percussion_72/data/percussion_72.wav",
+                            "sample_rate": 44100,
+                            "frame_rate": null,
+                            "length_ms": null
+                        }
+                    },
+                    {
+                        "name": "percussion_73",
+                        "description": "no description set",
+                        "classification": null,
+                        "type": "EventItem",
+                        "time": 91.08027210884353,
+                        "source": "DetectPercussion",
+                        "confidence": null,
+                        "metadata": {
+                            "name": "percussion_73",
+                            "type": "AudioData",
+                            "path": "/Users/gdennen/Projects/Ideas/tmp/projectdata/blocks/DetectPercussion/PercussionEvents/percussion_73/data/percussion_73.wav",
+                            "sample_rate": 44100,
+                            "frame_rate": null,
+                            "length_ms": null
+                        }
+                    },
+                    {
+                        "name": "percussion_74",
+                        "description": "no description set",
+                        "classification": null,
+                        "type": "EventItem",
+                        "time": 92.16,
+                        "source": "DetectPercussion",
+                        "confidence": null,
+                        "metadata": {
+                            "name": "percussion_74",
+                            "type": "AudioData",
+                            "path": "/Users/gdennen/Projects/Ideas/tmp/projectdata/blocks/DetectPercussion/PercussionEvents/percussion_74/data/percussion_74.wav",
+                            "sample_rate": 44100,
+                            "frame_rate": null,
+                            "length_ms": null
+                        }
+                    },
+                    {
+                        "name": "percussion_75",
+                        "description": "no description set",
+                        "classification": null,
+                        "type": "EventItem",
+                        "time": 92.5082993197279,
+                        "source": "DetectPercussion",
+                        "confidence": null,
+                        "metadata": {
+                            "name": "percussion_75",
+                            "type": "AudioData",
+                            "path": "/Users/gdennen/Projects/Ideas/tmp/projectdata/blocks/DetectPercussion/PercussionEvents/percussion_75/data/percussion_75.wav",
+                            "sample_rate": 44100,
+                            "frame_rate": null,
+                            "length_ms": null
+                        }
+                    },
+                    {
+                        "name": "percussion_76",
+                        "description": "no description set",
+                        "classification": null,
+                        "type": "EventItem",
+                        "time": 96.51374149659864,
+                        "source": "DetectPercussion",
+                        "confidence": null,
+                        "metadata": {
+                            "name": "percussion_76",
+                            "type": "AudioData",
+                            "path": "/Users/gdennen/Projects/Ideas/tmp/projectdata/blocks/DetectPercussion/PercussionEvents/percussion_76/data/percussion_76.wav",
+                            "sample_rate": 44100,
+                            "frame_rate": null,
+                            "length_ms": null
+                        }
+                    },
+                    {
+                        "name": "percussion_77",
+                        "description": "no description set",
+                        "classification": null,
+                        "type": "EventItem",
+                        "time": 97.22195011337868,
+                        "source": "DetectPercussion",
+                        "confidence": null,
+                        "metadata": {
+                            "name": "percussion_77",
+                            "type": "AudioData",
+                            "path": "/Users/gdennen/Projects/Ideas/tmp/projectdata/blocks/DetectPercussion/PercussionEvents/percussion_77/data/percussion_77.wav",
+                            "sample_rate": 44100,
+                            "frame_rate": null,
+                            "length_ms": null
+                        }
+                    },
+                    {
+                        "name": "percussion_78",
+                        "description": "no description set",
+                        "classification": null,
+                        "type": "EventItem",
+                        "time": 97.74439909297053,
+                        "source": "DetectPercussion",
+                        "confidence": null,
+                        "metadata": {
+                            "name": "percussion_78",
+                            "type": "AudioData",
+                            "path": "/Users/gdennen/Projects/Ideas/tmp/projectdata/blocks/DetectPercussion/PercussionEvents/percussion_78/data/percussion_78.wav",
+                            "sample_rate": 44100,
+                            "frame_rate": null,
+                            "length_ms": null
+                        }
+                    },
+                    {
+                        "name": "percussion_79",
+                        "description": "no description set",
+                        "classification": null,
+                        "type": "EventItem",
+                        "time": 97.97659863945579,
+                        "source": "DetectPercussion",
+                        "confidence": null,
+                        "metadata": {
+                            "name": "percussion_79",
+                            "type": "AudioData",
+                            "path": "/Users/gdennen/Projects/Ideas/tmp/projectdata/blocks/DetectPercussion/PercussionEvents/percussion_79/data/percussion_79.wav",
+                            "sample_rate": 44100,
+                            "frame_rate": null,
+                            "length_ms": null
+                        }
+                    },
+                    {
+                        "name": "percussion_80",
+                        "description": "no description set",
+                        "classification": null,
+                        "type": "EventItem",
+                        "time": 99.2304761904762,
+                        "source": "DetectPercussion",
+                        "confidence": null,
+                        "metadata": {
+                            "name": "percussion_80",
+                            "type": "AudioData",
+                            "path": "/Users/gdennen/Projects/Ideas/tmp/projectdata/blocks/DetectPercussion/PercussionEvents/percussion_80/data/percussion_80.wav",
+                            "sample_rate": 44100,
+                            "frame_rate": null,
+                            "length_ms": null
+                        }
+                    },
+                    {
+                        "name": "percussion_81",
+                        "description": "no description set",
+                        "classification": null,
+                        "type": "EventItem",
+                        "time": 99.93868480725624,
+                        "source": "DetectPercussion",
+                        "confidence": null,
+                        "metadata": {
+                            "name": "percussion_81",
+                            "type": "AudioData",
+                            "path": "/Users/gdennen/Projects/Ideas/tmp/projectdata/blocks/DetectPercussion/PercussionEvents/percussion_81/data/percussion_81.wav",
+                            "sample_rate": 44100,
+                            "frame_rate": null,
+                            "length_ms": null
+                        }
+                    },
+                    {
+                        "name": "percussion_82",
+                        "description": "no description set",
+                        "classification": null,
+                        "type": "EventItem",
+                        "time": 100.14766439909297,
+                        "source": "DetectPercussion",
+                        "confidence": null,
+                        "metadata": {
+                            "name": "percussion_82",
+                            "type": "AudioData",
+                            "path": "/Users/gdennen/Projects/Ideas/tmp/projectdata/blocks/DetectPercussion/PercussionEvents/percussion_82/data/percussion_82.wav",
+                            "sample_rate": 44100,
+                            "frame_rate": null,
+                            "length_ms": null
+                        }
+                    },
+                    {
+                        "name": "percussion_83",
+                        "description": "no description set",
+                        "classification": null,
+                        "type": "EventItem",
+                        "time": 100.53079365079365,
+                        "source": "DetectPercussion",
+                        "confidence": null,
+                        "metadata": {
+                            "name": "percussion_83",
+                            "type": "AudioData",
+                            "path": "/Users/gdennen/Projects/Ideas/tmp/projectdata/blocks/DetectPercussion/PercussionEvents/percussion_83/data/percussion_83.wav",
+                            "sample_rate": 44100,
+                            "frame_rate": null,
+                            "length_ms": null
+                        }
+                    },
+                    {
+                        "name": "percussion_84",
+                        "description": "no description set",
+                        "classification": null,
+                        "type": "EventItem",
+                        "time": 104.68716553287982,
+                        "source": "DetectPercussion",
+                        "confidence": null,
+                        "metadata": {
+                            "name": "percussion_84",
+                            "type": "AudioData",
+                            "path": "/Users/gdennen/Projects/Ideas/tmp/projectdata/blocks/DetectPercussion/PercussionEvents/percussion_84/data/percussion_84.wav",
+                            "sample_rate": 44100,
+                            "frame_rate": null,
+                            "length_ms": null
+                        }
+                    },
+                    {
+                        "name": "percussion_85",
+                        "description": "no description set",
+                        "classification": null,
+                        "type": "EventItem",
+                        "time": 105.96426303854875,
+                        "source": "DetectPercussion",
+                        "confidence": null,
+                        "metadata": {
+                            "name": "percussion_85",
+                            "type": "AudioData",
+                            "path": "/Users/gdennen/Projects/Ideas/tmp/projectdata/blocks/DetectPercussion/PercussionEvents/percussion_85/data/percussion_85.wav",
+                            "sample_rate": 44100,
+                            "frame_rate": null,
+                            "length_ms": null
+                        }
+                    },
+                    {
+                        "name": "percussion_86",
+                        "description": "no description set",
+                        "classification": null,
+                        "type": "EventItem",
+                        "time": 107.94956916099773,
+                        "source": "DetectPercussion",
+                        "confidence": null,
+                        "metadata": {
+                            "name": "percussion_86",
+                            "type": "AudioData",
+                            "path": "/Users/gdennen/Projects/Ideas/tmp/projectdata/blocks/DetectPercussion/PercussionEvents/percussion_86/data/percussion_86.wav",
+                            "sample_rate": 44100,
+                            "frame_rate": null,
+                            "length_ms": null
+                        }
+                    },
+                    {
+                        "name": "percussion_87",
+                        "description": "no description set",
+                        "classification": null,
+                        "type": "EventItem",
+                        "time": 108.14693877551021,
+                        "source": "DetectPercussion",
+                        "confidence": null,
+                        "metadata": {
+                            "name": "percussion_87",
+                            "type": "AudioData",
+                            "path": "/Users/gdennen/Projects/Ideas/tmp/projectdata/blocks/DetectPercussion/PercussionEvents/percussion_87/data/percussion_87.wav",
+                            "sample_rate": 44100,
+                            "frame_rate": null,
+                            "length_ms": null
+                        }
+                    },
+                    {
+                        "name": "percussion_88",
+                        "description": "no description set",
+                        "classification": null,
+                        "type": "EventItem",
+                        "time": 108.32108843537415,
+                        "source": "DetectPercussion",
+                        "confidence": null,
+                        "metadata": {
+                            "name": "percussion_88",
+                            "type": "AudioData",
+                            "path": "/Users/gdennen/Projects/Ideas/tmp/projectdata/blocks/DetectPercussion/PercussionEvents/percussion_88/data/percussion_88.wav",
+                            "sample_rate": 44100,
+                            "frame_rate": null,
+                            "length_ms": null
+                        }
+                    },
+                    {
+                        "name": "percussion_89",
+                        "description": "no description set",
+                        "classification": null,
+                        "type": "EventItem",
+                        "time": 108.71582766439909,
+                        "source": "DetectPercussion",
+                        "confidence": null,
+                        "metadata": {
+                            "name": "percussion_89",
+                            "type": "AudioData",
+                            "path": "/Users/gdennen/Projects/Ideas/tmp/projectdata/blocks/DetectPercussion/PercussionEvents/percussion_89/data/percussion_89.wav",
+                            "sample_rate": 44100,
+                            "frame_rate": null,
+                            "length_ms": null
+                        }
+                    },
+                    {
+                        "name": "percussion_90",
+                        "description": "no description set",
+                        "classification": null,
+                        "type": "EventItem",
+                        "time": 110.88689342403629,
+                        "source": "DetectPercussion",
+                        "confidence": null,
+                        "metadata": {
+                            "name": "percussion_90",
+                            "type": "AudioData",
+                            "path": "/Users/gdennen/Projects/Ideas/tmp/projectdata/blocks/DetectPercussion/PercussionEvents/percussion_90/data/percussion_90.wav",
+                            "sample_rate": 44100,
+                            "frame_rate": null,
+                            "length_ms": null
+                        }
+                    },
+                    {
+                        "name": "percussion_91",
+                        "description": "no description set",
+                        "classification": null,
+                        "type": "EventItem",
+                        "time": 111.2235827664399,
+                        "source": "DetectPercussion",
+                        "confidence": null,
+                        "metadata": {
+                            "name": "percussion_91",
+                            "type": "AudioData",
+                            "path": "/Users/gdennen/Projects/Ideas/tmp/projectdata/blocks/DetectPercussion/PercussionEvents/percussion_91/data/percussion_91.wav",
+                            "sample_rate": 44100,
+                            "frame_rate": null,
+                            "length_ms": null
+                        }
+                    },
+                    {
+                        "name": "percussion_92",
+                        "description": "no description set",
+                        "classification": null,
+                        "type": "EventItem",
+                        "time": 112.16399092970522,
+                        "source": "DetectPercussion",
+                        "confidence": null,
+                        "metadata": {
+                            "name": "percussion_92",
+                            "type": "AudioData",
+                            "path": "/Users/gdennen/Projects/Ideas/tmp/projectdata/blocks/DetectPercussion/PercussionEvents/percussion_92/data/percussion_92.wav",
+                            "sample_rate": 44100,
+                            "frame_rate": null,
+                            "length_ms": null
+                        }
+                    },
+                    {
+                        "name": "percussion_93",
+                        "description": "no description set",
+                        "classification": null,
+                        "type": "EventItem",
+                        "time": 112.72126984126984,
+                        "source": "DetectPercussion",
+                        "confidence": null,
+                        "metadata": {
+                            "name": "percussion_93",
+                            "type": "AudioData",
+                            "path": "/Users/gdennen/Projects/Ideas/tmp/projectdata/blocks/DetectPercussion/PercussionEvents/percussion_93/data/percussion_93.wav",
+                            "sample_rate": 44100,
+                            "frame_rate": null,
+                            "length_ms": null
+                        }
+                    },
+                    {
+                        "name": "percussion_94",
+                        "description": "no description set",
+                        "classification": null,
+                        "type": "EventItem",
+                        "time": 114.17251700680272,
+                        "source": "DetectPercussion",
+                        "confidence": null,
+                        "metadata": {
+                            "name": "percussion_94",
+                            "type": "AudioData",
+                            "path": "/Users/gdennen/Projects/Ideas/tmp/projectdata/blocks/DetectPercussion/PercussionEvents/percussion_94/data/percussion_94.wav",
+                            "sample_rate": 44100,
+                            "frame_rate": null,
+                            "length_ms": null
+                        }
+                    },
+                    {
+                        "name": "percussion_95",
+                        "description": "no description set",
+                        "classification": null,
+                        "type": "EventItem",
+                        "time": 115.07809523809524,
+                        "source": "DetectPercussion",
+                        "confidence": null,
+                        "metadata": {
+                            "name": "percussion_95",
+                            "type": "AudioData",
+                            "path": "/Users/gdennen/Projects/Ideas/tmp/projectdata/blocks/DetectPercussion/PercussionEvents/percussion_95/data/percussion_95.wav",
+                            "sample_rate": 44100,
+                            "frame_rate": null,
+                            "length_ms": null
+                        }
+                    },
+                    {
+                        "name": "percussion_96",
+                        "description": "no description set",
+                        "classification": null,
+                        "type": "EventItem",
+                        "time": 115.58893424036282,
+                        "source": "DetectPercussion",
+                        "confidence": null,
+                        "metadata": {
+                            "name": "percussion_96",
+                            "type": "AudioData",
+                            "path": "/Users/gdennen/Projects/Ideas/tmp/projectdata/blocks/DetectPercussion/PercussionEvents/percussion_96/data/percussion_96.wav",
+                            "sample_rate": 44100,
+                            "frame_rate": null,
+                            "length_ms": null
+                        }
+                    },
+                    {
+                        "name": "percussion_97",
+                        "description": "no description set",
+                        "classification": null,
+                        "type": "EventItem",
+                        "time": 115.79791383219954,
+                        "source": "DetectPercussion",
+                        "confidence": null,
+                        "metadata": {
+                            "name": "percussion_97",
+                            "type": "AudioData",
+                            "path": "/Users/gdennen/Projects/Ideas/tmp/projectdata/blocks/DetectPercussion/PercussionEvents/percussion_97/data/percussion_97.wav",
+                            "sample_rate": 44100,
+                            "frame_rate": null,
+                            "length_ms": null
+                        }
+                    },
+                    {
+                        "name": "percussion_98",
+                        "description": "no description set",
+                        "classification": null,
+                        "type": "EventItem",
+                        "time": 116.11138321995465,
+                        "source": "DetectPercussion",
+                        "confidence": null,
+                        "metadata": {
+                            "name": "percussion_98",
+                            "type": "AudioData",
+                            "path": "/Users/gdennen/Projects/Ideas/tmp/projectdata/blocks/DetectPercussion/PercussionEvents/percussion_98/data/percussion_98.wav",
+                            "sample_rate": 44100,
+                            "frame_rate": null,
+                            "length_ms": null
+                        }
+                    },
+                    {
+                        "name": "percussion_99",
+                        "description": "no description set",
+                        "classification": null,
+                        "type": "EventItem",
+                        "time": 117.58585034013605,
+                        "source": "DetectPercussion",
+                        "confidence": null,
+                        "metadata": {
+                            "name": "percussion_99",
+                            "type": "AudioData",
+                            "path": "/Users/gdennen/Projects/Ideas/tmp/projectdata/blocks/DetectPercussion/PercussionEvents/percussion_99/data/percussion_99.wav",
+                            "sample_rate": 44100,
+                            "frame_rate": null,
+                            "length_ms": null
+                        }
+                    },
+                    {
+                        "name": "percussion_100",
+                        "description": "no description set",
+                        "classification": null,
+                        "type": "EventItem",
+                        "time": 118.13151927437642,
+                        "source": "DetectPercussion",
+                        "confidence": null,
+                        "metadata": {
+                            "name": "percussion_100",
+                            "type": "AudioData",
+                            "path": "/Users/gdennen/Projects/Ideas/tmp/projectdata/blocks/DetectPercussion/PercussionEvents/percussion_100/data/percussion_100.wav",
+                            "sample_rate": 44100,
+                            "frame_rate": null,
+                            "length_ms": null
+                        }
+                    },
+                    {
+                        "name": "percussion_101",
+                        "description": "no description set",
+                        "classification": null,
+                        "type": "EventItem",
+                        "time": 119.03709750566894,
+                        "source": "DetectPercussion",
+                        "confidence": null,
+                        "metadata": {
+                            "name": "percussion_101",
+                            "type": "AudioData",
+                            "path": "/Users/gdennen/Projects/Ideas/tmp/projectdata/blocks/DetectPercussion/PercussionEvents/percussion_101/data/percussion_101.wav",
+                            "sample_rate": 44100,
+                            "frame_rate": null,
+                            "length_ms": null
+                        }
+                    },
+                    {
+                        "name": "percussion_102",
+                        "description": "no description set",
+                        "classification": null,
+                        "type": "EventItem",
+                        "time": 119.79174603174603,
+                        "source": "DetectPercussion",
+                        "confidence": null,
+                        "metadata": {
+                            "name": "percussion_102",
+                            "type": "AudioData",
+                            "path": "/Users/gdennen/Projects/Ideas/tmp/projectdata/blocks/DetectPercussion/PercussionEvents/percussion_102/data/percussion_102.wav",
+                            "sample_rate": 44100,
+                            "frame_rate": null,
+                            "length_ms": null
+                        }
+                    },
+                    {
+                        "name": "percussion_103",
+                        "description": "no description set",
+                        "classification": null,
+                        "type": "EventItem",
+                        "time": 120.49995464852607,
+                        "source": "DetectPercussion",
+                        "confidence": null,
+                        "metadata": {
+                            "name": "percussion_103",
+                            "type": "AudioData",
+                            "path": "/Users/gdennen/Projects/Ideas/tmp/projectdata/blocks/DetectPercussion/PercussionEvents/percussion_103/data/percussion_103.wav",
+                            "sample_rate": 44100,
+                            "frame_rate": null,
+                            "length_ms": null
+                        }
+                    },
+                    {
+                        "name": "percussion_104",
+                        "description": "no description set",
+                        "classification": null,
+                        "type": "EventItem",
+                        "time": 120.8714739229025,
+                        "source": "DetectPercussion",
+                        "confidence": null,
+                        "metadata": {
+                            "name": "percussion_104",
+                            "type": "AudioData",
+                            "path": "/Users/gdennen/Projects/Ideas/tmp/projectdata/blocks/DetectPercussion/PercussionEvents/percussion_104/data/percussion_104.wav",
+                            "sample_rate": 44100,
+                            "frame_rate": null,
+                            "length_ms": null
+                        }
+                    },
+                    {
+                        "name": "percussion_105",
+                        "description": "no description set",
+                        "classification": null,
+                        "type": "EventItem",
+                        "time": 121.05723356009071,
+                        "source": "DetectPercussion",
+                        "confidence": null,
+                        "metadata": {
+                            "name": "percussion_105",
+                            "type": "AudioData",
+                            "path": "/Users/gdennen/Projects/Ideas/tmp/projectdata/blocks/DetectPercussion/PercussionEvents/percussion_105/data/percussion_105.wav",
+                            "sample_rate": 44100,
+                            "frame_rate": null,
+                            "length_ms": null
+                        }
+                    },
+                    {
+                        "name": "percussion_106",
+                        "description": "no description set",
+                        "classification": null,
+                        "type": "EventItem",
+                        "time": 121.91637188208617,
+                        "source": "DetectPercussion",
+                        "confidence": null,
+                        "metadata": {
+                            "name": "percussion_106",
+                            "type": "AudioData",
+                            "path": "/Users/gdennen/Projects/Ideas/tmp/projectdata/blocks/DetectPercussion/PercussionEvents/percussion_106/data/percussion_106.wav",
+                            "sample_rate": 44100,
+                            "frame_rate": null,
+                            "length_ms": null
+                        }
+                    },
+                    {
+                        "name": "percussion_107",
+                        "description": "no description set",
+                        "classification": null,
+                        "type": "EventItem",
+                        "time": 122.52009070294784,
+                        "source": "DetectPercussion",
+                        "confidence": null,
+                        "metadata": {
+                            "name": "percussion_107",
+                            "type": "AudioData",
+                            "path": "/Users/gdennen/Projects/Ideas/tmp/projectdata/blocks/DetectPercussion/PercussionEvents/percussion_107/data/percussion_107.wav",
+                            "sample_rate": 44100,
+                            "frame_rate": null,
+                            "length_ms": null
+                        }
+                    },
+                    {
+                        "name": "percussion_108",
+                        "description": "no description set",
+                        "classification": null,
+                        "type": "EventItem",
+                        "time": 123.40244897959184,
+                        "source": "DetectPercussion",
+                        "confidence": null,
+                        "metadata": {
+                            "name": "percussion_108",
+                            "type": "AudioData",
+                            "path": "/Users/gdennen/Projects/Ideas/tmp/projectdata/blocks/DetectPercussion/PercussionEvents/percussion_108/data/percussion_108.wav",
+                            "sample_rate": 44100,
+                            "frame_rate": null,
+                            "length_ms": null
+                        }
+                    },
+                    {
+                        "name": "percussion_109",
+                        "description": "no description set",
+                        "classification": null,
+                        "type": "EventItem",
+                        "time": 123.75074829931972,
+                        "source": "DetectPercussion",
+                        "confidence": null,
+                        "metadata": {
+                            "name": "percussion_109",
+                            "type": "AudioData",
+                            "path": "/Users/gdennen/Projects/Ideas/tmp/projectdata/blocks/DetectPercussion/PercussionEvents/percussion_109/data/percussion_109.wav",
+                            "sample_rate": 44100,
+                            "frame_rate": null,
+                            "length_ms": null
+                        }
+                    },
+                    {
+                        "name": "percussion_110",
+                        "description": "no description set",
+                        "classification": null,
+                        "type": "EventItem",
+                        "time": 124.34285714285714,
+                        "source": "DetectPercussion",
+                        "confidence": null,
+                        "metadata": {
+                            "name": "percussion_110",
+                            "type": "AudioData",
+                            "path": "/Users/gdennen/Projects/Ideas/tmp/projectdata/blocks/DetectPercussion/PercussionEvents/percussion_110/data/percussion_110.wav",
+                            "sample_rate": 44100,
+                            "frame_rate": null,
+                            "length_ms": null
+                        }
+                    },
+                    {
+                        "name": "percussion_111",
+                        "description": "no description set",
+                        "classification": null,
+                        "type": "EventItem",
+                        "time": 125.60834467120182,
+                        "source": "DetectPercussion",
+                        "confidence": null,
+                        "metadata": {
+                            "name": "percussion_111",
+                            "type": "AudioData",
+                            "path": "/Users/gdennen/Projects/Ideas/tmp/projectdata/blocks/DetectPercussion/PercussionEvents/percussion_111/data/percussion_111.wav",
+                            "sample_rate": 44100,
+                            "frame_rate": null,
+                            "length_ms": null
+                        }
+                    },
+                    {
+                        "name": "percussion_112",
+                        "description": "no description set",
+                        "classification": null,
+                        "type": "EventItem",
+                        "time": 126.28172335600907,
+                        "source": "DetectPercussion",
+                        "confidence": null,
+                        "metadata": {
+                            "name": "percussion_112",
+                            "type": "AudioData",
+                            "path": "/Users/gdennen/Projects/Ideas/tmp/projectdata/blocks/DetectPercussion/PercussionEvents/percussion_112/data/percussion_112.wav",
+                            "sample_rate": 44100,
+                            "frame_rate": null,
+                            "length_ms": null
+                        }
+                    },
+                    {
+                        "name": "percussion_113",
+                        "description": "no description set",
+                        "classification": null,
+                        "type": "EventItem",
+                        "time": 130.6702947845805,
+                        "source": "DetectPercussion",
+                        "confidence": null,
+                        "metadata": {
+                            "name": "percussion_113",
+                            "type": "AudioData",
+                            "path": "/Users/gdennen/Projects/Ideas/tmp/projectdata/blocks/DetectPercussion/PercussionEvents/percussion_113/data/percussion_113.wav",
+                            "sample_rate": 44100,
+                            "frame_rate": null,
+                            "length_ms": null
+                        }
+                    },
+                    {
+                        "name": "percussion_114",
+                        "description": "no description set",
+                        "classification": null,
+                        "type": "EventItem",
+                        "time": 132.86458049886622,
+                        "source": "DetectPercussion",
+                        "confidence": null,
+                        "metadata": {
+                            "name": "percussion_114",
+                            "type": "AudioData",
+                            "path": "/Users/gdennen/Projects/Ideas/tmp/projectdata/blocks/DetectPercussion/PercussionEvents/percussion_114/data/percussion_114.wav",
+                            "sample_rate": 44100,
+                            "frame_rate": null,
+                            "length_ms": null
+                        }
+                    },
+                    {
+                        "name": "percussion_115",
+                        "description": "no description set",
+                        "classification": null,
+                        "type": "EventItem",
+                        "time": 133.5960090702948,
+                        "source": "DetectPercussion",
+                        "confidence": null,
+                        "metadata": {
+                            "name": "percussion_115",
+                            "type": "AudioData",
+                            "path": "/Users/gdennen/Projects/Ideas/tmp/projectdata/blocks/DetectPercussion/PercussionEvents/percussion_115/data/percussion_115.wav",
+                            "sample_rate": 44100,
+                            "frame_rate": null,
+                            "length_ms": null
+                        }
+                    },
+                    {
+                        "name": "percussion_116",
+                        "description": "no description set",
+                        "classification": null,
+                        "type": "EventItem",
+                        "time": 134.15328798185942,
+                        "source": "DetectPercussion",
+                        "confidence": null,
+                        "metadata": {
+                            "name": "percussion_116",
+                            "type": "AudioData",
+                            "path": "/Users/gdennen/Projects/Ideas/tmp/projectdata/blocks/DetectPercussion/PercussionEvents/percussion_116/data/percussion_116.wav",
+                            "sample_rate": 44100,
+                            "frame_rate": null,
+                            "length_ms": null
+                        }
+                    },
+                    {
+                        "name": "percussion_117",
+                        "description": "no description set",
+                        "classification": null,
+                        "type": "EventItem",
+                        "time": 137.4273015873016,
+                        "source": "DetectPercussion",
+                        "confidence": null,
+                        "metadata": {
+                            "name": "percussion_117",
+                            "type": "AudioData",
+                            "path": "/Users/gdennen/Projects/Ideas/tmp/projectdata/blocks/DetectPercussion/PercussionEvents/percussion_117/data/percussion_117.wav",
+                            "sample_rate": 44100,
+                            "frame_rate": null,
+                            "length_ms": null
+                        }
+                    },
+                    {
+                        "name": "percussion_118",
+                        "description": "no description set",
+                        "classification": null,
+                        "type": "EventItem",
+                        "time": 141.4443537414966,
+                        "source": "DetectPercussion",
+                        "confidence": null,
+                        "metadata": {
+                            "name": "percussion_118",
+                            "type": "AudioData",
+                            "path": "/Users/gdennen/Projects/Ideas/tmp/projectdata/blocks/DetectPercussion/PercussionEvents/percussion_118/data/percussion_118.wav",
+                            "sample_rate": 44100,
+                            "frame_rate": null,
+                            "length_ms": null
+                        }
+                    },
+                    {
+                        "name": "percussion_119",
+                        "description": "no description set",
+                        "classification": null,
+                        "type": "EventItem",
+                        "time": 142.3267120181406,
+                        "source": "DetectPercussion",
+                        "confidence": null,
+                        "metadata": {
+                            "name": "percussion_119",
+                            "type": "AudioData",
+                            "path": "/Users/gdennen/Projects/Ideas/tmp/projectdata/blocks/DetectPercussion/PercussionEvents/percussion_119/data/percussion_119.wav",
+                            "sample_rate": 44100,
+                            "frame_rate": null,
+                            "length_ms": null
+                        }
+                    },
+                    {
+                        "name": "percussion_120",
+                        "description": "no description set",
+                        "classification": null,
+                        "type": "EventItem",
+                        "time": 142.5124716553288,
+                        "source": "DetectPercussion",
+                        "confidence": null,
+                        "metadata": {
+                            "name": "percussion_120",
+                            "type": "AudioData",
+                            "path": "/Users/gdennen/Projects/Ideas/tmp/projectdata/blocks/DetectPercussion/PercussionEvents/percussion_120/data/percussion_120.wav",
+                            "sample_rate": 44100,
+                            "frame_rate": null,
+                            "length_ms": null
+                        }
+                    },
+                    {
+                        "name": "percussion_121",
+                        "description": "no description set",
+                        "classification": null,
+                        "type": "EventItem",
+                        "time": 142.84916099773244,
+                        "source": "DetectPercussion",
+                        "confidence": null,
+                        "metadata": {
+                            "name": "percussion_121",
+                            "type": "AudioData",
+                            "path": "/Users/gdennen/Projects/Ideas/tmp/projectdata/blocks/DetectPercussion/PercussionEvents/percussion_121/data/percussion_121.wav",
+                            "sample_rate": 44100,
+                            "frame_rate": null,
+                            "length_ms": null
+                        }
+                    },
+                    {
+                        "name": "percussion_122",
+                        "description": "no description set",
+                        "classification": null,
+                        "type": "EventItem",
+                        "time": 143.25551020408165,
+                        "source": "DetectPercussion",
+                        "confidence": null,
+                        "metadata": {
+                            "name": "percussion_122",
+                            "type": "AudioData",
+                            "path": "/Users/gdennen/Projects/Ideas/tmp/projectdata/blocks/DetectPercussion/PercussionEvents/percussion_122/data/percussion_122.wav",
+                            "sample_rate": 44100,
+                            "frame_rate": null,
+                            "length_ms": null
+                        }
+                    },
+                    {
+                        "name": "percussion_123",
+                        "description": "no description set",
+                        "classification": null,
+                        "type": "EventItem",
+                        "time": 145.78648526077097,
+                        "source": "DetectPercussion",
+                        "confidence": null,
+                        "metadata": {
+                            "name": "percussion_123",
+                            "type": "AudioData",
+                            "path": "/Users/gdennen/Projects/Ideas/tmp/projectdata/blocks/DetectPercussion/PercussionEvents/percussion_123/data/percussion_123.wav",
+                            "sample_rate": 44100,
+                            "frame_rate": null,
+                            "length_ms": null
+                        }
+                    },
+                    {
+                        "name": "percussion_124",
+                        "description": "no description set",
+                        "classification": null,
+                        "type": "EventItem",
+                        "time": 146.16961451247167,
+                        "source": "DetectPercussion",
+                        "confidence": null,
+                        "metadata": {
+                            "name": "percussion_124",
+                            "type": "AudioData",
+                            "path": "/Users/gdennen/Projects/Ideas/tmp/projectdata/blocks/DetectPercussion/PercussionEvents/percussion_124/data/percussion_124.wav",
+                            "sample_rate": 44100,
+                            "frame_rate": null,
+                            "length_ms": null
+                        }
+                    },
+                    {
+                        "name": "percussion_125",
+                        "description": "no description set",
+                        "classification": null,
+                        "type": "EventItem",
+                        "time": 147.2261224489796,
+                        "source": "DetectPercussion",
+                        "confidence": null,
+                        "metadata": {
+                            "name": "percussion_125",
+                            "type": "AudioData",
+                            "path": "/Users/gdennen/Projects/Ideas/tmp/projectdata/blocks/DetectPercussion/PercussionEvents/percussion_125/data/percussion_125.wav",
+                            "sample_rate": 44100,
+                            "frame_rate": null,
+                            "length_ms": null
+                        }
+                    },
+                    {
+                        "name": "percussion_126",
+                        "description": "no description set",
+                        "classification": null,
+                        "type": "EventItem",
+                        "time": 147.818231292517,
+                        "source": "DetectPercussion",
+                        "confidence": null,
+                        "metadata": {
+                            "name": "percussion_126",
+                            "type": "AudioData",
+                            "path": "/Users/gdennen/Projects/Ideas/tmp/projectdata/blocks/DetectPercussion/PercussionEvents/percussion_126/data/percussion_126.wav",
+                            "sample_rate": 44100,
+                            "frame_rate": null,
+                            "length_ms": null
+                        }
+                    },
+                    {
+                        "name": "percussion_127",
+                        "description": "no description set",
+                        "classification": null,
+                        "type": "EventItem",
+                        "time": 148.15492063492064,
+                        "source": "DetectPercussion",
+                        "confidence": null,
+                        "metadata": {
+                            "name": "percussion_127",
+                            "type": "AudioData",
+                            "path": "/Users/gdennen/Projects/Ideas/tmp/projectdata/blocks/DetectPercussion/PercussionEvents/percussion_127/data/percussion_127.wav",
+                            "sample_rate": 44100,
+                            "frame_rate": null,
+                            "length_ms": null
+                        }
+                    },
+                    {
+                        "name": "percussion_128",
+                        "description": "no description set",
+                        "classification": null,
+                        "type": "EventItem",
+                        "time": 150.8716553287982,
+                        "source": "DetectPercussion",
+                        "confidence": null,
+                        "metadata": {
+                            "name": "percussion_128",
+                            "type": "AudioData",
+                            "path": "/Users/gdennen/Projects/Ideas/tmp/projectdata/blocks/DetectPercussion/PercussionEvents/percussion_128/data/percussion_128.wav",
+                            "sample_rate": 44100,
+                            "frame_rate": null,
+                            "length_ms": null
+                        }
+                    },
+                    {
+                        "name": "percussion_129",
+                        "description": "no description set",
+                        "classification": null,
+                        "type": "EventItem",
+                        "time": 151.06902494331067,
+                        "source": "DetectPercussion",
+                        "confidence": null,
+                        "metadata": {
+                            "name": "percussion_129",
+                            "type": "AudioData",
+                            "path": "/Users/gdennen/Projects/Ideas/tmp/projectdata/blocks/DetectPercussion/PercussionEvents/percussion_129/data/percussion_129.wav",
+                            "sample_rate": 44100,
+                            "frame_rate": null,
+                            "length_ms": null
+                        }
+                    }
+                ]
+            }
+        ]
     }
 }

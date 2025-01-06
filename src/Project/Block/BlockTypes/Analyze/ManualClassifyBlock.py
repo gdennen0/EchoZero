@@ -44,6 +44,8 @@ class ManualClassifyBlock(Block):
         self.current_index = 0
         self.selected_event = None
         self.available_classifications = set()
+        self.host="127.0.0.1"
+        self.port=8050
 
 
         # COMMANDS: these provide all the necessary functionality
@@ -52,15 +54,18 @@ class ManualClassifyBlock(Block):
         self.command.add("jump_to_event", self.jump_to_event)
         self.command.add("classify_event", self.set_classification)
         self.command.add("start_ui", self.start_ui)
+        self.command.add("get_url", self.get_url)
 
         self.start_ui()
 
     def process(self, input_data):
         """
         Collect incoming data and store it in self.data.
-        We do not manually gather or store events here anymore.
         """
         return input_data
+    
+    def get_url(self):
+        Log.info(f"URL: http://{self.host}:{self.port}")
 
     def get_audio_events(self):
         all_events = []
@@ -208,6 +213,7 @@ class ManualClassifyBlock(Block):
             "metadata": self.data.get_metadata()
         }  
     
+    # TODO make this a utility function
     def find_available_port(self, host, start_port=8050, max_port=8100):
         port = start_port
         while port <= max_port:
@@ -219,11 +225,12 @@ class ManualClassifyBlock(Block):
                 port += 1
         raise RuntimeError("No available ports found.")
     
-    def start_ui(self, host="127.0.0.1", port=8050):
+    def start_ui(self):
         """
         Spin up the Dash UI. 
         """
-        port = self.find_available_port(host)
+        
+        self.port = self.find_available_port(self.host)
 
         if not self.get_audio_events():
             Log.warning("No audio events found. Starting UI with blank placeholders.")
@@ -407,13 +414,13 @@ class ManualClassifyBlock(Block):
             )
 
         def _run_server():
-            Log.info(f"Starting Dash server at http://{host}:{port}")
-            self._app.run_server(host=host, port=port, debug=False)
+            Log.info(f"Starting Dash server at http://{self.host}:{self.port}")
+            self._app.run_server(host=self.host, port=self.port, debug=False)
             Log.info("Dash server shutdown complete.")
 
         self._server_thread = threading.Thread(target=_run_server, daemon=True)
         self._server_thread.start()
-        Log.info(f"Dash UI started at http://{host}:{port}")   
+        Log.info(f"Dash UI started at http://{self.host}:{self.port}")   
 
 
     def save(self, save_dir):

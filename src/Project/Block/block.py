@@ -3,7 +3,7 @@ from src.Project.Data.data_controller import DataController
 from src.Project.Block.Input.input_controller import InputController
 from src.Project.Block.Output.output_controller import OutputController
 
-from src.Utils.tools import prompt_selection, prompt_selection_with_type_and_parent_block
+from src.Utils.tools import prompt_selection, prompt_selection_with_type_and_parent_block, prompt_yes_no
 from abc import ABC, abstractmethod     
 from src.Utils.message import Log
 from src.Utils.tools import gtimer
@@ -24,6 +24,9 @@ class Block(ABC):
         self.command.add("disconnect", self.disconnect)
         self.command.add("list_connections", self.list_connections)
         self.command.add("list_commands", self.command.list_commands)
+        self.command.add("list_data", self.list_data_items)
+        self.command.add("list_inputs", self.input.list)
+        self.command.add("list_outputs", self.output.list)
 
     def reload(self):
         Log.info(f"Reloading block {self.name}")
@@ -42,18 +45,27 @@ class Block(ABC):
 
         results = self.process(input_data) # process the input data
 
-        if results:
-            self.data.clear()
-            for result in results:
-                if result:
-                    self.data.add(result)
-                    Log.info(f"Reload result added to data controller: {result.name}")
-                else:
-                    Log.error(f"Reload result is None")
+        proceed = prompt_yes_no("Proceed with reloading? This will override the data currently in the block")
+        if proceed:
+            if results:
+                self.data.clear()
+                self.output.clear_data()
+                for result in results:
+                    if result:
+                        self.data.add(result)
+                        Log.info(f"Reload result added to data controller: {result.name}")
+                    else:
+                        Log.error(f"Reload result is None")
+                    
+            else:
+                Log.error(f"Reload Process Failed because block {self.name} processing didn't return any results.")
+                
         else:
-            Log.error(f"Reload Process Failed because block {self.name} processing didn't return any results.")
+            Log.error(f"Reload Process Failed because user did not confirm")
 
+        
         self.output.push_all(self.data.get_all()) # push the results to the output ports
+        Log.info(f"***END PROCESSING BLOCK {self.name}***")
 
     @abstractmethod
     def process(self, input_data):
@@ -85,6 +97,15 @@ class Block(ABC):
 
     def save(self, save_dir):
         self.data.save(save_dir)    
+
+    def list_data_items(self):
+        self.data.list_data_items()
+
+    def list_inputs(self):
+        self.input.list()
+
+    def list_outputs(self):
+        self.output.list()
 
     def connect(self):
         if self.input.get_all():

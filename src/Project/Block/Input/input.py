@@ -68,7 +68,6 @@ class Input:
             connected_output_data = self.connected_output.data.get_all()
             if connected_output_data:
                 for data_item in connected_output_data:
-                    Log.info(f"Pulling data item {data_item.name} of type {data_item.type}")
                     if data_item.type == self.data_type: # Ensure the pulled data is of the correct type
                         self.data.add(data_item)
                         Log.info(f"Pulled data from {self.connected_output.parent_block.name}.{self.connected_output.type}.{self.connected_output.name} to {self.parent_block.name}.{self.type}.{self.name}")

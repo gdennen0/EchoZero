@@ -44,6 +44,17 @@ def prompt_selection(prompt_text, options):
             return options[selection]
         Log.error("Invalid selection. Please enter a valid key or index, or 'e' to exit.")
 
+def prompt_yes_no(prompt_text):
+    Log.info(prompt_text)
+    response = input("Please enter 'y' for yes or 'n' for no: ")
+    if response.lower() in ['y', 'yes']:
+        return True
+    elif response.lower() in ['n', 'no']:
+        return False
+    else:
+        Log.error("Invalid selection. Please enter 'y' for yes or 'n' for no.")
+        return prompt_yes_no(prompt_text)
+
 def prompt_selection_with_type(prompt_text, options):
     Log.info(prompt_text)
     if isinstance(options, dict):

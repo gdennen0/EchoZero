@@ -12,3 +12,6 @@ build/
 
 # Ignore macOS system files
 .DS_Store
+
+# Ignore all files in the .vscode directory
+.tmp/projectdata

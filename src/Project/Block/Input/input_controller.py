@@ -41,11 +41,12 @@ class InputController:
                 return
             
     def pull_all(self):
-        Log.info(f"Pulling all {self.parent_block.name} inputs")
+        Log.info(f"***BEGIN PULLING ALL {self.parent_block.name} INPUTS***")
         pulled_data = []
         for input in self.inputs:
-            output_data = input.pull()
-            pulled_data.append(output_data)
+            Log.info(f"-> Pulling data from input: {input.name}")
+            pulled_data.append(input.pull())
+        Log.info(f"***END PULLING ALL {self.parent_block.name} INPUTS***")
         return pulled_data
 
     def list(self):

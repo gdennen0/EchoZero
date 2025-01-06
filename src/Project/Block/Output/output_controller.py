@@ -76,6 +76,10 @@ class OutputController:
                     output.data.add(data_item)
                     # Log.info(f"Pushed data to output: {output.name} of type: {output.data_type}")
 
+    def clear_data(self):
+        for output in self.outputs:
+            output.data.clear()
+
     def save(self):
         output_data = []
         for output in self.outputs:

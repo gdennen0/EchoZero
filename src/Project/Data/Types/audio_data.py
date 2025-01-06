@@ -11,6 +11,7 @@ class AudioData(Data):
     
     def __init__(self):
         super().__init__()
+
         self.name = "AudioData"
         self.type = "AudioData"
         self.path = None    
@@ -19,6 +20,7 @@ class AudioData(Data):
         self.length_ms = None
         self.source = None
         self.metadata = None
+
 
     def set_path(self, path):
         if self.path:

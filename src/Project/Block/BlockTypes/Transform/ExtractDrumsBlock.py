@@ -36,8 +36,7 @@ class ExtractDrumsBlock(Block):
 
         self.separator = Separator(log_level=self.log_level, output_dir=self.output_dir, normalization_threshold=self.normalization_threshold)
         self.separator.load_model(model_filename=self.model)
-
-        self.command.add("set_log_level", self.set_log_level)
+        
         self.command.add("set_output_dir", self.set_output_dir)
         self.command.add("set_normalization_threshold", self.set_normalization_threshold)
         self.command.add("set_model", self.set_model)
@@ -65,25 +64,21 @@ class ExtractDrumsBlock(Block):
                         processed_data.append(audio_object) # update the audio object to the drum stem
                         Log.info(f"Drums stem found and set")
             return processed_data
-    
-
-# Core Methods
-    def set_log_level(self, log_level):
-        self.attribute.set("log_level", log_level)
-        Log.info(f"Log level set to {self.attribute.get('log_level')}")
 
     def set_output_dir(self, output_dir):
-        self.attribute.set("output_dir", output_dir)
+        self.output_dir = output_dir
         self.separator.output_dir = output_dir
-        Log.info(f"Output directory set to {self.attribute.get('output_dir')}")
+        Log.info(f"Output directory set to {self.output_dir}")
 
     def set_normalization_threshold(self, normalization_threshold):
-        self.attribute.set("normalization_threshold", normalization_threshold)
-        Log.info(f"Normalization threshold set to {self.attribute.get('normalization_threshold')}")
+        self.normalization_threshold = normalization_threshold
+        self.separator.normalization_threshold = normalization_threshold
+        Log.info(f"Normalization threshold set to {self.normalization_threshold}")
 
     def set_model(self, model):
-        self.attribute.set("model", model)
-        Log.info(f"Model set to {self.attribute.get('model')}")
+        self.model = model
+        self.separator.model = model
+        Log.info(f"Model set to {self.model}")
 
     def prompt_set_model(self):
         ai_model, _ = prompt_selection("Available models:", model_dict)
@@ -97,7 +92,6 @@ class ExtractDrumsBlock(Block):
         return {
             "name": self.name,
             "type": self.type,
-            "log_level": self.log_level,
             "output_dir": self.output_dir,
             "normalization_threshold": self.normalization_threshold,
             "model": self.model,
@@ -123,7 +117,6 @@ class ExtractDrumsBlock(Block):
         # load attributes
         self.set_name(block_metadata.get("name"))
         self.set_type(block_metadata.get("type"))
-        self.set_log_level(block_metadata.get("log_level"))
         self.set_output_dir(block_metadata.get("output_dir"))
         self.set_normalization_threshold(block_metadata.get("normalization_threshold"))
         self.set_model(block_metadata.get("model"))

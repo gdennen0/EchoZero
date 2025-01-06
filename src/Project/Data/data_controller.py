@@ -28,6 +28,10 @@ class DataController(ABC):
                 return item
         return None
     
+    def list_data_items(self):
+        for item in self.data:
+            Log.info(f"Data item: {item.name}")
+    
     def get_all(self):
         return self.data
     
