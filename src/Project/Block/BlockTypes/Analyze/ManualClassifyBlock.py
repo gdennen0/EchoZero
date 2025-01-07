@@ -220,6 +220,8 @@ class ManualClassifyBlock(Block):
     
     # TODO make this a utility function
     def find_available_port(self, host, start_port=8050, max_port=8100):
+        import time
+        time.sleep(.2) # wait for any other processes to finish
         port = start_port
         while port <= max_port:
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:

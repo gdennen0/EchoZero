@@ -134,7 +134,16 @@ class Block(ABC):
         else:
             Log.error("This block does not have any inputs")
             return
-
+        
+    def disconnect_all(self):
+        for block in self.parent.blocks:
+            if block.name == self.name:
+                pass
+            else:
+                for input in block.input.get_all():
+                    if input.connected_output:
+                        if input.connected_output.parent_block.name == self.name:
+                            input.disconnect()
 
     def _get_external_outputs(self):
         # get all the external outputs from the blocks
@@ -146,6 +155,8 @@ class Block(ABC):
                 for external_output in block.output.get_all():
                     external_outputs.append(external_output)
         return external_outputs
+    
+
     
     def list_connections(self):
         if self.input.get_all():

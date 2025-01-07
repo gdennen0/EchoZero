@@ -9,6 +9,10 @@ import json
 from collections import defaultdict, deque
 import zipfile
 import shutil
+import dash
+from dash import html, dcc
+import threading
+
 
 PROJECT_VERSION = "0.0.1"
 PROJECT_DIR_BYPASS = None
@@ -43,6 +47,7 @@ class Project():
         save_as(): Prompts the user to save the project with a new name and directory.
         build_project_data(): Builds the project data for saving.
         add_recent_project(project_path): Adds a project to the list of recent projects.
+        list_pages(): Prints out path, module, and name for each of the registered Dash pages.
     """
 
     def __init__(self):
@@ -53,6 +58,15 @@ class Project():
         self.loaded = False
         self.block_types = []
         self.blocks = []
+
+        self._app = dash.Dash(__name__, use_pages=True, pages_folder="")
+        self._app.title = "Main Project UI"
+
+        self._app.layout = html.Div([
+            html.H1("Project UI"),
+            html.Div(dcc.Link("Home", href="/")),
+            dash.page_container  # Renders whichever page is selected
+        ])
 
         self.command = CommandController()
 
@@ -72,8 +86,16 @@ class Project():
         self.command.add("add_block", self.add_block)
         self.command.add("addblock", self.add_block)
         self.command.add("add", self.add_block)
+        self.command.add("delete_block", self.delete_block)
+        self.command.add("deleteblock", self.delete_block)
+        self.command.add("delete", self.delete_block)
+        self.command.add("run_ui", self.run_ui)
+        self.command.add("list_pages", self.list_pages)
 
         self.initialize_project()
+        
+        self._server_thread = threading.Thread(target=self.run_ui, daemon=True)
+        # self._server_thread.start()
 
     def initialize_project(self):
         options = {
@@ -93,6 +115,12 @@ class Project():
                     break
             else:
                 Log.error("Invalid input. Please enter 'load', 'new', or 'recent' (or 'l', 'n', 'r').")
+
+    def run_ui(self, host="127.0.0.1", port=8050):
+        """
+        Start the projects Dash server.
+        """
+        self._app.run_server(host=host, port=port, debug=False)
 
     def recent(self):
         with open(RECENT_PROJECTS_FILE, 'r') as file:
@@ -141,12 +169,18 @@ class Project():
                 with open(metadata_path, 'r') as metadata_file:
                     project_data = json.load(metadata_file)
                     Log.info(f"-"*50)
+
                     Log.info(f"Project Name: {project_data.get('name')}")
-                    Log.info(f"Save Directory: {project_data.get('save_directory')}")
+                    self.set_name(project_data.get("name"))
+                    
+                    if os.path.exists(project_data.get("save_directory")):
+                        Log.info(f"Save Directory: {project_data.get('save_directory')}")
+                        self.set_save_directory(project_data.get("save_directory"))
+                    else:
+                        Log.error(f"Save directory does not exist: {project_data.get('save_directory')}")
+                        self.set_save_directory(prompt("Please enter the directory to save the project to: "))
                     Log.info(f"-"*50)
 
-                    self.set_name(project_data.get("name"))
-                    self.set_save_directory(project_data.get("save_directory"))
 
                     blocks_list = project_data.get("blocks", [])
                     for block in blocks_list:
@@ -347,8 +381,21 @@ class Project():
                         block.set_name(name)
                     self.blocks.append(block)
                     Log.info(f"Added block: {name}")
-
     
+    def delete_block(self, name=None):
+        if not name:
+            block_item = prompt_selection("Please select the block to delete: ", self.blocks)
+            if block_item is None or "e":
+                Log.info("Block deletion exited")
+                return
+            name = block_item.name
+        for block in self.blocks:
+            if block.name == name:
+                block.disconnect_all()
+                self.blocks.remove(block)
+                return
+        Log.error(f"Block with name '{name}' not found in container")
+
     def get_block(self, block_name):
         for block in self.blocks:
             if block.name == block_name:
@@ -393,3 +440,11 @@ class Project():
 
     def get_save_directory(self):
         return self.save_directory
+
+    def list_pages(self):
+        """
+        Prints out path, module, and name for each of the registered Dash pages.
+        """
+        import dash
+        for page_id, page_data in dash.page_registry.items():
+            Log.info(f"Page path: {page_data['path']}, module: {page_data['module']}, name: {page_data['name']}")

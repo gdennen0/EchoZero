@@ -85,8 +85,8 @@ class Input:
             
 
     def disconnect(self):
+        Log.info(f"Disconnecting '{self.parent_block.name}' {self.type} from '{self.connected_output.parent_block.name}' {self.connected_output.type}")
         self.connected_output = None
-        Log.info(f"Disconnected '{self.parent_block.name}' {self.type} port '{self.name}'")
 
     def list_connection(self):
         Log.info(f"Connected output port: {self.connected_output.name}")
