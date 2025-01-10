@@ -24,7 +24,7 @@ class OSCOutput(Output):
         }
         return metadata
 
-    def load(self, metadata, block_dir):
+    def load(self, metadata):
         self.name = metadata.get("name")
         self.type = metadata.get("type")
         self.data_type = metadata.get("data_type")

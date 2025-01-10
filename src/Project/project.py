@@ -17,37 +17,23 @@ import threading
 PROJECT_VERSION = "0.0.1"
 PROJECT_DIR_BYPASS = None
 RECENT_PROJECTS_FILE = os.path.join(os.getcwd(), "data", "recent_projects.json")
+
+# Check if the recent projects file exists, if not, create it
+if not os.path.exists(RECENT_PROJECTS_FILE):
+    os.makedirs(os.path.dirname(RECENT_PROJECTS_FILE), exist_ok=True)
+    with open(RECENT_PROJECTS_FILE, 'w') as file:
+        json.dump([], file)
 class Project():
     """
-    Project is the main container for all blocks and data in the project.
-
-    Project is the main container for all blocks and data in the project.
+    The main Project class that manages high-level application state.
 
     Attributes:
-        name (str): The name of the project.
-        save_directory (str): The directory where the project will be saved.
-        application_directory (str): The directory where the application is running.
-        loaded (bool): A flag indicating whether the project is loaded.
-        block_types (list): A list of available block types.
-        blocks (list): A list of blocks in the project.
-        command (CommandController): The command controller for the project.
+        name (str): Name of the project.
+        blocks (list): A list of blocks used by the project.
 
     Methods:
-        __init__(): Initializes a new instance of the Project class.
-        initialize_project(): Prompts the user to load an existing project or create a new one.
-        load_block_types(): Loads the available block types.
-        load(): Loads a project from a file.
-        new(): Creates a new project.
-        recent(): Loads a recent project.
-        add_block(block_type, block_name): Adds a new block to the project.
-        list_commands(): Lists all available commands.
-        list_block_types(): Lists all available block types.
-        list_blocks(): Lists all blocks in the project.
-        save(): Saves the project to a file.
-        save_as(): Prompts the user to save the project with a new name and directory.
-        build_project_data(): Builds the project data for saving.
-        add_recent_project(project_path): Adds a project to the list of recent projects.
-        list_pages(): Prints out path, module, and name for each of the registered Dash pages.
+        initialize_project():
+            Prompt user to load or create projects.
     """
 
     def __init__(self):
@@ -60,13 +46,16 @@ class Project():
         self.blocks = []
 
         self._app = dash.Dash(__name__, use_pages=True, pages_folder="")
-        self._app.title = "Main Project UI"
-
-        self._app.layout = html.Div([
-            html.H1("Project UI"),
-            html.Div(dcc.Link("Home", href="/")),
-            dash.page_container  # Renders whichever page is selected
-        ])
+        self._app.title = "EchoZero"
+        
+        self._app.layout = self.layout_content
+        
+        dash.register_page(
+            "Home",
+            layout=self.dynamic_page_layout,
+            path=f"/",
+            name=self.name
+        )
 
         self.command = CommandController()
 
@@ -89,13 +78,12 @@ class Project():
         self.command.add("delete_block", self.delete_block)
         self.command.add("deleteblock", self.delete_block)
         self.command.add("delete", self.delete_block)
-        self.command.add("run_ui", self.run_ui)
         self.command.add("list_pages", self.list_pages)
-
-        self.initialize_project()
         
+        self.initialize_project()
+
         self._server_thread = threading.Thread(target=self.run_ui, daemon=True)
-        # self._server_thread.start()
+        self._server_thread.start()
 
     def initialize_project(self):
         options = {
@@ -116,11 +104,56 @@ class Project():
             else:
                 Log.error("Invalid input. Please enter 'load', 'new', or 'recent' (or 'l', 'n', 'r').")
 
+    def layout_content(self):
+        """
+        Called each time a user loads or reloads the page.
+        Displays "No project loaded" if self.name is None,
+        otherwise shows self.name. Also shows links to all
+        registered Dash pages.
+        """
+        displayed_name = self.name if self.name else "No project loaded"
+
+        return html.Div([
+            html.H1("EchoZero"),
+            # html.P(f"Project: {displayed_name}"),
+            # Dynamically list links to all registered pages:
+            html.H3("Pages:"),
+            html.Ul([
+                html.Li(
+                    dcc.Link(
+                        page_data["name"],
+                        href=page_data["relative_path"]
+                    )
+                )
+                for page_data in dash.page_registry.values()
+            ]),
+
+            dash.page_container
+        ])
+
+    def dynamic_page_layout(self):
+        """
+        An example for a page layout that also references self.name.
+        """
+        displayed_name = self.name if self.name else "No project loaded"
+        return html.Div([
+            html.H1(f"{displayed_name}"),
+            html.P("Home")
+        ])
+    
+    def list_pages(self):
+        for page_id, page_data in dash.page_registry.items():
+            Log.info(f"Page path: {page_data['path']}, module: {page_data['module']}, name: {page_data['name']}")
+
     def run_ui(self, host="127.0.0.1", port=8050):
         """
-        Start the projects Dash server.
+        Start the project's Dash server.
         """
-        self._app.run_server(host=host, port=port, debug=False)
+        try:
+            Log.info(f"Starting Project Dash server on {host}:{port}")
+            self._app.run_server(host=host, port=port, debug=False)
+        except Exception as e:
+            Log.error(f"Failed to start Dash server: {e}")
 
     def recent(self):
         with open(RECENT_PROJECTS_FILE, 'r') as file:
@@ -288,12 +321,12 @@ class Project():
                     zip_ref.write(full_path, arcname=rel_path)
 
         # Optional: Remove the unzipped folder after creating the .ez file
-        shutil.rmtree(project_root)
+        if project_root:
+            shutil.rmtree(project_root)
+
         self.add_recent_project(zip_path)
 
         Log.info(f"Project saved successfully to {zip_path}")
-
-
 
     def save_as(self):
         self.name = prompt("Please enter the name of the project: ")
@@ -440,11 +473,4 @@ class Project():
 
     def get_save_directory(self):
         return self.save_directory
-
-    def list_pages(self):
-        """
-        Prints out path, module, and name for each of the registered Dash pages.
-        """
-        import dash
-        for page_id, page_data in dash.page_registry.items():
-            Log.info(f"Page path: {page_data['path']}, module: {page_data['module']}, name: {page_data['name']}")
+    

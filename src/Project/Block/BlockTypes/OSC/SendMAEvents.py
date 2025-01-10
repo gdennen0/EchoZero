@@ -46,8 +46,10 @@ class SendMAEvents(Block):
         self.command.add("send_osc", self.send_osc_message)
         self.command.add("batch_send_events", self.batch_send_events)
         self.command.add("send_event_classes", self.send_event_classes)
+        self.command.add("test_connection", self.test_connection)
 
-        
+    def test_connection(self):
+        self.osc_client.send_message("127.0.0.1", "Test")
 
     def osc_message_handler(self, address, *args):
         Log.info(f"Received OSC message - Address: {address}, Arguments: {args}")

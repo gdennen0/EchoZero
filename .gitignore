@@ -13,5 +13,13 @@ build/
 # Ignore macOS system files
 .DS_Store
 
-# Ignore all files in the .vscode directory
+# Ignore all files in the projectdata directory
 tmp/projectdata
+
+# Ignore all files in the models directory and the EZ_model.pt file
+models/EZ_model.pt
+models/archive/
+
+logs/
+
+data/recent_projects/

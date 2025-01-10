@@ -1,12 +1,8 @@
-import logging
-
 from src.Utils.message import Log
 from src.Project.Block.block import Block
 from src.Project.Data.Types.audio_data import AudioData
 from src.Project.Block.Input.Types.event_input import EventInput
 from src.Project.Block.Output.Types.event_output import EventOutput
-from src.Project.Data.Types.event_data import EventData
-from src.Project.Data.Types.event_item import EventItem
 import numpy as np
 import librosa
 import io
@@ -17,11 +13,9 @@ from dash import dcc, html
 from dash.dependencies import Input, Output, State
 from dash import callback_context
 import plotly.graph_objs as go
-import threading
 import scipy.io.wavfile as wavfile
-import socket
 from flask import request
-import requests
+
 
 class ManualClassifyBlock(Block):
     """
@@ -47,32 +41,26 @@ class ManualClassifyBlock(Block):
         self.current_index = 0
         self.selected_event = None
         self.available_classifications = set()
-        self.host="127.0.0.1"
-        self.port=8050
 
-
-        # COMMANDS: these provide all the necessary functionality
         self.command.add("previous_event", self.previous_event)
         self.command.add("next_event", self.next_event)
         self.command.add("jump_to_event", self.jump_to_event)
         self.command.add("classify_event", self.set_classification)
-        self.command.add("start_ui", self.start_ui)
-        self.command.add("get_url", self.get_url)
-        self.command.add("stop_ui", self.stop_ui)
-        self.command.add("reload_ui", self.reload_ui)
 
-        self.start_ui()
+        self.command.add("register_layout", self.register_layout)
+        self.command.add("get_page_url", self.get_page_url)
 
     def process(self, input_data):
         """
         Collect incoming data and store it in self.data.
+        data passes without any transormation, transformation is handled in the UI and applied directly to the data
         """
         return input_data
-    
-    def get_url(self):
-        Log.info(f"URL: http://{self.host}:{self.port}")
 
     def get_audio_events(self):
+        """
+        Returns all audio events in the blocks data.
+        """
         all_events = []
         for event_data in self.data.get_all():
             for single_event in event_data.items:
@@ -80,67 +68,64 @@ class ManualClassifyBlock(Block):
                     all_events.append(single_event)
         return all_events
 
-    # COMMAND HANDLERS
-    # if data is changed then the indexes will need to be updated
-
     def set_selected_event(self, event_index):
         """
-        Updates the selected event based on self.current_index and
-        the events available in self.data.
+        Sets the selected event to the event at the given index.
         """
         audio_events = self.get_audio_events()
-        if self.current_index < 0 or self.current_index >= len(audio_events):
+        if 0 <= event_index < len(audio_events):
+            self.selected_event = audio_events[event_index]
+            Log.info(f"Selected event: {self.selected_event.name}")
+        else:
             self.selected_event = None
-            return
-
-        self.selected_event = audio_events[self.current_index]
-        Log.info(f"Selected event: {self.selected_event.name}")
 
     def previous_event(self):
         """
-        Move to the previous event in the list.
+        Moves to the previous event.
         """
-        old_index = self.current_index
-        self.current_index = max(self.current_index - 1, 0)
-        Log.info(f"Moved from event {old_index + 1} to {self.current_index + 1} (previous).")
-        
+        new_index = max(self.current_index - 1, 0)
+        self.current_index = new_index
         self.set_selected_event(self.current_index)
-
 
     def next_event(self):
         """
-        Move to the next event in the list.
+        Moves to the next event.
         """
         audio_events = self.get_audio_events()
-        old_index = self.current_index
-        self.current_index = min(self.current_index + 1, len(audio_events) - 1)
-        Log.info(f"Moved from event {old_index + 1} to {self.current_index + 1} (next).")
+        new_index = min(self.current_index + 1, len(audio_events) - 1)
+        self.current_index = new_index
         self.set_selected_event(self.current_index)
 
     def jump_to_event(self, event_index):
         """
-        Jump to the specified event index.
+        Jumps to the event at the given index.
         """
         audio_events = self.get_audio_events()
-        if event_index is not None and 0 <= event_index < len(audio_events):
-            old_index = self.current_index
+        if 0 <= event_index < len(audio_events):
             self.current_index = event_index
-            Log.info(f"Jumped from event {old_index + 1} to {event_index + 1}.")
             self.set_selected_event(self.current_index)
         else:
-            Log.warning(f"Invalid jump event index specified.")
+            Log.warning("Invalid jump event index.")
             self.set_selected_event(self.current_index)
 
     def set_classification(self, classification_value):
         """
-        Save the classification to the currently selected event
+        Sets the classification for the current event.
         """
         audio_events = self.get_audio_events()
-        audio_events[self.current_index].set_classification(classification_value)
-        self.available_classifications.add(classification_value)
-        Log.info(f"Set classification for event {audio_events[self.current_index].name} to {classification_value}.")
+        if audio_events:
+            audio_events[self.current_index].set_classification(classification_value)
+            self.available_classifications.add(classification_value)
+            Log.info(f"Event {audio_events[self.current_index].name} classified: {classification_value}")
 
-    # INTERNAL / UTILITY METHODS
+    def get_page_url(self): 
+        """
+        Returns the URL for the current page.
+        """
+        for page_id, page_data in dash.page_registry.items():
+            if page_id == self.name:
+                return page_data['path']
+        return None
 
     def build_figure(self):
         """
@@ -207,83 +192,37 @@ class ManualClassifyBlock(Block):
         total_events = len(audio_events)
         current_event_name = audio_events[self.current_index].name
         return f"Event: {current_event_name} ({self.current_index + 1}/{total_events})"
-
-
-    def get_metadata(self):
-        return {
-            "name": self.name,
-            "type": self.type,
-            "input": self.input.save(),
-            "output": self.output.save(),
-            "metadata": self.data.get_metadata()
-        }  
-    
-    # TODO make this a utility function
-    def find_available_port(self, host, start_port=8050, max_port=8100):
-        import time
-        time.sleep(.2) # wait for any other processes to finish
-        port = start_port
-        while port <= max_port:
-            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-                result = s.connect_ex((host, port))
-                if result != 0:
-                    return port
-                Log.warning(f"Port {port} is in use. Trying port {port + 1}...")
-                port += 1
-        raise RuntimeError("No available ports found.")
-    
-    def start_ui(self):
-        """
-        Spin up the Dash UI. 
-        """
         
-        self.port = self.find_available_port(self.host)
+    def register_layout(self):
+        """
+        Uses the parent's Dash app (self.parent._app) to define
+        """
 
-        if not self.get_audio_events():
-            Log.warning("No audio events found. Starting UI with blank placeholders.")
-            self.selected_event = None
+        app = self.parent._app
+        # Build & store the entire layout
 
-        if not self.selected_event and self.get_audio_events():
-            self.selected_event = self.get_audio_events()[0]
-
-        self._app = dash.Dash(__name__)
-        self._app.title = self.name
-
-        # Define Shutdown Route
-        @self._app.server.route('/shutdown', methods=['POST'])
-        def shutdown():
-            func = request.environ.get('werkzeug.server.shutdown')
-            if func is None:
-                Log.error("Not running with the Werkzeug Server")
-                raise RuntimeError('Not running with the Werkzeug Server')
-            func()
-            Log.info("Shutdown function called.")
-            return 'Server shutting down...'
-
-
-        # UI Layout (always shows classification / logs):
-        self._app.layout = dcc.Tabs([
+        layout_content = dcc.Tabs([
             dcc.Tab(label="Classification", children=[
                 html.Div([
                     html.H2("Manual Audio Classification Web UI"),
 
                     html.Label("Jump to Event:", style={"marginRight": "10px"}),
                     dcc.Dropdown(
-                        id="event-jump-dropdown",
-                        options=[],  # updated dynamically
+                        id=f"{self.name}-event-jump-dropdown",
+                        options=[],
                         placeholder="Select an event",
                         style={"width": "50%", "marginBottom": "10px"}
                     ),
 
                     html.Div(
-                        id="current-event-name",
+                        id=f"{self.name}-current-event-name",
                         style={"fontWeight": "bold", "marginBottom": "10px"}
                     ),
 
-                    dcc.Graph(id="spectrogram-plot"),
+                    dcc.Graph(id=f"{self.name}-spectrogram-plot"),
 
                     html.Audio(
-                        id="audio-player",
+                        id=f"{self.name}-audio-player",
                         controls=True,
                         style={"marginTop": "20px", "display": "block"},
                     ),
@@ -291,7 +230,7 @@ class ManualClassifyBlock(Block):
                     html.Div([
                         html.Label("Classification Suggestions:", style={"marginRight": "10px"}),
                         dcc.Dropdown(
-                            id="classification-suggestions-dropdown",
+                            id=f"{self.name}-classification-suggestions-dropdown",
                             options=[],
                             value="",
                             placeholder="Select classification",
@@ -299,7 +238,7 @@ class ManualClassifyBlock(Block):
                             style={"width": "200px", "display": "inline-block", "marginRight": "10px"}
                         ),
                         dcc.Input(
-                            id="classification-input",
+                            id=f"{self.name}-classification-input",
                             type="text",
                             value="",
                             placeholder="Or type custom",
@@ -308,17 +247,17 @@ class ManualClassifyBlock(Block):
                     ], style={"marginBottom": "10px", "marginTop": "20px"}),
 
                     html.Div([
-                        html.Button("Previous", id="prev-button", n_clicks=0, style={"marginRight": "5px"}),
-                        html.Button("Next", id="next-button", n_clicks=0, style={"marginRight": "5px"}),
-                        html.Button("Save Classification", id="save-class-button", n_clicks=0, style={"marginRight": "5px"}),
+                        html.Button("Previous", id=f"{self.name}-prev-button", n_clicks=0, style={"marginRight": "5px"}),
+                        html.Button("Next", id=f"{self.name}-next-button", n_clicks=0, style={"marginRight": "5px"}),
+                        html.Button("Save Classification", id=f"{self.name}-save-class-button", n_clicks=0, style={"marginRight": "5px"}),
                     ])
                 ], style={"padding": "10px"})
             ]),
             dcc.Tab(label="Logs", children=[
-                dcc.Interval(id="log-interval", interval=1000, n_intervals=0),
+                dcc.Interval(id=f"{self.name}-log-interval", interval=1000, n_intervals=0),
                 html.H2("Server Logs"),
                 html.Div(
-                    id="log-output",
+                    id=f"{self.name}-log-output",
                     style={
                         "whiteSpace": "pre-wrap",
                         "backgroundColor": "#f9f9f9",
@@ -332,27 +271,40 @@ class ManualClassifyBlock(Block):
             ])
         ])
 
-        @self._app.callback(
-            [
-                Output("spectrogram-plot", "figure"),
-                Output("current-event-name", "children"),
-                Output("classification-input", "value"),
-                Output("classification-suggestions-dropdown", "options"),
-                Output("classification-suggestions-dropdown", "value"),
-                Output("audio-player", "src"),
-                Output("event-jump-dropdown", "options"),
-                Output("event-jump-dropdown", "value")
-            ],
-            [
-                Input("prev-button", "n_clicks"),
-                Input("next-button", "n_clicks"),
-                Input("save-class-button", "n_clicks"),
-                Input("classification-suggestions-dropdown", "value"),
-                Input("event-jump-dropdown", "value"),
-            ],
-            [State("classification-input", "value")]
+        # layout_content = html.Div([
+        #     html.H1(f"{self.name}"),
+        #     html.P("This is a test page for the Manual Classify Block."),
+        # ])
+        
+        Log.info(f"Registering page: /{self.name}")
+        dash.register_page(
+            self.name,
+            layout=layout_content,
+            # path=f"/{self.name}",
+            name=self.name
         )
-        def update_classification_view(
+
+        @app.callback(
+            [
+                Output(f"{self.name}-spectrogram-plot", "figure"),
+                Output(f"{self.name}-current-event-name", "children"),                 # was event-name
+                Output(f"{self.name}-classification-input", "value"),
+                Output(f"{self.name}-classification-suggestions-dropdown", "options"), # was classification-dropdown
+                Output(f"{self.name}-classification-suggestions-dropdown", "value"),   # was classification-dropdown
+                Output(f"{self.name}-audio-player", "src"),
+                Output(f"{self.name}-event-jump-dropdown", "options"),                 # was jump-dropdown
+                Output(f"{self.name}-event-jump-dropdown", "value")                    # was jump-dropdown
+            ],
+            [
+                Input(f"{self.name}-prev-button", "n_clicks"),
+                Input(f"{self.name}-next-button", "n_clicks"),
+                Input(f"{self.name}-save-class-button", "n_clicks"),                   # was save-button
+                Input(f"{self.name}-classification-suggestions-dropdown", "value"),    # was classification-dropdown
+                Input(f"{self.name}-event-jump-dropdown", "value"),                    # was jump-dropdown
+            ],
+            [State(f"{self.name}-classification-input", "value")]
+        )
+        def update_view(
             prev_clicks,
             next_clicks,
             save_clicks,
@@ -360,70 +312,64 @@ class ManualClassifyBlock(Block):
             jump_index,
             typed_class
         ):
+            
             changed_component = [p["prop_id"] for p in callback_context.triggered][0]
-
-            # Priority: if user typed something, use that. Otherwise use the selected suggestion
             new_classification = typed_class or selected_suggestion
 
+            # If anything triggered classification, set classification:
+            if self.get_audio_events() and any(comp in changed_component for comp in [
+                f"{self.name}-prev-button",
+                f"{self.name}-next-button",
+                f"{self.name}-save-class-button",
+                f"{self.name}-classification-suggestions-dropdown",
+                f"{self.name}-event-jump-dropdown"
+            ]):
+                self.set_classification(new_classification)
 
-            # If something triggered a classification change, save it:
+            # Navigation
             if self.get_audio_events():
-                if any(comp in changed_component for comp in [
-                    "prev-button", 
-                    "next-button", 
-                    "save-class-button",
-                    "classification-suggestions-dropdown",
-                    "event-jump-dropdown"
-                ]):
-                    self.set_classification(new_classification)
-
-            # Navigation (only if we have audio events)
-            if self.get_audio_events():
-                if "prev-button" in changed_component:
+                if f"{self.name}-prev-button" in changed_component:
                     self.previous_event()
-                elif "next-button" in changed_component:
+                elif f"{self.name}-next-button" in changed_component:
                     self.next_event()
-                elif "event-jump-dropdown" in changed_component:
+                elif f"{self.name}-event-jump-dropdown" in changed_component:
                     if jump_index is not None:
                         self.jump_to_event(jump_index)
                     else:
                         Log.warning("No event index provided for jump.")
-                elif "save-class-button" in changed_component:
+                elif f"{self.name}-save-class-button" in changed_component:
                     if typed_class:
                         self.set_classification(typed_class)
                     else:
-                        Log.warning("No classification provided for save.") 
+                        Log.warning("No classification provided for save.")
 
-            # Fallback (empty / safe defaults if no events exist)
+            # Build figure or empty fallback
             figure = self.build_figure() if self.get_audio_events() else go.Figure()
             event_label = self.generate_event_label() if self.get_audio_events() else "No Events Available"
             audio_src = self.build_audio_src() if self.get_audio_events() else ""
 
-            # For the suggestions dropdown
+            # Classification suggestions
             sorted_dropdown_options = [
                 {"label": c, "value": c} for c in sorted(self.available_classifications)
             ] if self.available_classifications else []
 
-            # Hold the current classification in either dropdown or text, if we have selected_event
+            # Current classification
             if self.selected_event and self.selected_event.classification in self.available_classifications:
                 dropdown_value = self.selected_event.classification
-                text_input_value = ""              
+                text_input_value = ""
             else:
-                if self.selected_event and self.selected_event.classification:
-                    dropdown_value = ""
-                    text_input_value = self.selected_event.classification
-                else:
-                    dropdown_value = ""
-                    text_input_value = ""
+                dropdown_value = ""
+                text_input_value = self.selected_event.classification if (self.selected_event and self.selected_event.classification) else ""
 
-            # for the jump to event dropdown
+            # Event jump options
             jump_to_event_options = [
-                {"label": f"{event.name}", "value": idx} for idx, event in enumerate(self.get_audio_events())
+                {"label": f"{event.name}", "value": idx}
+                for idx, event in enumerate(self.get_audio_events())
             ] if self.get_audio_events() else []
 
             return (
-                figure, 
-                event_label, 
+                figure,
+                event_label,
                 text_input_value,
                 sorted_dropdown_options,
                 dropdown_value,
@@ -432,36 +378,15 @@ class ManualClassifyBlock(Block):
                 self.current_index if self.get_audio_events() else None
             )
 
-        def _run_server():
-            Log.info(f"Starting Dash server at http://{self.host}:{self.port}")
-            self._app.run_server(host=self.host, port=self.port, debug=False)
-            Log.info("Dash server shutdown complete.")
-
-        self._server_thread = threading.Thread(target=_run_server, daemon=True)
-        self._server_thread.start()
-        Log.info(f"Dash UI started at http://{self.host}:{self.port}")   
-
-    def stop_ui(self):
-        """
-        Stops the Dash UI and its server thread.
-        """
-        try:
-            shutdown_url = f"http://{self.host}:{self.port}/shutdown"
-            response = requests.post(shutdown_url)
-            if response.status_code == 200:
-                Log.info("Dash UI shutdown successfully.")
-            else:
-                Log.error(f"Failed to shutdown Dash UI. Status Code: {response.status_code}")
-        except Exception as e:
-            Log.error(f"Error shutting down Dash UI: {e}")
-
-    def reload_ui(self):
-        """
-        Reloads the Dash UI.
-        """
-        self.stop_ui()
-        self.start_ui()
-
+    def get_metadata(self):
+        return {
+            "name": self.name,
+            "type": self.type,
+            "input": self.input.save(),
+            "output": self.output.save(),
+            "metadata": self.data.get_metadata()
+        }  
+    
     def save(self, save_dir):
         self.data.save(save_dir)
 
@@ -479,3 +404,5 @@ class ManualClassifyBlock(Block):
 
         # push loaded data to output 
         self.output.push_all(self.data.get_all())      
+
+        self.register_layout()

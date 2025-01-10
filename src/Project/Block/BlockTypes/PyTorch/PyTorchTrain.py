@@ -69,23 +69,73 @@ class PyTorchTrain(Block):
         layers.append(nn.Linear(input_dim, self.config.output_size))
         return nn.Sequential(*layers)
 
+    # def process(self, event_data_list):
+    #     self.prepare_label_map(event_data_list)
+    #     self.load_model()
+
+    #     desired_length = self.config.input_size
+
+    #     for event_data in event_data_list:
+    #         Log.info(f"Processing {event_data.name}")
+    #         for event_item in event_data.items:
+    #             Log.info(f"Processing {event_item.name}")
+    #             length = len(event_item.data.get())
+    #             if length > self.config.input_size:
+    #                 event_item.data.set(event_item.data.get()[:self.config.input_size][np.newaxis, :])  # shape: (1, 44100)
+    #             elif length < self.config.input_size:
+    #                 pad_width = self.config.input_size - length
+    #                 event_item.data.set(np.pad(event_item.data.get(), (0, pad_width))[np.newaxis, :])
+    #             else:
+    #                 event_item.data.set(event_item.data.get()[np.newaxis, :])
+
+    #     return event_data_list
+    
     def process(self, event_data_list):
         self.prepare_label_map(event_data_list)
         self.load_model()
 
-        desired_length = self.config.input_size
-
         for event_data in event_data_list:
-            for event_item in event_data.items:
+            Log.info(f"Processing batch: {event_data.name}")
 
-                length = len(event_item.data.get())
+            if not event_data.items:
+                continue
+
+            # Collect all waveforms
+            waveforms = [item.data.get() for item in event_data.items]
+
+            # --------------------------------------------------
+            # Convert waveforms to mono if multi-channel
+            # (Simple approach: average across channels)
+            # --------------------------------------------------
+            processed_waveforms = []
+            for w in waveforms:
+                w = np.squeeze(w)
+                if len(w.shape) > 1:
+                    # e.g. shape is (num_samples, num_channels)
+                    w = np.mean(w, axis=1)  # collapse channels
+                processed_waveforms.append(w)
+
+            # Pre-allocate array: (num_items, self.config.input_size)
+            num_items = len(processed_waveforms)
+            batch_array = np.zeros((num_items, self.config.input_size), 
+                                dtype=processed_waveforms[0].dtype)
+
+            # Clip/pad each waveform
+            Log.info(f"Processing {len(processed_waveforms)} waveforms")
+            for i, waveform in enumerate(processed_waveforms):
+                length = len(waveform)
                 if length > self.config.input_size:
-                    event_item.data.set(event_item.data.get()[:self.config.input_size][np.newaxis, :])  # shape: (1, 44100)
-                elif length < self.config.input_size:
-                    pad_width = self.config.input_size - length
-                    event_item.data.set(np.pad(event_item.data.get(), (0, pad_width))[np.newaxis, :])
+                    # Clip
+                    batch_array[i, :] = waveform[:self.config.input_size]
                 else:
-                    event_item.data.set(event_item.data.get()[np.newaxis, :])
+                    batch_array[i, :length] = waveform
+
+            # Reshape to (num_items, 1, input_size) if your model expects that
+            batch_array = batch_array[:, np.newaxis, :]
+
+            # Assign each processed waveform back
+            for i, item in enumerate(event_data.items):
+                item.data.set(batch_array[i])
 
         return event_data_list
 

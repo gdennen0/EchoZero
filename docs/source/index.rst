@@ -6,12 +6,12 @@
 EchoZero documentation
 ======================
 
-Add your content using ``reStructuredText`` syntax. See the
-`reStructuredText <https://www.sphinx-doc.org/en/master/usage/restructuredtext/index.html>`_
-documentation for details.
-
+Welcome to the EchoZero docs! Here you'll find usage guides, API references, and more.
 
 .. toctree::
    :maxdepth: 2
    :caption: Contents:
+
+   usage          <--- references usage.rst
+   api_reference  <--- references api_reference.rst
 
