@@ -17,6 +17,8 @@ release = '12/26/24'
 extensions = [
     "sphinx.ext.autodoc",
     "sphinx.ext.napoleon",
+    "sphinx.ext.autosummary",
+    "sphinx.ext.viewcode",
 ]
 
 templates_path = ['_templates']

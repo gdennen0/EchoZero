@@ -15,7 +15,7 @@ from dash import callback_context
 import plotly.graph_objs as go
 import scipy.io.wavfile as wavfile
 from flask import request
-
+from dash_extensions import EventListener
 
 class ManualClassifyBlock(Block):
     """
@@ -85,6 +85,7 @@ class ManualClassifyBlock(Block):
         """
         new_index = max(self.current_index - 1, 0)
         self.current_index = new_index
+        Log.info(f"Moved to previous event: Index {self.current_index}")
         self.set_selected_event(self.current_index)
 
     def next_event(self):
@@ -94,6 +95,7 @@ class ManualClassifyBlock(Block):
         audio_events = self.get_audio_events()
         new_index = min(self.current_index + 1, len(audio_events) - 1)
         self.current_index = new_index
+        Log.info(f"Moved to next event: Index {self.current_index}")
         self.set_selected_event(self.current_index)
 
     def jump_to_event(self, event_index):
@@ -103,9 +105,10 @@ class ManualClassifyBlock(Block):
         audio_events = self.get_audio_events()
         if 0 <= event_index < len(audio_events):
             self.current_index = event_index
+            Log.info(f"Jumped to event: Index {self.current_index}")
             self.set_selected_event(self.current_index)
         else:
-            Log.warning("Invalid jump event index.")
+            Log.warning(f"Invalid jump event index: {event_index}")
             self.set_selected_event(self.current_index)
 
     def set_classification(self, classification_value):
@@ -116,7 +119,8 @@ class ManualClassifyBlock(Block):
         if audio_events:
             audio_events[self.current_index].set_classification(classification_value)
             self.available_classifications.add(classification_value)
-            Log.info(f"Event {audio_events[self.current_index].name} classified: {classification_value}")
+            Log.info(f"Event {audio_events[self.current_index].name} classified as: {classification_value}")
+
 
     def get_page_url(self): 
         """
@@ -197,112 +201,113 @@ class ManualClassifyBlock(Block):
         """
         Uses the parent's Dash app (self.parent._app) to define
         """
-
         app = self.parent._app
-        # Build & store the entire layout
 
-        layout_content = dcc.Tabs([
-            dcc.Tab(label="Classification", children=[
-                html.Div([
-                    html.H2("Manual Audio Classification Web UI"),
+        # 2) Create an EventListener to capture arrow key events in the browser window
+        arrow_key_listener = EventListener(
+            id=f"{self.name}-arrow-key-listener",
+            events=[
+                {
+                    "event": "keydown",
+                    "props": ["key", "code", "n_events"],
+                    "target": "window"
+                }
+            ]
+        )
 
-                    html.Label("Jump to Event:", style={"marginRight": "10px"}),
-                    dcc.Dropdown(
-                        id=f"{self.name}-event-jump-dropdown",
-                        options=[],
-                        placeholder="Select an event",
-                        style={"width": "50%", "marginBottom": "10px"}
-                    ),
+        layout_content = html.Div([
+            html.Div([
+                html.H2("Manual Audio Classification Web UI"),
+                
+                # 3) Insert the EventListener into your layout (can go anywhere in the DOM)
+                arrow_key_listener,
+                # Optional: A small div to show which arrow was pressed (like a debug print)
+                html.Div(id=f"{self.name}-arrow-key-output"),
+                
+                html.Label("Jump to Event:", style={"marginRight": "10px"}),
+                dcc.Dropdown(
+                    id=f"{self.name}-event-jump-dropdown",
+                    options=[],
+                    placeholder="Select an event",
+                    style={"width": "50%", "marginBottom": "10px"}
+                ),
 
-                    html.Div(
-                        id=f"{self.name}-current-event-name",
-                        style={"fontWeight": "bold", "marginBottom": "10px"}
-                    ),
-
-                    dcc.Graph(id=f"{self.name}-spectrogram-plot"),
-
-                    html.Audio(
-                        id=f"{self.name}-audio-player",
-                        controls=True,
-                        style={"marginTop": "20px", "display": "block"},
-                    ),
-
-                    html.Div([
-                        html.Label("Classification Suggestions:", style={"marginRight": "10px"}),
-                        dcc.Dropdown(
-                            id=f"{self.name}-classification-suggestions-dropdown",
-                            options=[],
-                            value="",
-                            placeholder="Select classification",
-                            clearable=True,
-                            style={"width": "200px", "display": "inline-block", "marginRight": "10px"}
-                        ),
-                        dcc.Input(
-                            id=f"{self.name}-classification-input",
-                            type="text",
-                            value="",
-                            placeholder="Or type custom",
-                            style={"display": "inline-block"}
-                        )
-                    ], style={"marginBottom": "10px", "marginTop": "20px"}),
-
-                    html.Div([
-                        html.Button("Previous", id=f"{self.name}-prev-button", n_clicks=0, style={"marginRight": "5px"}),
-                        html.Button("Next", id=f"{self.name}-next-button", n_clicks=0, style={"marginRight": "5px"}),
-                        html.Button("Save Classification", id=f"{self.name}-save-class-button", n_clicks=0, style={"marginRight": "5px"}),
-                    ])
-                ], style={"padding": "10px"})
-            ]),
-            dcc.Tab(label="Logs", children=[
-                dcc.Interval(id=f"{self.name}-log-interval", interval=1000, n_intervals=0),
-                html.H2("Server Logs"),
                 html.Div(
-                    id=f"{self.name}-log-output",
-                    style={
-                        "whiteSpace": "pre-wrap",
-                        "backgroundColor": "#f9f9f9",
-                        "border": "1px solid #ccc",
-                        "padding": "10px",
-                        "margin": "10px",
-                        "maxHeight": "400px",
-                        "overflowY": "auto"
-                    }
-                )
-            ])
-        ])
+                    id=f"{self.name}-current-event-name",
+                    style={"fontWeight": "bold", "marginBottom": "10px"}
+                ),
 
-        # layout_content = html.Div([
-        #     html.H1(f"{self.name}"),
-        #     html.P("This is a test page for the Manual Classify Block."),
-        # ])
-        
+                dcc.Graph(id=f"{self.name}-spectrogram-plot"),
+
+                html.Audio(
+                    id=f"{self.name}-audio-player",
+                    controls=True,
+                    style={"marginTop": "20px", "display": "block"},
+                ),
+
+                html.Div([
+                    html.Label("Classification Suggestions:", style={"marginRight": "10px"}),
+                    dcc.Dropdown(
+                        id=f"{self.name}-classification-suggestions-dropdown",
+                        options=[],
+                        value="",
+                        placeholder="Select classification",
+                        clearable=True,
+                        style={"width": "200px", "display": "inline-block", "marginRight": "10px"}
+                    ),
+                    dcc.Input(
+                        id=f"{self.name}-classification-input",
+                        type="text",
+                        value="",
+                        placeholder="Or type custom",
+                        style={"display": "inline-block"}
+                    )
+                ], style={"marginBottom": "10px", "marginTop": "20px"}),
+
+                html.Div([
+                    html.Button("Previous", id=f"{self.name}-prev-button", n_clicks=0, style={"marginRight": "5px"}),
+                    html.Button("Next", id=f"{self.name}-next-button", n_clicks=0, style={"marginRight": "5px"}),
+                    html.Button("Save Classification", id=f"{self.name}-save-class-button", n_clicks=0, style={"marginRight": "5px"}),
+                ])
+            ], style={"padding": "10px"})
+        ]),
+
         Log.info(f"Registering page: /{self.name}")
         dash.register_page(
             self.name,
             layout=layout_content,
-            # path=f"/{self.name}",
             name=self.name
         )
 
+        # 4) Add Inputs and Outputs for your new arrow key listener inside the same callback,
+        #    or define a separate callback purely for arrow keys.
+        #    Below, we add it as an Input alongside the existing ones:
         @app.callback(
             [
                 Output(f"{self.name}-spectrogram-plot", "figure"),
-                Output(f"{self.name}-current-event-name", "children"),                 # was event-name
+                Output(f"{self.name}-current-event-name", "children"),
                 Output(f"{self.name}-classification-input", "value"),
-                Output(f"{self.name}-classification-suggestions-dropdown", "options"), # was classification-dropdown
-                Output(f"{self.name}-classification-suggestions-dropdown", "value"),   # was classification-dropdown
+                Output(f"{self.name}-classification-suggestions-dropdown", "options"),
+                Output(f"{self.name}-classification-suggestions-dropdown", "value"),
                 Output(f"{self.name}-audio-player", "src"),
-                Output(f"{self.name}-event-jump-dropdown", "options"),                 # was jump-dropdown
-                Output(f"{self.name}-event-jump-dropdown", "value")                    # was jump-dropdown
+                Output(f"{self.name}-event-jump-dropdown", "options"),  
+                Output(f"{self.name}-event-jump-dropdown", "value"),
+                # To show which arrow was pressed (optional)
+                Output(f"{self.name}-arrow-key-output", "children")
             ],
             [
                 Input(f"{self.name}-prev-button", "n_clicks"),
                 Input(f"{self.name}-next-button", "n_clicks"),
-                Input(f"{self.name}-save-class-button", "n_clicks"),                   # was save-button
-                Input(f"{self.name}-classification-suggestions-dropdown", "value"),    # was classification-dropdown
-                Input(f"{self.name}-event-jump-dropdown", "value"),                    # was jump-dropdown
+                Input(f"{self.name}-save-class-button", "n_clicks"),
+                Input(f"{self.name}-classification-suggestions-dropdown", "value"),
+                Input(f"{self.name}-event-jump-dropdown", "value"),
+                # 5) Insert the arrow key event as an Input
+                Input(f"{self.name}-arrow-key-listener", "n_events"),
             ],
-            [State(f"{self.name}-classification-input", "value")]
+            [
+                State(f"{self.name}-arrow-key-listener", "event"),
+                State(f"{self.name}-classification-input", "value")
+            ]
         )
         def update_view(
             prev_clicks,
@@ -310,10 +315,14 @@ class ManualClassifyBlock(Block):
             save_clicks,
             selected_suggestion,
             jump_index,
+            n_keydown,
+            arrow_key_event,
             typed_class
         ):
-            
             changed_component = [p["prop_id"] for p in callback_context.triggered][0]
+            Log.info(f"Callback triggered by: {changed_component}")
+
+            # Decide if we need to classify
             new_classification = typed_class or selected_suggestion
 
             # If anything triggered classification, set classification:
@@ -325,8 +334,24 @@ class ManualClassifyBlock(Block):
                 f"{self.name}-event-jump-dropdown"
             ]):
                 self.set_classification(new_classification)
+                Log.info(f"Set classification to: {new_classification}")
 
-            # Navigation
+            # 6) Handle ArrowKey event
+            arrow_pressed = ""
+            if arrow_key_event:
+                arrow_pressed = arrow_key_event.get("key", "")
+                if arrow_pressed == "ArrowLeft":
+                    self.previous_event()
+                    Log.info("ArrowLeft => previous_event()")
+                elif arrow_pressed == "ArrowRight":
+                    self.next_event()
+                    Log.info("ArrowRight => next_event()")
+                elif arrow_pressed == "ArrowUp":
+                    Log.info("ArrowUp pressed (not assigned to event navigation)")
+                elif arrow_pressed == "ArrowDown":
+                    Log.info("ArrowDown pressed (not assigned to event navigation)")
+            
+            # Also handle manual clicking of Prev/Next/Jump
             if self.get_audio_events():
                 if f"{self.name}-prev-button" in changed_component:
                     self.previous_event()
@@ -343,15 +368,16 @@ class ManualClassifyBlock(Block):
                     else:
                         Log.warning("No classification provided for save.")
 
-            # Build figure or empty fallback
             figure = self.build_figure() if self.get_audio_events() else go.Figure()
             event_label = self.generate_event_label() if self.get_audio_events() else "No Events Available"
             audio_src = self.build_audio_src() if self.get_audio_events() else ""
 
             # Classification suggestions
-            sorted_dropdown_options = [
-                {"label": c, "value": c} for c in sorted(self.available_classifications)
-            ] if self.available_classifications else []
+            sorted_dropdown_options = (
+                [{"label": c, "value": c} for c in sorted(self.available_classifications)]
+                if self.available_classifications
+                else []
+            )
 
             # Current classification
             if self.selected_event and self.selected_event.classification in self.available_classifications:
@@ -359,13 +385,21 @@ class ManualClassifyBlock(Block):
                 text_input_value = ""
             else:
                 dropdown_value = ""
-                text_input_value = self.selected_event.classification if (self.selected_event and self.selected_event.classification) else ""
+                text_input_value = (
+                    self.selected_event.classification
+                    if (self.selected_event and self.selected_event.classification)
+                    else ""
+                )
 
             # Event jump options
-            jump_to_event_options = [
-                {"label": f"{event.name}", "value": idx}
-                for idx, event in enumerate(self.get_audio_events())
-            ] if self.get_audio_events() else []
+            jump_to_event_options = (
+                [
+                    {"label": f"{event.name}", "value": idx}
+                    for idx, event in enumerate(self.get_audio_events())
+                ]
+                if self.get_audio_events()
+                else []
+            )
 
             return (
                 figure,
@@ -375,7 +409,8 @@ class ManualClassifyBlock(Block):
                 dropdown_value,
                 audio_src,
                 jump_to_event_options,
-                self.current_index if self.get_audio_events() else None
+                self.current_index if self.get_audio_events() else None,
+                arrow_pressed  # optional debug text
             )
 
     def get_metadata(self):

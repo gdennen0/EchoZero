@@ -6,13 +6,14 @@ import sys
 from src.Command.command_controller import CommandController
 import importlib.util
 import json
-from collections import defaultdict, deque
 import zipfile
 import shutil
 import dash
 from dash import html, dcc
 import threading
-
+from dash.dependencies import Input, Output, State  # import dash callback utilities
+from dash_extensions import EventListener
+from dash.exceptions import PreventUpdate
 
 PROJECT_VERSION = "0.0.1"
 PROJECT_DIR_BYPASS = None
@@ -23,6 +24,8 @@ if not os.path.exists(RECENT_PROJECTS_FILE):
     os.makedirs(os.path.dirname(RECENT_PROJECTS_FILE), exist_ok=True)
     with open(RECENT_PROJECTS_FILE, 'w') as file:
         json.dump([], file)
+
+
 class Project():
     """
     The main Project class that manages high-level application state.
@@ -47,9 +50,41 @@ class Project():
 
         self._app = dash.Dash(__name__, use_pages=True, pages_folder="")
         self._app.title = "EchoZero"
-        
-        self._app.layout = self.layout_content
-        
+
+        @self._app.callback(
+            dash.Output("arrow-key-output", "children"),
+            [dash.Input("arrow-key-listener", "event")]
+        )
+        def handle_arrow_keys(keyboard_event):
+            """
+            Callback function that listens for arrow key presses
+            and displays which arrow key was pressed.
+            """
+            # Log.info(f"Keyboard event: {keyboard_event}")
+            if not keyboard_event:
+                Log.info("No event yet, do nothing")
+                # raise PreventUpdate  # No event yet, do nothing
+                return None
+
+            key_pressed = keyboard_event.get("key", "")
+            if key_pressed == "ArrowUp":
+                Log.info("ArrowUp")
+                return "ArrowUp"    
+            elif key_pressed == "ArrowDown":
+                Log.info("ArrowDown")
+                return "ArrowDown"
+            elif key_pressed == "ArrowLeft":
+                Log.info("ArrowLeft")
+                return "ArrowLeft"
+            elif key_pressed == "ArrowRight":
+                Log.info("ArrowRight")
+                return "ArrowRight"
+
+            return None
+
+        self._app.layout = self.layout_content # set the layout of the app to the layout_content method
+
+
         dash.register_page(
             "Home",
             layout=self.dynamic_page_layout,
@@ -85,6 +120,49 @@ class Project():
         self._server_thread = threading.Thread(target=self.run_ui, daemon=True)
         self._server_thread.start()
 
+    def layout_content(self):
+        """
+        Called each time a user loads or reloads the page.
+        Displays "No project loaded" if self.name is None,
+        otherwise shows self.name. Also shows links to all
+        registered Dash pages.
+        """
+        return html.Div([
+            html.H1("EchoZero"),
+            html.Ul([
+                html.Li(
+                    dcc.Link(
+                        page_data["name"],
+                        href=page_data["relative_path"]
+                    )
+                )
+                for page_data in dash.page_registry.values()
+            ]),
+            dash.page_container
+        ])
+
+    def dynamic_page_layout(self):
+        displayed_name = self.name if self.name else "No project loaded"
+               # Create an EventListener to capture keyboard activity in the browser window.
+        arrow_key_listener = EventListener(
+            id="arrow-key-listener",
+            # events is a list of dict(s). 
+            # Each dict: event type, props to capture, and optional target like 'window' or 'document'.
+            events=[
+                {
+                    "event": "keydown",
+                    "props": ["key", "code"],
+                    "target": "window"
+                }
+            ]
+        )
+        return html.Div([
+            html.H1(f"{displayed_name}"),
+            html.P("Home"),
+            html.Div(id="arrow-key-output"),  # This will display which arrow key was pressed
+            arrow_key_listener
+        ])
+
     def initialize_project(self):
         options = {
             'l': self.load, 
@@ -103,43 +181,6 @@ class Project():
                     break
             else:
                 Log.error("Invalid input. Please enter 'load', 'new', or 'recent' (or 'l', 'n', 'r').")
-
-    def layout_content(self):
-        """
-        Called each time a user loads or reloads the page.
-        Displays "No project loaded" if self.name is None,
-        otherwise shows self.name. Also shows links to all
-        registered Dash pages.
-        """
-        displayed_name = self.name if self.name else "No project loaded"
-
-        return html.Div([
-            html.H1("EchoZero"),
-            # html.P(f"Project: {displayed_name}"),
-            # Dynamically list links to all registered pages:
-            html.H3("Pages:"),
-            html.Ul([
-                html.Li(
-                    dcc.Link(
-                        page_data["name"],
-                        href=page_data["relative_path"]
-                    )
-                )
-                for page_data in dash.page_registry.values()
-            ]),
-
-            dash.page_container
-        ])
-
-    def dynamic_page_layout(self):
-        """
-        An example for a page layout that also references self.name.
-        """
-        displayed_name = self.name if self.name else "No project loaded"
-        return html.Div([
-            html.H1(f"{displayed_name}"),
-            html.P("Home")
-        ])
     
     def list_pages(self):
         for page_id, page_data in dash.page_registry.items():

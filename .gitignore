@@ -22,4 +22,6 @@ models/archive/
 
 logs/
 
-data/recent_projects/
+data/recent_projects.json
+
+.venv/

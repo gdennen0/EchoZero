@@ -119,7 +119,7 @@ class Log:
     """
     # A module-level logger. In practice, you might want to pass the logger object around,
     # or store it in a place that is easy to import.
-    _logger: Logger = init_logger(name="EchoZeroLogger", console_logging=False, file_logging=True, level=logging.DEBUG)
+    _logger: Logger = init_logger(name="EchoZeroLogger", console_logging=True, file_logging=True, level=logging.DEBUG)
 
     @classmethod
     def set_logger(cls, logger: Logger):
