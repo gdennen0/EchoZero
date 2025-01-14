@@ -84,7 +84,6 @@ class Project():
 
         self._app.layout = self.layout_content # set the layout of the app to the layout_content method
 
-
         dash.register_page(
             "Home",
             layout=self.dynamic_page_layout,
@@ -116,47 +115,6 @@ class Project():
         self.command.add("list_pages", self.list_pages)
         
         self.initialize_project()
-
-        self._server_thread = threading.Thread(target=self.run_ui, daemon=True)
-        self._server_thread.start()
-
-    def layout_content(self):
-        """
-        Called each time a user loads or reloads the page.
-        Displays "No project loaded" if self.name is None,
-        otherwise shows self.name. Also shows links to all
-        registered Dash pages.
-        """
-        return html.Div([
-            html.H1("EchoZero"),
-            html.Ul([
-                html.Li(
-                    dcc.Link(
-                        page_data["name"],
-                        href=page_data["relative_path"]
-                    )
-                )
-                for page_data in dash.page_registry.values()
-            ]),
-            dash.page_container,
-        ])
-
-    def dynamic_page_layout(self):
-        displayed_name = self.name if self.name else "No project loaded"
-               # Create an EventListener to capture keyboard activity in the browser window.
-        arrow_key_listener = EventListener(
-            id="arrow-key-listener",
-            # events is a list of dict(s). 
-            # Each dict: event type, props to capture, and optional target like 'window' or 'document'.
-            events=[
-                {
-                    "event": "keydown",
-                    "props": ["key", "code"],
-                    "target": "window"
-                }
-            ]
-        )
-        return html.Div([
             html.H1(f"{displayed_name}"),
             html.P("Home"),
             html.Div(id="arrow-key-output"),  # This will display which arrow key was pressed

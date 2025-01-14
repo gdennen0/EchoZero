@@ -57,3 +57,62 @@ Each block can add their own commands, commands there are several types of comma
 
 
 """
+from src.Command.command_parser import CommandParser
+from src.API.Types.CMD.cmd import cmd
+
+class APIController:
+    def __init__(self, project):
+        self.project = project
+        self.interfaces = []
+        self.request_queue = []
+        self.add_interface(CMD
+
+    def add_interface(self, interface):
+        self.interfaces.append(interface)
+    
+    def start_api_loop(self):
+        while True:
+            for request in self.request_queue:
+                self.handle_request(request)
+                
+
+    def request(self, request):
+        self.request_queue.append(request)
+        
+
+    def handle_request(self,request):
+        block_item = None
+        command_item = None
+        args = []
+
+        if request.block:
+            block_item = self._get_matching_block(request.block)
+        if request.args:
+            args = request.args
+
+        if block_item: 
+            command_str = request.command
+            command_item = self._get_command(block_item, command_str)
+        else:
+            command_str = request.command
+            command_item = self._get_command(self.project, command_str)
+
+        if command_item:
+            if command_item.execute(*args): # if it returns a value, return to the caller
+                return command_item.execute(*args)
+            else:   
+                command_item.execute(*args) #otherwise just execute the command
+
+        def _get_matching_block(self, block_str):
+            for block in self.project.get_blocks():
+                if block is not None:   
+                    if block.name.lower() == block_str:
+                        return block
+            return None
+
+        def _get_command(self, selected_module, command_str):
+            if selected_module and hasattr(selected_module, "command"):
+                for cmd_item in selected_module.command.get_commands():
+                    if cmd_item.name.lower() == command_str:
+                        return cmd_item
+            return None
