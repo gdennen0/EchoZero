@@ -138,7 +138,7 @@ class Project():
                 )
                 for page_data in dash.page_registry.values()
             ]),
-            dash.page_container
+            dash.page_container,
         ])
 
     def dynamic_page_layout(self):

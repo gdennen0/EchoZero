@@ -201,7 +201,7 @@ class ManualClassifyBlock(Block):
         """
         Uses the parent's Dash app (self.parent._app) to define
         """
-        app = self.parent._app
+        app = self.parent._app #grab main instance of dash app
 
         # 2) Create an EventListener to capture arrow key events in the browser window
         arrow_key_listener = EventListener(

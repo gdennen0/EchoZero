@@ -157,7 +157,7 @@ class ExportChordPlotBlock(Block):
             color = colors.get(chord_type, 'blue')  # Default to blue if not found
             ax.axvspan(start_time, end_time, color=color, alpha=0.3)
             # Optional: Annotate chord type at the start of the span
-            #  ß ax.text(start_time, 0.95, chord_type, color='black', fontsize=8, ha='left', va='top', transform=ax.get_xaxis_transform())
+            #  ß ßax.text(start_time, 0.95, chord_type, color='black', fontsize=8, ha='left', va='top', transform=ax.get_xaxis_transform())
 
         # Create custom legends
         handles = [plt.Line2D([0], [0], color=color, lw=4, alpha=0.3) for color in colors.values()]
