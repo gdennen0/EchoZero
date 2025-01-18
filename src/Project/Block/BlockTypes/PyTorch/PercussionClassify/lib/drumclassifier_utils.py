@@ -10,8 +10,8 @@ from statistics import mean, stdev,median
 import torch
 import torch.nn as nn
 from torch.autograd import Variable
-from src.Project.Block.BlockTypes.PyTorch.lib.pytorch_utils import *
-from src.Project.Block.BlockTypes.PyTorch.lib.drumclassifier_constants import * # constants
+from src.Project.Block.BlockTypes.PyTorch.PercussionClassify.lib.pytorch_utils import *
+from src.Project.Block.BlockTypes.PyTorch.PercussionClassify.lib.drumclassifier_constants import * # constants
 from src.Utils.message import Log
 
 def transform(y,sr,hop_length):

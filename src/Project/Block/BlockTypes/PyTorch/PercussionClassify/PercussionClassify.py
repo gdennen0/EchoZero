@@ -8,12 +8,10 @@ import re
 import random
 import torch
 import torch.nn as nn
-from torch.autograd import Variable
-from src.Project.Block.BlockTypes.PyTorch.lib.pytorch_utils import DataLoader, make_pos_encodings, HyperParams, Classifier
-from src.Project.Block.BlockTypes.PyTorch.lib.drumclassifier_constants import INSTRUMENT_NAMES
-from src.Project.Block.BlockTypes.PyTorch.lib.drumclassifier_utils import transform, DrumClassifier
-from src.Utils.message import Log
 
+from src.Project.Block.BlockTypes.PyTorch.PercussionClassify.lib.drumclassifier_utils import DrumClassifier
+
+from src.Utils.message import Log
 from src.Project.Block.block import Block
 from src.Project.Data.Types.event_data import EventData
 from src.Project.Data.Types.event_item import EventItem

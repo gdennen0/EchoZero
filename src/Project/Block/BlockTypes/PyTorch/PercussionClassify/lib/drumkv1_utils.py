@@ -17,10 +17,10 @@ import lxml.builder
 from lxml import etree as ET
 import copy
 
-from src.Project.Block.BlockTypes.PyTorch.lib.pytorch_utils import * # pytorch model
-from src.Project.Block.BlockTypes.PyTorch.lib.drumclassifier_constants import * # constants
-from src.Project.Block.BlockTypes.PyTorch.lib.drumclassifier_utils import * # make code
-from src.Project.Block.BlockTypes.PyTorch.lib.drumkv1_constants import * # constants for drumkv1 export
+from src.Project.Block.BlockTypes.PyTorch.PercussionClassify.lib.pytorch_utils import * # pytorch model
+from src.Project.Block.BlockTypes.PyTorch.PercussionClassify.lib.drumclassifier_constants import * # constants
+from src.Project.Block.BlockTypes.PyTorch.PercussionClassify.lib.drumclassifier_utils import * # make code
+from src.Project.Block.BlockTypes.PyTorch.PercussionClassify.lib.drumkv1_constants import * # constants for drumkv1 export
 
 class XMLDrumkv1Maker:   
     """exports samples to an XML format for Drumkv1

@@ -422,26 +422,29 @@ class Project():
         for dir in os.listdir(base_path):
             dir_path = os.path.join(base_path, dir)
             if os.path.isdir(dir_path):
-                for file_name in os.listdir(dir_path):
-                    if file_name.endswith(".py") and file_name != "__init__.py":
-                        try:
-                            block_name = file_name[:-3]
-                            file_path = os.path.join(dir_path, file_name)
+                for nested_dir in os.listdir(dir_path):
+                    nested_dir_path = os.path.join(dir_path, nested_dir)
+                    if os.path.isdir(nested_dir_path):
+                        for file_name in os.listdir(nested_dir_path):
+                            if file_name.endswith(".py") and file_name != "__init__.py":
+                                try:
+                                    block_name = file_name[:-3]
+                                    file_path = os.path.join(nested_dir_path, file_name)
 
-                            spec = importlib.util.spec_from_file_location(block_name, file_path)
-                            module = importlib.util.module_from_spec(spec)
-                            spec.loader.exec_module(module)
-                            cls = getattr(module, block_name)
-                            self.add_block_type(cls)
+                                    spec = importlib.util.spec_from_file_location(block_name, file_path)
+                                    module = importlib.util.module_from_spec(spec)
+                                    spec.loader.exec_module(module)
+                                    cls = getattr(module, block_name)
+                                    self.add_block_type(cls)
 
-                        except FileNotFoundError as e:
-                            Log.error(f"File not found: {file_path} - {e}")
-                        except ImportError as e:
-                            Log.error(f"Failed to import module '{block_name}' from '{file_path}': {e}")
-                        except AttributeError as e:
-                            Log.error(f"Module '{block_name}' does not have class '{block_name}': {e}")
-                        except Exception as e:
-                            Log.error(f"Unexpected error loading block '{block_name}' from '{file_path}': {e}")
+                                except FileNotFoundError as e:
+                                    Log.error(f"File not found: {file_path} - {e}")
+                                except ImportError as e:
+                                    Log.error(f"Failed to import module '{block_name}' from '{file_path}': {e}")
+                                except AttributeError as e:
+                                    Log.error(f"Module '{block_name}' does not have class '{block_name}': {e}")
+                                except Exception as e:
+                                    Log.error(f"Unexpected error loading block '{block_name}' from '{file_path}': {e}")
 
     def add_block_type(self, block_type):
         self.block_types.append(block_type)
