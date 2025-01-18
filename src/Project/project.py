@@ -180,7 +180,9 @@ class Project():
                 if options[response]():
                     break
             else:
-                Log.error("Invalid input. Please enter 'load', 'new', or 'recent' (or 'l', 'n', 'r').")
+                Log.error("Invalid input")
+                self.initialize_project()
+
     
     def list_pages(self):
         for page_id, page_data in dash.page_registry.items():
@@ -201,6 +203,15 @@ class Project():
             recent_projects = json.load(file)
             if recent_projects:
                 project_path = prompt_selection("Please select a project: ", recent_projects)
+                if project_path == "e":
+                    Log.info("Project loading cancelled")
+                    
+                    return False
+                
+                elif project_path not in recent_projects:
+                    Log.error("invalid project selection")
+                    return False
+                
                 self.load_project(project_path)
                 return True
             else:
@@ -215,15 +226,21 @@ class Project():
 
     def load(self, load_path=None):
         if not load_path:
-            load_path = prompt("Please enter the path of the project to load: ")
+            load_path = prompt("Please enter the path of the project to load or enter 'e' to exit: ")
+            if load_path == "e":
+                Log.info("Project loading cancelled")
+                self.initialize_project()
+                return False
+            
         if not check_project_path(load_path):
             Log.error("Invalid path. Please try again.")
+            self.initialize_project()
             return False
+        
         self.load_project(load_path)
         self.add_recent_project(load_path)
         Log.info(f"Project '{self.name}' loaded successfully from {load_path}")
         return True
-
 
     def load_project(self, file_path):
         projectdata_dir = os.path.join(self.application_directory, "tmp", "projectdata")
@@ -317,6 +334,8 @@ class Project():
         if not self.save_directory:
             Log.error("No save directory set. Please set one before saving.")
             return
+        
+        Log.info("this could take a second...")
         
         project_root = os.path.join(self.save_directory, self.name)
         if not os.path.exists(project_root):
@@ -459,14 +478,18 @@ class Project():
     def delete_block(self, name=None):
         if not name:
             block_item = prompt_selection("Please select the block to delete: ", self.blocks)
-            if block_item is None or "e":
-                Log.info("Block deletion exited")
+            if not block_item:
+                Log.info("selected block has value of None")
+                return
+            elif block_item == "e":
+                Log.info("Block deletion cancelled")
                 return
             name = block_item.name
         for block in self.blocks:
             if block.name == name:
                 block.disconnect_all()
                 self.blocks.remove(block)
+                Log.info(f"Block '{name}' deleted successfully")
                 return
         Log.error(f"Block with name '{name}' not found in container")
 

@@ -46,11 +46,33 @@ class AudioData(Data):
         self.length_ms = length
         # Log.info(f"Length in ms set to {length}")
 
+    def get_data(self):
+        return self.data
+    
+    def get(self):
+        return self.data
+
     def set_source(self, source):
         self.source = source
 
     def get_source(self):
         return self.source
+    
+    def get_sample_rate(self):
+        return self.sample_rate
+    
+    def get_sr(self):
+        return self.sample_rate
+    
+    def get_frame_rate(self):
+        return self.frame_rate
+    
+    def get_length_ms(self):
+        return self.length_ms
+    
+    def get_path(self):
+        return self.path
+    
 
     def get_metadata(self):
         return {

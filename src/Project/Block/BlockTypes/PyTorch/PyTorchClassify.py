@@ -9,6 +9,7 @@ from src.Project.Block.Output.Types.event_output import EventOutput
 from src.Utils.message import Log
 import os
 from dataclasses import dataclass, field
+import librosa
 
 @dataclass
 class Config:
@@ -105,10 +106,12 @@ class PyTorchClassify(Block):
                 audio_data = item.data
                 if not audio_data or audio_data.data is None:
                     continue
-
+                Log.info(f"PytorchClassify: Processing {item.name}")
                 waveform = audio_data.data
-                prepared = self._prepare_audio_samples(waveform)
+                prepared = self._prepare_and_pre_process_audio(waveform)
                 x_tensor = torch.tensor(prepared, dtype=torch.float)
+                Log.info(f"PytorchClassify: Created x_tensor with shape: {x_tensor.shape}")
+                # Log the models expected input shape
 
                 # Model inference
                 with torch.no_grad():
@@ -122,19 +125,35 @@ class PyTorchClassify(Block):
             updated_event_data_list.append(event_data)
 
         return updated_event_data_list
-
-    def _prepare_audio_samples(self, audio_samples, desired_length=44100):
+    
+    def _prepare_and_pre_process_audio(self, audio_samples, desired_length=44100, sr=44100, n_mels=128, n_fft=2048, hop_length=512):
         """
-        Pad or trim the waveform to match the model's expected input length.
+        Prepare and preprocess the audio waveform to match the model's expected input length and format.
+        This includes padding/trimming the waveform and computing the mel-spectrogram.
         """
+        # Step 1: Pad or trim the waveform to match the desired length
         length = len(audio_samples)
         if length > desired_length:
-            return audio_samples[:desired_length][np.newaxis, :]
+            audio_samples = audio_samples[:desired_length]
+            Log.info(f"PytorchClassify: Trimmed waveform from {length} to {desired_length} samples")
         elif length < desired_length:
             pad_width = desired_length - length
-            return np.pad(audio_samples, (0, pad_width)).reshape(1, -1)
-        else:
-            return audio_samples.reshape(1, -1)
+            audio_samples = np.pad(audio_samples, (0, pad_width))
+            Log.info(f"PytorchClassify: Padded waveform from {length} to {desired_length} samples")
+
+        # Step 2: Compute mel-spectrogram
+        mel_spec = librosa.feature.melspectrogram(
+            y=audio_samples, sr=sr, n_mels=n_mels, n_fft=n_fft, hop_length=hop_length
+        )
+        log_mel_spec = librosa.power_to_db(mel_spec, ref=np.max)
+
+        # Step 3: Normalize the mel-spectrogram
+        mean = np.mean(log_mel_spec, axis=1, keepdims=True)
+        std = np.std(log_mel_spec, axis=1, keepdims=True) + 1e-6
+        normalized_mel = (log_mel_spec - mean) / std
+
+        # Step 4: Reshape to match model input (1, n_mels, time_frames)
+        return normalized_mel.reshape(1, n_mels, -1)  # Adjust shape as needed for your model
 
     def list_classifications(self):
         Log.info(f"Listing classifications for block '{self.name}'")

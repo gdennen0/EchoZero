@@ -533,7 +533,7 @@ def spec_effects(wave, algorithm="Default", value=None):
     return wave
 
 
-def spectrogram_to_wave_no_mp(spec, n_fft=2048, hop_length=1024):
+def spectrogram_to_wave_no_mp(spec, n_fft=512, hop_length=256):
     wave = librosa.istft(spec, n_fft=n_fft, hop_length=hop_length)
 
     if wave.ndim == 1:
@@ -544,7 +544,7 @@ def spectrogram_to_wave_no_mp(spec, n_fft=2048, hop_length=1024):
 
 def wave_to_spectrogram_no_mp(wave):
 
-    spec = librosa.stft(wave, n_fft=2048, hop_length=1024)
+    spec = librosa.stft(wave, n_fft=512, hop_length=256)
 
     if spec.ndim == 1:
         spec = np.asfortranarray([spec, spec])
