@@ -30,14 +30,14 @@ class EventData(Data):
     def get_source(self):
         return self.source
     
-    def get(self, name):
-        for item in self.items:
-            if item.name == name:
-                return item
-        return None
+    def get(self):
+        return self.items
     
     def get_all(self):
         return self.items
+    
+    def get_name(self):
+        return self.name
     
     def get_metadata(self):
         return {

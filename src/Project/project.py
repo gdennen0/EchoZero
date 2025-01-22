@@ -181,7 +181,6 @@ class Project():
                     break
             else:
                 Log.error("Invalid input")
-                self.initialize_project()
 
     
     def list_pages(self):

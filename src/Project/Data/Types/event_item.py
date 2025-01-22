@@ -35,6 +35,12 @@ class EventItem(Data):
             metadata["metadata"] = self.data.get_metadata()
         return metadata
     
+    def get_data(self):
+        return self.data
+    
+    def get(self):
+        return self.data
+    
     def set_time(self, time):
         self.time = time
         # Log.info(f"Set time for item: {self.name} to {time}")
@@ -51,6 +57,21 @@ class EventItem(Data):
         self.classification = classification
         # Log.info(f"Set classification for item: {self.name} to {classification}")
 
+    def get_time(self):
+        return self.time
+    
+    def get_name(self):
+        return self.name
+    
+    def get_source(self):
+        return self.source
+    
+    def get_confidence(self):
+        return self.confidence
+    
+    def get_classification(self):
+        return self.classification
+
     def save(self, save_dir):
         if self.data:
             self.data.save(save_dir)
@@ -66,8 +87,8 @@ class EventItem(Data):
         event_item_data_dir = os.path.join(event_item_dir, 'data')
         data_metadata = event_item_metadata.get("metadata") # get the data metadata
         if data_metadata:
-            if self.get_type(data_metadata.get("type")):
-                data = self.get_type(data_metadata.get("type"))()
+            if self.get_data_type(data_metadata.get("type")):
+                data = self.get_data_type(data_metadata.get("type"))()
                 data.load(data_metadata, event_item_data_dir)
                 self.data = data
             else:
@@ -75,11 +96,14 @@ class EventItem(Data):
         else:
             Log.error(f"Data metadata not found")
 
-    def get_type(self, type):
+    def get_data_type(self, type):
         for data_type in self.data_types:
             if data_type.type == type:
                 return data_type
         return None
+    
+    def get_type(self):
+        return self.type
 
     def set_classification(self, classification):
         self.classification = classification
