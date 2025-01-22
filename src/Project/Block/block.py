@@ -156,8 +156,6 @@ class Block(ABC):
                     external_outputs.append(external_output)
         return external_outputs
     
-
-    
     def list_connections(self):
         if self.input.get_all():
             Log.info(f"Listing connections for block '{self.name}'")
@@ -171,7 +169,6 @@ class Block(ABC):
 
         else:
             Log.error("This block does not have any inputs")
-
 
     def get_metadata_from_dir(self, dir):
         block_metadata_path = os.path.join(dir, 'metadata.json')

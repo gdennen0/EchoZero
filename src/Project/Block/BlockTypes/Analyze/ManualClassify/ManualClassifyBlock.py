@@ -9,14 +9,15 @@ import io
 import base64
 import plotly.graph_objs as go
 import dash
-from dash import dcc, html
-from dash.dependencies import Input, Output, State
 from dash import callback_context
 import plotly.graph_objs as go
 import scipy.io.wavfile as wavfile
 from flask import request
-from dash_extensions import EventListener
 from src.Utils.tools import prompt_selection
+
+# Import the separated layout and callbacks
+from src.Project.Block.BlockTypes.Analyze.ManualClassify.UI import layout
+from src.Project.Block.BlockTypes.Analyze.ManualClassify.UI import callbacks
 
 DEFAULT_VISUALIZATION = "spectrogram_db"
 DEFAULT_TRANSFORMATION = "none"
@@ -50,15 +51,15 @@ class ManualClassifyBlock(Block):
         self.selected_event = None
         self.available_classifications = set()
 
-        self.visualization = "spectrogram_db" # default visualization
+        self.visualization = DEFAULT_VISUALIZATION
         self.visualization_types = ["spectrogram_db", "spectrogram_cqt", "spectrogram_cens", "waveform"]
         
-        self.transformation = "none"
+        self.transformation = DEFAULT_TRANSFORMATION
         self.transformation_types = ["none","stft", "mfcc", "chroma", "onset_strength"]
 
-        self.figure_height = 400
+        self.figure_height = DEFAULT_FIGURE_HEIGHT
         self.figure_height_types = [400, 600, 800, 1000]
-        self.color_scale = "viridis"
+        self.color_scale = DEFAULT_COLOR_SCALE
         self.color_scale_types = ['aggrnyl', 'agsunset', 'algae', 'amp', 'armyrose', 'balance',
              'blackbody', 'bluered', 'blues', 'blugrn', 'bluyl', 'brbg',
              'brwnyl', 'bugn', 'bupu', 'burg', 'burgyl', 'cividis', 'curl',
@@ -80,12 +81,20 @@ class ManualClassifyBlock(Block):
         self.command.add("jump_to_event", self.jump_to_event)
         self.command.add("classify_event", self.set_classification)
 
-        self.command.add("register_layout", self.register_layout)
+        self.command.add("register_ui", self.register_ui)
+        self.command.add("register", self.register_ui)
         self.command.add("get_page_url", self.get_page_url)
         self.command.add("add_visualization", self.set_visualization)
         self.command.add("add_transformation", self.set_transformation)
         self.command.add("set_figure_height", self.set_figure_height)
         self.command.add("set_color_scale", self.set_color_scale)
+
+# UI SETTERS
+    def set_name(self, name):
+        self.name = name
+        if not self.layout_registered:
+            self.register_ui()
+        Log.info(f"Updated Blocks name to: '{name}'")   
 
     def set_figure_height(self, figure_height=None):
         """
@@ -109,7 +118,7 @@ class ManualClassifyBlock(Block):
         else:
             Log.error(f"Invalid color scale: {color_scale}, must be one of {self.color_scale_types}")
 
-    # Transformation settings
+# DATA OUTPUT TRANSFORMATIONS
     def set_transformation(self, transformation=None):
         """
         Add a transformation type to the block.
@@ -121,7 +130,6 @@ class ManualClassifyBlock(Block):
         else:
             Log.error(f"Invalid transformation type: {transformation}, must be one of {self.transformation_types}")
 
-    # Visualization settings
     def set_visualization(self, visualization=None):
         """
         Add a visualization type to the block.
@@ -136,7 +144,7 @@ class ManualClassifyBlock(Block):
     def process(self, input_data):
         """
         Collect incoming data and store it in self.data.
-        data passes without any transormation, transformation is handled in the UI and applied directly to the data
+        data passes without any transformation, transformation is handled in the UI and applied directly to the data
         """
         return input_data
 
@@ -204,7 +212,6 @@ class ManualClassifyBlock(Block):
             self.available_classifications.add(classification_value)
             Log.info(f"Event {audio_events[self.current_index].name} classified as: {classification_value}")
 
-
     def get_page_url(self): 
         """
         Returns the URL for the current page.
@@ -230,11 +237,10 @@ class ManualClassifyBlock(Block):
         if audio_samples.ndim > 1:
             audio_samples = np.mean(audio_samples, axis=-1)
 
-        #update NFTT to base its size relative to the length of each audio sample, obviously a large sample should have a larger size nfft/hop length
+        # Update FFT to base its size relative to the length of each audio sample
         nfft = int(len(audio_samples) / 10)
         hop_length = int(nfft / 2)
 
-        
         if self.transformation == "stft":
             transformed_data = librosa.stft(audio_samples, n_fft=nfft, hop_length=hop_length)
         elif self.transformation == "mfcc":
@@ -332,396 +338,29 @@ class ManualClassifyBlock(Block):
         total_events = len(audio_events)
         current_event_name = audio_events[self.current_index].name
         return f"Event: {current_event_name} ({self.current_index + 1}/{total_events})"
-        
-    def register_layout(self):
-        """
-        Uses the parent's Dash app (self.parent._app) to define
-        """
-        app = self.parent._app
-
-        # 2) Create an EventListener to capture arrow key events in the browser window
-        keyboard_listener = EventListener(
-            id=f"{self.name}-keyboard-listener",
-            events=[
-                {
-                    "event": "keydown",
-                    "props": ["key", "code", "n_events"],
-                    "target": "window"
-                }
-            ]
-        )
-
-        layout_content = html.Div([
-            html.Div([
     
-                html.H1(f"{self.name.capitalize()} EventData Viewer"),
-                # 3) Insert the EventListener into your layout (can go anywhere in the DOM)
-                keyboard_listener,
-                # Optional: A small div to show which arrow was pressed (like a debug print)
-                html.Div(id=f"{self.name}-arrow-key-output"),
+    def register_ui(self):
+        """
+        Uses the parent's Dash app (self.parent._app) to define the layout and register callbacks.
+        """
+        if not self.layout_registered:
+            if not self.parent or not hasattr(self.parent, '_app'):
+                Log.error("Parent app not found. Ensure that the block is properly connected to a Dash app.")
+                return
 
-                html.Div(
-                    id=f"{self.name}-current-event-name",
-                    style={"fontWeight": "bold", "marginBottom": "10px"}
-                ),
-                html.Div([
-                    html.Button("Previous", id=f"{self.name}-prev-button", n_clicks=0, style={"marginRight": "5px"}),
-                    html.Button("Next", id=f"{self.name}-next-button", n_clicks=0, style={"marginRight": "5px"}),
-                ]),
+            Log.info(f"Registering page: /{self.name}")
 
-                html.Div([
-                    # New Dropdown for Visualization Type
-                    html.Div([
-                        html.Label("Select Visualization:", style={"marginRight": "10px"}),
-                        dcc.Dropdown(
-                            id=f"{self.name}-visualization-dropdown",
-                            options=[{"label": vis, "value": vis} for vis in self.visualization_types],
-                            value=self.visualization,
-                            placeholder="Select visualization type",
-                            style={"width": "100%",},
-                            clearable=False,
-                        ),
-                    ], style={"flex": 1, "marginRight": "10px"}),
-
-                    html.Div([
-                        # New Dropdown for Transformation Type
-                        html.Label("Select Transformation:", style={"marginRight": "10px"}),
-                        dcc.Dropdown(
-                            id=f"{self.name}-transformation-dropdown",
-                            options=[{"label": trans, "value": trans} for trans in self.transformation_types],
-                            value=self.transformation,
-                            placeholder="Select transformation type",
-                            style={"width": "100%",},
-                            clearable=False,
-                        ),
-                    ], style={"flex": 1, "marginRight": "10px"}),
-
-                    html.Div([
-                        # New Dropdown for Figure Height
-                        html.Label("Select Figure Height:", style={"marginRight": "10px"}),
-                        dcc.Dropdown(
-                            id=f"{self.name}-figure-height-dropdown",
-                            options=[{"label": height, "value": height} for height in self.figure_height_types],
-                            value=self.figure_height,
-                            placeholder="Select figure height",
-                            style={"width": "100%",},
-                            clearable=False,
-                        ),
-                    ], style={"flex": 1, "marginRight": "10px"}),
-
-                    html.Div([
-                        # New Dropdown for Color Scale
-                        html.Label("Select Color Scale:", style={"marginRight": "10px"}),
-                        dcc.Dropdown(
-                            id=f"{self.name}-color-scale-dropdown",
-                            options=[{"label": color_scale, "value": color_scale} for color_scale in self.color_scale_types],
-                            value=self.color_scale,
-                            placeholder="Select color scale",
-                            style={"width": "100%",},
-                            clearable=False,
-                        ),
-                    ], style={"flex": 1,}),
-                ], style={
-                    "display": "flex",
-                    "justifyContent": "space-between",
-                    "flexWrap": "wrap",
-                    "marginBottom": "20px"
-                }
-                ),
-
-                # event selection
-                html.Label("Jump to Event:", style={"marginRight": "10px"}),
-                dcc.Dropdown(
-                    id=f"{self.name}-event-jump-dropdown",
-                    options=[],
-                    placeholder="Select an event",
-                    style={"width": "50%", "marginBottom": "10px"},
-                    clearable=True,
-                ),
-
-                # event visualization
-                dcc.Graph(id=f"{self.name}-spectrogram-plot"),
-
-                # event audio player
-                html.Audio(
-                    id=f"{self.name}-audio-player",
-                    controls=True,
-                    style={"marginTop": "20px", "display": "block"},
-                ),
-                #audio player controls
-                html.Button(
-                    "Play / Pause",
-                    id=f"{self.name}-play-toggle-btn"
-                ),
-
-                # classification dropdown
-                html.Div([
-                    html.Div([
-                        html.Label("Classification Suggestions:", style={"marginRight": "10px"}),
-                        dcc.Dropdown(
-                            id=f"{self.name}-classification-suggestions-dropdown",
-                        options=[],
-                        value="",
-                        placeholder="Select classification",
-                        clearable=True,
-                        style={"width": "200px",}
-                    ),
-                    ], style={"flex": 1,}),
-                    dcc.Input(
-                        id=f"{self.name}-classification-input",
-                        type="text",
-                        value="",
-                        placeholder="Or type custom",
-                        style={"width": "200px"}
-                    ),
-                    html.Button(
-                        "Save Classification",
-                        id=f"{self.name}-save-class-button",
-                        n_clicks=0,
-                        style={"marginRight": "5px"}
-                        ),
-
-                ], style={
-                    "display": "flex",
-                    "justifyContent": "space-between",
-                    "flexWrap": "wrap",
-                    "marginBottom": "20px"
-                }
-                ),
-
-            ], style={"padding": "10px"}),
-        ])
-
-        Log.info(f"Registering page: /{self.name}")
-        dash.register_page(
-            self.name,
-            layout=layout_content,
-            name=self.name
-        )
-        app.clientside_callback(
-            """
-            function(nClicks, audioElementId) {
-                if (!audioElementId) {
-                    return window.dash_clientside.no_update;
-                }
-                const audioTag = document.getElementById(audioElementId);
-                if (audioTag) {
-                    if (audioTag.paused) {
-                        audioTag.play();
-                    } else {
-                        audioTag.pause();
-                    }
-                }
-                return window.dash_clientside.no_update;
-            }
-            """,
-            # Output(f"{self.name}-audio-player", "src"),  # Dummy output to satisfy Dash
-            Input(f"{self.name}-play-toggle-btn", "n_clicks"),
-            State(f"{self.name}-audio-player", "id"),  # This is where audioElementId comes from
-        )
-        @app.callback(
-        [
-            Output(f"{self.name}-spectrogram-plot", "figure"),
-            Output(f"{self.name}-current-event-name", "children"),
-            Output(f"{self.name}-classification-input", "value"),
-            Output(f"{self.name}-classification-suggestions-dropdown", "options"),
-            Output(f"{self.name}-classification-suggestions-dropdown", "value"),
-            Output(f"{self.name}-audio-player", "src"),
-            Output(f"{self.name}-event-jump-dropdown", "options"),  
-            Output(f"{self.name}-event-jump-dropdown", "value"),
-            Output(f"{self.name}-visualization-dropdown", "value"),
-            Output(f"{self.name}-transformation-dropdown", "value"),
-            Output(f"{self.name}-figure-height-dropdown", "value"),
-            Output(f"{self.name}-color-scale-dropdown", "value"),
-            Output(f"{self.name}-arrow-key-output", "children")
-        ],
-        [
-            Input(f"{self.name}-prev-button", "n_clicks"),
-            Input(f"{self.name}-next-button", "n_clicks"),
-            Input(f"{self.name}-save-class-button", "n_clicks"),
-            Input(f"{self.name}-classification-suggestions-dropdown", "value"),
-            Input(f"{self.name}-event-jump-dropdown", "value"),
-            Input(f"{self.name}-visualization-dropdown", "value"),
-            Input(f"{self.name}-transformation-dropdown", "value"),
-            Input(f"{self.name}-figure-height-dropdown", "value"),
-            Input(f"{self.name}-color-scale-dropdown", "value"),
-            Input(f"{self.name}-keyboard-listener", "n_events"),
-        ],
-        [
-            State(f"{self.name}-keyboard-listener", "event"),
-            State(f"{self.name}-classification-input", "value")
-        ]
-    )
-        def update_view(
-            prev_clicks,
-            next_clicks,
-            save_clicks,
-            selected_suggestion,
-            jump_index,
-            selected_visualization,
-            selected_transformation,
-            selected_figure_height,
-            selected_color_scale,
-            n_keydown,
-            keyboad_event,
-            typed_class
-        ):
-            changed_component = [p["prop_id"] for p in callback_context.triggered][0]
-            Log.info(f"Callback triggered by: {changed_component}")
-
-            classification_saved = False  # Flag to track if classification was saved
-
-            if f"{self.name}-visualization-dropdown" in changed_component:
-                self.set_visualization(visualization=selected_visualization)
-                Log.info(f"Set visualization to: {selected_visualization}")
-
-            if f"{self.name}-transformation-dropdown" in changed_component:
-                Log.info(f"Setting transformation to: {selected_transformation}")
-                self.set_transformation(transformation=selected_transformation)
-                Log.info(f"Set transformation to: {selected_transformation}")
-
-            if f"{self.name}-figure-height-dropdown" in changed_component:
-                self.set_figure_height(figure_height=selected_figure_height)
-                Log.info(f"Set figure height to: {selected_figure_height}")
-
-            if f"{self.name}-color-scale-dropdown" in changed_component:
-                self.set_color_scale(color_scale=selected_color_scale)
-                Log.info(f"Set color scale to: {selected_color_scale}")
-
-            # Decide if we need to classify
-            new_classification = typed_class or selected_suggestion
-
-            # Ensure current classification is in available_classifications
-            if self.selected_event and self.selected_event.classification:
-                self.available_classifications.add(self.selected_event.classification)
-
-            # If anything triggered classification, set classification:
-            if self.get_audio_events() and any(comp in changed_component for comp in [
-                f"{self.name}-prev-button",
-                f"{self.name}-next-button",
-                f"{self.name}-save-class-button",
-                f"{self.name}-classification-suggestions-dropdown",
-                f"{self.name}-event-jump-dropdown",
-                f"{self.name}-visualization-dropdown",
-                f"{self.name}-transformation-dropdown",
-                f"{self.name}-figure-height-dropdown",
-                f"{self.name}-color-scale-dropdown  "
-            ]):
-                if f"{self.name}-save-class-button" in changed_component and typed_class:
-                    self.set_classification(typed_class)
-                    classification_saved = True
-                    Log.info(f"Set classification to: {typed_class}")
-                elif selected_suggestion:
-                    self.set_classification(selected_suggestion)
-                    Log.info(f"Set classification to: {selected_suggestion}")
-
-            # 6) Handle ArrowKey event
-            arrow_pressed = ""
-            if keyboad_event:
-                pressed_key = keyboad_event.get("key", "")
-                if pressed_key == "ArrowLeft":
-                    self.previous_event()
-                    Log.info("ArrowLeft => previous_event()")
-                elif pressed_key == "ArrowRight":
-                    self.next_event()
-                    Log.info("ArrowRight => next_event()")
-                elif pressed_key == "ArrowUp":
-                    Log.info("ArrowUp pressed (not assigned to event navigation)")
-                elif pressed_key == "ArrowDown":
-                    Log.info("ArrowDown pressed (not assigned to event navigation)")
-                elif pressed_key == "Enter":
-                    Log.info("Enter pressed")
-                elif pressed_key == "Space":
-                    Log.info("Space pressed")
-
-            # Also handle manual clicking of Prev/Next/Jump
-            if self.get_audio_events():
-                if f"{self.name}-prev-button" in changed_component:
-                    self.previous_event()
-                elif f"{self.name}-next-button" in changed_component:
-                    self.next_event()
-                elif f"{self.name}-event-jump-dropdown" in changed_component:
-                    if jump_index is not None:
-                        self.jump_to_event(jump_index)
-                    else:
-                        Log.warning("No event index provided for jump.")
-                elif f"{self.name}-save-class-button" in changed_component:
-                    if typed_class:
-                        self.set_classification(typed_class)
-                        classification_saved = True
-                    else:
-                        Log.warning("No classification provided for save.")
-
-            # Classification suggestions
-            sorted_dropdown_options = (
-                [{"label": c, "value": c} for c in sorted(self.available_classifications)]
-                if self.available_classifications
-                else []
+            dash.register_page(
+                self.name,
+                layout = layout.build_layout(self),
+                name = self.name,
             )
 
-            # Current classification
-            if self.selected_event and self.selected_event.classification in self.available_classifications:
-                dropdown_value = self.selected_event.classification
-                text_input_value = "" if classification_saved else typed_class
-            elif self.selected_event and self.selected_event.classification:
-                # Add current classification to available_classifications if missing
-                self.available_classifications.add(self.selected_event.classification)
-                dropdown_value = self.selected_event.classification
-                text_input_value = "" if classification_saved else typed_class
-            else:
-                dropdown_value = ""
-                text_input_value = typed_class  # Preserve user input
+            # Register callbacks
+            callbacks.register_callbacks(self, self.parent._app)
 
-            # Event jump options
-            jump_to_event_options = (
-                [
-                    {"label": f"{event.name}", "value": idx}
-                    for idx, event in enumerate(self.get_audio_events())
-                ]
-                if self.get_audio_events()
-                else []
-            )
+            self.layout_registered = True
 
-            figure = self.build_figure() if self.get_audio_events() else go.Figure()
-            event_label = self.generate_event_label() if self.get_audio_events() else "No Events Available"
-            audio_src = self.build_audio_src() if self.get_audio_events() else ""
-
-            try: 
-
-                return (
-                    figure,
-                    event_label,
-                    text_input_value,
-                    sorted_dropdown_options,
-                    dropdown_value,
-                    audio_src,
-                    jump_to_event_options,
-                    self.current_index if self.get_audio_events() else None,
-                    self.visualization,
-                    self.transformation,
-                    self.figure_height,
-                    self.color_scale,
-                    arrow_pressed  # optional debug text
-                )
-            except Exception as e:
-                Log.error(f"Error in callback: {e}")
-                # Return default or empty values to prevent Dash from breaking
-                return (
-                    go.Figure(),
-                    "Error loading event",
-                    typed_class,  # Preserve user input even on error
-                    [],
-                    "",
-                    "",
-                    [],
-                    None,
-                    self.visualization,
-                    self.transformation,
-                    self.figure_height,
-                    self.color_scale,
-                    str(e)
-                )
-            
     def get_metadata(self):
         return {
             "name": self.name,
@@ -757,4 +396,4 @@ class ManualClassifyBlock(Block):
         # push loaded data to output 
         self.output.push_all(self.data.get_all())      
 
-        self.register_layout()
+        self.register_ui()
