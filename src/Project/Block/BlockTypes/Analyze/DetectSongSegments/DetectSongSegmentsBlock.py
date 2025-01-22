@@ -9,6 +9,9 @@ import numpy as np
 import librosa
 from sklearn.metrics import silhouette_score
 from src.Utils.tools import prompt_selection, prompt
+import warnings
+
+warnings.filterwarnings("ignore")
 
 class DetectSongSegmentsBlock(Block):
     """
