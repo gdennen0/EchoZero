@@ -67,10 +67,11 @@ class Input:
             self.data.clear() #clear the input data before adding new data
             connected_output_data = self.connected_output.data.get_all()
             if connected_output_data:
+                Log.info(f"Pulling {len(connected_output_data)} data items from {self.connected_output.parent_block.name}.{self.connected_output.type}.{self.connected_output.name}")
                 for data_item in connected_output_data:
                     if data_item.type == self.data_type: # Ensure the pulled data is of the correct type
                         self.data.add(data_item)
-                        Log.info(f"Pulled data from {self.connected_output.parent_block.name}.{self.connected_output.type}.{self.connected_output.name} to {self.parent_block.name}.{self.type}.{self.name}")
+                        Log.info(f"Pulled {data_item.name} of type {data_item.type}")
                     else:
                         Log.error(f"Pull data type mismatch. {self.parent_block.name} Input {self.name} expected {self.data_type}, but got {data_item.type}")
             else:

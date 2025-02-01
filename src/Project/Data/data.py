@@ -32,6 +32,9 @@ class Data:
         self.description = description
         # Log.info(f"Set description: {description}")
 
+    def get_name(self):
+        return self.name
+
     def get(self):
         return self.data
 

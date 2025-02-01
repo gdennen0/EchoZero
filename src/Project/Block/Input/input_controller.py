@@ -43,6 +43,7 @@ class InputController:
     def pull_all(self):
         Log.info(f"***BEGIN PULLING ALL {self.parent_block.name} INPUTS***")
         pulled_data = []
+        Log.info(f"Pulling data from {len(self.inputs)} inputs")
         for input in self.inputs:
             Log.info(f"-> Pulling data from input: {input.name}")
             pulled_data.append(input.pull())

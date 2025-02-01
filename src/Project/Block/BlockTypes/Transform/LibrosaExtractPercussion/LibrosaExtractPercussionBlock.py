@@ -10,14 +10,14 @@ import os
 
 
 # Extracts percussive components from audio using librosa.effects.percussive
-class ExtractPercussionBlock(Block):
-    name = "ExtractPercussion"
-    type = "ExtractPercussion"
+class LibrosaExtractPercussionBlock(Block):
+    name = "LibrosaExtractPercussion"
+    type = "LibrosaExtractPercussion"
 
     def __init__(self):
         super().__init__()
-        self.name = "ExtractPercussion"
-        self.type = "ExtractPercussion"
+        self.name = "LibrosaExtractPercussion"
+        self.type = "LibrosaExtractPercussion"
 
         self.input.add_type(AudioInput)
         self.input.add("AudioInput")

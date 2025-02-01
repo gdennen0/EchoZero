@@ -39,6 +39,9 @@ class EventData(Data):
     def get_name(self):
         return self.name
     
+    def remove_item(self, item):
+        self.items.remove(item)
+        Log.info(f"Removed item: {item.name} from event data: {self.name}")
     def get_metadata(self):
         return {
             "name":self.name, 

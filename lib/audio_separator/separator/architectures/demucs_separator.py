@@ -8,6 +8,8 @@ from lib.audio_separator.separator.uvr_lib_v5.demucs.apply import apply_model, d
 from lib.audio_separator.separator.uvr_lib_v5.demucs.hdemucs import HDemucs
 from lib.audio_separator.separator.uvr_lib_v5.demucs.pretrained import get_model as get_demucs_model
 from lib.audio_separator.separator.uvr_lib_v5 import spec_utils
+from src.Utils.message import Log
+
 
 DEMUCS_4_SOURCE = ["drums", "bass", "other", "vocals"]
 
@@ -114,8 +116,8 @@ class DemucsSeparator(CommonSeparator):
         self.clear_gpu_cache()
         self.logger.debug("Model and GPU cache cleared after demixing.")
 
-        output_files = []
-        self.logger.debug("Processing output files...")
+        # output_files = []
+        # self.logger.debug("Processing output files...")
 
         if isinstance(inst_source, np.ndarray):
             self.logger.debug("Processing instance source...")
@@ -137,8 +139,11 @@ class DemucsSeparator(CommonSeparator):
                 self.logger.debug("Setting source map to 4-stem...")
                 self.demucs_source_map = DEMUCS_4_SOURCE_MAPPER
 
+        stem_data = {}
+
         self.logger.debug("Processing for all stems...")
         for stem_name, stem_value in self.demucs_source_map.items():
+            Log.info(f"DEMUCS generated stem: {stem_name}")
             if self.output_single_stem is not None:
                 if stem_name.lower() != self.output_single_stem.lower():
                     self.logger.debug(f"Skipping writing stem {stem_name} as output_single_stem is set to {self.output_single_stem}...")
@@ -147,9 +152,10 @@ class DemucsSeparator(CommonSeparator):
             # stem_path = os.path.join(f"{self.audio_file_base}_({stem_name})_{self.model_name}.{self.output_format.lower()}")
             # self.final_process(stem_path, stem_source, stem_name) # Temporarily do not save stems
             # output_files.append(stem_path)
-            stem_source = source[stem_value].T
-
-        return stem_source
+            # stem_source = source[stem_value].T
+            stem_data[stem_name] = source[stem_value].T
+            # stem_data[stem_name] = stem_value
+        return stem_data
 
     def demix_demucs(self, mix):
         """

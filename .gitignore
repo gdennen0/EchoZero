@@ -19,6 +19,9 @@ tmp/projectdata
 # Ignore all files in the models directory and the EZ_model.pt file
 models/EZ_model.pt
 models/archive/
+models/larsnet/
+
+lib/larsnet/pretrained_larsnet_models/
 
 logs/
 

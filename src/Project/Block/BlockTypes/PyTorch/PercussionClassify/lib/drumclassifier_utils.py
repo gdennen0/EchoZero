@@ -270,9 +270,13 @@ class DrumClassifier:
             return self.predict_list_of_files(files_to_load, format)
         
     def predict_eventData(self, eventData, format=None):
+        if not eventData:
+            Log.error("predict_eventData received an empty eventData list")
+            return None
+
         if eventData[0].type == "EventData":   
             dM = self.load_eventData(eventData)
-                    # cases:
+            # cases:
             if format:
                 if 'label' in format.lower():
                     label_dict = self.label(dM)
@@ -282,4 +286,4 @@ class DrumClassifier:
                                 item.set_classification(label_dict[item.name])
                     return eventData
         else:
-                Log.error(f"drumclassifier_utils predict_eventData input data ({eventData.type}) is not is not of type EventData {eventData.type}")
+            Log.error(f"drumclassifier_utils predict_eventData input data ({eventData.type}) is not of type EventData {eventData.type}")

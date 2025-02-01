@@ -18,6 +18,7 @@ import torch
 import onnxruntime as ort
 from tqdm import tqdm
 import importlib.util
+from src.Utils.message import Log
 
 class Separator:
     """
@@ -478,8 +479,8 @@ class Separator:
                         self.logger.debug(f"All files downloaded for model {model_friendly_name}, returning initial path {model_path}")
                         return model_filename, model_type, model_friendly_name, model_path, yaml_config_filename
 
-        raise ValueError(f"Model file {model_filename} not found in supported model files")
-
+        # raise ValueError(f"Model file {model_filename} not found in supported model files")
+        Log.error(f"Model file {model_filename} not found in supported model files")
     def load_model_data_from_yaml(self, yaml_config_filename):
         """
         This method loads model-specific parameters from the YAML file for that model.
@@ -623,6 +624,9 @@ class Separator:
         This method instantiates the architecture-specific separation class,
         loading the separation model into memory, downloading it first if necessary.
         """
+        if model_filename is None:
+            Log.error("No model filename specified")
+            return
         self.logger.info(f"Loading model {model_filename}...")
 
         load_model_start_time = time.perf_counter()
@@ -642,7 +646,7 @@ class Separator:
 
         common_params = {
             "logger": self.logger,
-            "log_level": self.log_level,
+            "log_level": self.log_level,  
             "torch_device": self.torch_device,
             "torch_device_cpu": self.torch_device_cpu,
             "torch_device_mps": self.torch_device_mps,

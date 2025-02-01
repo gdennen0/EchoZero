@@ -8,6 +8,7 @@ import librosa
 import torch
 from pydub import AudioSegment
 from lib.audio_separator.separator.uvr_lib_v5 import spec_utils
+from src.Project.Data.Types.audio_data import AudioData
 
 
 class CommonSeparator:
@@ -170,16 +171,19 @@ class CommonSeparator:
         # Store the original path or the mix itself for later checks
         audio_path = mix
 
+        if isinstance(mix, AudioData):
+            mix = mix.get_data()
+
         # Check if the input is a file path (string) and needs to be loaded
-        if not isinstance(mix, np.ndarray):
-            self.logger.debug(f"Loading audio from file: {mix}")
-            mix, sr = librosa.load(mix, mono=False, sr=self.sample_rate)
-            self.logger.debug(f"Audio loaded. Sample rate: {sr}, Audio shape: {mix.shape}")
-        else:
-            # Transpose the mix if it's already an ndarray (expected shape: [channels, samples])
-            self.logger.debug("Transposing the provided mix array.")
-            mix = mix.T
-            self.logger.debug(f"Transposed mix shape: {mix.shape}")
+        # if not isinstance(mix, np.ndarray):
+        #     self.logger.debug(f"Loading audio from file: {mix}")
+        #     mix, sr = librosa.load(mix, mono=False, sr=self.sample_rate)
+        #     self.logger.debug(f"Audio loaded. Sample rate: {sr}, Audio shape: {mix.shape}")
+        # else:
+        #     # Transpose the mix if it's already an ndarray (expected shape: [channels, samples])
+        #     self.logger.debug("Transposing the provided mix array.")
+        #     mix = mix.T
+        #     self.logger.debug(f"Transposed mix shape: {mix.shape}")
 
         # If the original input was a filepath, check if the loaded mix is empty
         if isinstance(audio_path, str):

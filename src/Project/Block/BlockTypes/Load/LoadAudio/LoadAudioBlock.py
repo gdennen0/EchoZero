@@ -8,6 +8,7 @@ from src.Utils.message import Log
 import os
 from pathlib import Path
 import json
+import numpy as np
 class LoadAudioBlock(Block):
     name = "LoadAudio"
     type = "LoadAudio"
@@ -17,7 +18,7 @@ class LoadAudioBlock(Block):
         self.name = "LoadAudio" 
         self.type = "LoadAudio"
 
-        self.audio_source_dir = str(Path(__file__).resolve().parents[5] / "sources" / "audio")
+        self.audio_source_dir = str(Path(__file__).resolve().parents[6] / "sources" / "audio")
         self.selected_file_path = None
 
         self.output.add_type(AudioOutput)

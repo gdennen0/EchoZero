@@ -15,7 +15,7 @@ DEFAULT_PRE_AVG = 3
 DEFAULT_POST_AVG = 3
 DEFAULT_DELTA = 0.5
 DEFAULT_WAIT = 10
-DEFAULT_RISE_THRESHOLD = 0.1
+DEFAULT_RISE_THRESHOLD = 0.5
 DEFAULT_MIN_TIME = 0.5
 DEFAULT_MAX_CLIP_LENGTH = 0.5
 DEFAULT_TRAIL_SILENCE_THRESHOLD = 0.02
@@ -79,9 +79,14 @@ class DetectPercussionBlock(Block):
         Log.info(f"***BEGIN PROCESSING BLOCK {self.name}***")
         for audio_data in audio_input_data:
             Log.info(f"-> Processing audio data: {audio_data.name}")
-            onsets = self.detect_onsets(audio_data)            # Detect onsets
-            event_data = self.slice_events(audio_data, onsets)            # Slice events
-            percussion_events_list.append(event_data)            # Add the event data to the list
+            if len(audio_input_data) > 1:
+                Log.info(f"-> Processing audio data: {audio_data.name}")
+                onsets = self.detect_onsets(audio_data) 
+                event_data = self.slice_events(audio_data, onsets, classification=audio_data.get_name()) #if there are multiple audio data items itll use the name of the source as classification for all events
+            else:
+                onsets = self.detect_onsets(audio_data)         # Detect onsets
+                event_data = self.slice_events(audio_data, onsets)            # Slice events
+                percussion_events_list.append(event_data)            # Add the event data to the list
         return percussion_events_list
     
     def detect_onsets(self, audio_data):
@@ -89,7 +94,7 @@ class DetectPercussionBlock(Block):
         Use librosa to detect onsets in the given audio data.
         Returns a list of onset indices (in samples).
         """
-
+        Log.info(f"Detecting onsets in {audio_data.name}")
         # If you'd like to tweak additional params like hop_length, you can do so here
         onset_indices = librosa.onset.onset_detect(
             y=audio_data.get_data(),
@@ -107,7 +112,7 @@ class DetectPercussionBlock(Block):
         Log.info(f"Detected {len(onset_indices)} onsets in {audio_data.name}.")
         return onset_indices
     
-    def slice_events(self, audio_data, onset_indices):
+    def slice_events(self, audio_data, onset_indices, classification=None):
         """
         Given the onset indices, slice the audio into individual hits.
         Returns an EventData containing all new EventItems.
@@ -120,7 +125,7 @@ class DetectPercussionBlock(Block):
         5. Handles boundary cases near start/end of the waveform.
         6. Optionally, can adapt thresholds based on global or local amplitude.
         """
-
+        Log.info(f"Slicing events in {audio_data.name}")
         # Container for events
         event_data = EventData()
         event_data.name = "PercussionEvents"
@@ -179,26 +184,26 @@ class DetectPercussionBlock(Block):
             # 4. Check if there are additional peaks inside this clip that might warrant splitting.
             #    We use a simple amplitude-based approach here. 
             #    A more advanced approach could use another onset detection pass with more lenient parameters.
-            additional_peaks = self.detect_secondary_peaks(clip, sr)
+            # additional_peaks = self.detect_secondary_peaks(clip, sr)
             # additional_peaks = []
             # If we found extra peaks, we insert them *relative* to the absolute waveform index
             # so that they become new onsets in the main list.
-            if additional_peaks:
-                for peak_sample in additional_peaks:
-                    absolute_peak_idx = start_idx + peak_sample
+            # if additional_peaks:
+            #     for peak_sample in additional_peaks:
+            #         absolute_peak_idx = start_idx + peak_sample
                    
-                    ms_offset = 10
-                    if absolute_peak_idx > start_idx + ms_offset \
-                        and absolute_peak_idx < end_idx - ms_offset \
-                        and absolute_peak_idx not in working_onset_indices:
-                            secondary_onsets_to_add.append(absolute_peak_idx)
+            #         ms_offset = 10
+            #         if absolute_peak_idx > start_idx + ms_offset \
+            #             and absolute_peak_idx < end_idx - ms_offset \
+            #             and absolute_peak_idx not in working_onset_indices:
+            #                 secondary_onsets_to_add.append(absolute_peak_idx)
 
                 # We sort because we must keep them in ascending order for correct slicing
-                working_onset_indices.sort()
+                # working_onset_indices.sort()
                 # Do not finalize an event yet. We'll handle it when the loop encounters it as a start_idx.
                 # Move on to the next onset in the updated list
-                i += 1
-                continue
+                # i += 1
+                # continue
 
             # 5. Create the event for this slice
             # event_item = self.build_event_item(
@@ -247,12 +252,21 @@ class DetectPercussionBlock(Block):
             # 3. Build the clip for further analysis
             clip = audio_data.get_data()[start_idx:end_idx]
 
-            event_item = self.build_event_item(
-                audio_data,
-                clip,
-                start_idx,
-                i
-            )
+            if classification:
+                event_item = self.build_event_item(
+                    audio_data,
+                    clip,
+                    start_idx,
+                    i,
+                    classification=classification,
+                )
+            else:
+                event_item = self.build_event_item(
+                    audio_data,
+                    clip,
+                    start_idx,
+                    i,
+                )
             event_data.add_item(event_item)
 
             i += 1  # Move to the next onset index
@@ -268,8 +282,8 @@ class DetectPercussionBlock(Block):
         amplitude_factor: fraction of the clip's max amplitude to count as a peak
         min_peak_distance: minimum time (in seconds) between peaks to consider them distinct
         """
-        amplitude_factor = 0.5  # Set the fraction of max amplitude to consider as a peak
-        min_peak_distance = 0.03  # Set the minimum time between peaks to consider them distinct
+        amplitude_factor = self.rise_threshold  # Set the fraction of max amplitude to consider as a peak
+        min_peak_distance = 0.33  # Set the minimum time between peaks to consider them distinct
 
         clip_abs = np.abs(clip)  # Get the absolute values of the clip to analyze amplitude
         max_amp = np.max(clip_abs)  # Find the maximum amplitude in the clip
@@ -359,7 +373,7 @@ class DetectPercussionBlock(Block):
             return segment_start
         return start_idx
 
-    def build_event_item(self, original_audio_data, clip, start_idx, event_index):
+    def build_event_item(self, original_audio_data, clip, start_idx, event_index, classification=None):
         """
         Builds an EventItem (with embedded AudioData).
         """
@@ -371,6 +385,8 @@ class DetectPercussionBlock(Block):
         slice_audio_data.set_data(clip)
         slice_audio_data.set_sample_rate(sr)
         slice_audio_data.set_path(original_audio_data.path)
+        if classification:
+            slice_audio_data.set_name(classification)
 
         # Build the event
         event_item = EventItem()

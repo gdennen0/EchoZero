@@ -355,7 +355,6 @@ class Project():
         blocks_dir = os.path.join(project_root, "blocks")
         os.makedirs(blocks_dir, exist_ok=True)
 
-
         for block in self.blocks:
             block_name = block.name
             block_dir = os.path.join(blocks_dir, block_name)
@@ -366,7 +365,6 @@ class Project():
             metadata_path = os.path.join(block_dir, "metadata.json")
             with open(metadata_path, 'w') as file:
                 json.dump(metadata, file, indent=4)
-
 
         # Define the path for the zip file with .ez extension
         zip_path = os.path.join(self.save_directory, f"{self.name}.ez")
@@ -379,9 +377,12 @@ class Project():
                     rel_path = os.path.relpath(full_path, start=project_root)
                     zip_ref.write(full_path, arcname=rel_path)
 
-        # Optional: Remove the unzipped folder after creating the .ez file
-        if project_root:
-            shutil.rmtree(project_root)
+        # Ensure all files are closed and remove the unzipped folder after creating the .ez file
+        try:
+            if os.path.exists(project_root):
+                shutil.rmtree(project_root)
+        except Exception as e:
+            Log.error(f"Failed to remove project directory: {e}")
 
         self.add_recent_project(zip_path)
 
@@ -453,6 +454,9 @@ class Project():
         if not type:
             block_type = prompt_selection("Please select the block type: ", self.block_types)
             if block_type is None:
+                Log.info("Block creation exited")
+                return
+            elif block_type == "e":
                 Log.info("Block creation exited")
                 return
             block = block_type()
