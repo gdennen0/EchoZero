@@ -487,9 +487,11 @@ class EditorBlock(Block):
     def build_plot(self):
         Log.info(f"Building combined plot with {len(self.data.get_all())} data objects.")
 
-        # Clear existing items
+        # --- NEW CODE: Clear all plot widgets to remove stale data before rebuilding ---
         self.ui.waveform_plot.clear()
         self.ui.event_plot.clear()
+        self.ui.waveform_title_plot.clear()  # Clear any waveform title labels
+        self.ui.event_title_plot.clear()     # Clear any event title labels
 
         # Re-add playhead indicators
         self.ui.waveform_plot.addItem(self.ui.playhead_waveform_line)
@@ -499,6 +501,7 @@ class EditorBlock(Block):
         vertical_line = pg.InfiniteLine(pos=0, angle=90, pen=pg.mkPen('w', width=1))
         self.ui.waveform_plot.addItem(vertical_line)
         self.ui.event_plot.addItem(vertical_line)
+        # --- END NEW CODE ---
 
         # Retrieve audio + event data
         audio_data = None
@@ -512,15 +515,13 @@ class EditorBlock(Block):
                 sample_rate = data_object.get_sample_rate()
                 audio_data_name = data_object.get_name()  # <--- If your AudioData has a "name"
             elif data_object.type == "EventData":
-                # Append to our events list
                 event_category = data_object.get_name()
                 if event_category not in events:
                     events[event_category] = []
                 events[event_category].extend(data_object.get())
                 y_index += 1  # Increment y_index for each EventData type
 
-        if audio_data is not None and len(audio_data) > 0 and sample_rate > 0:  
-            # Set the y range for the event plot
+        if audio_data is not None and len(audio_data) > 0 and sample_rate > 0:
             self.ui.set_event_plot_limits(x_max=len(audio_data) / sample_rate, y_max=y_index)
             self.ui.set_waveform_plot_limits(x_max=len(audio_data) / sample_rate, y_max=1)
         else:
@@ -528,10 +529,7 @@ class EditorBlock(Block):
 
         # Plot waveform
         if audio_data is not None and len(audio_data) > 0 and sample_rate > 0:
-            # Control the detail level of the plot with a ratio
-            detail_ratio = 0.05 # Adjust this value to control the downsampling rate of the waveform plot data (1/detail_ratio)
-
-            # Downsample if it's very large
+            detail_ratio = 0.05  # Adjust to control detail level
             if len(audio_data) > 1 / detail_ratio:
                 step = int(1 / detail_ratio)
                 reduced_y = audio_data[::step]
@@ -543,62 +541,49 @@ class EditorBlock(Block):
             self.ui.waveform_plot.plot(x_vals, reduced_y, pen='b')
             self.ui.waveform_plot.setXRange(0, len(audio_data) / sample_rate)
 
-
+            # Add waveform title text to the waveform_title_plot
             waveform_title_plot_view_box = self.ui.waveform_title_plot.getViewBox()
             waveform_title_plot_width = waveform_title_plot_view_box.viewRect().width()
-
             waveform_title_text = pg.TextItem(text=audio_data_name, anchor=(0.5, 0.5), color='w')
-            waveform_title_text.setPos(waveform_title_plot_width, 1) 
+            waveform_title_text.setPos(waveform_title_plot_width, 1)
             self.ui.waveform_title_plot.addItem(waveform_title_text)
-
         else:
             Log.info("No valid audio data found for plotting.")
 
-
-        # Plot EventData
+        # Plot EventData and update event label plots
         if len(events) > 0:
             spots = []
             y_index = 1  # Reset y_index for plotting, start at 1
-            for layer, events in events.items():
-                for i, event in enumerate(events):
+            for layer, events_list in events.items():
+                for i, event in enumerate(events_list):
                     x = event.get_time()
                     name = event.get_name()
-
                     spot = {
-                        'pos': (x, y_index), 
+                        'pos': (x, y_index),
                         'size': 15,
                         'brush': pg.mkBrush(150, 150, 150, 255),
-                        'data': {'name': name, 'layer':layer},
-                        }
+                        'data': {'name': name, 'layer': layer},
+                    }
                     spots.append(spot)
 
-                # Add a horizontal line to separate rows
+                # Add a horizontal line in the event plot for row separation
                 self.ui.event_plot.addItem(pg.InfiniteLine(pos=y_index + 0.5, angle=0, pen=pg.mkPen('w', width=1)))
 
-                # Add a text item for the row title, positioned slightly to the left
-                # text_item = pg.TextItem(text=layer, anchor=(1, 0.5), color='w')  # Anchor to the right
-                # text_item.setPos(max(-20, 0), y_index)  # Position starting at -20, cutoff at 0
-                # self.ui.event_plot.addItem(text_item)
+                # Add a text item for the row title in the event_title_plot
                 view_box = self.ui.event_title_plot.getViewBox()
                 plot_width = view_box.viewRect().width()
-
-                # Add a text item for the row title, positioned at the right edge
-                text_item = pg.TextItem(text=layer, anchor=(0.5, 0.5), color='w')  # Anchor to the left
-                text_item.setPos(plot_width, y_index)  # Position at the right edge
+                text_item = pg.TextItem(text=layer, anchor=(0.5, 0.5), color='w')
+                text_item.setPos(plot_width, y_index)
                 self.ui.event_title_plot.addItem(text_item)
 
                 y_index += 1  # Increment y_index for each layer
 
             event_scatter = pg.ScatterPlotItem(
-                pen=pg.mkPen(color='w', width=2),  
-                symbol='d',  # Circle symbol
+                pen=pg.mkPen(color='w', width=2),
+                symbol='d',
             )
-
-            # Add all points to the scatter plot with their metadata
             event_scatter.addPoints(spots)
-
             event_scatter.sigClicked.connect(self.on_event_click)
-
             self.ui.event_plot.addItem(event_scatter)
         else:
             Log.info("No event data found for plotting.")
@@ -759,6 +744,10 @@ class EditorBlock(Block):
         self.output.push_all(self.data.get_all())
         self.classifications = block_metadata.get("classifications") or []  # Ensure it's a list
 
+        # --- NEW CODE: Reset user selections so stale selections do not affect the new data ---
+        self.selected_events = []
+        self.selected_layer = None
+        # --- END NEW CODE ---
 
         # Rebuild the plot after loading data
         self.build_plot()

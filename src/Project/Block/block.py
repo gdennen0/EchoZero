@@ -27,8 +27,9 @@ class Block(ABC):
         self.command.add("list_data", self.list_data_items)
         self.command.add("list_inputs", self.input.list)
         self.command.add("list_outputs", self.output.list)
+        self.command.add("reload_all", self.reload_with_dependencies)
 
-    def reload(self):
+    def reload(self, prompt_user=True):
         Log.info(f"Reloading block {self.name}")
         timer = gtimer()
         timer.start()
@@ -45,8 +46,24 @@ class Block(ABC):
 
         results = self.process(input_data) # process the input data
 
-        proceed = prompt_yes_no("Proceed with reloading? This will override the data currently in the block")
-        if proceed:
+        if prompt_user:
+            proceed = prompt_yes_no("Proceed with reloading? This will override the data currently in the block")
+            if proceed:
+                if results: 
+                    self.data.clear()
+                    self.output.clear_data()
+                    for result in results:
+                        if result:
+                            self.data.add(result)
+                            Log.info(f"Reload result added to data controller: {result.name}")
+                        else:
+                            Log.error(f"Reload result is None")
+                else:
+                    Log.error(f"Reload Process Failed because block {self.name} processing didn't return any results.")
+                    
+            else:
+                Log.error(f"Reload Process Failed because user did not confirm")
+        else:
             if results:
                 self.data.clear()
                 self.output.clear_data()
@@ -54,16 +71,7 @@ class Block(ABC):
                     if result:
                         self.data.add(result)
                         Log.info(f"Reload result added to data controller: {result.name}")
-                    else:
-                        Log.error(f"Reload result is None")
-                    
-            else:
-                Log.error(f"Reload Process Failed because block {self.name} processing didn't return any results.")
-                
-        else:
-            Log.error(f"Reload Process Failed because user did not confirm")
 
-        
         self.output.push_all(self.data.get_all()) # push the results to the output ports
         Log.info(f"***END PROCESSING BLOCK {self.name}***")
 
@@ -166,9 +174,72 @@ class Block(ABC):
                     Log.error(f"Input is None")
                 elif input.get_connected_output_address() is None:
                     Log.error(f"Inputs connected output address is None")
-
         else:
             Log.error("This block does not have any inputs")
+
+    def reload_with_dependencies(self):
+        """
+        Build a dependency tree and log the order of reload for each block.
+
+        This method iterates through all blocks to find dependencies and logs
+        the order in which blocks would be reloaded based on their dependencies.
+        """
+        dependency_tree = {}
+        execution_order = []
+        in_degree = {}  # Track number of dependencies for each block
+
+        # Initialize the dependency tree and in-degree count
+        for block in self.parent.blocks:
+            dependency_tree[block.name] = []
+            in_degree[block.name] = 0
+
+        # Build the dependency tree
+        for block in self.parent.blocks:
+            for input_port in block.input.get_all():
+                if input_port.connected_output:
+                    source_block = input_port.connected_output.parent_block.name
+                    target_block = block.name
+                    dependency_tree[source_block].append(target_block)
+                    in_degree[target_block] += 1
+
+        # Find all blocks with no dependencies (in_degree = 0)
+        queue = []
+        for block_name in dependency_tree:
+            if in_degree[block_name] == 0:
+                queue.append(block_name)
+
+        # Process the queue to build execution order
+        while queue:
+            current_block = queue.pop(0)
+            execution_order.append(current_block)
+
+            # Process all dependent blocks
+            for dependent_block in dependency_tree[current_block]:
+                in_degree[dependent_block] -= 1
+                if in_degree[dependent_block] == 0:
+                    queue.append(dependent_block)
+
+        # Check for circular dependencies
+        if len(execution_order) != len(self.parent.blocks):
+            Log.error("Circular dependency detected in block connections!")
+            return
+
+        # Log the execution order
+        Log.info(f"Block reload order for {self.name} and its dependencies:")
+        for i, block_name in enumerate(execution_order, 1):
+            Log.info(f"{i}. {block_name}")
+
+        # Execute reloads in order
+        proceed = prompt_yes_no("Proceed with reloading? This will override the data currently in all dependent blocks")
+        if proceed:
+            for block_name in execution_order:
+                for block in self.parent.blocks:
+                    if block.name == block_name:
+                        # Log.info(f"Reloading block: {block_name}")
+                        block.reload(prompt_user=False)
+                        break
+        else:
+            Log.error("Reload process cancelled")
 
     def get_metadata_from_dir(self, dir):
         block_metadata_path = os.path.join(dir, 'metadata.json')

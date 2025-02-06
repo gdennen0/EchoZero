@@ -117,8 +117,8 @@ class Project():
         
         self.initialize_project()
 
-        self._server_thread = threading.Thread(target=self.run_ui, daemon=True)
-        self._server_thread.start()
+        # self._server_thread = threading.Thread(target=self.run_ui, daemon=True)
+        # self._server_thread.start()
 
     def layout_content(self):
         """
