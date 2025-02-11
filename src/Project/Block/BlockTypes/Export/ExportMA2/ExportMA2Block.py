@@ -5,12 +5,13 @@ from src.Project.Block.Input.Types.event_input import EventInput
 from src.Utils.tools import prompt, prompt_selection
 from lxml import etree
 from lupa import LuaRuntime
+import os
 
 
 DEFAULT_FRAME_RATE = "30 FPS"
-DEFAULT_TC_POOL = 31
-DEFAULT_SEQUENCE_POOL = 94
-DEFAULT_EXEC_PAGE = 100
+DEFAULT_TC_POOL = 101
+DEFAULT_SEQUENCE_POOL = 101
+DEFAULT_EXEC_PAGE = 101
 DEFAULT_EXEC_INT = 115
 DEFAULT_MA_FOLDER = "C:\ProgramData\MA Lighting Technologies\grandma\gma2_V_3.9.60"
 
@@ -29,14 +30,19 @@ class ExportMA2Block(Block):
         self.exec_page: int = DEFAULT_EXEC_PAGE
         self.exec_int: int = DEFAULT_EXEC_INT
         self.ma_folder: str = DEFAULT_MA_FOLDER
-        self.tc_root: str = ""
+        self.xml_root: str = ""
         self.sequence_root: str = ""
         self.tc_export_name: str = ""
         self.sequence_export_name: str = "EZ_SEQUENCE_"
         self.exec_export_name: str = "EZ_EXEC_"
-        self.sequence_classes: dict = {}
-        self.exported_objects: list = []
+        self.sequence_classes: dict = None
+        self.exported_objects: dict = {
+            "sequence" : [],
+            "exec" : [],
+            "timecode" : []
+        }
         self.lua_import: str = ""
+
 
         self.lua_instr_set: str = ""
 
@@ -45,35 +51,82 @@ class ExportMA2Block(Block):
         self.output.add_type(EventOutput)
         self.output.add("EventOutput")
 
-        self.command.add("export", self._tc_xml_header)
         self.command.add("set_frame_rate", self.set_frame_rate)
         self.command.add("set_tc_pool", self.set_tc_pool)
         self.command.add("set_sequence_pool", self.set_sequence_pool)
         self.command.add("set_export_exec", self.set_export_exec)
-        self.command.add("process_events", self._process_events)
-        self.command.add("DEBUG_print_classes", self.DEBUG_print_classes)
-        self.command.add("DEBUG_print_data", self.DEBUG_print_data)
+        self.command.add("set_export_type", self.set_export_type)
 
-        # Process data
-        # Batch send events... 
-        # for event item... create a sequence XML + export it (with the name of the event)... save class name in dictionary with ez data as key and class name as value
-        # if type in type classes.. create 
+        self.command.add("export_template", self._format_data)
+        self.command.add("data_xml", self._data_xml)
+        
+        self.tc_xml: str = ""
+        self.export_preface: str = f"EZ"
+        self.sequence_xml: dict = {}
+        self.exec_xml: dict = {}
+        self.ns_map: dict = {}
+        self.export_type: int = None # 0 = hit, 1 = sequence
+        self.hit_counter: int = 0
+        self.sequence_counter: int = self.sequence_pool
+        self.hit_dictionary: dict = {}
+        self.stack_dictionary: dict = {}
+        self.xml_dictionary: dict = {
+            "sequence" : {},
+            "exec" : {},
+            "timecode" : {}
+        }
+        self.lua_string: str = ""
+        self.event_dictionary: dict = {
+            "sequence" : {
+                0 : {
+                    "name" : "",
+                    "pool" : "",
+                    "time" : [],
+                    "cue" : {
+                        0 : { # template cue entry
+                            "name" : "Mark",
+                            "pool" : "0",
+                            "time" : "0",
+                        }
+                    }
+                },
+                "MainCuestack" : {
+                    "name" : "MainCuestack",
+                    "pool" : DEFAULT_SEQUENCE_POOL,
+                    "time" : [],
+                    "cue" : {
+                        0 : { # template cue entry
+                            "name" : "Mark",
+                            "pool" : "0",
+                            "time" : "0",
+                        }
+                    }
+                }
+            },
+            "timecode" : { 
+                "name" : "",
+                "pool" : "",
+                "fps" : "",
+                "event" : {
+                    0 : { # template event entry
+                        "sequence_name" : "",
+                        "exec_pool" : "",
+                        "cue_pool" : "",
+                        "time" : "",
+                    }
+                }
+            }
+        }
 
-# V2 IDEA:
-# Create a dictionary of dictionaries, each sub dictionary will contain the event item and it's time, 
-# The main dictionary will use the event type (kick, snare, hat, etc) as the key and the sub dictionary as the value
-
-    
-
+  # Find if there's a thumbdrive connected
+  # If there is, set the ma_folder to the thumbdrive
+  # If there is no thumbdrive, set the ma_folder to the default folder
+  # If there is no thumbdrive or default folder, raise an error
 
 
-
-
-
-
-
-
-    
+    """
+    USER INPUT: 
+    """
     def set_frame_rate(self):
         self.frame_rate = int(prompt_selection("Enter the frame rate: ", {"1/100 Seconds": "1/100 Seconds", "30 FPS": "30 FPS", "25 FPS": "25 FPS", "24 FPS": "24 FPS"}))
 
@@ -89,174 +142,229 @@ class ExportMA2Block(Block):
     def set_ma_folder(self):
         self.ma_folder = prompt("Enter the MA folder: ")
     
-    def _xml_root(self):
+    def set_export_type(self):
+        self.export_type = prompt_selection("Enter the export type: ", { "hit" : "hit", "sequence" : "sequence"})
+
+    """
+    FUNCTIONS:
+    """
+    def _xml_root(self, pool: int, name: str, type: str):
         """
         This function creates the root element for the XML file
         """
+
         ns_map = {
             None: "http://schemas.malighting.de/grandma2/xml/MA",
             'xsi': "http://www.w3.org/2001/XMLSchema-instance"
         }
-        self.tc_root = etree.Element("MA", nsmap=ns_map, major_vers="3", minor_vers="9", stream_vers="60", 
+        xml_root = etree.Element("MA", nsmap=self.ns_map, major_vers="3", minor_vers="9", stream_vers="60", 
                         schemaLocation="http://schemas.malighting.de/grandma2/xml/MA http://schemas.malighting.de/grandma2/xml/3.9.60/MA.xsd", 
                         attrib={"{" + ns_map['xsi'] + "}schemaLocation": "http://schemas.malighting.de/grandma2/xml/MA http://schemas.malighting.de/grandma2/xml/3.9.60/MA.xsd"})
-        return self.tc_root
-    
-    def _xml_end(self, xml_filename: str, tree_root: str):
-        """
-        This function creates the end element for the XML file
-        """
-        tree = etree.ElementTree(tree_root)
-        tree.write(self.ma_folder + f"/importexport/EZ_tc_{xml_filename}.xml", pretty_print=True, xml_declaration=True, encoding="utf-8")
-        self.exported_objects.append(f'EZ_tc_{xml_filename}.xml')
-    
-    def _xml_function(self, func: str):
-        """
-        This function is a template for creating XML files, creating the header saving a file, with the meat of the xml passed in as a function
-        function: str = the function that will be passed in to to create the xml
-        """
-        def wrapper(self, *args, **kwargs):
-            root = self._xml_root()
-            result = func(root)
-            self._xml_end(self.result.name, root)
-            return root
-        return wrapper
+        info = etree.SubElement(xml_root, "Info", datetime="2025-01-19T14:56:58", showfile="AI_GENERATED_SHOWFILE")
+        #Log.info(f"fn:_xml_root: {xml_root}")
+        return xml_root
 
-    
+    def _stack_data(self, event_item, iteration):
+        # Add data to the dictionary
+        self.stack_dictionary['name'][iteration] = event_item.classification
+        self.stack_dictionary['time'][iteration] = event_item.time
 
-    def _tc_xml_header(self):
-        self.tc_root = self._xml_root()
-        # Add child elements
-        info = etree.SubElement(self.tc_root, "Info", datetime="2025-01-15T02:53:44", showfile="AI_GENERATED_SHOWFILE")
-        timecode = etree.SubElement(self.tc_root, "Timecode", name=f"{self.tc_export_name}", index=f"{(self.tc_pool)-1}", slot="TC Slot 1", frame_format="30 FPS")
-    
-        self._set_classes()
+        # Create a list of tuples from the dictionary data
+        combined_list = [(key, self.stack_dictionary['name'][key], self.stack_dictionary['time'][key]) for key in self.stack_dictionary['name']]
 
-        for classes in self.sequence_classes:
-            Log.info(f"Creating sequence for {classes} : {self.sequence_classes[classes]}, sequence int: {self.exec_int}")
-            track = etree.SubElement(timecode, "Track", index="0", active="true", expanded="true")
-            object_elem = etree.SubElement(track, "Object", name=f"{self.sequence_export_name} {self.exec_page}.{self.exec_int}")
-            etree.SubElement(object_elem, "No").text = "30"
-            etree.SubElement(object_elem, "No").text = "1"
-            etree.SubElement(object_elem, "No").text = f"{self.exec_page}"
-            etree.SubElement(object_elem, "No").text = f"{self.exec_int}"
-            subtrack = etree.SubElement(track, "SubTrack", index="0")
-            self._xml_sequence_exec(classes, self.exec_page, self.exec_int)
-            self._process_events(subtrack, self.exec_page, self.exec_int, classes)
-            self.exec_int += 1
+        # Sort the list by time (index 2 of the tuple)
+        combined_list.sort(key=lambda x: x[2])
+
+        # Clear the existing dictionary
+        self.stack_dictionary['name'].clear()
+        self.stack_dictionary['time'].clear()
+
+        # Rebuild the dictionary with sorted data
+        for index, (key, name, time) in enumerate(combined_list):
+            self.stack_dictionary['name'][index] = name
+            self.stack_dictionary['time'][index] = time
+
+    def _hit_data(self, event_item):
+        if event_item.classification in self.hit_dictionary:
+            self.hit_dictionary[event_item.classification].append(event_item.time)
+        else:
+            self.hit_dictionary[event_item.classification] = [event_item.time]
+
+    def _format_data(self):
+        """
+        This function formats the data into two dicionaries, one for stack data and one for hit data...
+        1st part of the main process
+        """
+        self.stack_dictionary = {'name': {}, 'time': {}}
+        self.hit_dictionary = {}
+        iteration = 0
+        for event_data in self.data.get_all():
+            for event_item in event_data.get_all():
+                self._stack_data(event_item, iteration)
+                self._hit_data(event_item)
+                iteration += 1
+        #Log.info(f"\nHit Dictionary: {self.hit_dictionary}")
+        #Log.info(f"\nStack Dictionary: {self.stack_dictionary}")
+
+    """
+    Data Export:
+    """
+    def _data_xml(self):
+        """
+
+        This function creates the xml structure for the data
+        """
+        loop_index = 0
+        timecode_index = None
+        # Initialize the first timecode XML root only if it hasn't been initialized yet
+        if loop_index not in self.xml_dictionary['timecode']:
+            self.xml_dictionary['timecode'] = self._xml_root(pool=1, name="timecode", type="timecode")
+            timecode_index = etree.SubElement(self.xml_dictionary['timecode'], "Timecode", name=f"songname", index=f"{(self.tc_pool - 1)}", lenght="6500", offset="0", play_mode="Play", slot="TC Slot 1", frame_format=f"30 FPS")
+
+        while True:
+            if self.export_type:
+                if self.export_type == "hit":
+                    for key, time in self.hit_dictionary.items():
+                        self._if_hit(key, time, loop_index, timecode_index)
+
+                        #Log.info(f"passing in hit loop_index: {loop_index}, key: {key}, time: {time}")
+                        loop_index += 1
+                        self.sequence_pool += 1
+                        # Ensure the next index is initialized only if it doesn't exist
+                    #self._save_xml()
+                    break
+                elif self.export_type == "sequence":
+                    #Log.info(f"Pre-loop_index: {loop_index}")
+                    loop_index = self._if_stack(self.stack_dictionary['name'][0], self.stack_dictionary['time'][0], loop_index, timecode_index)
+                    #Log.info(f"Post-loop_index: {loop_index}")
+                    for key, value in self.stack_dictionary['time'].items():
+                        #Log.info(f"Passing Name: {self.stack_dictionary['name'][key]} and Time: {value}")
+                        #Log.info(f"passing in sequence loop_index: {loop_index}, key: {key}, value: {value}")
+                        loop_index = self._if_stack((self.stack_dictionary['name'][key]), value, loop_index, timecode_index)
+                        loop_index += 1
+                    self.sequence_pool += 1
+                    #self._save_xml()
+                    break
+            else:
+                self.set_export_type()
+                continue
+
+        self._save_xml()
+        #self._write_lua_files()
+        #self._check_export_list()
+        self._new_lua_file()
+
+    def _get_xml_dict_size(self, dict_name):
+        # Check if the dictionary exists and is not None
+
+        if self.xml_dictionary.get(dict_name) is not None:
+
+            # Check if the dictionary is empty
+            if not self.xml_dictionary[dict_name]:
+                return 0  # Return 0 or another appropriate value for empty dictionary
+            try:
+                max_index = max(self.xml_dictionary[dict_name].keys())
+                return max_index
+            except KeyError:
+                return 0
+        else:
+            return 0
+
+    def _if_stack(self, event_name, event_time, loop_index, timecode_index):
+        """
+        This function connects the data to the sequence, executor and timecode xmls
+        """
+        #Log.info(f"fn:_if_stack: event_name: {event_name} event_time: {event_time} loop_index: {loop_index}")
+        # Ensure the dictionary for 'sequence' is initialized
+        if 'sequence' not in self.xml_dictionary:
+            self.xml_dictionary['sequence'] = {}
         
-        # Create an ElementTree object from the root element
-        tree = etree.ElementTree(self.tc_root)
-        # Write the XML to a file
-        tree.write(self.ma_folder + f"/importexport/EZ_tc_{self.tc_pool}_{self.tc_export_name}.xml", pretty_print=True, xml_declaration=True, encoding="utf-8")
-        self.exported_objects.append(f'EZ_tc_{self.tc_pool}_{self.tc_export_name}.xml')
-        self._exported_to_lua()
+        if self.xml_dictionary['sequence'] is None:
+            self.xml_dictionary['sequence'] = self._xml_root(pool=1, name=event_name, type="sequence")
 
-    def _process_events(self, subtrack, exec_page, exec_int, classes):
-        for event_data in self.data.get_all():
-            for event_item in event_data.get_all():
-                if event_item.classification == classes:
-                    event_item.time = self._float_to_fps(event_item.time, 30)
-                    Log.info(f"Event Time: {event_item.time} frames")
-                    self._event_to_xml(event_item, subtrack, exec_page)
-                elif event_item.classification != classes:
-                    Log.error(f"Skipping: Event {event_item.classification} not in class {classes}")
 
-        for classes in self.sequence_classes:
-            Log.info(f"Key: {classes} Value: {self.sequence_classes[classes]}")
-            
+        # Assign the new XML root to a new index in the dictionary
+        self._xml_sequence(type="stack", class_name=event_name, time=event_time, index_number=loop_index)
+        Log.info(f"fn:_if_stack: event_name: {event_name}, event_time: {event_time}, loop_index: {loop_index}")
+        self._xml_exec(event_name, event_time, loop_index)
+        return loop_index
 
-        for event_data in self.data.get_all():
-            for event_item in event_data.get_all():
-                if event_item.classification in self.sequence_classes:
-                    Log.info(f"Key: {event_item.classification} Value: {self.sequence_classes[event_item.classification]}")
-
-    def _float_to_fps(self, time: float, fps: int) -> float:
-        time = float(time)
-        return round(time * fps, 2)
-    
-    def _event_to_xml(self, event_item, timecode_xml, exec_page):
+    def _if_hit(self, event_name, event_time, loop_index, timecode_index):
         """
-        This function will convert the event item to an xml element
+        This function checks if the event is a hit event
         """
-        event = etree.SubElement(timecode_xml, "Event", index="0", time=f"{event_item.time}", command="Goto", pressed="true", step="1")
-        cue = etree.SubElement(event, "Cue", name="Cue 1")
-        etree.SubElement(cue, "No").text = "1"
-        etree.SubElement(cue, "No").text = f"{exec_page}"
-        etree.SubElement(cue, "No").text = "1"
+        #Log.info(f"fn:_if_hit: name: {event_name}, time: {event_time}, loop_index: {loop_index}")
+        self.xml_dictionary['sequence'][loop_index] = self._xml_root(pool=1, name=event_name, type="sequence")
+        self.xml_dictionary['exec'][loop_index] = self._xml_root(pool=1, name=event_name, type="exec")
+        self._xml_sequence(type="hit", class_name=event_name, time=event_time, index_number=loop_index)
+        self._xml_exec(event_name, event_time, loop_index)
+        self._xml_timecode_(event_name, event_time, loop_index, timecode_index)
+        self.exec_int += 1
 
-    def _set_classes(self):
-        for event_data in self.data.get_all():
-            for event_item in event_data.get_all():
-                if self.sequence_classes.get(event_item.classification) is None:
-                    self.sequence_classes[event_item.classification] = self.sequence_export_name + event_item.classification
-                    #Log.info(f"Key: {event_item.classification}, Value: {self.sequence_classes[event_item.classification]}")
-
-    def DEBUG_print_classes(self):
-        for classes in self.sequence_classes:
-            Log.info(f"Key: {classes} Value: {self.sequence_classes[classes]}")
-
-    def DEBUG_print_data(self):
-        for event_data in self.data.get_all():
-            for classes in self.sequence_classes:
-                Log.info(f"Key: {classes} Value: {self.sequence_classes[classes]}")
-                for event_item in event_data.get_all():
-                    if event_item.classification in self.sequence_classes.values():
-                        Log.info(f"Key: {event_item.classification} Value: {event_item.time}")
-                    else:
-                        break
-
-
-    def _xml_sequence_exec(self, event_class, exec_page, exec_int):
+    def _xml_sequence(self, type, class_name, time, index_number):
         """
-        This function creates xmls for both the sequence and exec page of the hit button, that can be imported in MA
+        This function creates the sequence xml
         """
-        # Define namespaces for sequence
-        ns_map = {
-            None: "http://schemas.malighting.de/grandma2/xml/MA",  # default namespace
-            'xsi': "http://www.w3.org/2001/XMLSchema-instance"
-        }
+        if type == "stack":
+            max_index = self._get_xml_dict_size('sequence')
+            Log.info(f"fn:_xml_sequence: max_index: {max_index}")
+            # Ensure the dictionary is initialized and has the key `max_index`
+            if max_index not in self.xml_dictionary['sequence']:
+                self.xml_dictionary['sequence'][max_index] = None
+                if self.xml_dictionary['sequence'][max_index] is None:
+                    self.xml_dictionary['sequence'][max_index] = self._xml_root(pool=1, name="Initial", type="sequence")
+                    Log.info(f"fn:_xml_sequence: Added entry at {max_index} at xml_dict: {self.xml_dictionary['sequence'][max_index]}")
+                    sequ = etree.SubElement(self.xml_dictionary['sequence'][max_index], "Sequ", index=f"{(self.sequence_pool)}", name=f"{class_name}", timecode_slot="255", forced_position_mode="0")
+                    cue_xsi = etree.SubElement(sequ, "Cue", { "{http://www.w3.org/2001/XMLSchema-instance}nil" : "true" })
+                    cue_index = etree.SubElement(sequ, "Cue", index=f"{index_number}")
+                    cue_number = etree.SubElement(cue_index, "Number", number=f"1", sub_number="0")
+                else:
+                    cue = etree.SubElement(self.xml_dictionary['sequence'][max_index], "Cue", index=f"{index_number}")
+                    cue_number = etree.SubElement(cue, "Number", number=f"{max_index}", sub_number="0")
+                    cue_part = etree.SubElement(cue, "CuePart", index="0", name=class_name)
+        elif type == "hit":
+            max_index = self._get_xml_dict_size('sequence')
+            # Ensure the dictionary is initialized and has the key `max_index`
+            if max_index not in self.xml_dictionary['sequence']:
+                # Initialize it here if it's not present
+                self.xml_dictionary['sequence'][max_index] = None
+            if self.xml_dictionary['sequence'][max_index] is None:
+                # Initialize it here if it's None
+                self.xml_dictionary['sequence'][max_index] = self._xml_root(pool=1, name="Initial", type="sequence")
+                #Log.info(f"Added entry at {max_index} at xml_dict: {self.xml_dictionary['sequence'][max_index]}")
+            sequ = etree.SubElement(self.xml_dictionary['sequence'][max_index], "Sequ", index=f"{(self.sequence_pool)}", name=f"{class_name}", timecode_slot="255", forced_position_mode="0")
+            cue_xsi = etree.SubElement(sequ, "Cue", { "{http://www.w3.org/2001/XMLSchema-instance}nil" : "true" })
+            cue_index = etree.SubElement(sequ, "Cue", index=f"{index_number}")
+            cue_number = etree.SubElement(cue_index, "Number", number=f"1", sub_number="0")
+            cue_part = etree.SubElement(cue_index, "CuePart", index="0", name=class_name)
+            cue_part_preset_timing = etree.SubElement(cue_part, "CuePartPresetTiming")
 
-        # Create the root element
-        sequence_root = etree.Element("MA", nsmap=ns_map, major_vers="3", minor_vers="9", stream_vers="60",
-                            schemaLocation="http://schemas.malighting.de/grandma2/xml/MA http://schemas.malighting.de/grandma2/xml/3.9.60/MA.xsd")
 
-        # Add child elements
-        sequence_info = etree.SubElement(sequence_root, "Info", datetime="2025-01-19T14:56:58", showfile="AI_GENERATED_SHOWFILE")
-        sequence = etree.SubElement(sequence_root, "Sequ", index=f"{(self.sequence_pool-1)}", name=f"{self.sequence_export_name}{event_class}", timecode_slot="255", forced_position_mode="0")
-        sequence_cue = etree.SubElement(sequence_info, "Cue", index="1")
-        sequence_number = etree.SubElement(sequence_cue, "Number", number="1", sub_number="0")
-        cue_part = etree.SubElement(sequence_cue, "CuePart", index="0")
-        cue_part_preset_timing = etree.SubElement(cue_part, "CuePartPresetTiming")
+    def _xml_exec(self, class_name, event_time, loop_index):
+        """
+        This function creates the executor xml
+        """
+        max_index = self._get_xml_dict_size('exec')
+        if max_index not in self.xml_dictionary['exec']:
+            self.xml_dictionary['exec'][max_index] = self._xml_root(pool=1, name="Initial", type="exec")
 
-        # Add multiple PresetTiming elements
-        for _ in range(10):
-            etree.SubElement(cue_part_preset_timing, "PresetTiming")
-            
-        #EXPORT EXEC
+        exec_root = self.xml_dictionary['exec'][max_index]
+        if exec_root is None:
+            exec_root = self._xml_root(pool=1, name="Initial", type="exec")
+            self.xml_dictionary['exec'][max_index] = exec_root
 
-        # Create the root element with namespaces and attributes
-        exec_root = etree.Element("MA", nsmap=ns_map, major_vers="3", minor_vers="9", stream_vers="60",
-                                  schemaLocation="http://schemas.malighting.de/grandma2/xml/MA http://schemas.malighting.de/grandma2/xml/3.9.60/MA.xsd")
-
-        # Add child elements
-        exec_info = etree.SubElement(exec_root, "Info", datetime="2025-01-19T15:17:53", showfile="songpart_1")
-        exec_elem = etree.SubElement(exec_root, "Exec", offset_from_first="0")
-
-        # Assignment element with nested No elements
-        exec_assignment = etree.SubElement(exec_elem, "Assignment", name=f"{self.exec_export_name}{event_class}")
+        exec_offset = etree.SubElement(exec_root, "Exec", offset_from_first="0")
+        exec_assignment = etree.SubElement(exec_offset, "Assignment", name=f"{class_name} {self.sequence_pool}")
         etree.SubElement(exec_assignment, "No").text = "25"
         etree.SubElement(exec_assignment, "No").text = "1"
         etree.SubElement(exec_assignment, "No").text = f"{self.sequence_pool}"
 
-        # AssignmentExec element with multiple Button elements
-        assignment_exec = etree.SubElement(exec_elem, "AssignmentExec", fader="16384")
-        buttons = ["12302", "12311", "12290", "0"]
+        assignment_exec = etree.SubElement(exec_offset, "AssignmentExec", fader="16384")
+        buttons = ["12299", "0", "0", "0"]
         for button in buttons:
             etree.SubElement(assignment_exec, "Button").text = button
 
-        # Playback element with attributes
-        playback_attrs = {
+        exec_playback = {
             "auto_start": "true", "auto_stop": "true", "auto_stop_off_time": "true", "auto_fix": "false",
             "loop_breaking_go": "false", "priority": "Normal", "soft_ltp": "true", "playback_master": "0",
             "wrap_around": "true", "restart_mode": "0", "trigger_is_go": "false", "cmd_disable": "false",
@@ -266,70 +374,274 @@ class ExportMA2Block(Block):
             "MIB_always": "false", "MIB_never": "false", "chaser": "false", "cross_fader_mode": "false",
             "auto_black_move": "false", "scale_effect_rate": "true", "auto_master_go": "0"
         }
-        etree.SubElement(exec_elem, "Playback", **playback_attrs)
+        etree.SubElement(exec_offset, "Playback", **exec_playback)
 
-        seq_tree = etree.ElementTree(sequence_root)
-        seq_tree.write(self.ma_folder + f"/importexport/EZ_seq_{self.sequence_pool}_{event_class}.xml", pretty_print=True, xml_declaration=True, encoding="utf-8")
-        self.exported_objects.append(f'EZ_seq_{self.sequence_pool}_{event_class}.xml')
 
-        exec_tree = etree.ElementTree(exec_root)
-        exec_tree.write(self.ma_folder + f"/importexport/EZ_exec_{self.exec_page}.{self.exec_int}_{event_class}.xml", pretty_print=True, xml_declaration=True, encoding="utf-8")
-        self.exported_objects.append(f'EZ_exec_{self.exec_page}.{self.exec_int}_{event_class}.xml')
-        self.sequence_pool += 1
-        self.exec_int += 1
+    def _xml_timecode_(self, class_name, event_time, loop_index, timecode_index):
+        """
+        This function creates the timecode xml for a hit event
+        """
+        #Log.info(f"fn:_xml_timecode_ dict check: {self.xml_dictionary['timecode']}")
+        if self.export_type == "hit":
+            subtrack = self._xml_timecode_subtrack(timecode_index, class_name, event_time, loop_index)
+            self._xml_timecode_event(subtrack, class_name, event_time, loop_index)
+        elif self.export_type == "sequence":
+            if loop_index == 0:
+                subtrack = self._xml_timecode_subtrack(timecode_index, class_name, event_time, loop_index)
+                self._xml_timecode_event(subtrack, class_name, event_time, loop_index)
+            elif loop_index > 0:
+                self._xml_timecode_event(subtrack, class_name, event_time, loop_index)
+        #Log.info(f"fn:_xml_timecode: {self.xml_dictionary['timecode'][loop_index]} \n class_name: {class_name} \n event_time: {event_time} \n loop_index: {loop_index} \n -----------------------------------")
 
-    def _exported_to_lua(self):
-        Log.info(f"fn:_exported_to_lua")
+
+    def _xml_timecode_event(self, subtrack, class_name, event_time, loop_index):
+        """
+        This function adds the timecode events
+        """
+        #Log.info(f"fn:_xml_timecode_event: subtrack: {subtrack}, class_name: {class_name}, event_time: {event_time}, loop_index: {loop_index}")
+        if type(event_time) is list:
+            for event in event_time:
+                # Add event with event as time
+                event_index = etree.SubElement(subtrack, "Event", index=f"{loop_index}", time=f"{event}", command="Goto", pressed="true", step="1")
+                cue = etree.SubElement(event_index, "Cue", name="Cue 1")
+                etree.SubElement(cue, "No").text = "1"
+                etree.SubElement(cue, "No").text = f"{self.exec_page}"
+                etree.SubElement(cue, "No").text = "1"
+        elif type(event_time) is not list:
+            # Add event with event_time as time
+            event_index = etree.SubElement(subtrack, "Event", index="0", time=f"{event_time}", command="Goto", pressed="true", step=f"{loop_index + 1}")
+            cue = etree.SubElement(event_index, "Cue", name=f"{class_name}")
+            etree.SubElement(cue, "No").text = "1"
+            etree.SubElement(cue, "No").text = f"{self.exec_page}"
+            etree.SubElement(cue, "No").text = f"{loop_index + 1}"
+
+
+    def _xml_timecode_subtrack(self, timecode_index, class_name, event_time, loop_index):
+        """
+        This function adds the timecode subtrack
+        """
+        #Log.info(f"fn:_xml_timecode_subtrack: timecode_index: {timecode_index}, class_name: {class_name}, event_time: {event_time}, loop_index: {loop_index}")
+        track_index = etree.SubElement(timecode_index, "Track", index="0", active="true", expanded="true")
+        track_object = etree.SubElement(track_index, "Object", name=f"{class_name} {self.exec_page}.{self.exec_int}")
+        etree.SubElement(track_object, "No").text = "30"
+        etree.SubElement(track_object, "No").text = "1"
+        etree.SubElement(track_object, "No").text = f"{self.exec_page}"
+        etree.SubElement(track_object, "No").text = f"{self.exec_int}"
+        subtrack = etree.SubElement(track_index, "SubTrack", index=f"{loop_index}")
+        self.tc_pool += 1
+        return subtrack
+    
+    # DLETE THIS
+    def _write_xml_file(self, xml_element, class_type, integer, integer_secondary):
+        if class_type == "exec":
+            export_name = f"{self.ma_folder}/importexport/{self.export_preface}_{class_type}_{integer}.{integer_secondary}.xml"
+            self._write_xml(xml_element, export_name)
+            self._update_export_list(class_type, (f"{self.export_preface}_{class_type}_{integer}.{integer_secondary}.xml"))
+        elif class_type != "exec":
+            export_name = f"{self.ma_folder}/importexport/{self.export_preface}_{class_type}_{integer}.xml"
+            self._write_xml(xml_element, export_name)
+            self._update_export_list(class_type, (f"{self.export_preface}_{class_type}_{integer}.xml"))
+
+
+    def _save_xml(self):
+        # Reset the pools to default
+        self.tc_pool = DEFAULT_TC_POOL
+        self.sequence_pool = DEFAULT_SEQUENCE_POOL
+        self.exec_page = DEFAULT_EXEC_PAGE
+        self.exec_int = DEFAULT_EXEC_INT
+        tc_exported: bool = False
+        # Iterate through the xml_dictionary and save each element to a file
+        for index, xml_element in self.xml_dictionary.items():
+            if index == 'timecode':
+                if tc_exported == False:
+                    export_name = f"{self.ma_folder}/importexport/{self.export_preface}_{index}_{self.tc_pool}.xml"
+                    self._write_xml(xml_element, export_name)
+                    self._update_export_list(index, f"{self.export_preface}_{index}_{self.tc_pool}.xml")
+                    tc_exported = True
+                else:
+                    pass
+            elif index == 'sequence':
+                for key, value in xml_element.items():
+                    export_name = f"{self.ma_folder}/importexport/{self.export_preface}_{index}_{self.sequence_pool}.xml"
+                    self._write_xml(value, export_name)
+                    self._update_export_list(index, f"{self.export_preface}_{index}_{self.sequence_pool}.xml")
+                    self.sequence_pool += 1
+            elif index == 'exec':
+                for key, value in xml_element.items():
+                    export_name = f"{self.ma_folder}/importexport/{self.export_preface}_{index}_{self.exec_page}.{self.exec_int}.xml"
+                    self._write_xml(value, export_name)
+                    self._update_export_list(index, f"{self.export_preface}_{index}_{self.exec_page}.{self.exec_int}.xml")
+                    self.exec_int += 1        
+
+
+    def _write_lua_files(self):
+        print(f"fn:_write_lua_files: {self.exported_objects}")
+        # Create the Lua XML
+        lua_xml = self._xml_root(pool=1, name="EZ_import", type="lua")
+        plugin = etree.SubElement(lua_xml, "Plugin", index="1", execute_on_load="0", name="EZ_import", luafile=f"EZ_import.lua")
+        self._write_xml(lua_xml, f"{self.ma_folder}/plugins/EZ_import.xml")
+
         lua_script: str = "local function main()"
-        for filename in self.exported_objects:
-            Log.info(f"fn:_exported_to_lua: {filename}")
-            # Remove the '.xml' extension and split the filename by '_'
-            parts = filename.replace('.xml', '').split('_')
-            # Create a dictionary with specific keys
-            filename_dict = {
-                "SourceApplication": parts[0] if len(parts) > 0 else "",
-                "Type": parts[1] if len(parts) > 1 else "",
-                "Pool": parts[2] if len(parts) > 2 else "",
-                "Label": parts[3] if len(parts) > 3 else ""
-            }
-            
-            # Log the initial Pool value
-            Log.info(f" Pool Value: {filename_dict['Pool']}")
+        for index, filename in self.exported_objects.items():
+            for file in filename:
+                result = file.rsplit('/', 1)[-1]
+                integer, integer_secondary = self._parse_filename(result)
+                Log.info(f"fn:_write_lua_files: result: {result} index: {index} integer: {integer} integer_secondary: {integer_secondary}")
+                if integer is not None:
+                    if integer_secondary is None:
+                        lua_script += f'\n gma.cmd("Import {result} at {index} {integer} /m /nc")'
+                    elif integer_secondary is not None:
+                        lua_script += f'\n gma.cmd("Store Page {integer} /m /nc")'
+                        lua_script += f'\n gma.cmd("Import {result} at {index} {integer}.{integer_secondary} /m /nc")'
+                elif integer is None:
 
-            # Check if 'Pool' contains a hyphen and correctly handle it
-            if "-" in filename_dict["Pool"]:
-                pool_parts = filename_dict["Pool"].split('-')
-                if len(pool_parts) == 2:
-                    filename_dict["Pool"] = f"{pool_parts[0]}.{pool_parts[1]}"
-                    filename_dict["Label"] = parts[3] if len(parts) > 3 else ""  # Ensure label is correctly assigned
-                    Log.info(f"Converted Pool Value: {filename_dict['Pool']}")
+                    #Log.info(f"fn:_write_lua_files: not writing to XML")
+                    pass
+        lua_script += f'\nend \nmain()'
+        #with open(self.ma_folder + "/plugins/EZ_import.lua", "w") as file:
+        #    file.write(lua_script)
+        #Log.info(f"fn:_write_lua_files: LUA: {lua_script}")
 
-            # Use the dictionary to format the Lua command
-            lua_script += f'\n gma.cmd("Import {filename} at {filename_dict["Type"]} {filename_dict["Pool"]}")'
-        lua_script += "\n end \n main()"
+    def _python_dict_to_lua_dict(self):  
+        """
+        This function converts the python dictionary to a lua dictionary... simplified exported_objects dictionary
+        """
+        Log.info(f"fn:_python_dict_to_lua_dict: NEW RUN: \n")
+        Log.info(f"fn:_python_dict_to_lua_dict: exported_objects: {self.exported_objects}")
+        lua_dictionary: str = " {"
+        for object_type, file_list in self.exported_objects.items():
+            lua_dictionary += "\n"
+            iteration = 0
+            for filename in file_list:
+                Log.info(f"fn:_python_dict_to_lua_dict: filename: {filename}, iteration: {iteration}, object_type: {object_type}")
+                if len(object_type) == 1:
+                    lua_dictionary += f"{object_type} = "
+                    lua_dictionary += "{"
+                    lua_dictionary += f"\"{filename}\""
+                    lua_dictionary += "} \n"
+                elif len(object_type) > 1:
+                    if iteration == 0:
+                        # START OF DICTIONARY ENTRY
+                        # class_type = {"filename1", 
+                        lua_dictionary += f"{object_type} = "
+                        lua_dictionary += "{"
+                        lua_dictionary += f"\"{filename}\", "
+                    elif iteration > 0:
+                        if object_type == "timecode":
+                            lua_dictionary += "}, \n"
+                        if iteration == len(file_list)-1:
+                            # END OF DICTIONARY ENTRY
+                            # "filename3"},
+                            lua_dictionary += f"\"{filename}\""
+                            lua_dictionary += "}, \n"
+                        elif iteration < len(file_list) - 1:
+                            # MIDDLE OF DICTIONARY ENTRY
+                            # "filename2",
+                            lua_dictionary += f"\"{filename}\", "
+                            if object_type == "timecode":
+                                lua_dictionary += "}, \n"
+                iteration += 1
+        lua_dictionary += "\n}"
+        return lua_dictionary
+
+    def _new_lua_file(self):
+        lua_script = "exec = nil\nsequence = nil\ntimecode= nil\n"
+        export_dictionary = self._python_dict_to_lua_dict()
+        lua_script += "\nfunction prompt(Title, Message)"
+        lua_script += "\n    input = gma.textinput(Title, Message)"
+        lua_script += "\n    return input"
+        lua_script += "\nend"
+        lua_script += f"\nexport_dictionary = {export_dictionary}"
+        lua_script += "\nfunction remove_xml_extension(filename)"
+        lua_script += "\n    if filename:sub(-4) == '.xml' then"
+        lua_script += "\n        return filename:sub(1, -5)"
+        lua_script += "\n    else"
+        lua_script += "\n        return filename"
+        lua_script += "\n    end"
+        lua_script += "\nend"
+        lua_script += "\nfunction parse_filename(filename)"
+        lua_script += "\n    filename = remove_xml_extension(filename)"
+        lua_script += "\n    integer = filename:match(\"%d+$\")"
+        lua_script += "\n    return tonumber(integer)"
+        lua_script += "\nend"
+        lua_script += "\nfunction import_prompt(object_type, filename)"
+        lua_script += "\n    Title = 'Import ' .. filename .. ' at ' .. object_type"
+        lua_script += "\n    Message = parse_filename(filename)"
+        lua_script += "\n    input = prompt(Title, Message)"
+        lua_script += "\n    local cmd = Title .. ' ' .. input .. ' /m /nc'"
+        lua_script += "\n    gma.cmd(cmd)"
+        lua_script += "\n    gma.feedback(filename)"
+        lua_script += "\n    gma.feedback(object_type)"
+        lua_script += "\nend\n"
+        lua_script += "\nfunction main()"
+        lua_script += "\n    for object_type, file_list in pairs(export_dictionary) do"
+        lua_script += "\n        for _, filename in pairs(file_list) do"
+        lua_script += "\n            gma.feedback(object_type)"
+        lua_script += "\n            gma.feedback(filename)"
+        lua_script += "\n            import_prompt(object_type, filename)"
+        lua_script += "\n        end"
+        lua_script += "\n    end"
+        lua_script += "\nend"
+
+        lua_script += "\nmain()"
         with open(self.ma_folder + "/plugins/EZ_import.lua", "w") as file:
             file.write(lua_script)
 
-        # Write the XML to load the lua script
-        ns_map = {
-            None: "http://schemas.malighting.de/grandma2/xml/MA",  # default namespace
-            'xsi': "http://www.w3.org/2001/XMLSchema-instance"
-        }
 
-        # Create the root element
-        plugin_root = etree.Element("MA", nsmap=ns_map, major_vers="3", minor_vers="9", stream_vers="60",
-                        schemaLocation="http://schemas.malighting.de/grandma2/xml/MA http://schemas.malighting.de/grandma2/xml/3.9.60/MA.xsd")
+    def _parse_filename(self, filename):
 
-        plugin_info = etree.SubElement(plugin_root, "Info", datetime="2025-01-19T15:17:53", showfile="songpart_1")
-        plugin_elem = etree.SubElement(plugin_root, "Plugin", index="1", execute_on_load="0", name="EZ_import", luafile="EZ_import.lua")
+        # Remove the '.xml' extension if present
+        if filename.endswith('.xml'):
+            filename = filename[:-4]
+        # Remove the 'EZ_' prefix
+        if filename.startswith('EZ_'):
+            filename = filename[3:]
+        # Identify and remove the next part which could be 'sequence', 'exec', or 'timecode'
+        for keyword in ['sequence_', 'exec_', 'timecode_']:
+            if keyword in filename:
+                start_index = filename.index(keyword)
+                end_index = start_index + len(keyword)
+                filename = filename[:start_index] + filename[end_index:]
+                break
+        # Split the remaining string by underscores and remove empty strings
+        parts = [part for part in filename.split('.') if part]
+        # Extract numbers and convert them to integers
+        numbers = [int(part) for part in parts if part.isdigit()]
+        # Assign the first number to integer
+        integer = numbers[0] if numbers else None
+        # Assign the second number to integer_secondary if it exists
+        integer_secondary = numbers[1] if len(numbers) > 1 else None
+        return integer, integer_secondary
 
-        plugin_tree = etree.ElementTree(plugin_root)
-        plugin_tree.write(self.ma_folder + "/plugins/EZ_import.xml", pretty_print=True, xml_declaration=True, encoding="utf-8")
+
+    def _write_xml(self, xml_dictionary, filename):
+        et = etree.ElementTree(xml_dictionary)
+        #Log.info(f"fn:_write_xml: file: {xml_dictionary}")
+        et.write(filename, pretty_print=True, xml_declaration=True, encoding="UTF-8")
+
+
+    def _update_export_list(self, type, filename):
+        #Log.info(f"fn:_update_export_list: type: {type} filename: {filename}")
+        self.exported_objects[type].append(filename)
+
+
+    def _check_export_list(self):
+        print(f"\n")
+        for index, filename in self.exported_objects.items():
+            Log.info(f"fn:_check_export_list: {index} : {filename}")
+    
+
+    def _float_to_fps(self, time: float, fps: int) -> float:
+        time = float(time)
+        return round(time * fps, 2)
 
 
     def process(self, input_data):
         # SendMAEvents may not need to process input data, but implement if necessary
+        self._format_data()
+        self._data_xml()
         return input_data 
+
 
     def get_metadata(self):
         return {
@@ -347,8 +659,8 @@ class ExportMA2Block(Block):
                 input_port.connect(output_port)
                 Log.info(f"Connected input '{input_name}' to output '{output_name}' via SendMAEvents.")
             else:
-                Log.error(f"Failed to connect. Input: {input_name}, Output: {output_name}")
-       
+                Log.error(f"Failed to connect. Input: {input_name}, Output: {output_name}") 
+
     def save(self, save_dir):
         self.data.save(save_dir)
 
