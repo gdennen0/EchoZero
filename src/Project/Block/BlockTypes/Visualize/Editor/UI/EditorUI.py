@@ -6,6 +6,14 @@ from PyQt5.QtWidgets import QDesktopWidget, QShortcut
 from PyQt5.QtCore import pyqtSignal
 from PyQt5.QtGui import QKeySequence
 
+# Define color constants for easy modification
+BACKGROUND_COLOR = "#121212"  # Dark grey background
+TEXT_COLOR = "#B3B3B3"  # Light grey text
+BUTTON_COLOR = "#282828"  # Dark grey for buttons
+BUTTON_HOVER_COLOR = "#404040"  # Slightly lighter grey for hover effect
+BORDER_COLOR = "#181818"  # Border color for buttons and inputs
+PLAYHEAD_COLOR = "#FFFFFF"  # White for playhead lines
+
 class EditorUI(QtWidgets.QWidget):
     """
     The UI portion of the PyQtAudioEditorBlock, responsible for displaying
@@ -15,6 +23,7 @@ class EditorUI(QtWidgets.QWidget):
     """
 
     classification_changed = pyqtSignal(str)
+    plot_clicked = pyqtSignal(float)
 
     # Define signals for shortcut actions
     next_event_shortcut_activated = pyqtSignal()
@@ -27,6 +36,42 @@ class EditorUI(QtWidgets.QWidget):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Editor")
+
+        # Set a modern, sleek dark grey style for the entire widget
+        self.setStyleSheet(f"""
+            QWidget {{
+                background-color: {BACKGROUND_COLOR};
+                color: {TEXT_COLOR};
+            }}
+            QPushButton {{
+                background-color: {BUTTON_COLOR};
+                color: {TEXT_COLOR};
+                border: 1px solid {BORDER_COLOR};
+                border-radius: 5px;
+                padding: 5px;
+            }}
+            QPushButton:hover {{
+                background-color: {BUTTON_HOVER_COLOR};
+            }}
+            QLabel {{
+                font-size: 18px;
+                font-family: 'Arial', sans-serif;
+            }}
+            QLineEdit {{
+                background-color: {BUTTON_COLOR};
+                color: {TEXT_COLOR};
+                border: 1px solid {BORDER_COLOR};
+                border-radius: 5px;
+                padding: 5px;
+            }}
+            QComboBox {{
+                background-color: {BUTTON_COLOR};
+                color: {TEXT_COLOR};
+                border: 1px solid {BORDER_COLOR};
+                border-radius: 5px;
+                padding: 5px;
+            }}
+        """)
 
         # Get the screen size
         screen_size = QDesktopWidget().screenGeometry()
@@ -73,10 +118,11 @@ class EditorUI(QtWidgets.QWidget):
 
         # Playback clock label
         self.playback_clock = QtWidgets.QLabel("00:00:00.000")
-        self.playback_clock.setStyleSheet("""
-            font-size: 24px;  /* Increase font size */
-            font-family: 'Courier New', Courier, monospace;  /* Use a monospaced font */
-            font-weight: bold;  /* Make the font bolder */
+        self.playback_clock.setStyleSheet(f"""
+            font-size: 24px;
+            font-family: 'Courier New', Courier, monospace;
+            font-weight: bold;
+            color: {TEXT_COLOR};
         """)
 
         # Add controls to the controls layout
@@ -96,6 +142,7 @@ class EditorUI(QtWidgets.QWidget):
         self.waveform_plot.setMaximumHeight(self.base_plot_height)
         self.waveform_plot.getViewBox().setMouseEnabled(y=False)  # Disable y-axis zoom
         self.waveform_plot.hideAxis('left')  # Hide Y-axis
+        self.waveform_plot.scene().sigMouseClicked.connect(self.on_plot_click)
 
         # -- NEW CODE: Create a title plot for the waveform and a horizontal layout
         self.waveform_title_plot = pg.PlotWidget()
@@ -119,6 +166,7 @@ class EditorUI(QtWidgets.QWidget):
         self.event_plot.getViewBox().setMouseEnabled(y=False)  # Disable y-axis zoom
         self.event_plot.hideAxis('left')  # Hide Y-axis
         self.event_plot.hideAxis('bottom')  # Hide x-axis
+        self.event_plot.scene().sigMouseClicked.connect(self.on_plot_click)
 
         # -- NEW CODE: Create a title plot for event rows and a horizontal layout
         self.event_title_plot = pg.PlotWidget()
@@ -146,17 +194,17 @@ class EditorUI(QtWidgets.QWidget):
         self.playhead_waveform_line = pg.InfiniteLine(
             angle=90,
             movable=False, 
-            pen=pg.mkPen(color='r', width=2)
+            pen=pg.mkPen(color=PLAYHEAD_COLOR, width=2)
         )
         self.playhead_event_line = pg.InfiniteLine(
             angle=90,
             movable=False,
-            pen=pg.mkPen(color='r', width=2)
+            pen=pg.mkPen(color=PLAYHEAD_COLOR, width=2)
         )
         self.playhead_event_info_line = pg.InfiniteLine(
             angle=90,
             movable=False,
-            pen=pg.mkPen(color='r', width=2),
+            pen=pg.mkPen(color=PLAYHEAD_COLOR, width=2),
         )
 
         # Add playhead lines to the plots
@@ -199,8 +247,8 @@ class EditorUI(QtWidgets.QWidget):
 
         # Classification dropdown
         self.classification_dropdown = QtWidgets.QComboBox(self)
-        self.classification_dropdown.setEditable(True)  # Allow text input
-        self.classification_dropdown.currentIndexChanged.connect(self.on_classification_selected)
+        self.classification_dropdown.setEditable(False)  # Allow text input
+        self.classification_dropdown.activated.connect(self.on_classification_selected)
 
         self.classification_header = QtWidgets.QHBoxLayout()
         self.save_classification_button = QtWidgets.QPushButton("Save Classification")
@@ -236,10 +284,11 @@ class EditorUI(QtWidgets.QWidget):
         self.stop_event_button.setMaximumWidth(button_max_width)
 
         self.event_info_playback_clock = QtWidgets.QLabel("00:00:00.000")
-        self.event_info_playback_clock.setStyleSheet("""
-            font-size: 18px;  /* Increase font size */
-            font-family: 'Courier New', Courier, monospace;  /* Use a monospaced font */
-            font-weight: bold;  /* Make the font bolder */
+        self.event_info_playback_clock.setStyleSheet(f"""
+            font-size: 18px;
+            font-family: 'Courier New', Courier, monospace;
+            font-weight: bold;
+            color: {TEXT_COLOR};
         """)
 
         # Add the elements to the layout
@@ -272,6 +321,21 @@ class EditorUI(QtWidgets.QWidget):
         self.highlight_title_color = '#FFA500'  # Orange color to match point highlight
 
         self.selected_event_points = []  # Track multiple highlighted points
+
+        # Update plot styles
+        self.waveform_plot.setBackground(BACKGROUND_COLOR)
+        self.event_plot.setBackground(BACKGROUND_COLOR)
+        self.waveform_title_plot.setBackground(BACKGROUND_COLOR)  # Ensure title plot matches
+        self.event_title_plot.setBackground(BACKGROUND_COLOR)  # Ensure title plot matches
+        self.waveform_plot.getPlotItem().getAxis('bottom').setPen(pg.mkPen(color=TEXT_COLOR))
+        self.waveform_plot.getPlotItem().getAxis('left').setPen(pg.mkPen(color=TEXT_COLOR))
+        self.event_plot.getPlotItem().getAxis('bottom').setPen(pg.mkPen(color=TEXT_COLOR))
+        self.event_plot.getPlotItem().getAxis('left').setPen(pg.mkPen(color=TEXT_COLOR))
+
+        # Update playhead line color to white
+        self.playhead_waveform_line.setPen(pg.mkPen(color=PLAYHEAD_COLOR, width=2))
+        self.playhead_event_line.setPen(pg.mkPen(color=PLAYHEAD_COLOR, width=2))
+        self.playhead_event_info_line.setPen(pg.mkPen(color=PLAYHEAD_COLOR, width=2))
 
     def add_shortcuts(self):
         """
@@ -330,6 +394,9 @@ class EditorUI(QtWidgets.QWidget):
     @QtCore.pyqtSlot(dict)
     def update_event_info(self, event):
         # Update the fields with event data
+        if event is None:
+            Log.info("No event selected.")
+            return
         classification = event.get_classification()
         if classification is None:
             classification = "None"  # or any default value you prefer
@@ -365,11 +432,24 @@ class EditorUI(QtWidgets.QWidget):
         seconds = int(time_seconds % 60)
         milliseconds = int((time_seconds - int(time_seconds)) * 1000)
         self.event_info_playback_clock.setText(f"{hours:02}:{minutes:02}:{seconds:02}.{milliseconds:03}")
-
+    
+    def on_plot_click(self, event):
+        """
+        Handle mouse click events on the plots.
+        """
+        if event.button() == QtCore.Qt.LeftButton:
+            # Get the position in the plot coordinates
+            pos = event.scenePos()
+            plot_item = self.waveform_plot.getPlotItem()
+            mouse_point = plot_item.vb.mapSceneToView(pos)
+            x_value = mouse_point.x()
+            self.plot_clicked.emit(x_value)
+            
     def on_classification_selected(self, index):
         # Emit the custom signal with the selected text
         selected_text = self.classification_dropdown.itemText(index)
         self.classification_changed.emit(selected_text)
+        Log.info(f"Classification selected: {selected_text}")
 
     def on_save_classification(self):
         # Emit the custom signal with the new text

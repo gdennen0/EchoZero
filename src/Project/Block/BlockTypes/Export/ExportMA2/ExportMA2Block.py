@@ -13,7 +13,7 @@ DEFAULT_TC_POOL = 101
 DEFAULT_SEQUENCE_POOL = 101
 DEFAULT_EXEC_PAGE = 101
 DEFAULT_EXEC_INT = 115
-DEFAULT_MA_FOLDER = "C:\ProgramData\MA Lighting Technologies\grandma\gma2_V_3.9.60"
+DEFAULT_MA_FOLDER = "/Users/gdennen/Desktop/JENNIE/MA2exports"
 
 class ExportMA2Block(Block):
     name = "ExportMA2"
@@ -616,7 +616,8 @@ class ExportMA2Block(Block):
 
     def _write_xml(self, xml_dictionary, filename):
         et = etree.ElementTree(xml_dictionary)
-        #Log.info(f"fn:_write_xml: file: {xml_dictionary}")
+        # Log.info(f"fn:_write_xml: file: {xml_dictionary}")
+        Log.info(f"fn:_write_xml: filename: {filename}")
         et.write(filename, pretty_print=True, xml_declaration=True, encoding="UTF-8")
 
 
@@ -647,6 +648,7 @@ class ExportMA2Block(Block):
         return {
             "name": self.name,
             "type": self.type,
+            "ma_folder": self.ma_folder,
             "input": self.input.save(),
             "output": self.output.save(),
             "metadata": self.data.get_metadata()
@@ -662,7 +664,8 @@ class ExportMA2Block(Block):
                 Log.error(f"Failed to connect. Input: {input_name}, Output: {output_name}") 
 
     def save(self, save_dir):
-        self.data.save(save_dir)
+        # self.data.save(save_dir)
+        pass
 
     def load(self, block_dir):
         block_metadata = self.get_metadata_from_dir(block_dir)
@@ -670,6 +673,7 @@ class ExportMA2Block(Block):
         # load attributes
         self.set_name(block_metadata.get("name"))
         self.set_type(block_metadata.get("type"))
+        self.set_ma_folder(block_metadata.get("ma_folder"))
 
         # load sub components attributes
         self.data.load(block_metadata.get("metadata"), block_dir)

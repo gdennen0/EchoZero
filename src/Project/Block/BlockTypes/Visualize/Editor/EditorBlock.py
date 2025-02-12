@@ -73,6 +73,8 @@ class EditorBlock(Block):
         self.ui.toggle_event_play_stop_shortcut_activated.connect(self.toggle_event_play_pause)
         self.ui.up_layer_shortcut_activated.connect(self.up_layer)
         self.ui.down_layer_shortcut_activated.connect(self.down_layer)
+        self.ui.plot_clicked.connect(self.on_plot_clicked)
+
 
         self.playback_state = "unloaded"
 
@@ -100,7 +102,18 @@ class EditorBlock(Block):
         self.classifications = []
 
         self.ui.classification_changed.connect(self.handle_classification_change)
+        # self.ui.event_moved.connect(self.handle_event_moved)
         self.ui.event_time_edit.editingFinished.connect(self.on_event_time_edited)
+
+    def on_plot_clicked(self, x_value):
+        """
+        Update the playhead position based on the clicked x-value.
+        """
+        # Convert x_value to milliseconds
+        position_ms = int(x_value * 1000)
+        self.set_current_time(position_ms)
+        self.ui.update_playhead(position_ms)
+        self.ui.update_playback_clock(x_value)
 
     def on_event_time_edited(self):
         """
@@ -191,36 +204,35 @@ class EditorBlock(Block):
         Log.info(f"New classification entered: {new_classification}")
         if new_classification:
             if len(self.classifications) > 0:
-                if new_classification not in self.classifications:
-                    self.add_classification(new_classification)
-                    for event in self.selected_events:
-                        event.set_classification(new_classification)
-                        self.move_event(self.selected_layer, new_classification)
-                        self.update_event_classification(new_classification)
-                        self.ui.update_event_info(event)
-                else:
-                    Log.info(f"updated classification: {new_classification}")
-                    for event in self.selected_events:
-                        event.set_classification(new_classification)
-                        self.move_event(self.selected_layer, new_classification)
-                        self.update_event_classification(new_classification)
-                        self.ui.update_event_info(event)
+                # Log.info(f"updated classification: {new_classification}")
+                self.set_selected_events_classification(new_classification)
+                self.move_selected_events(self.selected_layer, new_classification)
 
-    def move_event(self, from_layer, to_layer):
+    def set_selected_events_classification(self, new_classification):
+        """
+        Set the classification of all selected events.
+        """
+        for event in self.selected_events:
+            event.set_classification(new_classification)
+
+    def move_selected_events(self, from_layer, to_layer):
         """
         Move all selected events from one layer to another and update the plot in place.
         """
+
         to_layer = f"{to_layer}Events"
-        for event in self.selected_events:
-            Log.info(f"Moving event {event.get_name()} from {from_layer} to {to_layer}")
-            for data_object in self.data.get_all():
-                if data_object.type == "EventData":
-                    if data_object.get_name() == from_layer:
+        for data_object in self.data.get_all():
+            if data_object.type == "EventData":
+                if data_object.get_name() == from_layer:
+                    for event in self.selected_events:
+                        Log.info(f"Moving event {event.get_name()} from {from_layer} to {to_layer}")
                         data_object.remove_item(event)
-                    if data_object.get_name() == to_layer:
+                if data_object.get_name() == to_layer:
+                    for event in self.selected_events:
                         data_object.add_item(event)
 
-            # Update the plot in place for each event
+        # Update the plot in place for all selected events
+        for event in self.selected_events:
             self.update_event_plot(event, from_layer, to_layer)
 
         # Update the selected layer to match the new layer
@@ -276,14 +288,6 @@ class EditorBlock(Block):
                     return y_index
                 y_index += 1
         return y_index
-
-    def update_event_classification(self, new_classification):
-        """
-        Updates the classification of all selected events.
-        """
-        for event in self.selected_events:
-            event.set_classification(new_classification)
-            self.ui.update_event_info(event)
 
     def update_classification_dropdown(self):
        """
@@ -481,13 +485,10 @@ class EditorBlock(Block):
         return input_data
     
     def refresh(self):
-        self.build_plot()
-        self.load_audio()
-
-    def build_plot(self):
-        Log.info(f"Building combined plot with {len(self.data.get_all())} data objects.")
-
-        # --- NEW CODE: Clear all plot widgets to remove stale data before rebuilding ---
+        """
+        Refreshes the UI by rebuilding the plot and reloading audio.
+        """
+        # Clear all plot widgets to remove stale data before rebuilding
         self.ui.waveform_plot.clear()
         self.ui.event_plot.clear()
         self.ui.waveform_title_plot.clear()  # Clear any waveform title labels
@@ -501,7 +502,21 @@ class EditorBlock(Block):
         vertical_line = pg.InfiniteLine(pos=0, angle=90, pen=pg.mkPen('w', width=1))
         self.ui.waveform_plot.addItem(vertical_line)
         self.ui.event_plot.addItem(vertical_line)
-        # --- END NEW CODE ---
+
+        # Rebuild the plot with current data
+        self.build_plot()
+
+        # Reload audio data for playback
+        self.load_audio()
+
+        # Update classification dropdown
+        self.ui.update_classification_dropdown(self.classifications)
+
+        # Update event info if any event is selected
+        self.ui.update_event_info(self.selected_events[-1] if self.selected_events else None)
+
+    def build_plot(self):
+        Log.info(f"Building combined plot with {len(self.data.get_all())} data objects.")
 
         # Retrieve audio + event data
         audio_data = None

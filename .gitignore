@@ -25,6 +25,8 @@ lib/larsnet/pretrained_larsnet_models/
 
 logs/
 
+sources/
+
 data/recent_projects.json
 
 .venv/
