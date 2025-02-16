@@ -192,7 +192,7 @@ class Block(ABC):
         for block in self.parent.blocks:
             dependency_tree[block.name] = []
             in_degree[block.name] = 0
-
+            
         # Build the dependency tree
         for block in self.parent.blocks:
             for input_port in block.input.get_all():
@@ -202,10 +202,29 @@ class Block(ABC):
                     dependency_tree[source_block].append(target_block)
                     in_degree[target_block] += 1
 
-        # Find all blocks with no dependencies (in_degree = 0)
+        # Find blocks that depend on current block (directly or indirectly)
+        dependent_blocks = set()
+        queue = [self.name]
+        while queue:
+            current = queue.pop(0)
+            dependent_blocks.add(current)
+            queue.extend([block for block in dependency_tree[current] 
+                         if block not in dependent_blocks])
+
+        # Reset execution tracking for relevant blocks only
+        execution_order = []
         queue = []
-        for block_name in dependency_tree:
-            if in_degree[block_name] == 0:
+        filtered_in_degree = {name: 0 for name in dependent_blocks}
+
+        # Recalculate in_degree for relevant blocks
+        for source in dependent_blocks:
+            for target in dependency_tree[source]:
+                if target in dependent_blocks:
+                    filtered_in_degree[target] += 1
+
+        # Find starting blocks among dependents
+        for block_name in dependent_blocks:
+            if filtered_in_degree[block_name] == 0:
                 queue.append(block_name)
 
         # Process the queue to build execution order
@@ -213,14 +232,14 @@ class Block(ABC):
             current_block = queue.pop(0)
             execution_order.append(current_block)
 
-            # Process all dependent blocks
             for dependent_block in dependency_tree[current_block]:
-                in_degree[dependent_block] -= 1
-                if in_degree[dependent_block] == 0:
-                    queue.append(dependent_block)
+                if dependent_block in dependent_blocks:
+                    filtered_in_degree[dependent_block] -= 1
+                    if filtered_in_degree[dependent_block] == 0:
+                        queue.append(dependent_block)
 
-        # Check for circular dependencies
-        if len(execution_order) != len(self.parent.blocks):
+        # Check for circular dependencies in the subset
+        if len(execution_order) != len(dependent_blocks):
             Log.error("Circular dependency detected in block connections!")
             return
 

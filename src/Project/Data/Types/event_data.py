@@ -40,8 +40,12 @@ class EventData(Data):
         return self.name
     
     def remove_item(self, item):
-        self.items.remove(item)
-        Log.info(f"Removed item: {item.name} from event data: {self.name}")
+        if item in self.items:
+            self.items.remove(item)
+            Log.info(f"Removed item: {item.name} from event data: {self.name}")
+        else:
+            Log.error(f"Item: {item.name} not found in event data: {self.name}")
+
     def get_metadata(self):
         return {
             "name":self.name, 

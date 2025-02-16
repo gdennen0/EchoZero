@@ -24,6 +24,8 @@ class EditorUI(QtWidgets.QWidget):
 
     classification_changed = pyqtSignal(str)
     plot_clicked = pyqtSignal(float)
+    roi_changed = pyqtSignal(float, float)  # Signal to emit ROI start/end times
+
 
     # Define signals for shortcut actions
     next_event_shortcut_activated = pyqtSignal()
@@ -32,9 +34,12 @@ class EditorUI(QtWidgets.QWidget):
     toggle_event_play_stop_shortcut_activated = pyqtSignal()  # New signal for event audio toggle
     up_layer_shortcut_activated = pyqtSignal()  # Renamed from next_layer_shortcut_activated
     down_layer_shortcut_activated = pyqtSignal()  # Renamed from previous_layer_shortcut_activated
+    delete_event_button_clicked = pyqtSignal()  # New signal for delete event button
+    move_roi_to_playhead_shortcut_activated = pyqtSignal()  # New signal for ROI movement
 
     def __init__(self):
         super().__init__()
+        self.last_selected_classification = None # I know this is dumb but im doing it TODO: Move to the main block?
         self.setWindowTitle("Editor")
 
         # Set a modern, sleek dark grey style for the entire widget
@@ -157,7 +162,20 @@ class EditorUI(QtWidgets.QWidget):
         waveform_layout.addWidget(self.waveform_title_plot)
         waveform_layout.addWidget(self.waveform_plot)
         self.left_layout.addLayout(waveform_layout)
-        # -- END NEW CODE
+        
+        # Add ROI to waveform plot
+        self.audio_roi = pg.LinearRegionItem()
+        self.audio_roi.setZValue(10)  # Ensure ROI is drawn on top
+        self.waveform_plot.addItem(self.audio_roi)
+        
+        # Connect ROI change signal
+        self.audio_roi.sigRegionChanged.connect(self.on_roi_changed)
+
+        # Add Create Event button
+        self.create_event_button = QtWidgets.QPushButton("Create Event")
+        self.create_event_button.setMinimumWidth(button_min_width)
+        self.create_event_button.setMaximumWidth(button_max_width)
+        self.controls_layout.addWidget(self.create_event_button)
 
         # Event plot (bottom)
         self.event_plot = pg.PlotWidget()
@@ -253,9 +271,14 @@ class EditorUI(QtWidgets.QWidget):
         self.classification_header = QtWidgets.QHBoxLayout()
         self.save_classification_button = QtWidgets.QPushButton("Save Classification")
         self.save_classification_button.clicked.connect(self.on_save_classification)
+        self.repeat_classification_button = QtWidgets.QPushButton("Repeat Classification") 
+        self.repeat_classification_button.clicked.connect(self.on_repeat_classification)  # Connection
+
 
         self.classification_header.addWidget(QtWidgets.QLabel("Classification:"))
         self.classification_header.addWidget(self.save_classification_button)
+        self.classification_header.addWidget(self.repeat_classification_button)  # Add new button
+
 
         self.event_info_layout.addLayout(self.classification_header)
         self.event_info_layout.addWidget(self.classification_dropdown)
@@ -298,6 +321,15 @@ class EditorUI(QtWidgets.QWidget):
 
         # add the sub layout to the event info layout
         self.event_info_layout.addLayout(self.event_buttons_layout)
+
+        # Add a button for deleting events
+        self.delete_event_button = QtWidgets.QPushButton("Delete Event")
+        self.delete_event_button.setMinimumWidth(button_min_width)
+        self.delete_event_button.setMaximumWidth(button_max_width)
+        self.delete_event_button.clicked.connect(self.delete_event_button_clicked)
+
+        # Add the delete button to the event info layout
+        self.event_info_layout.addWidget(self.delete_event_button)
 
         # Add a spacer item to push everything to the top
         self.right_layout.addSpacerItem(QtWidgets.QSpacerItem(
@@ -361,6 +393,13 @@ class EditorUI(QtWidgets.QWidget):
 
         down_layer_shortcut = QShortcut(QKeySequence(QtCore.Qt.Key_Down), self)
         down_layer_shortcut.activated.connect(self.down_layer_shortcut_activated)
+
+        repeat_classification_shortcut = QShortcut(QKeySequence("Shift+R"), self)
+        repeat_classification_shortcut.activated.connect(self.on_repeat_classification)
+
+        # Add new shortcut for moving ROI to playhead
+        move_roi_shortcut = QShortcut(QKeySequence("A"), self)
+        move_roi_shortcut.activated.connect(self.move_roi_to_playhead_shortcut_activated)
 
     def toggle_play_stop(self):
         """
@@ -449,11 +488,27 @@ class EditorUI(QtWidgets.QWidget):
         # Emit the custom signal with the selected text
         selected_text = self.classification_dropdown.itemText(index)
         self.classification_changed.emit(selected_text)
+        self.last_selected_classification = selected_text
         Log.info(f"Classification selected: {selected_text}")
+
+    def on_repeat_classification(self):
+        """
+        Emit the classification changed signal with the current classification
+        """
+        if self.last_selected_classification:
+            self.classification_changed.emit(self.last_selected_classification)
+            Log.info(f"Repeating classification: {self.last_selected_classification}")
+        else:
+            Log.error("No classification selected to repeat.")
 
     def on_save_classification(self):
         # Emit the custom signal with the new text
         self.classification_changed.emit(self.classification_dropdown.currentText())
+
+    def on_roi_changed(self):
+        """Emit the new ROI bounds when changed"""
+        start, end = self.audio_roi.getRegion()
+        self.roi_changed.emit(start, end)
 
     def update_classification_dropdown(self, classifications):
         """
@@ -461,6 +516,58 @@ class EditorUI(QtWidgets.QWidget):
         """
         self.classification_dropdown.clear()  # Clear existing items
         self.classification_dropdown.addItems(classifications)  # Add new items
+
+
+    def delete_spot(self, event_name, layer_name):
+        """
+        Deletes a spot from the event plot based on event name and layer.
+        
+        Args:
+            event_name (str): Name of the event to delete
+            layer_name (str): The layer name the event belongs to
+        """
+        # Find the scatter plot item
+        scatter_item = None
+        for item in self.event_plot.items():
+            if isinstance(item, pg.ScatterPlotItem):
+                scatter_item = item
+                break
+        
+        if scatter_item is None:
+            Log.warning("No scatter plot found in event plot")
+            return
+
+        # Get all points and their data
+        points = scatter_item.points()
+        remaining_points = []
+        remaining_data = []
+
+        # Filter points to keep only those that don't match the deletion criteria
+        for point in points:
+            point_data = point.data()
+            if (point_data['name'] != event_name or 
+                point_data['layer'] != layer_name):
+                remaining_points.append({
+                    'pos': point.pos(),
+                    'size': point.size(),
+                    'brush': point.brush(),
+                    'symbol': point.symbol()
+                })
+                remaining_data.append(point_data)
+
+        # Clear existing scatter plot
+        scatter_item.clear()
+
+        # Add back the remaining points
+        if remaining_points:
+            positions = [p['pos'] for p in remaining_points]
+            scatter_item.setData(
+                pos=positions,
+                size=[p['size'] for p in remaining_points],
+                brush=[p['brush'] for p in remaining_points],
+                symbol=[p['symbol'] for p in remaining_points],
+                data=remaining_data
+            )
 
     def set_event_plot_limits(self, x_max, y_max):
         self.event_plot.getViewBox().setLimits(
@@ -488,7 +595,15 @@ class EditorUI(QtWidgets.QWidget):
             yMax=y_max
         ) 
 
-    def connect_signals(self, play_callback, stop_callback, reset_callback, play_event_callback=None, stop_event_callback=None, next_event_callback=None, previous_event_callback=None):
+    def connect_signals(self, 
+                        play_callback, 
+                        stop_callback, 
+                        reset_callback, 
+                        play_event_callback=None, 
+                        stop_event_callback=None, 
+                        next_event_callback=None, 
+                        previous_event_callback=None,
+                        create_event_callback=None):
         """
         Connects UI signals to callbacks provided by the editor block.
         """
@@ -507,6 +622,8 @@ class EditorUI(QtWidgets.QWidget):
             self.next_event_button.clicked.connect(next_event_callback)
         if previous_event_callback:
             self.previous_event_button.clicked.connect(previous_event_callback)
+        if create_event_callback:
+            self.create_event_button.clicked.connect(create_event_callback)
 
     def highlight_event_points(self, events, event_layer):
         """
@@ -590,3 +707,21 @@ class EditorUI(QtWidgets.QWidget):
     #         self.event_title_plot.addItem(text_item)
 
     #         y_index += 1
+
+    def move_roi_to_playhead(self, playhead_position):
+        """
+        Moves the ROI to start at the playhead position.
+        
+        Args:
+            playhead_position (float): Current playhead position in seconds
+        """
+        # Get current ROI width
+        start, end = self.audio_roi.getRegion()
+        roi_width = end - start
+        
+        # Calculate new ROI bounds starting at playhead
+        new_start = playhead_position
+        new_end = playhead_position + roi_width
+            
+        # Update ROI position
+        self.audio_roi.setRegion((new_start, new_end))

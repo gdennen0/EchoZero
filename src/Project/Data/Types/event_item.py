@@ -15,6 +15,7 @@ class EventItem(Data):
         self.type = "EventItem"
         self.description = "no description set"
         self.time = None
+        self.length = None
         self.source = None
         self.confidence = None
         self.classification = None
@@ -27,6 +28,7 @@ class EventItem(Data):
             "classification":self.classification,
             "type":self.type,
             "time":self.time,
+            "length":self.length,
             "source":self.source,
             "confidence":self.confidence,
             "metadata":None
@@ -34,6 +36,20 @@ class EventItem(Data):
         if self.data:
             metadata["metadata"] = self.data.get_metadata()
         return metadata
+    
+    def get_end_time(self):
+        if self.length is not None:
+            return self.time + self.length
+        else:
+            Log.error(f"Length not set for event item: {self.name}")
+            return None
+        
+    def get_length(self):
+        return self.length
+    
+    def set_length(self, length):
+        self.length = length
+        # Log.info(f"Set length for event item: {self.name} to {length}")
     
     def get_data(self):
         return self.data

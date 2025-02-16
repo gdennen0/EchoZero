@@ -15,6 +15,10 @@ import tempfile
 from scipy.io.wavfile import write
 from src.Utils.tools import prompt_selection
 import time
+from src.Project.Data.Types.event_data import EventData
+from src.Project.Data.Types.event_item import EventItem
+from src.Project.Data.Types.audio_data import AudioData
+import uuid
 
 class EditorBlock(Block):
     """
@@ -62,7 +66,9 @@ class EditorBlock(Block):
             play_event_callback=self.play_event_audio,
             stop_event_callback=self.stop_event_audio,
             next_event_callback=self.next_event,
-            previous_event_callback=self.previous_event
+            previous_event_callback=self.previous_event,
+
+            create_event_callback=self.create_event_from_roi,
 
         )
 
@@ -73,10 +79,17 @@ class EditorBlock(Block):
         self.ui.toggle_event_play_stop_shortcut_activated.connect(self.toggle_event_play_pause)
         self.ui.up_layer_shortcut_activated.connect(self.up_layer)
         self.ui.down_layer_shortcut_activated.connect(self.down_layer)
-        self.ui.plot_clicked.connect(self.on_plot_clicked)
+        self.ui.plot_clicked.connect(self.on_plot_click)
 
+        # Connect the delete event button signal to the delete method
+        self.ui.delete_event_button_clicked.connect(self.delete_selected_events)
 
         self.playback_state = "unloaded"
+
+        self.audio_roi_start = 0
+        self.audio_roi_end = 0
+        # Connect ROI change signal
+        self.ui.roi_changed.connect(self.on_roi_changed)
 
         # Initialize QMediaPlayers
         self.player = QMediaPlayer()
@@ -105,15 +118,102 @@ class EditorBlock(Block):
         # self.ui.event_moved.connect(self.handle_event_moved)
         self.ui.event_time_edit.editingFinished.connect(self.on_event_time_edited)
 
-    def on_plot_clicked(self, x_value):
+        # Connect shortcut signals to methods
+        self.ui.move_roi_to_playhead_shortcut_activated.connect(self.move_roi_to_playhead)
+
+    def on_roi_changed(self, start, end):
+        """Update stored ROI bounds when changed"""
+        self.audio_roi_start = start
+        self.audio_roi_end = end
+        Log.info(f"ROI updated: {start:.3f}s to {end:.3f}s")
+
+    def create_event_from_roi(self):
+        """Create a new event from the current ROI selection"""
+        # Find AudioData in block's data
+        audio_data = None
+        for data_object in self.data.get_all():
+            if data_object.type == "AudioData":
+                audio_data = data_object
+                break
+
+        if audio_data is None:
+            Log.error("No AudioData found to create event from")
+            return
+
+        if self.audio_roi_start >= self.audio_roi_end:
+            Log.error("Invalid ROI selection")
+            return
+        
+        if not self.selected_layer:
+            Log.error("No layer selected")
+            return
+
+        # Calculate sample indices
+        sample_rate = audio_data.get_sample_rate()
+        start_sample = int(self.audio_roi_start * sample_rate)
+        end_sample = int(self.audio_roi_end * sample_rate)
+
+        # Extract audio segment
+        full_audio = audio_data.get()
+        if start_sample >= len(full_audio) or end_sample > len(full_audio):
+            Log.error("ROI selection out of bounds")
+            return
+
+        audio_segment = full_audio[start_sample:end_sample]
+        classification = self.selected_layer.replace("Events", "")
+
+        # Create new AudioData for the event
+        event_audio = AudioData()
+        event_audio.set(audio_segment)
+        event_audio.set_sample_rate(sample_rate)
+
+        # Create new EventItem
+        event_name = f"Event_{uuid.uuid4().hex[:8]}"  # Generate unique name
+        new_event = EventItem()
+        new_event.set_name(event_name)
+        new_event.set_time(self.audio_roi_start)  # Use ROI start as event time
+        new_event.set(event_audio)
+        new_event.set_classification(classification)
+
+        for data_object in self.data.get_all():
+            if data_object.type == "EventData":
+                if data_object.get_name() == self.selected_layer:
+                    data_object.add_item(new_event)
+                    Log.info(f"Created new event '{event_name}' at {self.audio_roi_start:.3f}s")
+                    # self.refresh()
+                    self.update_event_plot(new_event, self.selected_layer, self.selected_layer)
+                    break
+
+        Log.error("ERROR ADDING EVENT TO AN EVENT DATA LAYER")
+
+    def on_plot_click(self, x_value):
         """
         Update the playhead position based on the clicked x-value.
+        Ensures accurate time positioning by rounding to nearest sample.
         """
-        # Convert x_value to milliseconds
-        position_ms = int(x_value * 1000)
-        self.set_current_time(position_ms)
-        self.ui.update_playhead(position_ms)
-        self.ui.update_playback_clock(x_value)
+        # Get the current audio data and sample rate
+        audio_data = None
+        sample_rate = 0
+        for data_object in self.data.get_all():
+            if data_object.type == "AudioData":
+                audio_data = data_object.get()
+                sample_rate = data_object.get_sample_rate()
+                break
+
+        if sample_rate > 0:
+            # Convert x_value (seconds) to sample index
+            sample_index = int(round(x_value * sample_rate))
+            # Convert back to precise time in seconds
+            precise_time = sample_index / sample_rate
+            # Convert to milliseconds for position setting
+            position_ms = int(precise_time * 1000)
+            
+            self.set_current_time(position_ms)
+            self.ui.update_playhead(position_ms)
+            self.ui.update_playback_clock(precise_time)
+            Log.info(f"Plot clicked - Time: {precise_time:.3f}s, Position: {position_ms}ms")
+        else:
+            Log.error("No valid sample rate found for time conversion")
 
     def on_event_time_edited(self):
         """
@@ -205,8 +305,26 @@ class EditorBlock(Block):
         if new_classification:
             if len(self.classifications) > 0:
                 # Log.info(f"updated classification: {new_classification}")
+                for data_object in self.data.get_all():
+                    if data_object.type == "EventData":
+                        eventdata_name = data_object.get_name().replace('Events', '')
+                        if eventdata_name.lower() == new_classification.lower():
+                            # Found matching EventData layer
+                            self.set_selected_events_classification(new_classification)
+                            self.move_selected_events(self.selected_layer, new_classification)
+                            return
+
+                # If we get here, no matching EventData was found
+                # Create new EventData for this classification
+                new_event_data = EventData()
+                new_event_data.set_name(f"{new_classification}Events")
+                new_event_data.set_type("EventData")
+                self.data.add(new_event_data)
+                
+                # Move events to new layer
                 self.set_selected_events_classification(new_classification)
                 self.move_selected_events(self.selected_layer, new_classification)
+                Log.info(f"Created new EventData layer for classification: {new_classification}")
 
     def set_selected_events_classification(self, new_classification):
         """
@@ -229,6 +347,7 @@ class EditorBlock(Block):
                         data_object.remove_item(event)
                 if data_object.get_name() == to_layer:
                     for event in self.selected_events:
+                        # event.data['layer'] = to_layer # need to update the layer data for the spots as well
                         data_object.add_item(event)
 
         # Update the plot in place for all selected events
@@ -263,14 +382,15 @@ class EditorBlock(Block):
                             'symbol': 'd'
                         })
                 
-                # Add the moved point to the new spots list
-                new_spots.append({
-                    'pos': (event.get_time(), self.get_layer_index(to_layer)),
+                if to_layer is not None:
+                    # Add the moved point to the new spots list
+                    new_spots.append({
+                        'pos': (event.get_time(), self.get_layer_index(to_layer)),
                     'data': {'name': event.get_name(), 'layer': to_layer},
                     'size': 15,
                     'brush': pg.mkBrush(150, 150, 150, 255),
                     'symbol': 'd'
-                })
+                    })
                 
                 # Clear existing points and add all points back
                 item.clear()
@@ -365,6 +485,7 @@ class EditorBlock(Block):
         if self.selected_events:
             self.ui.update_event_info(self.selected_events[-1])
             self.ui.highlight_event_points(self.selected_events, self.selected_layer)
+            self.ui.highlight_layer_title(self.selected_layer)
         else:
             Log.info("No event data found")
 
@@ -553,7 +674,7 @@ class EditorBlock(Block):
                 reduced_y = audio_data
                 x_vals = np.linspace(0, len(audio_data) / sample_rate, num=len(audio_data))
 
-            self.ui.waveform_plot.plot(x_vals, reduced_y, pen='b')
+            self.ui.waveform_plot.plot(x_vals, reduced_y, pen='w')
             self.ui.waveform_plot.setXRange(0, len(audio_data) / sample_rate)
 
             # Add waveform title text to the waveform_title_plot
@@ -895,3 +1016,35 @@ class EditorBlock(Block):
                     Log.info(f"No events found in layer: {prev_layer}")
         except ValueError:
             Log.error(f"Current layer {self.selected_layer} not found in layers list")
+
+    def delete_selected_events(self):
+        """
+        Deletes the selected events from the data and updates the plot.
+        """
+        if not self.selected_events:
+            Log.info("No selected events to delete.")
+            return
+
+        for event in self.selected_events:
+            # Remove the event from the data
+            for data_object in self.data.get_all():
+                if data_object.type == "EventData" and data_object.get_name() == self.selected_layer:
+                    data_object.remove_item(event)
+                    Log.info(f"Deleted event {event.get_name()} from layer {self.selected_layer}")
+            # Update the event plot to remove the deleted event
+            self.update_event_plot(event, self.selected_layer, None)
+            # Clear the selected events list
+        self.selected_events = []
+
+        # Refresh the plot to remove the deleted events
+        # self.refresh()
+
+    def move_roi_to_playhead(self):
+        """
+        Moves the ROI to be centered on the current playhead position.
+        """
+        current_time = self.get_current_time()
+        self.ui.move_roi_to_playhead(current_time)
+        # Update stored ROI bounds
+        self.audio_roi_start, self.audio_roi_end = self.ui.audio_roi.getRegion()
+        Log.info(f"Moved ROI to playhead position: {current_time:.3f}s")

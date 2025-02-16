@@ -139,8 +139,11 @@ class ExportMA2Block(Block):
     def set_export_exec(self):
         self.page_pool = float(prompt("Enter the export page: "))
 
-    def set_ma_folder(self):
-        self.ma_folder = prompt("Enter the MA folder: ")
+    def set_ma_folder(self, ma_folder=None):
+        if ma_folder is None:
+            self.ma_folder = prompt("Enter the MA folder: ")
+        else:
+            self.ma_folder = ma_folder
     
     def set_export_type(self):
         self.export_type = prompt_selection("Enter the export type: ", { "hit" : "hit", "sequence" : "sequence"})
@@ -648,7 +651,7 @@ class ExportMA2Block(Block):
         return {
             "name": self.name,
             "type": self.type,
-            "ma_folder": self.ma_folder,
+            # "ma_folder": self.ma_folder,
             "input": self.input.save(),
             "output": self.output.save(),
             "metadata": self.data.get_metadata()
@@ -673,7 +676,7 @@ class ExportMA2Block(Block):
         # load attributes
         self.set_name(block_metadata.get("name"))
         self.set_type(block_metadata.get("type"))
-        self.set_ma_folder(block_metadata.get("ma_folder"))
+        # self.set_ma_folder(block_metadata.get("ma_folder"))
 
         # load sub components attributes
         self.data.load(block_metadata.get("metadata"), block_dir)
