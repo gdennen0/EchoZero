@@ -36,6 +36,8 @@ class EditorUI(QtWidgets.QWidget):
     down_layer_shortcut_activated = pyqtSignal()  # Renamed from previous_layer_shortcut_activated
     delete_event_button_clicked = pyqtSignal()  # New signal for delete event button
     move_roi_to_playhead_shortcut_activated = pyqtSignal()  # New signal for ROI movement
+    create_event_shortcut_activated = pyqtSignal()  # New signal for create event shortcut
+    delete_event_shortcut_activated = pyqtSignal()  # New signal for delete event shortcut
 
     def __init__(self):
         super().__init__()
@@ -401,6 +403,14 @@ class EditorUI(QtWidgets.QWidget):
         move_roi_shortcut = QShortcut(QKeySequence("A"), self)
         move_roi_shortcut.activated.connect(self.move_roi_to_playhead_shortcut_activated)
 
+        # Add new shortcut for creating events
+        create_event_shortcut = QShortcut(QKeySequence("C"), self)
+        create_event_shortcut.activated.connect(self.create_event_shortcut_activated)
+
+        # Add new shortcut for deleting events
+        delete_event_shortcut = QShortcut(QKeySequence("Shift+D"), self)
+        delete_event_shortcut.activated.connect(self.delete_event_shortcut_activated)
+
     def toggle_play_stop(self):
         """
         Toggles between play and pause states.
@@ -637,11 +647,19 @@ class EditorUI(QtWidgets.QWidget):
 
         if scatter_item is None:
             return
+        
+            # Get current points
+        current_points = scatter_item.points()
 
         # Reset previous highlights if they exist
         for point_info in self.selected_event_points:
-            prev_point = scatter_item.points()[point_info['index']]
-            prev_point.setBrush(self.default_point_brush)
+            # Find point by name and layer instead of index
+            for point in current_points:
+                if (point.data()['name'] == point_info['name'] and 
+                    point.data()['layer'] == point_info['layer']):
+                    point.setBrush(self.default_point_brush)
+                    break
+
 
         # Clear the list of selected event points
         self.selected_event_points.clear()
@@ -725,3 +743,27 @@ class EditorUI(QtWidgets.QWidget):
             
         # Update ROI position
         self.audio_roi.setRegion((new_start, new_end))
+
+    def clear_plots(self):
+        """
+        Safely clears plots while preserving ROI state.
+        """
+        # Store ROI state
+        roi_start, roi_end = self.audio_roi.getRegion()
+        
+        # Clear plots
+        self.waveform_plot.clear()
+        self.event_plot.clear()
+        self.waveform_title_plot.clear()
+        self.event_title_plot.clear()
+        
+        # Re-add ROI to waveform plot
+        self.waveform_plot.addItem(self.audio_roi)
+        self.audio_roi.setRegion((roi_start, roi_end))
+
+    def reset_roi(self):
+        """
+        Resets the ROI to a default state.
+        """
+        # Set ROI to first 1 second of audio by default
+        self.audio_roi.setRegion((0, 1.0))

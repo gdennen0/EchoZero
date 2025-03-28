@@ -120,6 +120,8 @@ class EditorBlock(Block):
 
         # Connect shortcut signals to methods
         self.ui.move_roi_to_playhead_shortcut_activated.connect(self.move_roi_to_playhead)
+        self.ui.create_event_shortcut_activated.connect(self.create_event_from_roi)
+        self.ui.delete_event_shortcut_activated.connect(self.delete_selected_events)
 
     def on_roi_changed(self, start, end):
         """Update stored ROI bounds when changed"""
@@ -609,11 +611,14 @@ class EditorBlock(Block):
         """
         Refreshes the UI by rebuilding the plot and reloading audio.
         """
+        # Store current ROI state
+        roi_start, roi_end = self.ui.audio_roi.getRegion()
+        
         # Clear all plot widgets to remove stale data before rebuilding
         self.ui.waveform_plot.clear()
         self.ui.event_plot.clear()
-        self.ui.waveform_title_plot.clear()  # Clear any waveform title labels
-        self.ui.event_title_plot.clear()     # Clear any event title labels
+        self.ui.waveform_title_plot.clear()
+        self.ui.event_title_plot.clear()
 
         # Re-add playhead indicators
         self.ui.waveform_plot.addItem(self.ui.playhead_waveform_line)
@@ -629,6 +634,12 @@ class EditorBlock(Block):
 
         # Reload audio data for playback
         self.load_audio()
+
+        # Restore ROI state and ensure it is added to the waveform plot
+        self.ui.waveform_plot.addItem(self.ui.audio_roi)
+        self.ui.audio_roi.setRegion((roi_start, roi_end))
+        self.audio_roi_start = roi_start
+        self.audio_roi_end = roi_end
 
         # Update classification dropdown
         self.ui.update_classification_dropdown(self.classifications)

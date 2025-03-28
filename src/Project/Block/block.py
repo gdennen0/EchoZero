@@ -43,7 +43,6 @@ class Block(ABC):
         else:
             Log.warning(f"There are no inputs in {self.name}")
 
-
         results = self.process(input_data) # process the input data
 
         if prompt_user:

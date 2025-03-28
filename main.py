@@ -3,8 +3,6 @@ from src.Project.project import Project
 from src.Command.command_parser import CommandParser
 from src.Utils.tools import prompt
 from PyQt5 import QtWidgets
-import threading
-import time
 
 def run_qt_app(app):
     """Function to run the Qt application in a separate thread."""
