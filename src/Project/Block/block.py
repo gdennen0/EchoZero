@@ -15,9 +15,9 @@ class Block(ABC):
         self.name = None
         self.type = None
         self.parent = None
-        self.data = DataController(self)        
-        self.input = InputController(self)
-        self.output = OutputController(self)
+        self.data = []      
+        self.inputs = []
+        self.outputs = []
         self.command = CommandController()
         self.command.add("reload", self.reload)
         self.command.add("connect", self.connect)

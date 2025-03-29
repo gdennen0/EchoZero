@@ -14,8 +14,7 @@ def prompt(prompt_message):
     # Prompt user in terminal and return the response
     response = input(prompt_message)
     if response.lower() in ['e', 'exit']:
-        Log.info("Selection exited by user.")
-        return
+        return None
     return response
 
 def prompt_selection(prompt_text, options):
@@ -34,8 +33,7 @@ def prompt_selection(prompt_text, options):
     while True:
         selection = prompt(f"Please enter the key or index for your selection (or 'e' to exit): ")
         if not selection:
-            Log.info("Selection exited by user.")
-            return None, None
+            return None
         if selection.isdigit():
             index = int(selection)
             if 0 <= index < len(options_list):
