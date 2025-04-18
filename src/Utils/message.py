@@ -4,6 +4,8 @@ import sys
 from datetime import datetime
 from logging import Logger
 from colorama import init, Fore, Style
+import traceback
+
 init(autoreset=True)
 
 # You can still import and call get_current_time from your tools if desired,
@@ -79,7 +81,7 @@ def init_logger(
     logger.setLevel(level)
     logger.propagate = False  # Prevent duplicate logs if root logger also logs
 
-    # Ensure logger doesn’t get duplicate handlers if init_logger is called multiple times:
+    # Ensure logger doesn't get duplicate handlers if init_logger is called multiple times:
     if not logger.handlers:
         # File Handler
         if file_logging:
@@ -115,7 +117,7 @@ def init_logger(
 class Log:
     """
     Wrapper class to keep your existing interface (e.g., Log.info(...)),
-    but behind the scenes we’ll use Python’s logging.
+    but behind the scenes we'll use Python's logging.
     """
     # A module-level logger. In practice, you might want to pass the logger object around,
     # or store it in a place that is easy to import.
@@ -150,8 +152,32 @@ class Log:
         cls._logger.warning(text)
 
     @classmethod
-    def error(cls, text: str):
-        cls._logger.error(text)
+    def error(cls, text: str, exception=None, include_line_info=True):
+        """
+        Log an error message, optionally including line number information.
+        
+        Args:
+            text (str): The error message
+            exception (Exception, optional): The exception object to extract traceback info from
+            include_line_info (bool): Whether to include file and line information
+        """
+        if include_line_info:
+            if exception:
+                # Use the provided exception for traceback info
+                tb_str = ''.join(traceback.format_exception(type(exception), exception, exception.__traceback__))
+                cls._logger.error(f"{text}\n{tb_str}")
+            else:
+                # Fall back to sys.exc_info() for backward compatibility
+                _, _, exc_tb = sys.exc_info()
+                if exc_tb:
+                    frame = exc_tb.tb_frame
+                    line_num = exc_tb.tb_lineno
+                    file_name = frame.f_code.co_filename
+                    cls._logger.error(f"{text} [File: {file_name}, Line: {line_num}]")
+                else:
+                    cls._logger.error(text)
+        else:
+            cls._logger.error(text)
 
     @classmethod
     def unknown(cls, text: str):

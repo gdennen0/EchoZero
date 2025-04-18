@@ -13,8 +13,6 @@ def get_current_time():
 def prompt(prompt_message):
     # Prompt user in terminal and return the response
     response = input(prompt_message)
-    if response.lower() in ['e', 'exit']:
-        return None
     return response
 
 def prompt_selection(prompt_text, options):

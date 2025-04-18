@@ -2,101 +2,203 @@ from src.Utils.message import Log
 
 class CommandParser:
     """
-    Interprets an input string (like from CLI or another UI) and tries to
-    match it to blocks, ports, and finally commands to execute.
+    Command parser that works with the ApplicationController.
     """
 
-    def __init__(self, project):
-        self.project = project
-
-    def parse_and_execute(self, input_string):
-        # Initialize variables
-        block = None
-        port = None
-        command_item = None
-        args = []
-
-        all_input_parts = input_string.lower().split()        # Split the input string into parts
-        remaining_parts = all_input_parts.copy()
-
-        block = self._get_matching_block(remaining_parts)
-        selected_module = self.project
-        if block:
-            remaining_parts.pop(0)  # Remove block from the list
-            selected_module = block
-            input_match = self._get_matching_input(block, remaining_parts)
-            output_match = self._get_matching_output(block, remaining_parts)
-            if input_match or output_match:
-                selected_module = input_match if input_match else output_match
-                remaining_parts.pop(0)  # Remove input/output type from the list
-
-        if remaining_parts: 
-            command_item, args = self._get_command(selected_module, remaining_parts)
-
-        Log.parser(', '.join(filter(None, [
-            f"Matched block: {block.name}" if block else None,
-            f"Command item: {command_item.name}" if command_item else None
-        ])))
-
-        if command_item:
-            command_item.execute(*args) # Execute Command
-        else:
-            # If we found a block but not a command, show available commands
-            if (block or port) and hasattr(selected_module, "command"):
-                Log.parser("Command not found. Possible commands:")
-                selected_module.command.list_commands()
+    def __init__(self, app_controller):
+        """
+        Initialize command parser.
         
-
-    def _get_matching_block(self, parts):
+        Args:
+            app_controller: ApplicationController instance
+        """
+        self.app = app_controller
+    
+    def parse_and_execute(self, command_string):
+        """
+        Parse and execute a command string.
+        
+        Args:
+            command_string (str): The command to parse and execute
+            
+        Returns:
+            bool: True if command executed successfully
+        """
+        # Split the command string by spaces
+        parts = command_string.lower().split()
+        if not parts:
+            return False
+        
+        Log.info(f"Parsing command: {command_string}")
+        
+        # Check for application-level commands
+        if parts[0] in ["app", "application"]:
+            # Remove "app"/"application" prefix and execute on app controller
+            remaining_parts = parts[1:]
+            if not remaining_parts:
+                Log.error("No application command specified")
+                return False
+                
+            command_name = remaining_parts[0]
+            args = remaining_parts[1:]
+            
+            Log.info(f"Executing application command: {command_name}")
+            return self.app.command.execute_command_by_name(command_name, args)
+        
+        # Check for project-level commands
+        if parts[0] in ["project", "p"]:
+            # Get active project
+            active_project = self.app.get_active_project()
+            if not active_project:
+                Log.error("No active project")
+                return False
+                
+            # Remove "project" prefix and execute on active project
+            remaining_parts = parts[1:]
+            if not remaining_parts:
+                Log.error("No project command specified")
+                return False
+                
+            command_name = remaining_parts[0]
+            args = remaining_parts[1:]
+            
+            Log.info(f"Executing project command: {command_name}")
+            return active_project.command.execute_command_by_name(command_name, args)
+        
+        # Get active project
+        active_project = self.app.get_active_project()
+        if not active_project:
+            # If no active project, try application commands
+            command_name = parts[0]
+            args = parts[1:]
+            
+            Log.info(f"No active project, trying application command: {command_name}")
+            return self.app.command.execute_command_by_name(command_name, args)
+        
+        # Try to get matching block
+        block = self._get_matching_block(active_project, parts)
+        
+        if not block:
+            # If no block matched, try as a project command
+            command_name = parts[0]
+            args = parts[1:]
+            
+            Log.info(f"No block matched, trying project command: {command_name}")
+            return active_project.command.execute_command_by_name(command_name, args)
+        
+        # Block found, remove its name from parts
+        remaining_parts = parts[1:]
+        
+        if not remaining_parts:
+            # Just the block name was provided, show info
+            Log.info(f"No command specified for block: {block.name}")
+            return block.command.execute_command_by_name("info", [])
+        
+        # Try to get input/output controllers
+        input_controller = self._get_matching_input(block, remaining_parts)
+        output_controller = self._get_matching_output(block, remaining_parts)
+        
+        if input_controller:
+            # Input controller matched, adjust remaining parts
+            remaining_parts = remaining_parts[1:]  # Remove "input"
+            
+            # If we have a specific port, remove that too
+            if remaining_parts and hasattr(input_controller, 'items'):
+                port_names = [port.name.lower() for port in input_controller.items()]
+                if remaining_parts[0] in port_names:
+                    port_name = remaining_parts[0]
+                    remaining_parts = remaining_parts[1:]
+                    
+                    # Find the port object
+                    port = next((p for p in input_controller.items() if p.name.lower() == port_name), None)
+                    
+                    if port and hasattr(port, 'command'):
+                        # Execute command on port
+                        if not remaining_parts:
+                            Log.error(f"No command specified for port: {port.name}")
+                            return False
+                            
+                        command_name = remaining_parts[0]
+                        args = remaining_parts[1:]
+                        
+                        Log.info(f"Executing port command: {command_name}")
+                        return port.command.execute_command_by_name(command_name, args)
+            
+            # Execute command on input controller
+            if not remaining_parts:
+                Log.error(f"No command specified for input controller")
+                return False
+                
+            command_name = remaining_parts[0]
+            args = remaining_parts[1:]
+            
+            Log.info(f"Executing input controller command: {command_name}")
+            return input_controller.command.execute_command_by_name(command_name, args)
+            
+        elif output_controller:
+            # Output controller matched, adjust remaining parts
+            remaining_parts = remaining_parts[1:]  # Remove "output"
+            
+            # Similar logic as input controller
+            # ...
+            
+        # No input/output matched, execute command on block
+        command_name = remaining_parts[0]
+        args = remaining_parts[1:]
+        
+        Log.info(f"Executing block command: {command_name}")
+        return block.command.execute_command_by_name(command_name, args)
+    
+    def _get_matching_block(self, project, parts):
+        """
+        Find a block that matches the first part of the command.
+        
+        Args:
+            project: Project instance
+            parts (list): Command parts
+            
+        Returns:
+            Block: Matching block or None
+        """
         if not parts:
             return None
-        for block in self.project.get_blocks():
-            if block is not None:   
-                if block.name.lower() == parts[0]:
-                    return block
+            
+        block_name = parts[0]
+        
+        for block in project.get_blocks():
+            if block is not None and block.name.lower() == block_name:
+                return block
+                
         return None
             
     def _get_matching_input(self, block, parts):
-        if not parts:
-            return None
+        """
+        Check if the next part refers to the input controller.
         
-        if parts[0] == "input":
-            if len(parts) > 1:  # If we have a specific input port name
-                Log.parser(f"Attempting to match {parts[1]} to an input port")
-                for input_port in block.input.items():
-                    if input_port.name.lower() == parts[1]:
-                        return input_port  
-            return block.input
-
-        return None
+        Args:
+            block: Block object
+            parts (list): Remaining command parts
+            
+        Returns:
+            InputController: Input controller or None
+        """
+        if not parts or parts[0] != "input":
+            return None
+            
+        return block.input if hasattr(block, 'input') else None
 
     def _get_matching_output(self, block, parts):
-        if not parts:
+        """
+        Check if the next part refers to the output controller.
+        
+        Args:
+            block: Block object
+            parts (list): Remaining command parts
+            
+        Returns:
+            OutputController: Output controller or None
+        """
+        if not parts or parts[0] != "output":
             return None
-        if parts[0] == "output":
-            if len(parts) > 1:  # If we have a specific output port name
-                for output_port in block.output.items():
-                    if output_port.name.lower() == parts[1]:
-                        return output_port
-            return block.output
-    
-        return None
-    
-    def _check_if_command(self, command_item):
-        if command_item:
-            return True
-        return False
-
-    def _get_command(self, selected_module, remaining_parts):
-        """
-        Attempt to find a command in the selected module's command controller
-        that matches the next token in remaining_parts.
-        """
-        if not remaining_parts:
-            return None, None
-        if selected_module and hasattr(selected_module, "command"):
-            for cmd_item in selected_module.command.get_commands():
-                if cmd_item.name.lower() == remaining_parts[0]:
-                    # Everything after the command name is considered an argument
-                    return cmd_item, remaining_parts[1:]
-        return None, None
+            
+        return block.output if hasattr(block, 'output') else None

@@ -1,16 +1,20 @@
 import sys
 from PyQt5 import QtWidgets
-from src.Application.application_controller import ApplicationController
+from Application.application_controller import ApplicationControllerV2
 from src.Command.command_parser import CommandParser
 from src.Utils.message import Log
 from src.Utils.tools import prompt
 
 def main():
+    """
+    Main entry point for the application.
+    Uses the new architecture with command queue and dedicated databases.
+    """
     # Initialize application
     app = QtWidgets.QApplication([])
     
     # Initialize application controller
-    app_controller = ApplicationController()
+    app_controller = ApplicationControllerV2()
     
     # Prompt user to create or load a project
     Log.info("Welcome to the application!")
@@ -81,17 +85,23 @@ def main():
     Log.info(f"Project '{app_controller.get_active_project().name}' is active. Listening for commands...")
     Log.info("Type 'help' for a list of commands or 'exit' to quit.")
     
+    # Main command loop
     while True:
-        user_input = prompt("Enter command: ")
-        
-        if user_input.lower() == 'exit':
-            app_controller.cmd_exit([])
-            break
+        try:
+            user_input = prompt("Enter command: ")
             
-        parser.parse_and_execute(user_input)
-
-    # Clean up and exit
+            if user_input.lower() == 'exit':
+                app_controller.cmd_exit([])
+                break
+                
+            parser.parse_and_execute(user_input)
+        except KeyboardInterrupt:
+            Log.info("\nCommand interrupted.")
+        except Exception as e:
+            Log.error(f"Error: {str(e)}")
+    
+    # Exit application
     sys.exit(0)
 
 if __name__ == "__main__":
-    main()
+    main() 
