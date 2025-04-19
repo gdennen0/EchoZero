@@ -26,14 +26,19 @@ class LoadAudioBlock(Block):
 
         self.command.add("select_file", self.select_file)
 
-    def select_file(self):
+    def select_file(self, file_path=None):
+        if file_path:
+            self.set_selected_file_path(file_path)
+            Log.info(f"Selected file: {self.selected_file_path}")
+            self.reload(prompt_user=False)
+            return
         audio_files = [f for f in os.listdir(self.audio_source_dir) if os.path.isfile(os.path.join(self.audio_source_dir, f))]
         Log.list("Audio Files", audio_files)
         selected_file = prompt_selection("Please select an audio file: ", audio_files)
         self.set_selected_file_path(os.path.join(self.audio_source_dir, selected_file))
         Log.info(f"Selected file: {self.selected_file_path}")
 
-        self.reload()
+        self.reload(prompt_user=False)
         return
     
     def set_selected_file_path(self, path):

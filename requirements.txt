@@ -57,7 +57,6 @@ librosa==0.10.2.post1
 llvmlite==0.42.0
 lupa==2.4
 lxml==5.3.0
-# madmom==0.16.1
 Markdown==3.7
 markdown-it-py==3.0.0
 MarkupSafe==2.1.5
@@ -73,7 +72,7 @@ namex==0.0.8
 nest-asyncio==1.6.0
 networkx==3.2.1
 numba==0.59.1
-# numpy==1.23.5
+numpy==1.26.4
 onnx==1.16.1
 onnx2torch==1.5.14
 onnxruntime==1.18.0
@@ -139,6 +138,7 @@ torchvision==0.18.1
 tqdm==4.66.4
 typing_extensions==4.12.2
 tzdata==2024.2
+unet==0.8.1
 urllib3==2.2.1
 Werkzeug==3.0.6
 wrapt==1.17.0

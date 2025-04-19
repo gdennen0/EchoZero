@@ -133,4 +133,4 @@ PARAMS_INSTRUMENT_DEFAULT = {("36","DEF1_PITCHBEND"):0.2,
 
 PARAMS_SAMPLE_RANDOM_DEFAULT = {("6","DCF1_CUTOFF"):(0.7,1), ("7","DCF1_RESO"):(0,0.3), ("34", "OUT1_PANNING"):(-0.5,0.5), ("34", "OUT1_WIDTH"):(-0.5,0.5), ("24", "LFO1_PITCH"):(-0.1,0.1), ("25", "LFO1_CUTOFF"):(-0.1,0.1), ("27", "LFO1_PANNING"):(-0.1,0.1), ("28", "LFO1_VOLUME"):(-0.5,0.5), ("29", "LFO1_ATTACK"):(-0.5,0.5)}
 
-DEFAULT_ASSIGNMENT = default_assignment_24
+DEFAULT_ASSIGNMENT = default_assignment_8

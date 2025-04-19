@@ -76,6 +76,27 @@ def prompt_selection_with_type(prompt_text, options):
             return options[selection], selection
         Log.error("Invalid selection. Please enter a valid key or index, or 'e' to exit.")
 
+def prompt_selection_by_name(prompt_text, options):
+    Log.info(prompt_text)
+    if isinstance(options, dict):
+        options_list = list(options.keys())
+    else:
+        options_list = options
+    for i, obj in enumerate(options_list):
+        Log.info(f"{i}: {obj.name}")
+    while True:
+        selection = prompt(f"Please enter the key or index for your selection (or 'e' to exit): ")
+        if not selection: 
+            Log.info("Selection exited by user.")
+            return None, None
+        if selection.isdigit():
+            index = int(selection)
+            if 0 <= index < len(options_list):
+                return options_list[index], options_list[index].name
+        elif selection in options_list:
+            return options[selection], options[selection].name
+        Log.error("Invalid selection. Please enter a valid key or index, or 'e' to exit.")
+
 def prompt_selection_with_type_and_parent_block(prompt_text, options): #imsorryfortheshitename
     Log.info(prompt_text)
     if isinstance(options, dict):
@@ -228,3 +249,119 @@ class gtimer():
     def stop(self):
         self.elapsed_time = time.time() - self.start_time
         return self.elapsed_time
+
+def prompt_file_path(prompt_message, file_ext=None, directory=None):
+    """
+    Prompt the user to enter a file path with optional file extension filtering.
+    
+    Args:
+        prompt_message (str): The message to display to the user
+        file_ext (str, optional): File extension to filter by (e.g., 'json', 'wav')
+        directory (str, optional): Starting directory to look in
+    
+    Returns:
+        str: The selected file path or None if selection was cancelled
+    """
+    import os
+    import glob
+    
+    Log.info(prompt_message)
+    
+    # Set up directory
+    if directory is None:
+        directory = os.getcwd()
+    
+    # Format file extension
+    if file_ext:
+        if not file_ext.startswith('.'):
+            file_ext = f".{file_ext}"
+    
+    # Allow user to directly enter a path
+    user_input = prompt("Enter file path:")
+    
+    # Return if user entered a direct path
+    if user_input and user_input.lower() not in ['e', 'exit']:
+        if file_ext and not user_input.lower().endswith(file_ext.lower()):
+            Log.warning(f"File does not have the expected extension: {file_ext}")
+            if not prompt_yes_no("Continue with this file anyway?"):
+                return prompt_file_path(prompt_message, file_ext, directory)
+        
+        # Validate the file exists
+        if not os.path.exists(user_input):
+            Log.error(f"File not found: {user_input}")
+            return prompt_file_path(prompt_message, file_ext, directory)
+            
+        return user_input
+    
+    # Exit if requested
+    if user_input and user_input.lower() in ['e', 'exit']:
+        Log.info("File selection cancelled")
+        return None
+    
+    # Browse files in the directory
+    while True:
+        Log.info(f"Current directory: {directory}")
+        
+        # Get files and directories
+        contents = []
+        
+        # Add parent directory option
+        contents.append("..")
+        
+        # Add directories
+        for item in sorted(os.listdir(directory)):
+            full_path = os.path.join(directory, item)
+            if os.path.isdir(full_path):
+                contents.append(f"{item}/")
+        
+        # Add files (with optional extension filtering)
+        for item in sorted(os.listdir(directory)):
+            full_path = os.path.join(directory, item)
+            if os.path.isfile(full_path):
+                if file_ext is None or item.lower().endswith(file_ext.lower()):
+                    contents.append(item)
+        
+        # Display directory contents
+        for i, item in enumerate(contents):
+            Log.info(f"{i}: {item}")
+        
+        # Get user selection
+        selection = prompt("Enter number to select, or type a new path (or 'e' to exit): ")
+        
+        # Exit if requested
+        if not selection or selection.lower() in ['e', 'exit']:
+            Log.info("File selection cancelled")
+            return None
+        
+        # Handle numeric selection
+        if selection.isdigit():
+            index = int(selection)
+            if 0 <= index < len(contents):
+                selected_item = contents[index]
+                
+                # Handle parent directory
+                if selected_item == "..":
+                    directory = os.path.dirname(directory)
+                    continue
+                
+                # Handle directory
+                if selected_item.endswith("/"):
+                    directory = os.path.join(directory, selected_item[:-1])
+                    continue
+                
+                # Handle file selection
+                return os.path.join(directory, selected_item)
+        
+        # Handle direct path entry
+        elif os.path.exists(selection):
+            if os.path.isdir(selection):
+                directory = selection
+                continue
+            else:
+                if file_ext and not selection.lower().endswith(file_ext.lower()):
+                    Log.warning(f"File does not have the expected extension: {file_ext}")
+                    if not prompt_yes_no("Continue with this file anyway?"):
+                        continue
+                return selection
+        
+        Log.error("Invalid selection. Please enter a valid number or path.")

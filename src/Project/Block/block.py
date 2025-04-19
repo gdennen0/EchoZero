@@ -6,6 +6,7 @@ from src.Project.Block.Output.output_controller import OutputController
 from src.Utils.tools import prompt_selection, prompt_selection_with_type_and_parent_block, prompt_yes_no
 from abc import ABC, abstractmethod     
 from src.Utils.message import Log
+from src.Utils.tools import prompt
 from src.Utils.tools import gtimer
 import os
 import json
@@ -28,9 +29,11 @@ class Block(ABC):
         self.command.add("list_inputs", self.input.list)
         self.command.add("list_outputs", self.output.list)
         self.command.add("reload_all", self.reload_with_dependencies)
+        self.command.add("send_command", self.send_command)
 
     def reload(self, prompt_user=True):
         Log.info(f"Reloading block {self.name}")
+        Log.info(f"Prompting user confirmation: {prompt_user}")
         timer = gtimer()
         timer.start()
         self.input.pull_all() # Pull data from connected external output ports to local input ports
@@ -45,7 +48,7 @@ class Block(ABC):
 
         results = self.process(input_data) # process the input data
 
-        if prompt_user:
+        if prompt_user == True:
             proceed = prompt_yes_no("Proceed with reloading? This will override the data currently in the block")
             if proceed:
                 if results: 
@@ -85,6 +88,9 @@ class Block(ABC):
         self.name = name
         Log.info(f"Updated Blocks name to: '{name}'")   
 
+    def get_name(self):
+        return self.name
+
     def set_type(self, type):
         self.type = type
         # Log.info(f"Set type: {type}")
@@ -92,6 +98,9 @@ class Block(ABC):
     def set_parent(self, parent):
         self.parent = parent
         # Log.info(f"Set parent: {parent.name}")
+
+    def get_commands(self):
+        return self.command.get_commands()
         
     def get_metadata(self):
         return {
@@ -176,12 +185,15 @@ class Block(ABC):
         else:
             Log.error("This block does not have any inputs")
 
-    def reload_with_dependencies(self):
+    def reload_with_dependencies(self, prompt_user=False):
         """
         Build a dependency tree and log the order of reload for each block.
 
         This method iterates through all blocks to find dependencies and logs
         the order in which blocks would be reloaded based on their dependencies.
+        
+        Args:
+            prompt_user (bool): Whether to prompt the user before reloading. Default is True.
         """
         dependency_tree = {}
         execution_order = []
@@ -247,8 +259,10 @@ class Block(ABC):
         for i, block_name in enumerate(execution_order, 1):
             Log.info(f"{i}. {block_name}")
 
-        # Execute reloads in order
-        proceed = prompt_yes_no("Proceed with reloading? This will override the data currently in all dependent blocks")
+        proceed = True
+        if prompt_user == True:
+            proceed = prompt_yes_no("Proceed with reloading? This will override the data currently in all dependent blocks")
+        
         if proceed:
             for block_name in execution_order:
                 for block in self.parent.blocks:
@@ -264,3 +278,24 @@ class Block(ABC):
         with open(block_metadata_path, 'r') as block_metadata_file:
             block_metadata = json.load(block_metadata_file)
         return block_metadata
+
+    def send_command(self, command_string=None):
+        """
+        Sends a command to the parser through the parent project.
+        
+        This allows blocks to execute commands outside their own scope by
+        sending them through the main command parser.
+        
+        Args:
+            command_string (str): The command string to parse and execute
+            
+        Returns:
+            bool: True if command executed successfully, False otherwise
+        """
+        if command_string:
+            result = self.parent.send_command(command_string)
+            return result
+        else:
+            string = prompt("Enter command to send: ")
+            result = self.parent.send_command(string)
+            return result

@@ -47,50 +47,7 @@ class Project():
         self.loaded = False
         self.block_types = []
         self.blocks = []
-
-        self._app = dash.Dash(__name__, use_pages=True, pages_folder="")
-        self._app.title = "EchoZero"
-
-        @self._app.callback(
-            dash.Output("arrow-key-output", "children"),
-            [dash.Input("arrow-key-listener", "event")]
-        )
-        def handle_arrow_keys(keyboard_event):
-            """
-            Callback function that listens for arrow key presses
-            and displays which arrow key was pressed.
-            """
-            # Log.info(f"Keyboard event: {keyboard_event}")
-            if not keyboard_event:
-                Log.info("No event yet, do nothing")
-                # raise PreventUpdate  # No event yet, do nothing
-                return None
-
-            key_pressed = keyboard_event.get("key", "")
-            if key_pressed == "ArrowUp":
-                Log.info("ArrowUp")
-                return "ArrowUp"    
-            elif key_pressed == "ArrowDown":
-                Log.info("ArrowDown")
-                return "ArrowDown"
-            elif key_pressed == "ArrowLeft":
-                Log.info("ArrowLeft")
-                return "ArrowLeft"
-            elif key_pressed == "ArrowRight":
-                Log.info("ArrowRight")
-                return "ArrowRight"
-
-            return None
-
-        self._app.layout = self.layout_content # set the layout of the app to the layout_content method
-
-
-        dash.register_page(
-            "Home",
-            layout=self.dynamic_page_layout,
-            path=f"/",
-            name=self.name
-        )
+        self._parser = None
 
         self.command = CommandController()
 
@@ -113,55 +70,14 @@ class Project():
         self.command.add("delete_block", self.delete_block)
         self.command.add("deleteblock", self.delete_block)
         self.command.add("delete", self.delete_block)
-        self.command.add("list_pages", self.list_pages)
-        
         self.initialize_project()
 
-        # self._server_thread = threading.Thread(target=self.run_ui, daemon=True)
-        # self._server_thread.start()
+    def send_command(self, command_string):
+        result = self._parser.parse_and_execute(command_string) # execute the command return true or false
+        return result
 
-    def layout_content(self):
-        """
-        Called each time a user loads or reloads the page.
-        Displays "No project loaded" if self.name is None,
-        otherwise shows self.name. Also shows links to all
-        registered Dash pages.
-        """
-        return html.Div([
-            html.H1("EchoZero"),
-            html.Ul([
-                html.Li(
-                    dcc.Link(
-                        page_data["name"],
-                        href=page_data["relative_path"]
-                    )
-                )
-                for page_data in dash.page_registry.values()
-            ]),
-            dash.page_container
-        ])
-
-    def dynamic_page_layout(self):
-        displayed_name = self.name if self.name else "No project loaded"
-               # Create an EventListener to capture keyboard activity in the browser window.
-        arrow_key_listener = EventListener(
-            id="arrow-key-listener",
-            # events is a list of dict(s). 
-            # Each dict: event type, props to capture, and optional target like 'window' or 'document'.
-            events=[
-                {
-                    "event": "keydown",
-                    "props": ["key", "code"],
-                    "target": "window"
-                }
-            ]
-        )
-        return html.Div([
-            html.H1(f"{displayed_name}"),
-            html.P("Home"),
-            html.Div(id="arrow-key-output"),  # This will display which arrow key was pressed
-            arrow_key_listener
-        ])
+    def set_parser(self, parser):
+        self._parser = parser
 
     def initialize_project(self):
         options = {
@@ -181,21 +97,6 @@ class Project():
                     break
             else:
                 Log.error("Invalid input")
-
-    
-    def list_pages(self):
-        for page_id, page_data in dash.page_registry.items():
-            Log.info(f"Page path: {page_data['path']}, module: {page_data['module']}, name: {page_data['name']}")
-
-    def run_ui(self, host="127.0.0.1", port=8050):
-        """
-        Start the project's Dash server.
-        """
-        try:
-            Log.info(f"Starting Project Dash server on {host}:{port}")
-            self._app.run_server(host=host, port=port, debug=False)
-        except Exception as e:
-            Log.error(f"Failed to start Dash server: {e}")
 
     def recent(self):
         with open(RECENT_PROJECTS_FILE, 'r') as file:
@@ -388,10 +289,20 @@ class Project():
 
         Log.info(f"Project saved successfully to {zip_path}")
 
-    def save_as(self):
-        self.name = prompt("Please enter the name of the project: ")
-        self.save_directory = prompt("Please enter the directory to save the project to: ")
+    def save_as(self, file_name=None, save_directory=None):
+        if not file_name:
+            file_name = prompt("Please enter the name of the project: ")
+        if not save_directory:
+            save_directory = prompt("Please enter the directory to save the project to: ")
+        if save_directory == "project":
+            if not self.save_directory:
+                Log.error("No save directory set. Please set one before saving.")
+                save_directory = prompt("Please enter the directory to save the project to: ")
+                return
+            save_directory = self.save_directory
 
+        self.name = file_name
+        self.save_directory = save_directory
         self.save()
 
         # Start of Selection
@@ -501,7 +412,8 @@ class Project():
 
     def get_block(self, block_name):
         for block in self.blocks:
-            if block.name == block_name:
+            Log.info(f"Checking if {block.name.lower()}=={block_name.lower()}")
+            if block.name.lower() == block_name.lower():
                 return block
             
         return None
@@ -543,4 +455,7 @@ class Project():
 
     def get_save_directory(self):
         return self.save_directory
+    
+    def get_commands(self):
+        return self.command.get_commands()
     

@@ -38,7 +38,6 @@ class ExportAudioSpectrogramBlock(Block):
         self.command.add("set_audio_settings", self.set_audio_settings)
         self.command.add("set_destination_path", self.set_destination_path)
         self.command.add("export", self.export)
-        self.command.add("reload", self.reload)
 
         Log.info(f"{self.name} initialized with supported file types: {self.supported_file_types}")
 
@@ -152,7 +151,7 @@ class ExportAudioSpectrogramBlock(Block):
         }
     
     def save(self, save_dir):
-        # does not save any data, just metadata
+        self.data.save(save_dir)
         pass
 
     def load(self, block_dir):

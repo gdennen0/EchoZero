@@ -2,6 +2,9 @@ from src.Project.Data.data import Data
 from src.Utils.message import Log
 import os
 import soundfile as sf
+import librosa
+import pathlib
+
 class AudioData(Data):
     """
     AudioData is a single audio file.
@@ -98,7 +101,8 @@ class AudioData(Data):
         self.set_source(data_item_metadata.get("source"))
 
         
-        data, samplerate = sf.read(self.path)
+        # Use librosa for all file types
+        data, samplerate = librosa.load(self.path, sr=self.sample_rate)
         self.set_data(data)
         self.set_sample_rate(samplerate)
 
