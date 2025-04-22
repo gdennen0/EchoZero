@@ -69,6 +69,8 @@ class ExportMA2Block(Block):
         self.command.add("export_song_objects", self.export_song_objects)
 
         self.command.add("change_filename", self.change_filename)
+
+        self.command.add("set_ma_folder", self.set_ma_folder)
         
         self.tc_xml: str = ""
         self.export_preface: str = f"EZ"
@@ -162,6 +164,7 @@ class ExportMA2Block(Block):
 
     def change_filename(self):
         self.export_preface = prompt("Enter the song filename prefix: ")
+
 
     """
     FUNCTIONS:
