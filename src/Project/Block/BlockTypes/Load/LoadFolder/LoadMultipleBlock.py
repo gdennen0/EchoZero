@@ -53,6 +53,10 @@ class LoadMultipleBlock(Block):
     
     def execute(self):
         """Execute the block"""
+
+        ez_save_path = "/Users/gdennen/Desktop/COCO/EZ/EZ_PROJECTS"
+        ma_save_path = "/Users/gdennen/Desktop/COCO/EZ/MA_IMPORT"
+
         for filepath in self.audio_file_paths:
             # Check if the file is an audio file
             audio_extensions = ['.mp3', '.wav', '.flac', '.ogg', '.m4a', '.aac']
@@ -63,11 +67,12 @@ class LoadMultipleBlock(Block):
                 continue
                 
             # Get the filename from the path  when passing multiple args= right now you just have to seperate args
-            filename = os.path.basename(filepath)
+            filename = os.path.splitext(os.path.basename(filepath))[0]
             Log.info(f"Extracted filename: {filename}")
             Log.info(f"Processing audio file: {filepath}")
             self.send_command(f"commandsequencer edit_command command_type=block, parent_name=loadaudio, command_name=select_file, file_path={filepath}")
-            self.send_command(f"commandsequencer edit_command command_type=project, command_name=save_as, file_name={filename}, save_directory=project")
+            self.send_command(f"commandsequencer edit_command command_type=block, parent_name=exportma2, command_name=change_filename, file_name={filename}")
+            self.send_command(f"commandsequencer edit_command command_type=project, command_name=save_as, file_name={filename}, save_directory={ez_save_path}")
             self.send_command(f"commandsequencer execute")
         return True
     

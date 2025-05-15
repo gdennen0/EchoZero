@@ -78,9 +78,9 @@ class Command:
                 args_str = ' '.join(f"{k}={v}" for k, v in self.args.items())
             else:
                 args_str = str(self.args)
-            return f"{prefix}{self.command_name} {args_str}"
+            return f"{prefix} command: {self.command_name} args: {args_str}"
         else:
-            return f"{prefix}{self.command_name}"
+            return f"{prefix} command: {self.command_name}"
             
     def get_executable_command(self):
         """Return the command string that can be executed by send_command"""
@@ -411,24 +411,21 @@ class CommandSequencer(Block):
         args = ", ".join([f"{key}={value}" for key, value in kwargs.items()])
         
         if command_type:
-            Log.info(f"Editing command: {command_type}")
             if parent_name:
-                Log.info(f"parent_name: {parent_name}")
-            if command_name:
-                Log.info(f"command_name: {command_name}")
-            if args:
-                Log.info(f"args: {args}")
+                Log.info(f"CommandSequencer | edit_command | block: {parent_name}, command: {command_name}")
+            else:
+                Log.info(f"CommandSequencer | edit_command | project command: {command_name}")
             for cmd in self.commands:
-                Log.info(f"checking command: {cmd.command_type.lower()} to {command_type.lower()}")
+                # Log.info(f"checking command: {cmd.command_type.lower()} to {command_type.lower()}")
                 if cmd.command_type.lower() == command_type.lower():
-                    Log.info(f"matched command type {cmd.command_type}")
+                    # Log.info(f"matched command type {cmd.command_type}")
                     if parent_name: 
                         if cmd.parent_name and cmd.parent_name.lower() == parent_name.lower():
-                            Log.info(f"matched parent_name {cmd.parent_name}")
+                            # Log.info(f"matched parent_name {cmd.parent_name}")
                             if cmd.command_name.lower() == command_name.lower():
-                                Log.info(f"matched command_name {cmd.command_name}")
+                                # Log.info(f"matched command_name {cmd.command_name}")
                                 cmd.args = args
-                                Log.info(f"Updated command: {cmd.to_string()}")
+                                # Log.info(f"Updated command: {cmd.to_string()}")
                                 return True
                     else: 
                         if cmd.command_name.lower() == command_name.lower():

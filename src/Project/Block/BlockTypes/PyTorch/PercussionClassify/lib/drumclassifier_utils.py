@@ -58,8 +58,9 @@ class DrumClassifier:
             pad=0
         self.pad = pad
         # integer to class
+        # old int2class: {0: 'whis', 1: 'met', 2: 'cow', 3: 'taik', 4: 'clav', 5: 'hhc', 6: 'cah', 7: 'tim', 8: 'tab', 9: 'kick', 10: 'rid', 11: 'bass', 12: 'thd', 13: 'hho', 14: 'rim', 15: 'shk', 16: 'stick', 17: 'tom', 18: 'clp', 19: 'wood', 20: 'cong', 21: 'snr', 22: 'tri', 23: 'vib', 24: 'cym', 25: 'gui', 26: 'fx', 27: 'tomf', 28: 'ped', 29: 'cui'}
         if int2class is None:
-            int2class = {0: 'whis', 1: 'met', 2: 'cow', 3: 'taik', 4: 'clav', 5: 'hhc', 6: 'cah', 7: 'tim', 8: 'tab', 9: 'kick', 10: 'rid', 11: 'bass', 12: 'thd', 13: 'hho', 14: 'rim', 15: 'shk', 16: 'stick', 17: 'tom', 18: 'clp', 19: 'wood', 20: 'cong', 21: 'snr', 22: 'tri', 23: 'vib', 24: 'cym', 25: 'gui', 26: 'fx', 27: 'tomf', 28: 'ped', 29: 'cui'}
+            int2class = {0: 'misc', 1: 'misc', 2: 'cow', 3: 'misc', 4: 'misc', 5: 'hh', 6: 'snr', 7: 'tim', 8: 'misc', 9: 'kick', 10: 'cym', 11: 'kick', 12: 'snr', 13: 'hh', 14: 'hh', 15: 'misc', 16: 'misc', 17: 'tom', 18: 'clp', 19: 'misc', 20: 'tom', 21: 'snr', 22: 'misc', 23: 'misc', 24: 'cym', 25: 'misc', 26: 'fx', 27: 'tom', 28: 'misc', 29: 'misc'}
         self.int2class = int2class
         self.class2int = {v:k for k,v in int2class.items()}
         assert os.path.isfile(path_to_model)

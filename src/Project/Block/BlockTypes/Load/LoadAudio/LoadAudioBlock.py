@@ -2,7 +2,7 @@ from src.Project.Block.block import Block
 from src.Project.Data.Types.audio_data import AudioData
 from src.Project.Block.Output.Types.audio_output import AudioOutput
 
-from src.Utils.tools import prompt_selection
+from src.Utils.tools import prompt_selection, prompt_yes_no
 import librosa
 from src.Utils.message import Log
 import os
@@ -20,11 +20,13 @@ class LoadAudioBlock(Block):
 
         self.audio_source_dir = str(Path(__file__).resolve().parents[6] / "sources" / "audio")
         self.selected_file_path = None
+        self.disable_l_ch = False
 
         self.output.add_type(AudioOutput)
         self.output.add("AudioOutput")
 
         self.command.add("select_file", self.select_file)
+        self.command.add("disable_l_ch", self.set_disable_l_ch)
 
     def select_file(self, file_path=None):
         if file_path:
@@ -45,6 +47,12 @@ class LoadAudioBlock(Block):
         self.selected_file_path = path
         Log.info(f"Set selected file path: {self.selected_file_path}")
 
+    def set_disable_l_ch(self, disable=None):
+        if not disable:
+            disable = prompt_yes_no("Disable left channel?")
+        self.disable_l_ch = disable
+        Log.info(f"Set disable l ch: {self.disable_l_ch}")
+
     def load_file(self):
         if self.selected_file_path:
             SAMPLE_RATE = 44100
@@ -52,7 +60,23 @@ class LoadAudioBlock(Block):
                 audio_data = AudioData()
                 audio_data.path = self.selected_file_path
                 audio_data.sample_rate = SAMPLE_RATE
-                y, sr = librosa.load(audio_data.path, sr=audio_data.sample_rate)
+                
+                # Load the audio file
+                y, sr = librosa.load(audio_data.path, sr=audio_data.sample_rate, mono=False)
+                
+                # Check if the loaded audio is stereo (has 2 channels)
+                if isinstance(y, np.ndarray) and len(y.shape) > 1 and y.shape[0] == 2:
+                    # We have stereo audio
+                    if self.disable_l_ch:
+                        # Use only the right channel (index 1) for both channels
+                        right_channel = y[1]
+                        # Create a mono version from the right channel
+                        y = right_channel
+                        Log.info("Left channel disabled, using only right channel")
+                    else:
+                        # Convert to mono by averaging both channels
+                        y = np.mean(y, axis=0)
+                        
                 audio_data.set_data(y)
                 audio_data.name = os.path.basename(audio_data.path)
                 audio_data.length_ms = len(audio_data.data) / audio_data.sample_rate * 1000
@@ -77,6 +101,7 @@ class LoadAudioBlock(Block):
             "name": self.name,
             "type": self.type,
             "selected_file_path": self.selected_file_path,
+            "disable_l_ch": self.disable_l_ch,
             "input": self.input.save(),
             "output": self.output.save(),
             "metadata": self.data.get_metadata()
@@ -92,7 +117,7 @@ class LoadAudioBlock(Block):
         self.set_name(block_metadata.get("name"))
         self.set_type(block_metadata.get("type"))
         self.set_selected_file_path(block_metadata.get("selected_file_path"))
-
+        self.set_disable_l_ch(block_metadata.get("disable_l_ch"))
         # load sub components attributes
         self.data.load(block_metadata.get("metadata"), block_dir)
         self.input.load(block_metadata.get("input"))
