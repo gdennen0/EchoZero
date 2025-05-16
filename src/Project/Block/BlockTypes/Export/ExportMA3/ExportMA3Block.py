@@ -169,7 +169,7 @@ class ExportMA3Block(Block):
         for classes in sequence_classes:
             sub_sequence_classes[classes] = sub_sequence_counter 
             self.send_osc_message(f"/cmd", f"Store Sequence {sub_sequence_counter} /o /nc")
-            self.send_osc_message(f"/cmd", f"Label Sequence {sub_sequence_counter} \"{classes}\"")
+            self.send_osc_message(f"/cmd", f"Label Sequence {sub_sequence_counter} \"{classes}_{self.tc_pool_name}\"")
             sub_sequence_counter = sub_sequence_counter + 1
 
         for event_data in self.data.get_all():
