@@ -9,7 +9,7 @@ from src.Utils.tools import prompt
 DEFAULT_FRAME_RATE: int = 30
 DEFAULT_SEQUENCE_POOL: int = 1102
 DEFAULT_TC_POOL: int = 101
-DEFAULT_IP_ADDRESS: str = "10.0.0.174"
+DEFAULT_IP_ADDRESS: str = "192.168.0.101"
 DEFAULT_PORT: int = 8080
 
 class ExportMA3Block(Block):
@@ -34,7 +34,7 @@ class ExportMA3Block(Block):
         
 
         # Initialize OSC Client
-        self.osc_client = udp_client.SimpleUDPClient(self.ip_address, self.ip_port)  # Modify IP and port as needed
+        self.start_osc_client()
 
         # Register OSC-related commands
         self.command.add("send_ma_cuestack", self.batch_send_events)
@@ -45,6 +45,8 @@ class ExportMA3Block(Block):
         self.command.add("set_tc_pool", self.set_tc_pool)
         self.command.add("set_sequence_pool", self.set_sequence_pool)
 
+    def start_osc_client(self):
+        self.osc_client = udp_client.SimpleUDPClient(self.ip_address, self.ip_port)  # Modify IP and port as needed
 
     def test_connection(self):
         self.send_osc_message(f"{self.ip_address}", "Test")
@@ -69,11 +71,13 @@ class ExportMA3Block(Block):
         self.ip_address = prompt("Enter MA3 OSC Server IP:")
         self.ip_address = str(self.ip_address)
         Log.info(f"Set IP: {self.ip_address}")
+        self.start_osc_client()
 
     def set_port(self):
         self.ip_port = prompt("Enter MA3 OSC Server Port:")
         self.ip_port = int(self.ip_port)
         Log.info(f"Set Port: {self.ip_port}")
+        self.start_osc_client()
 
     def set_tc_pool(self):
         self.tc_pool = prompt("Set Destination Timecode Pool: ")
@@ -129,6 +133,7 @@ class ExportMA3Block(Block):
 
         for classes in sequence_classes:
             self.send_osc_message(f"/cmd", f"Store Sequence \"{classes}\" /o /nc")
+            self.send_osc_message(f"/cmd", f"Move Sequence \"{classes}\" at {self.sequence_pool}")
 
         for event_data in self.data.get_all():
             for event_item in event_data.get_all():
