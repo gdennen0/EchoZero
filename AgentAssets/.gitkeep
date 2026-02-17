@@ -1,0 +1,4 @@
+# This file ensures the AgentAssets directory structure is tracked by git
+# even if some subdirectories are empty
+
+

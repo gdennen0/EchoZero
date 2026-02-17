@@ -1,0 +1,190 @@
+<!--
+EchoZero Desktop Login - Webflow Custom Code
+=============================================
+
+SETUP INSTRUCTIONS:
+1. In Webflow, create a new page at /desktop-login
+2. Add a Memberstack Login component to the page (or use the default login form)
+3. Paste the <script> block below into the page's "Before </body> tag" custom code section
+   (Page Settings > Custom Code > Before </body> tag)
+4. Publish the Webflow site
+
+HOW IT WORKS:
+- The EchoZero desktop app opens this page in the user's browser with ?port=XXXX&nonce=YYYY
+- After the user logs in via Memberstack, this script detects the login
+- It POSTs credentials to http://127.0.0.1:PORT/callback (no token in URL)
+- The desktop app receives the callback and completes authentication
+-->
+
+<script>
+(function() {
+  'use strict';
+
+  // Parse query parameters from the URL
+  const params = new URLSearchParams(window.location.search);
+  const port = params.get('port');
+  const nonce = params.get('nonce');
+  const next = params.get('next') || '/memberportal';
+
+  // Only activate if opened from the desktop app (port param present)
+  if (!port || !nonce) {
+    console.log('EchoZero: No desktop callback params found, normal web login.');
+    return;
+  }
+
+  console.log('EchoZero: Desktop login mode active, waiting for authentication...');
+
+  function getSafeRedirectPath(path) {
+    if (!path || typeof path !== 'string') return '/memberportal';
+    // Only allow same-origin relative paths.
+    if (!path.startsWith('/')) return '/memberportal';
+    if (path.startsWith('//')) return '/memberportal';
+    return path;
+  }
+
+  function redirectAfterSuccess() {
+    const safePath = getSafeRedirectPath(next);
+    window.location.href = safePath;
+  }
+
+  // Show a subtle indicator that this is a desktop login
+  const indicator = document.createElement('div');
+  indicator.style.cssText = 'position:fixed;top:0;left:0;right:0;padding:8px;background:#1c1c20;color:#f0f0f5;text-align:center;font-size:14px;z-index:9999;font-family:system-ui,sans-serif;';
+  indicator.textContent = 'Logging in to EchoZero Desktop...';
+  document.body.appendChild(indicator);
+
+  // Poll for Memberstack authentication
+  // Memberstack sets window.$memberstackDom after initialization
+  function waitForMemberstack() {
+    if (window.$memberstackDom) {
+      checkLoginStatus();
+    } else {
+      setTimeout(waitForMemberstack, 200);
+    }
+  }
+
+  async function waitForStrictAuth(memberstack, maxAttempts, delayMs) {
+    for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+      try {
+        const member = await memberstack.getCurrentMember();
+        const token = typeof memberstack.getMemberCookie === 'function'
+          ? memberstack.getMemberCookie()
+          : '';
+        const memberId = member && member.data ? (member.data.id || '') : '';
+        if (token && memberId) {
+          return { token: token, memberId: memberId };
+        }
+      } catch (err) {
+        // Keep trying until hard timeout.
+      }
+      await new Promise(function(resolve) { setTimeout(resolve, delayMs); });
+    }
+    return { token: '', memberId: '' };
+  }
+
+  async function sendCredentialsToDesktop(token, memberId) {
+    const callbackUrl = 'http://127.0.0.1:' + port + '/callback';
+    const response = await fetch(callbackUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        token: token,
+        member_id: memberId,
+        nonce: nonce
+      })
+    });
+
+    if (!response.ok) {
+      let message = 'Desktop callback failed.';
+      try {
+        const body = await response.json();
+        if (body && body.error) message = body.error;
+      } catch (err) {
+        // Ignore JSON parse failures.
+      }
+      throw new Error(message);
+    }
+  }
+
+  async function checkLoginStatus() {
+    try {
+      const memberstack = window.$memberstackDom;
+      const member = await memberstack.getCurrentMember();
+
+      if (member && member.data) {
+        // Member is logged in -- obtain strict token path with bounded retry.
+        const tokenResult = await waitForStrictAuth(memberstack, 12, 500);
+        const token = tokenResult.token;
+        const memberId = tokenResult.memberId;
+
+        if (!token || !memberId) {
+          indicator.textContent = 'Login succeeded but token retrieval failed. Please try again.';
+          indicator.style.background = '#8a3a3a';
+          console.warn('EchoZero: token retrieval failed', {
+            memberDataKeys: member && member.data ? Object.keys(member.data) : [],
+            authKeys: member && member.data && member.data.auth ? Object.keys(member.data.auth) : [],
+            memberstackKeys: memberstack ? Object.keys(memberstack) : [],
+            strictPath: 'memberstack.getMemberCookie()'
+          });
+          return;
+        }
+
+        indicator.textContent = 'Login successful! Confirming with EchoZero...';
+        indicator.style.background = '#2a5a3a';
+
+        await sendCredentialsToDesktop(token, memberId);
+        indicator.textContent = 'Login successful. Redirecting...';
+        setTimeout(redirectAfterSuccess, 300);
+      } else {
+        // Not logged in yet -- listen for login event
+        listenForLogin(memberstack);
+      }
+    } catch (err) {
+      console.error('EchoZero: Error checking login status:', err);
+      // Retry after a delay
+      setTimeout(function() { checkLoginStatus(); }, 1000);
+    }
+  }
+
+  function listenForLogin(memberstack) {
+    // Poll every second to check if user has logged in
+    // (Memberstack doesn't expose a reliable post-login event in all setups)
+    const pollInterval = setInterval(async function() {
+      try {
+        const member = await memberstack.getCurrentMember();
+        if (member && member.data) {
+          clearInterval(pollInterval);
+
+          const tokenResult = await waitForStrictAuth(memberstack, 12, 500);
+          const token = tokenResult.token;
+          const memberId = tokenResult.memberId;
+
+          if (!token || !memberId) {
+            indicator.textContent = 'Login succeeded but token retrieval failed. Please try again.';
+            indicator.style.background = '#8a3a3a';
+            console.warn('EchoZero: token retrieval failed', {
+              memberDataKeys: member && member.data ? Object.keys(member.data) : [],
+              authKeys: member && member.data && member.data.auth ? Object.keys(member.data.auth) : [],
+              memberstackKeys: memberstack ? Object.keys(memberstack) : [],
+              strictPath: 'memberstack.getMemberCookie()'
+            });
+            return;
+          }
+
+          indicator.textContent = 'Login successful! Confirming with EchoZero...';
+          indicator.style.background = '#2a5a3a';
+
+          await sendCredentialsToDesktop(token, memberId);
+          indicator.textContent = 'Login successful. Redirecting...';
+          setTimeout(redirectAfterSuccess, 300);
+        }
+      } catch (err) {
+        // Ignore errors during polling, keep trying
+      }
+    }, 1000);
+  }
+
+  // Start the flow
+  waitForMemberstack();
+})();
+</script>

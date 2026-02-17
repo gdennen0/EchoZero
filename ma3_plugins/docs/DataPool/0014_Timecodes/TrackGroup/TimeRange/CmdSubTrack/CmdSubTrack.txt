@@ -1,0 +1,297 @@
+# CmdSubTrack Object Reference Documentation
+# Source: grandMA3 Dump() command on CmdSubTrack object
+# Command: DataPool().Timecodes[101][1][2][1][1]:Dump()
+# Date: [When this was captured]
+
+## Overview
+
+A CmdSubTrack contains command events (CmdEvents) that execute commands at specific times. It is a child of TimeRange.
+
+**Hierarchy:** `DataPool().Timecodes[timecode_no][track_group_no][track_no][time_range_no][cmd_subtrack_no]`
+
+## Object Information
+
+**Name:** CmdSubTrack 1
+**Class:** CmdSubTrack
+**Path:** Root/ShowData/DataPools/1 'Default'/Timecodes/101 'Intro_Feel'/1 'Test'/1100 'Intro_Feel'/TimeRange 1/CmdSubTrack 1
+
+---
+
+## Access Methods
+
+### Basic Access
+
+```lua
+-- Access CmdSubTrack through hierarchy
+local tc = DataPool().Timecodes[101]
+local tg = tc[1]
+local tracks = tg:Children()
+local track = tracks[2]  -- Skip Marker at index 0
+local time_ranges = track:Children()
+local tr = time_ranges[1]
+local sub_tracks = tr:Children()
+local cst = sub_tracks[1]  -- First SubTrack (usually CmdSubTrack)
+
+-- Or directly (if you know the indices)
+local cst = DataPool().Timecodes[101][1][2][1][1]
+```
+
+### Helper Function
+
+```lua
+function GetCmdSubTrack(tc_no, tg_idx, track_idx, tr_idx, cst_idx)
+    local tc = DataPool().Timecodes[tc_no]
+    if not tc then return nil end
+    
+    local tg = tc[tg_idx]
+    if not tg then return nil end
+    
+    local tracks = tg:Children()
+    if not tracks[track_idx] then return nil end
+    
+    local track = tracks[track_idx]
+    local time_ranges = track:Children()
+    if not time_ranges[tr_idx] then return nil end
+    
+    local tr = time_ranges[tr_idx]
+    local sub_tracks = tr:Children()
+    if not sub_tracks[cst_idx] then return nil end
+    
+    local subtrack = sub_tracks[cst_idx]
+    local class = subtrack:GetClass()
+    
+    if class == "CmdSubTrack" then
+        return subtrack
+    end
+    
+    return nil
+end
+```
+
+---
+
+## Properties
+
+### Standard Properties
+
+| Property | Type | Read Only | Description |
+|----------|------|-----------|-------------|
+| NAME | "CmdSubTrack 1" | No | CmdSubTrack name |
+| INDEX | "1" | Yes | Array index |
+| COUNT | "18" | Yes | Number of CmdEvents |
+| NO | "1 (18)" | Yes | Number representation |
+| MEMORYFOOTPRINT | "7.1 KB" | Yes | Memory usage |
+| NOTE | "" | No | Notes |
+| HIDDEN | "No" | No | Visibility state |
+| LOCK | "" | No | Lock status |
+
+### Accessing Properties
+
+```lua
+local cst = GetCmdSubTrack(101, 1, 2, 1, 1)
+
+-- Access via property name (direct)
+local name = cst.name
+local count = cst.count
+
+-- Access via :Get() method
+local name = cst:Get("NAME")
+local count = cst:Get("COUNT")
+
+-- Setting properties
+cst.name = "My CmdSubTrack"
+cst.note = "My notes"
+```
+
+---
+
+## Children (CmdEvents)
+
+CmdSubTracks contain CmdEvents that execute commands at specific times.
+
+### Accessing Children
+
+```lua
+local cst = GetCmdSubTrack(101, 1, 2, 1, 1)
+
+-- Get all CmdEvents
+local events = cst:Children()
+
+-- Access specific CmdEvent
+local event = events[1]  -- First CmdEvent
+
+-- Iterate CmdEvents
+for i = 1, #events do
+    local event = events[i]
+    Printf("Event " .. i .. ": " .. event.name)
+end
+```
+
+See `CmdEvent/CmdEvent.txt` for CmdEvent documentation.
+
+---
+
+## Common Operations
+
+### Listing All CmdEvents
+
+```lua
+function ListCmdEvents(tc_no, tg_idx, track_idx, tr_idx, cst_idx)
+    local cst = GetCmdSubTrack(tc_no, tg_idx, track_idx, tr_idx, cst_idx)
+    if not cst then
+        Printf("CmdSubTrack not found")
+        return
+    end
+    
+    Printf("CmdSubTrack: " .. cst.name)
+    
+    local events = cst:Children()
+    Printf("CmdEvents: " .. #events)
+    Printf("")
+    
+    for i = 1, #events do
+        local event = events[i]
+        local time = event.time or "?"
+        local token = event.token or "?"
+        Printf(string.format("  Event [%d]: %s (Time: %s, Token: %s)", 
+              i, event.name, time, token))
+    end
+end
+```
+
+### Getting CmdEvent by Index
+
+```lua
+function GetCmdEvent(tc_no, tg_idx, track_idx, tr_idx, cst_idx, event_idx)
+    local cst = GetCmdSubTrack(tc_no, tg_idx, track_idx, tr_idx, cst_idx)
+    if not cst then return nil end
+    
+    local events = cst:Children()
+    if not events[event_idx] then return nil end
+    
+    return events[event_idx]
+end
+```
+
+### Getting CmdEvent by Time
+
+```lua
+function GetCmdEventByTime(tc_no, tg_idx, track_idx, tr_idx, cst_idx, target_time)
+    local cst = GetCmdSubTrack(tc_no, tg_idx, track_idx, tr_idx, cst_idx)
+    if not cst then return nil end
+    
+    local events = cst:Children()
+    
+    for i = 1, #events do
+        local event = events[i]
+        local time = event.time or 0
+        
+        if time == target_time then
+            return event, i
+        end
+    end
+    
+    return nil
+end
+```
+
+### Dumping CmdSubTrack
+
+```lua
+-- Dump entire CmdSubTrack object
+local cst = GetCmdSubTrack(101, 1, 2, 1, 1)
+cst:Dump()
+
+-- Or via command line
+-- Lua "DataPool().Timecodes[101][1][2][1][1]:Dump()"
+```
+
+---
+
+## Examples
+
+### Example 1: Access CmdSubTrack and List Events
+
+```lua
+local cst = GetCmdSubTrack(101, 1, 2, 1, 1)
+if cst then
+    Printf("CmdSubTrack: " .. cst.name)
+    Printf("Event count: " .. cst.count)
+    
+    local events = cst:Children()
+    for i = 1, #events do
+        local event = events[i]
+        Printf("  Event " .. i .. ": " .. event.name .. " at " .. event.time)
+    end
+end
+```
+
+### Example 2: Find Events by Command
+
+```lua
+function FindCmdEventsByToken(tc_no, tg_idx, track_idx, tr_idx, cst_idx, token)
+    local cst = GetCmdSubTrack(tc_no, tg_idx, track_idx, tr_idx, cst_idx)
+    if not cst then return {} end
+    
+    local events = cst:Children()
+    local found = {}
+    
+    for i = 1, #events do
+        local event = events[i]
+        if event.token == token then
+            table.insert(found, {event = event, index = i})
+        end
+    end
+    
+    return found
+end
+
+-- Usage: Find all "Go+" events
+local go_events = FindCmdEventsByToken(101, 1, 2, 1, 1, "Go+")
+Printf("Found " .. #go_events .. " Go+ events")
+```
+
+### Example 3: Get CmdSubTrack Statistics
+
+```lua
+function GetCmdSubTrackStats(tc_no, tg_idx, track_idx, tr_idx, cst_idx)
+    local cst = GetCmdSubTrack(tc_no, tg_idx, track_idx, tr_idx, cst_idx)
+    if not cst then return nil end
+    
+    local events = cst:Children()
+    
+    local stats = {
+        name = cst.name,
+        total_events = #events,
+        unique_tokens = {},
+        time_range = {min = nil, max = nil}
+    }
+    
+    for i = 1, #events do
+        local event = events[i]
+        
+        -- Collect unique tokens
+        local token = event.token or "Unknown"
+        stats.unique_tokens[token] = (stats.unique_tokens[token] or 0) + 1
+        
+        -- Track time range
+        local time = event.time or 0
+        if not stats.time_range.min or time < stats.time_range.min then
+            stats.time_range.min = time
+        end
+        if not stats.time_range.max or time > stats.time_range.max then
+            stats.time_range.max = time
+        end
+    end
+    
+    return stats
+end
+```
+
+---
+
+## Related Documentation
+
+- See `../TimeRange.txt` for TimeRange documentation
+- See `CmdEvent/CmdEvent.txt` for CmdEvent documentation
+- See `TIMECODE_STRUCTURE.md` for overall timecode hierarchy

@@ -1,0 +1,64 @@
+{
+  "name": "echozero-ai-context",
+  "displayName": "EchoZero AI Context",
+  "description": "Automatically provides EchoZero context to AI agents in Cursor IDE",
+  "version": "1.0.0",
+  "engines": {
+    "vscode": "^1.60.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onCommand:echozero.aiContext",
+    "onCommand:echozero.getContext",
+    "workspaceContains:.cursor/ai_context_hook.py"
+  ],
+  "main": "./ai_context_extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "echozero.aiContext",
+        "title": "Get EchoZero Context"
+      },
+      {
+        "command": "echozero.getContext",
+        "title": "EchoZero: Get Context for Input"
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "echozero.aiContext",
+        "key": "ctrl+shift+e",
+        "mac": "cmd+shift+e",
+        "when": "editorTextFocus"
+      }
+    ],
+    "configuration": {
+      "title": "EchoZero AI Context",
+      "properties": {
+        "echozero.aiContext.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable automatic EchoZero context injection for AI agents"
+        },
+        "echozero.aiContext.autoInject": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically inject context into AI chat messages"
+        },
+        "echozero.aiContext.cacheTimeout": {
+          "type": "number",
+          "default": 300,
+          "description": "Context cache timeout in seconds"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./"
+  }
+}
+

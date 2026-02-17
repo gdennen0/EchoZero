@@ -1,0 +1,307 @@
+# TimeRange Object Reference Documentation
+# Source: grandMA3 Dump() command on TimeRange object
+# Command: DataPool().Timecodes[101][1][2][1]:Dump()
+# Date: [When this was captured]
+
+## Overview
+
+A TimeRange represents a time segment within a Track. It contains CmdSubTracks and FaderSubTracks that hold the actual events (CmdEvents and FaderEvents).
+
+**Hierarchy:** `DataPool().Timecodes[timecode_no][track_group_no][track_no][time_range_no]`
+
+**Note:** Tracks contain TimeRanges. TimeRanges contain SubTracks (CmdSubTrack and FaderSubTrack).
+
+## Object Information
+
+**Name:** TimeRange 1
+**Class:** TimeRange
+**Path:** Root/ShowData/DataPools/1 'Default'/Timecodes/101 'Intro_Feel'/1 'Test'/1100 'Intro_Feel'/TimeRange 1
+
+---
+
+## Access Methods
+
+### Basic Access
+
+```lua
+-- Access TimeRange through hierarchy
+local tc = DataPool().Timecodes[101]
+local tg = tc[1]
+local track = tg:Children()[1]  -- Skip Marker at index 0
+local time_ranges = track:Children()
+local tr = time_ranges[1]  -- First TimeRange
+
+-- Or directly (if you know the indices)
+local tr = DataPool().Timecodes[101][1][2][1]
+-- Timecode[101] > TrackGroup[1] > Track[2] > TimeRange[1]
+```
+
+### Checking TimeRange Existence
+
+```lua
+function GetTimeRange(tc_no, tg_idx, track_idx, tr_idx)
+    local tc = DataPool().Timecodes[tc_no]
+    if not tc then return nil end
+    
+    local tg = tc[tg_idx]
+    if not tg then return nil end
+    
+    local tracks = tg:Children()
+    if not tracks[track_idx] then return nil end
+    
+    local track = tracks[track_idx]
+    local time_ranges = track:Children()
+    if not time_ranges[tr_idx] then return nil end
+    
+    return time_ranges[tr_idx]
+end
+
+-- Usage
+local tr = GetTimeRange(101, 1, 2, 1)
+if tr then
+    Printf("TimeRange exists: " .. tr.name)
+end
+```
+
+---
+
+## Properties
+
+### Standard Properties
+
+| Property | Type | Read Only | Description |
+|----------|------|-----------|-------------|
+| NAME | "TimeRange 1" | No | TimeRange name |
+| INDEX | "1" | Yes | Array index |
+| COUNT | "1" | Yes | Number of children (SubTracks) |
+| MEMORYFOOTPRINT | "7.7 KB" | Yes | Memory usage |
+| GUID | "62 87 CD 8E..." | Yes | Global unique identifier |
+| NOTE | "" | No | Notes |
+| TAGS | "" | No | Tags |
+| LOCK | "PL" | No | Lock status |
+
+### TimeRange-Specific Properties
+
+| Property | Type | Read Only | Description |
+|----------|------|-----------|-------------|
+| TRACKGROUP | "1 'Test'" | Yes | Parent TrackGroup reference |
+| TRACK | "1100 'Intro_Feel'" | Yes | Parent Track reference |
+| START | "0.000000" | No | Start time |
+| RAWSTART | "0" | Yes | Raw start time value |
+| DURATION | "14d00h00m0.00" | No | Duration |
+| OFFSET | "0.000000" | No | Offset time |
+| SPEEDFACTOR | "1.0000000000" | No | Speed factor |
+| PLAY | "" | No | Play status |
+| REC | "" | No | Record status |
+
+### Accessing Properties
+
+```lua
+local tr = GetTimeRange(101, 1, 2, 1)
+
+-- Access via property name (direct)
+local name = tr.name
+local start = tr.start
+local duration = tr.duration
+
+-- Access via :Get() method
+local name = tr:Get("NAME")
+local start = tr:Get("START")
+local duration = tr:Get("DURATION")
+
+-- Setting properties
+tr.start = "10.000000"
+tr.duration = "20m00:00"
+tr.speedfactor = "2.0000000000"
+```
+
+---
+
+## Children (SubTracks)
+
+TimeRanges contain SubTracks: CmdSubTrack (for command events) and FaderSubTrack (for fader events).
+
+### Accessing Children
+
+```lua
+local tr = GetTimeRange(101, 1, 2, 1)
+
+-- Get all SubTracks
+local sub_tracks = tr:Children()
+
+-- Access specific SubTrack
+local cmd_subtrack = sub_tracks[1]  -- First SubTrack (usually CmdSubTrack)
+local fader_subtrack = sub_tracks[2]  -- Second SubTrack (if FaderSubTrack exists)
+
+-- Iterate SubTracks
+for i = 1, #sub_tracks do
+    local subtrack = sub_tracks[i]
+    local class = subtrack:GetClass() or "Unknown"
+    Printf("SubTrack " .. i .. ": " .. subtrack.name .. " (" .. class .. ")")
+end
+```
+
+### Children Structure
+
+| Index | Name | Class | Description |
+|-------|------|-------|-------------|
+| #0001 | CmdSubTrack 1 | CmdSubTrack | Command events track |
+| #0002 | FaderSubTrack 1 | FaderSubTrack | Fader events track (if exists) |
+
+See `CmdSubTrack/CmdSubTrack.txt` and `FaderSubtrack/FaderSubTrack.txt` for SubTrack documentation.
+
+---
+
+## Common Operations
+
+### Listing All SubTracks
+
+```lua
+function ListSubTracks(tc_no, tg_idx, track_idx, tr_idx)
+    local tr = GetTimeRange(tc_no, tg_idx, track_idx, tr_idx)
+    if not tr then
+        Printf("TimeRange not found")
+        return
+    end
+    
+    Printf("TimeRange: " .. tr.name)
+    
+    local sub_tracks = tr:Children()
+    Printf("SubTracks: " .. #sub_tracks)
+    Printf("")
+    
+    for i = 1, #sub_tracks do
+        local subtrack = sub_tracks[i]
+        local class = subtrack:GetClass() or "Unknown"
+        Printf(string.format("  SubTrack [%d]: %s (%s)", i, subtrack.name, class))
+    end
+end
+
+-- Usage
+ListSubTracks(101, 1, 2, 1)
+```
+
+### Getting CmdSubTrack
+
+```lua
+function GetCmdSubTrack(tc_no, tg_idx, track_idx, tr_idx, cst_idx)
+    local tr = GetTimeRange(tc_no, tg_idx, track_idx, tr_idx)
+    if not tr then return nil end
+    
+    local sub_tracks = tr:Children()
+    if not sub_tracks[cst_idx] then return nil end
+    
+    local subtrack = sub_tracks[cst_idx]
+    local class = subtrack:GetClass()
+    
+    if class == "CmdSubTrack" then
+        return subtrack
+    end
+    
+    return nil
+end
+
+-- Usage
+local cst = GetCmdSubTrack(101, 1, 2, 1, 1)
+if cst then
+    Printf("CmdSubTrack: " .. cst.name)
+end
+```
+
+### Getting FaderSubTrack
+
+```lua
+function GetFaderSubTrack(tc_no, tg_idx, track_idx, tr_idx, fst_idx)
+    local tr = GetTimeRange(tc_no, tg_idx, track_idx, tr_idx)
+    if not tr then return nil end
+    
+    local sub_tracks = tr:Children()
+    if not sub_tracks[fst_idx] then return nil end
+    
+    local subtrack = sub_tracks[fst_idx]
+    local class = subtrack:GetClass()
+    
+    if class == "FaderSubTrack" then
+        return subtrack
+    end
+    
+    return nil
+end
+```
+
+### Dumping TimeRange
+
+```lua
+-- Dump entire TimeRange object
+local tr = GetTimeRange(101, 1, 2, 1)
+tr:Dump()
+
+-- Or via command line
+-- Lua "DataPool().Timecodes[101][1][2][1]:Dump()"
+```
+
+---
+
+## Examples
+
+### Example 1: Access TimeRange and List SubTracks
+
+```lua
+local tc = DataPool().Timecodes[101]
+local tg = tc[1]
+local tracks = tg:Children()
+local track = tracks[2]  -- Skip Marker at index 0, so index 2 is second track
+local time_ranges = track:Children()
+local tr = time_ranges[1]
+
+Printf("TimeRange: " .. tr.name)
+Printf("Start: " .. tr.start)
+Printf("Duration: " .. tr.duration)
+
+local sub_tracks = tr:Children()
+Printf("SubTracks: " .. #sub_tracks)
+
+for i = 1, #sub_tracks do
+    local subtrack = sub_tracks[i]
+    Printf("  SubTrack " .. i .. ": " .. subtrack.name)
+end
+```
+
+### Example 2: Get TimeRange Properties
+
+```lua
+function GetTimeRangeInfo(tc_no, tg_idx, track_idx, tr_idx)
+    local tr = GetTimeRange(tc_no, tg_idx, track_idx, tr_idx)
+    if not tr then return nil end
+    
+    local info = {
+        name = tr.name or "Unknown",
+        start = tr.start or "?",
+        duration = tr.duration or "?",
+        offset = tr.offset or "?",
+        speedfactor = tr.speedfactor or "?",
+        trackgroup = tr.trackgroup or "?",
+        track = tr.track or "?",
+        count = tr.count or 0
+    }
+    
+    return info
+end
+
+-- Usage
+local info = GetTimeRangeInfo(101, 1, 2, 1)
+if info then
+    Printf("TimeRange: " .. info.name)
+    Printf("Start: " .. info.start)
+    Printf("Duration: " .. info.duration)
+end
+```
+
+---
+
+## Related Documentation
+
+- See `../TrackGroup.txt` for TrackGroup documentation
+- See `CmdSubTrack/CmdSubTrack.txt` for CmdSubTrack documentation
+- See `FaderSubtrack/FaderSubTrack.txt` for FaderSubTrack documentation
+- See `TIMECODE_STRUCTURE.md` for overall timecode hierarchy

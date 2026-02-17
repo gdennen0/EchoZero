@@ -1,0 +1,209 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "AgentAssets: Quality Check",
+      "type": "shell",
+      "command": "python",
+      "args": [
+        "AgentAssets/scripts/quality_checks.py",
+        "${file}"
+      ],
+      "group": {
+        "kind": "test",
+        "isDefault": false
+      },
+      "presentation": {
+        "echo": true,
+        "reveal": "silent",
+        "focus": false,
+        "panel": "shared",
+        "showReuseMessage": true,
+        "clear": false
+      },
+      "problemMatcher": "$python"
+    },
+    {
+      "label": "AgentAssets: Sync",
+      "type": "shell",
+      "command": "python",
+      "args": [
+        "AgentAssets/scripts/auto_sync.py",
+        "sync"
+      ],
+      "group": {
+        "kind": "build",
+        "isDefault": false
+      },
+      "presentation": {
+        "echo": true,
+        "reveal": "silent",
+        "focus": false,
+        "panel": "shared",
+        "showReuseMessage": true,
+        "clear": false
+      }
+    },
+    {
+      "label": "AgentAssets: Validate Council Decision",
+      "type": "shell",
+      "command": "python",
+      "args": [
+        "AgentAssets/scripts/validate_council_decision.py",
+        "${file}"
+      ],
+      "group": {
+        "kind": "test",
+        "isDefault": false
+      },
+      "presentation": {
+        "echo": true,
+        "reveal": "silent",
+        "focus": false,
+        "panel": "shared",
+        "showReuseMessage": true,
+        "clear": false
+      }
+    },
+    {
+      "label": "AgentAssets: Generate Code",
+      "type": "shell",
+      "command": "python",
+      "args": [
+        "AgentAssets/scripts/code_generator.py"
+      ],
+      "group": {
+        "kind": "build",
+        "isDefault": false
+      },
+      "presentation": {
+        "echo": true,
+        "reveal": "always",
+        "focus": true,
+        "panel": "shared",
+        "showReuseMessage": true,
+        "clear": false
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "AgentAssets: Performance Report",
+      "type": "shell",
+      "command": "python",
+      "args": [
+        "AgentAssets/scripts/ai_feedback_system.py",
+        "feedback",
+        "${input:agentId}"
+      ],
+      "group": {
+        "kind": "test",
+        "isDefault": false
+      },
+      "presentation": {
+        "echo": true,
+        "reveal": "always",
+        "focus": true,
+        "panel": "shared",
+        "showReuseMessage": true,
+        "clear": false
+      },
+      "inputs": [
+        {
+          "id": "agentId",
+          "description": "AI Agent ID for feedback report",
+          "default": "grok",
+          "type": "promptString"
+        }
+      ]
+    },
+    {
+      "label": "AgentAssets: Watch Mode",
+      "type": "shell",
+      "command": "python",
+      "args": [
+        "AgentAssets/scripts/auto_sync.py",
+        "watch"
+      ],
+      "group": {
+        "kind": "build",
+        "isDefault": false
+      },
+      "presentation": {
+        "echo": true,
+        "reveal": "always",
+        "focus": false,
+        "panel": "dedicated",
+        "showReuseMessage": false,
+        "clear": true
+      },
+      "isBackground": true,
+      "problemMatcher": []
+    },
+    {
+      "label": "AgentAssets: Get Tab Context",
+      "type": "shell",
+      "command": "python",
+      "args": [
+        ".cursor/hooks.py",
+        "context",
+        "${file}",
+        "${lineNumber}"
+      ],
+      "group": {
+        "kind": "test",
+        "isDefault": false
+      },
+      "presentation": {
+        "echo": true,
+        "reveal": "always",
+        "focus": true,
+        "panel": "shared",
+        "showReuseMessage": true,
+        "clear": false
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "AgentAssets: Refine Learning",
+      "type": "shell",
+      "command": "python",
+      "args": [
+        "AgentAssets/scripts/learning_engine.py",
+        "refine"
+      ],
+      "group": {
+        "kind": "build",
+        "isDefault": false
+      },
+      "presentation": {
+        "echo": true,
+        "reveal": "silent",
+        "focus": false,
+        "panel": "shared",
+        "showReuseMessage": true,
+        "clear": false
+      }
+    },
+    {
+      "label": "AgentAssets: Learning Stats",
+      "type": "shell",
+      "command": "python",
+      "args": [
+        "AgentAssets/scripts/learning_engine.py",
+        "stats"
+      ],
+      "group": {
+        "kind": "test",
+        "isDefault": false
+      },
+      "presentation": {
+        "echo": true,
+        "reveal": "always",
+        "focus": true,
+        "panel": "shared",
+        "showReuseMessage": true,
+        "clear": false
+      }
+    }
+  ]
+}

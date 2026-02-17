@@ -1,0 +1,317 @@
+# TrackGroup Object Reference Documentation
+# Source: grandMA3 Dump() command on TrackGroup object
+# Command: DataPool().Timecodes[101][1]:Dump()
+# Date: [When this was captured]
+
+## Overview
+
+A TrackGroup organizes multiple Tracks within a Timecode. It contains Tracks (including a MarkerTrack at index 0) that hold TimeRanges and events.
+
+**Hierarchy:** `DataPool().Timecodes[timecode_no][track_group_no]`
+
+**Important:** TrackGroup's `Children()` array has "Marker" at index 0. Always skip index 0 when iterating Tracks.
+
+## Object Information
+
+**Name:** 1 'Test'
+**Class:** TrackGroup
+**Path:** Root/ShowData/DataPools/1 'Default'/Timecodes/101 'Intro_Feel'/1 'Test'
+
+---
+
+## Access Methods
+
+### Basic Access
+
+```lua
+-- Access TrackGroup by timecode and index
+local tc = DataPool().Timecodes[101]
+local tg = tc[1]  -- First TrackGroup
+
+-- Or directly
+local tg = DataPool().Timecodes[101][1]
+
+-- Access via :Children() method
+local tc = DataPool().Timecodes[101]
+local track_groups = tc:Children()
+local tg = track_groups[1]  -- First TrackGroup
+```
+
+### Checking TrackGroup Existence
+
+```lua
+local tc = DataPool().Timecodes[101]
+local tg = tc[1]
+if tg then
+    Printf("TrackGroup exists: " .. tg.name)
+else
+    Printf("TrackGroup not found")
+end
+```
+
+---
+
+## Properties
+
+### Standard Properties
+
+| Property | Type | Read Only | Description |
+|----------|------|-----------|-------------|
+| NAME | "1 'Test'" | No | TrackGroup name |
+| NO | "1 (10)" | Yes | Number representation |
+| INDEX | "1" | Yes | Array index |
+| COUNT | "10" | Yes | Number of children (including Marker) |
+| MEMORYFOOTPRINT | "109.6 kB" | Yes | Memory usage |
+| USEREXPANDED | "Yes" | No | User expansion state |
+| HIDDEN | "No" | No | Visibility state |
+| NOTE | "" | No | Notes |
+| LOCK | "" | No | Lock status |
+
+### Accessing Properties
+
+```lua
+local tg = DataPool().Timecodes[101][1]
+
+-- Access via property name (direct)
+local name = tg.name
+local count = tg.count
+
+-- Access via :Get() method
+local name = tg:Get("NAME")
+local count = tg:Get("COUNT")
+
+-- Setting properties
+tg.name = "New TrackGroup Name"
+tg.note = "My notes"
+```
+
+---
+
+## Children (Tracks)
+
+TrackGroups contain Tracks. **Important:** Index 0 is always "Marker" (MarkerTrack) - skip it when accessing actual Tracks.
+
+### Accessing Children
+
+```lua
+local tg = DataPool().Timecodes[101][1]
+
+-- Get all children (includes Marker at index 0)
+local children = tg:Children()
+
+-- Access Marker (index 0) - usually skip this
+local marker = children[0]  -- or tg[0]
+
+-- Access first actual Track (index 1)
+local track = children[1]  -- or tg[1]
+
+-- Iterate actual Tracks (skip index 0)
+for i = 1, #children do
+    local track = children[i]
+    Printf("Track " .. i .. ": " .. track.name)
+end
+```
+
+### Children Structure
+
+| Index | Name | Class | Description |
+|-------|------|-------|-------------|
+| #0000 | Marker | MarkerTrack | Marker track (usually skip) |
+| #0001 | 1100 'Intro_Feel' | Track | First actual track |
+| #0002 | 13 'Synth' | Track | Second track |
+| #0003 | 15 'Kick' | Track | Third track |
+| #0004 | 16 'Snare' | Track | Fourth track |
+| ... | ... | ... | ... |
+
+See `TimeRange/TimeRange.txt` for Track documentation (Tracks contain TimeRanges).
+
+---
+
+## Common Operations
+
+### Listing All Tracks (Skipping Marker)
+
+```lua
+function ListTracks(tc_no, tg_idx)
+    local tc = DataPool().Timecodes[tc_no]
+    if not tc then
+        Printf("Timecode " .. tc_no .. " not found")
+        return
+    end
+    
+    local track_groups = tc:Children()
+    if not track_groups[tg_idx] then
+        Printf("TrackGroup " .. tg_idx .. " not found")
+        return
+    end
+    
+    local tg = track_groups[tg_idx]
+    Printf("TrackGroup: " .. tg.name)
+    
+    local children = tg:Children()
+    Printf("Total children: " .. #children .. " (including Marker)")
+    Printf("")
+    
+    -- Skip index 0 (Marker)
+    for i = 1, #children do
+        local track = children[i]
+        Printf(string.format("  Track [%d]: %s", i, track.name or "Unknown"))
+    end
+end
+
+-- Usage
+ListTracks(101, 1)
+```
+
+### Getting Track by Index
+
+```lua
+function GetTrack(tc_no, tg_idx, track_idx)
+    local tc = DataPool().Timecodes[tc_no]
+    if not tc then return nil end
+    
+    local tg = tc[tg_idx]
+    if not tg then return nil end
+    
+    local children = tg:Children()
+    if not children[track_idx] then return nil end
+    
+    return children[track_idx]
+end
+
+-- Usage (get first actual track, skipping Marker)
+local track = GetTrack(101, 1, 1)
+if track then
+    Printf("Track: " .. track.name)
+end
+```
+
+### Iterating Tracks
+
+```lua
+function IterateTracks(tc_no, tg_idx, callback)
+    local tc = DataPool().Timecodes[tc_no]
+    if not tc then return false end
+    
+    local tg = tc[tg_idx]
+    if not tg then return false end
+    
+    local children = tg:Children()
+    
+    -- Skip index 0 (Marker)
+    for i = 1, #children do
+        local track = children[i]
+        callback(track, i)
+    end
+    
+    return true
+end
+
+-- Usage
+IterateTracks(101, 1, function(track, index)
+    Printf("Track " .. index .. ": " .. track.name)
+end)
+```
+
+### Dumping TrackGroup
+
+```lua
+-- Dump entire TrackGroup object
+local tg = DataPool().Timecodes[101][1]
+tg:Dump()
+
+-- Or via command line
+-- Lua "DataPool().Timecodes[101][1]:Dump()"
+```
+
+---
+
+## Examples
+
+### Example 1: Access TrackGroup and List Tracks
+
+```lua
+local tc = DataPool().Timecodes[101]
+local tg = tc[1]
+Printf("TrackGroup: " .. tg.name)
+
+local children = tg:Children()
+Printf("Total children: " .. #children)
+
+-- List all tracks (skip Marker at index 0)
+for i = 1, #children do
+    local track = children[i]
+    Printf("  Track " .. i .. ": " .. track.name)
+end
+```
+
+### Example 2: Find Track by Name
+
+```lua
+function FindTrackByName(tc_no, tg_idx, track_name)
+    local tc = DataPool().Timecodes[tc_no]
+    if not tc then return nil end
+    
+    local tg = tc[tg_idx]
+    if not tg then return nil end
+    
+    local children = tg:Children()
+    
+    -- Search through tracks (skip Marker at index 0)
+    for i = 1, #children do
+        local track = children[i]
+        if track.name == track_name then
+            return track, i
+        end
+    end
+    
+    return nil
+end
+
+-- Usage
+local track, index = FindTrackByName(101, 1, "1100 'Intro_Feel'")
+if track then
+    Printf("Found track at index " .. index)
+end
+```
+
+### Example 3: Get All Track Names
+
+```lua
+function GetAllTrackNames(tc_no, tg_idx)
+    local tc = DataPool().Timecodes[tc_no]
+    if not tc then return {} end
+    
+    local tg = tc[tg_idx]
+    if not tg then return {} end
+    
+    local children = tg:Children()
+    local names = {}
+    
+    -- Skip Marker at index 0
+    for i = 1, #children do
+        local track = children[i]
+        table.insert(names, track.name or "Unknown")
+    end
+    
+    return names
+end
+```
+
+---
+
+## Important Notes
+
+1. **Always skip index 0:** TrackGroup's Children()[0] is always "Marker" (MarkerTrack). When iterating or accessing Tracks, start from index 1.
+
+2. **Children() vs Direct Index:** Both `tg:Children()[1]` and `tg[1]` work, but `:Children()` is more explicit.
+
+3. **Track Structure:** Tracks contain TimeRanges, which contain CmdSubTracks and FaderSubTracks, which contain Events.
+
+---
+
+## Related Documentation
+
+- See `../Timecodes.txt` for Timecode documentation
+- See `TimeRange/TimeRange.txt` for Track documentation (Tracks contain TimeRanges)
+- See `TIMECODE_STRUCTURE.md` for overall timecode hierarchy

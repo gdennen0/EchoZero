@@ -1,0 +1,65 @@
+[
+  {
+    "key": "ctrl+shift+q",
+    "command": "workbench.action.tasks.runTask",
+    "args": "AgentAssets: Quality Check",
+    "when": "editorTextFocus"
+  },
+  {
+    "key": "ctrl+shift+s",
+    "command": "workbench.action.tasks.runTask",
+    "args": "AgentAssets: Sync",
+    "when": "workspaceFolderCount != 0"
+  },
+  {
+    "key": "ctrl+shift+w",
+    "command": "workbench.action.tasks.runTask",
+    "args": "AgentAssets: Watch Mode",
+    "when": "workspaceFolderCount != 0"
+  },
+  {
+    "key": "ctrl+shift+p",
+    "command": "workbench.action.tasks.runTask",
+    "args": "AgentAssets: Performance Report",
+    "when": "workspaceFolderCount != 0"
+  },
+  {
+    "key": "ctrl+shift+g",
+    "command": "workbench.action.tasks.runTask",
+    "args": "AgentAssets: Generate Code",
+    "when": "editorTextFocus"
+  },
+  {
+    "key": "ctrl+shift+v",
+    "command": "workbench.action.tasks.runTask",
+    "args": "AgentAssets: Validate Council Decision",
+    "when": "resourceExtname == .json && editorTextFocus"
+  },
+  {
+    "key": "ctrl+shift+r",
+    "command": "python.execInTerminal",
+    "args": {
+      "cmd": "python AgentAssets/scripts/ai_feedback_system.py feedback $(echo $USER)",
+      "cwd": "\${workspaceFolder}"
+    },
+    "when": "workspaceFolderCount != 0"
+  },
+  {
+    "key": "ctrl+shift+c",
+    "command": "python.execInTerminal",
+    "args": {
+      "cmd": "python .cursor/hooks.py context ${file} ${lineNumber}",
+      "cwd": "\${workspaceFolder}"
+    },
+    "when": "editorTextFocus"
+  },
+  {
+    "key": "ctrl+shift+l",
+    "command": "python.execInTerminal",
+    "args": {
+      "cmd": "python AgentAssets/scripts/learning_engine.py refine",
+      "cwd": "\${workspaceFolder}"
+    },
+    "when": "workspaceFolderCount != 0"
+  }
+]

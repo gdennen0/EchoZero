@@ -1,0 +1,92 @@
+# Cursor IDE Rules for EchoZero AI Agent Development
+
+# These rules ensure AI agents working in Cursor IDE maintain EchoZero standards
+
+## Core Principles (ALWAYS Follow)
+- "The best part is no part" - Question every addition, prefer removal
+- "Simplicity and refinement are key" - Simple solutions over complex ones
+- Explicit over implicit - Be clear and obvious
+- Data over code - Prefer declarative approaches
+
+## Automatic Validation (NEVER Skip)
+- Run quality checks before ANY commit
+- Validate council decisions against required format
+- Ensure AgentAssets are synchronized with codebase
+- Check core values compliance
+
+## Code Generation (ALWAYS Use)
+- Use AgentAssets code generators for boilerplate
+- Generate tests automatically for new code
+- Create documentation templates
+- Follow established patterns
+
+## File Operations (MANDATORY)
+- Auto-sync AgentAssets on file save (.py, .md files)
+- Validate changes against architecture rules
+- Update documentation when code changes
+- Check for broken links in encyclopedia
+
+## AI Agent Behavior (REQUIRED)
+- Record all contributions in feedback system
+- Review personal performance metrics weekly
+- Participate in council decisions when relevant
+- Update decision tracking after major changes
+
+## Quality Gates (AUTOMATIC)
+- Pre-commit hooks run quality_checks.py
+- Pull request checks validate AgentAssets sync
+- CI/CD runs full validation suite
+- File watchers trigger incremental sync
+
+## Error Handling (STANDARD)
+- Log all validation failures
+- Provide actionable error messages
+- Suggest fixes for common issues
+- Escalate critical architecture violations
+
+## Documentation (AUTOMATIC)
+- Update encyclopedia when adding features
+- Sync API documentation with code changes
+- Validate cross-references automatically
+- Generate missing documentation
+
+## Performance Tracking (MANDATORY)
+- Track quality scores for all contributions
+- Monitor core values compliance
+- Measure decision success rates
+- Analyze improvement trends
+
+## Integration Points (REQUIRED)
+- AgentAssets scripts integrate with Cursor file operations
+- Quality checks run on file save
+- Auto-sync triggers on project changes
+- Feedback system updates on task completion
+
+## Emergency Procedures (WHEN NEEDED)
+- If AgentAssets become outdated: Run full sync
+- If quality checks fail: Fix issues before proceeding
+- If architecture violations: Consult council framework
+- If core values breached: Revert and redesign
+
+---
+# Technical Implementation Notes for Cursor IDE
+
+## File Watcher Integration
+- Monitor: src/, docs/, AgentAssets/
+- Extensions: .py, .md, .json, .yml
+- Actions: trigger auto_sync.py on changes
+
+## Pre-save Hooks
+- Run: quality_checks.py on modified files
+- Block commit: if validation fails
+- Auto-fix: apply safe corrections
+
+## Context Awareness
+- Detect: current working file and module
+- Provide: relevant AgentAssets modules
+- Suggest: appropriate code generation templates
+
+## Performance Metrics
+- Track: response time, quality score, compliance rate
+- Report: weekly performance summaries
+- Improve: based on usage patterns and feedback

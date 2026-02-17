@@ -1,0 +1,348 @@
+{
+  "claude-3": {
+    "agent_id": "claude-3",
+    "model_name": "Claude",
+    "interaction_history": [
+      {
+        "timestamp": "2026-01-03T23:03:31.672437",
+        "query": "I need to create a new block for audio processing that performs onset detection and classification",
+        "context_type": "general",
+        "relevance_score": 0.8,
+        "context_used": {
+          "core_context_keys": [
+            "core_values",
+            "architectural_patterns",
+            "domain_knowledge",
+            "quality_guidelines",
+            "current_capabilities",
+            "query_specific"
+          ],
+          "agent_context_keys": []
+        }
+      }
+    ],
+    "learning_profile": {
+      "preferred_domains": {
+        "blocks": 1
+      }
+    },
+    "context_preferences": {
+      "core_values": 0.5,
+      "architectural_patterns": 0.5,
+      "domain_knowledge": 0.5,
+      "quality_guidelines": 0.5,
+      "current_capabilities": 0.5,
+      "query_specific": 0.5
+    },
+    "success_patterns": [],
+    "last_interaction": "2026-01-03T23:03:31.672438",
+    "total_interactions": 1,
+    "effectiveness_score": 0.5
+  },
+  "cursor_ai": {
+    "agent_id": "cursor_ai",
+    "model_name": "Unknown",
+    "interaction_history": [
+      {
+        "timestamp": "2026-01-03T23:10:27.123666",
+        "query": "Make a new block to do XYZ",
+        "context_type": "general",
+        "relevance_score": 0.7111111111111111,
+        "context_used": {
+          "core_context_keys": [
+            "core_values",
+            "architectural_patterns",
+            "domain_knowledge",
+            "quality_guidelines",
+            "current_capabilities",
+            "query_specific"
+          ],
+          "agent_context_keys": [
+            "preferred_types",
+            "learning_insights"
+          ]
+        }
+      },
+      {
+        "timestamp": "2026-01-04T12:07:01.658179",
+        "query": "Make a new block to do XYZ",
+        "context_type": "general",
+        "relevance_score": 0.7111111111111111,
+        "context_used": {
+          "core_context_keys": [
+            "core_values",
+            "architectural_patterns",
+            "domain_knowledge",
+            "quality_guidelines",
+            "current_capabilities",
+            "query_specific"
+          ],
+          "agent_context_keys": [
+            "preferred_types",
+            "learning_insights"
+          ]
+        }
+      },
+      {
+        "timestamp": "2026-01-04T12:07:04.257182",
+        "query": "Make a new block to do XYZ",
+        "context_type": "general",
+        "relevance_score": 0.7999999999999999,
+        "context_used": {
+          "core_context_keys": [
+            "core_values",
+            "architectural_patterns",
+            "domain_knowledge",
+            "quality_guidelines",
+            "current_capabilities",
+            "query_specific"
+          ],
+          "agent_context_keys": [
+            "preferred_types",
+            "learning_insights",
+            "interaction_patterns"
+          ]
+        }
+      },
+      {
+        "timestamp": "2026-01-04T12:07:24.539779",
+        "query": "Make a new block to do XYZ",
+        "context_type": "general",
+        "relevance_score": 0.7999999999999999,
+        "context_used": {
+          "core_context_keys": [
+            "core_values",
+            "architectural_patterns",
+            "domain_knowledge",
+            "quality_guidelines",
+            "current_capabilities",
+            "query_specific"
+          ],
+          "agent_context_keys": [
+            "preferred_types",
+            "learning_insights",
+            "interaction_patterns"
+          ]
+        }
+      },
+      {
+        "timestamp": "2026-01-04T12:07:24.540256",
+        "query": "Create a new audio processing block",
+        "context_type": "general",
+        "relevance_score": 0.7999999999999999,
+        "context_used": {
+          "core_context_keys": [
+            "core_values",
+            "architectural_patterns",
+            "domain_knowledge",
+            "quality_guidelines",
+            "current_capabilities",
+            "query_specific"
+          ],
+          "agent_context_keys": [
+            "preferred_types",
+            "learning_insights",
+            "interaction_patterns"
+          ]
+        }
+      },
+      {
+        "timestamp": "2026-01-04T12:07:29.906770",
+        "query": "Make a new block to do XYZ",
+        "context_type": "general",
+        "relevance_score": 0.7999999999999999,
+        "context_used": {
+          "core_context_keys": [
+            "core_values",
+            "architectural_patterns",
+            "domain_knowledge",
+            "quality_guidelines",
+            "current_capabilities",
+            "query_specific"
+          ],
+          "agent_context_keys": [
+            "preferred_types",
+            "learning_insights",
+            "interaction_patterns"
+          ]
+        }
+      },
+      {
+        "timestamp": "2026-01-04T12:07:29.907318",
+        "query": "Create a new audio processing block",
+        "context_type": "general",
+        "relevance_score": 0.7999999999999999,
+        "context_used": {
+          "core_context_keys": [
+            "core_values",
+            "architectural_patterns",
+            "domain_knowledge",
+            "quality_guidelines",
+            "current_capabilities",
+            "query_specific"
+          ],
+          "agent_context_keys": [
+            "preferred_types",
+            "learning_insights",
+            "interaction_patterns"
+          ]
+        }
+      },
+      {
+        "timestamp": "2026-01-04T12:07:32.613220",
+        "query": "Make a new block to do XYZ",
+        "context_type": "general",
+        "relevance_score": 0.7999999999999999,
+        "context_used": {
+          "core_context_keys": [
+            "core_values",
+            "architectural_patterns",
+            "domain_knowledge",
+            "quality_guidelines",
+            "current_capabilities",
+            "query_specific"
+          ],
+          "agent_context_keys": [
+            "preferred_types",
+            "learning_insights",
+            "interaction_patterns"
+          ]
+        }
+      },
+      {
+        "timestamp": "2026-01-04T12:07:41.948751",
+        "query": "Make a new block to do XYZ",
+        "context_type": "general",
+        "relevance_score": 0.7999999999999999,
+        "context_used": {
+          "core_context_keys": [
+            "core_values",
+            "architectural_patterns",
+            "domain_knowledge",
+            "quality_guidelines",
+            "current_capabilities",
+            "query_specific"
+          ],
+          "agent_context_keys": [
+            "preferred_types",
+            "learning_insights",
+            "interaction_patterns"
+          ]
+        }
+      },
+      {
+        "timestamp": "2026-01-04T12:07:52.580000",
+        "query": "Make a new block to do XYZ",
+        "context_type": "general",
+        "relevance_score": 0.7999999999999999,
+        "context_used": {
+          "core_context_keys": [
+            "core_values",
+            "architectural_patterns",
+            "domain_knowledge",
+            "quality_guidelines",
+            "current_capabilities",
+            "query_specific"
+          ],
+          "agent_context_keys": [
+            "preferred_types",
+            "learning_insights",
+            "interaction_patterns"
+          ]
+        }
+      }
+    ],
+    "learning_profile": {
+      "preferred_domains": {
+        "blocks": 1
+      }
+    },
+    "context_preferences": {
+      "core_values": 0.5,
+      "architectural_patterns": 0.5,
+      "domain_knowledge": 0.5,
+      "quality_guidelines": 0.5,
+      "current_capabilities": 0.5,
+      "query_specific": 0.5,
+      "preferred_types": 0.5,
+      "learning_insights": 0.5,
+      "interaction_patterns": 0.5
+    },
+    "success_patterns": [],
+    "last_interaction": "2026-01-04T12:07:52.580002",
+    "total_interactions": 11,
+    "effectiveness_score": 0.5
+  },
+  "test_agent": {
+    "agent_id": "test_agent",
+    "model_name": "Unknown",
+    "interaction_history": [
+      {
+        "timestamp": "2026-01-04T12:07:29.907904",
+        "query": "Create a new audio processing block",
+        "context_type": "general",
+        "relevance_score": 0.8,
+        "context_used": {
+          "core_context_keys": [
+            "core_values",
+            "architectural_patterns",
+            "domain_knowledge",
+            "quality_guidelines",
+            "current_capabilities",
+            "query_specific"
+          ],
+          "agent_context_keys": []
+        }
+      }
+    ],
+    "learning_profile": {},
+    "context_preferences": {
+      "core_values": 0.5,
+      "architectural_patterns": 0.5,
+      "domain_knowledge": 0.5,
+      "quality_guidelines": 0.5,
+      "current_capabilities": 0.5,
+      "query_specific": 0.5
+    },
+    "success_patterns": [],
+    "last_interaction": "2026-01-04T12:07:29.907906",
+    "total_interactions": 1,
+    "effectiveness_score": 0.5
+  },
+  "cursor_test": {
+    "agent_id": "cursor_test",
+    "model_name": "Unknown",
+    "interaction_history": [
+      {
+        "timestamp": "2026-01-04T12:07:52.581477",
+        "query": "Make a new block to do XYZ",
+        "context_type": "general",
+        "relevance_score": 0.8,
+        "context_used": {
+          "core_context_keys": [
+            "core_values",
+            "architectural_patterns",
+            "domain_knowledge",
+            "quality_guidelines",
+            "current_capabilities",
+            "query_specific"
+          ],
+          "agent_context_keys": []
+        }
+      }
+    ],
+    "learning_profile": {},
+    "context_preferences": {
+      "core_values": 0.5,
+      "architectural_patterns": 0.5,
+      "domain_knowledge": 0.5,
+      "quality_guidelines": 0.5,
+      "current_capabilities": 0.5,
+      "query_specific": 0.5
+    },
+    "success_patterns": [],
+    "last_interaction": "2026-01-04T12:07:52.581479",
+    "total_interactions": 1,
+    "effectiveness_score": 0.5
+  }
+}

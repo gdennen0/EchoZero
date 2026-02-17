@@ -1,0 +1,17 @@
+{
+  "app_name": "EchoZero",
+  "version": "0.1.0",
+  "bundle_identifier": "dev.speedoflight.echozero",
+  "company": "Speed of Light",
+  "copyright": "Copyright (c) Speed of Light. All rights reserved.",
+  "short_description": "Audio processing with node-based pipelines and AI separation.",
+  "pyinstaller": {
+    "onefile": false,
+    "console": false,
+    "strip": false,
+    "upx": true
+  },
+  "bundled_runtime_defaults": {
+    "MEMBERSTACK_VERIFY_URL": "https://echozero-auth.speeoflight.workers.dev"
+  }
+}

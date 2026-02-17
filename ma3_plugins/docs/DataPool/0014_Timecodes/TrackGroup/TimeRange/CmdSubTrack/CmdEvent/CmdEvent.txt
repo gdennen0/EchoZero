@@ -1,0 +1,382 @@
+# CmdEvent Object Reference Documentation
+# Source: grandMA3 Dump() command on CmdEvent object
+# Command: DataPool().Timecodes[101][1][11][1][2][1]:Dump()
+# Date: [When this was captured]
+
+## Overview
+
+A CmdEvent represents a command event that executes a specific command at a specific time within a CmdSubTrack. It contains command execution information including the command token, destination, and timing.
+
+**Hierarchy:** `DataPool().Timecodes[timecode_no][track_group_no][track_no][time_range_no][cmd_subtrack_no][event_no]`
+
+## Object Information
+
+**Name:** Go+
+**Class:** CmdEvent
+**Path:** Root/ShowData/DataPools/1 'Default'/Timecodes/101 'Intro_Feel'/1 'Test'/1100 'Intro_Feel'/TimeRange 1/CmdSubTrack 1/Go+
+
+---
+
+## Access Methods
+
+### Basic Access
+
+```lua
+-- Access CmdEvent through hierarchy
+local tc = DataPool().Timecodes[101]
+local tg = tc[1]
+local tracks = tg:Children()
+local track = tracks[2]  -- Skip Marker at index 0
+local time_ranges = track:Children()
+local tr = time_ranges[1]
+local sub_tracks = tr:Children()
+local cst = sub_tracks[1]  -- CmdSubTrack
+local events = cst:Children()
+local event = events[1]  -- First CmdEvent
+
+-- Or directly (if you know the indices)
+local event = DataPool().Timecodes[101][1][2][1][1][1]
+```
+
+### Helper Function
+
+```lua
+function GetCmdEvent(tc_no, tg_idx, track_idx, tr_idx, cst_idx, event_idx)
+    local tc = DataPool().Timecodes[tc_no]
+    if not tc then return nil end
+    
+    local tg = tc[tg_idx]
+    if not tg then return nil end
+    
+    local tracks = tg:Children()
+    if not tracks[track_idx] then return nil end
+    
+    local track = tracks[track_idx]
+    local time_ranges = track:Children()
+    if not time_ranges[tr_idx] then return nil end
+    
+    local tr = time_ranges[tr_idx]
+    local sub_tracks = tr:Children()
+    if not sub_tracks[cst_idx] then return nil end
+    
+    local cst = sub_tracks[cst_idx]
+    local class = cst:GetClass()
+    if class ~= "CmdSubTrack" then return nil end
+    
+    local events = cst:Children()
+    if not events[event_idx] then return nil end
+    
+    return events[event_idx]
+end
+```
+
+---
+
+## Properties
+
+### Standard Properties
+
+| Property | Type | Read Only | Description |
+|----------|------|-----------|-------------|
+| NAME | "Go+" | No | Event name |
+| INDEX | "1" | Yes | Array index |
+| COUNT | "0" | Yes | Number of children (always 0) |
+| MEMORYFOOTPRINT | "384 Bytes" | Yes | Memory usage |
+| NOTE | "" | No | Notes |
+| HIDDEN | "No" | No | Visibility state |
+| LOCK | "" | No | Lock status |
+
+### Command Properties
+
+| Property | Type | Read Only | Description |
+|----------|------|-----------|-------------|
+| TOKEN | "Go+" | No | Command token |
+| CUEDESTINATION | "1 '[50/Open]'" | No | Cue destination |
+| EXECUTECOMMAND | "Yes" | No | Execute command flag |
+| REALTIMECMD | "" | No | Real-time command |
+| TYPE | "0" | Yes | Event type (read-only) |
+
+### Time Properties
+
+| Property | Type | Read Only | Description |
+|----------|------|-----------|-------------|
+| TIME | "180.000000" | No | Event time |
+| ABSTIME | "180.000000" | Yes | Absolute time (read-only) |
+| RAWTIME | "3019898880" | Yes | Raw time value (read-only) |
+
+### Reference Properties
+
+| Property | Type | Read Only | Description |
+|----------|------|-----------|-------------|
+| TRACKGROUP | "1 'Test'" | Yes | Parent TrackGroup reference |
+| TRACK | "5105 'BEAM'" | Yes | Parent Track reference |
+
+### Accessing Properties
+
+```lua
+local event = GetCmdEvent(101, 1, 2, 1, 1, 1)
+
+-- Access via property name (direct)
+local name = event.name
+local time = event.time
+local token = event.token
+local cuedestination = event.cuedestination
+
+-- Access via :Get() method
+local name = event:Get("NAME")
+local time = event:Get("TIME")
+local token = event:Get("TOKEN")
+local cuedestination = event:Get("CUEDESTINATION")
+
+-- Setting properties
+event.time = "200.000000"
+event.token = "Go+"
+event.cuedestination = "1 '[50/Open]'"
+event.executcommand = "Yes"
+```
+
+---
+
+## Children
+
+CmdEvents have no children. COUNT is always 0.
+
+---
+
+## Common Operations
+
+### Getting Event Information
+
+```lua
+function GetCmdEventInfo(tc_no, tg_idx, track_idx, tr_idx, cst_idx, event_idx)
+    local event = GetCmdEvent(tc_no, tg_idx, track_idx, tr_idx, cst_idx, event_idx)
+    if not event then return nil end
+    
+    local info = {
+        name = event.name or "Unknown",
+        time = event.time or "?",
+        token = event.token or "?",
+        cuedestination = event.cuedestination or "?",
+        executcommand = event.executcommand or "?",
+        trackgroup = event.trackgroup or "?",
+        track = event.track or "?"
+    }
+    
+    return info
+end
+
+-- Usage
+local info = GetCmdEventInfo(101, 1, 2, 1, 1, 1)
+if info then
+    Printf("Event: " .. info.name)
+    Printf("Time: " .. info.time)
+    Printf("Command: " .. info.token .. " -> " .. info.cuedestination)
+end
+```
+
+### Listing Events by Time Range
+
+```lua
+function ListCmdEventsByTimeRange(tc_no, tg_idx, track_idx, tr_idx, cst_idx, start_time, end_time)
+    local tc = DataPool().Timecodes[tc_no]
+    if not tc then return {} end
+    
+    local tg = tc[tg_idx]
+    if not tg then return {} end
+    
+    local tracks = tg:Children()
+    if not tracks[track_idx] then return {} end
+    
+    local track = tracks[track_idx]
+    local time_ranges = track:Children()
+    if not time_ranges[tr_idx] then return {} end
+    
+    local tr = time_ranges[tr_idx]
+    local sub_tracks = tr:Children()
+    if not sub_tracks[cst_idx] then return {} end
+    
+    local cst = sub_tracks[cst_idx]
+    local events = cst:Children()
+    
+    local found = {}
+    for i = 1, #events do
+        local event = events[i]
+        local time = tonumber(event.time) or 0
+        
+        if time >= start_time and time <= end_time then
+            table.insert(found, {event = event, index = i, time = time})
+        end
+    end
+    
+    return found
+end
+
+-- Usage: Find events between 180 and 200 seconds
+local events = ListCmdEventsByTimeRange(101, 1, 2, 1, 1, 180, 200)
+Printf("Found " .. #events .. " events in time range")
+```
+
+### Finding Events by Command Token
+
+```lua
+function FindCmdEventsByToken(tc_no, tg_idx, track_idx, tr_idx, cst_idx, token)
+    local tc = DataPool().Timecodes[tc_no]
+    if not tc then return {} end
+    
+    local tg = tc[tg_idx]
+    if not tg then return {} end
+    
+    local tracks = tg:Children()
+    if not tracks[track_idx] then return {} end
+    
+    local track = tracks[track_idx]
+    local time_ranges = track:Children()
+    if not time_ranges[tr_idx] then return {} end
+    
+    local tr = time_ranges[tr_idx]
+    local sub_tracks = tr:Children()
+    if not sub_tracks[cst_idx] then return {} end
+    
+    local cst = sub_tracks[cst_idx]
+    local events = cst:Children()
+    
+    local found = {}
+    for i = 1, #events do
+        local event = events[i]
+        if event.token == token then
+            table.insert(found, {event = event, index = i})
+        end
+    end
+    
+    return found
+end
+
+-- Usage: Find all "Go+" events
+local go_events = FindCmdEventsByToken(101, 1, 2, 1, 1, "Go+")
+Printf("Found " .. #go_events .. " Go+ events")
+```
+
+### Dumping CmdEvent
+
+```lua
+-- Dump entire CmdEvent object
+local event = GetCmdEvent(101, 1, 2, 1, 1, 1)
+event:Dump()
+
+-- Or via command line
+-- Lua "DataPool().Timecodes[101][1][2][1][1][1]:Dump()"
+```
+
+---
+
+## Examples
+
+### Example 1: Access CmdEvent and Display Properties
+
+```lua
+local event = GetCmdEvent(101, 1, 2, 1, 1, 1)
+if event then
+    Printf("Event: " .. event.name)
+    Printf("Time: " .. event.time)
+    Printf("Token: " .. event.token)
+    Printf("Destination: " .. event.cuedestination)
+    Printf("Execute: " .. event.executcommand)
+end
+```
+
+### Example 2: Iterate All Events in CmdSubTrack
+
+```lua
+function IterateCmdEvents(tc_no, tg_idx, track_idx, tr_idx, cst_idx, callback)
+    local tc = DataPool().Timecodes[tc_no]
+    if not tc then return false end
+    
+    local tg = tc[tg_idx]
+    if not tg then return false end
+    
+    local tracks = tg:Children()
+    if not tracks[track_idx] then return false end
+    
+    local track = tracks[track_idx]
+    local time_ranges = track:Children()
+    if not time_ranges[tr_idx] then return false end
+    
+    local tr = time_ranges[tr_idx]
+    local sub_tracks = tr:Children()
+    if not sub_tracks[cst_idx] then return false end
+    
+    local cst = sub_tracks[cst_idx]
+    local events = cst:Children()
+    
+    for i = 1, #events do
+        local event = events[i]
+        callback(event, i)
+    end
+    
+    return true
+end
+
+-- Usage
+IterateCmdEvents(101, 1, 2, 1, 1, function(event, index)
+    Printf(string.format("Event [%d]: %s at %s", index, event.name, event.time))
+end)
+```
+
+### Example 3: Get Event Statistics
+
+```lua
+function GetCmdEventStats(tc_no, tg_idx, track_idx, tr_idx, cst_idx)
+    local tc = DataPool().Timecodes[tc_no]
+    if not tc then return nil end
+    
+    local tg = tc[tg_idx]
+    if not tg then return nil end
+    
+    local tracks = tg:Children()
+    if not tracks[track_idx] then return nil end
+    
+    local track = tracks[track_idx]
+    local time_ranges = track:Children()
+    if not time_ranges[tr_idx] then return nil end
+    
+    local tr = time_ranges[tr_idx]
+    local sub_tracks = tr:Children()
+    if not sub_tracks[cst_idx] then return nil end
+    
+    local cst = sub_tracks[cst_idx]
+    local events = cst:Children()
+    
+    local stats = {
+        total_events = #events,
+        tokens = {},
+        time_range = {min = nil, max = nil}
+    }
+    
+    for i = 1, #events do
+        local event = events[i]
+        
+        -- Count tokens
+        local token = event.token or "Unknown"
+        stats.tokens[token] = (stats.tokens[token] or 0) + 1
+        
+        -- Track time range
+        local time = tonumber(event.time) or 0
+        if not stats.time_range.min or time < stats.time_range.min then
+            stats.time_range.min = time
+        end
+        if not stats.time_range.max or time > stats.time_range.max then
+            stats.time_range.max = time
+        end
+    end
+    
+    return stats
+end
+```
+
+---
+
+## Related Documentation
+
+- See `../CmdSubTrack.txt` for CmdSubTrack documentation
+- See `../../FaderSubtrack/FaderEvent/FaderEvent.txt` for FaderEvent documentation
+- See `TIMECODE_STRUCTURE.md` for overall timecode hierarchy

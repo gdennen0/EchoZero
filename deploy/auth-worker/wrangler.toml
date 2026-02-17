@@ -1,0 +1,10 @@
+name = "echozero-auth"
+main = "src/worker.js"
+compatibility_date = "2024-12-01"
+
+# Secrets are NOT stored here -- set them via:
+#   wrangler secret put MEMBERSTACK_ADMIN_KEY
+#   wrangler secret put APP_SECRET
+#
+# After deploying, the worker URL will be:
+#   https://echozero-auth.<your-subdomain>.workers.dev

@@ -1,0 +1,130 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual environments
+venv/
+.venv/
+env/
+ENV/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Logs
+logs/
+*.log
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+
+# Development/result files
+*Dump.txt
+*Result.txt
+*Output.txt
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Audio/Video files (prevent accidental large file commits)
+*.wav
+*.mp3
+*.mp4
+*.flac
+*.ogg
+*.m4a
+
+# Model files (prevent large model commits)
+*.model
+*.ckpt
+*.pt
+*.pth
+*.h5
+*.pb
+*.tflite
+
+# Project data directories
+projectdata/
+sources/
+data/datasets/
+
+# User settings (may contain paths)
+data/settings.json
+data/recent_projects.json
+
+# PyQt compiled files
+*.qmlc
+*.jsc
+
+# Coverage reports
+htmlcov/
+.coverage
+.coverage.*
+
+# Pytest cache
+.pytest_cache/
+
+# mypy
+.mypy_cache/
+
+# Secrets and credentials
+echozero-key.json
+*.key.json
+*credentials*.json
+.env
+.env.local
+.env.*.local
+
+# Python type checkers
+.pytype/
+.dmypy.json
+.pyre/
+.pyre_cache/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# pyenv
+.python-version# pip
+pip-log.txt
+pip-delete-this-directory.txt
+
+# IDEs
+.spyderproject
+.spyproject
+.ropeproject# Ruff (Python linter)
+.ruff_cache/# Tox (testing tool)
+.tox/
+
+# Hypothesis (testing tool)
+.hypothesis/
+
+# Generated documentation (if not tracking)
+# Uncomment if docs are generated and shouldn't be committed
+# docs/docs.json
+# docs/index.html

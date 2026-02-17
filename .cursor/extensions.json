@@ -1,0 +1,17 @@
+{
+  "recommendations": [
+    "ms-python.python",
+    "ms-python.black-formatter",
+    "ms-python.pylint",
+    "ms-vscode.vscode-json",
+    "redhat.vscode-yaml",
+    "yzhang.markdown-all-in-one",
+    "christian-kohler.path-intellisense",
+    "ms-vscode-remote.remote-ssh"
+  ],
+  "unwantedRecommendations": [
+    "ms-python.autopep8",
+    "ms-python.yapf"
+  ]
+}
+

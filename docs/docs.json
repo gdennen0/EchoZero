@@ -1,0 +1,365 @@
+{
+  "blocks": [
+    {
+      "name": "Load Audio",
+      "type_id": "LoadAudio",
+      "description": "Load audio file into the project",
+      "inputs": {},
+      "outputs": {
+        "audio": "Audio"
+      },
+      "execution_mode": "executable",
+      "tags": [
+        "audio",
+        "load",
+        "file",
+        "import"
+      ]
+    },
+    {
+      "name": "Setlist Audio Input",
+      "type_id": "SetlistAudioInput",
+      "description": "Audio input block for setlist processing. Automatically loads the current setlist song's audio file.",
+      "inputs": {},
+      "outputs": {
+        "audio": "Audio"
+      },
+      "execution_mode": "executable",
+      "tags": [
+        "audio",
+        "setlist",
+        "batch",
+        "input"
+      ]
+    },
+    {
+      "name": "Detect Onsets",
+      "type_id": "DetectOnsets",
+      "description": "Detect onset times in audio",
+      "inputs": {
+        "audio": "Audio"
+      },
+      "outputs": {
+        "events": "Event"
+      },
+      "execution_mode": "executable",
+      "tags": [
+        "onset",
+        "detection",
+        "analysis",
+        "audio"
+      ]
+    },
+    {
+      "name": "TensorFlow Classify",
+      "type_id": "TensorFlowClassify",
+      "description": "Classify events using TensorFlow/Keras models (.h5, .keras, SavedModel)",
+      "inputs": {
+        "events": "Event"
+      },
+      "outputs": {
+        "events": "Event"
+      },
+      "execution_mode": "executable",
+      "tags": [
+        "classification",
+        "tensorflow",
+        "keras",
+        "ai",
+        "ml",
+        "deep-learning"
+      ]
+    },
+    {
+      "name": "PyTorch Classify",
+      "type_id": "PyTorchClassify",
+      "description": "Classify events using PyTorch models (.pth, .pt, .onnx)",
+      "inputs": {
+        "events": "Event"
+      },
+      "outputs": {
+        "events": "Event"
+      },
+      "execution_mode": "executable",
+      "tags": [
+        "classification",
+        "pytorch",
+        "ai",
+        "ml",
+        "deep-learning",
+        "onnx"
+      ]
+    },
+    {
+      "name": "PyTorch Audio Trainer",
+      "type_id": "PyTorchAudioTrainer",
+      "description": "Advanced PyTorch audio classification trainer with multiple architectures, transfer learning, and hyperparameter optimization",
+      "inputs": {},
+      "outputs": {
+        "model": "Model"
+      },
+      "execution_mode": "executable",
+      "tags": [
+        "training",
+        "pytorch",
+        "ai",
+        "ml",
+        "deep-learning",
+        "audio",
+        "classification",
+        "cnn",
+        "rnn",
+        "transformer",
+        "transfer-learning"
+      ]
+    },
+    {
+      "name": "PyTorch Audio Classify",
+      "type_id": "PyTorchAudioClassify",
+      "description": "Classify events using PyTorch models created by PyTorch Audio Trainer. Automatically loads model architecture, classes, and preprocessing config.",
+      "inputs": {
+        "events": "Event",
+        "audio": "Audio"
+      },
+      "outputs": {
+        "events": "Event"
+      },
+      "execution_mode": "executable",
+      "tags": [
+        "classification",
+        "pytorch",
+        "ai",
+        "ml",
+        "deep-learning",
+        "audio",
+        "audio-trainer"
+      ]
+    },
+    {
+      "name": "Editor",
+      "type_id": "Editor",
+      "description": "Audio editor and visualization",
+      "inputs": {
+        "audio": "Audio",
+        "events": "Event"
+      },
+      "outputs": {
+        "audio": "Audio",
+        "events": "Event"
+      },
+      "execution_mode": "live",
+      "tags": [
+        "editor",
+        "visualization",
+        "audio",
+        "timeline"
+      ]
+    },
+    {
+      "name": "Plot Events",
+      "type_id": "PlotEvents",
+      "description": "Create matplotlib timeline visualizations of event data (notes, onsets, etc.)",
+      "inputs": {
+        "events": "Event"
+      },
+      "outputs": {},
+      "execution_mode": "executable",
+      "tags": [
+        "visualization",
+        "plot",
+        "timeline",
+        "matplotlib",
+        "events",
+        "notes"
+      ]
+    },
+    {
+      "name": "Export Audio",
+      "type_id": "ExportAudio",
+      "description": "Export processed audio items to disk in a chosen format (accepts multiple items on single port)",
+      "inputs": {
+        "audio": "Audio"
+      },
+      "outputs": {},
+      "execution_mode": "executable",
+      "tags": [
+        "export",
+        "audio",
+        "stems",
+        "file"
+      ]
+    },
+    {
+      "name": "Export Clips By Class",
+      "type_id": "ExportClipsByClass",
+      "description": "Export event audio clips organized by classification into subfolders",
+      "inputs": {
+        "audio": "Audio",
+        "events": "Event"
+      },
+      "outputs": {},
+      "execution_mode": "executable",
+      "tags": [
+        "export",
+        "clips",
+        "classification",
+        "organize",
+        "audio"
+      ]
+    },
+    {
+      "name": "Demucs Separator",
+      "type_id": "Separator",
+      "description": "Separate audio into stems using Demucs (outputs multiple stems on single port)",
+      "inputs": {
+        "audio": "Audio"
+      },
+      "outputs": {
+        "audio": "Audio"
+      },
+      "execution_mode": "executable",
+      "tags": [
+        "separator",
+        "demucs",
+        "stem",
+        "audio"
+      ]
+    },
+    {
+      "name": "Demucs Separator (Cloud)",
+      "type_id": "SeparatorCloud",
+      "description": "Separate audio into stems using Demucs on AWS Batch (configure credentials in block settings)",
+      "inputs": {
+        "audio": "Audio"
+      },
+      "outputs": {
+        "audio": "Audio"
+      },
+      "execution_mode": "executable",
+      "tags": [
+        "separator",
+        "demucs",
+        "stem",
+        "audio",
+        "cloud",
+        "aws"
+      ]
+    },
+    {
+      "name": "Demucs Separator (Cloud GCP)",
+      "type_id": "SeparatorCloudGCP",
+      "description": "Separate audio into stems using Demucs on Google Cloud Run (configure credentials in block settings)",
+      "inputs": {
+        "audio": "Audio"
+      },
+      "outputs": {
+        "audio": "Audio"
+      },
+      "execution_mode": "executable",
+      "tags": [
+        "separator",
+        "demucs",
+        "stem",
+        "audio",
+        "cloud",
+        "gcp",
+        "google"
+      ]
+    },
+    {
+      "name": "TranscribeNote",
+      "type_id": "TranscribeNote",
+      "description": "Extract notes from audio using Spotify's Basic-Pitch AI model (best for bass/single instruments)",
+      "inputs": {
+        "audio": "Audio"
+      },
+      "outputs": {
+        "events": "Event"
+      },
+      "execution_mode": "executable",
+      "tags": [
+        "note",
+        "transcription",
+        "pitch",
+        "bass",
+        "basicpitch",
+        "ai"
+      ]
+    },
+    {
+      "name": "TranscribeLib",
+      "type_id": "TranscribeLib",
+      "description": "Extract notes from audio using Librosa onset detection + pitch tracking (more configurable)",
+      "inputs": {
+        "audio": "Audio"
+      },
+      "outputs": {
+        "events": "Event"
+      },
+      "execution_mode": "executable",
+      "tags": [
+        "note",
+        "transcription",
+        "pitch",
+        "bass",
+        "librosa",
+        "onset"
+      ]
+    },
+    {
+      "name": "Show Manager",
+      "type_id": "ShowManager",
+      "description": "Orchestrates bidirectional communication between EchoZero and grandMA3",
+      "inputs": {},
+      "outputs": {},
+      "execution_mode": "live",
+      "tags": [
+        "ma3",
+        "grandma",
+        "lighting",
+        "sync",
+        "osc",
+        "orchestrator"
+      ]
+    }
+  ],
+  "features": [
+    {
+      "name": "blocks",
+      "path": "src/features/blocks",
+      "readme": "# Blocks Feature Module\n\nThe blocks feature manages block entities, their state, and expected outputs.\n\n## Overview\n\nBlocks are the core processing units in EchoZero. Each block:\n- Has a type that determines its behavior\n- Manages input/output ports for data flow\n- Tracks processing status\n- Stores configuration and results\n\n## Architecture\n\n```\nblocks/\n\u251c\u2500\u2500 application/          # Services and API\n\u2502   \u251c\u2500\u2500 block_service.py       # Block CRUD operations\n\u2502   \u251c\u2500\u2500 block_state_helper.py  # State management\n\u2502   \u251c\u2500\u2500 block_status_service.py # Status tracking\n\u2502   \u251c\u2500\u2500 editor_api.py          # Editor integration\n\u2502   \u2514\u2500\u2500 expected_outputs_service.py\n\u251c\u2500\u2500 domain/               # Entities and interfaces\n\u2502   \u251c\u2500\u2500 block.py              # Block entity\n\u2502   \u251c\u2500\u2500 block_repository.py   # Repository interface\n\u2502   \u251c\u2500\u2500 block_status.py       # Status enum\n\u2502   \u2514\u2500\u2500 port.py               # Port definitions\n\u2514\u2500\u2500 infrastructure/       # Implementations\n    \u2514\u2500\u2500 block_repository_impl.py\n```\n\n## Key Components\n\n- **BlockService** - CRUD operations for blocks\n- **BlockStatusService** - Manages block processing status\n- **BlockStateHelper** - Handles block state transitions\n- **ExpectedOutputsService** - Manages expected output tracking\n\n## Usage\n\n```python\nfrom src.application.api.application_facade import get_facade\n\nfacade = get_facade()\n\n# Create a block\nblock = facade.create_block(\"LoadAudio\")\n\n# Get block status\nstatus = facade.get_block_status(block.id)\n```\n\n## Related\n\n- [Block Processors](../../application/blocks/README.md) - Processing implementations\n- [Connections](../connections/README.md) - Block connections\n- [Execution](../execution/README.md) - Block execution\n"
+    },
+    {
+      "name": "show_manager",
+      "path": "src/features/show_manager",
+      "readme": "# Show Manager Feature Module\n\nManages show-based workflows with bidirectional sync to GrandMA3 lighting consoles.\n\n## Overview\n\nShow Manager provides show-oriented workflows, organizing content into layers and maintaining bidirectional synchronization with GrandMA3 lighting consoles via OSC.\n\n## Architecture\n\n```\nshow_manager/\n\u251c\u2500\u2500 application/\n\u2502   \u251c\u2500\u2500 sync_system_manager.py      # Main sync orchestration\n\u2502   \u251c\u2500\u2500 sync_layer_manager.py       # Layer sync management\n\u2502   \u251c\u2500\u2500 sync_safety.py              # Conflict resolution & safety\n\u2502   \u251c\u2500\u2500 sync_subscription_service.py # Change subscriptions\n\u2502   \u251c\u2500\u2500 show_manager_listener_service.py  # OSC listener\n\u2502   \u251c\u2500\u2500 show_manager_state_service.py     # Connection state\n\u2502   \u251c\u2500\u2500 ma3_event_handler.py        # MA3 event processing\n\u2502   \u251c\u2500\u2500 ma3_track_resolver.py       # Track name resolution\n\u2502   \u2514\u2500\u2500 commands/                   # Sync commands\n\u2502       \u251c\u2500\u2500 sync_layer_command.py\n\u2502       \u251c\u2500\u2500 batch_sync_command.py\n\u2502       \u2514\u2500\u2500 ...\n\u2514\u2500\u2500 domain/\n    \u251c\u2500\u2500 sync_layer_entity.py       # Unified sync entity\n    \u251c\u2500\u2500 sync_state.py               # Sync state tracking\n    \u2514\u2500\u2500 layer_sync_types.py         # Type definitions\n```\n\n## Key Components\n\n- **SyncSystemManager** - Single orchestration point for all sync operations\n- **SyncLayerEntity** - Unified entity representing synced layers (MA3 or Editor)\n- **ShowManagerListenerService** - Manages OSC listener for MA3 communication\n- **ShowManagerStateService** - Tracks connection state and status polling\n- **SyncSafety** - Conflict resolution, validation, and backup management\n\n## Features\n\n- **Bidirectional Sync** - Sync Editor layers \u2194 MA3 tracks\n- **Real-time Updates** - OSC-based event synchronization\n- **Conflict Resolution** - Automatic conflict detection and resolution\n- **Safety Checks** - Validation and backup before destructive operations\n- **Layer Mapping** - Flexible mapping between EchoZero layers and MA3 tracks\n\n## Usage\n\n```python\nfrom src.features.show_manager.application import SyncSystemManager\n\n# Add a synced layer\nsync_manager.add_synced_ma3_track(\n    block_id=\"show_manager_1\",\n    ma3_coord=\"tc1_tg1_tr1\",\n    editor_layer_id=\"layer_1\"\n)\n\n# Sync changes\nsync_manager.sync_layer(\"layer_1\")\n```\n\n## Related\n\n- [MA3 Integration](../ma3/README.md) - GrandMA3 integration details\n- [Blocks](../blocks/README.md) - Block system\n- [Connections](../connections/README.md) - Block connections\n"
+    },
+    {
+      "name": "projects",
+      "path": "src/features/projects",
+      "readme": "# Projects Feature Module\n\nManages project persistence, loading, and state.\n\n## Overview\n\nProjects are the top-level container for blocks, connections, and data.\nThis module handles saving, loading, and project lifecycle.\n\n## Architecture\n\n```\nprojects/\n\u251c\u2500\u2500 application/\n\u2502   \u251c\u2500\u2500 project_service.py     # Project operations\n\u2502   \u2514\u2500\u2500 recent_projects.py     # Recent projects tracking\n\u251c\u2500\u2500 domain/\n\u2502   \u251c\u2500\u2500 project.py             # Project entity\n\u2502   \u251c\u2500\u2500 project_repository.py  # Repository interface\n\u2502   \u2514\u2500\u2500 project_events.py      # Project-related events\n\u2514\u2500\u2500 infrastructure/\n    \u251c\u2500\u2500 project_repository_impl.py\n    \u2514\u2500\u2500 project_file_handler.py  # .ez file handling\n```\n\n## Key Components\n\n- **ProjectService** - Create, save, load projects\n- **Project** - Entity containing blocks and connections\n- **ProjectFileHandler** - Serialization to .ez format\n\n## Usage\n\n```python\nfrom src.application.api.application_facade import get_facade\n\nfacade = get_facade()\n\n# Save project\nfacade.save_project(\"/path/to/project.ez\")\n\n# Load project\nfacade.load_project(\"/path/to/project.ez\")\n\n# New project\nfacade.new_project()\n```\n\n## Related\n\n- [Blocks](../blocks/README.md) - Blocks within projects\n- [Connections](../connections/README.md) - Connections within projects\n"
+    },
+    {
+      "name": "ma3",
+      "path": "src/features/ma3",
+      "readme": "# MA3 Feature Module\n\nGrandMA3 lighting console integration.\n\n## Overview\n\nThis module provides integration with GrandMA3 lighting consoles,\nenabling synchronized playback and control.\n\n## Architecture\n\n```\nma3/\n\u251c\u2500\u2500 application/\n\u2502   \u251c\u2500\u2500 ma3_service.py         # Main MA3 service\n\u2502   \u251c\u2500\u2500 ma3_commands.py        # Command operations\n\u2502   \u2514\u2500\u2500 ma3_connection.py      # Connection management\n\u251c\u2500\u2500 domain/\n\u2502   \u251c\u2500\u2500 ma3_connection.py      # Connection entity\n\u2502   \u2514\u2500\u2500 ma3_events.py          # MA3 events\n\u2514\u2500\u2500 infrastructure/\n    \u2514\u2500\u2500 ma3_client.py          # OSC/Network client\n```\n\n## Key Components\n\n- **MA3Service** - High-level MA3 operations\n- **MA3Connection** - Connection state management\n- **MA3Client** - Network communication\n\n## Configuration\n\nSee [docs/MA3_INTEGRATION.md](../../../docs/MA3_INTEGRATION.md) for setup.\n\n## Related\n\n- [Show Manager](../show_manager/README.md) - Show-based workflows\n- [MA3 Plugins](../../../ma3_plugins/) - GrandMA3 Lua plugins\n"
+    },
+    {
+      "name": "connections",
+      "path": "src/features/connections",
+      "readme": "# Connections Feature Module\n\nManages connections between blocks for data flow.\n\n## Overview\n\nConnections link output ports of one block to input ports of another,\nenabling data to flow through the processing graph.\n\n## Architecture\n\n```\nconnections/\n\u251c\u2500\u2500 application/\n\u2502   \u251c\u2500\u2500 connection_commands.py  # Command pattern operations\n\u2502   \u2514\u2500\u2500 connection_service.py   # Connection management\n\u251c\u2500\u2500 domain/\n\u2502   \u251c\u2500\u2500 connection.py           # Connection entity\n\u2502   \u251c\u2500\u2500 connection_repository.py # Repository interface\n\u2502   \u2514\u2500\u2500 connection_summary.py   # Summary data class\n\u2514\u2500\u2500 infrastructure/\n    \u2514\u2500\u2500 connection_repository_impl.py\n```\n\n## Key Components\n\n- **ConnectionService** - Create, delete, query connections\n- **Connection** - Entity representing a link between ports\n\n## Usage\n\n```python\nfrom src.application.api.application_facade import get_facade\n\nfacade = get_facade()\n\n# Connect two blocks\nfacade.connect_blocks(source_block_id, target_block_id, \n                      source_port, target_port)\n\n# Get connections for a block\nconnections = facade.get_block_connections(block_id)\n```\n\n## Related\n\n- [Blocks](../blocks/README.md) - Block entities\n- [Execution](../execution/README.md) - How connections affect execution order\n"
+    },
+    {
+      "name": "execution",
+      "path": "src/features/execution",
+      "readme": "# Execution Feature Module\n\nHandles graph execution, progress tracking, and topological sorting.\n\n## Overview\n\nThe execution engine processes the block graph in topological order,\ntracking progress and handling errors.\n\n## Architecture\n\n```\nexecution/\n\u251c\u2500\u2500 application/\n\u2502   \u251c\u2500\u2500 execution_engine.py    # Main execution coordinator\n\u2502   \u251c\u2500\u2500 progress_tracker.py    # Progress reporting\n\u2502   \u2514\u2500\u2500 topological_sort.py    # Dependency ordering\n\u251c\u2500\u2500 domain/\n\u2502   \u2514\u2500\u2500 (execution domain objects)\n\u2514\u2500\u2500 infrastructure/\n    \u2514\u2500\u2500 (execution infrastructure)\n```\n\n## Key Components\n\n- **ExecutionEngine** - Coordinates block execution\n- **ProgressTracker** - Reports execution progress\n- **TopologicalSort** - Orders blocks by dependencies\n\n## Execution Flow\n\n1. Build dependency graph from connections\n2. Topologically sort blocks\n3. Execute blocks in order\n4. Track progress and status\n5. Handle errors and rollback\n\n## Related\n\n- [Blocks](../blocks/README.md) - Block entities\n- [Connections](../connections/README.md) - Dependency graph\n- [Block Processors](../../application/blocks/README.md) - Processing logic\n"
+    },
+    {
+      "name": "setlists",
+      "path": "src/features/setlists",
+      "readme": "# Setlists Feature Module\n\nManages setlists for batch audio processing workflows.\n\n## Overview\n\nSetlists enable batch processing of multiple audio files through\nthe same block graph, tracking state for each item.\n\n## Architecture\n\n```\nsetlists/\n\u251c\u2500\u2500 application/\n\u2502   \u251c\u2500\u2500 setlist_service.py     # Setlist operations\n\u2502   \u2514\u2500\u2500 setlist_commands.py    # Command pattern operations\n\u251c\u2500\u2500 domain/\n\u2502   \u251c\u2500\u2500 setlist.py             # Setlist entity\n\u2502   \u251c\u2500\u2500 setlist_item.py        # Individual items\n\u2502   \u2514\u2500\u2500 setlist_repository.py  # Repository interface\n\u2514\u2500\u2500 infrastructure/\n    \u2514\u2500\u2500 setlist_repository_impl.py\n```\n\n## Key Components\n\n- **SetlistService** - CRUD and processing operations\n- **Setlist** - Container for items to process\n- **SetlistItem** - Individual audio file entry\n\n## Related\n\n- [Show Manager](../show_manager/README.md) - Show-based workflows\n- [Execution](../execution/README.md) - Processing engine\n"
+    }
+  ],
+  "version": "2.1",
+  "last_updated": "2026-02-04"
+}

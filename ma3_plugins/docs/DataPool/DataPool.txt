@@ -1,0 +1,205 @@
+# DataPool Reference Documentation
+# Source: grandMA3 Dump() command on DataPool()
+# Date: [When this was captured]
+
+## Overview
+
+The DataPool is the root container for all data objects in grandMA3. It contains 15 child pools, including Timecodes, Sequences, Groups, Macros, and more.
+
+## Object Information
+
+**Name:** 1 'Default'
+**Class:** Pool
+**Path:** Root/ShowData/DataPools/1 'Default'
+
+---
+
+## Access Methods
+
+### Basic Access
+
+```lua
+-- Access the default DataPool
+local pool = DataPool()
+
+-- Get the default pool by index
+local pool = DataPool()[1]
+
+-- Access via :Children() method
+local pools = DataPool():Children()
+local default_pool = pools[1]
+```
+
+### Accessing Child Pools
+
+```lua
+-- Access Timecodes pool
+local timecodes = DataPool().Timecodes
+-- or
+local timecodes = DataPool()[1].Timecodes
+
+-- Access Sequences pool
+local sequences = DataPool().Sequences
+
+-- Access Groups pool
+local groups = DataPool().Groups
+
+-- Get all child pools
+local children = DataPool():Children()
+for i = 1, #children do
+    Printf("Pool " .. i .. ": " .. children[i].name)
+end
+```
+
+### Iterating Child Pools
+
+```lua
+-- List all child pools
+local pools = DataPool():Children()
+for i = 1, #pools do
+    local pool = pools[i]
+    local name = pool.name or "Unknown"
+    Printf("Pool " .. i .. ": " .. name)
+end
+```
+
+---
+
+## Properties
+
+### Standard Properties
+
+| Property | Type | Read Only | Description |
+|----------|------|-----------|-------------|
+| IGNORENETWORK | "No" | Yes | Whether network is ignored |
+| STRUCTURELOCKED | "Yes" | Yes | Whether structure is locked |
+| SYSTEMLOCKED | "No" | Yes | Whether system is locked |
+| LOCK | "PL" | No | Lock status |
+| INDEX | "1" | Yes | Array index |
+| COUNT | "15" | Yes | Number of child pools |
+| NO | "1 (15)" | Yes | Number representation |
+| NAME | "1 'Default'" | No | Pool name |
+| USEREXPANDED | "No" | No | User expansion state |
+| FADERENABLED | "No" | Yes | Whether fader is enabled |
+| OWNED | "No" | Yes | Ownership status |
+| HIDDEN | "No" | No | Visibility state |
+| DEPENDENCYEXPORT | "" | No | Dependency export settings |
+| MEMORYFOOTPRINT | "42.7 MB" | Yes | Memory usage |
+| GUID | "C1 F9 B8..." | Yes | Global unique identifier |
+| SCRIBBLE | "" | No | Scribble text |
+| APPEARANCE | "" | No | Appearance settings |
+| NOTE | "" | No | Notes |
+| TAGS | "" | No | Tags |
+
+### Accessing Properties
+
+```lua
+local pool = DataPool()
+
+-- Access via property name (direct)
+local name = pool.name
+local count = pool.count
+
+-- Access via :Get() method
+local name = pool:Get("NAME")
+local count = pool:Get("COUNT")
+
+-- Access with role (returns string representation)
+local name_str = pool:Get("NAME", Enums.Roles.Edit)
+```
+
+---
+
+## Child Pools
+
+The DataPool contains 15 child pools:
+
+| Index | Name | Class | Access Path |
+|-------|------|-------|-------------|
+| #0001 | Worlds | Worlds | `DataPool().Worlds` |
+| #0002 | Filters | Filters | `DataPool().Filters` |
+| #0003 | GeneratorTypes | GeneratorTypes | `DataPool().GeneratorTypes` |
+| #0004 | PresetPools | PresetPools | `DataPool().PresetPools` |
+| #0005 | Groups | Groups | `DataPool().Groups` |
+| #0006 | Sequences | Sequences | `DataPool().Sequences` |
+| #0007 | Plugins | Plugins | `DataPool().Plugins` |
+| #0008 | Macros | Macros | `DataPool().Macros` |
+| #0009 | Quickeys | Quickeys | `DataPool().Quickeys` |
+| #0010 | MAtricks | MAtricks | `DataPool().MAtricks` |
+| #0011 | Configurations | Configurations | `DataPool().Configurations` |
+| #0012 | Pages | Pages | `DataPool().Pages` |
+| #0013 | Layouts | Layouts | `DataPool().Layouts` |
+| #0014 | Timecodes | Timecodes | `DataPool().Timecodes` |
+| #0015 | Timers | Timers | `DataPool().Timers` |
+
+### Accessing Child Pools
+
+```lua
+-- Access Timecodes (most common)
+local timecodes = DataPool().Timecodes
+
+-- Access Sequences
+local sequences = DataPool().Sequences
+
+-- Access Groups
+local groups = DataPool().Groups
+
+-- Access via :Children() array
+local children = DataPool():Children()
+local timecodes = children[14]  -- Index 14 = Timecodes
+```
+
+---
+
+## Common Operations
+
+### Checking Pool Existence
+
+```lua
+-- Check if DataPool exists
+local pool = DataPool()
+if pool then
+    Printf("DataPool exists: " .. pool.name)
+end
+
+-- Check if Timecodes pool exists
+local timecodes = DataPool().Timecodes
+if timecodes then
+    Printf("Timecodes pool exists")
+end
+```
+
+### Dumping Pool Information
+
+```lua
+-- Dump entire DataPool
+DataPool():Dump()
+
+-- Dump specific child pool
+DataPool().Timecodes:Dump()
+```
+
+### Listing All Pools
+
+```lua
+function ListAllPools()
+    local pools = DataPool():Children()
+    Printf("Total Pools: " .. #pools)
+    Printf("")
+    
+    for i = 1, #pools do
+        local pool = pools[i]
+        local name = pool.name or "Unknown"
+        local count = pool.count or 0
+        Printf(string.format("[%02d] %s (Count: %d)", i, name, count))
+    end
+end
+```
+
+---
+
+## Related Documentation
+
+- See `0014_Timecodes/Timecodes.txt` for Timecode pool documentation
+- See `MA3_DATA_STRUCTURES.md` for general data structure patterns
+

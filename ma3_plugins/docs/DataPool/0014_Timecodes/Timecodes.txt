@@ -1,0 +1,313 @@
+# Timecode Object Reference Documentation
+# Source: grandMA3 Dump() command on Timecode object
+# Date: [When this was captured]
+
+## Overview
+
+A Timecode object represents a timecode track within the grandMA3 Timecodes pool. It contains TrackGroups that organize tracks and events synchronized to a timecode source.
+
+**Hierarchy:** `DataPool().Timecodes[timecode_no]`
+
+## Object Information
+
+**Name:** 101 'Intro_Feel'
+**Class:** Timecode
+**Path:** Root/ShowData/DataPools/1 'Default'/Timecodes/101 'Intro_Feel'
+
+---
+
+## Access Methods
+
+### Basic Access
+
+```lua
+-- Access by timecode number (direct index)
+local tc = DataPool().Timecodes[101]
+
+-- Access via :Children() method
+local timecodes = DataPool().Timecodes:Children()
+local tc = timecodes[1]  -- First timecode in list
+
+-- Access using GetTimecode helper (if available)
+local tc = GetTimecode(101)
+```
+
+### Checking Timecode Existence
+
+```lua
+-- Check if timecode exists
+local tc = DataPool().Timecodes[101]
+if tc then
+    Printf("Timecode 101 exists: " .. tc.name)
+else
+    Printf("Timecode 101 does not exist")
+end
+```
+
+### Iterating All Timecodes
+
+```lua
+-- List all timecodes
+local timecodes = DataPool().Timecodes:Children()
+for i = 1, #timecodes do
+    local tc = timecodes[i]
+    local name = tc.name or "Unknown"
+    local no = tc.no or "?"
+    Printf(string.format("Timecode [%d]: %s (No: %s)", i, name, no))
+end
+```
+
+---
+
+## Properties
+
+### Standard Properties
+
+| Property | Type | Read Only | Description |
+|----------|------|-----------|-------------|
+| NAME | "101 'Intro_Feel'" | No | Timecode name |
+| NO | "101 (1)" | Yes | Number representation |
+| INDEX | "101" | Yes | Array index |
+| COUNT | "1" | Yes | Number of TrackGroups |
+| GUID | "B6 3F C0 C4..." | Yes | Global unique identifier |
+| MEMORYFOOTPRINT | "113.4 KB" | Yes | Memory usage |
+
+### Timecode-Specific Properties
+
+| Property | Type | Read Only | Description |
+|----------|------|-----------|-------------|
+| CURSOR | "3m00:00" | No | Current cursor position |
+| DURATION | "14d00h00m00:00" | No | Timecode duration |
+| OFFSETTCSLOT | "10m00:00" | No | Offset timecode slot |
+| RAWOFFSETTCSLOT | "10066329600" | Yes | Raw offset value |
+| RAWDURATION | "20293720473601" | Yes | Raw duration value |
+| LOOPMODE | "Loop" | No | Loop mode (Loop/Once/etc) |
+| LOOPCOUNT | "0" | No | Loop count |
+| TCSLOT | "TCSlot 1" | No | Timecode slot reference |
+| TIMEMARKERS | "" | Yes | Time markers (read-only) |
+| AUTOSTART | "No" | No | Auto-start enabled |
+| AUTOSTOP | "No" | No | Auto-stop enabled |
+| SWITCHOFF | "Keep Playbacks" | No | Switch-off behavior |
+| GOTO | "as Go" | No | Go-to behavior |
+| ASSERTPREVEVENTS | "No" | No | Assert previous events |
+| PLAYBACKANDRECORD | "Manual Events" | No | Playback/record mode |
+| RECORDTIMEDCUES | "No" | Yes | Record timed cues (read-only) |
+| RECORDCUECOMMANDS | "No" | Yes | Record cue commands (read-only) |
+| RECORDMACROEVENTS | "No" | Yes | Record macro events (read-only) |
+| RECORDREMOTEEVENTS | "No" | No | Record remote events |
+| USERBITS | "0" | No | User bits |
+| TIMEDISPLAYFORMAT | "<10d11h23m45>" | No | Time display format |
+| FRAMEREADOUT | "30 fps" | No | Frame rate |
+| TYPE | "Timecode" | Yes | Object type (read-only) |
+| USER | "7 'Coda'" | Yes | User reference (read-only) |
+
+### Accessing Properties
+
+```lua
+local tc = DataPool().Timecodes[101]
+
+-- Access via property name (direct)
+local name = tc.name
+local duration = tc.duration
+local cursor = tc.cursor
+
+-- Access via :Get() method
+local name = tc:Get("NAME")
+local duration = tc:Get("DURATION")
+local cursor = tc:Get("CURSOR")
+
+-- Access with role (returns string representation)
+local name_str = tc:Get("NAME", Enums.Roles.Edit)
+
+-- Setting properties
+tc.cursor = "5m00:00"
+tc.loopmode = "Once"
+tc.autostart = "Yes"
+```
+
+---
+
+## Children (TrackGroups)
+
+Timecodes contain TrackGroups that organize tracks and events.
+
+```lua
+-- Get all TrackGroups
+local tc = DataPool().Timecodes[101]
+local track_groups = tc:Children()
+
+-- Access specific TrackGroup
+local tg = tc[1]  -- First TrackGroup
+-- or
+local tg = track_groups[1]
+
+-- Iterate TrackGroups
+for i = 1, #track_groups do
+    local tg = track_groups[i]
+    Printf("TrackGroup " .. i .. ": " .. tg.name)
+end
+```
+
+**Example TrackGroup:**
+- #0001: Name = "1 'Test'", Class = "TrackGroup"
+
+See `TrackGroup/TrackGroup.txt` for TrackGroup documentation.
+
+---
+
+## Common Operations
+
+### Getting Timecode Information
+
+```lua
+function GetTimecodeInfo(tc_no)
+    local tc = DataPool().Timecodes[tc_no]
+    if not tc then
+        Printf("Timecode " .. tc_no .. " not found")
+        return nil
+    end
+    
+    local info = {
+        name = tc.name or "Unknown",
+        no = tc.no or "?",
+        index = tc.index or "?",
+        count = tc.count or 0,
+        duration = tc.duration or "?",
+        cursor = tc.cursor or "?",
+        guid = tc.guid or "?"
+    }
+    
+    return info
+end
+
+-- Usage
+local info = GetTimecodeInfo(101)
+Printf("Timecode: " .. info.name)
+Printf("Duration: " .. info.duration)
+```
+
+### Dumping Timecode
+
+```lua
+-- Dump entire timecode object
+local tc = DataPool().Timecodes[101]
+tc:Dump()
+
+-- Or via command line
+-- Lua "DataPool().Timecodes[101]:Dump()"
+```
+
+### Hooking into Timecode Changes
+
+```lua
+function HookTimecode(tc_no, callback)
+    local tc = DataPool().Timecodes[tc_no]
+    if not tc then
+        Printf("Timecode " .. tc_no .. " not found")
+        return nil
+    end
+    
+    -- Get plugin handle (required for HookObjectChange)
+    local pluginHandle = luaComponentHandle:Parent()
+    
+    -- Create hook
+    local hook_id = HookObjectChange(callback, tc, pluginHandle)
+    
+    return hook_id
+end
+
+-- Usage
+local hook_id = HookTimecode(101, function(obj)
+    Printf("Timecode changed: " .. obj.name)
+end)
+
+-- Cleanup
+if hook_id then
+    Unhook(hook_id)
+end
+```
+
+### Navigating to TrackGroups
+
+```lua
+function ListTrackGroups(tc_no)
+    local tc = DataPool().Timecodes[tc_no]
+    if not tc then
+        Printf("Timecode " .. tc_no .. " not found")
+        return
+    end
+    
+    local track_groups = tc:Children()
+    Printf("TrackGroups in " .. tc.name .. ": " .. #track_groups)
+    
+    for i = 1, #track_groups do
+        local tg = track_groups[i]
+        Printf(string.format("  [%d] %s", i, tg.name or "Unknown"))
+    end
+end
+```
+
+---
+
+## Examples
+
+### Example 1: Access Timecode and List TrackGroups
+
+```lua
+local tc = DataPool().Timecodes[101]
+Printf("Timecode: " .. tc.name)
+Printf("Duration: " .. tc.duration)
+
+local track_groups = tc:Children()
+Printf("TrackGroups: " .. #track_groups)
+
+for i = 1, #track_groups do
+    local tg = track_groups[i]
+    Printf("  TrackGroup " .. i .. ": " .. tg.name)
+end
+```
+
+### Example 2: Find Timecode by Name
+
+```lua
+function FindTimecodeByName(name)
+    local timecodes = DataPool().Timecodes:Children()
+    for i = 1, #timecodes do
+        local tc = timecodes[i]
+        if tc.name == name then
+            return tc
+        end
+    end
+    return nil
+end
+
+-- Usage
+local tc = FindTimecodeByName("101 'Intro_Feel'")
+if tc then
+    Printf("Found: " .. tc.name)
+end
+```
+
+### Example 3: Get All Timecode Names
+
+```lua
+function GetAllTimecodeNames()
+    local timecodes = DataPool().Timecodes:Children()
+    local names = {}
+    
+    for i = 1, #timecodes do
+        local tc = timecodes[i]
+        table.insert(names, tc.name or "Unknown")
+    end
+    
+    return names
+end
+```
+
+---
+
+## Related Documentation
+
+- See `../DataPool.txt` for DataPool documentation
+- See `TrackGroup/TrackGroup.txt` for TrackGroup documentation
+- See `TIMECODE_STRUCTURE.md` for overall timecode hierarchy

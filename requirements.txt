@@ -1,0 +1,95 @@
+# EchoZero Dependencies
+# Audio processing DAW with AI-powered source separation and classification
+
+# ==============================================================================
+# Core Audio Processing
+# ==============================================================================
+librosa>=0.10.1              # Audio analysis: onset detection, tempo, pitch
+soundfile>=0.12.1            # Audio file I/O (WAV, FLAC, OGG)
+audioread>=3.0.1             # Audio file reading backend for librosa
+soxr>=0.3.7                  # High-quality audio resampling
+
+# ==============================================================================
+# Note Transcription
+# ==============================================================================
+basic-pitch>=0.4.0           # Neural network polyphonic pitch detection
+
+# ==============================================================================
+# Audio Source Separation
+# ==============================================================================
+demucs>=4.0.0                # Hybrid Transformer source separation (vocals/drums/bass)
+
+# ==============================================================================
+# Visualization
+# ==============================================================================
+matplotlib>=3.10.0           # Waveform and event plotting
+
+# ==============================================================================
+# Machine Learning
+# ==============================================================================
+torch>=2.2.0                 # PyTorch for neural network models
+torchaudio>=2.2.0            # Audio processing for PyTorch
+
+# TensorFlow 2.15.0 - uses Keras 2.x (compatible with SavedModel format)
+# Must be <=2.15.0 to avoid Keras 3 compatibility issues with SavedModel format
+# TensorFlow 2.16+ uses Keras 3 which causes 'add_slot' errors with SavedModel
+# Note: Use tf.keras (bundled with TensorFlow), not standalone keras package
+tensorflow==2.15.0           # Pinned to 2.15.0 for SavedModel compatibility
+protobuf==3.20.3             # TensorFlow 2.15 compatibility (avoids MessageFactory API removal)
+
+# ==============================================================================
+# Scientific Computing
+# ==============================================================================
+numpy>=1.26.0                # Numerical arrays and operations
+scipy>=1.14.0                # Signal processing (used by librosa)
+scikit-learn>=1.3.0          # Machine learning utilities
+
+# ==============================================================================
+# Performance Acceleration
+# ==============================================================================
+joblib>=1.4.0                # Parallel processing (librosa dependency)
+numba>=0.59.0                # JIT compilation for onset detection acceleration
+
+# ==============================================================================
+# CLI Interface
+# ==============================================================================
+colorama>=0.4.6              # Cross-platform colored terminal output
+
+# ==============================================================================
+# GUI Framework
+# ==============================================================================
+PyQt6>=6.4.0                 # Qt6 Python bindings (main window, dialogs)
+# PyQt6-Multimedia>=6.4.0    # OPTIONAL: Audio playback in timeline
+                              # Not available for Python 3.10 on Windows
+                              # Install manually if on Python 3.11+: pip install PyQt6-Multimedia>=6.4.0
+                              # App runs without it (audio playback disabled)
+
+# ==============================================================================
+# Authentication
+# ==============================================================================
+httpx>=0.27.0                # HTTP client for auth verification proxy
+keyring>=25.0.0              # Secure credential storage (OS keychain)
+python-dotenv>=1.0.0         # Load .env file for configuration
+PyJWT>=2.11.0                # JWT token handling for authentication
+
+# ==============================================================================
+# Network / SSL
+# ==============================================================================
+certifi>=2023.0.0            # SSL certificates for model downloads
+netifaces>=0.11.0            # Cross-platform network interface discovery
+
+# ==============================================================================
+# OSC Communication (MA3 Integration)
+# ==============================================================================
+python-osc>=1.8.0            # OSC protocol for grandMA3 communication
+
+# ==============================================================================
+# Deployment
+# ==============================================================================
+pyinstaller>=6.18.0          # Application packaging and distribution
+
+# ==============================================================================
+# Development / Testing
+# ==============================================================================
+pytest>=7.4.0                # Test framework
+pytest-cov>=4.1.0            # Test coverage reporting
