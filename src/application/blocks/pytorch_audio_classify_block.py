@@ -21,6 +21,7 @@ from src.shared.domain.entities import EventDataItem, Event, EventLayer
 from src.shared.domain.entities import AudioDataItem
 from src.application.blocks import register_processor_class
 from src.utils.message import Log
+from src.application.blocks.training.model_coach import build_inference_feedback
 
 if TYPE_CHECKING:
     from src.features.blocks.domain import BlockStatusLevel
@@ -273,7 +274,7 @@ class PyTorchAudioClassifyBlockProcessor(BlockProcessor):
         Log.info(f"PyTorchAudioClassifyBlockProcessor: Processing {len(event_items)} event item(s)")
         
         # Resolve model path: prefer model input port, fall back to block settings
-        model_path = self._resolve_model_path(inputs, block)
+        model_path = self._get_model_path(inputs, block)
         
         # Load model (cached if same path AND file hasn't been modified)
         current_mtime = os.path.getmtime(model_path)
@@ -466,6 +467,7 @@ class PyTorchAudioClassifyBlockProcessor(BlockProcessor):
             total_events_output = sum(s["events_output"] for s in all_execution_summaries)
             total_classified = sum(s["events_classified"] for s in all_execution_summaries)
             total_skipped = sum(s["events_skipped"] for s in all_execution_summaries)
+            total_processing_time = sum(s["processing_time_seconds"] for s in all_execution_summaries)
             
             # Aggregate classification counts
             all_classification_counts = Counter()
@@ -490,6 +492,23 @@ class PyTorchAudioClassifyBlockProcessor(BlockProcessor):
                     "max": float(max(all_confidence_scores)),
                     "avg": float(sum(all_confidence_scores) / len(all_confidence_scores))
                 }
+
+            overall_events_per_second = (
+                total_events_input / total_processing_time
+                if total_processing_time > 0 else 0.0
+            )
+
+            confidence_threshold = block.metadata.get("confidence_threshold") if block.metadata else None
+            coach_feedback = build_inference_feedback(
+                execution_summary={
+                    "total_events_input": total_events_input,
+                    "total_classified": total_classified,
+                    "total_skipped": total_skipped,
+                    "events_per_second": overall_events_per_second,
+                    "confidence_stats": overall_confidence_stats,
+                },
+                confidence_threshold=confidence_threshold,
+            )
             
             summary_data = {
                 "last_execution": {
@@ -499,9 +518,12 @@ class PyTorchAudioClassifyBlockProcessor(BlockProcessor):
                     "total_events_output": total_events_output,
                     "total_classified": total_classified,
                     "total_skipped": total_skipped,
+                    "processing_time_seconds": total_processing_time,
+                    "events_per_second": overall_events_per_second,
                     "model_path": model_path,
                     "classification_counts": dict(all_classification_counts),
                     "confidence_stats": overall_confidence_stats,
+                    "coach_feedback": coach_feedback,
                     "details": all_execution_summaries
                 }
             }
@@ -521,32 +543,24 @@ class PyTorchAudioClassifyBlockProcessor(BlockProcessor):
             )
             return {"events": all_output_items}
     
-    def _resolve_model_path(self, inputs: Dict[str, DataItem], block: Block) -> str:
+    def _get_model_path(self, inputs: Dict[str, DataItem], block: Block) -> str:
         """
         Resolve model path from input port or block settings.
-        
+
         Priority:
         1. Model input port (from connected PyTorch Audio Trainer)
         2. model_path in block metadata/settings
-        
-        Args:
-            inputs: Input data items (may contain "model" DataItem)
-            block: Block entity for metadata and error context
-            
-        Returns:
-            Validated model file path
-            
-        Raises:
-            ProcessingError: If no model source is available or path is invalid
+
+        Returns a validated path to a .pth file (resolves model folder to .pth if needed).
         """
         model_path = None
-        
+
         # Check model input port first (from connected Trainer block)
         model_input = inputs.get("model")
         if model_input:
             # Handle single item or list
             model_item = model_input[0] if isinstance(model_input, list) else model_input
-            
+
             # Extract model_path from the DataItem
             if hasattr(model_item, 'file_path') and model_item.file_path:
                 model_path = model_item.file_path
@@ -561,11 +575,11 @@ class PyTorchAudioClassifyBlockProcessor(BlockProcessor):
                         f"PyTorchAudioClassifyBlockProcessor: Using model path from input metadata: "
                         f"{os.path.basename(model_path)}"
                     )
-        
+
         # Fall back to block settings
         if not model_path:
             model_path = block.metadata.get("model_path") if block.metadata else None
-        
+
         # Validate we have a model path
         if not model_path:
             raise ProcessingError(
@@ -576,8 +590,22 @@ class PyTorchAudioClassifyBlockProcessor(BlockProcessor):
                 block_name=block.name,
             )
 
-        # If path is a model folder (contains .pth + MODEL_SUMMARY.txt), use the .pth inside
+        # model_path must be a string or path-like (e.g. from metadata or trainer output)
+        if not isinstance(model_path, (str, bytes, os.PathLike)):
+            raise ProcessingError(
+                f"model_path must be a file or folder path, got {type(model_path).__name__}. "
+                "Check block settings or the connected trainer output.",
+                block_id=block.id,
+                block_name=block.name,
+            )
+        model_path = os.fspath(model_path) if not isinstance(model_path, str) else model_path
+
+        # If path is a model folder (contains .pth), use the .pth inside
         model_path = self._resolve_model_path(model_path, block)
+
+        # Recover from stale/nonexistent configured path when we can determine
+        # a single unambiguous candidate model file.
+        model_path = self._recover_missing_model_path(model_path, block)
 
         # Validate model path exists
         if not os.path.exists(model_path):
@@ -612,6 +640,50 @@ class PyTorchAudioClassifyBlockProcessor(BlockProcessor):
                 block_id=block.id,
                 block_name=block.name,
             )
+        return model_path
+
+    def _recover_missing_model_path(self, model_path: str, block: Block) -> str:
+        """
+        Best-effort recovery for stale manual paths.
+
+        Handles common case where a configured *.pth path no longer exists but
+        the parent folder (or configured folder) contains exactly one .pth file.
+        """
+        path = Path(model_path)
+        if path.exists():
+            return model_path
+
+        candidate_dirs = []
+        if path.suffix.lower() == ".pth":
+            candidate_dirs.append(path.parent)
+            if path.parent.parent.exists():
+                candidate_dirs.append(path.parent.parent)
+        else:
+            candidate_dirs.append(path)
+            if path.parent.exists():
+                candidate_dirs.append(path.parent)
+
+        for d in candidate_dirs:
+            if not d or not d.exists() or not d.is_dir():
+                continue
+            direct = list(d.glob("*.pth"))
+            if len(direct) == 1:
+                recovered = str(direct[0])
+                Log.warning(
+                    "PyTorchAudioClassifyBlockProcessor: recovered missing model path "
+                    f"'{model_path}' -> '{recovered}'"
+                )
+                return recovered
+            if len(direct) == 0:
+                nested = list(d.glob("*/*.pth"))
+                if len(nested) == 1:
+                    recovered = str(nested[0])
+                    Log.warning(
+                        "PyTorchAudioClassifyBlockProcessor: recovered missing model path "
+                        f"'{model_path}' -> '{recovered}'"
+                    )
+                    return recovered
+
         return model_path
 
     def _load_model(self, model_path: str, block: Block):
@@ -687,35 +759,33 @@ class PyTorchAudioClassifyBlockProcessor(BlockProcessor):
         
         # Preprocessing: use canonical inference_preprocessing from checkpoint so we stay aligned with trainer
         inference_prep = checkpoint.get("inference_preprocessing")
-        if inference_prep:
-            self._preprocessing_config = {
-                "sample_rate": inference_prep.get("sample_rate", 22050),
-                "max_length": inference_prep.get("max_length", 22050),
-                "n_fft": inference_prep.get("n_fft", 2048),
-                "n_mels": inference_prep.get("n_mels", 128),
-                "hop_length": inference_prep.get("hop_length", 512),
-                "fmax": inference_prep.get("fmax", 8000),
-            }
-            if inference_prep.get("normalization_mean") is not None and inference_prep.get("normalization_std") is not None:
-                self._normalization = {
-                    "mean": inference_prep["normalization_mean"],
-                    "std": inference_prep["normalization_std"],
-                }
-            else:
-                self._normalization = checkpoint.get("normalization")
-            Log.info(
-                "PyTorchAudioClassifyBlockProcessor: Using saved-model preprocessing (aligned with trainer)"
+        if not isinstance(inference_prep, dict):
+            raise ProcessingError(
+                "Model is missing canonical inference_preprocessing metadata. "
+                "Re-train the model with the current trainer so classifier preprocessing is fully aligned.",
+                block_id=block.id,
+                block_name=block.name,
             )
-        else:
-            self._preprocessing_config = {
-                "sample_rate": self._model_config.get("sample_rate", 22050),
-                "max_length": self._model_config.get("max_length", 22050),
-                "n_fft": self._model_config.get("n_fft", 2048),
-                "n_mels": self._model_config.get("n_mels", 128),
-                "hop_length": self._model_config.get("hop_length", 512),
-                "fmax": self._model_config.get("fmax", 8000),
+
+        self._preprocessing_config = {
+            "sample_rate": inference_prep.get("sample_rate", 22050),
+            "max_length": inference_prep.get("max_length", 22050),
+            "n_fft": inference_prep.get("n_fft", 2048),
+            "n_mels": inference_prep.get("n_mels", 128),
+            "hop_length": inference_prep.get("hop_length", 512),
+            "fmax": inference_prep.get("fmax", 8000),
+            "audio_input_standard": inference_prep.get("audio_input_standard", {}),
+        }
+        if inference_prep.get("normalization_mean") is not None and inference_prep.get("normalization_std") is not None:
+            self._normalization = {
+                "mean": inference_prep["normalization_mean"],
+                "std": inference_prep["normalization_std"],
             }
+        else:
             self._normalization = checkpoint.get("normalization")
+        Log.info(
+            "PyTorchAudioClassifyBlockProcessor: Using saved-model preprocessing (aligned with trainer)"
+        )
         
         # Binary mode support
         self._is_binary = checkpoint.get("classification_mode", "multiclass") == "binary"

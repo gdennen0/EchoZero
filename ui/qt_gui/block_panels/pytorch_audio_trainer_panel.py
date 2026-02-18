@@ -77,6 +77,7 @@ class PyTorchAudioTrainerPanel(BlockPanelBase):
 
         # Refresh UI with loaded settings
         self._refresh_ui_with_settings()
+        self._update_status_from_last_training()
 
         # Connect signals (AFTER initial refresh to avoid saving defaults)
         self._connect_signals()
@@ -131,6 +132,7 @@ class PyTorchAudioTrainerPanel(BlockPanelBase):
         self.n_mels_spin.setValue(self.settings.get("n_mels", 128))
         self.hop_length_spin.setValue(self.settings.get("hop_length", 512))
         self.n_fft_spin.setValue(self.settings.get("n_fft", 2048))
+        self.normalize_per_dataset_check.setChecked(self.settings.get("normalize_per_dataset", True))
         self.cv_check.setChecked(self.settings.get("use_cross_validation", False))
         self.cv_folds_spin.setValue(self.settings.get("cv_folds", 5))
 
@@ -159,16 +161,18 @@ class PyTorchAudioTrainerPanel(BlockPanelBase):
         self.momentum_spin.setValue(self.settings.get("momentum", 0.9))
         self.weight_decay_spin.setValue(self.settings.get("weight_decay", 1e-4))
         self.dropout_rate_spin.setValue(self.settings.get("dropout_rate", 0.4))
-        self.lr_scheduler_combo.setCurrentText(self.settings.get("lr_scheduler", "plateau"))
+        self.lr_scheduler_combo.setCurrentText(self.settings.get("lr_scheduler", "cosine_restarts"))
         self.lr_step_size_spin.setValue(self.settings.get("lr_step_size", 30))
         self.lr_gamma_spin.setValue(self.settings.get("lr_gamma", 0.1))
-        self.early_stopping_check.setChecked(True)  # Always enabled by default
+        self.early_stopping_check.setChecked(self.settings.get("use_early_stopping", True))
         self.early_stopping_patience_spin.setValue(self.settings.get("early_stopping_patience", 15))
-        current_device = self.settings.get("device", "cpu")
-        if current_device == "cuda" and not self._cuda_available():
-            current_device = "cpu"
+        current_device = self.settings.get("device", "auto")
         self.device_combo.setCurrentText(current_device)
-        self.output_path_edit.setText(self.settings.get("output_model_path", ""))
+        # Save to directory (legacy: output_model_path may be a file path; show parent as dir)
+        out = self.settings.get("output_model_path", "") or ""
+        if out and out.endswith(".pth"):
+            out = str(Path(out).parent)
+        self.save_to_dir_edit.setText(out)
 
         # Augmentation tab
         self.augmentation_check.setChecked(self.settings.get("use_augmentation", False))
@@ -249,8 +253,17 @@ class PyTorchAudioTrainerPanel(BlockPanelBase):
         self._on_augmentation_toggled(self.augmentation_check.isChecked())
         self._on_hyperopt_toggled(self.hyperopt_check.isChecked())
         self._on_mode_changed(self.mode_combo.currentIndex())
+        self._apply_unsupported_feature_locks()
 
         self._update_model_output_path_display()
+
+        # Explicitly populate the class list from the loaded data_dir.
+        # Signals are not yet connected during init, so _on_data_dir_changed
+        # won't fire from setText alone. This restores checked positive classes
+        # via _saved_positive_classes (set above).
+        data_dir = self.data_dir_edit.text().strip()
+        if data_dir:
+            self._on_data_dir_changed(data_dir)
 
     def create_content_widget(self) -> QWidget:
         """Create the comprehensive user interface with tabs"""
@@ -337,13 +350,27 @@ class PyTorchAudioTrainerPanel(BlockPanelBase):
         self.data_info_label.setStyleSheet(f"color: {Colors.TEXT_SECONDARY}; font-size: 11px;")
         group_layout.addRow("", self.data_info_label)
 
-        # Model name (auto-generated when empty until user sets one)
+        # Save to: directory where the model folder will be created (subdir + .pth + MODEL_SUMMARY.txt)
+        self.save_to_dir_edit = QLineEdit()
+        self.save_to_dir_edit.setPlaceholderText(str(get_models_dir()))
+        self.save_to_dir_edit.setToolTip(
+            "Directory where the model will be saved.\n\n"
+            "A subfolder (model name + timestamp) is created here containing the .pth file and MODEL_SUMMARY.txt.\n"
+            "Leave empty to use the default EchoZero models directory."
+        )
+        save_to_layout = QHBoxLayout()
+        save_to_layout.addWidget(self.save_to_dir_edit)
+        save_to_browse_btn = QPushButton("Browse...")
+        save_to_browse_btn.clicked.connect(self._browse_save_to_dir)
+        save_to_layout.addWidget(save_to_browse_btn)
+        group_layout.addRow("Save to:", save_to_layout)
+
+        # Model name: used as the base for the output folder and filename
         self.model_name_edit = QLineEdit()
         self.model_name_edit.setPlaceholderText("Auto-generated if empty")
         self.model_name_edit.setToolTip(
-            "Name for the trained model (used in saved filename and output item).\n\n"
-            "A unique name is auto-generated when empty; change this to set your own name.\n"
-            "Once set manually, it is kept until you clear or change it."
+            "Name for the trained model. Used as the folder and file base (e.g. supersnare_20250101_120000).\n\n"
+            "Leave empty to auto-generate from mode and class (e.g. binary_Snare_cnn_...)."
         )
         group_layout.addRow("Model name:", self.model_name_edit)
 
@@ -553,6 +580,14 @@ class PyTorchAudioTrainerPanel(BlockPanelBase):
             "2048 is a typical default."
         )
         spec_layout.addRow("FFT size (n_fft):", self.n_fft_spin)
+        self.normalize_per_dataset_check = QCheckBox("Use per-dataset normalization (save mean/std)")
+        self.normalize_per_dataset_check.setChecked(True)
+        self.normalize_per_dataset_check.setToolTip(
+            "When enabled, computes dataset-wide mean/std and saves them in the model.\n\n"
+            "When disabled, each sample is normalized independently at runtime and no\n"
+            "dataset mean/std is written to the trained model."
+        )
+        spec_layout.addRow("Normalization:", self.normalize_per_dataset_check)
         group_layout.addRow(spec_group)
 
         # Cross-validation
@@ -940,13 +975,14 @@ class PyTorchAudioTrainerPanel(BlockPanelBase):
         scheduler_form = QFormLayout(scheduler_group)
 
         self.lr_scheduler_combo = QComboBox()
-        self.lr_scheduler_combo.addItems(["none", "step", "cosine", "plateau"])
+        self.lr_scheduler_combo.addItems(["none", "step", "cosine", "cosine_restarts", "plateau"])
         self.lr_scheduler_combo.currentTextChanged.connect(self._on_scheduler_changed)
         self.lr_scheduler_combo.setToolTip(
             "Learning rate scheduling strategy:\n\n"
             "• None: Keep learning rate constant\n"
             "• Step: Reduce LR by gamma every N epochs\n"
             "• Cosine: Cosine annealing (smooth decrease)\n"
+            "• Cosine Restarts: Cosine annealing with warm restarts\n"
             "• Plateau: Reduce LR when validation loss plateaus (recommended)"
         )
         scheduler_form.addRow("Scheduler:", self.lr_scheduler_combo)
@@ -1005,43 +1041,26 @@ class PyTorchAudioTrainerPanel(BlockPanelBase):
         device_form = QFormLayout(device_group)
 
         self.device_combo = QComboBox()
-        self.device_combo.addItems(["cpu", "cuda"])
+        self.device_combo.addItems(["auto", "cpu", "cuda", "mps"])
         self.device_combo.setToolTip(
             "Device to use for training:\n\n"
+            "• Auto: Use best available device (CUDA, then MPS, else CPU)\n"
             "• CPU: Slower but works on any machine\n"
-            "• CUDA: Much faster if GPU available (recommended)\n\n"
-            "CUDA requires NVIDIA GPU with CUDA support."
+            "• CUDA: Much faster if NVIDIA GPU is available\n"
+            "• MPS: Apple Silicon GPU acceleration on macOS"
         )
         device_form.addRow("Device:", self.device_combo)
 
-        self.output_path_edit = QLineEdit()
-        self.output_path_edit.setPlaceholderText("Auto-generated if empty")
-        self.output_path_edit.setToolTip(
-            "Path where trained model will be saved.\n\n"
-            "Leave empty to auto-generate filename with timestamp.\n"
-            "Format: pytorch_audio_model_YYYYMMDD_HHMMSS.pth\n\n"
-            "Model file contains: weights, classes, config, and training date."
-        )
-
-        output_layout = QHBoxLayout()
-        output_layout.addWidget(self.output_path_edit)
-
-        output_browse_btn = QPushButton("Browse...")
-        output_browse_btn.clicked.connect(self._browse_output_path)
-        output_layout.addWidget(output_browse_btn)
-
-        device_form.addRow("Output Path:", output_layout)
-
-        # Read-only display of where model will be / was saved
+        # Read-only: where the model will be saved (set in Data tab: Save to + Model name)
         self.model_output_path_label = QLabel("")
         self.model_output_path_label.setWordWrap(True)
         self.model_output_path_label.setStyleSheet(
             f"color: {Colors.TEXT_SECONDARY.name()}; font-size: 11px; padding: 4px 0;"
         )
         self.model_output_path_label.setToolTip(
-            "Shows the configured path, last trained model path, or default save location."
+            "Resolved save location. Configure \"Save to\" and \"Model name\" in the Data tab."
         )
-        device_form.addRow("Model output:", self.model_output_path_label)
+        device_form.addRow("Will save to:", self.model_output_path_label)
 
         training_layout.addWidget(device_group)
         training_layout.addStretch()
@@ -1358,18 +1377,40 @@ class PyTorchAudioTrainerPanel(BlockPanelBase):
 
         self.tab_widget.addTab(advanced_widget, "Advanced")
 
+    def _apply_unsupported_feature_locks(self):
+        """Disable settings that are intentionally unsupported by this trainer."""
+        self.cv_check.setChecked(False)
+        self.cv_check.setEnabled(False)
+        self.cv_folds_spin.setEnabled(False)
+        self.cv_check.setToolTip(
+            "Cross-validation is not implemented in PyTorchAudioTrainer yet."
+        )
+        self.cv_folds_spin.setToolTip(
+            "Cross-validation is not implemented in PyTorchAudioTrainer yet."
+        )
+
+        self.hyperopt_check.setChecked(False)
+        self.hyperopt_check.setEnabled(False)
+        self.hyperopt_trials_spin.setEnabled(False)
+        self.hyperopt_timeout_spin.setEnabled(False)
+        self.hyperopt_check.setToolTip(
+            "Hyperparameter optimization is not implemented in PyTorchAudioTrainer yet."
+        )
+
     def refresh(self):
         """Reload settings and refresh UI when block is updated (e.g. after training)."""
         self._load_current_settings()
         self._refresh_ui_with_settings()
+        self._update_status_from_last_training()
 
     def _connect_signals(self):
         """Connect widget signals to handlers and auto-save."""
         # --- UI logic handlers (show/hide, populate combos, etc.) ---
         self.data_dir_edit.textChanged.connect(self._on_data_dir_changed)
         self.model_name_edit.textChanged.connect(self._auto_save)
+        self.model_name_edit.textChanged.connect(self._update_model_output_path_display)
         self.mode_combo.currentIndexChanged.connect(self._on_mode_changed)
-        self.output_path_edit.textChanged.connect(self._update_model_output_path_display)
+        self.save_to_dir_edit.textChanged.connect(self._update_model_output_path_display)
         self.positive_classes_list.itemChanged.connect(self._on_positive_classes_changed)
         self.auto_tune_check.toggled.connect(
             lambda checked: self.threshold_metric_combo.setEnabled(checked)
@@ -1387,6 +1428,7 @@ class PyTorchAudioTrainerPanel(BlockPanelBase):
         self.n_mels_spin.valueChanged.connect(self._auto_save)
         self.hop_length_spin.valueChanged.connect(self._auto_save)
         self.n_fft_spin.valueChanged.connect(self._auto_save)
+        self.normalize_per_dataset_check.toggled.connect(self._auto_save)
         self.cv_check.toggled.connect(self._auto_save)
         self.cv_folds_spin.valueChanged.connect(self._auto_save)
         self.mode_combo.currentIndexChanged.connect(self._auto_save)
@@ -1432,7 +1474,7 @@ class PyTorchAudioTrainerPanel(BlockPanelBase):
         self.early_stopping_check.toggled.connect(self._auto_save)
         self.early_stopping_patience_spin.valueChanged.connect(self._auto_save)
         self.device_combo.currentTextChanged.connect(self._auto_save)
-        self.output_path_edit.textChanged.connect(self._auto_save)
+        self.save_to_dir_edit.textChanged.connect(self._auto_save)
 
         # Augmentation tab
         self.augmentation_check.toggled.connect(self._auto_save)
@@ -1473,6 +1515,81 @@ class PyTorchAudioTrainerPanel(BlockPanelBase):
             Log.warning(f"Failed to load settings for block {self.block_id}: {e}")
             self.settings = {}
 
+    def _update_status_from_last_training(self):
+        """Show plain-language model coach feedback from the last training run."""
+        last_training = self.settings.get("last_training") or {}
+        if not isinstance(last_training, dict):
+            return
+
+        coach_feedback = last_training.get("coach_feedback") or {}
+        excluded_count = int(last_training.get("excluded_bad_file_count") or 0)
+        excluded_files = last_training.get("excluded_bad_files") or []
+
+        has_coach = isinstance(coach_feedback, dict) and bool(coach_feedback)
+        if not has_coach and excluded_count <= 0:
+            return
+
+        lines = []
+        status_color = "black"
+
+        if has_coach:
+            verdict = str(coach_feedback.get("verdict") or "unknown").strip().lower()
+            score = coach_feedback.get("score")
+            summary = str(coach_feedback.get("summary") or "").strip()
+            trend = coach_feedback.get("trend") or {}
+            trend_msg = str(trend.get("message") or "").strip()
+
+            lines.append("Model Coach:")
+            lines.append(f"Verdict: {verdict.replace('_', ' ').title()}")
+            if score is not None:
+                lines.append(f"Score: {score}/100")
+            if summary:
+                lines.append(summary)
+            if trend_msg:
+                lines.append(trend_msg)
+
+            findings = coach_feedback.get("findings") or []
+            if isinstance(findings, list):
+                for finding in findings[:3]:
+                    if isinstance(finding, str) and finding.strip():
+                        lines.append(f"- {finding.strip()}")
+
+            actions = coach_feedback.get("next_actions") or []
+            if isinstance(actions, list) and actions:
+                lines.append("Recommended next steps:")
+                for action in actions[:3]:
+                    if isinstance(action, str) and action.strip():
+                        lines.append(f"- {action.strip()}")
+
+            if verdict == "good":
+                status_color = "green"
+            elif verdict == "unreliable":
+                status_color = "red"
+            else:
+                status_color = "warning"
+
+        if excluded_count > 0:
+            if lines:
+                lines.append("")
+            lines.append("Dataset integrity check:")
+            lines.append(f"Excluded unreadable/invalid files: {excluded_count}")
+            max_lines = 12
+            shown = excluded_files[:max_lines] if isinstance(excluded_files, list) else []
+            for item in shown:
+                if isinstance(item, dict):
+                    path = str(item.get("path") or "").strip()
+                    reason = str(item.get("reason") or "").strip()
+                    name = Path(path).name if path else "unknown_file"
+                    lines.append(f"- {name}: {reason}")
+
+            remaining = excluded_count - len(shown)
+            if remaining > 0:
+                lines.append(f"... and {remaining} more")
+            if status_color == "black":
+                status_color = "warning"
+
+        self._update_status("\n".join(lines), status_color)
+
     def _auto_save(self):
         """Auto-save settings whenever a control changes."""
         if self._is_refreshing:
@@ -1502,6 +1619,7 @@ class PyTorchAudioTrainerPanel(BlockPanelBase):
             "n_mels": self.n_mels_spin.value(),
             "hop_length": self.hop_length_spin.value(),
             "n_fft": self.n_fft_spin.value(),
+            "normalize_per_dataset": self.normalize_per_dataset_check.isChecked(),
             "use_cross_validation": self.cv_check.isChecked(),
             "cv_folds": self.cv_folds_spin.value(),
 
@@ -1546,9 +1664,10 @@ class PyTorchAudioTrainerPanel(BlockPanelBase):
             "lr_scheduler": self.lr_scheduler_combo.currentText(),
             "lr_step_size": self.lr_step_size_spin.value(),
             "lr_gamma": self.lr_gamma_spin.value(),
+            "use_early_stopping": self.early_stopping_check.isChecked(),
             "early_stopping_patience": self.early_stopping_patience_spin.value(),
             "device": self.device_combo.currentText(),
-            "output_model_path": self.output_path_edit.text().strip() or None,
+            "output_model_path": self.save_to_dir_edit.text().strip() or None,
 
             # Augmentation settings
             "use_augmentation": self.augmentation_check.isChecked(),
@@ -1585,8 +1704,30 @@ class PyTorchAudioTrainerPanel(BlockPanelBase):
             "model_name": self.model_name_edit.text().strip() or None,
         }
 
-        # Remove empty values
-        settings = {k: v for k, v in settings.items() if v is not None and str(v).strip() != ""}
+        # Unsupported features are always forced off.
+        settings["use_cross_validation"] = False
+        settings["use_hyperopt"] = False
+
+        # Keep explicit clears for nullable keys so merge-based metadata updates can reset old values.
+        nullable_keys = {
+            "positive_filter_type",
+            "hard_negative_dir",
+            "output_model_path",
+            "balance_target_count",
+            "model_name",
+            "target_class",
+        }
+        filtered = {}
+        for k, v in settings.items():
+            if k in nullable_keys and v is None:
+                filtered[k] = None
+                continue
+            if isinstance(v, str) and v.strip() == "":
+                continue
+            if v is None:
+                continue
+            filtered[k] = v
+        settings = filtered
 
         # Save settings to block metadata
         result = self.facade.update_block_metadata(self.block_id, settings)
@@ -1623,16 +1764,14 @@ class PyTorchAudioTrainerPanel(BlockPanelBase):
         else:
             self._update_status("✅ Configuration is valid and ready for training!", "green")
 
-    def _browse_output_path(self):
-        """Browse for output model path"""
-        current_path = self.output_path_edit.text() or str(Path.home() / "models")
-        file_path, _ = QFileDialog.getSaveFileName(
-            self, "Save Trained Model",
-            current_path,
-            "PyTorch Models (*.pth);;All Files (*)"
-        )
-        if file_path:
-            self.output_path_edit.setText(file_path)
+    def _browse_save_to_dir(self):
+        """Browse for save-to directory (model folder will be created inside it)."""
+        current = self.save_to_dir_edit.text().strip() or str(get_models_dir())
+        if current and not Path(current).is_dir():
+            current = str(Path(current).parent) if Path(current).parent.exists() else str(get_models_dir())
+        directory = QFileDialog.getExistingDirectory(self, "Save Model To Directory", current)
+        if directory:
+            self.save_to_dir_edit.setText(directory)
 
     def _on_data_dir_changed(self, path):
         """Handle data directory change -- update info label and populate target class combo"""
@@ -1649,9 +1788,16 @@ class PyTorchAudioTrainerPanel(BlockPanelBase):
                 class_dirs = sorted([d for d in data_path.iterdir() if d.is_dir()])
 
                 if class_dirs:
-                    audio_exts = ("*.wav", "*.mp3", "*.flac", "*.ogg", "*.aiff", "*.aif")
+                    audio_exts = {
+                        ".wav", ".flac", ".ogg", ".aiff", ".aif",
+                        ".mp3", ".m4a", ".aac", ".wma", ".alac", ".opus", ".mp4",
+                    }
+
                     def _count_audio(d):
-                        return sum(len(list(d.rglob(ext))) for ext in audio_exts)
+                        return sum(
+                            1 for f in d.rglob("*")
+                            if f.is_file() and f.suffix.lower() in audio_exts
+                        )
 
                     # Store class counts for binary mode info display
                     self._class_counts = {d.name: _count_audio(d) for d in class_dirs}
@@ -1692,40 +1838,39 @@ class PyTorchAudioTrainerPanel(BlockPanelBase):
         self._update_model_output_path_display()
 
     def _update_model_output_path_display(self):
-        """Update the read-only model output path label."""
+        """Update the read-only 'Will save to' label."""
         if not hasattr(self, "model_output_path_label"):
             return
-        # Prefer last trained path if available
         last_training = self.settings.get("last_training") or {}
         if isinstance(last_training, dict) and last_training.get("model_path"):
             path = last_training["model_path"]
             self.model_output_path_label.setText(path)
             self.model_output_path_label.setToolTip("Path where the model was last saved.")
             return
-        # Use configured output path if set
-        configured = self.output_path_edit.text().strip() if hasattr(self, "output_path_edit") else ""
-        if configured:
-            self.model_output_path_label.setText(configured)
-            self.model_output_path_label.setToolTip("Configured output path for the trained model.")
-            return
-        # Show default location pattern
+        base = self.save_to_dir_edit.text().strip() if hasattr(self, "save_to_dir_edit") else ""
+        if not base:
+            base = str(get_models_dir())
+        name = (self.model_name_edit.text().strip() if hasattr(self, "model_name_edit") else "") or "model"
+        safe = "".join(c if c.isalnum() or c in "._-" else "_" for c in name)[:60]
+        if not safe:
+            safe = "model"
         idx = self.mode_combo.currentIndex()
         mode = "binary" if idx == 1 else ("positive_vs_other" if idx == 2 else "multiclass")
-        arch = self.model_type_combo.currentText() if hasattr(self, "model_type_combo") else "cnn"
-        base = str(get_models_dir())
-        if mode == "binary":
-            pos_list = self._get_positive_classes_list()
-            tag = "_".join(pos_list)[:60] if pos_list else "unknown"
-            pattern = f"{base}/binary_{tag}_{arch}_YYYYMMDD_HHMMSS.pth"
-        elif mode == "positive_vs_other":
-            pos_list = self._get_positive_classes_list()
-            tag = "_".join(pos_list)[:60] if pos_list else "unknown"
-            pattern = f"{base}/positive_vs_other_{tag}_{arch}_YYYYMMDD_HHMMSS.pth"
-        else:
-            pattern = f"{base}/multiclass_{arch}_YYYYMMDD_HHMMSS.pth"
-        self.model_output_path_label.setText(f"Auto: {pattern}")
+        if not self.model_name_edit.text().strip() and hasattr(self, "model_name_edit"):
+            arch = self.model_type_combo.currentText() if hasattr(self, "model_type_combo") else "cnn"
+            if mode == "binary":
+                pos_list = self._get_positive_classes_list()
+                tag = "_".join(pos_list)[:60] if pos_list else "unknown"
+                safe = f"binary_{tag}_{arch}_YYYYMMDD_HHMMSS"
+            elif mode == "positive_vs_other":
+                pos_list = self._get_positive_classes_list()
+                tag = "_".join(pos_list)[:60] if pos_list else "unknown"
+                safe = f"positive_vs_other_{tag}_{arch}_YYYYMMDD_HHMMSS"
+            else:
+                safe = f"multiclass_{arch}_YYYYMMDD_HHMMSS"
+        self.model_output_path_label.setText(f"{base} / {safe} /")
         self.model_output_path_label.setToolTip(
-            "When Output Path is empty, model is saved here with a timestamp."
+            "Model folder (containing .pth and MODEL_SUMMARY.txt) will be created here. Set in Data tab."
         )
 
     def _update_data_info_label(self):
@@ -1987,14 +2132,6 @@ class PyTorchAudioTrainerPanel(BlockPanelBase):
         self.hyperopt_trials_spin.setEnabled(enabled)
         self.hyperopt_timeout_spin.setEnabled(enabled)
 
-    def _cuda_available(self):
-        """Check if CUDA is available"""
-        try:
-            import torch
-            return torch.cuda.is_available()
-        except:
-            return False
-
     def _update_status(self, message, color="black"):
         """Update status display"""
         self.status_text.setPlainText(message)
@@ -2002,6 +2139,8 @@ class PyTorchAudioTrainerPanel(BlockPanelBase):
             color_code = Colors.ACCENT_GREEN.name()
         elif color == "red":
             color_code = Colors.ACCENT_RED.name()
+        elif color == "warning":
+            color_code = Colors.STATUS_WARNING.name()
         else:
             color_code = Colors.TEXT_PRIMARY.name()
 

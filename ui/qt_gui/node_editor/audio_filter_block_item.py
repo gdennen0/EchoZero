@@ -45,6 +45,32 @@ FILTER_TYPE_OPTIONS = [
 # Which filter types need a second frequency knob
 _DUAL_FREQ_TYPES = {"bandpass", "bandstop"}
 
+# Which filter types need gain and Q controls (adds extra row)
+_GAIN_Q_TYPES = {"lowshelf", "highshelf", "peak"}
+
+# Layout constants for dynamic height (matches eq_bands_block_item pattern)
+FILTER_TYPE_ROW_HEIGHT = 20
+FILTER_KNOB_ROW_HEIGHT = 64
+FILTER_LABEL_ROW_HEIGHT = 16
+FILTER_GAIN_Q_ROW_HEIGHT = 64  # matches RotaryKnob height
+FILTER_ROW_SPACING = 3
+FILTER_WIDGET_MARGIN = 8
+
+
+def _control_height_for_filter_type(filter_type: str) -> int:
+    """Calculate the required control height for a given filter type."""
+    base = (
+        FILTER_TYPE_ROW_HEIGHT
+        + FILTER_ROW_SPACING
+        + FILTER_KNOB_ROW_HEIGHT
+        + FILTER_ROW_SPACING
+        + FILTER_LABEL_ROW_HEIGHT
+        + FILTER_WIDGET_MARGIN
+    )
+    if filter_type in _GAIN_Q_TYPES:
+        base += FILTER_ROW_SPACING + FILTER_GAIN_Q_ROW_HEIGHT
+    return base
+
 
 # ======================================================================
 # RotaryKnob -- custom painted round knob widget
@@ -76,6 +102,7 @@ class RotaryKnob(QWidget):
         default: float = 1000.0,
         logarithmic: bool = True,
         suffix: str = "Hz",
+        center_fill: bool = False,
         parent: Optional[QWidget] = None,
     ):
         super().__init__(parent)
@@ -85,6 +112,7 @@ class RotaryKnob(QWidget):
         self._value = default
         self._logarithmic = logarithmic
         self._suffix = suffix
+        self._center_fill = center_fill
 
         # Drag state
         self._dragging = False
@@ -157,7 +185,23 @@ class RotaryKnob(QWidget):
         )
 
         # --- Filled arc (value indicator) ---
-        if ratio > 0.005:
+        if self._center_fill:
+            center_ratio = 0.5
+            if abs(ratio - center_ratio) > 0.005:
+                if self._value >= 0:
+                    fill_pen = QPen(QColor(80, 200, 100), 3.0)
+                else:
+                    fill_pen = QPen(QColor(220, 140, 60), 3.0)
+                fill_pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+                painter.setPen(fill_pen)
+                start_angle = self.ARC_START_DEG - self.ARC_SPAN_DEG * center_ratio
+                end_angle = self.ARC_START_DEG - self.ARC_SPAN_DEG * ratio
+                painter.drawArc(
+                    track_rect,
+                    int(start_angle * 16),
+                    int((end_angle - start_angle) * 16),
+                )
+        elif ratio > 0.005:
             fill_pen = QPen(Colors.ACCENT_ORANGE, 3.0)
             fill_pen.setCapStyle(Qt.PenCapStyle.RoundCap)
             painter.setPen(fill_pen)
@@ -195,7 +239,18 @@ class RotaryKnob(QWidget):
         font = Typography.default_font()
         font.setPixelSize(9)
         painter.setFont(font)
-        painter.setPen(QPen(Colors.TEXT_SECONDARY))
+        if self._center_fill:
+            if abs(self._value) < 0.1:
+                painter.setPen(QPen(Colors.TEXT_SECONDARY))
+                val_text = "0dB"
+            elif self._value > 0:
+                painter.setPen(QPen(QColor(80, 200, 100)))
+                val_text = f"+{self._value:.1f}"
+            else:
+                painter.setPen(QPen(QColor(220, 140, 60)))
+                val_text = f"{self._value:.1f}"
+        else:
+            painter.setPen(QPen(Colors.TEXT_SECONDARY))
         text_rect = QRectF(0, text_y, w, 14)
         painter.drawText(text_rect, Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop, val_text)
 
@@ -230,12 +285,13 @@ class RotaryKnob(QWidget):
 
     def mouseMoveEvent(self, event: QMouseEvent):
         if self._dragging:
-            # Drag up = increase, drag down = decrease
             dy = self._drag_start_y - event.position().y()
-            sensitivity = 200.0  # pixels for full range
+            sensitivity = 200.0
             delta_ratio = dy / sensitivity
             new_ratio = max(0.0, min(1.0, self._drag_start_ratio + delta_ratio))
             new_value = self._ratio_to_value(new_ratio)
+            if self._center_fill and abs(new_value) < 0.5:
+                new_value = 0.0
             self.setValue(new_value)
             event.accept()
         else:
@@ -258,8 +314,22 @@ class RotaryKnob(QWidget):
             ratio = min(1.0, ratio + step)
         else:
             ratio = max(0.0, ratio - step)
-        self.setValue(self._ratio_to_value(ratio))
+        val = self._ratio_to_value(ratio)
+        if self._center_fill and abs(val) < 0.5:
+            val = 0.0
+        self.setValue(val)
         event.accept()
+
+    def mouseDoubleClickEvent(self, event: QMouseEvent):
+        """Double-click to reset: gain to 0, freq to midpoint."""
+        if event.button() == Qt.MouseButton.LeftButton:
+            if self._center_fill:
+                self.setValue(0.0)
+            else:
+                self.setValue(self._ratio_to_value(0.5))
+            event.accept()
+        else:
+            super().mouseDoubleClickEvent(event)
 
 
 # ======================================================================
@@ -273,7 +343,13 @@ class AudioFilterWidget(QWidget):
     Contains:
     - Filter type selector button (opens QMenu popup)
     - One or two RotaryKnob widgets for frequency control
+    - Optional gain and Q knobs for shelf/peak types (expands height)
+
+    Emits control_height_changed when filter type changes so the parent
+    BlockItem can resize, matching the eq_bands shrinking/expanding behavior.
     """
+
+    control_height_changed = pyqtSignal(int)
 
     def __init__(self, block_id: str, facade: "ApplicationFacade", parent=None):
         super().__init__(parent)
@@ -283,9 +359,9 @@ class AudioFilterWidget(QWidget):
         self._current_filter_type = "lowpass"
         self._save_timer: Optional[QTimer] = None
 
-        self.setFixedWidth(Sizes.BLOCK_WIDTH - 12)
         self._build_ui()
-        self._load_from_metadata()
+        # Do NOT call _load_from_metadata here; the parent BlockItem
+        # will call it after connecting to control_height_changed.
 
     # ------------------------------------------------------------------
     # UI
@@ -349,6 +425,37 @@ class AudioFilterWidget(QWidget):
         label_row.addWidget(self.freq_high_label)
 
         layout.addLayout(label_row)
+
+        # Gain and Q row (visible only for shelf/peak)
+        self.gain_q_row = QWidget()
+        gain_q_layout = QHBoxLayout(self.gain_q_row)
+        gain_q_layout.setContentsMargins(0, 0, 0, 0)
+        gain_q_layout.setSpacing(2)
+
+        self.gain_knob = RotaryKnob(
+            label="GAIN",
+            min_val=-24.0,
+            max_val=24.0,
+            default=0.0,
+            logarithmic=False,
+            suffix="dB",
+            center_fill=True,
+        )
+        self.gain_knob.valueChanged.connect(self._on_gain_changed)
+        gain_q_layout.addWidget(self.gain_knob, alignment=Qt.AlignmentFlag.AlignCenter)
+
+        self.q_knob = RotaryKnob(
+            label="Q",
+            min_val=0.1,
+            max_val=10.0,
+            default=0.707,
+            logarithmic=True,
+            suffix="",
+        )
+        self.q_knob.valueChanged.connect(self._on_q_changed)
+        gain_q_layout.addWidget(self.q_knob, alignment=Qt.AlignmentFlag.AlignCenter)
+
+        layout.addWidget(self.gain_q_row)
 
         self._apply_stylesheet()
         self._update_knob_visibility()
@@ -437,14 +544,30 @@ class AudioFilterWidget(QWidget):
                 self._save_metadata("filter_type", new_type)
 
     # ------------------------------------------------------------------
+    # Sizing
+    # ------------------------------------------------------------------
+
+    def _resize_to_fit(self):
+        """Resize the widget to fit its content and notify parent (matches eq_bands pattern)."""
+        h = _control_height_for_filter_type(self._current_filter_type)
+        self.setFixedHeight(h)
+        self.setFixedWidth(Sizes.BLOCK_WIDTH - 12)
+        self.control_height_changed.emit(h)
+
+    # ------------------------------------------------------------------
     # Knob visibility
     # ------------------------------------------------------------------
 
     def _update_knob_visibility(self):
-        """Show/hide the second frequency knob based on filter type."""
+        """Show/hide knobs based on filter type and resize."""
         needs_high = self._current_filter_type in _DUAL_FREQ_TYPES
         self.freq_high_knob.setVisible(needs_high)
         self.freq_high_label.setVisible(needs_high)
+
+        needs_gain_q = self._current_filter_type in _GAIN_Q_TYPES
+        self.gain_q_row.setVisible(needs_gain_q)
+
+        self._resize_to_fit()
 
     # ------------------------------------------------------------------
     # Value change handlers
@@ -455,6 +578,12 @@ class AudioFilterWidget(QWidget):
 
     def _on_freq_high_changed(self, value: float):
         self._save_metadata_debounced("cutoff_freq_high", round(value, 1))
+
+    def _on_gain_changed(self, value: float):
+        self._save_metadata_debounced("gain_db", round(value, 1))
+
+    def _on_q_changed(self, value: float):
+        self._save_metadata_debounced("q_factor", round(value, 2))
 
     # ------------------------------------------------------------------
     # Metadata persistence
@@ -481,6 +610,10 @@ class AudioFilterWidget(QWidget):
             # Frequencies
             self.freq_knob.setValue(float(meta.get("cutoff_freq", 1000.0)))
             self.freq_high_knob.setValue(float(meta.get("cutoff_freq_high", 8000.0)))
+
+            # Gain and Q (shelf/peak)
+            self.gain_knob.setValue(float(meta.get("gain_db", 0.0)))
+            self.q_knob.setValue(float(meta.get("q_factor", 0.707)))
 
             self._update_knob_visibility()
         except Exception as e:
@@ -515,7 +648,9 @@ class AudioFilterBlockItem(BlockItem):
     QGraphicsProxyWidget inside the node body.
 
     The widget sits below the port zone and provides filter type
-    selection and frequency knobs directly in the node.
+    selection and frequency knobs directly in the node. Dynamically
+    resizes when filter type changes (e.g. compact for lowpass,
+    expanded for shelf/peak with gain/Q row), matching eq_bands behavior.
     """
 
     def __init__(
@@ -524,17 +659,23 @@ class AudioFilterBlockItem(BlockItem):
         facade: "ApplicationFacade",
         undo_stack: Optional["QUndoStack"] = None,
     ):
+        # _filter_control_height is used by _calculate_dimensions (called in
+        # super().__init__), so set a default before super init.
+        self._filter_control_height = _control_height_for_filter_type("lowpass")
+
         super().__init__(block, facade, undo_stack)
 
         # Build and embed the filter widget
         self._filter_widget = AudioFilterWidget(block.id, facade)
+        self._filter_widget.control_height_changed.connect(self._on_control_height_changed)
+
         self._proxy = QGraphicsProxyWidget(self)
         self._proxy.setWidget(self._filter_widget)
 
-        # Position the proxy inside the block body (below ports)
-        self._position_proxy()
+        # Load data (triggers control_height_changed -> resize)
+        self._filter_widget._load_from_metadata()
 
-        # Subscribe to metadata change events to stay in sync
+        self._position_proxy()
         self._subscribe_filter_events()
 
     # ------------------------------------------------------------------
@@ -542,9 +683,25 @@ class AudioFilterBlockItem(BlockItem):
     # ------------------------------------------------------------------
 
     def _calculate_dimensions(self):
-        """Extend base dimensions to accommodate the filter controls."""
+        """Calculate dimensions including the current filter control height."""
         super()._calculate_dimensions()
-        self._height += Sizes.FILTER_CONTROL_HEIGHT
+        self._height += self._filter_control_height
+
+    def _on_control_height_changed(self, new_height: int):
+        """Resize the node when filter type changes (compact vs expanded)."""
+        if new_height == self._filter_control_height:
+            return
+
+        self.prepareGeometryChange()
+        self._filter_control_height = new_height
+        self._calculate_dimensions()
+        self._position_proxy()
+
+        # Update connections since port positions changed
+        for conn in self.connections:
+            conn.update_position()
+
+        self.update()
 
     def _position_proxy(self):
         """Position the proxy widget inside the block, below the port zone."""
@@ -555,7 +712,7 @@ class AudioFilterBlockItem(BlockItem):
             self._height,
         )
         proxy_x = rect.left() + 6
-        proxy_y = rect.bottom() - Sizes.FILTER_CONTROL_HEIGHT - 4
+        proxy_y = rect.bottom() - self._filter_control_height - 4
         self._proxy.setPos(proxy_x, proxy_y)
 
     # ------------------------------------------------------------------

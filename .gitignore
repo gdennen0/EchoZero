@@ -127,4 +127,4 @@ pip-delete-this-directory.txt
 # Generated documentation (if not tracking)
 # Uncomment if docs are generated and shouldn't be committed
 # docs/docs.json
-# docs/index.html
+# docs/index.html.wrangler/

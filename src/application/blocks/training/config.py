@@ -8,11 +8,8 @@ in the original trainer blocks.
 Supports both multi-class and binary (one-vs-all) classification modes.
 """
 from dataclasses import dataclass, field, asdict
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, get_args, get_origin, Union
 from pathlib import Path
-
-from src.utils.message import Log
-
 
 @dataclass
 class TrainingConfig:
@@ -48,7 +45,7 @@ class TrainingConfig:
     sample_rate: int = 22050
     max_length: int = 22050  # Maximum audio length in samples
     audio_formats: List[str] = field(
-        default_factory=lambda: ["wav", "flac", "ogg", "aiff"]
+        default_factory=lambda: ["wav", "flac", "ogg", "aiff", "aif"]
     )
 
     # === Data Splitting ===
@@ -106,6 +103,7 @@ class TrainingConfig:
     cosine_t_mult: int = 2  # Period multiplier for cosine restarts
 
     # === Early Stopping ===
+    use_early_stopping: bool = True
     early_stopping_patience: int = 15
     early_stopping_min_delta: float = 0.001
 
@@ -172,6 +170,7 @@ class TrainingConfig:
 
     # === Feature Caching ===
     use_feature_cache: bool = True  # Cache spectrograms to disk
+    exclude_bad_files: bool = True  # Skip unreadable/invalid files during dataset standardization
 
     # === Normalization ===
     normalize_per_dataset: bool = True  # Use dataset-wide mean/std
@@ -261,6 +260,8 @@ class TrainingConfig:
 
         # Positive-class filter (binary mode only; applied to all positive samples)
         if self.positive_filter_type is not None:
+            if self.classification_mode != "binary":
+                errors.append("positive_filter_type can only be used when classification_mode='binary'")
             if self.positive_filter_type not in ("lowpass", "highpass", "bandpass"):
                 errors.append(
                     f"positive_filter_type must be 'lowpass', 'highpass', or 'bandpass', "
@@ -346,6 +347,18 @@ class TrainingConfig:
                 f"swa_start_epoch ({self.swa_start_epoch}) must be less than epochs ({self.epochs})"
             )
 
+        if self.use_cross_validation:
+            errors.append(
+                "use_cross_validation is enabled but cross-validation is not implemented "
+                "in PyTorchAudioTrainerBlockProcessor."
+            )
+
+        if self.use_hyperopt:
+            errors.append(
+                "use_hyperopt is enabled but hyperparameter optimization is not implemented "
+                "in PyTorchAudioTrainerBlockProcessor."
+            )
+
         if errors:
             error_str = "\n".join(f"  - {e}" for e in errors)
             raise ValueError(f"Invalid TrainingConfig:\n{error_str}")
@@ -355,7 +368,8 @@ class TrainingConfig:
         """
         Create TrainingConfig from block metadata dictionary.
 
-        Handles type coercion and ignores unknown keys gracefully.
+        Strictly validates known keys and value types. Unknown keys or invalid
+        value types raise ValueError.
 
         Args:
             metadata: Block metadata dictionary (may contain non-config keys)
@@ -366,14 +380,27 @@ class TrainingConfig:
         if not metadata:
             return cls()
 
-        # Get only keys that are valid TrainingConfig fields
-        valid_fields = {f.name for f in cls.__dataclass_fields__.values()}
+        field_defs = cls.__dataclass_fields__
+        valid_fields = set(field_defs.keys())
+        allowed_non_config_keys = {"last_training"}
+        unknown_keys = sorted(
+            k for k in metadata.keys()
+            if k not in valid_fields and k not in allowed_non_config_keys
+        )
+        if unknown_keys:
+            raise ValueError(
+                "Unknown training configuration keys: "
+                + ", ".join(unknown_keys)
+            )
 
-        # Filter and coerce types
         config_dict = {}
         for key, value in metadata.items():
-            if key in valid_fields and value is not None:
-                config_dict[key] = value
+            if key in allowed_non_config_keys:
+                continue
+            if value is None:
+                continue
+            coerced = cls._coerce_field_value(field_defs[key].type, value, key)
+            config_dict[key] = coerced
 
         # Handle device auto-detection
         if config_dict.get("device", "auto") == "auto":
@@ -392,20 +419,76 @@ class TrainingConfig:
             if pos and not config_dict.get("target_class"):
                 config_dict["target_class"] = pos[0]
 
-        try:
-            return cls(**config_dict)
-        except (TypeError, ValueError) as e:
-            Log.warning(f"TrainingConfig creation error: {e}. Using defaults for invalid fields.")
-            # Fallback: try field by field
-            safe_dict = {}
-            for key, value in config_dict.items():
+        return cls(**config_dict)
+
+    @staticmethod
+    def _coerce_field_value(expected_type: Any, value: Any, field_name: str) -> Any:
+        """Coerce metadata value to the field type or raise ValueError."""
+        origin = get_origin(expected_type)
+        args = get_args(expected_type)
+
+        # Optional / Union types
+        if origin is Union:
+            non_none_args = [a for a in args if a is not type(None)]
+            if value is None:
+                return None
+            for candidate in non_none_args:
                 try:
-                    test_dict = {key: value}
-                    # Validate individually by checking type
-                    safe_dict[key] = value
-                except Exception:
-                    Log.warning(f"Skipping invalid config field: {key}={value}")
-            return cls(**safe_dict)
+                    return TrainingConfig._coerce_field_value(candidate, value, field_name)
+                except ValueError:
+                    continue
+            allowed = ", ".join(getattr(a, "__name__", str(a)) for a in non_none_args)
+            raise ValueError(
+                f"Invalid value for '{field_name}': expected one of ({allowed}), got {type(value).__name__}"
+            )
+
+        if origin is list:
+            if not isinstance(value, list):
+                raise ValueError(
+                    f"Invalid value for '{field_name}': expected list, got {type(value).__name__}"
+                )
+            inner_type = args[0] if args else Any
+            return [TrainingConfig._coerce_field_value(inner_type, v, field_name) for v in value]
+
+        if origin is dict:
+            if not isinstance(value, dict):
+                raise ValueError(
+                    f"Invalid value for '{field_name}': expected dict, got {type(value).__name__}"
+                )
+            return value
+
+        if expected_type in (Any, object):
+            return value
+
+        if expected_type is bool:
+            if isinstance(value, bool):
+                return value
+            raise ValueError(f"Invalid value for '{field_name}': expected bool, got {type(value).__name__}")
+
+        if expected_type is int:
+            if isinstance(value, bool) or not isinstance(value, int):
+                raise ValueError(f"Invalid value for '{field_name}': expected int, got {type(value).__name__}")
+            return value
+
+        if expected_type is float:
+            if isinstance(value, bool) or not isinstance(value, (int, float)):
+                raise ValueError(f"Invalid value for '{field_name}': expected float, got {type(value).__name__}")
+            return float(value)
+
+        if expected_type is str:
+            if not isinstance(value, str):
+                raise ValueError(f"Invalid value for '{field_name}': expected str, got {type(value).__name__}")
+            return value
+
+        if isinstance(expected_type, type):
+            if not isinstance(value, expected_type):
+                raise ValueError(
+                    f"Invalid value for '{field_name}': expected {expected_type.__name__}, got {type(value).__name__}"
+                )
+            return value
+
+        # Unknown typing construct: accept as-is and let dataclass validation handle it
+        return value
 
     @staticmethod
     def _detect_device() -> str:

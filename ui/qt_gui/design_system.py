@@ -465,9 +465,10 @@ class Sizes:
     PLAYER_BLOCK_WIDTH = 350
     PLAYER_CONTROL_HEIGHT = 200
     
-    # Audio filter embedded controls
-    FILTER_CONTROL_HEIGHT = 110
-    
+    # Audio filter: height is computed dynamically in audio_filter_block_item.py
+    # (compact for simple filters, expanded for shelf/peak with gain/Q row)
+    FILTER_CONTROL_HEIGHT = 110  # fallback / legacy
+
     # EQ Bands: no fixed constant -- height is computed dynamically
     # based on band count in eq_bands_block_item.py
 

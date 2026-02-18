@@ -75,13 +75,7 @@ class PyTorchAudioTrainerBlockProcessor(BlockProcessor):
             )
             return
 
-        import torch
-        self.device = torch.device(
-            "cuda" if torch.cuda.is_available()
-            else "mps" if hasattr(torch.backends, "mps") and torch.backends.mps.is_available()
-            else "cpu"
-        )
-        Log.info(f"PyTorchAudioTrainer using device: {self.device}")
+        self.device = None
 
     def cleanup(self, block: Block) -> None:
         """
@@ -90,7 +84,6 @@ class PyTorchAudioTrainerBlockProcessor(BlockProcessor):
         """
         import gc
 
-        # Clear the device reference (it's lightweight but signals intent)
         self.device = None
 
         gc.collect()
@@ -126,14 +119,10 @@ class PyTorchAudioTrainerBlockProcessor(BlockProcessor):
         return [
             BlockStatusLevel(
                 priority=0, name="error", display_name="Error",
-                color="#ff6b6b", conditions=[check_data_dir],
+                color="#ff6b6b", conditions=[check_dependencies, check_data_dir],
             ),
             BlockStatusLevel(
-                priority=1, name="warning", display_name="Warning",
-                color="#ffd43b", conditions=[check_dependencies],
-            ),
-            BlockStatusLevel(
-                priority=2, name="ready", display_name="Ready",
+                priority=1, name="ready", display_name="Ready",
                 color="#51cf66", conditions=[],
             ),
         ]
@@ -190,6 +179,7 @@ class PyTorchAudioTrainerBlockProcessor(BlockProcessor):
             quantize_model,
             seed_everything,
         )
+        from .training.model_coach import build_training_feedback
 
         # --- 1. Configuration ---
         try:
@@ -203,6 +193,8 @@ class PyTorchAudioTrainerBlockProcessor(BlockProcessor):
 
         # Normalize legacy repo-local paths to managed datasets location.
         config.data_dir = resolve_dataset_path(config.data_dir)
+        runtime_device = self._resolve_runtime_device(config, block)
+        self.device = runtime_device
 
         # Validate data directory
         self._validate_data_dir(config, block)
@@ -213,6 +205,7 @@ class PyTorchAudioTrainerBlockProcessor(BlockProcessor):
         seed_everything(config.seed, deterministic=config.deterministic_training)
 
         progress_tracker = get_progress_tracker(metadata)
+        coach_feedback = None
 
         def _progress(message: str, current: int = 0, total: int = 100) -> None:
             if progress_tracker:
@@ -227,13 +220,32 @@ class PyTorchAudioTrainerBlockProcessor(BlockProcessor):
             _progress("Loading dataset...", 0, 100)
             config_dict = config.to_dict()
             dataset = AudioClassificationDataset(config_dict)
-            _progress("Dataset loaded, computing normalization...", 0, 100)
+            # Persist the actual preprocessing values used by the dataset so
+            # saved model inference preprocessing matches training exactly.
+            config_dict["sample_rate"] = int(dataset.sample_rate)
+            config_dict["max_length"] = int(dataset.max_length)
+            config_dict["n_fft"] = int(dataset.n_fft)
+            config_dict["n_mels"] = int(dataset.n_mels)
+            config_dict["hop_length"] = int(dataset.hop_length)
+            config_dict["fmax"] = int(dataset.fmax)
+            config_dict["audio_input_standard"] = {
+                "encoding": "wav_pcm16",
+                "channels": 1,
+                "sample_rate": int(dataset.sample_rate),
+            }
+            if config.normalize_per_dataset:
+                _progress("Dataset loaded, computing normalization...", 0, 100)
+            else:
+                _progress("Dataset loaded, per-sample normalization selected.", 0, 100)
 
             # Compute per-dataset normalization
             if config.normalize_per_dataset:
                 norm_mean, norm_std = dataset.compute_normalization_stats()
             else:
                 norm_mean, norm_std = None, None
+                # Ensure no stale normalization data is carried into checkpoint metadata.
+                config_dict["normalization_mean"] = None
+                config_dict["normalization_std"] = None
             _progress("Creating data loaders...", 0, 100)
 
             # Create data loaders
@@ -248,7 +260,7 @@ class PyTorchAudioTrainerBlockProcessor(BlockProcessor):
                 num_classes = len(dataset.classes)
 
             model = create_classifier(num_classes, config_dict)
-            model.to(self.device)
+            model.to(runtime_device)
 
             Log.info(
                 f"Model: {config.model_type} with {sum(p.numel() for p in model.parameters()):,} parameters"
@@ -262,14 +274,14 @@ class PyTorchAudioTrainerBlockProcessor(BlockProcessor):
                 pos_weight = dataset.get_binary_pos_weight()
                 Log.info(f"Binary pos_weight: {pos_weight:.2f}")
             elif (config.is_positive_vs_other or not config.is_binary) and config.use_class_weights:
-                class_weights = dataset.get_class_weights().to(self.device)
+                class_weights = dataset.get_class_weights().to(runtime_device)
                 Log.info(f"Class weights: {class_weights.tolist()}")
 
             criterion = create_loss_function(config_dict, class_weights, pos_weight)
             _progress("Starting training...", 0, 100)
 
             # --- 5. Training ---
-            engine = TrainingEngine(config_dict, device=str(self.device))
+            engine = TrainingEngine(config_dict, device=str(runtime_device))
             result = engine.train(
                 model=model,
                 criterion=criterion,
@@ -288,12 +300,12 @@ class PyTorchAudioTrainerBlockProcessor(BlockProcessor):
             # Evaluate on validation set
             eval_config = config_dict.copy()
             eval_config["_classes"] = dataset.classes
-            val_metrics = evaluate_model(eval_model, val_loader, eval_config, str(self.device))
+            val_metrics = evaluate_model(eval_model, val_loader, eval_config, str(runtime_device))
 
             # Evaluate on test set if available
             test_metrics = None
             if test_loader:
-                test_metrics = evaluate_model(eval_model, test_loader, eval_config, str(self.device))
+                test_metrics = evaluate_model(eval_model, test_loader, eval_config, str(runtime_device))
                 Log.info(f"Test set accuracy: {test_metrics.get('accuracy', 0):.2f}%")
 
             # --- 7. Threshold Tuning (binary mode) ---
@@ -305,7 +317,7 @@ class PyTorchAudioTrainerBlockProcessor(BlockProcessor):
                 optimal_threshold, threshold_metrics = tune_threshold(
                     eval_model, val_loader,
                     metric=config.threshold_metric,
-                    device=str(self.device),
+                    device=str(runtime_device),
                 )
                 Log.info(f"Optimal threshold: {optimal_threshold:.3f}")
 
@@ -341,6 +353,22 @@ class PyTorchAudioTrainerBlockProcessor(BlockProcessor):
             if config.export_quantized:
                 quantized_path = quantize_model(eval_model, model_path)
 
+            try:
+                coach_feedback = build_training_feedback(
+                    block_id=block.id,
+                    model_path=model_path,
+                    config=config_dict,
+                    training_stats=result.stats,
+                    dataset_stats=dataset.stats.to_dict(),
+                    validation_metrics=val_metrics,
+                    test_metrics=test_metrics,
+                    threshold_metrics=threshold_metrics,
+                    excluded_bad_file_count=int(getattr(dataset, "_excluded_bad_file_count", 0)),
+                )
+            except Exception as coach_error:
+                Log.warning(f"Model coach feedback generation failed: {coach_error}")
+                coach_feedback = None
+
         except ProcessingError:
             raise
         except Exception as e:
@@ -370,11 +398,19 @@ class PyTorchAudioTrainerBlockProcessor(BlockProcessor):
                     block_id=block.id,
                     block_name=block.name,
                 ) from e
+            elif "Failed to standardize input audio files to canonical WAV PCM_16" in error_msg:
+                raise ProcessingError(
+                    "Audio Standardization Failed\n"
+                    f"{error_msg}\n"
+                    "At least one input file could not be decoded/converted to canonical WAV PCM_16. "
+                    "Remove or replace the failing file(s), then retry.",
+                    block_id=block.id,
+                    block_name=block.name,
+                ) from e
             else:
                 raise ProcessingError(
                     f"Training Failed\nError: {error_msg}\n"
-                    "Check logs for details. If this happened with augmentation on macOS, "
-                    "set Data Workers to 0 and retry.",
+                    "Check logs for details.",
                     block_id=block.id,
                     block_name=block.name,
                 ) from e
@@ -387,6 +423,10 @@ class PyTorchAudioTrainerBlockProcessor(BlockProcessor):
             "config": config_dict,
             "classification_mode": config.classification_mode,
         }
+        if hasattr(dataset, "_excluded_bad_file_count"):
+            output_metadata["excluded_bad_file_count"] = int(dataset._excluded_bad_file_count)
+        if hasattr(dataset, "_excluded_bad_files") and dataset._excluded_bad_files:
+            output_metadata["excluded_bad_files"] = list(dataset._excluded_bad_files)
 
         if test_metrics:
             output_metadata["test_metrics"] = test_metrics
@@ -397,6 +437,8 @@ class PyTorchAudioTrainerBlockProcessor(BlockProcessor):
             output_metadata["onnx_path"] = onnx_path
         if quantized_path:
             output_metadata["quantized_path"] = quantized_path
+        if coach_feedback:
+            output_metadata["coach_feedback"] = coach_feedback
 
         # Store results in block metadata
         block.metadata = block.metadata or {}
@@ -409,6 +451,9 @@ class PyTorchAudioTrainerBlockProcessor(BlockProcessor):
             "best_accuracy": result.best_val_metric,
             "optimal_threshold": optimal_threshold,
             "stats": result.stats,
+            "excluded_bad_file_count": int(getattr(dataset, "_excluded_bad_file_count", 0)),
+            "excluded_bad_files": list(getattr(dataset, "_excluded_bad_files", [])),
+            "coach_feedback": coach_feedback,
         }
 
         # Wrap output in a DataItem so the execution engine can save it
@@ -431,6 +476,52 @@ class PyTorchAudioTrainerBlockProcessor(BlockProcessor):
         )
 
         return {"model": output_item}
+
+    def _resolve_runtime_device(self, config, block: Block):
+        """Resolve and validate runtime device from strict config selection."""
+        import torch
+
+        requested = (config.device or "auto").strip().lower()
+        if requested == "auto":
+            if torch.cuda.is_available():
+                resolved = "cuda"
+            elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+                resolved = "mps"
+            else:
+                resolved = "cpu"
+            Log.info(f"PyTorchAudioTrainer device auto-resolved to {resolved}")
+            return torch.device(resolved)
+
+        if requested == "cuda":
+            if not torch.cuda.is_available():
+                raise ProcessingError(
+                    "Invalid Device Configuration\n"
+                    "Device is set to 'cuda' but CUDA is not available on this machine.",
+                    block_id=block.id,
+                    block_name=block.name,
+                )
+            return torch.device("cuda")
+
+        if requested == "mps":
+            mps_ok = hasattr(torch.backends, "mps") and torch.backends.mps.is_available()
+            if not mps_ok:
+                raise ProcessingError(
+                    "Invalid Device Configuration\n"
+                    "Device is set to 'mps' but Apple Metal (MPS) is not available.",
+                    block_id=block.id,
+                    block_name=block.name,
+                )
+            return torch.device("mps")
+
+        if requested == "cpu":
+            return torch.device("cpu")
+
+        raise ProcessingError(
+            f"Invalid Device Configuration\nUnsupported device '{requested}'. "
+            "Allowed values: auto, cpu, cuda, mps.",
+            block_id=block.id,
+            block_name=block.name,
+        )
 
     def _validate_data_dir(self, config, block: Block) -> None:
         """Validate the training data directory exists and has content."""
@@ -477,16 +568,15 @@ class PyTorchAudioTrainerBlockProcessor(BlockProcessor):
         if config.is_binary:
             folder_names = [d.name for d in class_dirs]
             positive_classes = config.positive_classes or ([config.target_class] if config.target_class else [])
-            has_positive_folder = "positive" in folder_names
             has_any_positive_class = any(p in folder_names for p in positive_classes) if positive_classes else False
 
-            if not has_positive_folder and not has_any_positive_class:
+            if not has_any_positive_class:
                 names = ", ".join(positive_classes) if positive_classes else "target_class"
                 raise ProcessingError(
                     f"Positive Class Folders Not Found\n"
-                    f"No folder for positive class(es) '{names}' or 'positive' in '{data_dir}'.\n"
+                    f"No folder for selected positive class(es) '{names}' in '{data_dir}'.\n"
                     f"Available folders: {', '.join(folder_names)}\n"
-                    f"Create folder(s) for your positive class(es) or use 'positive/'/'negative/'.",
+                    "Create folder(s) matching the selected positive class names.",
                     block_id=block.id,
                     block_name=block.name,
                 )
@@ -527,6 +617,25 @@ class PyTorchAudioTrainerBlockProcessor(BlockProcessor):
             errors.append(f"'{data_dir}' is not a directory")
             return errors
 
+        device = str((block.metadata or {}).get("device", "auto")).strip().lower()
+        if device not in {"auto", "cpu", "cuda", "mps"}:
+            errors.append(f"Unsupported device '{device}'. Allowed: auto, cpu, cuda, mps")
+            return errors
+
+        try:
+            import torch
+            if device == "cuda" and not torch.cuda.is_available():
+                errors.append("Device set to cuda but CUDA is not available")
+                return errors
+            if device == "mps":
+                mps_ok = hasattr(torch.backends, "mps") and torch.backends.mps.is_available()
+                if not mps_ok:
+                    errors.append("Device set to mps but MPS is not available")
+                    return errors
+        except Exception as e:
+            errors.append(f"Failed to validate device '{device}': {e}")
+            return errors
+
         class_dirs = [d for d in data_path.iterdir() if d.is_dir()]
         if not class_dirs:
             errors.append(f"No class subdirectories found in '{data_dir}'")
@@ -537,7 +646,10 @@ class PyTorchAudioTrainerBlockProcessor(BlockProcessor):
         for d in class_dirs:
             count = sum(
                 1 for f in d.iterdir()
-                if f.is_file() and f.suffix.lower() in {".wav", ".mp3", ".flac", ".ogg", ".aiff"}
+                if f.is_file() and f.suffix.lower() in {
+                    ".wav", ".flac", ".ogg", ".aiff", ".aif",
+                    ".mp3", ".m4a", ".aac", ".wma", ".alac", ".opus", ".mp4",
+                }
             )
             total_files += count
             if count == 0:

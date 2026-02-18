@@ -144,8 +144,15 @@ def apply_positive_class_filter(
     Returns:
         Filtered audio, same shape as input.
     """
-    if not HAS_SCIPY or not filter_type or filter_type not in ("lowpass", "highpass", "bandpass"):
-        return audio
+    if not filter_type or filter_type not in ("lowpass", "highpass", "bandpass"):
+        raise ValueError(
+            f"Invalid positive class filter type '{filter_type}'. "
+            "Expected one of: lowpass, highpass, bandpass."
+        )
+    if not HAS_SCIPY:
+        raise RuntimeError(
+            "Positive class filtering requires scipy but scipy is not installed."
+        )
 
     from scipy.signal import butter, sosfilt
 
@@ -165,8 +172,11 @@ def apply_positive_class_filter(
             wn_high = max(wn_low + 0.001, min(cutoff_high_hz / nyquist, 0.999))
             sos = butter(order, [wn_low, wn_high], btype="band", output="sos")
         return np.ascontiguousarray(sosfilt(sos, audio).astype(np.float32))
-    except Exception:
-        return audio
+    except Exception as e:
+        raise RuntimeError(
+            f"Failed to apply positive class filter '{filter_type}' "
+            f"(cutoff={cutoff_hz}, cutoff_high={cutoff_high_hz}, order={order}): {e}"
+        ) from e
 
 
 class AudioAugmentationPipeline:
@@ -182,12 +192,33 @@ class AudioAugmentationPipeline:
         # Skip pitch/time STFT-based ops when signal is shorter than this (avoids librosa warning)
         self._min_len_stft = config.get("n_fft", MIN_LEN_FOR_LIBROSA_STFT)
 
+    @property
+    def modifies_audio(self) -> bool:
+        """True when at least one audio-level augmentation has non-zero params.
+
+        When False, the pipeline is effectively a no-op on the waveform even if
+        ``enabled`` is True (e.g. user only configured SpecAugment).  The dataset
+        can safely serve cached spectrograms in this case.
+        """
+        if not self.enabled:
+            return False
+        c = self.config
+        return (
+            c.get("pitch_shift_range", 2.0) > 0
+            or c.get("time_stretch_range", 0.2) > 0
+            or c.get("noise_factor", 0.01) > 0
+            or c.get("volume_factor", 0.1) > 0
+            or c.get("time_shift_max", 0.1) > 0
+            or c.get("polarity_inversion_prob", 0.0) > 0
+            or c.get("use_random_eq", False)
+        )
+
     def __call__(self, audio: np.ndarray, sr: int) -> np.ndarray:
         """Apply augmentation pipeline to audio waveform."""
         if not self.enabled:
             return audio
 
-        augmented = audio.copy()
+        augmented = audio
 
         # Pad to at least n_fft so pitch_shift/time_stretch (STFT-based) never see too-short signals
         if len(augmented) < self._min_len_stft:

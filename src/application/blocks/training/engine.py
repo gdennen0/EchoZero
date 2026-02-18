@@ -22,6 +22,7 @@ from dataclasses import dataclass, field
 import random
 import copy
 import time
+from contextlib import nullcontext
 
 import numpy as np
 
@@ -32,7 +33,6 @@ try:
     import torch.nn as nn
     import torch.optim as optim
     from torch.utils.data import DataLoader
-    from torch.cuda.amp import GradScaler, autocast
     HAS_PYTORCH = True
 except ImportError:
     HAS_PYTORCH = False
@@ -158,10 +158,18 @@ class TrainingEngine:
         """
         self.config = config
         self.device = torch.device(device) if HAS_PYTORCH else None
+        self.device_type = self.device.type if self.device is not None else "cpu"
 
-        # AMP
-        self.use_amp = config.get("use_amp", False) and device != "cpu"
-        self.scaler = GradScaler() if self.use_amp and HAS_PYTORCH else None
+        # AMP (device-aware): use autocast on CUDA/MPS; use GradScaler on CUDA only.
+        self.use_amp = config.get("use_amp", False) and self.device_type in ("cuda", "mps")
+        self.scaler = None
+        if self.use_amp and HAS_PYTORCH and self.device_type == "cuda":
+            try:
+                # torch>=2 supports torch.amp.GradScaler(device)
+                self.scaler = torch.amp.GradScaler("cuda")
+            except Exception:
+                # Backward-compat path
+                self.scaler = torch.cuda.amp.GradScaler()
 
         # Gradient accumulation
         self.accum_steps = config.get("gradient_accumulation_steps", 1)
@@ -176,6 +184,15 @@ class TrainingEngine:
             if tb_dir:
                 self.writer = SummaryWriter(log_dir=tb_dir)
                 Log.info(f"TensorBoard logging to {tb_dir}")
+
+    def _autocast_context(self):
+        """Return device-aware autocast context or no-op context."""
+        if not self.use_amp or not HAS_PYTORCH:
+            return nullcontext()
+        try:
+            return torch.autocast(device_type=self.device_type)
+        except Exception:
+            return nullcontext()
 
     def train(
         self,
@@ -248,6 +265,7 @@ class TrainingEngine:
         epochs = self.config.get("epochs", 100)
         patience = self.config.get("early_stopping_patience", 15)
         min_delta = self.config.get("early_stopping_min_delta", 0.001)
+        use_early_stopping = self.config.get("use_early_stopping", True)
         patience_counter = 0
         best_model_state = None
         best_epoch = 0
@@ -273,11 +291,16 @@ class TrainingEngine:
         progress = IncrementalProgress(progress_tracker, "Training model", total=epochs)
 
         Log.info(f"Starting training for up to {epochs} epochs on {self.device}")
+        Log.info(
+            "Training AMP config: "
+            f"device_type={self.device_type}, use_amp={self.use_amp}, "
+            f"grad_scaler={'enabled' if self.scaler is not None else 'disabled'}"
+        )
         training_start = time.time()
 
         for epoch in range(start_epoch, epochs):
             # --- Training Phase ---
-            train_loss, train_acc = self._train_epoch(
+            train_loss, train_acc, train_timing = self._train_epoch(
                 model, criterion, optimizer, train_loader,
                 use_mixup, mixup_alpha, use_cutmix, cutmix_alpha, num_classes,
             )
@@ -287,8 +310,10 @@ class TrainingEngine:
                 ema.update(model)
 
             # --- Validation Phase ---
+            val_start = time.perf_counter()
             eval_model = ema.shadow if ema else model
             val_loss, val_acc = self._validate_epoch(eval_model, criterion, val_loader)
+            val_elapsed = time.perf_counter() - val_start
 
             # --- LR Scheduling ---
             in_swa = swa_model is not None and epoch >= swa_start
@@ -321,20 +346,25 @@ class TrainingEngine:
             # Early stopping
             if val_acc > best_val_metric + min_delta:
                 best_val_metric = val_acc
-                best_model_state = model.state_dict().copy()
+                best_model_state = {
+                    k: v.detach().cpu().clone()
+                    for k, v in model.state_dict().items()
+                }
                 best_epoch = epoch + 1
                 patience_counter = 0
             else:
                 patience_counter += 1
 
-            # Periodic logging
-            if (epoch + 1) % 5 == 0 or epoch == start_epoch:
-                Log.info(
-                    f"Epoch {epoch + 1}/{epochs}: "
-                    f"Train Loss={train_loss:.4f}, Train Acc={train_acc:.2f}%, "
-                    f"Val Loss={val_loss:.4f}, Val Acc={val_acc:.2f}%, "
-                    f"LR={current_lr:.6f}, Patience={patience_counter}/{patience}"
-                )
+            # Per-epoch timing log (always shown so users can spot bottlenecks)
+            tt = train_timing
+            data_pct = 100 * tt["data"] / tt["total"] if tt["total"] > 0 else 0
+            Log.info(
+                f"Epoch {epoch + 1}/{epochs}: "
+                f"Train={train_acc:.1f}% Val={val_acc:.1f}% | "
+                f"Train {tt['total']:.1f}s (data {tt['data']:.1f}s/{data_pct:.0f}%) "
+                f"Val {val_elapsed:.1f}s | "
+                f"LR={current_lr:.6f} Pat={patience_counter}/{patience}"
+            )
 
             # Progress
             progress.step(
@@ -354,7 +384,7 @@ class TrainingEngine:
                 )
 
             # Early stopping
-            if patience_counter >= patience:
+            if use_early_stopping and patience_counter >= patience:
                 Log.info(
                     f"Early stopping at epoch {epoch + 1}. "
                     f"Best val accuracy: {best_val_metric:.2f}% (epoch {best_epoch})"
@@ -404,8 +434,13 @@ class TrainingEngine:
         use_cutmix: bool,
         cutmix_alpha: float,
         num_classes: int,
-    ) -> Tuple[float, float]:
-        """Run one training epoch. Returns (avg_loss, accuracy_percent)."""
+    ) -> Tuple[float, float, Dict[str, float]]:
+        """Run one training epoch.
+
+        Returns:
+            (avg_loss, accuracy_percent, timing_dict) where timing_dict has
+            'total', 'data', and 'compute' wall-clock seconds.
+        """
         model.train()
         total_loss = 0.0
         correct = 0
@@ -414,7 +449,8 @@ class TrainingEngine:
         optimizer.zero_grad()
         data_wait_total = 0.0
         max_data_wait = 0.0
-        next_batch_wait_start = time.perf_counter()
+        epoch_start = time.perf_counter()
+        next_batch_wait_start = epoch_start
 
         for batch_idx, batch_data in enumerate(train_loader):
             data_wait = time.perf_counter() - next_batch_wait_start
@@ -444,8 +480,8 @@ class TrainingEngine:
                     inputs, mixed_targets = apply_cutmix(inputs, labels, cutmix_alpha, num_classes)
 
             # Forward pass with optional AMP
-            if self.use_amp and self.scaler:
-                with autocast():
+            if self.scaler is not None:
+                with self._autocast_context():
                     outputs = model(inputs)
                     loss = self._compute_loss(
                         criterion, outputs, labels, mixed_targets, onset_strengths
@@ -464,11 +500,12 @@ class TrainingEngine:
                     self.scaler.update()
                     optimizer.zero_grad()
             else:
-                outputs = model(inputs)
-                loss = self._compute_loss(
-                    criterion, outputs, labels, mixed_targets, onset_strengths
-                )
-                loss = loss / self.accum_steps
+                with self._autocast_context():
+                    outputs = model(inputs)
+                    loss = self._compute_loss(
+                        criterion, outputs, labels, mixed_targets, onset_strengths
+                    )
+                    loss = loss / self.accum_steps
                 loss.backward()
 
                 if (batch_idx + 1) % self.accum_steps == 0:
@@ -488,6 +525,9 @@ class TrainingEngine:
             correct += (preds == labels).sum().item()
             next_batch_wait_start = time.perf_counter()
 
+        epoch_elapsed = time.perf_counter() - epoch_start
+        compute_time = epoch_elapsed - data_wait_total
+
         if max_data_wait > 2.0:
             Log.warning(
                 f"Data loader was the bottleneck in this epoch "
@@ -497,7 +537,12 @@ class TrainingEngine:
 
         avg_loss = total_loss / len(train_loader)
         accuracy = 100.0 * correct / max(total, 1)
-        return avg_loss, accuracy
+        timing = {
+            "total": epoch_elapsed,
+            "data": data_wait_total,
+            "compute": compute_time,
+        }
+        return avg_loss, accuracy, timing
 
     def _validate_epoch(
         self,
@@ -524,7 +569,7 @@ class TrainingEngine:
                 labels = labels.to(self.device)
 
                 if self.use_amp:
-                    with autocast():
+                    with self._autocast_context():
                         outputs = model(inputs)
                         loss = self._compute_loss(
                             criterion, outputs, labels, None, onset_strengths

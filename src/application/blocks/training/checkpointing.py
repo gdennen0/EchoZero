@@ -110,6 +110,14 @@ def build_inference_preprocessing(
         "hop_length": config.get("hop_length", 512),
         "n_mels": config.get("n_mels", 128),
         "fmax": config.get("fmax", 8000),
+        "audio_input_standard": config.get(
+            "audio_input_standard",
+            {
+                "encoding": "wav_pcm16",
+                "channels": 1,
+                "sample_rate": config.get("sample_rate", 22050),
+            },
+        ),
     }
     if normalization and normalization.get("mean") is not None and normalization.get("std") is not None:
         out["normalization_mean"] = normalization["mean"]
@@ -433,34 +441,41 @@ def save_final_model(
     if not HAS_PYTORCH:
         raise RuntimeError("PyTorch required for model saving")
 
-    # Determine output path; never overwrite existing files
-    if output_path:
-        candidate = Path(output_path)
+    # Parent directory: selected output dir, or default models dir
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    custom_name = (config.get("model_name") or "").strip()
+    if custom_name:
+        safe = "".join(c if c.isalnum() or c in "._-" else "_" for c in custom_name)[:80]
+        if not safe:
+            safe = "model"
+        filename = f"{safe}_{timestamp}.pth"
     else:
-        models_dir = get_models_dir()
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        custom_name = (config.get("model_name") or "").strip()
-        if custom_name:
-            safe = "".join(c if c.isalnum() or c in "._-" else "_" for c in custom_name)[:80]
-            if not safe:
-                safe = "model"
-            filename = f"{safe}_{timestamp}.pth"
+        mode = config.get("classification_mode", "multiclass")
+        arch = config.get("model_type", "cnn")
+        if mode == "binary":
+            pos = config.get("positive_classes") or []
+            tag = "_".join(pos)[:60] if pos else (config.get("target_class") or "positive")
+            filename = f"binary_{tag}_{arch}_{timestamp}.pth"
         else:
-            mode = config.get("classification_mode", "multiclass")
-            arch = config.get("model_type", "cnn")
-            if mode == "binary":
-                pos = config.get("positive_classes") or []
-                tag = "_".join(pos)[:60] if pos else (config.get("target_class") or "positive")
-                filename = f"binary_{tag}_{arch}_{timestamp}.pth"
-            else:
-                filename = f"multiclass_{arch}_{timestamp}.pth"
-        candidate = models_dir / filename
+            filename = f"multiclass_{arch}_{timestamp}.pth"
 
+    if output_path:
+        p = Path(output_path)
+        if p.suffix.lower() == ".pth":
+            parent_dir = p.parent
+        else:
+            parent_dir = p
+        parent_dir = parent_dir.resolve()
+    else:
+        parent_dir = get_models_dir()
+
+    parent_dir.mkdir(parents=True, exist_ok=True)
+    candidate = parent_dir / filename
     model_path = _unique_model_path(candidate)
     if model_path != candidate:
         Log.info(f"Path {candidate} already exists; saving as {model_path} (no overwrite)")
 
-    # Model folder: put .pth and MODEL_SUMMARY.txt in a dedicated folder
+    # Model folder: subdir under parent_dir containing .pth and MODEL_SUMMARY.txt
     folder_candidate = model_path.parent / model_path.stem
     model_folder = _unique_folder_path(folder_candidate)
     if model_folder != folder_candidate:

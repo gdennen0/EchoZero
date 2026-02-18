@@ -14,7 +14,7 @@ from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QDockWidget, QMenuBar, QMenu, QToolBar, QStatusBar,
     QMessageBox, QFileDialog, QSizePolicy, QApplication, QTabWidget,
-    QLabel, QPlainTextEdit, QPushButton, QProgressBar, QFrame
+    QLabel, QPlainTextEdit, QPushButton, QProgressBar, QFrame, QProgressDialog
 )
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QSettings, pyqtSlot, QProcess
 from PyQt6.QtGui import QShowEvent, QAction, QKeySequence, QUndoStack
@@ -1126,6 +1126,47 @@ class MainWindow(QMainWindow):
             result = self.facade.save_project()
         
         return result
+
+    def _run_with_save_feedback(self, save_func):
+        """
+        Run save operation with delayed modal feedback.
+
+        Shows a non-flickering "Saving project..." dialog only when save takes
+        longer than a short threshold, while always updating status bar text.
+        """
+        dialog = QProgressDialog("Saving project...", None, 0, 0, self)
+        dialog.setWindowTitle("Saving")
+        dialog.setWindowModality(Qt.WindowModality.ApplicationModal)
+        dialog.setCancelButton(None)
+        dialog.setMinimumDuration(0)
+        dialog.setAutoClose(False)
+        dialog.setAutoReset(False)
+        dialog.setRange(0, 0)  # Busy indicator
+
+        show_timer = QTimer(self)
+        show_timer.setSingleShot(True)
+
+        def _show_dialog():
+            dialog.show()
+            dialog.raise_()
+            dialog.activateWindow()
+            QApplication.processEvents()
+
+        self.statusBar().showMessage("Saving project...")
+        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+        QApplication.processEvents()
+        show_timer.timeout.connect(_show_dialog)
+        show_timer.start(400)
+
+        try:
+            return save_func()
+        finally:
+            if show_timer.isActive():
+                show_timer.stop()
+            if dialog.isVisible():
+                dialog.close()
+            dialog.deleteLater()
+            QApplication.restoreOverrideCursor()
     
     def _on_save_project(self):
         """Handle Save Project action (Cmd+S)"""
@@ -1143,7 +1184,7 @@ class MainWindow(QMainWindow):
                 Log.debug(f"Could not check if project is untitled: {e}")
         
         # Regular save for saved projects
-        result = self._save_project_impl()
+        result = self._run_with_save_feedback(self._save_project_impl)
         if result.success:
             self.statusBar().showMessage("Project saved")
         else:
@@ -1159,7 +1200,9 @@ class MainWindow(QMainWindow):
             app_settings.set_dialog_path("save_project", filename)
             from pathlib import Path
             path = Path(filename)
-            result = self._save_project_impl(str(path.parent), path.stem)
+            result = self._run_with_save_feedback(
+                lambda: self._save_project_impl(str(path.parent), path.stem)
+            )
             
             if result.success:
                 self.statusBar().showMessage(f"Saved: {filename}")

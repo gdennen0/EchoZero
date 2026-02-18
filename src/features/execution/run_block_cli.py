@@ -20,6 +20,20 @@ Main app integration (optional):
     and read stdout for progress (type=progress) and final result (type=result/error).
     Fully decoupled: no GIL sharing, no blocking of the UI process.
 """
+import os
+
+# The parent Qt process sets *_NUM_THREADS=1 to prevent NumPy/Qt threading
+# crashes. This subprocess has no Qt, so restore full CPU parallelism BEFORE
+# importing NumPy/PyTorch (they read these at import time).
+for _var in (
+    "OMP_NUM_THREADS",
+    "MKL_NUM_THREADS",
+    "OPENBLAS_NUM_THREADS",
+    "NUMEXPR_NUM_THREADS",
+    "VECLIB_MAXIMUM_THREADS",
+):
+    os.environ.pop(_var, None)
+
 import argparse
 import json
 import sys
@@ -114,6 +128,24 @@ class StdoutProgressTracker:
         })
 
 
+def _redirect_logging_to_stderr() -> None:
+    """Send all Log/logging output to stderr so it doesn't corrupt the stdout JSON protocol.
+
+    The parent process captures stderr and shows it in the execution panel.
+    """
+    import logging
+
+    root = logging.getLogger()
+    for handler in list(root.handlers):
+        if isinstance(handler, logging.StreamHandler) and handler.stream is sys.stdout:
+            handler.stream = sys.stderr
+    for logger_name in list(logging.Logger.manager.loggerDict):
+        logger = logging.getLogger(logger_name)
+        for handler in list(logger.handlers):
+            if isinstance(handler, logging.StreamHandler) and handler.stream is sys.stdout:
+                handler.stream = sys.stderr
+
+
 def main() -> int:
     _suppress_noisy_warnings()
 
@@ -138,10 +170,30 @@ def main() -> int:
             progress_tracker=None,
             clear_runtime_tables=False,
         )
+        _redirect_logging_to_stderr()
+        import time as _time
+        _t_bootstrap = _time.perf_counter()
+
         facade = container.facade
         facade.current_project_id = args.project
         progress = StdoutProgressTracker()
+
+        _t_exec_start = _time.perf_counter()
+        print(
+            f"[run_block_cli] bootstrap={_t_exec_start - _t_bootstrap:.1f}s, "
+            f"device env: OMP_NUM_THREADS={os.environ.get('OMP_NUM_THREADS', 'unset')}",
+            file=sys.stderr, flush=True,
+        )
+
         result = facade.execute_block(args.block, progress_tracker_override=progress)
+
+        _t_done = _time.perf_counter()
+        print(
+            f"[run_block_cli] execution={_t_done - _t_exec_start:.1f}s, "
+            f"total={_t_done - _t_bootstrap:.1f}s",
+            file=sys.stderr, flush=True,
+        )
+
         _emit({
             "type": "result",
             "success": result.success,

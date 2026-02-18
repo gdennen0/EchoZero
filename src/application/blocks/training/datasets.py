@@ -52,9 +52,14 @@ except ImportError:
     HAS_SKLEARN = False
 
 
-# Single supported path: soundfile only (WAV, FLAC, OGG, AIFF). No MP3, no deprecated backends.
+# Canonical training storage format (single standard used after ingestion conversion).
 SOUNDFILE_EXTENSIONS = {".wav", ".flac", ".ogg", ".aiff", ".aif"}
 AUDIO_EXTENSIONS = SOUNDFILE_EXTENSIONS
+UNSUPPORTED_AUDIO_EXTENSIONS = {
+    ".mp3", ".m4a", ".aac", ".wma", ".alac", ".opus", ".mp4",
+}
+INPUT_AUDIO_EXTENSIONS = SOUNDFILE_EXTENSIONS | UNSUPPORTED_AUDIO_EXTENSIONS
+CANONICAL_AUDIO_EXT = ".wav"
 
 
 def _load_audio(path: Path, target_sr: int) -> Tuple[np.ndarray, int]:
@@ -182,14 +187,21 @@ class DatasetStats:
 
 class FeatureCache:
     """
-    Disk-based cache for pre-computed spectrograms.
+    Disk-based cache for pre-computed spectrograms with optional memory preloading.
 
     Caches are keyed by file hash + spectrogram config, so changing
     parameters automatically invalidates the cache.
+
+    When preload_to_memory() is called, all cached spectrograms are loaded
+    into a contiguous numpy array for zero-cost random access during training.
+    This eliminates the per-batch disk I/O bottleneck that causes ~90ms per
+    batch of 32 when reading from 17k+ individual .npy files on macOS.
     """
 
     def __init__(self, config: Dict[str, Any], enabled: bool = True):
         self.enabled = enabled
+        self._memory_store: Optional[np.ndarray] = None
+        self._memory_index: Optional[Dict[str, int]] = None
         if enabled:
             config_key = hashlib.md5(
                 json.dumps({
@@ -199,6 +211,11 @@ class FeatureCache:
                     "hop": config.get("hop_length", 512),
                     "fmax": config.get("fmax", 8000),
                     "n_fft": config.get("n_fft", 2048),
+                    "transient": config.get("use_transient_emphasis", False),
+                    "pf_type": config.get("positive_filter_type") or "",
+                    "pf_cut": config.get("positive_filter_cutoff_hz", 0),
+                    "pf_cut_hi": config.get("positive_filter_cutoff_high_hz", 0),
+                    "pf_order": config.get("positive_filter_order", 0),
                 }, sort_keys=True).encode()
             ).hexdigest()[:8]
             self.cache_dir = get_user_cache_dir() / "feature_cache" / config_key
@@ -206,10 +223,109 @@ class FeatureCache:
         else:
             self.cache_dir = None
 
+    @property
+    def is_preloaded(self) -> bool:
+        """True if all features are loaded into memory."""
+        return self._memory_store is not None
+
+    def preload_to_memory(self, samples: List[Tuple[Path, int]]) -> int:
+        """
+        Load all cached spectrograms into a contiguous memory array.
+
+        After this call, get() returns from RAM instead of disk. Eliminates
+        random I/O during training (the primary bottleneck on macOS with
+        num_workers=0 and thousands of .npy cache files).
+
+        Args:
+            samples: List of (file_path, label) tuples from the dataset.
+
+        Returns:
+            Number of unique files that were NOT found in the disk cache
+            (0 means full coverage, >0 means some samples still fall back
+            to disk reads).
+        """
+        if not self.enabled or not samples:
+            return len(set(str(p) for p, _ in samples)) if samples else 0
+
+        # Deduplicate paths (balancing may duplicate samples pointing to same file)
+        unique_paths = {}
+        for file_path, _ in samples:
+            path_key = str(file_path)
+            if path_key not in unique_paths:
+                unique_paths[path_key] = file_path
+
+        # Determine shape from first cached file
+        ref_spec = None
+        for path_key, file_path in unique_paths.items():
+            ref_spec = self._load_from_disk(file_path)
+            if ref_spec is not None:
+                break
+        if ref_spec is None:
+            Log.debug("FeatureCache: No cached files found, skipping memory preload")
+            return len(unique_paths)
+
+        spec_shape = ref_spec.shape
+        n_unique = len(unique_paths)
+
+        # Estimate memory: shape[0] * shape[1] * 4 bytes * n_unique
+        bytes_per_spec = int(np.prod(spec_shape)) * 4
+        total_bytes = bytes_per_spec * n_unique
+        total_mb = total_bytes / (1024 * 1024)
+
+        Log.info(
+            f"FeatureCache: Preloading {n_unique} spectrograms "
+            f"(shape={spec_shape}, ~{total_mb:.0f}MB) into memory..."
+        )
+
+        # Allocate contiguous array and build path -> index mapping
+        store = np.zeros((n_unique, *spec_shape), dtype=np.float32)
+        index_map: Dict[str, int] = {}
+        loaded = 0
+        failed = 0
+
+        for i, (path_key, file_path) in enumerate(unique_paths.items()):
+            spec = self._load_from_disk(file_path)
+            if spec is not None and spec.shape == spec_shape:
+                store[i] = spec
+                index_map[path_key] = i
+                loaded += 1
+            else:
+                failed += 1
+
+        if failed > 0:
+            Log.warning(
+                f"FeatureCache: {failed}/{n_unique} files missing from disk cache "
+                f"or had wrong shape. Will warm those and retry."
+            )
+
+        if loaded == 0:
+            return n_unique
+
+        self._memory_store = store
+        self._memory_index = index_map
+
+        Log.info(
+            f"FeatureCache: Preloaded {loaded}/{n_unique} spectrograms into "
+            f"{total_mb:.0f}MB memory array"
+            + (" (full coverage -- disk I/O eliminated)" if failed == 0
+               else f" ({failed} still require disk fallback)")
+        )
+        return failed
+
     def get(self, file_path: Path) -> Optional[np.ndarray]:
-        """Load cached spectrogram if available."""
+        """Load cached spectrogram, from memory if preloaded, else from disk."""
         if not self.enabled:
             return None
+        # Fast path: memory-preloaded
+        if self._memory_store is not None and self._memory_index is not None:
+            idx = self._memory_index.get(str(file_path))
+            if idx is not None:
+                return self._memory_store[idx]
+        # Slow path: disk read
+        return self._load_from_disk(file_path)
+
+    def _load_from_disk(self, file_path: Path) -> Optional[np.ndarray]:
+        """Load a single spectrogram from disk cache."""
         cache_path = self._cache_path(file_path)
         if cache_path.exists():
             try:
@@ -219,7 +335,7 @@ class FeatureCache:
         return None
 
     def put(self, file_path: Path, spectrogram: np.ndarray) -> None:
-        """Save spectrogram to cache."""
+        """Save spectrogram to disk cache."""
         if not self.enabled:
             return
         cache_path = self._cache_path(file_path)
@@ -295,19 +411,16 @@ class AudioClassificationDataset(Dataset):
             self.positive_classes = [config.get("target_class")]
         self.target_class = (self.positive_classes[0] if self.positive_classes else None) or config.get("target_class")
 
-        # Audio formats to load (soundfile only: WAV, FLAC, OGG, AIFF; no MP3, no deprecated backends)
-        formats = config.get("audio_formats", ["wav", "flac", "ogg", "aiff"])
-        allowed_exts = {f".{f.strip().lstrip('.').lower()}" for f in formats}
-        unsupported = allowed_exts - SOUNDFILE_EXTENSIONS
-        if unsupported:
-            raise ValueError(
-                f"Unsupported audio format(s): {', '.join(sorted(unsupported))}. "
-                f"Use only: {', '.join(sorted(SOUNDFILE_EXTENSIONS))}. "
-                "MP3 is not supported; convert to WAV or FLAC."
-            )
+        # Input discovery formats: ingest all known incoming audio formats, then
+        # convert to a canonical internal standard (mono, target_sr, WAV PCM16).
+        formats = [ext.lstrip(".") for ext in sorted(INPUT_AUDIO_EXTENSIONS)]
         if not HAS_SOUNDFILE:
             raise RuntimeError(
                 "Audio loading requires soundfile. Install with: pip install soundfile"
+            )
+        if not HAS_LIBROSA:
+            raise RuntimeError(
+                "Audio loading/conversion requires librosa. Install with: pip install librosa"
             )
 
         # Setup augmentation pipelines
@@ -315,6 +428,7 @@ class AudioClassificationDataset(Dataset):
             AudioAugmentationPipeline,
             SpectrogramAugmentationPipeline,
             apply_positive_class_filter,
+            HAS_SCIPY,
         )
         self.audio_augmenter = AudioAugmentationPipeline(config)
         self.spec_augmenter = SpectrogramAugmentationPipeline(config)
@@ -326,6 +440,11 @@ class AudioClassificationDataset(Dataset):
             self.is_binary
             and self._positive_filter_type in ("lowpass", "highpass", "bandpass")
         )
+        if self._positive_filter_enabled and not HAS_SCIPY:
+            raise RuntimeError(
+                "positive_filter_type is enabled but scipy is not installed. "
+                "Install scipy or disable the positive class filter."
+            )
         self._positive_filter_cutoff_hz = config.get("positive_filter_cutoff_hz", 1000.0)
         self._positive_filter_cutoff_high_hz = config.get(
             "positive_filter_cutoff_high_hz", 4000.0
@@ -369,6 +488,10 @@ class AudioClassificationDataset(Dataset):
         if balance_strategy != "none":
             self._apply_balance_strategy(config)
 
+        # Standardize all effective training samples (including hard negatives and
+        # any balanced duplicates) to the canonical internal format.
+        self._standardize_samples_to_canonical()
+
         # Compute per-dataset normalization statistics
         self.normalize_per_dataset = config.get("normalize_per_dataset", True)
         self._global_mean: Optional[float] = None
@@ -411,6 +534,30 @@ class AudioClassificationDataset(Dataset):
 
         Log.info(f"Dataset: {self.stats.summary()}")
 
+        # Preload all cached spectrograms into memory so __getitem__ never
+        # touches the filesystem during training.  This is the single biggest
+        # performance win: eliminates ~90ms-per-batch random disk I/O that
+        # dominates epoch time when num_workers=0 (required on macOS/QThread).
+        #
+        # Safe when audio-level augmentation is OFF. Positive-class filter and
+        # transient emphasis are deterministic and baked into the cache during
+        # warming. Spec-level augmentation (SpecAugment) operates on the cached
+        # mel and does not require recomputation from raw audio.
+        self._features_preloaded = False
+        can_preload = (
+            self.cache.enabled
+            and not self.audio_augmenter.modifies_audio
+        )
+        if can_preload:
+            missing = self.cache.preload_to_memory(self.samples)
+            if missing > 0:
+                # Some or all spectrograms are not in the disk cache yet.
+                # Compute them now, write to disk, then reload everything
+                # into memory so epoch 1 runs at full speed.
+                self._warm_feature_cache()
+                missing = self.cache.preload_to_memory(self.samples)
+            self._features_preloaded = missing == 0
+
     def _scan_directory(self, data_dir: Path, formats: List[str]) -> None:
         """Scan directory structure to discover classes and samples."""
         positive_set = set(self.positive_classes) if self.positive_classes else set()
@@ -430,20 +577,6 @@ class AudioClassificationDataset(Dataset):
                     self.samples.append((f, label))
                     self._formats_used.add(f.suffix.lower().lstrip("."))
                     self.onset_strengths.append(0.5)  # Default
-
-            # Also check for explicit positive/negative folders
-            pos_dir = data_dir / "positive"
-            neg_dir = data_dir / "negative"
-            if pos_dir.exists():
-                for f in _find_audio_files(pos_dir, formats):
-                    self.samples.append((f, 1))
-                    self._formats_used.add(f.suffix.lower().lstrip("."))
-                    self.onset_strengths.append(0.5)
-            if neg_dir.exists():
-                for f in _find_audio_files(neg_dir, formats):
-                    self.samples.append((f, 0))
-                    self._formats_used.add(f.suffix.lower().lstrip("."))
-                    self.onset_strengths.append(0.5)
         elif self.is_positive_vs_other and positive_set:
             # Positive vs other: selected classes get indices 0..K-1, all others -> "other" at index K
             self.classes = list(self.positive_classes) + ["other"]
@@ -485,6 +618,101 @@ class AudioClassificationDataset(Dataset):
                     self._formats_used.add(f.suffix.lower().lstrip("."))
                     self.onset_strengths.append(0.5)
 
+    def _standardize_samples_to_canonical(self) -> None:
+        """
+        Convert all discovered input files to a canonical audio standard.
+
+        Standard:
+        - mono
+        - sample_rate = self.sample_rate
+        - container/codec = WAV PCM_16
+        """
+        cache_dir = (
+            get_user_cache_dir()
+            / "training_audio_standardized"
+            / f"sr_{self.sample_rate}"
+        )
+        cache_dir.mkdir(parents=True, exist_ok=True)
+
+        standardized_samples: List[Tuple[Path, int]] = []
+        conversion_failures: List[Tuple[Path, str]] = []
+        converted_count = 0
+        reused_count = 0
+        exclude_bad_files = bool(self.config.get("exclude_bad_files", True))
+        self._excluded_bad_file_count = 0
+        self._excluded_bad_files: List[Dict[str, str]] = []
+
+        for source_path, label in self.samples:
+            cache_name = f"{_compute_file_hash(source_path)}{CANONICAL_AUDIO_EXT}"
+            standardized_path = cache_dir / cache_name
+            try:
+                if not standardized_path.exists():
+                    with warnings.catch_warnings():
+                        warnings.filterwarnings(
+                            "ignore",
+                            message="PySoundFile failed\\. Trying audioread instead\\.",
+                            category=UserWarning,
+                        )
+                        warnings.filterwarnings(
+                            "ignore",
+                            message=".*__audioread_load.*",
+                            category=FutureWarning,
+                        )
+                        audio, _ = librosa.load(
+                            str(source_path),
+                            sr=self.sample_rate,
+                            mono=True,
+                        )
+                    audio = np.asarray(audio, dtype=np.float32)
+                    if audio.size == 0:
+                        raise ValueError("decoded audio is empty")
+                    sf.write(
+                        str(standardized_path),
+                        audio,
+                        self.sample_rate,
+                        subtype="PCM_16",
+                    )
+                    converted_count += 1
+                else:
+                    reused_count += 1
+                standardized_samples.append((standardized_path, label))
+            except Exception as e:
+                size_bytes = source_path.stat().st_size if source_path.exists() else -1
+                reason = f"{type(e).__name__}: {e!r} (size_bytes={size_bytes})"
+                conversion_failures.append((source_path, reason))
+
+        if conversion_failures:
+            self._excluded_bad_file_count = len(conversion_failures)
+            self._excluded_bad_files = [
+                {"path": str(p), "reason": reason}
+                for p, reason in conversion_failures[:200]
+            ]
+            preview = "; ".join(f"{p.name}: {err}" for p, err in conversion_failures[:5])
+            if exclude_bad_files:
+                Log.warning(
+                    "Excluded unreadable/invalid audio files during standardization: "
+                    f"{len(conversion_failures)} excluded. Examples: {preview}"
+                )
+            else:
+                raise ValueError(
+                    "Failed to standardize input audio files to canonical WAV PCM_16. "
+                    f"Failed {len(conversion_failures)} files. Examples: {preview}"
+                )
+
+        if not standardized_samples:
+            raise ValueError(
+                "No valid audio files remained after dataset integrity checks. "
+                "All discovered files failed decode/standardization."
+            )
+
+        self.samples = standardized_samples
+        self._formats_used = {"wav"}
+        Log.info(
+            "Audio standardization complete: "
+            f"converted={converted_count}, reused_cache={reused_count}, "
+            f"excluded_bad={len(conversion_failures)}, total={len(self.samples)}"
+        )
+
     def _apply_binary_balancing(self, config: Dict[str, Any], data_dir: Path, formats: List[str]) -> None:
         """Balance positive/negative samples for binary classification."""
         pos_count = sum(1 for _, label in self.samples if label == 1)
@@ -514,27 +742,37 @@ class AudioClassificationDataset(Dataset):
                 neg_count += len(hard_neg_files)
                 Log.info(f"Loaded {len(hard_neg_files)} hard negatives from {hard_neg_dir}")
 
-        # Apply negative_ratio balancing
-        target_ratio = config.get("negative_ratio", 1.0)
-        desired_neg = int(pos_count * target_ratio)
+        # Apply binary negative_ratio balancing only when explicitly enabled.
+        # This keeps "Dataset Balance: none" truly non-destructive by default.
+        balance_strategy = str(config.get("balance_strategy", "none") or "none")
+        apply_binary_ratio = balance_strategy != "none"
 
-        if desired_neg < neg_count:
-            # Under-sample negatives
-            neg_indices = [i for i, (_, label) in enumerate(self.samples) if label == 0]
-            keep_indices = set(np.random.choice(neg_indices, size=desired_neg, replace=False))
-            pos_samples = [(p, l) for i, (p, l) in enumerate(self.samples) if l == 1]
-            neg_samples = [(p, l) for i, (p, l) in enumerate(self.samples) if i in keep_indices]
-            self.samples = pos_samples + neg_samples
-            self.onset_strengths = [0.5] * len(self.samples)
-            Log.info(f"Under-sampled negatives: {neg_count} -> {desired_neg}")
-        elif desired_neg > neg_count:
-            # Over-sample negatives by duplication
-            neg_samples = [(p, l) for p, l in self.samples if l == 0]
-            extra_needed = desired_neg - neg_count
-            extra = [neg_samples[i % len(neg_samples)] for i in range(extra_needed)]
-            self.samples.extend(extra)
-            self.onset_strengths.extend([0.5] * len(extra))
-            Log.info(f"Over-sampled negatives: {neg_count} -> {desired_neg}")
+        if apply_binary_ratio:
+            target_ratio = config.get("negative_ratio", 1.0)
+            desired_neg = int(pos_count * target_ratio)
+
+            if desired_neg < neg_count:
+                # Under-sample negatives
+                neg_indices = [i for i, (_, label) in enumerate(self.samples) if label == 0]
+                keep_indices = set(np.random.choice(neg_indices, size=desired_neg, replace=False))
+                pos_samples = [(p, l) for i, (p, l) in enumerate(self.samples) if l == 1]
+                neg_samples = [(p, l) for i, (p, l) in enumerate(self.samples) if i in keep_indices]
+                self.samples = pos_samples + neg_samples
+                self.onset_strengths = [0.5] * len(self.samples)
+                Log.info(f"Under-sampled negatives: {neg_count} -> {desired_neg}")
+            elif desired_neg > neg_count:
+                # Over-sample negatives by duplication
+                neg_samples = [(p, l) for p, l in self.samples if l == 0]
+                extra_needed = desired_neg - neg_count
+                extra = [neg_samples[i % len(neg_samples)] for i in range(extra_needed)]
+                self.samples.extend(extra)
+                self.onset_strengths.extend([0.5] * len(extra))
+                Log.info(f"Over-sampled negatives: {neg_count} -> {desired_neg}")
+        else:
+            Log.info(
+                "Binary negative_ratio balancing disabled "
+                f"(balance_strategy={balance_strategy})."
+            )
 
         Log.info(
             f"Binary dataset: {sum(1 for _, l in self.samples if l == 1)} positive, "
@@ -571,6 +809,91 @@ class AudioClassificationDataset(Dataset):
 
         Log.info(f"Dataset balancing applied:\n{result.summary()}")
 
+    def _warm_feature_cache(self) -> None:
+        """
+        Compute and disk-cache spectrograms for all samples that are not yet cached.
+
+        Called once at dataset init when the disk cache is cold. After this runs,
+        preload_to_memory() can load everything into RAM. This is faster than
+        letting the first training epoch compute spectrograms one at a time
+        because it avoids the interleaved GPU-idle-while-CPU-computes pattern.
+
+        When the positive-class filter is enabled, it is applied to positive
+        samples before computing the mel spectrogram so that the cached version
+        is the filtered version (the filter is deterministic).
+        """
+        uncached_paths: List[Tuple[int, Path, int]] = []
+        seen: set = set()
+        for i, (file_path, label) in enumerate(self.samples):
+            path_key = str(file_path)
+            if path_key in seen:
+                continue
+            seen.add(path_key)
+            if self.cache._load_from_disk(file_path) is None:
+                uncached_paths.append((i, file_path, label))
+
+        if not uncached_paths:
+            return
+
+        Log.info(
+            f"FeatureCache: Warming disk cache for {len(uncached_paths)} "
+            f"uncached spectrograms..."
+        )
+
+        for count, (_, file_path, label) in enumerate(uncached_paths, 1):
+            try:
+                audio, _ = _load_audio(file_path, self.sample_rate)
+                audio = np.asarray(audio, dtype=np.float32)
+
+                if self._positive_filter_enabled and label == 1:
+                    audio = self._apply_positive_class_filter_fn(
+                        audio,
+                        self.sample_rate,
+                        self._positive_filter_type,
+                        self._positive_filter_cutoff_hz,
+                        self._positive_filter_cutoff_high_hz,
+                        self._positive_filter_order,
+                    )
+
+                if len(audio) < self.max_length:
+                    audio = np.pad(audio, (0, self.max_length - len(audio)), "constant")
+                else:
+                    audio = audio[:self.max_length]
+
+                if self.use_transient_emphasis:
+                    audio = librosa.effects.preemphasis(audio, coef=0.97)
+
+                min_len = max(self.max_length, self.n_fft)
+                if len(audio) < min_len:
+                    audio = np.pad(audio, (0, min_len - len(audio)), mode="constant", constant_values=0)
+                y_for_mel = np.ascontiguousarray(audio)
+
+                with warnings.catch_warnings():
+                    warnings.filterwarnings(
+                        "ignore", message=".*n_fft.*too large for input signal.*", category=UserWarning
+                    )
+                    mel_spec = librosa.feature.melspectrogram(
+                        y=y_for_mel, sr=self.sample_rate, n_mels=self.n_mels,
+                        hop_length=self.hop_length, fmax=self.fmax, n_fft=self.n_fft,
+                    )
+                mel_spec_db = librosa.power_to_db(mel_spec, ref=np.max)
+
+                if self._global_mean is not None and self._global_std is not None:
+                    mel_spec_norm = (mel_spec_db - self._global_mean) / (self._global_std + 1e-10)
+                else:
+                    mel_spec_norm = (mel_spec_db - mel_spec_db.min()) / (
+                        mel_spec_db.max() - mel_spec_db.min() + 1e-10
+                    )
+
+                self.cache.put(file_path, mel_spec_norm)
+            except Exception as e:
+                Log.debug(f"Cache warm failed for {file_path}: {e}")
+
+            if count % 1000 == 0:
+                Log.info(f"FeatureCache: Warmed {count}/{len(uncached_paths)} spectrograms")
+
+        Log.info(f"FeatureCache: Disk cache warmed ({len(uncached_paths)} spectrograms computed)")
+
     def __len__(self) -> int:
         return len(self.samples)
 
@@ -580,12 +903,10 @@ class AudioClassificationDataset(Dataset):
         try:
             file_path, label = self.samples[idx]
 
-            # Try cache first (only when augmentation off: augmented samples vary so we can't reuse cached mel).
-            # Skip cache for positive samples when positive-class filter is enabled (mel must be from filtered audio).
-            use_cache = (
-                not (self._positive_filter_enabled and label == 1)
-                and not self.audio_augmenter.enabled
-            )
+            # Try cache first. The cache is usable when audio-level augmentation
+            # is off: the positive filter and transient emphasis are deterministic
+            # and baked into the cached spectrogram during cache warming.
+            use_cache = not self.audio_augmenter.modifies_audio
             cached = self.cache.get(file_path) if use_cache else None
             if cached is not None:
                 mel_spec_norm = cached
@@ -594,7 +915,8 @@ class AudioClassificationDataset(Dataset):
                 audio, sr = _load_audio(file_path, self.sample_rate)
                 audio = np.asarray(audio, dtype=np.float32)
 
-                # Apply deterministic filter to positive-class samples (binary mode only)
+                # Apply deterministic filter to positive-class samples (binary mode only).
+                # Skipped on the cache path because the filter is pre-applied during warming.
                 if self._positive_filter_enabled and label == 1:
                     audio = self._apply_positive_class_filter_fn(
                         audio,
@@ -606,40 +928,27 @@ class AudioClassificationDataset(Dataset):
                     )
 
                 # Apply audio augmentation
-                if self.audio_augmenter.enabled:
+                if self.audio_augmenter.modifies_audio:
                     audio = self.audio_augmenter(audio, self.sample_rate)
-                    # Oversampled duplicates (from balancing) get a second pass for extra variation
                     augment_flags = getattr(self, "_augment_flags", None)
                     if augment_flags is not None and idx < len(augment_flags) and augment_flags[idx]:
                         audio = self.audio_augmenter(audio, self.sample_rate)
 
-                # Pad or truncate to fixed max_length so all samples have same length
-                if len(audio) < self.max_length:
-                    audio = np.pad(audio, (0, self.max_length - len(audio)), "constant")
-                elif len(audio) > self.max_length:
-                    if self.audio_augmenter.enabled:
-                        start = np.random.randint(0, len(audio) - self.max_length)
-                        audio = audio[start:start + self.max_length]
+                # Pad or truncate to fixed length. Use random crop when augmenting
+                # for extra variation; otherwise take the front of the clip.
+                target_len = max(self.max_length, self.n_fft)
+                if len(audio) < target_len:
+                    audio = np.pad(audio, (0, target_len - len(audio)), "constant")
+                elif len(audio) > target_len:
+                    if self.audio_augmenter.modifies_audio:
+                        start = np.random.randint(0, len(audio) - target_len)
+                        audio = audio[start:start + target_len]
                     else:
-                        audio = audio[:self.max_length]
-                # Defensive: guarantee length (handles any augmenter that might change length)
-                if len(audio) != self.max_length:
-                    if len(audio) < self.max_length:
-                        audio = np.pad(audio, (0, self.max_length - len(audio)), "constant")
-                    else:
-                        audio = audio[:self.max_length]
+                        audio = audio[:target_len]
 
-                # Apply transient emphasis if enabled (DOSE-inspired)
                 if self.use_transient_emphasis:
                     audio = librosa.effects.preemphasis(audio, coef=0.97)
 
-                # Force length to at least max(max_length, n_fft) so librosa.stft never sees n_fft > len(y)
-                min_len = max(self.max_length, self.n_fft)
-                if len(audio) < min_len:
-                    audio = np.pad(
-                        audio, (0, min_len - len(audio)),
-                        mode="constant", constant_values=0,
-                    )
                 y_for_mel = np.ascontiguousarray(audio)
 
                 # Compute mel spectrogram (suppress librosa stft "n_fft too large" if it still fires)
@@ -887,23 +1196,31 @@ def create_data_loaders(
     use_augmentation = config.get("use_augmentation", False)
     seed = config.get("seed", 42)
 
-    # With augmentation on, load+augment+mel run per sample (no cache). Use workers so this runs in parallel with training.
-    if use_augmentation and num_workers == 0:
-        num_workers = 2
+    # When features are preloaded into memory, __getitem__ is a pure array
+    # slice (~0.0ms). Workers add overhead (macOS spawn copies 382MB+ per
+    # worker) and are strictly slower. Force workers=0.
+    if getattr(dataset, "_features_preloaded", False) and num_workers > 0:
         Log.info(
-            "Data augmentation is on: using 2 DataLoader workers so loading and augmentation run in parallel with training. "
-            "Set num_workers in Training settings to change (0 = single-threaded, often slow with augmentation)."
-        )
-
-    # macOS + Qt background thread + DataLoader workers is a common deadlock/hang path.
-    # If execution is not on the main thread, force a safe single-threaded loader mode.
-    if sys.platform == "darwin" and num_workers > 0 and threading.current_thread() is not threading.main_thread():
-        Log.warning(
-            "PyTorch DataLoader workers were disabled for this run because training is executing "
-            "from a background thread on macOS. This avoids worker spawn hangs. "
-            "Training will be slower but reliable in this mode."
+            f"DataLoader: Features preloaded in memory, overriding num_workers "
+            f"{num_workers} -> 0 (workers add overhead when data is in RAM)"
         )
         num_workers = 0
+
+    # When audio-level augmentation forces per-sample recomputation (no cache),
+    # workers are needed for throughput. This does NOT apply when only
+    # spec-level augmentation is used (features are preloaded).
+    if use_augmentation and num_workers == 0 and not getattr(dataset, "_features_preloaded", False):
+        raise RuntimeError(
+            "Invalid DataLoader configuration: use_augmentation=true with num_workers=0. "
+            "Set Data Workers to >= 1 so data loading/augmentation can run in parallel."
+        )
+
+    # macOS + Qt background thread + DataLoader workers can deadlock/hang.
+    if sys.platform == "darwin" and num_workers > 0 and threading.current_thread() is not threading.main_thread():
+        raise RuntimeError(
+            "Unsupported execution context: DataLoader workers > 0 from a background thread on macOS. "
+            "Run training on the main thread or set Data Workers to 0."
+        )
 
     train_ds, val_ds, test_ds = create_data_splits(dataset, config)
 

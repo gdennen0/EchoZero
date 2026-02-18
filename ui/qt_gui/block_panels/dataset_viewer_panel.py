@@ -93,6 +93,15 @@ def _build_tree(
     """
     source = Path(source_dir)
     root = tree.invisibleRootItem()
+    # Count files recursively for each directory tuple path.
+    # Example: "a/b/file.wav" increments ("a",) and ("a", "b").
+    recursive_counts = {}
+    for rel_path, _ in path_list:
+        parts = rel_path.replace("/", os.sep).split(os.sep)
+        for i in range(1, len(parts)):
+            key = tuple(parts[:i])
+            recursive_counts[key] = recursive_counts.get(key, 0) + 1
+
     # node path (tuple of segments) -> QTreeWidgetItem for that dir
     dir_nodes = {(): root}
     file_items = []
@@ -103,7 +112,8 @@ def _build_tree(
         for i, part in enumerate(parts[:-1]):
             key = tuple(parts[: i + 1])
             if key not in dir_nodes:
-                node = QTreeWidgetItem(parent, [part])
+                count = recursive_counts.get(key, 0)
+                node = QTreeWidgetItem(parent, [f"{part} ({count})"])
                 node.setData(0, PATH_ROLE, None)
                 dir_nodes[key] = node
                 parent.addChild(node)

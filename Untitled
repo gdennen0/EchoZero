@@ -1,0 +1,1 @@
+   wrangler r2 object put ez-latest/EchoZero-latest.zip --file=./EchoZero-latest.zip
