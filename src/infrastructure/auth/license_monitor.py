@@ -163,11 +163,15 @@ class LicenseMonitor(QObject):
             Log.info("LicenseMonitor: Lease renewed silently.")
         elif member_info is None:
             # Hard failure mode: any failed re-check requires re-activation.
-            Log.info(
-                f"LicenseMonitor: Re-check failed ({self._ms_auth.last_error_kind}). "
-                "Requiring re-activation."
-            )
-            self.license_expired.emit(
-                "Your subscription could not be verified. "
-                "Please log in again to continue."
-            )
+            kind = self._ms_auth.last_error_kind
+            Log.info(f"LicenseMonitor: Re-check failed ({kind}). Requiring re-activation.")
+            if kind in ("invalid_app_token", "unauthorized"):
+                self.license_expired.emit(
+                    "MEMBERSTACK_APP_SECRET does not match the verification server. "
+                    "Update .env with the correct secret (see .env.example)."
+                )
+            else:
+                self.license_expired.emit(
+                    "Your subscription could not be verified. "
+                    "Please log in again to continue."
+                )

@@ -112,12 +112,55 @@ def _maybe_run_subprocess_cli() -> bool:
     raise SystemExit(run_block_cli_main())
 
 
+def _validate_auth_config() -> tuple[str, str]:
+    """
+    Validate auth configuration before any auth flow.
+    
+    Single pathway: MEMBERSTACK_APP_SECRET is required. No fallbacks.
+    
+    Returns:
+        Tuple of (app_secret, verify_url).
+    
+    Raises:
+        SystemExit: If config is invalid. Shows clear error and solution before exiting.
+    """
+    app_secret = (os.getenv("MEMBERSTACK_APP_SECRET") or "").strip()
+    verify_url = (os.getenv("MEMBERSTACK_VERIFY_URL") or "").strip() or "https://echozero-auth.speeoflight.workers.dev"
+    
+    if not app_secret:
+        from src.utils.paths import get_user_data_dir
+        from pathlib import Path
+        user_env = get_user_data_dir() / ".env"
+        project_env = Path(__file__).resolve().parent / ".env"
+        Log.error("MEMBERSTACK_APP_SECRET is required but not set.")
+        project_root = Path(__file__).resolve().parent
+        msg = (
+            "EchoZero requires MEMBERSTACK_APP_SECRET to authenticate.\n\n"
+            "To fix:\n"
+            "1. Copy .env.example to .env\n"
+            "2. Set MEMBERSTACK_APP_SECRET=<your_secret> in that file\n"
+            "3. Place .env in project root: " + str(project_root) + "\n"
+            "   Or in: " + str(user_env) + "\n\n"
+            "Get the secret from your EchoZero deployment admin, or set it at build time:\n"
+            "MEMBERSTACK_APP_SECRET=... python scripts/build_app.py\n\n"
+            "See docs/packaging/PACKAGING.md for details."
+        )
+        from PyQt6.QtWidgets import QMessageBox
+        app = QApplication.instance()
+        if app:
+            QMessageBox.critical(None, "Auth Configuration Required", msg)
+        else:
+            print("ERROR: " + msg.replace("\n\n", "\n"))
+        raise SystemExit(1)
+    
+    return app_secret, verify_url
+
+
 def _create_auth_services():
     """
     Create and return the shared authentication service instances.
     
-    These are created once and reused across startup auth, lease management,
-    and the background license monitor.
+    Config must be valid (validated earlier). No fallbacks.
     
     Returns:
         Tuple of (MemberstackAuth, TokenStorage, LicenseLeaseManager).
@@ -126,18 +169,10 @@ def _create_auth_services():
     from src.infrastructure.auth.token_storage import TokenStorage
     from src.infrastructure.auth.license_lease import LicenseLeaseManager
     
-    app_secret = (os.getenv("MEMBERSTACK_APP_SECRET") or "").strip()
-    if not app_secret:
-        Log.warning(
-            "MEMBERSTACK_APP_SECRET is not set. Auth will work only if the verify backend does not require X-App-Token. "
-            "For production, set it in the environment or build with MEMBERSTACK_APP_SECRET (see docs/packaging/PACKAGING.md)."
-        )
-
+    app_secret, verify_url = _validate_auth_config()
+    
     token_storage = TokenStorage()
-    ms_auth = MemberstackAuth(
-        verify_url=os.getenv("MEMBERSTACK_VERIFY_URL", "https://echozero-auth.speeoflight.workers.dev"),
-        app_secret=app_secret,
-    )
+    ms_auth = MemberstackAuth(verify_url=verify_url, app_secret=app_secret)
     lease_manager = LicenseLeaseManager(token_storage, app_secret=app_secret)
     
     return ms_auth, token_storage, lease_manager

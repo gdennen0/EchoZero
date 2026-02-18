@@ -110,13 +110,15 @@ class MemberstackAuth:
             
             if response.status_code == 401:
                 reason = data.get("error", "Unauthorized")
-                # Distinguish token failures from app-secret failures for lease decisions.
-                if "token" in reason.lower():
+                if "app token" in reason.lower() or reason == "Invalid app token":
+                    self._set_error("invalid_app_token", reason)
+                    Log.error("MemberstackAuth: Invalid app token -- MEMBERSTACK_APP_SECRET does not match the verification server.")
+                elif "token" in reason.lower():
                     self._set_error("token_invalid", reason)
                     Log.warning(f"MemberstackAuth: Token verification failed: {reason}")
                 else:
-                    self._set_error("unauthorized", reason)
-                    Log.error("MemberstackAuth: Unauthorized -- invalid app secret.")
+                    self._set_error("invalid_app_token", reason)
+                    Log.error("MemberstackAuth: Unauthorized (401) -- check MEMBERSTACK_APP_SECRET matches the auth worker.")
                 return None
             
             if response.status_code == 404:
@@ -232,7 +234,7 @@ class MemberstackAuth:
         Whether a failure should still permit use of an existing valid lease.
 
         We permit cached lease usage for transient failures (network/service)
-        and token expiration. Access-denied responses do not qualify.
+        and token expiration. Invalid app token and access-denied do not qualify.
         """
         return self._last_error_kind in {
             "network_error",
