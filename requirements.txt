@@ -53,7 +53,9 @@ colorama>=0.4.6              # Cross-platform colored terminal output
 # ==============================================================================
 # GUI Framework
 # ==============================================================================
-PyQt6>=6.4.0                 # Qt6 Python bindings (main window, dialogs)
+# Pin to 6.4.x: PyQt6 6.5+ crashes on macOS (SIGSEGV in CFBundleCopyBundleURL
+# during Qt init). See pyinstaller/pyinstaller#7789.
+PyQt6>=6.4.0,<6.5.0         # Qt6 Python bindings (main window, dialogs)
 # PyQt6-Multimedia>=6.4.0    # OPTIONAL: Audio playback in timeline
                               # Not available for Python 3.10 on Windows
                               # Install manually if on Python 3.11+: pip install PyQt6-Multimedia>=6.4.0
@@ -80,6 +82,7 @@ python-osc>=1.8.0            # OSC protocol for grandMA3 communication
 # Deployment
 # ==============================================================================
 pyinstaller>=6.18.0          # Application packaging and distribution
+pyinstaller-hooks-contrib   # PyQt6, Qt framework hooks for macOS bundle
 
 # ==============================================================================
 # Development / Testing

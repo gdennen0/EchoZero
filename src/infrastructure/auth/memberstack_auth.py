@@ -4,20 +4,24 @@ Memberstack Authentication Service
 Verifies member identity via a server-side Cloudflare Worker proxy.
 The Memberstack Admin API key stays on the server -- this client never sees it.
 
-Production flow:
-    Desktop App  --->  Cloudflare Worker  --->  Memberstack Admin API
-                POST /verify {member_id, token}
-
-The worker validates that:
-  1) token is valid,
-  2) token member id matches member_id, and
-  3) member has an active allowed plan.
+Flows:
+  - POST /verify: Direct verification (used after localhost or URL-scheme callback)
+  - GET /link?code=X: Server-mediated flow - app polls until browser deposits credentials.
+    Browser-agnostic: no localhost, no custom URL scheme. Works in Safari, Chrome, etc.
 """
+import secrets
+import string
 from typing import Optional, Dict, Any
 
 import httpx
 
 from src.utils.message import Log
+
+
+def generate_link_code(length: int = 12) -> str:
+    """Generate a short alphanumeric code for the server-mediated login flow."""
+    alphabet = string.ascii_uppercase + string.digits
+    return "".join(secrets.choice(alphabet) for _ in range(length))
 
 
 class MemberstackAuthError(Exception):
@@ -171,6 +175,47 @@ class MemberstackAuth:
         """
         member = self.verify_member(member_id, token=token)
         return member is not None
+
+    @property
+    def verify_url(self) -> str:
+        """URL of the verification worker (for server-mediated login)."""
+        return self._verify_url
+
+    def poll_link(self, code: str) -> Optional[Dict[str, Any]]:
+        """
+        Poll the /link endpoint for server-mediated login.
+
+        Returns credentials dict {token, member_id, member_info} when linked,
+        or None if not yet linked (404) or on error.
+        """
+        if not self._verify_url:
+            return None
+        try:
+            headers = {}
+            if self._app_secret:
+                headers["X-App-Token"] = self._app_secret
+            with httpx.Client(timeout=10.0) as client:
+                r = client.get(
+                    f"{self._verify_url}/link",
+                    params={"code": code},
+                    headers=headers,
+                )
+            if r.status_code == 404:
+                return None
+            if r.status_code != 200:
+                Log.warning(f"MemberstackAuth: poll_link returned {r.status_code}")
+                return None
+            data = r.json()
+            if not data.get("linked") or not data.get("token") or not data.get("member_id"):
+                return None
+            return {
+                "token": data["token"],
+                "member_id": data["member_id"],
+                "member_info": data.get("member_info") or {},
+            }
+        except Exception as e:
+            Log.debug(f"MemberstackAuth: poll_link error: {e}")
+            return None
 
     @property
     def last_error_kind(self) -> str:

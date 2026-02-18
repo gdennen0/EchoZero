@@ -10,10 +10,9 @@ SETUP INSTRUCTIONS:
 4. Publish the Webflow site
 
 HOW IT WORKS:
-- The EchoZero desktop app opens this page in the user's browser with ?port=XXXX&nonce=YYYY
-- After the user logs in via Memberstack, this script detects the login
-- It POSTs credentials to http://127.0.0.1:PORT/callback (no token in URL)
-- The desktop app receives the callback and completes authentication
+- Primary (browser-agnostic): ?code=XXX&worker=URL - page POSTs to worker /link after login.
+  Works in all browsers (Safari, Chrome, Firefox, Edge). No localhost, no custom URL scheme.
+- Fallback: ?port=XXX&nonce=YYY - POSTs to localhost (Chrome) or echozero-auth:// (Safari).
 -->
 
 <script>
@@ -22,23 +21,29 @@ HOW IT WORKS:
 
   // Parse query parameters from the URL
   const params = new URLSearchParams(window.location.search);
+  const code = params.get('code');
+  const worker = params.get('worker');
   const port = params.get('port');
   const nonce = params.get('nonce');
-  const next = params.get('next') || '/memberportal';
+  const next = params.get('next') || '/memberportal/home';
 
-  // Only activate if opened from the desktop app (port param present)
-  if (!port || !nonce) {
+  // Server-mediated flow (browser-agnostic): code + worker URL
+  const useServerFlow = code && worker;
+  // Fallback: localhost + URL scheme (port + nonce)
+  const useLocalFlow = port && nonce;
+
+  if (!useServerFlow && !useLocalFlow) {
     console.log('EchoZero: No desktop callback params found, normal web login.');
     return;
   }
 
-  console.log('EchoZero: Desktop login mode active, waiting for authentication...');
+  console.log('EchoZero: Desktop login mode active (' + (useServerFlow ? 'server' : 'local') + '), waiting for authentication...');
 
   function getSafeRedirectPath(path) {
-    if (!path || typeof path !== 'string') return '/memberportal';
+    if (!path || typeof path !== 'string') return '/memberportal/home';
     // Only allow same-origin relative paths.
-    if (!path.startsWith('/')) return '/memberportal';
-    if (path.startsWith('//')) return '/memberportal';
+    if (!path.startsWith('/')) return '/memberportal/home';
+    if (path.startsWith('//')) return '/memberportal/home';
     return path;
   }
 
@@ -83,26 +88,38 @@ HOW IT WORKS:
   }
 
   async function sendCredentialsToDesktop(token, memberId) {
-    const callbackUrl = 'http://127.0.0.1:' + port + '/callback';
-    const response = await fetch(callbackUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        token: token,
-        member_id: memberId,
-        nonce: nonce
-      })
-    });
-
-    if (!response.ok) {
-      let message = 'Desktop callback failed.';
-      try {
-        const body = await response.json();
-        if (body && body.error) message = body.error;
-      } catch (err) {
-        // Ignore JSON parse failures.
+    if (useServerFlow) {
+      const linkUrl = worker.replace(/\/$/, '') + '/link';
+      const response = await fetch(linkUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code: code, token: token, member_id: memberId })
+      });
+      const data = await response.json();
+      if (!response.ok || !data.ok) {
+        throw new Error(data.error || 'Link failed');
       }
-      throw new Error(message);
+      return;
+    }
+    const payload = { token: token, member_id: memberId, nonce: nonce };
+    const callbackUrl = 'http://127.0.0.1:' + port + '/callback';
+    try {
+      const response = await fetch(callbackUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      if (!response.ok) {
+        let message = 'Desktop callback failed.';
+        try {
+          const body = await response.json();
+          if (body && body.error) message = body.error;
+        } catch (err) {}
+        throw new Error(message);
+      }
+    } catch (fetchErr) {
+      console.warn('EchoZero: fetch to localhost failed, using URL scheme fallback:', fetchErr);
+      window.location.href = 'echozero-auth://callback?' + new URLSearchParams(payload).toString();
     }
   }
 

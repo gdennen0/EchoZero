@@ -85,7 +85,8 @@ clear_pycache_if_enabled(verbose=False)
 
 # Import Qt BEFORE other imports to ensure QApplication exists
 from PyQt6.QtWidgets import QApplication
-from PyQt6.QtCore import QTimer
+from PyQt6.QtCore import QTimer, QEvent
+from PyQt6.QtGui import QFileOpenEvent
 
 from src.application.bootstrap import initialize_services
 from src.application.bootstrap_loading_progress import LoadingProgressTracker
@@ -342,13 +343,44 @@ def _start_license_monitor(qt_app) -> None:
 _license_monitor = None
 
 
+def _install_auth_url_handler(app: QApplication) -> None:
+    """
+    Install an event filter to handle echozero-auth:// URL scheme callbacks.
+
+    Safari blocks fetch() from HTTPS pages to HTTP localhost (mixed content).
+    When the login page redirects to echozero-auth://callback?... the OS
+    delivers a QFileOpenEvent; we parse it and complete the auth flow.
+    """
+    from src.infrastructure.auth.auth_url_handler import handle_auth_url
+    from PyQt6.QtCore import QObject
+
+    class AuthUrlEventFilter(QObject):
+        """Event filter that captures QFileOpenEvent for echozero-auth URLs."""
+
+        def eventFilter(self, obj, event):
+            if event.type() == QEvent.Type.FileOpen:
+                open_event = event
+                if isinstance(open_event, QFileOpenEvent):
+                    url = open_event.url()
+                    if url.isValid():
+                        url_str = url.toString()
+                        if handle_auth_url(url_str):
+                            return True
+            return False
+
+    app.installEventFilter(AuthUrlEventFilter(app))
+
+
 def main():
     """Main entry point for Qt GUI"""
     # Create QApplication FIRST (required for splash screen)
     app = QApplication(sys.argv)
     app.setApplicationName("EchoZero")
     app.setOrganizationName("EchoZero")
-    
+
+    # Install handler for echozero-auth:// URL scheme (Safari fallback when fetch to localhost is blocked)
+    _install_auth_url_handler(app)
+
     # -- Authentication Gate --
     # User must be logged in before the app loads anything
     if not _authenticate(app):

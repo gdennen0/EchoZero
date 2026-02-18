@@ -2,6 +2,11 @@ name = "echozero-auth"
 main = "src/worker.js"
 compatibility_date = "2024-12-01"
 
+# KV for server-mediated login (browser-agnostic flow)
+[[kv_namespaces]]
+binding = "LINK_STORE"
+id = "ff40b72cf4d94f0eb8f77fa975c477b5"
+
 # Secrets are NOT stored here -- set them via:
 #   wrangler secret put MEMBERSTACK_ADMIN_KEY
 #   wrangler secret put APP_SECRET

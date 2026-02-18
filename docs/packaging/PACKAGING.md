@@ -102,7 +102,10 @@ For zero-config builds, no README is required for auth. For builds without bundl
 ## Troubleshooting (macOS)
 
 **App opens then instantly closes (or shows a circle-with-cross icon)**  
-The app is crashing on launch. Common causes:
+The app is crashing on launch.
+
+**SIGSEGV in CFBundleCopyBundleURL / QLibraryInfoPrivate (crash report)**  
+PyQt6 6.5+ has a known issue with PyInstaller on macOS: Qt's framework bundles are not preserved correctly, causing a crash during initialization. Pin PyQt6 to 6.4.x in requirements.txt (`PyQt6>=6.4.0,<6.5.0`). See pyinstaller/pyinstaller#7789. Common causes:
 
 1. **Missing dependencies in the bundle** – Build with a full environment: `pip install -r requirements.txt` then run `python scripts/build_app.py`. The build script warns if `python-dotenv` or `httpx` are missing; the spec bundles them when present.
 2. **Run from Terminal to see the error:**  

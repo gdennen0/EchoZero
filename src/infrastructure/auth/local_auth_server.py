@@ -308,6 +308,32 @@ class LocalAuthServer:
         if self._server and self._server.received_credentials:
             return self._server.received_credentials
         return None
+
+    def set_credentials_from_url_scheme(self, token: str, member_id: str, nonce: str) -> bool:
+        """
+        Accept credentials delivered via custom URL scheme (echozero-auth://).
+
+        Used when Safari blocks fetch() to localhost from HTTPS pages.
+        Validates the nonce and completes the auth flow same as a POST callback.
+
+        Returns:
+            True if nonce matched and credentials were accepted, False otherwise.
+        """
+        if not self._server:
+            return False
+        if not nonce or nonce != self._nonce:
+            Log.warning("LocalAuthServer: Invalid nonce in URL scheme callback.")
+            return False
+        if not member_id:
+            Log.warning("LocalAuthServer: No member_id in URL scheme callback.")
+            return False
+        if not token:
+            Log.warning("LocalAuthServer: No token in URL scheme callback.")
+            return False
+        self._server.received_credentials = {"token": token, "member_id": member_id}
+        Log.info(f"LocalAuthServer: URL scheme callback received for member {member_id[:12]}...")
+        threading.Thread(target=self._server.shutdown, daemon=True).start()
+        return True
     
     @property
     def port(self) -> int:

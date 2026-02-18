@@ -170,5 +170,13 @@ if sys.platform == 'darwin':
             'NSHighResolutionCapable': True,
             'NSHumanReadableCopyright': COPYRIGHT,
             'LSMinimumSystemVersion': '10.13',
+            # URL scheme for Safari-compatible auth callback (Safari blocks fetch to localhost)
+            'CFBundleURLTypes': [
+                {
+                    'CFBundleURLSchemes': ['echozero-auth'],
+                    'CFBundleURLName': 'EchoZero Auth Callback',
+                    'CFBundleTypeRole': 'Editor',
+                }
+            ],
         },
     )

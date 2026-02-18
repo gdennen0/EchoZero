@@ -12,6 +12,7 @@ action, preventing continued use with an expired license.
 """
 import webbrowser
 from typing import Optional
+from urllib.parse import quote
 
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QWidget,
@@ -19,12 +20,19 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtGui import QFont
 
-from src.infrastructure.auth.memberstack_auth import MemberstackAuth
+from src.infrastructure.auth.memberstack_auth import MemberstackAuth, generate_link_code
 from src.infrastructure.auth.token_storage import TokenStorage
 from src.infrastructure.auth.license_lease import LicenseLeaseManager
 from src.infrastructure.auth.local_auth_server import LocalAuthServer
+from src.infrastructure.auth.auth_url_handler import (
+    register_pending_auth_server,
+    unregister_pending_auth_server,
+)
 from src.utils.message import Log
 from ui.qt_gui.design_system import Colors, Spacing, border_radius
+
+LINK_POLL_INTERVAL_MS = 2000
+LINK_TIMEOUT_SEC = 300
 
 
 class LicenseExpiredDialog(QDialog):
@@ -65,6 +73,8 @@ class LicenseExpiredDialog(QDialog):
         self._lease_manager = lease_manager
         self._auth_server: Optional[LocalAuthServer] = None
         self._poll_timer: Optional[QTimer] = None
+        self._link_code: Optional[str] = None
+        self._link_elapsed_sec: float = 0.0
 
         self._setup_ui()
 
@@ -215,32 +225,74 @@ class LicenseExpiredDialog(QDialog):
         )
         self._status_label.setText("Opening browser...")
 
+        if self._ms_auth.verify_url:
+            self._start_server_mediated_flow()
+        else:
+            self._start_localhost_flow()
+
+    def _start_server_mediated_flow(self):
         try:
-            self._auth_server = LocalAuthServer()
-            port, nonce = self._auth_server.start()
-
-            login_url = f"{self.LOGIN_PAGE_URL}?port={port}&nonce={nonce}"
+            self._link_code = generate_link_code()
+            self._link_elapsed_sec = 0.0
+            worker_param = quote(self._ms_auth.verify_url, safe="")
+            login_url = f"{self.LOGIN_PAGE_URL}?code={self._link_code}&worker={worker_param}"
             webbrowser.open(login_url)
-
             self._status_label.setText(
                 "Waiting for login...\n"
                 "Complete the login in your browser, then return here."
             )
-
             self._poll_timer = QTimer(self)
-            self._poll_timer.timeout.connect(self._check_callback)
-            self._poll_timer.start(500)
-
+            self._poll_timer.timeout.connect(self._check_link_poll)
+            self._poll_timer.start(LINK_POLL_INTERVAL_MS)
         except Exception as e:
             Log.error(f"LicenseExpiredDialog: Failed to start reactivation: {e}")
             self._show_error(f"Failed to open browser: {e}")
             self._reactivate_btn.setEnabled(True)
 
+    def _start_localhost_flow(self):
+        try:
+            self._auth_server = LocalAuthServer()
+            port, nonce = self._auth_server.start()
+            register_pending_auth_server(self._auth_server)
+            login_url = f"{self.LOGIN_PAGE_URL}?port={port}&nonce={nonce}"
+            webbrowser.open(login_url)
+            self._status_label.setText(
+                "Waiting for login...\n"
+                "Complete the login in your browser, then return here."
+            )
+            self._poll_timer = QTimer(self)
+            self._poll_timer.timeout.connect(self._check_callback)
+            self._poll_timer.start(500)
+        except Exception as e:
+            Log.error(f"LicenseExpiredDialog: Failed to start reactivation: {e}")
+            self._show_error(f"Failed to open browser: {e}")
+            self._reactivate_btn.setEnabled(True)
+
+    def _check_link_poll(self):
+        if not self._link_code:
+            return
+        self._link_elapsed_sec += LINK_POLL_INTERVAL_MS / 1000.0
+        if self._link_elapsed_sec >= LINK_TIMEOUT_SEC:
+            self._poll_timer.stop()
+            self._show_error("Login timed out. Please try again.")
+            self._reactivate_btn.setEnabled(True)
+            self._link_code = None
+            return
+        credentials = self._ms_auth.poll_link(self._link_code)
+        if credentials is None:
+            return
+        self._poll_timer.stop()
+        self._link_code = None
+        self._complete_reactivation(
+            credentials.get("member_id", ""),
+            credentials.get("token", ""),
+            credentials.get("member_info") or {},
+        )
+
     def _check_callback(self):
-        """Poll the auth server for the reactivation callback."""
+        """Poll the auth server for localhost/URL-scheme callback."""
         if not self._auth_server:
             return
-
         credentials = self._auth_server.get_credentials()
         if credentials is None:
             if self._auth_server._thread and not self._auth_server._thread.is_alive():
@@ -248,38 +300,13 @@ class LicenseExpiredDialog(QDialog):
                 self._show_error("Login timed out. Please try again.")
                 self._reactivate_btn.setEnabled(True)
             return
-
         self._poll_timer.stop()
         self._status_label.setText("Verifying your account...")
-
         member_id = credentials.get("member_id", "")
         token = credentials.get("token", "")
-
         member_info = self._ms_auth.verify_member(member_id, token=token)
-
         if member_info:
-            # Store updated credentials
-            self._token_storage.store_credentials(
-                member_id=member_id,
-                token=token,
-                member_data=member_info,
-            )
-
-            # Grant a new lease
-            email = member_info.get("email", "")
-            self._lease_manager.grant_lease(
-                member_id=member_id,
-                email=email,
-                billing_period_end_at=member_info.get("billing_period_end", ""),
-            )
-
-            self._status_label.setStyleSheet(
-                f"color: {Colors.ACCENT_GREEN.name()}; font-size: 13px;"
-            )
-            self._status_label.setText(f"Reactivated! Welcome back, {email}.")
-            Log.info(f"LicenseExpiredDialog: Reactivation successful for {email}")
-
-            QTimer.singleShot(800, self.accept)
+            self._complete_reactivation(member_id, token, member_info)
         else:
             reason = self._ms_auth.last_error_kind
             detail = (self._ms_auth.last_error_message or "").strip()
@@ -314,6 +341,26 @@ class LicenseExpiredDialog(QDialog):
             self._show_error(message)
             self._reactivate_btn.setEnabled(True)
 
+    def _complete_reactivation(self, member_id: str, token: str, member_info: dict):
+        """Store credentials, grant lease, and close on success."""
+        self._token_storage.store_credentials(
+            member_id=member_id,
+            token=token,
+            member_data=member_info,
+        )
+        email = member_info.get("email", "")
+        self._lease_manager.grant_lease(
+            member_id=member_id,
+            email=email,
+            billing_period_end_at=member_info.get("billing_period_end", ""),
+        )
+        self._status_label.setStyleSheet(
+            f"color: {Colors.ACCENT_GREEN.name()}; font-size: 13px;"
+        )
+        self._status_label.setText(f"Reactivated! Welcome back, {email}.")
+        Log.info(f"LicenseExpiredDialog: Reactivation successful for {email}")
+        QTimer.singleShot(800, self.accept)
+
     def _show_error(self, message: str):
         """Display an error message in the status label."""
         self._status_label.setStyleSheet(
@@ -325,6 +372,7 @@ class LicenseExpiredDialog(QDialog):
         """Clean up resources when dialog is closed."""
         if self._poll_timer:
             self._poll_timer.stop()
+        unregister_pending_auth_server()
         if self._auth_server:
             self._auth_server.stop()
         super().closeEvent(event)

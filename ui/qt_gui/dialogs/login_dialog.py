@@ -2,16 +2,19 @@
 Login Dialog
 
 Modal dialog that gates access to EchoZero until the user authenticates
-via Memberstack. Uses a browser-based login flow:
+via Memberstack. Uses a browser-based login flow.
 
-1. User clicks "Login" button
-2. System browser opens the Webflow /desktop-login page
-3. User logs in via Memberstack in the browser
-4. Browser securely POSTs credentials to localhost callback
-5. Dialog verifies credentials and closes on success
+Primary flow (server-mediated, browser-agnostic):
+  1. App generates code, opens browser to /desktop-login?code=X&worker=URL
+  2. User logs in; page POSTs to worker /link; app polls GET /link until linked
+  3. No localhost, no custom URL scheme - works in all browsers including Safari.
+
+Fallback (localhost + URL scheme):
+  Used when verify_url is missing. Localhost works in Chrome; Safari uses echozero-auth://
 """
 import webbrowser
 from typing import Optional
+from urllib.parse import quote
 
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QLabel, QPushButton, QHBoxLayout, QWidget,
@@ -19,11 +22,18 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtGui import QFont
 
-from src.infrastructure.auth.memberstack_auth import MemberstackAuth
+from src.infrastructure.auth.memberstack_auth import MemberstackAuth, generate_link_code
 from src.infrastructure.auth.token_storage import TokenStorage
 from src.infrastructure.auth.local_auth_server import LocalAuthServer
+from src.infrastructure.auth.auth_url_handler import (
+    register_pending_auth_server,
+    unregister_pending_auth_server,
+)
 from src.utils.message import Log
 from ui.qt_gui.design_system import Colors, Spacing, border_radius
+
+LINK_POLL_INTERVAL_MS = 2000
+LINK_TIMEOUT_SEC = 300
 
 
 class LoginDialog(QDialog):
@@ -51,7 +61,9 @@ class LoginDialog(QDialog):
         self._token_storage = token_storage
         self._auth_server: Optional[LocalAuthServer] = None
         self._poll_timer: Optional[QTimer] = None
-        
+        self._link_code: Optional[str] = None
+        self._link_elapsed_sec: float = 0.0
+
         self._setup_ui()
     
     def _setup_ui(self):
@@ -174,73 +186,92 @@ class LoginDialog(QDialog):
         self._login_btn.setEnabled(False)
         self._status_label.setStyleSheet(f"color: {Colors.TEXT_SECONDARY.name()}; font-size: 13px;")
         self._status_label.setText("Opening browser...")
-        
+
+        if self._ms_auth.verify_url:
+            self._start_server_mediated_flow()
+        else:
+            self._start_localhost_flow()
+
+    def _start_server_mediated_flow(self):
+        """Server-mediated flow: code + poll. Browser-agnostic."""
         try:
-            # Start the local callback server
-            self._auth_server = LocalAuthServer()
-            port, nonce = self._auth_server.start()
-            
-            # Open the login page in the system browser
-            login_url = f"{self.LOGIN_PAGE_URL}?port={port}&nonce={nonce}"
+            self._link_code = generate_link_code()
+            self._link_elapsed_sec = 0.0
+            worker_param = quote(self._ms_auth.verify_url, safe="")
+            login_url = f"{self.LOGIN_PAGE_URL}?code={self._link_code}&worker={worker_param}"
             webbrowser.open(login_url)
-            
             self._status_label.setText(
                 "Waiting for login...\n"
                 "Complete the login in your browser, then return here."
             )
-            
-            # Poll for callback completion (non-blocking, keeps Qt event loop alive)
+            self._poll_timer = QTimer(self)
+            self._poll_timer.timeout.connect(self._check_link_poll)
+            self._poll_timer.start(LINK_POLL_INTERVAL_MS)
+        except Exception as e:
+            Log.error(f"LoginDialog: Failed to start server-mediated flow: {e}")
+            self._show_error(f"Failed to open browser: {e}")
+            self._login_btn.setEnabled(True)
+
+    def _start_localhost_flow(self):
+        """Localhost + URL scheme fallback (when verify_url missing)."""
+        try:
+            self._auth_server = LocalAuthServer()
+            port, nonce = self._auth_server.start()
+            register_pending_auth_server(self._auth_server)
+            login_url = f"{self.LOGIN_PAGE_URL}?port={port}&nonce={nonce}"
+            webbrowser.open(login_url)
+            self._status_label.setText(
+                "Waiting for login...\n"
+                "Complete the login in your browser, then return here."
+            )
             self._poll_timer = QTimer(self)
             self._poll_timer.timeout.connect(self._check_callback)
-            self._poll_timer.start(500)  # Check every 500ms
-            
+            self._poll_timer.start(500)
         except Exception as e:
             Log.error(f"LoginDialog: Failed to start login flow: {e}")
             self._show_error(f"Failed to open browser: {e}")
             self._login_btn.setEnabled(True)
+
+    def _check_link_poll(self):
+        """Poll for server-mediated link completion."""
+        if not self._link_code:
+            return
+        self._link_elapsed_sec += LINK_POLL_INTERVAL_MS / 1000.0
+        if self._link_elapsed_sec >= LINK_TIMEOUT_SEC:
+            self._poll_timer.stop()
+            self._show_error("Login timed out. Please try again.")
+            self._login_btn.setEnabled(True)
+            self._link_code = None
+            return
+        credentials = self._ms_auth.poll_link(self._link_code)
+        if credentials is None:
+            return
+        self._poll_timer.stop()
+        self._link_code = None
+        self._complete_login(
+            credentials.get("member_id", ""),
+            credentials.get("token", ""),
+            credentials.get("member_info") or {},
+        )
     
     def _check_callback(self):
-        """Poll the auth server to see if the callback was received."""
+        """Poll the auth server for localhost/URL-scheme callback."""
         if not self._auth_server:
             return
-        
         credentials = self._auth_server.get_credentials()
         if credentials is None:
-            # Still waiting -- check if server thread is still alive
             if self._auth_server._thread and not self._auth_server._thread.is_alive():
-                # Server died without credentials (timeout or error)
                 self._poll_timer.stop()
                 self._show_error("Login timed out. Please try again.")
                 self._login_btn.setEnabled(True)
             return
-        
-        # Callback received -- stop polling
         self._poll_timer.stop()
         self._status_label.setText("Verifying your account...")
-        
-        # Verify the member with Memberstack Admin API
         member_id = credentials.get("member_id", "")
         token = credentials.get("token", "")
-        
         member_info = self._ms_auth.verify_member(member_id, token=token)
-        
         if member_info:
-            # Store credentials securely
-            self._token_storage.store_credentials(
-                member_id=member_id,
-                token=token,
-                member_data=member_info,
-            )
-            
-            email = member_info.get("email", "")
-            self._status_label.setStyleSheet(
-                f"color: {Colors.ACCENT_GREEN.name()}; font-size: 13px;"
-            )
-            self._status_label.setText(f"Welcome, {email}!")
-            Log.info(f"LoginDialog: Login successful for {email}")
-            
-            # Close dialog with success after a brief pause
-            QTimer.singleShot(800, self.accept)
+            self._complete_login(member_id, token, member_info)
         else:
             reason = self._ms_auth.last_error_kind
             detail = (self._ms_auth.last_error_message or "").strip()
@@ -284,6 +315,21 @@ class LoginDialog(QDialog):
             self._show_error(message)
             self._login_btn.setEnabled(True)
     
+    def _complete_login(self, member_id: str, token: str, member_info: dict):
+        """Store credentials and close on success. Called from both flows."""
+        self._token_storage.store_credentials(
+            member_id=member_id,
+            token=token,
+            member_data=member_info,
+        )
+        email = member_info.get("email", "")
+        self._status_label.setStyleSheet(
+            f"color: {Colors.ACCENT_GREEN.name()}; font-size: 13px;"
+        )
+        self._status_label.setText(f"Welcome, {email}!")
+        Log.info(f"LoginDialog: Login successful for {email}")
+        QTimer.singleShot(800, self.accept)
+
     def _show_error(self, message: str):
         """Display an error message in the status label."""
         self._status_label.setStyleSheet(
@@ -295,6 +341,7 @@ class LoginDialog(QDialog):
         """Clean up resources when dialog is closed."""
         if self._poll_timer:
             self._poll_timer.stop()
+        unregister_pending_auth_server()
         if self._auth_server:
             self._auth_server.stop()
         super().closeEvent(event)
