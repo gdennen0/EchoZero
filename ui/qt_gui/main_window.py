@@ -16,7 +16,7 @@ from PyQt6.QtWidgets import (
     QMessageBox, QFileDialog, QSizePolicy, QApplication, QTabWidget,
     QLabel, QPlainTextEdit, QPushButton, QProgressBar, QFrame, QProgressDialog
 )
-from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QSettings, pyqtSlot, QProcess
+from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QSettings, pyqtSlot
 from PyQt6.QtGui import QShowEvent, QAction, QKeySequence, QUndoStack
 
 from src.application.api.application_facade import ApplicationFacade
@@ -28,6 +28,7 @@ from ui.qt_gui.style_factory import StyleFactory
 from ui.qt_gui.core.dock_state_manager import DockStateManager
 from ui.qt_gui.core.empty_workspace_widget import EmptyWorkspaceWidget
 from ui.qt_gui.core.run_block_thread import RunBlockThread
+from ui.qt_gui.core.save_project_thread import SaveProjectThread
 
 
 class MainWindow(QMainWindow):
@@ -89,6 +90,8 @@ class MainWindow(QMainWindow):
         
         # Other components
         self.execution_thread = None
+        self.save_thread = None
+        self.save_progress_dialog = None
         self.execution_dock = None
         self.open_panels = {}
         self.block_panels_menu = None
@@ -955,6 +958,7 @@ class MainWindow(QMainWindow):
         event_bus.subscribe("ExecutionProgress", self._on_progress_update)
         event_bus.subscribe("ExecutionCompleted", self._on_progress_completed)
         event_bus.subscribe("ExecutionFailed", self._on_progress_failed)
+        event_bus.subscribe("SettingsOperationFailed", self._on_settings_operation_failed)
         
         # SubprocessProgress events - for subprocess progress tracking (demucs, etc.)
         event_bus.subscribe("SubprocessProgress", self._on_subprocess_progress)
@@ -998,6 +1002,15 @@ class MainWindow(QMainWindow):
     def _on_block_changed(self, event):
         """Handle block added/removed events - refresh node editor and menus"""
         Log.debug(f"Block changed event: {event.name if hasattr(event, 'name') else type(event).__name__}")
+        # Close panel for removed block to prevent FK errors and stale UI
+        if getattr(event, "name", None) == "BlockRemoved":
+            block_id = (getattr(event, "data", None) or {}).get("id")
+            if block_id and block_id in self.open_panels:
+                panel = self.open_panels[block_id]
+                try:
+                    panel.close()
+                except Exception as e:
+                    Log.warning(f"MainWindow: Error closing panel for removed block {block_id}: {e}")
         if self.node_editor_window:
             self.node_editor_window.refresh()
         self._update_ui_state()
@@ -1028,6 +1041,19 @@ class MainWindow(QMainWindow):
     
     def _on_execution_failed(self, event):
         Log.error(f"Execution failed: {event}")
+
+    def _on_settings_operation_failed(self, event):
+        """Surface settings failures loudly and clearly to the user."""
+        data = getattr(event, "data", {}) or {}
+        block_id = data.get("block_id", "unknown")
+        keys = data.get("keys") or []
+        key_text = ", ".join(keys) if keys else "<unknown>"
+        message = data.get("message", "Unknown settings failure")
+        manager = data.get("manager", "SettingsManager")
+
+        visible = f"{manager} failed to save settings ({key_text}) for block {block_id}: {message}"
+        self.statusBar().showMessage(visible, 12000)
+        QMessageBox.warning(self, "Settings Save Failed", visible)
     
     # ==================== Undo/Redo UI Refresh ====================
     
@@ -1127,13 +1153,53 @@ class MainWindow(QMainWindow):
         
         return result
 
-    def _run_with_save_feedback(self, save_func):
+    def _finish_save_feedback(self):
         """
-        Run save operation with delayed modal feedback.
+        Clean up shared save UI state.
+        """
+        if self.save_progress_dialog:
+            self.save_progress_dialog.close()
+            self.save_progress_dialog.deleteLater()
+            self.save_progress_dialog = None
+        if QApplication.overrideCursor() is not None:
+            QApplication.restoreOverrideCursor()
 
-        Shows a non-flickering "Saving project..." dialog only when save takes
-        longer than a short threshold, while always updating status bar text.
+        self.action_save_project.setEnabled(True)
+        self.action_save_project_as.setEnabled(True)
+
+    def _on_save_completed(self, result, success_message: str, success_callback=None):
+        """Handle completion signal from async save thread."""
+        self._finish_save_feedback()
+        self.save_thread = None
+
+        if result and getattr(result, "success", False):
+            self.statusBar().showMessage(success_message)
+            if callable(success_callback):
+                success_callback()
+        else:
+            message = getattr(result, "message", "Save failed")
+            QMessageBox.warning(self, "Error", message)
+
+    def _on_save_failed(self, error_message: str, detailed_errors: list):
+        """Handle exception signal from async save thread."""
+        self._finish_save_feedback()
+        self.save_thread = None
+
+        if detailed_errors:
+            Log.error(f"Save failed: {error_message} | details: {detailed_errors}")
+        QMessageBox.warning(self, "Error", error_message or "Save failed")
+
+    def _start_async_save(self, save_func, success_message: str, success_callback=None):
         """
+        Start project save in a worker thread with modal busy feedback.
+        """
+        if self.save_thread and self.save_thread.isRunning():
+            self.statusBar().showMessage("Save already in progress...", 3000)
+            return
+
+        self.statusBar().showMessage("Saving project...")
+        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+
         dialog = QProgressDialog("Saving project...", None, 0, 0, self)
         dialog.setWindowTitle("Saving")
         dialog.setWindowModality(Qt.WindowModality.ApplicationModal)
@@ -1142,31 +1208,21 @@ class MainWindow(QMainWindow):
         dialog.setAutoClose(False)
         dialog.setAutoReset(False)
         dialog.setRange(0, 0)  # Busy indicator
-
-        show_timer = QTimer(self)
-        show_timer.setSingleShot(True)
-
-        def _show_dialog():
-            dialog.show()
-            dialog.raise_()
-            dialog.activateWindow()
-            QApplication.processEvents()
-
-        self.statusBar().showMessage("Saving project...")
-        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+        dialog.show()
+        dialog.raise_()
+        dialog.activateWindow()
         QApplication.processEvents()
-        show_timer.timeout.connect(_show_dialog)
-        show_timer.start(400)
+        self.save_progress_dialog = dialog
 
-        try:
-            return save_func()
-        finally:
-            if show_timer.isActive():
-                show_timer.stop()
-            if dialog.isVisible():
-                dialog.close()
-            dialog.deleteLater()
-            QApplication.restoreOverrideCursor()
+        self.action_save_project.setEnabled(False)
+        self.action_save_project_as.setEnabled(False)
+
+        self.save_thread = SaveProjectThread(save_func, self)
+        self.save_thread.save_complete.connect(
+            lambda result: self._on_save_completed(result, success_message, success_callback)
+        )
+        self.save_thread.save_failed.connect(self._on_save_failed)
+        self.save_thread.start()
     
     def _on_save_project(self):
         """Handle Save Project action (Cmd+S)"""
@@ -1184,11 +1240,7 @@ class MainWindow(QMainWindow):
                 Log.debug(f"Could not check if project is untitled: {e}")
         
         # Regular save for saved projects
-        result = self._run_with_save_feedback(self._save_project_impl)
-        if result.success:
-            self.statusBar().showMessage("Project saved")
-        else:
-            QMessageBox.warning(self, "Error", result.message)
+        self._start_async_save(self._save_project_impl, "Project saved")
     
     def _on_save_project_as(self):
         """Handle Save Project As action"""
@@ -1200,15 +1252,11 @@ class MainWindow(QMainWindow):
             app_settings.set_dialog_path("save_project", filename)
             from pathlib import Path
             path = Path(filename)
-            result = self._run_with_save_feedback(
-                lambda: self._save_project_impl(str(path.parent), path.stem)
+            self._start_async_save(
+                lambda: self._save_project_impl(str(path.parent), path.stem),
+                f"Saved: {filename}",
+                self._update_ui_state
             )
-            
-            if result.success:
-                self.statusBar().showMessage(f"Saved: {filename}")
-                self._update_ui_state()
-            else:
-                QMessageBox.warning(self, "Error", result.message)
     
     def _on_open_settings(self):
         """Open the global settings dialog"""
@@ -1319,17 +1367,13 @@ class MainWindow(QMainWindow):
         self._append_execution_log(f"Starting: {self._current_run_block_name}")
         self._execution_set_running_ui(True)
 
-        use_subprocess = (
-            getattr(self.facade, "app_settings", None) is not None
-            and getattr(self.facade.app_settings, "use_subprocess_runner", False)
-        ) or os.environ.get("ECHOZERO_USE_SUBPROCESS_RUNNER") == "1"
-        if use_subprocess:
-            self._start_subprocess_block_run(block_id)
-        else:
-            self._start_run_block_thread(block_id)
+        # Unified execution path: RunBlockThread always calls facade.execute_block,
+        # which honors use_subprocess_runner (in-process vs subprocess) for both
+        # single-block Run and setlist automation.
+        self._start_run_block_thread(block_id)
 
     def _start_run_block_thread(self, block_id: str):
-        """Run block in-process via RunBlockThread (default)."""
+        """Run block via RunBlockThread. Facade handles in-process vs subprocess."""
         self.execution_thread = RunBlockThread(self.facade, block_id, parent=self)
         name = getattr(self, "_current_run_block_name", block_id)
         self.execution_thread.execution_started.connect(
@@ -1339,118 +1383,6 @@ class MainWindow(QMainWindow):
         self.execution_thread.execution_failed.connect(self._on_thread_failed)
         self.execution_thread.finished.connect(self._on_run_block_thread_finished)
         self.execution_thread.start()
-
-    def _start_subprocess_block_run(self, block_id: str):
-        """Run block in a separate process (run_block_cli) for full decoupling."""
-        from src.utils.paths import get_database_path
-        project_id = getattr(self.facade, "current_project_id", None)
-        if not project_id:
-            self._execution_in_progress = False
-            self._execution_set_running_ui(False)
-            self._on_thread_failed("No project loaded", [])
-            return
-        db_path = str(get_database_path("ez"))
-        self._subprocess_stdout_buffer = ""
-        self._subprocess_stderr_buffer = ""
-        self._subprocess_result_line = None
-        proc = QProcess(self)
-        proc.setProcessChannelMode(QProcess.ProcessChannelMode.SeparateChannels)
-        proc.readyReadStandardOutput.connect(lambda: self._on_subprocess_stdout(proc))
-        proc.readyReadStandardError.connect(lambda: self._on_subprocess_stderr(proc))
-        proc.finished.connect(lambda code, status: self._on_subprocess_finished(code, status, block_id))
-        exe = sys.executable
-        if getattr(sys, "frozen", False):
-            # Packaged app: sys.executable is the app binary, not a Python interpreter.
-            # Relaunch same executable in subprocess-CLI mode.
-            args = ["--run-block-cli", "--db", db_path, "--project", project_id, "--block", block_id]
-        else:
-            # Dev mode: launch Python module directly.
-            args = ["-m", "src.features.execution.run_block_cli", "--db", db_path, "--project", project_id, "--block", block_id]
-        proc.start(exe, args)
-        if not proc.waitForStarted(5000):
-            self._execution_in_progress = False
-            self._execution_set_running_ui(False)
-            self._on_thread_failed("Subprocess runner failed to start", [proc.errorString()])
-            return
-        self._run_block_process = proc
-
-    def _on_subprocess_stdout(self, proc: QProcess):
-        data = proc.readAllStandardOutput().data().decode("utf-8", errors="replace")
-        self._subprocess_stdout_buffer += data
-        while "\n" in self._subprocess_stdout_buffer:
-            line, self._subprocess_stdout_buffer = self._subprocess_stdout_buffer.split("\n", 1)
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                obj = json.loads(line)
-                typ = obj.get("type")
-                if typ == "progress":
-                    msg = obj.get("message", "")
-                    pct = obj.get("percentage", 0)
-                    self._append_execution_log(f"{pct}% - {msg}")
-                    if getattr(self, "_execution_panel_progress", None):
-                        self._execution_panel_progress.setValue(pct)
-                    display_msg = f"{getattr(self, '_current_run_block_name', '')}: {msg}" if getattr(self, "_current_run_block_name", None) else msg
-                    if hasattr(self, "progress_bar") and self.progress_bar:
-                        self.progress_bar.show_progress(display_msg, pct, 100)
-                elif typ in ("result", "error"):
-                    self._subprocess_result_line = obj
-            except (json.JSONDecodeError, TypeError):
-                pass
-
-    def _on_subprocess_stderr(self, proc: QProcess):
-        data = proc.readAllStandardError().data().decode("utf-8", errors="replace")
-        stderr = getattr(self, "_subprocess_stderr_buffer", "") + data
-        self._subprocess_stderr_buffer = stderr
-        for line in data.splitlines():
-            if line.strip():
-                self._append_execution_log(f"[stderr] {line}", is_error=True)
-
-    def _on_subprocess_finished(self, exit_code: int, exit_status: QProcess.ExitStatus, block_id: str):
-        proc = getattr(self, "_run_block_process", None)
-        if proc:
-            proc.deleteLater()
-            self._run_block_process = None
-        result_line = getattr(self, "_subprocess_result_line", None)
-        stderr = getattr(self, "_subprocess_stderr_buffer", "")
-        self._execution_in_progress = False
-        self._execution_set_running_ui(False)
-        if getattr(self, "_execution_panel_progress", None):
-            self._execution_panel_progress.setValue(100)
-
-        if result_line and result_line.get("type") == "result":
-            if result_line.get("success"):
-                self._append_execution_log("Completed successfully")
-                self._on_thread_complete(True)
-            else:
-                errs = list(result_line.get("errors") or [])
-                if stderr:
-                    errs.append(f"Process stderr:\n{stderr}")
-                self._append_execution_log(f"Failed: {result_line.get('message', '')}", is_error=True)
-                self._on_thread_failed(result_line.get("message", "Execution failed"), errs)
-        elif result_line and result_line.get("type") == "error":
-            errs = [result_line.get("traceback", "")]
-            if stderr:
-                errs.append(f"Process stderr:\n{stderr}")
-            self._append_execution_log(f"Error: {result_line.get('message', '')}", is_error=True)
-            self._on_thread_failed(
-                result_line.get("message", "Subprocess error"),
-                errs,
-            )
-        elif exit_code != 0:
-            errs = [f"Exit code {exit_code}"]
-            if stderr:
-                errs.append(f"Process stderr:\n{stderr}")
-            self._append_execution_log(f"Process exited with code {exit_code}", is_error=True)
-            self._on_thread_failed("Block execution failed", errs)
-        else:
-            self._append_execution_log("Completed")
-            self._on_thread_complete(True)
-        self._execution_set_running_ui(False)
-        if getattr(self, "_execution_panel_progress", None):
-            self._execution_panel_progress.setValue(100)
-        self._on_thread_finished()
 
     def _on_run_block_thread_finished(self):
         """Called when RunBlockThread finishes; clear flag and refresh UI."""
@@ -1555,17 +1487,21 @@ class MainWindow(QMainWindow):
         QTimer.singleShot(100, refresh_editor_panels)
     
     def _on_cancel_execution(self):
-        proc = getattr(self, "_run_block_process", None)
-        if proc and proc.state() != QProcess.ProcessState.NotRunning:
-            proc.terminate()
-            self.progress_bar.hide_progress()
-            QMessageBox.information(self, "Cancelled", "Execution will stop after current block.")
-        elif getattr(self, "execution_thread", None) and self.execution_thread.isRunning():
+        if getattr(self, "execution_thread", None) and self.execution_thread.isRunning():
             self.execution_thread.request_cancel()
             self.progress_bar.hide_progress()
             QMessageBox.information(self, "Cancelled", "Execution will stop after current block.")
         else:
             self.progress_bar.hide_progress()
+
+    def _is_execution_active(self) -> bool:
+        """Return True when any block execution path is currently running."""
+        if getattr(self, "_execution_in_progress", False):
+            return True
+        thread = getattr(self, "execution_thread", None)
+        if thread and thread.isRunning():
+            return True
+        return False
     
     # ==================== Progress ====================
     
@@ -1981,6 +1917,19 @@ class MainWindow(QMainWindow):
         
         # Mark that we're closing - prevents _on_panel_closed from overwriting our save
         self._closing = True
+
+        if self._is_execution_active():
+            reply = QMessageBox.question(
+                self,
+                "Execution in Progress",
+                "A block execution is currently running.\n\nAre you sure you want to close EchoZero?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            if reply != QMessageBox.StandardButton.Yes:
+                self._closing = False
+                event.ignore()
+                return
         
         if self.node_editor_window:
             self.node_editor_window.scene.flush_pending_position_saves()
@@ -1994,9 +1943,8 @@ class MainWindow(QMainWindow):
             except:
                 pass
         
-        if getattr(self, "_run_block_process", None) and self._run_block_process.state() != QProcess.ProcessState.NotRunning:
-            self._run_block_process.terminate()
-            self._run_block_process.waitForFinished(2000)
+        if getattr(self, "save_thread", None) and self.save_thread.isRunning():
+            self.save_thread.wait(2000)
         if getattr(self, "execution_thread", None) and self.execution_thread.isRunning():
             self.execution_thread.wait(2000)
         

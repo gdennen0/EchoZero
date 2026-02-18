@@ -33,7 +33,7 @@ Provides the decision-making framework for the AI Agent Developers Council, ensu
 
 ## Encyclopedia Links
 
-- [Architecture](../../../docs/ARCHITECTURE.md) - Understanding system architecture for evaluation
+- [Architecture](../../../docs/architecture/ARCHITECTURE.md) - Understanding system architecture for evaluation
 
 ## Core Values Alignment
 

@@ -58,15 +58,13 @@ for _pkg_name, _bundle_name in [('dotenv', 'dotenv'), ('httpx', 'httpx')]:
     except Exception:
         pass
 
-# Hidden imports (keyring backends are discovered at runtime per platform)
+# Hidden imports
 hiddenimports = (
     collect_submodules('src')
     + collect_submodules('ui')
     + [
         'dotenv',
         'httpx',
-        'keyring',
-        'keyring.errors',
         'PyQt6.QtCore',
         'PyQt6.QtGui',
         'PyQt6.QtWidgets',
@@ -84,7 +82,6 @@ a = Analysis(
     runtime_hooks=[],
     excludes=[
         'tkinter',
-        'matplotlib.tests',
         'numpy.distutils.tests',
         'tensorboard',  # Optional; avoids protobuf/tensorboard compat issues in frozen build
     ],

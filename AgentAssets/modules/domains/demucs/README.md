@@ -253,9 +253,9 @@ The best improvements make the current approach more robust, observable, and use
 
 - **Main AgentAssets:** [../../../README.md](../../../README.md)
 - **Project Overview:** [../../../docs/README.md](../../../docs/README.md)
-- **Core Values:** [../../../core/CORE_VALUES.md](../../../core/CORE_VALUES.md)
+- **Core Values:** [../../../CORE_VALUES.md](../../../CORE_VALUES.md)
 - **Decision Framework:** [../../process/council/FRAMEWORK.md](../../process/council/FRAMEWORK.md)
-- **Technical Architecture:** [../../../docs/ARCHITECTURE.md](../../../docs/ARCHITECTURE.md)
+- **Technical Architecture:** [../../../docs/architecture/ARCHITECTURE.md](../../../docs/architecture/ARCHITECTURE.md)
 
 ## Questions?
 

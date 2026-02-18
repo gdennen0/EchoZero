@@ -76,6 +76,7 @@ class PyTorchAudioClassifyBlockProcessor(BlockProcessor):
         self._target_class = None
         self._optimal_threshold = 0.5
         self._normalization = None
+        self._classification_mode = "multiclass"  # "binary", "multiclass", or "positive_vs_other"
 
     # ------------------------------------------------------------------
     # Model lifecycle: flush / cleanup
@@ -110,6 +111,7 @@ class PyTorchAudioClassifyBlockProcessor(BlockProcessor):
         self._target_class = None
         self._optimal_threshold = 0.5
         self._normalization = None
+        self._classification_mode = "multiclass"
 
         # Force Python garbage collection so reference cycles are broken
         gc.collect()
@@ -354,7 +356,10 @@ class PyTorchAudioClassifyBlockProcessor(BlockProcessor):
             
             try:
                 # Classify events (pass tracker for incremental progress)
-                confidence_threshold = block.metadata.get("confidence_threshold") if block.metadata else None
+                meta = block.metadata or {}
+                confidence_threshold = meta.get("confidence_threshold")
+                multiclass_multi_label = meta.get("multiclass_multi_label", False)
+                multiclass_confidence_threshold = meta.get("multiclass_confidence_threshold", 0.4)
                 output_events = self._classify_events(
                     event_item,
                     self._model_cache,
@@ -363,6 +368,8 @@ class PyTorchAudioClassifyBlockProcessor(BlockProcessor):
                     device,
                     audio_items,
                     confidence_threshold=confidence_threshold,
+                    multiclass_multi_label=multiclass_multi_label,
+                    multiclass_confidence_threshold=multiclass_confidence_threshold,
                     progress_tracker=progress_tracker if event_count > 10 else None,
                     progress_total=event_count,
                 )
@@ -787,15 +794,21 @@ class PyTorchAudioClassifyBlockProcessor(BlockProcessor):
             "PyTorchAudioClassifyBlockProcessor: Using saved-model preprocessing (aligned with trainer)"
         )
         
-        # Binary mode support
-        self._is_binary = checkpoint.get("classification_mode", "multiclass") == "binary"
+        # Classification mode: binary, multiclass, or positive_vs_other
+        self._classification_mode = checkpoint.get("classification_mode", "multiclass")
+        self._is_binary = self._classification_mode == "binary"
         self._target_class = checkpoint.get("target_class")
         self._optimal_threshold = checkpoint.get("optimal_threshold", 0.5)
-        
+
         if self._is_binary:
             Log.info(
                 f"PyTorchAudioClassifyBlockProcessor: Binary model for '{self._target_class}' "
                 f"(threshold={self._optimal_threshold:.3f})"
+            )
+        elif self._classification_mode == "positive_vs_other":
+            Log.info(
+                f"PyTorchAudioClassifyBlockProcessor: Positive-vs-other model "
+                f"({len(self._classes)} classes including 'other')"
             )
     
     def _create_model_from_config(self, config: Dict[str, Any], num_classes: int) -> nn.Module:
@@ -938,12 +951,14 @@ class PyTorchAudioClassifyBlockProcessor(BlockProcessor):
         device: str,
         audio_items: List[AudioDataItem],
         confidence_threshold: Optional[float] = None,
+        multiclass_multi_label: bool = False,
+        multiclass_confidence_threshold: float = 0.4,
         progress_tracker: Optional[Any] = None,
         progress_total: Optional[int] = None,
     ) -> EventDataItem:
         """
         Classify events using the PyTorch model.
-        
+
         Args:
             events: Input EventDataItem with events to classify
             model: Loaded PyTorch model
@@ -951,10 +966,13 @@ class PyTorchAudioClassifyBlockProcessor(BlockProcessor):
             batch_size: Batch size for prediction
             device: Device to use
             audio_items: Optional audio items for extracting event clips
-            confidence_threshold: Optional confidence threshold override
+            confidence_threshold: Optional confidence threshold override (binary mode)
+            multiclass_multi_label: When True (multiclass only), create events for all
+                classes above threshold (one input event can produce multiple output events)
+            multiclass_confidence_threshold: Min probability to include a class when multi_label is True
             progress_tracker: Optional ProgressTracker for incremental progress
             progress_total: Total events (for progress); used when progress_tracker is set
-            
+
         Returns:
             EventDataItem with classified events
         """
@@ -1063,7 +1081,7 @@ class PyTorchAudioClassifyBlockProcessor(BlockProcessor):
         
         for pred_idx, event_idx in enumerate(valid_event_indices):
             event = input_events[event_idx]
-            
+
             if self._is_binary:
                 # Binary classification: target_class vs "other"
                 prob = float(predictions[pred_idx])
@@ -1073,36 +1091,67 @@ class PyTorchAudioClassifyBlockProcessor(BlockProcessor):
                 else:
                     class_name = "other"
                     confidence = 1.0 - prob
-                
                 prob_dict = {
                     self._target_class or "positive": prob,
                     "other": 1.0 - prob,
                 }
+                new_event = Event(
+                    time=event.time,
+                    classification=class_name,
+                    duration=event.duration,
+                    metadata={
+                        **event.metadata,
+                        "classified_by": "pytorch_audio_classify",
+                        "classification_confidence": confidence,
+                        "classification_mode": self._classification_mode,
+                        "all_class_probabilities": prob_dict,
+                    }
+                )
+                events_by_classification[class_name].append(new_event)
             else:
                 # Multiclass classification
-                class_idx = np.argmax(predictions[pred_idx])
-                confidence = float(predictions[pred_idx][class_idx])
-                class_name = self._classes[class_idx] if class_idx < len(self._classes) else "unknown"
-                
                 prob_dict = {
                     self._classes[i]: float(predictions[pred_idx][i])
                     for i in range(len(self._classes))
                 }
-            
-            # Create new event with classification
-            new_event = Event(
-                time=event.time,
-                classification=class_name,
-                duration=event.duration,
-                metadata={
-                    **event.metadata,
-                    "classified_by": "pytorch_audio_classify",
-                    "classification_confidence": confidence,
-                    "classification_mode": "binary" if self._is_binary else "multiclass",
-                    "all_class_probabilities": prob_dict,
-                }
-            )
-            events_by_classification[class_name].append(new_event)
+                if multiclass_multi_label:
+                    # Create an event for each class that exceeds the threshold
+                    for class_idx, class_name in enumerate(self._classes):
+                        if class_idx >= len(predictions[pred_idx]):
+                            continue
+                        conf = float(predictions[pred_idx][class_idx])
+                        if conf >= multiclass_confidence_threshold:
+                            new_event = Event(
+                                time=event.time,
+                                classification=class_name,
+                                duration=event.duration,
+                                metadata={
+                                    **event.metadata,
+                                    "classified_by": "pytorch_audio_classify",
+                                    "classification_confidence": conf,
+                                    "classification_mode": self._classification_mode,
+                                    "all_class_probabilities": prob_dict,
+                                }
+                            )
+                            events_by_classification[class_name].append(new_event)
+                else:
+                    # Single-label: argmax, one event per input
+                    class_idx = np.argmax(predictions[pred_idx])
+                    confidence = float(predictions[pred_idx][class_idx])
+                    class_name = self._classes[class_idx] if class_idx < len(self._classes) else "unknown"
+                    new_event = Event(
+                        time=event.time,
+                        classification=class_name,
+                        duration=event.duration,
+                        metadata={
+                            **event.metadata,
+                            "classified_by": "pytorch_audio_classify",
+                            "classification_confidence": confidence,
+                            "classification_mode": self._classification_mode,
+                            "all_class_probabilities": prob_dict,
+                        }
+                    )
+                    events_by_classification[class_name].append(new_event)
         
         # Create EventLayers from grouped events
         layers = []

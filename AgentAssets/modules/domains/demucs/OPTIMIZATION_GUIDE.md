@@ -215,7 +215,7 @@ sep set_metadata device cpu
 
 **Workflow:**
 ```
-LoadAudio -> Separator -> NoteExtractor -> PlotEvents
+LoadAudio -> Separator -> NoteExtractor -> Editor
 ```
 
 **Optimization:**
@@ -258,7 +258,7 @@ sep set_model htdemucs_ft
 
 **Workflow:**
 ```
-LoadAudio -> Separator -> DrumClassifier -> PlotEvents
+LoadAudio -> Separator -> DrumClassifier -> Editor
 ```
 
 **Optimization:**

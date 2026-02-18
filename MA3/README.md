@@ -7,16 +7,17 @@ This directory contains grandMA3 Lua plugins for EchoZero integration.
 1. **API Reference**: `docs/MA3_LUA_API_REFERENCE.md` - Complete Lua API organized by purpose
 2. **Learnings**: `docs/MA3_LEARNINGS.md` - Practical gotchas and patterns discovered
 3. **Plugin Guide**: `docs/MA3_PLUGIN_DEVELOPMENT_GUIDE.md` - Full development guide
+4. **Show Manager Sync**: `docs/show_manager_sync_system.md` - EchoZero-MA3 sync architecture
 
 ## Directory Structure
 
 ```
-ma3_plugins/
+MA3/
   README.md           # This file
+  MA3_INTEGRATION_PITFALLS.md  # Critical gotchas (read first)
   docs/               # Documentation
-  plugins/            # Production plugins
+  plugins/            # Production plugins (echozero_spine)
   dev/                # Development/exploration tools
-  grandMA3_lua_functions.txt  # Raw MA3 Lua API export
 ```
 
 ## Production Plugin
@@ -125,17 +126,17 @@ When working on MA3 integrations:
 
 Listen for MA3 messages:
 ```bash
-python ma3_plugins/listen_for_ma3.py
+python MA3/dev/listen_for_ma3.py
 ```
 
 Quick OSC test:
 ```bash
-python ma3_plugins/quick_osc_test.py
+python MA3/dev/quick_osc_test.py
 ```
 
 Integration test:
 ```bash
-python ma3_plugins/test_ma3_integration.py
+python MA3/dev/test_ma3_integration.py
 ```
 
 ## Key Learnings Summary

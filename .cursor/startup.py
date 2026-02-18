@@ -16,7 +16,7 @@ from pathlib import Path
 
 def main():
     """Main startup routine for EchoZero in Cursor IDE."""
-    project_root = Path(__file__).parent.parent
+    project_root = Path(__file__).resolve().parent.parent
     agent_assets_root = project_root / "AgentAssets"
 
     print("🚀 EchoZero Cursor IDE Startup")

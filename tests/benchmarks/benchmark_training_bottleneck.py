@@ -20,11 +20,12 @@ import sys
 import time
 import threading
 import random
+from pathlib import Path
 
 import numpy as np
 
 # Ensure repo root is on sys.path
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
 
 # Module-level worker init so multiprocessing can pickle it

@@ -70,7 +70,6 @@ def register_all_processors(
         from . import export_clips_by_class_block
         from . import note_extractor_basicpitch_block
         from . import note_extractor_librosa_block
-        from . import plot_events_block
         from . import audio_filter_block
         from . import audio_negate_block
         from . import show_manager_block

@@ -508,7 +508,7 @@ def initialize_services(
             tensorflow_classify_block, pytorch_audio_trainer_block, learned_onset_trainer_block,
             pytorch_audio_classify_block, separator_block, editor_block,
             export_audio_block, export_clips_by_class_block, note_extractor_basicpitch_block,
-            note_extractor_librosa_block, plot_events_block, show_manager_block
+            note_extractor_librosa_block, show_manager_block
         )
     except ImportError:
         pass  # Some processors may not be available

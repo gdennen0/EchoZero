@@ -18,7 +18,7 @@ class ContextCLI:
 
     def __init__(self):
         # Import context provider
-        sys.path.insert(0, str(Path(__file__).parent))
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
         try:
             from context_provider import AgentAssetsContextProvider, ContextRequest
             self.context_provider = AgentAssetsContextProvider()

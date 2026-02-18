@@ -6,7 +6,7 @@
 
 ### Redundant Documentation (Now in Encyclopedia)
 - `PROJECT_OVERVIEW.md` - Moved to `docs/`
-- `TECHNICAL_ARCHITECTURE.md` - Moved to `docs/ARCHITECTURE.md`
+- `TECHNICAL_ARCHITECTURE.md` - Moved to `docs/architecture/ARCHITECTURE.md`
 - `INDEX.md` - Redundant with `docs/README.md`
 - `QUICK_REFERENCE.md` - Consolidated into `AgentAssets/README.md`
 

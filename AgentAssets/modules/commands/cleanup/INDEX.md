@@ -29,7 +29,7 @@ Provides patterns and practices for resource cleanup in EchoZero, ensuring prope
 
 ## Encyclopedia Links
 
-- [Architecture](../../../docs/ARCHITECTURE.md) - Architecture patterns for resource management
+- [Architecture](../../../docs/architecture/ARCHITECTURE.md) - Architecture patterns for resource management
 - [Block Implementation](../../patterns/block_implementation/) - Understanding block lifecycle and cleanup
 
 ## Core Values Alignment

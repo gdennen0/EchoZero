@@ -14,9 +14,9 @@ from pathlib import Path
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QFormLayout, QLabel,
     QGroupBox, QPushButton, QMessageBox, QFileDialog, QSplitter,
-    QFrame, QCheckBox, QScrollArea, QMenu, QWidgetAction
+    QFrame, QCheckBox, QScrollArea
 )
-from PyQt6.QtCore import Qt, QTimer, QPoint
+from PyQt6.QtCore import QTimer
 
 from ui.qt_gui.block_panels.block_panel_base import BlockPanelBase
 from ui.qt_gui.block_panels.panel_registry import register_block_panel
@@ -548,17 +548,6 @@ class EditorPanel(BlockPanelBase):
         self._loaded_event_items: Dict[str, EventDataItem] = {}
         self._loaded_audio_items: Dict[str, AudioDataItem] = {}
         self._auto_loaded = False  # Track if we've auto-loaded events
-        self._enabled_event_sources: set = set()  # Set of enabled event source IDs (all enabled by default)
-        self._event_source_checkboxes: Dict[str, QCheckBox] = {}  # Map of event_id -> checkbox
-        
-        # Source-to-layer mapping: tracks which layers contain events from which sources
-        # Format: {source_item_id: set of layer_ids}
-        # This is the single source of truth for source-to-layer relationships
-        self._source_to_layers: Dict[str, set] = {}
-        
-        # Layer-to-sources mapping: reverse lookup for efficient queries
-        # Format: {layer_id: set of source_item_ids}
-        self._layer_to_sources: Dict[str, set] = {}
         
         # Note: Batch handling is now done by MovementController in the timeline widget
         
@@ -698,17 +687,9 @@ class EditorPanel(BlockPanelBase):
         
         self.timeline_widget.set_event_update_callback(event_update_callback)
         
-        # Event source selector (add to timeline widget's bottom toolbar)
-        self.event_source_selector = self._create_event_source_selector()
-        self.timeline_widget.set_toolbar_widget(self.event_source_selector)
-        self.event_source_selector.setVisible(False)
-        
         # Connect signals for event editing (new typed API)
         self.timeline_widget.selection_changed.connect(self._on_selection_changed)
         self.timeline_widget.events_moved.connect(self._on_events_moved)
-        
-        # Sync dropdown checkboxes when layer visibility changes via right-click
-        self.timeline_widget._layer_manager.layer_updated.connect(self._on_layer_visibility_changed)
         self.timeline_widget.events_resized.connect(self._on_events_resized)
         # Only connect batch deletion handler - single events are wrapped in batch
         self.timeline_widget.events_deleted.connect(self._on_events_deleted_batch)
@@ -816,66 +797,8 @@ class EditorPanel(BlockPanelBase):
         self.info_label = QLabel("Connect audio and events inputs, then pull input data")
         self.info_label.setStyleSheet(f"color: {Colors.TEXT_SECONDARY.name()}; font-style: italic;")
         layout.addWidget(self.info_label)
-
-        # MA3 sync check button (routed to ShowManager)
-        self.ma3_sync_btn = QPushButton("Check + Rehook + Resolve")
-        self.ma3_sync_btn.setToolTip("Check hook status, rehook missing, then reconcile divergences")
-        self.ma3_sync_btn.clicked.connect(self._on_check_ma3_sync_clicked)
-        layout.addWidget(self.ma3_sync_btn)
         
         return controls
-
-    def _find_connected_show_manager(self) -> Optional[str]:
-        """Find ShowManager block connected via manipulator port."""
-        if not self.facade:
-            return None
-        try:
-            connections_result = self.facade.list_connections()
-            if not connections_result.success or not connections_result.data:
-                return None
-
-            for conn in connections_result.data:
-                candidate_id = None
-                if conn.source_block_id == self.block_id and conn.source_output_name == "manipulator":
-                    candidate_id = conn.target_block_id
-                elif conn.target_block_id == self.block_id and conn.target_input_name == "manipulator":
-                    candidate_id = conn.source_block_id
-
-                if candidate_id:
-                    result = self.facade.describe_block(candidate_id)
-                    if result.success and result.data and result.data.type == "ShowManager":
-                        return candidate_id
-        except Exception as exc:
-            Log.warning(f"EditorPanel: Failed to find connected ShowManager: {exc}")
-        return None
-
-    def _execute_show_manager_command(self, cmd) -> None:
-        """Execute ShowManager command via command bus."""
-        if not self.facade or not self.facade.command_bus:
-            QMessageBox.warning(self, "Command Bus Missing", "Command bus is not available.")
-            return
-        try:
-            self.facade.command_bus.execute(cmd)
-        except Exception as exc:
-            Log.error(f"EditorPanel: ShowManager command failed: {exc}")
-            QMessageBox.warning(self, "MA3 Sync Failed", str(exc))
-
-    def _on_check_ma3_sync_clicked(self) -> None:
-        """Check hook status, rehook missing, and reconcile divergences."""
-        from src.application.events.events import ShowManagerCheckRehookResolveRequested
-
-        show_manager_id = self._find_connected_show_manager()
-        if not show_manager_id:
-            QMessageBox.information(self, "No ShowManager Connected", "Connect a ShowManager block first.")
-            return
-        if not hasattr(self.facade, "event_bus") or not self.facade.event_bus:
-            QMessageBox.warning(self, "Event Bus Missing", "Event bus is not available.")
-            return
-        self.facade.event_bus.publish(
-            ShowManagerCheckRehookResolveRequested(
-                data={"show_manager_id": show_manager_id}
-            )
-        )
 
     
     def _create_status_bar(self) -> QWidget:
@@ -979,202 +902,19 @@ class EditorPanel(BlockPanelBase):
         
         return banner
     
-    def _create_event_source_selector(self) -> QWidget:
-        """Create event source selector as a dropdown menu with checkboxes"""
-        # Create a simple container widget for the top bar
-        container = QWidget()
-        container.setStyleSheet(f"background-color: transparent;")
-        
-        layout = QHBoxLayout(container)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(Spacing.SM)
-        
-        # Label
-        header = QLabel("Event Sources:")
-        header.setStyleSheet(f"""
-            QLabel {{
-                color: {Colors.TEXT_PRIMARY.name()};
-                font-weight: 600;
-                font-size: 11px;
-            }}
-        """)
-        layout.addWidget(header)
-        
-        # Dropdown button
-        self._event_source_dropdown_btn = QPushButton("Select...")
-        self._event_source_dropdown_btn.setStyleSheet(StyleFactory.button("small"))
-        self._event_source_dropdown_btn.clicked.connect(self._show_event_source_menu)
-        layout.addWidget(self._event_source_dropdown_btn)
-        
-        return container
-    
-    def _update_event_source_selector(self):
-        """Update event source selector button text based on loaded event items"""
-        # If no events, hide selector
-        if not self._loaded_event_items:
-            self.event_source_selector.setVisible(False)
+    def _update_status_labels(self):
+        """Update status bar labels (event count, layer count, duration) from current state."""
+        if not hasattr(self, 'timeline_widget') or not self.timeline_widget:
             return
-        
-        # Show selector
-        self.event_source_selector.setVisible(True)
-        
-        # Always clamp enabled sources to the currently loaded sources.
-        # After Pull/overwrite, old source ids may no longer exist; keeping them causes
-        # incorrect counters (e.g. 7/4) and can hide all events until a visibility toggle.
-        loaded_ids = set(self._loaded_event_items.keys())
-        before = set(self._enabled_event_sources) if self._enabled_event_sources else set()
-        if not before:
-            self._enabled_event_sources = set(loaded_ids)
-        else:
-            self._enabled_event_sources = set(before.intersection(loaded_ids))
-        
-        # Update button text to show selected count
-        enabled_count = len(self._enabled_event_sources)
-        total_count = len(self._loaded_event_items)
-        
-        if enabled_count == total_count:
-            self._event_source_dropdown_btn.setText(f"All ({total_count})")
-        elif enabled_count == 0:
-            self._event_source_dropdown_btn.setText("None selected")
-        else:
-            self._event_source_dropdown_btn.setText(f"{enabled_count} of {total_count}")
-        
-        # Update timeline with filtered events
-        self._update_timeline_with_filtered_events()
-    
-    def _show_event_source_menu(self):
-        """Show dropdown menu with event source checkboxes"""
-        if not self._loaded_event_items:
-            return
-        
-        # Create popup menu
-        menu = QMenu(self._event_source_dropdown_btn)
-        menu.setStyleSheet(StyleFactory.menu())
-        
-        # Create a widget container for checkboxes with scroll
-        scroll_widget = QWidget()
-        scroll_widget.setStyleSheet(f"background-color: {Colors.BG_MEDIUM.name()};")
-        scroll_layout = QVBoxLayout(scroll_widget)
-        scroll_layout.setContentsMargins(4, 4, 4, 4)
-        scroll_layout.setSpacing(4)
-        
-        # Add checkboxes for each event source
-        for item_id, item in self._loaded_event_items.items():
-            # Create descriptive label
-            event_count = len(item.get_events()) if hasattr(item, 'get_events') else item.event_count
-            label_text = f"{item.name} ({event_count} events)"
-            
-            # Get additional info from metadata
-            output_port = item.metadata.get('output_port', '')
-            if output_port:
-                label_text += f" [{output_port}]"
-            
-            checkbox = QCheckBox(label_text)
-            checkbox.setChecked(item_id in self._enabled_event_sources)
-            checkbox.setStyleSheet(StyleFactory.checkbox())
-            
-            # Connect signal
-            checkbox.stateChanged.connect(
-                lambda state, item_id=item_id: self._on_event_source_toggled(item_id, state)
-            )
-            
-            scroll_layout.addWidget(checkbox)
-        
-        scroll_layout.addStretch()
-        
-        # Set maximum height and make scrollable if needed
-        max_height = min(300, len(self._loaded_event_items) * 30 + 20)
-        scroll_widget.setMaximumHeight(max_height)
-        
-        # Create scroll area for the menu content
-        scroll_area = QScrollArea()
-        scroll_area.setWidget(scroll_widget)
-        scroll_area.setWidgetResizable(True)
-        scroll_area.setFrameShape(QFrame.Shape.NoFrame)
-        scroll_area.setStyleSheet(StyleFactory.scroll_area())
-        scroll_area.setMaximumHeight(max_height)
-        
-        # Create a container widget for the menu
-        menu_container = QWidget()
-        menu_container.setStyleSheet(f"background-color: {Colors.BG_MEDIUM.name()};")
-        menu_layout = QVBoxLayout(menu_container)
-        menu_layout.setContentsMargins(0, 0, 0, 0)
-        menu_layout.setSpacing(0)
-        menu_layout.addWidget(scroll_area)
-        
-        # Set fixed width for menu
-        menu_container.setMinimumWidth(250)
-        menu_container.setMaximumWidth(350)
-        
-        # Add widget to menu using QWidgetAction
-        widget_action = QWidgetAction(menu)
-        widget_action.setDefaultWidget(menu_container)
-        menu.addAction(widget_action)
-        
-        # Show menu below button
-        button_pos = self._event_source_dropdown_btn.mapToGlobal(
-            QPoint(0, self._event_source_dropdown_btn.height())
-        )
-        menu.exec(button_pos)
-        
-        # Update button text after menu closes (in case selections changed)
-        self._update_event_source_selector()
-    
-    def _build_source_to_layer_mapping(self):
-        """Build mapping of event sources to layers
-        
-        This creates the single source of truth for which layers contain
-        events from which sources. Used for layer-based visibility control.
-        """
-        self._source_to_layers.clear()
-        self._layer_to_sources.clear()
-        
-        # Get all events from timeline
-        all_events = self.timeline_widget.get_all_events()
-        
-        for event in all_events:
-            # Get source ID from event user_data
-            source_id = event.user_data.get("_source_item_id") if event.user_data else None
-            if not source_id:
-                # Fallback: try _original_source_item_id
-                source_id = event.user_data.get("_original_source_item_id") if event.user_data else None
-            
-            if source_id and event.layer_id:
-                # Add to source -> layers mapping
-                if source_id not in self._source_to_layers:
-                    self._source_to_layers[source_id] = set()
-                self._source_to_layers[source_id].add(event.layer_id)
-                
-                # Add to layer -> sources mapping (reverse lookup)
-                if event.layer_id not in self._layer_to_sources:
-                    self._layer_to_sources[event.layer_id] = set()
-                self._layer_to_sources[event.layer_id].add(source_id)
-        
-        Log.debug(
-            f"EditorPanel: Built source-to-layer mapping: "
-            f"{len(self._source_to_layers)} sources -> {len(self._layer_to_sources)} layers"
-        )
-    
-    def _on_event_source_toggled(self, item_id: str, state: int):
-        """Handle event source checkbox toggle"""
-        if state == Qt.CheckState.Checked.value:
-            self._enabled_event_sources.add(item_id)
-        else:
-            self._enabled_event_sources.discard(item_id)
-        
-        # Update button text
-        enabled_count = len(self._enabled_event_sources)
-        total_count = len(self._loaded_event_items)
-        
-        if enabled_count == total_count:
-            self._event_source_dropdown_btn.setText(f"All ({total_count})")
-        elif enabled_count == 0:
-            self._event_source_dropdown_btn.setText("None selected")
-        else:
-            self._event_source_dropdown_btn.setText(f"{enabled_count} of {total_count}")
-        
-        # Update layer visibility (new lightweight approach)
-        self._update_timeline_with_filtered_events()
+        total_events = sum(
+            len(item.get_events())
+            for item in self._loaded_event_items.values()
+        ) if self._loaded_event_items else 0
+        layers = self.timeline_widget.get_layers()
+        duration = self.timeline_widget.get_duration()
+        self.event_count_label.setText(f"Events: {total_events}")
+        self.layer_count_label.setText(f"Layers: {len(layers)}")
+        self.duration_label.setText(f"Duration: {duration:.1f}s")
     
     def _on_timeline_status_message(self, message: str, is_error: bool):
         """Handle status messages from timeline scene"""
@@ -1267,6 +1007,11 @@ class EditorPanel(BlockPanelBase):
         layer_order_service = getattr(self, "_layer_order_service", None)
         if getattr(self, "_pull_data_active", False):
             return
+        if not self.block or not self.facade:
+            return
+        result = self.facade.describe_block(self.block.id)
+        if not result.success or not result.data:
+            return  # Block no longer exists (e.g. deleted), skip save to avoid FK error
         if hasattr(self, 'timeline_widget'):
             layer_keys = self._get_current_layer_order_keys()
             if layer_keys and all(key.group_name for key in layer_keys):
@@ -1281,111 +1026,6 @@ class EditorPanel(BlockPanelBase):
                     )
                     layer_group_service.save_order(self.block.id, group_order, layers_by_group)
         self._save_layer_state()
-    
-    def _update_timeline_with_filtered_events(self):
-        """Update layer visibility based on enabled event sources
-        
-        NEW APPROACH: Use layer visibility as single source of truth.
-        - When source is disabled, hide corresponding layers via LayerManager
-        - TimelineScene responds to layer visibility changes and hides/shows event items
-        - Lightweight: Just toggle visibility, no event recreation
-        
-        Logic:
-        - A layer is visible if ANY of its sources are enabled
-        - A layer is hidden if ALL of its sources are disabled
-        """
-        if not self._loaded_event_items or not self._source_to_layers:
-            # No events or no mapping yet - ensure all layers are visible
-            if hasattr(self.timeline_widget, '_layer_manager'):
-                layer_manager = self.timeline_widget._layer_manager
-                for layer in layer_manager.get_all_layers():
-                    if not layer.visible:
-                        # Use UNIFIED API for targeted updates + forced repaint
-                        self.timeline_widget.set_layer_visible(layer.id, True)
-            return
-        
-        # Get layer manager
-        layer_manager = getattr(self.timeline_widget, '_layer_manager', None)
-        if not layer_manager:
-            return
-        
-        # Update layer visibility based on enabled sources
-        # A layer is visible if ANY of its sources are enabled
-        for layer in layer_manager.get_all_layers():
-            layer_sources = self._layer_to_sources.get(layer.id, set())
-            
-            if not layer_sources:
-                # Layer has no source mapping - keep current visibility
-                continue
-            
-            # Check if layer has any enabled sources
-            has_enabled_source = any(
-                src_id in self._enabled_event_sources 
-                for src_id in layer_sources
-            )
-            
-            # Update visibility if it needs to change - use UNIFIED API
-            if has_enabled_source and not layer.visible:
-                self.timeline_widget.set_layer_visible(layer.id, True)
-            elif not has_enabled_source and layer.visible:
-                self.timeline_widget.set_layer_visible(layer.id, False)
-        
-        # Update UI labels
-        visible_layers = [l for l in layer_manager.get_all_layers() if l.visible]
-        total_events = sum(
-            len(item.get_events()) 
-            for item_id, item in self._loaded_event_items.items()
-            if item_id in self._enabled_event_sources
-        )
-        duration = self.timeline_widget.get_duration()
-        
-        self.event_count_label.setText(f"Events: {total_events}")
-        self.layer_count_label.setText(f"Layers: {len(visible_layers)}")
-        self.duration_label.setText(f"Duration: {duration:.1f}s")
-    
-    def _on_layer_visibility_changed(self, layer_id: str):
-        """Sync dropdown checkboxes when layer visibility changes via right-click.
-        
-        This ensures the dropdown state matches the actual layer visibility,
-        regardless of whether the change came from the dropdown or right-click menu.
-        """
-        layer_manager = getattr(self.timeline_widget, '_layer_manager', None)
-        if not layer_manager:
-            return
-        
-        layer = layer_manager.get_layer(layer_id)
-        if not layer:
-            return
-        
-        # Get sources that belong to this layer
-        layer_sources = self._layer_to_sources.get(layer_id, set())
-        if not layer_sources:
-            return
-        
-        # Block signals to prevent recursion
-        for source_id in layer_sources:
-            checkbox = self._event_source_checkboxes.get(source_id)
-            if checkbox:
-                checkbox.blockSignals(True)
-                checkbox.setChecked(layer.visible)
-                checkbox.blockSignals(False)
-            
-            # Update internal state
-            if layer.visible:
-                self._enabled_event_sources.add(source_id)
-            else:
-                self._enabled_event_sources.discard(source_id)
-        
-        # Update button text
-        enabled_count = len(self._enabled_event_sources)
-        total_count = len(self._loaded_event_items)
-        
-        if enabled_count == total_count:
-            self._event_source_dropdown_btn.setText(f"All ({total_count})")
-        elif enabled_count == 0:
-            self._event_source_dropdown_btn.setText("None selected")
-        else:
-            self._event_source_dropdown_btn.setText(f"{enabled_count} of {total_count}")
     
     def refresh(self):
         """Update UI with current block data.
@@ -1494,11 +1134,7 @@ class EditorPanel(BlockPanelBase):
             # No events at all - clear timeline
             self.timeline_widget.clear()
             self._loaded_event_items.clear()
-            self._enabled_event_sources.clear()
-            self._event_source_checkboxes.clear()
-            self._source_to_layers.clear()
-            self._layer_to_sources.clear()
-            self._update_event_source_selector()
+            self._update_status_labels()
             return
 
         
@@ -1555,16 +1191,11 @@ class EditorPanel(BlockPanelBase):
 
         # Reset caches for a consistent rebuild
         self._loaded_event_items.clear()
-        self._enabled_event_sources.clear()
-        self._event_source_checkboxes.clear()
-        self._source_to_layers.clear()
-        self._layer_to_sources.clear()
 
         for item in event_items:
             self._loaded_event_items[item.id] = item
 
         if event_items:
-            self._enabled_event_sources = {item.id for item in event_items}
             if not skip_ui_state_restore:
                 self._restore_layer_state()
             else:
@@ -1580,12 +1211,7 @@ class EditorPanel(BlockPanelBase):
         if layer_order:
             self._apply_layer_order(layer_order)
 
-        # Build source-to-layer mapping after events are loaded
-        self._build_source_to_layer_mapping()
-
-        # Update event source selector (creates checkboxes and filters timeline)
-        self._update_event_source_selector()
-
+        self._update_status_labels()
         return layer_order
 
     def _get_group_identity_for_item(self, item: EventDataItem) -> tuple[str, str]:
@@ -2444,6 +2070,10 @@ class EditorPanel(BlockPanelBase):
             QMessageBox.warning(self, "Execute", f"Failed to execute block: {e}")
             self.set_status_message("Execute failed", error=True)
     
+    def _on_block_updated_base(self, event):
+        """Keep specialized EditorPanel BlockUpdated behavior active."""
+        self._on_block_updated(event)
+
     def _on_block_updated(self, event):
         """
         Handle BlockUpdated event - refresh editor panel with latest data.
@@ -2589,29 +2219,28 @@ class EditorPanel(BlockPanelBase):
                     }
             
             if hasattr(self, "timeline_widget"):
-                existing_layer_keys = self._get_current_layer_order_keys()
-                if existing_layer_keys and layer_order_service:
-                    layer_order_service.save_order(self.block.id, existing_layer_keys)
-                group_order = []
-                layer_manager = None
-                if layer_group_service:
-                    layer_manager = getattr(self.timeline_widget, "_layer_manager", None)
-                    if layer_manager:
-                        group_order, layers_by_group = layer_group_service.build_from_layers(
-                            layer_manager.get_all_layers()
-                        )
-                        layer_group_service.save_order(self.block.id, group_order, layers_by_group)
+                # Verify block still exists before saving layer order (avoids FK constraint after block deletion)
+                block_exists = False
+                if self.facade:
+                    result = self.facade.describe_block(self.block.id)
+                    block_exists = result.success and result.data is not None
+                if block_exists:
+                    existing_layer_keys = self._get_current_layer_order_keys()
+                    if existing_layer_keys and layer_order_service:
+                        layer_order_service.save_order(self.block.id, existing_layer_keys)
+                    group_order = []
+                    layer_manager = None
+                    if layer_group_service:
+                        layer_manager = getattr(self.timeline_widget, "_layer_manager", None)
+                        if layer_manager:
+                            group_order, layers_by_group = layer_group_service.build_from_layers(
+                                layer_manager.get_all_layers()
+                            )
+                            layer_group_service.save_order(self.block.id, group_order, layers_by_group)
             # Clear existing data
             self.timeline_widget.clear()
             self._loaded_event_items.clear()
             self._loaded_audio_items.clear()
-
-            # Critical: reset EditorPanel's layer/source bookkeeping as well.
-            # TimelineWidget.clear() clears events/layers, but our selector + mappings live here.
-            self._enabled_event_sources.clear()
-            self._event_source_checkboxes.clear()
-            self._source_to_layers.clear()
-            self._layer_to_sources.clear()
             
             # Load owned EventDataItems and AudioDataItems from repository
             owned_items = self.facade.data_item_repo.list_by_block(self.block_id)
@@ -2633,10 +2262,6 @@ class EditorPanel(BlockPanelBase):
             
             for item in audio_items:
                 self._loaded_audio_items[item.id] = item
-            
-            # Initialize enabled sources (all enabled by default) for this reload.
-            if event_items:
-                self._enabled_event_sources = {item.id for item in event_items}
             
             filtered_event_items = []
 
@@ -2690,8 +2315,7 @@ class EditorPanel(BlockPanelBase):
                             )
                             self.timeline_widget.clear()
             
-            # Update event source selector (creates checkboxes and filters timeline)
-            self._update_event_source_selector()
+            self._update_status_labels()
             
             if event_items:
                 total_events = sum(len(item.get_events()) for item in event_items)
@@ -3786,18 +3410,18 @@ class EditorPanel(BlockPanelBase):
             self._loaded_event_items = new_event_items_dict
             
             # Update UI labels (events already updated in place, no need to reload timeline)
-            enabled_items = [
-                item for item_id, item in self._loaded_event_items.items()
-                if item_id in self._enabled_event_sources
-            ]
-            if enabled_items:
-                total_events = sum(len(item.get_events()) for item in enabled_items)
+            if self._loaded_event_items:
+                total_events = sum(len(item.get_events()) for item in self._loaded_event_items.values())
                 layers = len(self.timeline_widget.get_layers())
                 duration = self.timeline_widget.get_duration()
                 
                 self.event_count_label.setText(f"Events: {total_events}")
                 self.layer_count_label.setText(f"Layers: {layers}")
                 self.duration_label.setText(f"Duration: {duration:.1f}s")
+            else:
+                self.event_count_label.setText("Events: 0")
+                self.layer_count_label.setText("Layers: 0")
+                self.duration_label.setText("Duration: 0.0s")
             
             if skipped_not_found > 0:
                 Log.debug(f"[DELETE DEBUG] EditorPanel refresh: Skipped {skipped_not_found} events not found in timeline")
@@ -4302,9 +3926,6 @@ class EditorPanel(BlockPanelBase):
             # Reload into timeline
             # Use existing layers only - never auto-create from classifications
             self.timeline_widget.set_events_from_data_items(filtered_event_items)
-            
-            # Rebuild source-to-layer mapping
-            self._build_source_to_layer_mapping()
             
             # Update event count
             total_events = sum(len(item.get_events()) for item in filtered_event_items)

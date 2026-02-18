@@ -115,17 +115,6 @@ class StatusChanged(DomainEvent):
 
 
 @dataclass
-class ShowManagerCheckRehookResolveRequested(DomainEvent):
-    """
-    Request ShowManager to check hooks, rehook missing, and reconcile divergences.
-
-    Data fields:
-        - show_manager_id: ShowManager block ID
-    """
-    name: ClassVar[str] = "ShowManagerCheckRehookResolveRequested"
-
-
-@dataclass
 class MA3OscOutbound(DomainEvent):
     """
     Outbound OSC/Lua command sent to MA3.
@@ -213,6 +202,20 @@ class RunCompleted(DomainEvent):
 @dataclass
 class ErrorOccurred(DomainEvent):
     name: ClassVar[str] = "ErrorOccurred"
+
+
+@dataclass
+class SettingsOperationFailed(DomainEvent):
+    """
+    Event raised when a settings save or validation operation fails.
+
+    Data fields:
+        - block_id: Block id where failure happened (if applicable)
+        - keys: List of settings keys involved in the failed save
+        - message: Root failure message
+        - manager: Settings manager class name
+    """
+    name: ClassVar[str] = "SettingsOperationFailed"
 
 
 # UI Events

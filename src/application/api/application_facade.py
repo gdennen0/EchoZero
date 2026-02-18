@@ -10,8 +10,10 @@ All methods return CommandResult[T] where T is the type of data returned:
 - CommandResult[Connection] for connection operations
 - etc.
 """
-import os
 import json
+import os
+import subprocess
+import sys
 import uuid
 from pathlib import Path
 from typing import Optional, List, Dict, Any, Callable
@@ -28,7 +30,8 @@ from src.application.events import (
     ExecutionStarted,
     ExecutionProgress,
     ExecutionCompleted,
-    ProjectLoaded
+    ProjectLoaded,
+    SubprocessProgress,
 )
 from src.features.execution.application.topological_sort import (
     topological_sort_blocks,
@@ -2761,6 +2764,10 @@ class ApplicationFacade:
             if describe_result.success and describe_result.data:
                 block = describe_result.data
             
+            # Unified execution: honor use_subprocess_runner for both UI Run and setlist
+            if self._use_subprocess_runner():
+                return self._execute_block_via_subprocess(block.id, block.name)
+            
             Log.info(f"ApplicationFacade: Executing block '{block.name}' (ID: {block.id})")
             
             # Prepare metadata for execution - STANDARDIZED for all block types
@@ -2869,6 +2876,133 @@ class ApplicationFacade:
         This method is kept for backwards compatibility and will be removed in a future version.
         """
         return self.execute_block(block_identifier)
+    
+    def _use_subprocess_runner(self) -> bool:
+        """
+        Check if block execution should run in a separate process.
+        
+        Returns False when we are already inside run_block_cli (parent sets
+        ECHOZERO_INSIDE_RUN_BLOCK_CLI when spawning) to avoid recursive subprocess spawning.
+        """
+        if os.environ.get("ECHOZERO_INSIDE_RUN_BLOCK_CLI") == "1":
+            return False
+        if getattr(self, "app_settings", None) is not None:
+            if getattr(self.app_settings, "use_subprocess_runner", False):
+                return True
+        return os.environ.get("ECHOZERO_USE_SUBPROCESS_RUNNER") == "1"
+    
+    def _execute_block_via_subprocess(
+        self,
+        block_id: str,
+        block_name: str,
+    ) -> CommandResult:
+        """
+        Execute block in a separate process (run_block_cli).
+        
+        Blocks until the subprocess completes. Streams progress from stdout
+        and publishes SubprocessProgress events for UI updates.
+        Used by both MainWindow (via RunBlockThread) and SetlistProcessingService.
+        """
+        from src.utils.paths import get_database_path
+        
+        project_id = self.current_project_id
+        if not project_id:
+            return CommandResult.error_result(message="No project loaded")
+        
+        db_path = str(get_database_path("ez"))
+        exe = sys.executable
+        if getattr(sys, "frozen", False):
+            args = ["--run-block-cli", "--db", db_path, "--project", project_id, "--block", block_id]
+        else:
+            args = [
+                "-m", "src.features.execution.run_block_cli",
+                "--db", db_path, "--project", project_id, "--block", block_id
+            ]
+        
+        Log.info(f"ApplicationFacade: Executing block '{block_name}' via subprocess")
+        
+        env = os.environ.copy()
+        env["ECHOZERO_INSIDE_RUN_BLOCK_CLI"] = "1"
+        
+        try:
+            proc = subprocess.Popen(
+                [exe] + args,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                bufsize=1,
+                env=env,
+            )
+        except Exception as e:
+            Log.error(f"ApplicationFacade: Failed to start subprocess: {e}")
+            return CommandResult.error_result(
+                message=f"Failed to start execution subprocess: {e}",
+                errors=[str(e)]
+            )
+        
+        result_line = None
+        for line in proc.stdout:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                obj = json.loads(line)
+                typ = obj.get("type")
+                if typ == "progress":
+                    if self.event_bus:
+                        msg = obj.get("message", "")
+                        pct = obj.get("percentage", 0)
+                        self.event_bus.publish(SubprocessProgress(
+                            project_id=project_id,
+                            data={
+                                "block_name": block_name,
+                                "message": msg,
+                                "percentage": pct,
+                            }
+                        ))
+                elif typ in ("result", "error"):
+                    result_line = obj
+            except (json.JSONDecodeError, TypeError):
+                pass
+        
+        proc.wait()
+        stderr = proc.stderr.read() if proc.stderr else ""
+        
+        if result_line and result_line.get("type") == "result":
+            success = result_line.get("success", False)
+            msg = result_line.get("message", "")
+            errs = list(result_line.get("errors") or [])
+            if stderr:
+                errs.append(f"Process stderr:\n{stderr}")
+            if success:
+                return CommandResult.success_result(
+                    message=msg or f"Successfully executed block '{block_name}'",
+                    data={"block_id": block_id}
+                )
+            return CommandResult.error_result(
+                message=msg or "Execution failed",
+                errors=errs
+            )
+        
+        if result_line and result_line.get("type") == "error":
+            errs = [result_line.get("traceback", result_line.get("message", ""))]
+            if stderr:
+                errs.append(f"Process stderr:\n{stderr}")
+            return CommandResult.error_result(
+                message=result_line.get("message", "Execution error"),
+                errors=errs
+            )
+        
+        if proc.returncode != 0:
+            return CommandResult.error_result(
+                message=f"Subprocess exited with code {proc.returncode}",
+                errors=[stderr] if stderr else []
+            )
+        
+        return CommandResult.error_result(
+            message="Subprocess did not return a result",
+            errors=[stderr] if stderr else []
+        )
     
     def _load_inputs_for_block(self, block: Block) -> Dict[str, Any]:
         """

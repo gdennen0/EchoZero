@@ -36,7 +36,7 @@ qt_gui/
 
 ## Design System
 
-See [DESIGN_SYSTEM.md](./DESIGN_SYSTEM.md) for visual design guidelines.
+See [docs/DESIGN_SYSTEM.md](../../docs/DESIGN_SYSTEM.md) for visual design guidelines.
 
 ## Related
 

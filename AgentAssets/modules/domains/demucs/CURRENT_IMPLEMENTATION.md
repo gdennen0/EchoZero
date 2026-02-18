@@ -256,7 +256,7 @@ add_block NoteExtractorBasicPitch notes
 connect sep audio notes audio
 
 # Visualize
-add_block PlotEvents plot
+add_block Editor editor
 connect notes events plot events
 
 # Execute

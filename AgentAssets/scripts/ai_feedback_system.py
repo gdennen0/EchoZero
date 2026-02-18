@@ -64,7 +64,7 @@ class AIFeedbackSystem:
     """System for tracking and improving AI agent performance."""
 
     def __init__(self):
-        self.data_dir = Path(__file__).parent.parent / "data"
+        self.data_dir = Path(__file__).resolve().parent.parent / "data"
         self.data_dir.mkdir(exist_ok=True)
         self.contributions_file = self.data_dir / "contributions.json"
         self.profiles_file = self.data_dir / "agent_profiles.json"
@@ -326,7 +326,7 @@ class AIFeedbackSystem:
             if area == "core_values_alignment":
                 recommendations.append("Review CORE_VALUES.md and focus on 'best part is no part' principle")
             elif area == "architecture_compliance":
-                recommendations.append("Study layered architecture and facade pattern in docs/ARCHITECTURE.md")
+                recommendations.append("Study layered architecture and facade pattern in docs/architecture/ARCHITECTURE.md")
             elif area == "implementation_quality":
                 recommendations.append("Review existing code patterns and follow established conventions")
             elif area == "documentation_quality":

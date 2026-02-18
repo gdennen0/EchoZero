@@ -622,7 +622,16 @@ class AudioFilterWidget(QWidget):
     def _save_metadata(self, key: str, value):
         """Save a single metadata key immediately."""
         try:
-            self.facade.update_block_metadata(self.block_id, {key: value})
+            from src.application.commands.block_commands import UpdateBlockMetadataCommand
+
+            cmd = UpdateBlockMetadataCommand(
+                facade=self.facade,
+                block_id=self.block_id,
+                key=key,
+                new_value=value,
+                description=f"Set {key}",
+            )
+            self.facade.command_bus.execute(cmd)
         except Exception as e:
             Log.warning(f"AudioFilterWidget: Error saving metadata '{key}': {e}")
 

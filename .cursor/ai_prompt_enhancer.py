@@ -18,7 +18,7 @@ class AIPromptEnhancer:
     """Enhances AI prompts with EchoZero context automatically."""
 
     def __init__(self):
-        self.project_root = Path(__file__).parent.parent
+        self.project_root = Path(__file__).resolve().parent.parent
         self.agent_assets_root = self.project_root / "AgentAssets"
         self.enhancement_cache: Dict[str, Dict[str, Any]] = {}
         self.cache_timeout = 600  # 10 minutes

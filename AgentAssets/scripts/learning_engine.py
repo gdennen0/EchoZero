@@ -73,8 +73,8 @@ class SelfRefiningLearningEngine:
     """Engine that continuously learns and refines understanding."""
 
     def __init__(self):
-        self.project_root = Path(__file__).parent.parent.parent
-        self.agent_assets_root = Path(__file__).parent.parent
+        self.project_root = Path(__file__).resolve().parent.parent.parent
+        self.agent_assets_root = Path(__file__).resolve().parent.parent
         self.data_dir = self.agent_assets_root / "data"
         self.data_dir.mkdir(parents=True, exist_ok=True)
 

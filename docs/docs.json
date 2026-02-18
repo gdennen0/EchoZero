@@ -156,24 +156,6 @@
       ]
     },
     {
-      "name": "Plot Events",
-      "type_id": "PlotEvents",
-      "description": "Create matplotlib timeline visualizations of event data (notes, onsets, etc.)",
-      "inputs": {
-        "events": "Event"
-      },
-      "outputs": {},
-      "execution_mode": "executable",
-      "tags": [
-        "visualization",
-        "plot",
-        "timeline",
-        "matplotlib",
-        "events",
-        "notes"
-      ]
-    },
-    {
       "name": "Export Audio",
       "type_id": "ExportAudio",
       "description": "Export processed audio items to disk in a chosen format (accepts multiple items on single port)",

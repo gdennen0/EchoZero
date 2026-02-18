@@ -18,7 +18,7 @@ class QualityChecker:
     """Automated quality checks for AI agent contributions."""
 
     def __init__(self):
-        self.project_root = Path(__file__).parent.parent.parent
+        self.project_root = Path(__file__).resolve().parent.parent.parent
         self.core_values_path = self.project_root / "AgentAssets" / "core" / "CORE_VALUES.md"
 
     def check_files(self, file_paths: List[str]) -> Dict[str, List[str]]:

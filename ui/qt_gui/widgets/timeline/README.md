@@ -43,4 +43,4 @@ timeline.set_layers(layers)
 
 ## Related
 
-- [Encyclopedia: Timeline](../../../../docs/encyclopedia/04-ui/timeline/README.md)
+- [Design System](../../../../docs/DESIGN_SYSTEM.md) - UI design tokens

@@ -174,6 +174,26 @@ def get_debug_log_path() -> Path:
     return debug_log
 
 
+def get_project_root() -> Path:
+    """
+    Get the project root directory (absolute path).
+    
+    Alias for get_app_install_dir() for semantic clarity when the intent
+    is "project root" rather than "application install directory".
+    Use this instead of Path(__file__).parent chains to avoid relative
+    path construction.
+    
+    Returns:
+        Absolute path to project root.
+    """
+    result = get_app_install_dir()
+    if result is None:
+        # Fallback for edge cases: resolve from this file's location
+        current_file = Path(__file__).resolve()
+        return current_file.parent.parent.parent
+    return result
+
+
 def get_app_install_dir() -> Optional[Path]:
     """
     Get the application installation directory.

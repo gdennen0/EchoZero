@@ -12,21 +12,25 @@ the same block graph, tracking state for each item.
 ```
 setlists/
 ├── application/
-│   ├── setlist_service.py     # Setlist operations
-│   └── setlist_commands.py    # Command pattern operations
+│   ├── setlist_service.py           # Setlist CRUD and operations
+│   ├── setlist_processing_service.py # Batch execution across setlist
+│   └── setlist_snapshot_service.py   # Per-song state snapshots
 ├── domain/
 │   ├── setlist.py             # Setlist entity
-│   ├── setlist_item.py        # Individual items
-│   └── setlist_repository.py  # Repository interface
+│   ├── setlist_song.py        # Individual song/item
+│   ├── setlist_repository.py  # Repository interface
+│   └── setlist_song_repository.py
 └── infrastructure/
-    └── setlist_repository_impl.py
+    ├── setlist_repository_impl.py
+    └── setlist_song_repository_impl.py
 ```
 
 ## Key Components
 
-- **SetlistService** - CRUD and processing operations
-- **Setlist** - Container for items to process
-- **SetlistItem** - Individual audio file entry
+- **SetlistService** - CRUD and setlist operations
+- **SetlistProcessingService** - Batch execution across setlist items
+- **Setlist** - Container for songs to process
+- **SetlistSong** - Individual audio file entry
 
 ## Related
 

@@ -8,6 +8,7 @@ based on their learning profiles and the system's understanding.
 
 import json
 import sys
+from pathlib import Path
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 from datetime import datetime
@@ -24,7 +25,7 @@ class ContextAPI:
         CORS(self.app)  # Enable CORS for web access
 
         # Import context provider
-        sys.path.insert(0, str(__file__.parent))
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
         try:
             from context_provider import AgentAssetsContextProvider
             self.context_provider = AgentAssetsContextProvider()

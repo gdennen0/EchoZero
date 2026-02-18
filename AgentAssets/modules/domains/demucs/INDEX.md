@@ -34,7 +34,7 @@ Provides comprehensive information about Demucs and its integration into EchoZer
 
 ## Encyclopedia Links
 
-- [Architecture](../../../docs/ARCHITECTURE.md) - Understanding system architecture
+- [Architecture](../../../docs/architecture/ARCHITECTURE.md) - Understanding system architecture
 - [Block Implementation](../../patterns/block_implementation/) - Block creation patterns
 
 ## Core Values Alignment

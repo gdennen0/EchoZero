@@ -99,7 +99,7 @@ def main():
         "src/features/blocks/application/block_status_service.py",
     ]
     
-    project_root = Path(__file__).parent.parent
+    project_root = Path(__file__).resolve().parent.parent
     modified_count = 0
     
     for rel_path in files_to_clean:

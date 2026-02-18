@@ -93,13 +93,12 @@ EchoZero/
 │       ├── views/              # Setlist views, action set editor
 │       ├── widgets/            # Reusable widgets (timeline, settings, logs)
 │       │   └── timeline/       # Timeline widget (events, waveform, playback)
-│       └── panels/             # Additional panels (MA3 test)
 ├── tests/
 │   ├── application/            # Application layer tests
 │   ├── integration/            # Integration tests
 │   └── unit/                   # Unit tests
 ├── docs/                       # Project documentation
-├── ma3_plugins/                # GrandMA3 Lua plugins for OSC
+├── MA3/                        # GrandMA3 Lua plugins and integration docs
 └── AgentAssets/                # You are here
 ```
 
@@ -266,7 +265,7 @@ These documents capture hard-won knowledge about subtle bugs:
 
 | Document | Topic |
 |----------|-------|
-| `MA3_INTEGRATION_PITFALLS.md` | MA3 state persistence, OSC timing, track indexing |
+| `MA3/MA3_INTEGRATION_PITFALLS.md` | MA3 state persistence, OSC timing, track indexing |
 
 **Most important pitfall**: MA3 Lua plugin state persists across EchoZero restarts. Always send current data with responses, even if state says "already done".
 
@@ -275,21 +274,21 @@ These documents capture hard-won knowledge about subtle bugs:
 ## Documentation
 
 - **Co-located READMEs** - Feature modules and block processors have README.md files
-- **Architecture docs** - `docs/ARCHITECTURE.md`, `docs/show_manager_sync_system.md`
+- **Architecture docs** - `docs/architecture/ARCHITECTURE.md`, `MA3/docs/show_manager_sync_system.md`
 - **Core Values** - `AgentAssets/CORE_VALUES.md`
-- **MA3 Integration** - `ma3_plugins/` for MA3-specific Lua plugins
-- **Progress Tracking** - `docs/progress_tracking_guide.md`
+- **MA3 Integration** - `MA3/` for GrandMA3 Lua plugins and integration docs
+- **Progress Tracking** - `docs/progress_tracking.md`
 
 ### Finding Documentation
 
 1. **Cursor Skills** - `.cursor/skills/` for block implementation, settings, progress, MA3, etc.
 2. **Feature-specific** - Check the feature module's README.md
-3. **Architecture** - `docs/ARCHITECTURE.md`
-4. **Show Manager sync** - `docs/show_manager_sync_system.md`
+3. **Architecture** - `docs/architecture/ARCHITECTURE.md`
+4. **Show Manager sync** - `MA3/docs/show_manager_sync_system.md`
 5. **Progress tracking** - `AgentAssets/modules/patterns/progress_tracking/` or echozero-progress-tracking skill
 6. **Block implementation** - `AgentAssets/modules/patterns/block_implementation/` or echozero-block-implementation skill
 7. **Settings patterns** - `AgentAssets/modules/patterns/settings_abstraction/` or echozero-settings-abstraction skill
-8. **MA3 Integration** - `AgentAssets/MA3_INTEGRATION_PITFALLS.md` or echozero-ma3-integration skill
+8. **MA3 Integration** - `MA3/MA3_INTEGRATION_PITFALLS.md` or echozero-ma3-integration skill
 
 ---
 

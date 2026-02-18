@@ -9,7 +9,8 @@ from typing import Dict, Any
 
 from PyQt6.QtWidgets import (
     QDockWidget, QWidget, QVBoxLayout, QHBoxLayout,
-    QLabel, QPushButton, QFrame, QMessageBox, QScrollArea, QSizePolicy
+    QLabel, QPushButton, QFrame, QMessageBox, QScrollArea, QSizePolicy,
+    QLineEdit, QAbstractSpinBox
 )
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QFont
@@ -120,6 +121,7 @@ class BlockPanelBase(QDockWidget, IStatefulWindow):
         
         self.content_widget = self.create_content_widget()
         self.content_widget.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
+        self._apply_commit_on_complete_defaults(self.content_widget)
         
         # Wrap content in scroll area to handle panels that are too tall
         self._scroll_area = QScrollArea()
@@ -285,6 +287,16 @@ class BlockPanelBase(QDockWidget, IStatefulWindow):
         else:
             QMessageBox.warning(self, "Pull Data", getattr(result, "message", "Pull failed"))
             self.set_status_message("Pull failed", error=True)
+
+    def _apply_commit_on_complete_defaults(self, root_widget: QWidget) -> None:
+        """
+        Apply default commit-on-complete behavior for editable numeric widgets.
+
+        This ensures typed values in spin boxes do not emit intermediate updates
+        while the user is still editing.
+        """
+        for spin in root_widget.findChildren(QAbstractSpinBox):
+            spin.setKeyboardTracking(False)
     
     def create_content_widget(self) -> QWidget:
         """
@@ -330,7 +342,6 @@ class BlockPanelBase(QDockWidget, IStatefulWindow):
             "LoadAudio": "",
             "Separator": "️",
             "TranscribeNote": "",
-            "PlotEvents": "",
             "ExportAudio": "",
             "CommandSequencer": "️",
             "LoadMultiple": "",
@@ -392,10 +403,10 @@ class BlockPanelBase(QDockWidget, IStatefulWindow):
     
     def _subscribe_to_events(self):
         """Subscribe to block update events"""
-        self.facade.event_bus.subscribe("BlockUpdated", self._on_block_updated)
+        self.facade.event_bus.subscribe("BlockUpdated", self._on_block_updated_base)
         # Status indicator updates are handled by BlockStatusDot widget
     
-    def _on_block_updated(self, event):
+    def _on_block_updated_base(self, event):
         """Handle block update event"""
         # Skip refresh if this panel triggered the update (prevents value reset during save)
         if self._is_saving:
@@ -404,8 +415,76 @@ class BlockPanelBase(QDockWidget, IStatefulWindow):
         
         updated_block_id = event.data.get('id')
         if updated_block_id == self.block_id:
+            changed_keys = event.data.get("changed_keys") or []
+            update_source = event.data.get("update_source")
+            if changed_keys:
+                Log.debug(
+                    f"BlockPanel: Block {self.block_id} metadata updated "
+                    f"({len(changed_keys)} keys), applying patch refresh"
+                )
+                self._handle_external_settings_patch(changed_keys, update_source)
+                return
+
             Log.info(f"BlockPanel: Block {self.block_id} updated, refreshing panel")
             self._load_block_data()
+
+    def _on_block_updated(self, event):
+        """
+        Backwards-compatible block update handler.
+
+        Kept so existing subclass overrides do not break direct method calls.
+        EventBus now subscribes to `_on_block_updated_base` to ensure one
+        centralized refresh policy.
+        """
+        self._on_block_updated_base(event)
+
+    def _handle_external_settings_patch(self, changed_keys: list[str], source: str | None = None):
+        """
+        Patch-refresh only the settings-driven parts of the panel.
+
+        Falls back to full panel reload only when patching fails.
+        """
+        active_editor = self.focusWidget()
+        if isinstance(active_editor, (QLineEdit, QAbstractSpinBox)):
+            # Defer external patching while user is actively typing.
+            Log.debug(
+                f"BlockPanel: Deferring external patch for {self.block_id} "
+                f"while editor has focus ({type(active_editor).__name__})"
+            )
+            return
+
+        old_scroll = 0
+        if hasattr(self, "_scroll_area") and self._scroll_area:
+            old_scroll = self._scroll_area.verticalScrollBar().value()
+
+        try:
+            # Keep in-memory block fresh without rebuilding the full panel.
+            result = self.facade.describe_block(self.block_id)
+            if result.success and result.data:
+                self.block = result.data
+                self._update_header()
+
+            if hasattr(self, "_settings_manager") and self._settings_manager:
+                self._settings_manager.reload_from_storage()
+
+            self.on_external_settings_changed(changed_keys, source or "external")
+        except Exception as e:
+            Log.warning(
+                f"BlockPanel: Patch refresh failed for {self.block_id}, "
+                f"falling back to full reload: {e}"
+            )
+            self._load_block_data()
+        finally:
+            if hasattr(self, "_scroll_area") and self._scroll_area:
+                self._scroll_area.verticalScrollBar().setValue(old_scroll)
+
+    def on_external_settings_changed(self, changed_keys: list[str], source: str):
+        """
+        Hook for subclasses to patch specific widgets on external settings updates.
+
+        Default behavior is a local refresh(), which avoids rebuilding the whole panel.
+        """
+        self.refresh()
     
     def set_status_message(self, message: str, error: bool = False):
         """
@@ -885,7 +964,7 @@ class BlockPanelBase(QDockWidget, IStatefulWindow):
         """Handle panel close event"""
         # Unsubscribe from events
         try:
-            self.facade.event_bus.unsubscribe("BlockUpdated", self._on_block_updated)
+            self.facade.event_bus.unsubscribe("BlockUpdated", self._on_block_updated_base)
             # BlockStatusDot widget handles its own event cleanup
         except:
             pass

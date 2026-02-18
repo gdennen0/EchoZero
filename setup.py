@@ -13,13 +13,13 @@ from setuptools import setup, find_packages
 from pathlib import Path
 
 # Read README for long description
-readme_file = Path(__file__).parent / "README.md"
+readme_file = Path(__file__).resolve().parent / "README.md"
 long_description = ""
 if readme_file.exists():
     long_description = readme_file.read_text(encoding="utf-8")
 
 # Read requirements
-requirements_file = Path(__file__).parent / "requirements.txt"
+requirements_file = Path(__file__).resolve().parent / "requirements.txt"
 install_requires = []
 if requirements_file.exists():
     with open(requirements_file, "r", encoding="utf-8") as f:

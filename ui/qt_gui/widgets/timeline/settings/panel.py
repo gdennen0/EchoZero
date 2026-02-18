@@ -320,6 +320,8 @@ class SettingsPanel(QWidget):
         """Create a styled spin box."""
         spin = QSpinBox()
         spin.setRange(min_val, max_val)
+        # Commit-on-complete: do not emit value changes for intermediate typed text.
+        spin.setKeyboardTracking(False)
         spin.setFixedHeight(28)
         spin.setFixedWidth(80)
         if suffix:
@@ -349,6 +351,8 @@ class SettingsPanel(QWidget):
         spin.setRange(min_val, max_val)
         spin.setSingleStep(step)
         spin.setDecimals(decimals)
+        # Commit-on-complete: do not emit value changes for intermediate typed text.
+        spin.setKeyboardTracking(False)
         spin.setFixedHeight(28)
         spin.setFixedWidth(80)
         spin.setStyleSheet(f"""

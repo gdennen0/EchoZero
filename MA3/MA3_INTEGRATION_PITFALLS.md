@@ -241,7 +241,7 @@ else:
 ## Related Documentation
 
 - `ma3_plugins/docs/CMDSUBTrack_HOOKING_IMPLEMENTATION.md` - Detailed hooking implementation
-- `ma3_plugins/docs/ARCHITECTURE.md` - Overall OSC architecture
+- `ma3_plugins/docs/architecture/ARCHITECTURE.md` - Overall OSC architecture
 - `ma3_plugins/docs/TIMECODE_STRUCTURE.md` - MA3 timecode data model
 - `@echozero.lua` - Main Lua plugin
 - `@echozero_debug.lua` - Debug/test Lua plugin

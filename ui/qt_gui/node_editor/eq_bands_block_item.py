@@ -546,9 +546,16 @@ class EQBandsWidget(QWidget):
 
     def _save_bands(self):
         try:
-            self.facade.update_block_metadata(
-                self.block_id, {"bands": self._collect_bands()}
+            from src.application.commands.block_commands import UpdateBlockMetadataCommand
+
+            cmd = UpdateBlockMetadataCommand(
+                facade=self.facade,
+                block_id=self.block_id,
+                key="bands",
+                new_value=self._collect_bands(),
+                description="Update EQ bands",
             )
+            self.facade.command_bus.execute(cmd)
         except Exception as e:
             Log.warning(f"EQBandsWidget: Error saving bands: {e}")
 

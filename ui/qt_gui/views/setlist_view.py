@@ -581,19 +581,30 @@ class SetlistView(ThemeAwareMixin, QWidget):
     
     def _on_create_setlist(self):
         """Create setlist from folder"""
+        if not hasattr(self, 'folder_edit'):
+            QMessageBox.warning(self, "No Folder", "Create setlist section is not available.")
+            return
         folder_path = self.folder_edit.text().strip()
         if not folder_path:
             QMessageBox.warning(self, "No Folder", "Please select an audio folder.")
             return
         
-        # Get action configuration
-        strategy, actions = self.action_config_panel.get_configuration()
+        # Get default actions from project's action items (if any)
+        default_actions = None
+        if self.facade.current_project_id:
+            action_result = self.facade.list_action_items_by_project(self.facade.current_project_id)
+            if action_result.success and action_result.data:
+                default_actions = {}
+                for item in action_result.data:
+                    if item.action_type == "block" and item.block_id:
+                        if item.block_id not in default_actions:
+                            default_actions[item.block_id] = {}
+                        default_actions[item.block_id][item.action_name] = item.action_args or {}
         
         # Create setlist
         result = self.facade.create_setlist_from_folder(
             audio_folder_path=folder_path,
-            execution_strategy=strategy,
-            default_actions=actions
+            default_actions=default_actions
         )
         
         if result.success:

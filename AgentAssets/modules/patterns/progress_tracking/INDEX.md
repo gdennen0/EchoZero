@@ -63,8 +63,7 @@ EchoZero has two complementary progress systems:
 
 ## Documentation Links
 
-- `docs/progress_tracking_guide.md` - Progress tracking usage guide
-- `docs/PROGRESS_TRACKING_IMPLEMENTATION_SUMMARY.md` - Implementation summary
+- `docs/progress_tracking.md` - Progress tracking guide and API
 
 ## Core Values Alignment
 

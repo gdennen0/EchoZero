@@ -18,6 +18,8 @@ from PyQt6.QtGui import QIcon
 from ui.qt_gui.block_panels.block_panel_base import BlockPanelBase
 from ui.qt_gui.block_panels.panel_registry import register_block_panel
 from ui.qt_gui.design_system import Spacing, Colors
+from ui.qt_gui.block_panels.components.settings_binding import SettingsBinding
+from src.application.settings.separator_cloud_settings import SeparatorCloudSettingsManager
 from src.utils.message import Log
 
 # Import Demucs models info
@@ -30,6 +32,9 @@ class SeparatorCloudPanel(BlockPanelBase):
     
     def __init__(self, block_id: str, facade, parent=None):
         super().__init__(block_id, facade, parent)
+        self._settings_manager = SeparatorCloudSettingsManager(facade, block_id, parent=self)
+        self._settings_manager.settings_changed.connect(self._on_setting_changed)
+        self._settings_manager.settings_save_failed.connect(self._on_settings_save_failed)
         if self.block:
             self.refresh()
     
@@ -48,21 +53,18 @@ class SeparatorCloudPanel(BlockPanelBase):
         self.access_key_input = QLineEdit()
         self.access_key_input.setPlaceholderText("AKIA...")
         self.access_key_input.setEchoMode(QLineEdit.EchoMode.Normal)
-        self.access_key_input.textChanged.connect(self._on_access_key_changed)
         credentials_layout.addRow("Access Key ID:", self.access_key_input)
         
         # Secret Access Key
         self.secret_key_input = QLineEdit()
         self.secret_key_input.setPlaceholderText("Enter secret key...")
         self.secret_key_input.setEchoMode(QLineEdit.EchoMode.Password)
-        self.secret_key_input.textChanged.connect(self._on_secret_key_changed)
         credentials_layout.addRow("Secret Access Key:", self.secret_key_input)
         
         # Region
         self.region_input = QLineEdit()
         self.region_input.setPlaceholderText("us-east-1")
         self.region_input.setText("us-east-1")
-        self.region_input.textChanged.connect(self._on_region_changed)
         credentials_layout.addRow("AWS Region:", self.region_input)
         
         layout.addWidget(credentials_group)
@@ -75,19 +77,16 @@ class SeparatorCloudPanel(BlockPanelBase):
         # S3 Bucket
         self.bucket_input = QLineEdit()
         self.bucket_input.setPlaceholderText("echozero-cloud-storage")
-        self.bucket_input.textChanged.connect(self._on_bucket_changed)
         config_layout.addRow("S3 Bucket:", self.bucket_input)
         
         # Batch Queue
         self.queue_input = QLineEdit()
         self.queue_input.setPlaceholderText("echozero-batch-queue")
-        self.queue_input.textChanged.connect(self._on_queue_changed)
         config_layout.addRow("Batch Queue:", self.queue_input)
         
         # Job Definition
         self.job_def_input = QLineEdit()
         self.job_def_input.setPlaceholderText("echozero-demucs")
-        self.job_def_input.textChanged.connect(self._on_job_def_changed)
         config_layout.addRow("Job Definition:", self.job_def_input)
         
         layout.addWidget(config_group)
@@ -102,7 +101,6 @@ class SeparatorCloudPanel(BlockPanelBase):
         for model_name, info in DEMUCS_MODELS.items():
             display_text = f"{model_name} - {info['quality']} quality, {info['speed']} speed"
             self.model_combo.addItem(display_text, model_name)
-        self.model_combo.currentIndexChanged.connect(self._on_model_changed)
         model_layout.addRow("Model:", self.model_combo)
         
         # Model info label
@@ -125,7 +123,6 @@ class SeparatorCloudPanel(BlockPanelBase):
         self.two_stems_combo.addItem("Drums + No Drums", "drums")
         self.two_stems_combo.addItem("Bass + No Bass", "bass")
         self.two_stems_combo.addItem("Other + No Other", "other")
-        self.two_stems_combo.currentIndexChanged.connect(self._on_two_stems_changed)
         processing_layout.addRow("Separation Mode:", self.two_stems_combo)
         
         layout.addWidget(processing_group)
@@ -140,12 +137,58 @@ class SeparatorCloudPanel(BlockPanelBase):
         layout.addWidget(info_label)
         
         layout.addStretch()
+        self._bind_settings_widgets()
         
         return widget
+
+    def _bind_settings_widgets(self) -> None:
+        """Bind UI controls with commit-on-complete settings writes."""
+        SettingsBinding.bind_line_edit(
+            self.access_key_input,
+            lambda: self._settings_manager.aws_access_key_id,
+            lambda v: self._set_setting("aws_access_key_id", v),
+        )
+        SettingsBinding.bind_line_edit(
+            self.secret_key_input,
+            lambda: self._settings_manager.aws_secret_access_key,
+            lambda v: self._set_setting("aws_secret_access_key", v),
+        )
+        SettingsBinding.bind_line_edit(
+            self.region_input,
+            lambda: self._settings_manager.aws_region,
+            lambda v: self._set_setting("aws_region", v),
+        )
+        SettingsBinding.bind_line_edit(
+            self.bucket_input,
+            lambda: self._settings_manager.aws_s3_bucket,
+            lambda v: self._set_setting("aws_s3_bucket", v),
+        )
+        SettingsBinding.bind_line_edit(
+            self.queue_input,
+            lambda: self._settings_manager.aws_batch_queue,
+            lambda v: self._set_setting("aws_batch_queue", v),
+        )
+        SettingsBinding.bind_line_edit(
+            self.job_def_input,
+            lambda: self._settings_manager.aws_batch_job_def,
+            lambda v: self._set_setting("aws_batch_job_def", v),
+        )
+        SettingsBinding.bind_combo(
+            self.model_combo,
+            lambda: self._settings_manager.model,
+            lambda v: self._set_setting("model", v),
+            use_data=True,
+        )
+        SettingsBinding.bind_combo(
+            self.two_stems_combo,
+            lambda: self._settings_manager.two_stems,
+            lambda v: self._set_setting("two_stems", v),
+            use_data=True,
+        )
     
     def refresh(self):
         """Update UI with current block settings"""
-        if not self.block:
+        if not self.block or not hasattr(self, "_settings_manager"):
             return
         
         # Block signals during refresh to prevent change handlers from firing
@@ -160,21 +203,16 @@ class SeparatorCloudPanel(BlockPanelBase):
         self.two_stems_combo.blockSignals(True)
         
         try:
-            # Load settings from block metadata
-            metadata = self.block.metadata
-            
-            # AWS Credentials
-            self.access_key_input.setText(metadata.get("aws_access_key_id", ""))
-            self.secret_key_input.setText(metadata.get("aws_secret_access_key", ""))
-            self.region_input.setText(metadata.get("aws_region", "us-east-1"))
-            
-            # AWS Configuration
-            self.bucket_input.setText(metadata.get("aws_s3_bucket", ""))
-            self.queue_input.setText(metadata.get("aws_batch_queue", ""))
-            self.job_def_input.setText(metadata.get("aws_batch_job_def", ""))
-            
-            # Model
-            model = metadata.get("model", "htdemucs")
+            # Load settings via manager (single source of truth)
+            self.access_key_input.setText(self._settings_manager.aws_access_key_id)
+            self.secret_key_input.setText(self._settings_manager.aws_secret_access_key)
+            self.region_input.setText(self._settings_manager.aws_region)
+
+            self.bucket_input.setText(self._settings_manager.aws_s3_bucket)
+            self.queue_input.setText(self._settings_manager.aws_batch_queue)
+            self.job_def_input.setText(self._settings_manager.aws_batch_job_def)
+
+            model = self._settings_manager.model
             for i in range(self.model_combo.count()):
                 if self.model_combo.itemData(i) == model:
                     self.model_combo.setCurrentIndex(i)
@@ -182,7 +220,7 @@ class SeparatorCloudPanel(BlockPanelBase):
             self._update_model_info(model)
             
             # Two-stems
-            two_stems = metadata.get("two_stems")
+            two_stems = self._settings_manager.two_stems
             if two_stems is None:
                 self.two_stems_combo.setCurrentIndex(0)
             else:
@@ -211,46 +249,21 @@ class SeparatorCloudPanel(BlockPanelBase):
         else:
             self.model_info_label.setText("")
     
-    def _save_setting(self, key: str, value: Any):
-        """Save a setting to block metadata"""
-        if not self.block:
-            return
-        
-        # Use base class method for undoable metadata updates
-        self.set_block_metadata_key(key, value, success_message=f"Saved {key}")
-    
-    def _on_access_key_changed(self, text: str):
-        """Handle access key change"""
-        self._save_setting("aws_access_key_id", text)
-    
-    def _on_secret_key_changed(self, text: str):
-        """Handle secret key change"""
-        self._save_setting("aws_secret_access_key", text)
-    
-    def _on_region_changed(self, text: str):
-        """Handle region change"""
-        self._save_setting("aws_region", text)
-    
-    def _on_bucket_changed(self, text: str):
-        """Handle bucket change"""
-        self._save_setting("aws_s3_bucket", text)
-    
-    def _on_queue_changed(self, text: str):
-        """Handle queue change"""
-        self._save_setting("aws_batch_queue", text)
-    
-    def _on_job_def_changed(self, text: str):
-        """Handle job definition change"""
-        self._save_setting("aws_batch_job_def", text)
-    
-    def _on_model_changed(self, index: int):
-        """Handle model change"""
-        model = self.model_combo.itemData(index)
-        if model:
-            self._update_model_info(model)
-            self._save_setting("model", model)
-    
-    def _on_two_stems_changed(self, index: int):
-        """Handle two-stems change"""
-        two_stems = self.two_stems_combo.itemData(index)
-        self._save_setting("two_stems", two_stems)
+    def _set_setting(self, key: str, value: Any) -> None:
+        """Set a SeparatorCloud setting through the settings manager."""
+        try:
+            setattr(self._settings_manager, key, value)
+            self.set_status_message(f"Saved {key}")
+            if key == "model":
+                self._update_model_info(str(value))
+        except ValueError as e:
+            self.set_status_message(str(e), error=True)
+            self.refresh()
+
+    def _on_setting_changed(self, _setting_name: str) -> None:
+        """Refresh panel widgets after manager saves complete."""
+        self.refresh()
+
+    def _on_settings_save_failed(self, keys: str, error: str) -> None:
+        """Display loud, user-facing save errors from settings manager."""
+        self.set_status_message(f"Save failed ({keys}): {error}", error=True)

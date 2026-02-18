@@ -36,8 +36,8 @@ class AgentAssetsIntegrationManager:
     """Manages AgentAssets integration with Cursor IDE."""
 
     def __init__(self):
-        self.project_root = Path(__file__).parent.parent.parent
-        self.agent_assets_root = Path(__file__).parent.parent
+        self.project_root = Path(__file__).resolve().parent.parent.parent
+        self.agent_assets_root = Path(__file__).resolve().parent.parent
         self.cursor_config_dir = self.project_root / ".cursor"
         self.status_file = self.cursor_config_dir / "integration_status.json"
 

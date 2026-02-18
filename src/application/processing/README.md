@@ -6,7 +6,7 @@ The block processing pipeline executes blocks in a project graph in the correct 
 
 ## Standardized Execution Flow (6 Steps)
 
-ALL blocks follow this standardized step-based execution flow, managed by BlockExecutionEngine.
+ALL blocks follow this standardized step-based execution flow, managed by BlockExecutionEngine in `src/features/execution/`.
 Each step has a corresponding hook method that processors can override.
 
 ```
@@ -48,7 +48,7 @@ STEP 6: SAVE & NOTIFY (handled by engine)
 
 ### 1. BlockProcessor Interface
 
-**File:** `block_processor.py`
+**File:** `src/application/processing/block_processor.py`
 
 Abstract base class that block implementations must extend:
 
@@ -112,7 +112,7 @@ Processors receive these services/repos via the metadata dict:
 
 ### 2. Topological Sort
 
-**File:** `topological_sort.py`
+**File:** `src/features/execution/application/topological_sort.py`
 
 Determines execution order for blocks:
 
@@ -125,7 +125,7 @@ Determines execution order for blocks:
 
 **Usage:**
 ```python
-from src.application.processing.topological_sort import topological_sort_blocks
+from src.features.execution.application import topological_sort_blocks
 
 # Sort blocks for execution
 execution_order = topological_sort_blocks(blocks, connections)
@@ -136,7 +136,7 @@ is_valid, error = validate_block_graph(blocks, connections)
 
 ### 3. Block Execution Engine
 
-**File:** `execution_engine.py`
+**File:** `src/features/execution/application/execution_engine.py`
 
 Main engine for executing block graphs:
 
@@ -150,9 +150,9 @@ Main engine for executing block graphs:
 
 **Usage:**
 ```python
-from src.application.processing.execution_engine import BlockExecutionEngine
+from src.features.execution.application import BlockExecutionEngine
 
-# Initialize engine
+# Initialize engine (typically via bootstrap/ServiceContainer)
 engine = BlockExecutionEngine(block_repo, connection_repo, data_item_repo, event_bus)
 
 # Register processors
@@ -164,7 +164,7 @@ result = engine.execute_project(project_id)
 
 ### 4. Processor Registration
 
-**Note:** ProcessorRegistry was removed as dead code. Processors are registered directly with BlockExecutionEngine via `register_processor()` method.
+**Note:** Processors are registered via `register_processor_class()` in block modules and `register_all_processors()` in bootstrap. The execution engine receives them from `src/application/blocks/__init__.py`.
 
 ## Data Flow
 
@@ -225,9 +225,8 @@ result = engine.execute_project(project_id, progress_callback=progress_callback)
 
 ```python
 from src.application.processing.block_processor import BlockProcessor, ProcessingError
-from src.domain.entities.block import Block
-from src.domain.entities.data_item import DataItem
-from src.domain.entities.audio_data_item import AudioDataItem
+from src.features.blocks.domain import Block
+from src.shared.domain.entities import DataItem, AudioDataItem
 
 class LoadAudioBlockProcessor(BlockProcessor):
     def can_process(self, block: Block) -> bool:
@@ -258,9 +257,9 @@ class LoadAudioBlockProcessor(BlockProcessor):
 ## Integration
 
 The execution engine is integrated into:
-- `ServiceContainer` in `bootstrap.py`
-- `ExecutionAPI` in `application_api.py`
-- `ExecutionService` for high-level operations
+- `ServiceContainer` in `src/application/bootstrap.py`
+- `ExecutionAPI` in `src/application/api/execution_api.py`
+- Accessed via `ApplicationFacade` for high-level operations
 
 ## Testing
 

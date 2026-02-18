@@ -200,7 +200,7 @@ Example: `PytorchAudioClassifyBlockProcessor`, `TensorflowClassifyBlockProcessor
 - May not have output ports
 - May have UI components
 
-Example: `EditorBlockProcessor`, `PlotEventsBlockProcessor`, `ExportAudioBlockProcessor`
+Example: `EditorBlockProcessor`, `ExportAudioBlockProcessor`
 
 ### Training Blocks
 - Train ML models on audio/event data

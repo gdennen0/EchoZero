@@ -22,9 +22,9 @@ if getattr(sys, "frozen", False):
     if str(_bundle_root) not in sys.path:
         sys.path.insert(0, str(_bundle_root))
 # Add project root to path so src is importable (needed before loading .env from paths)
-sys.path.insert(0, str(Path(__file__).parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-# Load environment variables (see docs/PACKAGING.md).
+# Load environment variables (see docs/packaging/PACKAGING.md).
 # Priority: bundled defaults -> app-local .env -> user-data .env (highest).
 from dotenv import load_dotenv
 try:
@@ -37,7 +37,7 @@ try:
     _runtime_dirs = []
     for _candidate in (
         _install_dir,
-        Path(__file__).parent,
+        Path(__file__).resolve().parent,
         (_install_dir / "_internal") if _install_dir else None,
     ):
         if _candidate and _candidate not in _runtime_dirs:
@@ -66,7 +66,7 @@ try:
     if _user_env.exists():
         load_dotenv(_user_env, override=True)
 except Exception:
-    _dev_env = Path(__file__).parent / ".env"
+    _dev_env = Path(__file__).resolve().parent / ".env"
     if _dev_env.exists():
         load_dotenv(_dev_env)
 
@@ -82,9 +82,6 @@ os.environ['VECLIB_MAXIMUM_THREADS'] = '1'
 # This runs BEFORE other imports to ensure fresh bytecode is compiled
 from src.utils.pycache_cleaner import clear_pycache_if_enabled
 clear_pycache_if_enabled(verbose=False)
-
-# MIGRATION: Load old project file compatibility (DELETE THIS LINE + src/migration_compat.py later)
-import src.migration_compat  # noqa: F401
 
 # Import Qt BEFORE other imports to ensure QApplication exists
 from PyQt6.QtWidgets import QApplication
@@ -132,7 +129,7 @@ def _create_auth_services():
     if not app_secret:
         Log.warning(
             "MEMBERSTACK_APP_SECRET is not set. Auth will work only if the verify backend does not require X-App-Token. "
-            "For production, set it in the environment or build with MEMBERSTACK_APP_SECRET (see docs/PACKAGING.md)."
+            "For production, set it in the environment or build with MEMBERSTACK_APP_SECRET (see docs/packaging/PACKAGING.md)."
         )
 
     token_storage = TokenStorage()

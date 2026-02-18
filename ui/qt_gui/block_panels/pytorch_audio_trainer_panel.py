@@ -9,7 +9,7 @@ from PyQt6.QtWidgets import (
     QComboBox, QCheckBox, QDoubleSpinBox, QTextEdit, QTabWidget,
     QScrollArea, QFrame, QListWidget, QListWidgetItem
 )
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, QTimer
 from pathlib import Path
 import os
 from datetime import datetime
@@ -71,6 +71,10 @@ class PyTorchAudioTrainerPanel(BlockPanelBase):
         self.settings = {}
         self._class_counts = {}
         self._is_refreshing = False  # Guard to prevent auto-save during UI refresh
+        self._save_timer = QTimer(self)
+        self._save_timer.setSingleShot(True)
+        self._save_timer.setInterval(350)
+        self._save_timer.timeout.connect(self._save_settings)
 
         # Load current settings after parent initialization
         self._load_current_settings()
@@ -81,6 +85,12 @@ class PyTorchAudioTrainerPanel(BlockPanelBase):
 
         # Connect signals (AFTER initial refresh to avoid saving defaults)
         self._connect_signals()
+        self._disable_keyboard_tracking_for_spinboxes()
+
+    def _disable_keyboard_tracking_for_spinboxes(self) -> None:
+        """Use commit-on-complete semantics for all spinboxes in this panel."""
+        for spin in self.findChildren((QSpinBox, QDoubleSpinBox)):
+            spin.setKeyboardTracking(False)
 
     def _refresh_ui_with_settings(self):
         """Refresh UI controls with loaded settings"""
@@ -122,8 +132,7 @@ class PyTorchAudioTrainerPanel(BlockPanelBase):
         if not model_name:
             model_name = self._generate_unique_model_name()
             self.settings["model_name"] = model_name
-            result = self.facade.update_block_metadata(self.block_id, {"model_name": model_name})
-            if result and result.success:
+            if self.set_block_metadata_key("model_name", model_name):
                 Log.debug(f"PyTorchAudioTrainerPanel: auto-filled model name '{model_name}'")
         self.model_name_edit.setText(model_name)
         self.sample_rate_spin.setValue(self.settings.get("sample_rate", 22050))
@@ -1407,7 +1416,7 @@ class PyTorchAudioTrainerPanel(BlockPanelBase):
         """Connect widget signals to handlers and auto-save."""
         # --- UI logic handlers (show/hide, populate combos, etc.) ---
         self.data_dir_edit.textChanged.connect(self._on_data_dir_changed)
-        self.model_name_edit.textChanged.connect(self._auto_save)
+        self.model_name_edit.editingFinished.connect(self._auto_save)
         self.model_name_edit.textChanged.connect(self._update_model_output_path_display)
         self.mode_combo.currentIndexChanged.connect(self._on_mode_changed)
         self.save_to_dir_edit.textChanged.connect(self._update_model_output_path_display)
@@ -1421,7 +1430,7 @@ class PyTorchAudioTrainerPanel(BlockPanelBase):
 
         # --- Auto-save on any setting change ---
         # Data tab
-        self.data_dir_edit.textChanged.connect(self._auto_save)
+        self.data_dir_edit.editingFinished.connect(self._auto_save)
         self.sample_rate_spin.valueChanged.connect(self._auto_save)
         self.max_length_spin.valueChanged.connect(self._auto_save)
         self.fmax_spin.valueChanged.connect(self._auto_save)
@@ -1434,7 +1443,7 @@ class PyTorchAudioTrainerPanel(BlockPanelBase):
         self.mode_combo.currentIndexChanged.connect(self._auto_save)
         self.positive_classes_list.itemChanged.connect(self._auto_save)
         self.negative_ratio_spin.valueChanged.connect(self._auto_save)
-        self.hard_negative_dir_edit.textChanged.connect(self._auto_save)
+        self.hard_negative_dir_edit.editingFinished.connect(self._auto_save)
         self.positive_filter_type_combo.currentIndexChanged.connect(self._on_positive_filter_type_changed)
         self.positive_filter_type_combo.currentIndexChanged.connect(self._auto_save)
         self.positive_filter_cutoff_spin.valueChanged.connect(self._auto_save)
@@ -1456,7 +1465,7 @@ class PyTorchAudioTrainerPanel(BlockPanelBase):
         self.transformer_d_model_spin.valueChanged.connect(self._auto_save)
         self.transformer_nhead_spin.valueChanged.connect(self._auto_save)
         self.transformer_num_layers_spin.valueChanged.connect(self._auto_save)
-        self.wav2vec2_model_edit.textChanged.connect(self._auto_save)
+        self.wav2vec2_model_edit.editingFinished.connect(self._auto_save)
         self.freeze_wav2vec2_check.toggled.connect(self._auto_save)
 
         # Training tab
@@ -1474,7 +1483,7 @@ class PyTorchAudioTrainerPanel(BlockPanelBase):
         self.early_stopping_check.toggled.connect(self._auto_save)
         self.early_stopping_patience_spin.valueChanged.connect(self._auto_save)
         self.device_combo.currentTextChanged.connect(self._auto_save)
-        self.save_to_dir_edit.textChanged.connect(self._auto_save)
+        self.save_to_dir_edit.editingFinished.connect(self._auto_save)
 
         # Augmentation tab
         self.augmentation_check.toggled.connect(self._auto_save)
@@ -1594,7 +1603,7 @@ class PyTorchAudioTrainerPanel(BlockPanelBase):
         """Auto-save settings whenever a control changes."""
         if self._is_refreshing:
             return
-        self._save_settings()
+        self._save_timer.start()
 
     def _save_settings(self):
         """Save comprehensive settings to the block."""
@@ -1730,9 +1739,11 @@ class PyTorchAudioTrainerPanel(BlockPanelBase):
         settings = filtered
 
         # Save settings to block metadata
-        result = self.facade.update_block_metadata(self.block_id, settings)
-        success = result and result.success
-
+        success = self.set_multiple_metadata(
+            settings,
+            success_message="Trainer settings saved",
+            description=f"Update trainer settings ({len(settings)} keys)",
+        )
         if not success:
             Log.warning(f"PyTorchAudioTrainerPanel: Failed to auto-save settings for {self.block_id}")
 
@@ -1772,6 +1783,7 @@ class PyTorchAudioTrainerPanel(BlockPanelBase):
         directory = QFileDialog.getExistingDirectory(self, "Save Model To Directory", current)
         if directory:
             self.save_to_dir_edit.setText(directory)
+            self._auto_save()
 
     def _on_data_dir_changed(self, path):
         """Handle data directory change -- update info label and populate target class combo"""
@@ -1831,6 +1843,9 @@ class PyTorchAudioTrainerPanel(BlockPanelBase):
             self.positive_classes_list.clear()
             self.data_info_label.setText("Select a directory containing subfolders for each audio class")
             self.data_info_label.setStyleSheet(f"color: {Colors.TEXT_SECONDARY}; font-size: 11px;")
+
+        if not self._is_refreshing:
+            self._auto_save()
 
     def _on_positive_classes_changed(self):
         """Update data info and model output path when selection changes."""

@@ -42,7 +42,7 @@ def get_echozero_context(user_input: str, agent_id: str = "cursor_ai") -> str:
         # Run the context command
         result = subprocess.run(
             cmd,
-            cwd=Path(__file__).parent.parent,
+            cwd=Path(__file__).resolve().parent.parent,
             capture_output=True,
             text=True,
             timeout=30

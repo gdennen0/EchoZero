@@ -13,21 +13,24 @@ This module handles saving, loading, and project lifecycle.
 projects/
 ├── application/
 │   ├── project_service.py     # Project operations
-│   └── recent_projects.py     # Recent projects tracking
+│   └── snapshot_service.py    # Data state snapshots (setlist songs)
 ├── domain/
 │   ├── project.py             # Project entity
 │   ├── project_repository.py  # Repository interface
-│   └── project_events.py      # Project-related events
+│   ├── action_set_repository.py
+│   └── action_item_repository.py
 └── infrastructure/
     ├── project_repository_impl.py
-    └── project_file_handler.py  # .ez file handling
+    ├── project_file_handler.py  # .ez file handling
+    ├── action_set_repository_impl.py
+    └── action_item_repository_impl.py
 ```
 
 ## Key Components
 
 - **ProjectService** - Create, save, load projects
+- **SnapshotService** - Save/restore data state for setlist song switching
 - **Project** - Entity containing blocks and connections
-- **ProjectFileHandler** - Serialization to .ez format
 
 ## Usage
 

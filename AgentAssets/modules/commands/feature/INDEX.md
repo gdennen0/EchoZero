@@ -36,7 +36,7 @@ Provides a standardized workflow for developing new features in EchoZero, ensuri
 
 ## Documentation Links
 
-- [Architecture](../../../docs/ARCHITECTURE.md) - Understanding system structure
+- [Architecture](../../../docs/architecture/ARCHITECTURE.md) - Understanding system structure
 - [Progress Tracking](../../patterns/progress_tracking/) - Progress tracking pattern
 - [Block Implementation](../../patterns/block_implementation/) - Block creation patterns
 

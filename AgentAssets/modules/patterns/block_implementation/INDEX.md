@@ -49,7 +49,7 @@ Provides patterns and guidance for implementing new block types in EchoZero, ens
 
 ## Documentation Links
 
-- `docs/ARCHITECTURE.md` - Overall architecture
+- `docs/architecture/ARCHITECTURE.md` - Overall architecture
 - `src/application/processing/README.md` - Processing layer details
 - `src/application/blocks/README.md` - Block processors overview
 - `src/application/commands/README.md` - Command pattern reference

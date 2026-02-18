@@ -59,7 +59,7 @@ When you receive an enhanced prompt, it will contain:
 - **Testing:** Unit tests for all new functionality
 
 ### Available Resources
-- **Existing Blocks:** LoadAudio, DetectOnsets, SeparatorBlock, Editor, PlotEvents
+- **Existing Blocks:** LoadAudio, DetectOnsets, SeparatorBlock, Editor, ExportAudio
 - **Supported Formats:** WAV, MP3, audio processing with ML
 
 ### Implementation Instructions

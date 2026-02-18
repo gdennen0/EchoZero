@@ -49,7 +49,7 @@ class CursorContextInjector:
     """Injects relevant AgentAssets context into Cursor IDE tabs."""
 
     def __init__(self):
-        self.project_root = Path(__file__).parent.parent
+        self.project_root = Path(__file__).resolve().parent.parent
         self.agent_assets_root = self.project_root / "AgentAssets"
         self.data_dir = self.agent_assets_root / "data"
         self.data_dir.mkdir(parents=True, exist_ok=True)

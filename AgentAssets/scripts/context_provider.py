@@ -59,8 +59,8 @@ class AgentAssetsContextProvider:
     """Provides intelligent context to AI agents based on learned patterns."""
 
     def __init__(self):
-        self.project_root = Path(__file__).parent.parent.parent
-        self.agent_assets_root = Path(__file__).parent.parent
+        self.project_root = Path(__file__).resolve().parent.parent.parent
+        self.agent_assets_root = Path(__file__).resolve().parent.parent
 
         # Import learning engine
         sys.path.insert(0, str(self.agent_assets_root / "scripts"))
@@ -399,7 +399,7 @@ class AgentAssetsContextProvider:
         # This would be pulled from CURRENT_STATE.md or the learning engine
         return {
             "available_blocks": [
-                "LoadAudio", "DetectOnsets", "SeparatorBlock", "Editor", "PlotEvents", "ExportAudio"
+                "LoadAudio", "DetectOnsets", "SeparatorBlock", "Editor", "ExportAudio"
             ],
             "supported_formats": ["WAV", "MP3", "audio processing with ML"],
             "key_features": [

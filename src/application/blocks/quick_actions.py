@@ -424,18 +424,18 @@ def action_set_setlist_audio_file(facade, block_id: str, file_path: str = None, 
             if not path_obj.is_file():
                 return {"success": False, "error": f"Audio file not found: {file_path}"}
             
-            # Get block and update metadata
-            result = facade.get_block_metadata(block_id)
-            if not result.success:
-                return {"success": False, "error": f"Failed to get block: {result.error}"}
-            
-            block_metadata = result.data
-            block_metadata["audio_path"] = str(path_obj)
-            
-            # Update block metadata
-            update_result = facade.update_block_metadata(block_id, block_metadata)
-            if not update_result.success:
-                return {"success": False, "error": f"Failed to update block: {update_result.error}"}
+            from src.application.commands.block_commands import UpdateBlockMetadataCommand
+
+            cmd = UpdateBlockMetadataCommand(
+                facade=facade,
+                block_id=block_id,
+                key="audio_path",
+                new_value=str(path_obj),
+                description="Set setlist audio file",
+            )
+            success = facade.command_bus.execute(cmd)
+            if not success:
+                return {"success": False, "error": "Failed to update block metadata"}
             
             return {"success": True, "message": f"Audio file set: {path_obj.name}"}
         except Exception as e:
@@ -897,74 +897,6 @@ def action_set_min_note_length(facade, block_id: str, value: float = None, **kwa
         "increment_jump": 0.01,  # Step size for increment/decrement arrows
         "decimals": 2,
         "title": "Min Note Length (seconds)"
-    }
-
-
-# ============================================================================
-# PlotEvents Actions
-# ============================================================================
-
-@quick_action(
-    "PlotEvents",
-    "Set Output Directory",
-    description="Choose where to save visualizations",
-    category=ActionCategory.FILE,
-    icon="folder",
-    primary=True
-)
-def action_set_plot_output_dir(facade, block_id: str, directory: str = None, **kwargs):
-    """Set plot output directory"""
-    if directory:
-        return facade.execute_block_command(block_id, "set_output_dir", [directory], {})
-    return {
-        "needs_input": True,
-        "input_type": "directory",
-        "title": "Select Output Directory"
-    }
-
-
-@quick_action(
-    "PlotEvents",
-    "Set Plot Style",
-    description="Choose visualization style",
-    category=ActionCategory.CONFIGURE,
-    icon="chart"
-)
-def action_set_plot_style(facade, block_id: str, style: str = None, **kwargs):
-    """
-    Set plot style via settings manager.
-    
-    Single source of truth: block.metadata in database.
-    Settings manager ensures consistency with panel.
-    """
-    from src.application.settings.plot_events_settings import PlotEventsSettingsManager
-    
-    if style:
-        # Write path: set the plot style
-        try:
-            settings_manager = PlotEventsSettingsManager(facade, block_id)
-            settings_manager.plot_style = style
-            # Force immediate save (bypasses debounce) to ensure BlockUpdated event fires right away
-            # This ensures panel refreshes immediately when quick action changes setting
-            settings_manager.force_save()
-            return {"success": True, "message": f"Plot style set to {style}"}
-        except ValueError as e:
-            return {"success": False, "error": str(e)}
-    
-    # Read path: get current value from single source of truth for dialog default
-    try:
-        settings_manager = PlotEventsSettingsManager(facade, block_id)
-        current_style = settings_manager.plot_style  # Read from database
-    except Exception:
-        # Fallback if settings manager fails to load
-        current_style = "bars"
-    
-    return {
-        "needs_input": True,
-        "input_type": "choice",
-        "choices": ["bars", "markers", "piano_roll"],
-        "default": current_style,  # Current value from database (single source of truth)
-        "title": "Select Plot Style"
     }
 
 

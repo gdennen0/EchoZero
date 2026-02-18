@@ -5,9 +5,9 @@ Custom BlockItem subclass with embedded negation controls
 (mode selector, crossfade knob, attenuation/gain knobs)
 rendered directly inside the node editor via QGraphicsProxyWidget.
 
-Wider than the default node to fit 3 knobs side-by-side.
-Shows all parameters as knob rows with at least 4 visible;
-scrolls if the mode adds more.
+Wider than the default node to fit knobs with labels.
+The node height scales dynamically based on the current mode's
+visible knob rows.
 """
 import math
 from typing import Optional, Dict, TYPE_CHECKING
@@ -15,7 +15,6 @@ from typing import Optional, Dict, TYPE_CHECKING
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
     QLabel, QMenu, QGraphicsProxyWidget, QSizePolicy,
-    QScrollArea, QFrame,
 )
 from PyQt6.QtCore import Qt, QTimer, QRectF, QPointF, QPoint, pyqtSignal
 from PyQt6.QtGui import (
@@ -34,7 +33,7 @@ if TYPE_CHECKING:
 
 
 # ======================================================================
-# Mode options (mirrors NEGATE_MODES in audio_negate_block.py)
+# Layout constants
 # ======================================================================
 
 NEGATE_MODE_OPTIONS = [
@@ -42,6 +41,26 @@ NEGATE_MODE_OPTIONS = [
     ("attenuate", "Attenuate"),
     ("subtract",  "Subtract"),
 ]
+
+MODE_BTN_HEIGHT = 22
+KNOB_ROW_HEIGHT = 76
+KNOB_ROW_SPACING = 4
+WIDGET_VERTICAL_MARGIN = 10   # top + bottom padding inside the widget
+
+# How many knob rows each mode shows
+_MODE_ROW_COUNT = {
+    "silence": 1,      # crossfade
+    "attenuate": 2,    # crossfade + attenuation
+    "subtract": 3,     # crossfade + gain + onset
+}
+
+
+def _negate_control_height(visible_rows: int) -> int:
+    """Calculate the required control height for a given number of visible rows."""
+    if visible_rows <= 0:
+        return MODE_BTN_HEIGHT + WIDGET_VERTICAL_MARGIN
+    rows = visible_rows * KNOB_ROW_HEIGHT + max(0, visible_rows - 1) * KNOB_ROW_SPACING
+    return MODE_BTN_HEIGHT + WIDGET_VERTICAL_MARGIN + rows
 
 
 # ======================================================================
@@ -57,7 +76,7 @@ class RotaryKnob(QWidget):
     - Pointer line at current position
     - Value label below the knob
     - Title label above the knob
-    - Linear value mapping (no log needed for these params)
+    - Linear value mapping
     - Click-drag to change value (vertical drag)
     - Mouse wheel support
     """
@@ -87,20 +106,14 @@ class RotaryKnob(QWidget):
         self._decimals = decimals
         self._accent = accent_color or Colors.ACCENT_ORANGE
 
-        # Drag state
         self._dragging = False
         self._drag_start_y = 0.0
         self._drag_start_ratio = 0.0
 
-        # Size -- fits 3 knobs side-by-side in a ~210px wide node
         self._knob_diameter = 36
-        self._total_height = 72  # title + knob + value label
+        self._total_height = 72
         self.setFixedSize(self._knob_diameter + 18, self._total_height)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
-
-    # ------------------------------------------------------------------
-    # Value mapping (linear)
-    # ------------------------------------------------------------------
 
     def value(self) -> float:
         return self._value
@@ -120,10 +133,6 @@ class RotaryKnob(QWidget):
         ratio = max(0.0, min(1.0, ratio))
         return self._min + ratio * (self._max - self._min)
 
-    # ------------------------------------------------------------------
-    # Painting
-    # ------------------------------------------------------------------
-
     def paintEvent(self, event: QPaintEvent):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
@@ -132,7 +141,6 @@ class RotaryKnob(QWidget):
         d = self._knob_diameter
         cx = w / 2.0
 
-        # -- Title text above knob --
         title_font = Typography.default_font()
         title_font.setPixelSize(8)
         title_font.setBold(True)
@@ -141,10 +149,9 @@ class RotaryKnob(QWidget):
         title_rect = QRectF(0, 0, w, 12)
         painter.drawText(title_rect, Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop, self._label)
 
-        cy = 12 + d / 2.0 + 2  # top margin after title
+        cy = 12 + d / 2.0 + 2
         ratio = self._value_to_ratio(self._value)
 
-        # -- Track arc (background) --
         track_rect = QRectF(cx - d / 2, cy - d / 2, d, d)
         track_pen = QPen(Colors.BG_DARK, 3.0)
         track_pen.setCapStyle(Qt.PenCapStyle.RoundCap)
@@ -156,7 +163,6 @@ class RotaryKnob(QWidget):
             int(-self.ARC_SPAN_DEG * 16),
         )
 
-        # -- Filled arc (value indicator) --
         if ratio > 0.005:
             fill_pen = QPen(self._accent, 3.0)
             fill_pen.setCapStyle(Qt.PenCapStyle.RoundCap)
@@ -168,28 +174,23 @@ class RotaryKnob(QWidget):
                 int(sweep * 16),
             )
 
-        # -- Knob body --
         body_r = d / 2.0 - 4
         painter.setPen(Qt.PenStyle.NoPen)
         painter.setBrush(QBrush(Colors.BG_LIGHT))
         painter.drawEllipse(QPointF(cx, cy), body_r, body_r)
 
-        # -- Pointer line --
         angle_deg = self.ARC_START_DEG - self.ARC_SPAN_DEG * ratio
         angle_rad = math.radians(angle_deg)
         ptr_inner = body_r * 0.3
         ptr_outer = body_r * 0.85
-        px_inner = cx + ptr_inner * math.cos(angle_rad)
-        py_inner = cy - ptr_inner * math.sin(angle_rad)
-        px_outer = cx + ptr_outer * math.cos(angle_rad)
-        py_outer = cy - ptr_outer * math.sin(angle_rad)
-
         pointer_pen = QPen(Colors.TEXT_PRIMARY, 2.0)
         pointer_pen.setCapStyle(Qt.PenCapStyle.RoundCap)
         painter.setPen(pointer_pen)
-        painter.drawLine(QPointF(px_inner, py_inner), QPointF(px_outer, py_outer))
+        painter.drawLine(
+            QPointF(cx + ptr_inner * math.cos(angle_rad), cy - ptr_inner * math.sin(angle_rad)),
+            QPointF(cx + ptr_outer * math.cos(angle_rad), cy - ptr_outer * math.sin(angle_rad)),
+        )
 
-        # -- Value text below knob --
         text_y = cy + d / 2.0 + 2
         val_text = self._format_value(self._value)
         val_font = Typography.default_font()
@@ -205,10 +206,6 @@ class RotaryKnob(QWidget):
         if self._decimals == 0:
             return f"{int(val)}{self._suffix}"
         return f"{val:.{self._decimals}f}{self._suffix}"
-
-    # ------------------------------------------------------------------
-    # Mouse interaction (vertical drag)
-    # ------------------------------------------------------------------
 
     def mousePressEvent(self, event: QMouseEvent):
         if event.button() == Qt.MouseButton.LeftButton:
@@ -261,11 +258,16 @@ class AudioNegateWidget(QWidget):
 
     Layout:
       [Mode selector button]
-      [Crossfade knob] [Param knob 1] [Param knob 2]
+      [Crossfade knob row]       -- always visible
+      [Attenuation knob row]     -- attenuate mode only
+      [Subtract Gain knob row]   -- subtract mode only
+      [Onset Emphasis knob row]  -- subtract mode only
 
-    Shows at least 4 visible parameter rows (mode + 3 knobs).
-    In subtract mode, a 4th knob (onset emphasis) appears.
+    Emits visible_rows_changed when the mode changes so the parent
+    BlockItem can resize the node dynamically.
     """
+
+    visible_rows_changed = pyqtSignal(int)  # number of visible knob rows
 
     def __init__(self, block_id: str, facade: "ApplicationFacade", parent=None):
         super().__init__(parent)
@@ -277,60 +279,44 @@ class AudioNegateWidget(QWidget):
 
         self.setFixedWidth(Sizes.NEGATE_BLOCK_WIDTH - 12)
         self._build_ui()
-        self._load_from_metadata()
+        # Do NOT call _load_from_metadata here; the parent BlockItem
+        # will call it after connecting to visible_rows_changed.
 
-    # ------------------------------------------------------------------
-    # UI
-    # ------------------------------------------------------------------
+    @property
+    def visible_row_count(self) -> int:
+        return _MODE_ROW_COUNT.get(self._current_mode, 1)
 
     def _build_ui(self):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(2, 4, 2, 2)
         layout.setSpacing(4)
 
-        # --- Mode selector button (opens popup menu) ---
         self.mode_btn = QPushButton("Silence")
         self.mode_btn.setObjectName("negateModeBtn")
-        self.mode_btn.setFixedHeight(22)
+        self.mode_btn.setFixedHeight(MODE_BTN_HEIGHT)
         self.mode_btn.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self.mode_btn.clicked.connect(self._show_mode_menu)
         layout.addWidget(self.mode_btn)
 
-        # --- Knob rows (scrollable if more than 4) ---
+        # Knob rows (no scroll area -- height is dynamic)
         self._knob_container = QWidget()
         self._knob_layout = QVBoxLayout(self._knob_container)
         self._knob_layout.setContentsMargins(0, 2, 0, 0)
-        self._knob_layout.setSpacing(4)
+        self._knob_layout.setSpacing(KNOB_ROW_SPACING)
 
         # Row 1: Crossfade (always visible)
-        row1 = QHBoxLayout()
-        row1.setContentsMargins(0, 0, 0, 0)
-        row1.setSpacing(2)
-
         self.fade_knob = RotaryKnob(
-            label="FADE",
-            min_val=0.0,
-            max_val=100.0,
-            default=10.0,
-            suffix="ms",
-            decimals=1,
-            accent_color=Colors.ACCENT_BLUE,
+            label="FADE", min_val=0.0, max_val=100.0, default=10.0,
+            suffix="ms", decimals=1, accent_color=Colors.ACCENT_BLUE,
         )
         self.fade_knob.valueChanged.connect(self._on_fade_changed)
-
-        # Row label for crossfade
         self._fade_row = self._make_knob_row("Crossfade", self.fade_knob)
         self._knob_layout.addWidget(self._fade_row)
 
         # Row 2: Attenuation (attenuate mode only)
         self.atten_knob = RotaryKnob(
-            label="ATTEN",
-            min_val=-60.0,
-            max_val=0.0,
-            default=-20.0,
-            suffix="dB",
-            decimals=1,
-            accent_color=Colors.ACCENT_RED,
+            label="ATTEN", min_val=-60.0, max_val=0.0, default=-20.0,
+            suffix="dB", decimals=1, accent_color=Colors.ACCENT_RED,
         )
         self.atten_knob.valueChanged.connect(self._on_attenuation_changed)
         self._atten_row = self._make_knob_row("Reduction", self.atten_knob)
@@ -338,13 +324,8 @@ class AudioNegateWidget(QWidget):
 
         # Row 3: Subtract Gain (subtract mode only)
         self.gain_knob = RotaryKnob(
-            label="GAIN",
-            min_val=1.0,
-            max_val=10.0,
-            default=1.0,
-            suffix="x",
-            decimals=1,
-            accent_color=Colors.ACCENT_ORANGE,
+            label="GAIN", min_val=1.0, max_val=10.0, default=1.0,
+            suffix="x", decimals=1, accent_color=Colors.ACCENT_ORANGE,
         )
         self.gain_knob.valueChanged.connect(self._on_gain_changed)
         self._gain_row = self._make_knob_row("Sub. Gain", self.gain_knob)
@@ -352,51 +333,22 @@ class AudioNegateWidget(QWidget):
 
         # Row 4: Onset Emphasis (subtract mode only)
         self.onset_knob = RotaryKnob(
-            label="ONSET",
-            min_val=1.0,
-            max_val=5.0,
-            default=1.0,
-            suffix="x",
-            decimals=1,
-            accent_color=Colors.ACCENT_YELLOW,
+            label="ONSET", min_val=1.0, max_val=5.0, default=1.0,
+            suffix="x", decimals=1, accent_color=Colors.ACCENT_YELLOW,
         )
         self.onset_knob.valueChanged.connect(self._on_onset_changed)
         self._onset_row = self._make_knob_row("Onset Emp.", self.onset_knob)
         self._knob_layout.addWidget(self._onset_row)
 
-        # Scroll area wrapping the knob container -- fixed height to
-        # prevent content from bleeding outside the node bounds.
-        # Available space: NEGATE_CONTROL_HEIGHT - mode_btn(22) - spacing(8) - margins(8)
-        scroll_height = Sizes.NEGATE_CONTROL_HEIGHT - 38
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setFixedHeight(scroll_height)
-        scroll.setFrameShape(QFrame.Shape.NoFrame)
-        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        scroll.setStyleSheet("""
-            QScrollArea { background: transparent; border: none; }
-            QScrollBar:vertical {
-                width: 4px; background: transparent;
-            }
-            QScrollBar::handle:vertical {
-                background: rgba(255,255,255,30); border-radius: 2px; min-height: 16px;
-            }
-            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }
-        """)
-        scroll.setWidget(self._knob_container)
-        layout.addWidget(scroll)
+        layout.addWidget(self._knob_container)
 
         self._apply_stylesheet()
         self._update_knob_visibility()
 
     def _make_knob_row(self, label_text: str, knob: RotaryKnob) -> QWidget:
-        """
-        Create a single parameter row: [label on left] [knob on right].
-
-        Each row is a fixed height (76px) for generous touch targets and readability.
-        """
+        """Create a single parameter row: [label on left] [knob on right]."""
         row = QWidget()
-        row.setFixedHeight(76)
+        row.setFixedHeight(KNOB_ROW_HEIGHT)
         h = QHBoxLayout(row)
         h.setContentsMargins(4, 0, 4, 0)
         h.setSpacing(4)
@@ -462,7 +414,6 @@ class AudioNegateWidget(QWidget):
     # ------------------------------------------------------------------
 
     def _show_mode_menu(self):
-        """Show a QMenu popup with all negation mode options."""
         menu = QMenu(self)
         menu.setStyleSheet(f"""
             QMenu {{
@@ -509,15 +460,17 @@ class AudioNegateWidget(QWidget):
     # ------------------------------------------------------------------
 
     def _update_knob_visibility(self):
-        """Show/hide knob rows based on the current negation mode."""
+        """Show/hide knob rows based on the current mode and resize."""
         mode = self._current_mode
-        # Crossfade is always visible
         self._fade_row.setVisible(True)
-        # Attenuation only in attenuate mode
         self._atten_row.setVisible(mode == "attenuate")
-        # Subtract params only in subtract mode
         self._gain_row.setVisible(mode == "subtract")
         self._onset_row.setVisible(mode == "subtract")
+
+        # Resize widget to fit visible content and notify parent
+        h = _negate_control_height(self.visible_row_count)
+        self.setFixedHeight(h)
+        self.visible_rows_changed.emit(self.visible_row_count)
 
     # ------------------------------------------------------------------
     # Value change handlers
@@ -540,7 +493,6 @@ class AudioNegateWidget(QWidget):
     # ------------------------------------------------------------------
 
     def _load_from_metadata(self):
-        """Load current settings from block metadata."""
         try:
             result = self.facade.describe_block(self.block_id)
             if not result.success or not result.data:
@@ -549,7 +501,6 @@ class AudioNegateWidget(QWidget):
             block = result.data
             meta = block.metadata or {}
 
-            # Mode
             mode = meta.get("mode", "silence")
             self._current_mode = mode
             for mid, name in NEGATE_MODE_OPTIONS:
@@ -557,7 +508,6 @@ class AudioNegateWidget(QWidget):
                     self.mode_btn.setText(name)
                     break
 
-            # Knob values
             self.fade_knob.setValue(float(meta.get("fade_ms", 10.0)))
             self.atten_knob.setValue(float(meta.get("attenuation_db", -20.0)))
             self.gain_knob.setValue(float(meta.get("subtract_gain", 1.0)))
@@ -568,36 +518,39 @@ class AudioNegateWidget(QWidget):
             Log.warning(f"AudioNegateWidget: Error loading metadata: {e}")
 
     def _save_metadata(self, key: str, value):
-        """Save a single metadata key immediately."""
         try:
-            self.facade.update_block_metadata(self.block_id, {key: value})
+            from src.application.commands.block_commands import UpdateBlockMetadataCommand
+
+            cmd = UpdateBlockMetadataCommand(
+                facade=self.facade,
+                block_id=self.block_id,
+                key=key,
+                new_value=value,
+                description=f"Set {key}",
+            )
+            self.facade.command_bus.execute(cmd)
         except Exception as e:
             Log.warning(f"AudioNegateWidget: Error saving metadata '{key}': {e}")
 
     def _save_metadata_debounced(self, key: str, value):
-        """Save metadata with debouncing (avoids excessive writes during knob drag)."""
         if self._save_timer is not None:
             self._save_timer.stop()
             self._save_timer.deleteLater()
-
         self._save_timer = QTimer(self)
         self._save_timer.setSingleShot(True)
         self._save_timer.timeout.connect(lambda: self._save_metadata(key, value))
-        self._save_timer.start(150)  # 150ms debounce
+        self._save_timer.start(150)
 
 
 # ======================================================================
-# AudioNegateBlockItem -- custom wider node with embedded controls
+# AudioNegateBlockItem -- dynamic-height node with embedded controls
 # ======================================================================
 
 class AudioNegateBlockItem(BlockItem):
     """
-    BlockItem subclass that embeds an AudioNegateWidget via
-    QGraphicsProxyWidget inside the node body.
-
-    Wider than the default node (210px vs 150px) to fit knob rows
-    comfortably. Shows at least 4 rows (mode + 3 knobs) with scroll
-    for additional parameters.
+    BlockItem subclass that embeds an AudioNegateWidget and dynamically
+    resizes when the negation mode changes (different modes show
+    different numbers of knob rows).
     """
 
     def __init__(
@@ -606,31 +559,50 @@ class AudioNegateBlockItem(BlockItem):
         facade: "ApplicationFacade",
         undo_stack: Optional["QUndoStack"] = None,
     ):
+        # Set initial control height before super().__init__ calls
+        # _calculate_dimensions.
+        self._negate_control_height = _negate_control_height(1)  # silence default
+
         super().__init__(block, facade, undo_stack)
 
-        # Build and embed the negate widget
         self._negate_widget = AudioNegateWidget(block.id, facade)
+        self._negate_widget.visible_rows_changed.connect(self._on_visible_rows_changed)
+
         self._proxy = QGraphicsProxyWidget(self)
         self._proxy.setWidget(self._negate_widget)
 
-        # Position the proxy inside the block body (below ports)
-        self._position_proxy()
+        # Load metadata (triggers visible_rows_changed -> resize)
+        self._negate_widget._load_from_metadata()
 
-        # Subscribe to metadata change events to stay in sync
+        self._position_proxy()
         self._subscribe_negate_events()
 
     # ------------------------------------------------------------------
-    # Dimensions
+    # Dynamic dimensions
     # ------------------------------------------------------------------
 
     def _calculate_dimensions(self):
-        """Extend base dimensions to accommodate the negate controls."""
         super()._calculate_dimensions()
         self._width = Sizes.NEGATE_BLOCK_WIDTH
-        self._height += Sizes.NEGATE_CONTROL_HEIGHT
+        self._height += self._negate_control_height
+
+    def _on_visible_rows_changed(self, row_count: int):
+        """Resize the node when the mode changes visible row count."""
+        new_height = _negate_control_height(row_count)
+        if new_height == self._negate_control_height:
+            return
+
+        self.prepareGeometryChange()
+        self._negate_control_height = new_height
+        self._calculate_dimensions()
+        self._position_proxy()
+
+        for conn in self.connections:
+            conn.update_position()
+
+        self.update()
 
     def _position_proxy(self):
-        """Position the proxy widget inside the block, below the port zone."""
         rect = QRectF(
             -self._width / 2,
             -self._height / 2,
@@ -638,7 +610,7 @@ class AudioNegateBlockItem(BlockItem):
             self._height,
         )
         proxy_x = rect.left() + 6
-        proxy_y = rect.bottom() - Sizes.NEGATE_CONTROL_HEIGHT - 4
+        proxy_y = rect.bottom() - self._negate_control_height - 4
         self._proxy.setPos(proxy_x, proxy_y)
 
     # ------------------------------------------------------------------
@@ -646,7 +618,6 @@ class AudioNegateBlockItem(BlockItem):
     # ------------------------------------------------------------------
 
     def _subscribe_negate_events(self):
-        """Subscribe to events that indicate block metadata changed."""
         if not self.facade or not self.facade.event_bus:
             return
         self.facade.event_bus.subscribe("BlockUpdated", self._on_negate_block_updated)
@@ -660,7 +631,6 @@ class AudioNegateBlockItem(BlockItem):
             Log.debug(f"AudioNegateBlockItem: Error unsubscribing: {e}")
 
     def _on_negate_block_updated(self, event):
-        """If this block's metadata changed externally, refresh the widget."""
         if not self._is_valid():
             return
         try:

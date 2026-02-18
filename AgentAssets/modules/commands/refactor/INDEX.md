@@ -30,7 +30,7 @@ Provides a framework for evaluating whether refactoring is justified and how to 
 
 ## Encyclopedia Links
 
-- [Architecture](../../../docs/ARCHITECTURE.md) - Understanding current architecture before refactoring
+- [Architecture](../../../docs/architecture/ARCHITECTURE.md) - Understanding current architecture before refactoring
 
 ## Core Values Alignment
 

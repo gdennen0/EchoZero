@@ -49,8 +49,8 @@ Use research to explore, validate, and inform. Use feature to plan and implement
 
 ## Documentation Links
 
-- [Architecture](../../../docs/ARCHITECTURE.md) - Understanding system structure for research
-- [Show Manager Sync](../../../docs/show_manager_sync_system.md) - MA3 sync system documentation
+- [Architecture](../../../docs/architecture/ARCHITECTURE.md) - Understanding system structure for research
+- [Show Manager Sync](../../../docs/ma3/show_manager_sync_system.md) - MA3 sync system documentation
 
 ## Core Values Alignment
 

@@ -22,16 +22,26 @@ The web interface automatically loads documentation data from `docs.json` (gener
 | Need | Location |
 |------|----------|
 | **Web Interface** | [docs/index.html](index.html) - Interactive docs browser |
-| Architecture Overview | [ARCHITECTURE.md](ARCHITECTURE.md) |
-| Show Manager & Sync | [show_manager_sync_system.md](show_manager_sync_system.md) |
-| MA3 Sync Cases | [MA3_SYNC_CASES.md](MA3_SYNC_CASES.md) |
+| Architecture Overview | [ARCHITECTURE.md](architecture/ARCHITECTURE.md) |
+| Show Manager & Sync | [show_manager_sync_system.md](../MA3/docs/show_manager_sync_system.md) |
+| MA3 Sync Cases | [MA3_SYNC_CASES.md](../MA3/docs/MA3_SYNC_CASES.md) |
+| Progress tracking | [progress_tracking.md](progress_tracking.md) |
 | AI Agent Context | [../AgentAssets/](../AgentAssets/README.md) |
 
 ---
 
 ## Documentation Structure
 
-EchoZero uses **co-located documentation** where docs live alongside code:
+### Functional Buckets (this folder)
+
+- `docs/architecture/` - System architecture and design docs
+- `docs/progress_tracking.md` - Progress bar and progress tracking
+- `docs/packaging/` - Build and distribution documentation
+- `docs/DESIGN_SYSTEM.md` - UI design tokens and guidelines
+
+### Co-located Documentation (with code)
+
+EchoZero also uses **co-located documentation** where docs live alongside code:
 
 ### Feature Documentation
 Each feature module has its own README:

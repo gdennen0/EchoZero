@@ -24,37 +24,39 @@ commands/
 
 ## Creating Commands
 
-```python
-from src.application.commands.base_command import BaseCommand
+Commands use Qt's QUndoCommand. Inherit from `EchoZeroCommand`:
 
-class MyCommand(BaseCommand):
-    def __init__(self, param):
-        super().__init__()
-        self.param = param
+```python
+from src.application.commands.base_command import EchoZeroCommand
+
+class MyCommand(EchoZeroCommand):
+    def __init__(self, facade, param):
+        super().__init__(facade, f"My Operation: {param}")
+        self._param = param
+        self._original_state = None
         
-    def execute(self) -> bool:
-        # Perform the operation
-        self.old_value = get_current_value()
-        set_new_value(self.param)
-        return True
+    def redo(self):
+        if self._original_state is None:
+            self._original_state = self._get_current_state()
+        self._facade.do_something(self._param)
         
-    def undo(self) -> bool:
-        # Reverse the operation
-        set_new_value(self.old_value)
-        return True
+    def undo(self):
+        if self._original_state is not None:
+            self._facade.restore_state(self._original_state)
 ```
 
 ## Usage
 
 ```python
-from src.application.commands.command_bus import get_command_bus
+from src.application.api.application_facade import get_facade
 
-bus = get_command_bus()
-bus.execute(MyCommand(new_value))
-bus.undo()  # Reverts the command
-bus.redo()  # Re-applies the command
+facade = get_facade()
+# Execute via command bus (facade provides undo/redo)
+facade.command_bus.execute(MyCommand(facade, new_value))
+facade.command_bus.undo()  # Reverts the command
+facade.command_bus.redo()  # Re-applies the command
 ```
 
 ## Related
 
-- [Encyclopedia: Command System](../../../docs/encyclopedia/01-architecture/command-system.md)
+- [Undo/Redo skill](../../../.cursor/skills/echozero-undo-redo/SKILL.md)

@@ -10,7 +10,7 @@ or load from a file path set in settings.
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QFormLayout, QLabel,
     QGroupBox, QLineEdit, QPushButton, QFileDialog, QSpinBox, QDoubleSpinBox, QComboBox,
-    QTextEdit
+    QTextEdit, QCheckBox
 )
 from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtGui import QDragEnterEvent, QDropEvent
@@ -44,7 +44,8 @@ class ModelPathEdit(QLineEdit):
             path = urls[0].toLocalFile()
             if os.path.exists(path):
                 self.setText(path)
-                self.textChanged.emit(path)
+                # Commit-on-complete behavior: treat drop as a completed edit.
+                self.editingFinished.emit()
             else:
                 Log.warning(f"PyTorchAudioClassifyPanel: Dropped path does not exist: {path}")
 
@@ -64,6 +65,7 @@ class PyTorchAudioClassifyPanel(BlockPanelBase):
 
         # Connect to settings changes for UI updates
         self._settings_manager.settings_changed.connect(self._on_setting_changed)
+        self._settings_manager.settings_save_failed.connect(self._on_settings_save_failed)
 
         # Refresh UI now that settings manager is ready
         if self.block:
@@ -136,7 +138,7 @@ class PyTorchAudioClassifyPanel(BlockPanelBase):
             "the connected model takes priority over this path.\n\n"
             "Supports drag-and-drop."
         )
-        self.model_path_edit.textChanged.connect(self._on_model_path_changed)
+        self.model_path_edit.editingFinished.connect(self._on_model_path_editing_finished)
         path_container.addWidget(self.model_path_edit)
 
         # Validation status
@@ -218,6 +220,27 @@ class PyTorchAudioClassifyPanel(BlockPanelBase):
         self.confidence_threshold_spin.valueChanged.connect(self._on_confidence_threshold_changed)
         processing_layout.addRow("Confidence Threshold:", self.confidence_threshold_spin)
 
+        # Multiclass multi-label (only applies to multiclass models)
+        self.multiclass_multi_label_check = QCheckBox("Allow multiple classes per event")
+        self.multiclass_multi_label_check.setToolTip(
+            "When enabled (multiclass and positive_vs_other models), a single onset can produce events "
+            "in multiple layers if more than one class exceeds the minimum confidence.\n\n"
+            "Useful for samples with layered sounds (e.g. kick + hi-hat)."
+        )
+        self.multiclass_multi_label_check.stateChanged.connect(self._on_multiclass_multi_label_changed)
+        processing_layout.addRow("", self.multiclass_multi_label_check)
+
+        self.multiclass_threshold_spin = QDoubleSpinBox()
+        self.multiclass_threshold_spin.setRange(0.0, 1.0)
+        self.multiclass_threshold_spin.setSingleStep(0.05)
+        self.multiclass_threshold_spin.setDecimals(2)
+        self.multiclass_threshold_spin.setValue(0.4)
+        self.multiclass_threshold_spin.setToolTip(
+            "Minimum probability to include a class when 'Allow multiple classes' is enabled."
+        )
+        self.multiclass_threshold_spin.valueChanged.connect(self._on_multiclass_threshold_changed)
+        processing_layout.addRow("Multi-label threshold:", self.multiclass_threshold_spin)
+
         layout.addWidget(processing_group)
 
         # -- Execution Summary --
@@ -259,6 +282,8 @@ class PyTorchAudioClassifyPanel(BlockPanelBase):
             batch_size = self._settings_manager.batch_size
             device = self._settings_manager.device
             confidence_threshold = self._settings_manager.confidence_threshold
+            multiclass_multi_label = self._settings_manager.multiclass_multi_label
+            multiclass_confidence_threshold = self._settings_manager.multiclass_confidence_threshold
         except Exception as e:
             Log.error(f"PyTorchAudioClassifyPanel: Failed to load settings: {e}")
             return
@@ -269,6 +294,10 @@ class PyTorchAudioClassifyPanel(BlockPanelBase):
         self.batch_size_spin.blockSignals(True)
         self.device_combo.blockSignals(True)
         self.confidence_threshold_spin.blockSignals(True)
+        if hasattr(self, "multiclass_multi_label_check"):
+            self.multiclass_multi_label_check.blockSignals(True)
+        if hasattr(self, "multiclass_threshold_spin"):
+            self.multiclass_threshold_spin.blockSignals(True)
 
         # Model path
         self.model_path_edit.setText(model_path or "")
@@ -287,12 +316,22 @@ class PyTorchAudioClassifyPanel(BlockPanelBase):
         # Confidence threshold (None -> 0.0 = Auto)
         self.confidence_threshold_spin.setValue(confidence_threshold if confidence_threshold is not None else 0.0)
 
+        # Multiclass multi-label
+        if hasattr(self, "multiclass_multi_label_check"):
+            self.multiclass_multi_label_check.setChecked(multiclass_multi_label)
+        if hasattr(self, "multiclass_threshold_spin"):
+            self.multiclass_threshold_spin.setValue(multiclass_confidence_threshold)
+
         # Unblock signals
         self.model_path_edit.blockSignals(False)
         self.sample_rate_spin.blockSignals(False)
         self.batch_size_spin.blockSignals(False)
         self.device_combo.blockSignals(False)
         self.confidence_threshold_spin.blockSignals(False)
+        if hasattr(self, "multiclass_multi_label_check"):
+            self.multiclass_multi_label_check.blockSignals(False)
+        if hasattr(self, "multiclass_threshold_spin"):
+            self.multiclass_threshold_spin.blockSignals(False)
 
         # Update derived displays
         self._update_model_source_info()
@@ -497,6 +536,8 @@ class PyTorchAudioClassifyPanel(BlockPanelBase):
         mode_display = classification_mode.capitalize()
         if classification_mode == "binary" and target_class:
             mode_display = f"Binary (target: {target_class})"
+        elif classification_mode == "positive_vs_other":
+            mode_display = "Positive vs Other"
         parts.append(row("Mode", mode_display))
         parts.append(row("Classes", f"{len(classes)} -- {', '.join(classes)}"))
         if classification_mode == "binary" and optimal_threshold is not None:
@@ -776,6 +817,10 @@ class PyTorchAudioClassifyPanel(BlockPanelBase):
     # Event Handlers
     # =========================================================================
 
+    def _on_model_path_editing_finished(self):
+        """Commit model path only when edit is complete."""
+        self._on_model_path_changed(self.model_path_edit.text())
+
     def _on_model_path_changed(self, text: str):
         """Handle model path change."""
         try:
@@ -855,11 +900,44 @@ class PyTorchAudioClassifyPanel(BlockPanelBase):
             self.set_status_message(str(e), error=True)
             self.refresh()
 
+    def _on_multiclass_multi_label_changed(self, state):
+        """Handle multiclass multi-label checkbox change."""
+        try:
+            enabled = state == Qt.CheckState.Checked.value
+            self._settings_manager.multiclass_multi_label = enabled
+            self.set_status_message(
+                f"Multiple classes per event: {'on' if enabled else 'off'}", error=False
+            )
+        except ValueError as e:
+            self.set_status_message(str(e), error=True)
+            self.refresh()
+
+    def _on_multiclass_threshold_changed(self, value: float):
+        """Handle multiclass confidence threshold change."""
+        try:
+            self._settings_manager.multiclass_confidence_threshold = value
+            self.set_status_message(f"Multi-label threshold set to {value:.2f}", error=False)
+        except ValueError as e:
+            self.set_status_message(str(e), error=True)
+            self.refresh()
+
     def _on_setting_changed(self, setting_name: str):
         """React to settings changes from this panel's settings manager."""
-        relevant = ["model_path", "sample_rate", "batch_size", "device", "confidence_threshold"]
+        relevant = [
+            "model_path",
+            "sample_rate",
+            "batch_size",
+            "device",
+            "confidence_threshold",
+            "multiclass_multi_label",
+            "multiclass_confidence_threshold",
+        ]
         if setting_name in relevant:
             self.refresh()
+
+    def _on_settings_save_failed(self, keys: str, error: str) -> None:
+        """Display loud, user-facing save errors from settings manager."""
+        self.set_status_message(f"Save failed ({keys}): {error}", error=True)
 
     # =========================================================================
     # External Updates

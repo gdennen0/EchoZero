@@ -68,7 +68,7 @@ def clear_pycache(project_root: Optional[Path] = None, verbose: bool = False) ->
         Number of directories/files removed.
     """
     if project_root is None:
-        project_root = Path(__file__).parent.parent.parent  # Go up from src/utils
+        project_root = Path(__file__).resolve().parent.parent.parent  # Go up from src/utils
     
     # Only clean source directories (not .venv, node_modules, etc.)
     source_dirs = ['src', 'ui', 'tests', 'AgentAssets']

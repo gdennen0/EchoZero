@@ -229,7 +229,6 @@ class Colors:
             'Separator': cls.BLOCK_TRANSFORM,
             'Editor': cls.BLOCK_EDITOR,
             'EditorV2': cls.BLOCK_EDITOR,
-            'PlotEvents': cls.BLOCK_VISUALIZE,
             'CommandSequencer': cls.BLOCK_UTILITY,
             'AudioPlayer': cls.BLOCK_PLAYER,
             'AudioFilter': cls.BLOCK_TRANSFORM,
@@ -474,7 +473,7 @@ class Sizes:
 
     # Audio negate embedded controls (wider node to fit knob rows)
     NEGATE_BLOCK_WIDTH = 210
-    NEGATE_CONTROL_HEIGHT = 260  # mode btn + 4 knob rows (76px each) visible
+    # Negate control height is computed dynamically in audio_negate_block_item.py
 
 
 class Effects:

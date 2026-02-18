@@ -15,18 +15,23 @@ from src.utils.message import Log
 class PyTorchAudioClassifyBlockSettings(BaseSettings):
     """
     Settings schema for PyTorchAudioClassify blocks.
-    
+
     All fields have default values for backwards compatibility.
     Settings are stored in block.metadata at the top level.
     """
     # Model path (required) - must be from PyTorch Audio Trainer
     model_path: Optional[str] = None  # Path to model file created by PyTorch Audio Trainer
-    
+
     # Optional processing parameters (defaults from model config if available)
     sample_rate: Optional[int] = None  # Audio sample rate in Hz (uses model config if None)
     batch_size: Optional[int] = None  # Batch size for prediction (None = auto)
     device: str = "cpu"  # Device to use ("cpu", "cuda", or "mps")
     confidence_threshold: Optional[float] = None  # Override model's optimal threshold (None = use model default)
+
+    # Multiclass multi-label: when True, create events for ALL classes above threshold
+    # (one input event can produce multiple output events across layers)
+    multiclass_multi_label: bool = False
+    multiclass_confidence_threshold: float = 0.4  # Min probability to include a class (when multi_label is True)
 
 
 class PyTorchAudioClassifySettingsManager(BlockSettingsManager):
@@ -127,9 +132,36 @@ class PyTorchAudioClassifySettingsManager(BlockSettingsManager):
             value = float(value)
             if value < 0.0 or value > 1.0:
                 raise ValueError(f"Confidence threshold must be between 0.0 and 1.0, got {value}")
-        
+
         if value != self._settings.confidence_threshold:
             self._settings.confidence_threshold = value
             self._save_setting('confidence_threshold')
+
+    @property
+    def multiclass_multi_label(self) -> bool:
+        """Get whether to allow multiple classes per event (multiclass only)."""
+        return self._settings.multiclass_multi_label
+
+    @multiclass_multi_label.setter
+    def multiclass_multi_label(self, value: bool):
+        """Set multiclass multi-label mode."""
+        if value != self._settings.multiclass_multi_label:
+            self._settings.multiclass_multi_label = value
+            self._save_setting('multiclass_multi_label')
+
+    @property
+    def multiclass_confidence_threshold(self) -> float:
+        """Get minimum confidence to include a class in multi-label mode."""
+        return self._settings.multiclass_confidence_threshold
+
+    @multiclass_confidence_threshold.setter
+    def multiclass_confidence_threshold(self, value: float):
+        """Set multiclass confidence threshold with validation."""
+        v = float(value)
+        if v < 0.0 or v > 1.0:
+            raise ValueError(f"Multiclass confidence threshold must be 0.0-1.0, got {v}")
+        if v != self._settings.multiclass_confidence_threshold:
+            self._settings.multiclass_confidence_threshold = v
+            self._save_setting('multiclass_confidence_threshold')
 
 

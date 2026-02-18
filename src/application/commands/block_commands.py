@@ -484,7 +484,9 @@ class UpdateBlockMetadataCommand(EchoZeroCommand):
         self._facade.block_service.update_block(
             self._facade.current_project_id,
             self._block_id,
-            block
+            block,
+            changed_keys=[self._key],
+            update_source="settings",
         )
     
     def undo(self):
@@ -505,7 +507,9 @@ class UpdateBlockMetadataCommand(EchoZeroCommand):
         self._facade.block_service.update_block(
             self._facade.current_project_id,
             self._block_id,
-            block
+            block,
+            changed_keys=[self._key],
+            update_source="settings",
         )
 
 class SetBlockInputCommand(EchoZeroCommand):
@@ -785,7 +789,9 @@ class BatchUpdateMetadataCommand(EchoZeroCommand):
             self._facade.block_service.update_block(
                 self._facade.current_project_id,
                 self._block_id,
-                block
+                block,
+                changed_keys=list(self._updates.keys()),
+                update_source="settings",
             )
             
             Log.debug(
@@ -815,7 +821,9 @@ class BatchUpdateMetadataCommand(EchoZeroCommand):
         self._facade.block_service.update_block(
             self._facade.current_project_id,
             self._block_id,
-            block
+            block,
+            changed_keys=list(self._old_values.keys()),
+            update_source="settings",
         )
 
 

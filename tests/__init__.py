@@ -1,4 +1,0 @@
-"""
-EchoZero Test Suite
-"""
-

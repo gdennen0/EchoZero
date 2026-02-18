@@ -18,7 +18,7 @@ class AICursorContextHook:
     """Hook that automatically provides context to AI agents in Cursor."""
 
     def __init__(self):
-        self.project_root = Path(__file__).parent.parent
+        self.project_root = Path(__file__).resolve().parent.parent
         self.agent_assets_root = self.project_root / "AgentAssets"
         self.context_cache: Dict[str, Dict[str, Any]] = {}
         self.cache_timeout = 300  # 5 minutes

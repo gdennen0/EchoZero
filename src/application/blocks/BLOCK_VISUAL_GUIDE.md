@@ -72,16 +72,6 @@ Complete reference for all block types in the Qt GUI.
 
 ---
 
-### Visualization Blocks 
-
-**PlotEvents** - Magenta (200, 80, 180)
-- Creates timeline visualizations
-- Input: `events` (Event)
-- Output: PNG file
-- Use: Generate event plots
-
----
-
 ### Utility Blocks  
 
 **CommandSequencer** - Yellow (200, 200, 80)
@@ -110,7 +100,7 @@ LoadAudio (Blue)
     ↓ audio
 DetectOnsets (Orange)
     ↓ events
-PlotEvents (Magenta)
+Editor (Gray) or ExportAudio (Teal)
 ```
 
 ### Workflow 2: Note Transcription
@@ -119,7 +109,7 @@ LoadAudio (Blue)
     ↓ audio
 TranscribeNote (Green)
     ↓ events
-PlotEvents (Magenta)
+Editor (Gray) or ExportAudio (Teal)
 ```
 
 ### Workflow 3: Stem Separation & Analysis
@@ -130,7 +120,7 @@ Separator (Purple)
     ↓ drums, bass, vocals, other
 [4x] TranscribeNote (Green)
     ↓ events
-[4x] PlotEvents (Magenta)
+[4x] Editor (Gray)
 ```
 
 ### Workflow 4: Drum Classification
@@ -141,7 +131,7 @@ DetectOnsets (Orange)
     ↓ events
 DrumClassify (Brown-Orange)
     ↓ events (with kick/snare/hihat labels)
-PlotEvents (Magenta)
+Editor (Gray) or ExportAudio (Teal)
 ```
 
 ---
@@ -153,20 +143,19 @@ PlotEvents (Magenta)
 - **Orange tones** = Analysis operations
 - **Green tones** = Note/pitch extraction
 - **Purple tones** = Audio processing/effects
-- **Pink tones** = Visualization
 - **Yellow/Gray tones** = Utility/automation
 
 ### By Position in Chain:
 - **Start**: Usually LoadAudio (Blue)
 - **Middle**: Analysis (Orange), Processing (Purple), or Extraction (Green)
-- **End**: Usually PlotEvents (Magenta) or Export (Teal/Green)
+- **End**: Usually Editor (Gray) or Export (Teal/Green)
 
 ### Quick Reference:
 - Need to **load audio**? → Blue block (LoadAudio)
 - Need **onsets**? → Orange block (DetectOnsets)
 - Need **notes**? → Green block (TranscribeNote/NoteExtractor)
 - Need **stems**? → Purple block (Separator)
-- Need **visualization**? → Magenta block (PlotEvents)
+- Need to **edit**? → Gray block (Editor)
 - Need to **save**? → Teal block (ExportAudio)
 
 ---
@@ -226,13 +215,13 @@ Ports are color-coded:
 
 ---
 
-## All 12 Block Types at a Glance
+## All Block Types at a Glance
 
 ```
  LoadAudio           DetectOnsets        TranscribeNote
  ExportAudio         DrumClassify        NoteExtractorBasicPitch
  Separator           TranscribeLib
- PlotEvents          SeparatorBlock      NoteExtractorLibrosa
+ SeparatorBlock      NoteExtractorLibrosa
  CommandSequencer    Editor              EditorV2
 ```
 

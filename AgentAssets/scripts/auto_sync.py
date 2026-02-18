@@ -32,8 +32,8 @@ class AgentAssetsAutoSync:
     """Automatic synchronization system for AgentAssets."""
 
     def __init__(self):
-        self.project_root = Path(__file__).parent.parent.parent
-        self.agent_assets_root = Path(__file__).parent.parent
+        self.project_root = Path(__file__).resolve().parent.parent.parent
+        self.agent_assets_root = Path(__file__).resolve().parent.parent
         self.state_file = self.agent_assets_root / "data" / "sync_state.json"
         self.watched_extensions = {'.py', '.md', '.json', '.yml', '.yaml'}
 

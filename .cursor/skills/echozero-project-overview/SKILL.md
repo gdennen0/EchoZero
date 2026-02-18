@@ -72,6 +72,6 @@ EchoZero/
 
 ## Documentation
 
-- Architecture: `docs/ARCHITECTURE.md`
-- Show manager sync: `docs/show_manager_sync_system.md`
-- Progress tracking: `docs/progress_tracking_guide.md`
+- Architecture: `docs/architecture/ARCHITECTURE.md`
+- Show manager sync: `docs/ma3/show_manager_sync_system.md`
+- Progress tracking: `docs/progress_tracking.md`

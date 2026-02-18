@@ -44,16 +44,20 @@ When bootstrap runs, it imports all processor modules and calls `register_all_pr
 
 That's it! No manual registration needed elsewhere.
 
-## Processor Files
+## Processor Files (partial list)
 
-- `load_audio_block.py` - LoadAudio processor ✅ Implemented
-- `detect_onsets_block.py` - DetectOnsets processor ✅ Implemented
-- `separator_block.py` - Separator processor ✅ Implemented
-- `editor_block.py` - Editor/EditorV2 processor ✅ Implemented
-- `export_audio_block.py` - ExportAudio processor ✅ Implemented
-- `tensorflow_classify_block.py` - TensorFlowClassify processor ✅ Implemented
-- `pytorch_classify_block.py` - PyTorchClassify processor ✅ Implemented
-- `pytorch_drum_trainer_block.py` - PyTorchDrumTrainer processor ✅ Implemented
+- `load_audio_block.py` - LoadAudio
+- `detect_onsets_block.py` - DetectOnsets
+- `separator_block.py` - Separator (Demucs)
+- `editor_block.py` - Editor/EditorV2
+- `export_audio_block.py` - ExportAudio
+- `tensorflow_classify_block.py` - TensorFlowClassify
+- `pytorch_audio_classify_block.py` - PyTorchClassify
+- `pytorch_audio_trainer_block.py` - PyTorchAudioTrainer
+- `show_manager_block.py` - ShowManager (MA3 sync)
+- `export_audio_dataset_block.py` - ExportAudioDataset
+
+See `__init__.py` `register_all_processors()` for full list.
 
 ## Benefits
 

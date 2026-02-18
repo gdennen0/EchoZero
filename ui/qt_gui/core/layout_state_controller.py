@@ -79,7 +79,7 @@ class LayoutStateController(QObject):
             window_id: Unique identifier (e.g., "node_editor", "block_panel_123")
             dock_widget: The QDockWidget instance
             window_type: Type of window (e.g., "node_editor", "block_panel")
-            block_type: For block panels, the block type (e.g., "PlotEvents")
+            block_type: For block panels, the block type (e.g., "Editor")
             block_id: For block panels, the specific block ID
         """
         self._windows[window_id] = {

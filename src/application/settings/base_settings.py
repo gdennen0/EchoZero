@@ -440,6 +440,7 @@ class BaseSettingsManager(QObject):
     settings_changed = pyqtSignal(str)  # Setting name that changed
     settings_loaded = pyqtSignal()
     validation_failed = pyqtSignal(object)  # ValidationResult when validation fails
+    settings_save_failed = pyqtSignal(str)  # Error message
     
     # Must be defined by subclasses
     NAMESPACE: str = ""  # e.g., "timeline", "app", "block.editor"
@@ -556,6 +557,7 @@ class BaseSettingsManager(QObject):
             self._pending_save = False
         except Exception as e:
             print(f"{self.__class__.__name__}: Failed to save settings: {e}")
+            self.settings_save_failed.emit(str(e))
     
     def force_save(self):
         """Force an immediate save (bypasses debounce)."""

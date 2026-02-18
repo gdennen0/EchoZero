@@ -61,6 +61,7 @@ class BlockSettingsManager(QObject):
     # Signals
     settings_changed = pyqtSignal(str)  # Setting name that changed
     settings_loaded = pyqtSignal()
+    settings_save_failed = pyqtSignal(str, str)  # key list, error message
     
     # Must be defined by subclasses
     SETTINGS_CLASS: Type[BaseSettings] = BaseSettings
@@ -254,6 +255,7 @@ class BlockSettingsManager(QObject):
             # Get command_bus from facade (explicit dependency)
             if not self._facade.command_bus:
                 Log.error(f"{self.__class__.__name__}: Cannot save settings - command_bus not initialized")
+                self._emit_settings_failure("command_bus_not_initialized")
                 return False
             
             result = self._facade.command_bus.execute(cmd)
@@ -265,18 +267,43 @@ class BlockSettingsManager(QObject):
                     f"{self.__class__.__name__}: Successfully queued save of {len(self._pending_changes)} setting(s) "
                     f"to block {self._block_id}"
                 )
+                self._pending_changes.clear()
+                self._pending_save = False
             else:
                 Log.error(
                     f"{self.__class__.__name__}: Failed to save settings: command_bus.execute() returned False"
                 )
-            
-            # Clear pending changes
-            self._pending_changes.clear()
-            self._pending_save = False
+                self._emit_settings_failure("command_bus_execute_returned_false")
+                self._pending_save = bool(self._pending_changes)
             
         except Exception as e:
             Log.error(f"{self.__class__.__name__}: Failed to save settings: {e}", exc_info=True)
-            self._pending_save = False
+            self._emit_settings_failure(str(e))
+            self._pending_save = bool(self._pending_changes)
+
+    def _emit_settings_failure(self, error: str) -> None:
+        """Emit a loud settings failure signal/event for UI visibility."""
+        keys = sorted(self._pending_changes.keys())
+        key_csv = ", ".join(keys) if keys else "<unknown>"
+        self.settings_save_failed.emit(key_csv, error)
+        try:
+            from src.application.events.events import SettingsOperationFailed
+
+            event_bus = getattr(self._facade, "event_bus", None)
+            if event_bus:
+                event_bus.publish(
+                    SettingsOperationFailed(
+                        project_id=self._facade.current_project_id,
+                        data={
+                            "block_id": self._block_id,
+                            "keys": keys,
+                            "message": error,
+                            "manager": self.__class__.__name__,
+                        },
+                    )
+                )
+        except Exception as exc:
+            Log.warning(f"{self.__class__.__name__}: Failed to publish SettingsOperationFailed: {exc}")
     
     def force_save(self):
         """Force an immediate save (bypasses debounce)."""

@@ -250,7 +250,16 @@ class BlockService:
         Log.info(f"BlockService: Renamed block from '{old_name}' to '{new_name}' (id: {block_id})")
         return block
 
-    def update_block(self, project_id: str, block_id: str, block: Block) -> Block:
+    def update_block(
+        self,
+        project_id: str,
+        block_id: str,
+        block: Block,
+        *,
+        changed_keys: list[str] | None = None,
+        update_source: str | None = None,
+        origin_panel_id: str | None = None,
+    ) -> Block:
         """
         Update a block in the repository.
         Generic update method for any block changes (including metadata).
@@ -264,10 +273,14 @@ class BlockService:
             Updated Block entity
         """
         self._block_repo.update(block)
-        self._event_bus.publish(BlockUpdated(
-            project_id=project_id,
-            data={"id": block_id, "name": block.name}
-        ))
+        event_data = {"id": block_id, "name": block.name}
+        if changed_keys:
+            event_data["changed_keys"] = list(changed_keys)
+        if update_source:
+            event_data["update_source"] = update_source
+        if origin_panel_id:
+            event_data["origin_panel_id"] = origin_panel_id
+        self._event_bus.publish(BlockUpdated(project_id=project_id, data=event_data))
         
         # Also emit BlockChanged since metadata changes (errors, filters) affect status
         # BlockItem will handle BlockUpdated to refresh block entity, but this ensures
@@ -599,60 +612,6 @@ class BlockService:
             Log.info(f"BlockService: Set save_to_file for '{block.name}' -> {enabled}")
             return block
         
-        # Handle PlotEvents commands
-        if command_name == "set_plot_style":
-            if not args:
-                raise ValueError("set_plot_style requires a style (bars, markers, or piano_roll)")
-            style = args[0].lower()
-            if style not in ["bars", "markers", "piano_roll"]:
-                raise ValueError("Plot style must be 'bars', 'markers', or 'piano_roll'")
-            block.metadata["plot_style"] = style
-            self._block_repo.update(block)
-            Log.info(f"BlockService: Set plot style for '{block.name}' -> {style}")
-            return block
-        
-        if command_name == "set_figsize":
-            if len(args) < 2:
-                raise ValueError("set_figsize requires width and height arguments")
-            width = float(args[0])
-            height = float(args[1])
-            if width <= 0 or height <= 0:
-                raise ValueError("Figure dimensions must be positive")
-            block.metadata["figsize_width"] = width
-            block.metadata["figsize_height"] = height
-            self._block_repo.update(block)
-            Log.info(f"BlockService: Set figure size for '{block.name}' -> {width}x{height}")
-            return block
-        
-        if command_name == "set_dpi":
-            if not args:
-                raise ValueError("set_dpi requires a DPI value")
-            dpi = int(args[0])
-            if dpi < 50 or dpi > 600:
-                raise ValueError("DPI must be between 50 and 600")
-            block.metadata["dpi"] = dpi
-            self._block_repo.update(block)
-            Log.info(f"BlockService: Set DPI for '{block.name}' -> {dpi}")
-            return block
-        
-        if command_name == "show_labels":
-            if not args:
-                raise ValueError("show_labels requires true or false")
-            enabled = args[0].lower() in ["true", "1", "yes", "on"]
-            block.metadata["show_labels"] = enabled
-            self._block_repo.update(block)
-            Log.info(f"BlockService: Set show_labels for '{block.name}' -> {enabled}")
-            return block
-        
-        if command_name == "show_grid":
-            if not args:
-                raise ValueError("show_grid requires true or false")
-            enabled = args[0].lower() in ["true", "1", "yes", "on"]
-            block.metadata["show_grid"] = enabled
-            self._block_repo.update(block)
-            Log.info(f"BlockService: Set show_grid for '{block.name}' -> {enabled}")
-            return block
-
         command_history = block.metadata.get("commands", {})
         command_history[command_name] = {
             "args": args,

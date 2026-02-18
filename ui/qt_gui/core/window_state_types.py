@@ -73,7 +73,7 @@ class WindowState:
     Attributes:
         window_id: Unique identifier for this window instance
         window_type: Type of window (e.g., "node_editor", "block_panel")
-        block_type: For block panels, the block type (e.g., "PlotEvents", "Editor")
+        block_type: For block panels, the block type (e.g., "Editor", "ExportAudio")
         block_id: For block panels, the specific block ID (used for current session only)
         
         dock_position: Where the window is docked (or FLOATING)

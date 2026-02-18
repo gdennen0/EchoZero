@@ -106,8 +106,6 @@ EchoZero includes 17+ block types organized by category:
 
 ### Editor & Visualization
 - **Editor** - Interactive audio editor with timeline visualization
-- **PlotEvents** - Create timeline visualizations of events
-
 ### Output Blocks
 - **ExportAudio** - Export audio to file
 - **ExportClipsByClass** - Export audio clips organized by classification
@@ -137,7 +135,8 @@ EchoZero/
 │   │   ├── application/    # Events, registry, validation
 │   │   ├── domain/         # Shared entities
 │   │   └── infrastructure/ # Base repositories
-│   └── infrastructure/    # Persistence layer
+│   ├── infrastructure/    # Persistence (SQLite, auth)
+│   └── utils/             # Utilities (paths, message)
 ├── ui/
 │   └── qt_gui/            # PyQt6 interface
 │       ├── block_panels/   # Block configuration UI
@@ -145,7 +144,7 @@ EchoZero/
 │       └── widgets/       # Reusable widgets
 ├── tests/                 # Test suite
 ├── docs/                  # Documentation (including web interface)
-├── ma3_plugins/           # GrandMA3 Lua plugins
+├── MA3/                   # GrandMA3 Lua plugins and integration docs
 ├── main.py                # CLI entry point
 └── main_qt.py             # GUI entry point
 ```
@@ -162,10 +161,10 @@ Open `docs/index.html` in your browser for an interactive documentation interfac
 
 ### Documentation Files
 
-- [Architecture](docs/ARCHITECTURE.md) - System architecture overview
+- [Architecture](docs/architecture/ARCHITECTURE.md) - System architecture overview
 - [Feature Modules](docs/README.md) - Feature module documentation index
-- [MA3 Integration](docs/show_manager_sync_system.md) - Show Manager and MA3 sync system
-- [MA3 Sync Cases](docs/MA3_SYNC_CASES.md) - MA3 integration use cases
+- [MA3 Integration](MA3/docs/show_manager_sync_system.md) - Show Manager and MA3 sync system
+- [MA3 Sync Cases](MA3/docs/MA3_SYNC_CASES.md) - MA3 integration use cases
 
 ### Feature Module READMEs
 
@@ -210,7 +209,7 @@ python scripts/build_app.py
 
 - **Output**: `dist/EchoZero/` (one-folder). On macOS, `dist/EchoZero.app` is also created.
 - **Run**: `dist/EchoZero/EchoZero` (or `EchoZero.exe` on Windows); on macOS you can run the .app.
-- **Zero-config shipping**: To ship a build that needs no user configuration, set auth at build time: `MEMBERSTACK_APP_SECRET=your_secret python scripts/build_app.py`. The secret is embedded in the bundle; end users just run the app. See `docs/PACKAGING.md`.
+- **Zero-config shipping**: To ship a build that needs no user configuration, set auth at build time: `MEMBERSTACK_APP_SECRET=your_secret python scripts/build_app.py`. The secret is embedded in the bundle; end users just run the app. See `docs/packaging/PACKAGING.md`.
 - **Config (no embed)**: Otherwise set `MEMBERSTACK_APP_SECRET` via a `.env` file next to the executable or in the environment (copy `.env.example` to `.env`).
 - **Releases**: Update `version` in `setup.py` and `packaging_config.json` together.
 

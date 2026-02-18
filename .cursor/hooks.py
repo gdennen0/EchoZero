@@ -19,7 +19,7 @@ class CursorIDEHooks:
     """Hooks for Cursor IDE integration."""
 
     def __init__(self):
-        self.project_root = Path(__file__).parent.parent
+        self.project_root = Path(__file__).resolve().parent.parent
         self.agent_assets_root = self.project_root / "AgentAssets"
         self.last_sync_time = 0
         self.sync_cooldown = 5  # seconds between syncs

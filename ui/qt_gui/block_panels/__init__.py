@@ -24,7 +24,6 @@ from ui.qt_gui.block_panels.separator_cloud_panel import SeparatorCloudPanel
 from ui.qt_gui.block_panels.load_audio_panel import LoadAudioPanel
 from ui.qt_gui.block_panels.export_audio_panel import ExportAudioPanel
 from ui.qt_gui.block_panels.transcribe_note_panel import TranscribeNotePanel
-from ui.qt_gui.block_panels.plot_events_panel import PlotEventsPanel
 from ui.qt_gui.block_panels.detect_onsets_panel import DetectOnsetsPanel
 from ui.qt_gui.block_panels.learned_onset_detector_panel import LearnedOnsetDetectorPanel
 from ui.qt_gui.block_panels.editor_panel import EditorPanel
@@ -51,7 +50,6 @@ __all__ = [
     'LoadAudioPanel',
     'ExportAudioPanel',
     'TranscribeNotePanel',
-    'PlotEventsPanel',
     'DetectOnsetsPanel',
     'LearnedOnsetDetectorPanel',
     'EditorPanel',

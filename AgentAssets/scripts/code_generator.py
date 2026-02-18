@@ -29,8 +29,8 @@ class EchoZeroCodeGenerator:
     """Generates code following EchoZero patterns and conventions."""
 
     def __init__(self):
-        self.project_root = Path(__file__).parent.parent.parent
-        self.templates_dir = Path(__file__).parent / "templates"
+        self.project_root = Path(__file__).resolve().parent.parent.parent
+        self.templates_dir = Path(__file__).resolve().parent / "templates"
         self.templates_dir.mkdir(exist_ok=True)
 
     def generate_block_processor(self, template: BlockTemplate) -> str:
@@ -241,8 +241,8 @@ import unittest
 from pathlib import Path
 import sys
 
-# Add src to path for imports
-sys.path.insert(0, str(Path(__file__).parent.parent))
+# Add project root to path for imports
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 # TODO: Import the module being tested
 # from src.module.path import {", ".join(classes) if classes else "ModuleClass"}

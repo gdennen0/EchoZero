@@ -360,10 +360,12 @@ class ShowManagerStateService(QObject):
     
     def _on_block_removed(self, event: BlockRemoved) -> None:
         """Handle block removed event."""
-        if event.block_id in self._connection_states:
-            del self._connection_states[event.block_id]
-        
-        self.stop_status_polling(event.block_id)
+        block_id = (event.data or {}).get("id")
+        if not block_id:
+            return
+        if block_id in self._connection_states:
+            del self._connection_states[block_id]
+        self.stop_status_polling(block_id)
     
     def cleanup(self) -> None:
         """Cleanup service on application shutdown."""
