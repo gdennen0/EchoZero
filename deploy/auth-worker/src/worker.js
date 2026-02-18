@@ -61,7 +61,7 @@ export default {
       const token = request.headers.get("X-App-Token");
       if (token !== env.APP_SECRET) {
         return Response.json(
-          { verified: false, error: "Unauthorized" },
+          { verified: false, error: "Invalid app token" },
           { status: 401, headers: CORS_HEADERS }
         );
       }

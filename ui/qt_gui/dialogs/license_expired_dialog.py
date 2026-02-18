@@ -290,10 +290,11 @@ class LicenseExpiredDialog(QDialog):
                 )
             elif reason == "token_invalid":
                 message = "Your session may have expired. Please log in again in the browser."
-            elif reason == "unauthorized":
+            elif reason in ("unauthorized", "invalid_app_token"):
                 message = (
-                    "Auth service rejected this app request.\n"
-                    "Please check MEMBERSTACK_APP_SECRET configuration."
+                    "Your app's MEMBERSTACK_APP_SECRET does not match the verification server.\n\n"
+                    "Fix: Set the correct secret in .env (project root or Application Support). "
+                    "It must match the auth worker's APP_SECRET. See .env.example."
                 )
             elif reason == "access_denied":
                 message = (
