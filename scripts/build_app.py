@@ -74,6 +74,24 @@ def _check_build_deps() -> bool:
     return True
 
 
+def _run_env_smoke_check(project_root: Path) -> bool:
+    """Run environment verification and fail early on known Qt DLL issues."""
+    verify_script = project_root / "scripts" / "verify_env.py"
+    if not verify_script.is_file():
+        print("Warning: scripts/verify_env.py not found; skipping environment smoke check.")
+        return True
+
+    cmd = [sys.executable, str(verify_script), "--quiet"]
+    result = subprocess.run(cmd, cwd=str(project_root))
+    if result.returncode != 0:
+        print(
+            "Error: environment verification failed. "
+            "Fix the Python environment before building."
+        )
+        return False
+    return True
+
+
 def _write_bundled_config(project_root: Path) -> None:
     """Write build/bundled_config.env from env + packaging_config defaults for zero-config shipping."""
     build_dir = project_root / "build"
@@ -115,6 +133,8 @@ def main() -> int:
         return 1
 
     if not _check_build_deps():
+        return 1
+    if not _run_env_smoke_check(project_root):
         return 1
     _write_bundled_config(project_root)
 
