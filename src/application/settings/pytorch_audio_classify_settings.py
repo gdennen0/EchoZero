@@ -33,6 +33,10 @@ class PyTorchAudioClassifyBlockSettings(BaseSettings):
     multiclass_multi_label: bool = False
     multiclass_confidence_threshold: float = 0.4  # Min probability to include a class (when multi_label is True)
 
+    # Layer creation: when False, do not create an EventLayer for "other" (binary/positive_vs_other)
+    # Events classified as "other" are dropped from output
+    create_other_layer: bool = True
+
 
 class PyTorchAudioClassifySettingsManager(BlockSettingsManager):
     """
@@ -163,5 +167,17 @@ class PyTorchAudioClassifySettingsManager(BlockSettingsManager):
         if v != self._settings.multiclass_confidence_threshold:
             self._settings.multiclass_confidence_threshold = v
             self._save_setting('multiclass_confidence_threshold')
+
+    @property
+    def create_other_layer(self) -> bool:
+        """Get whether to create an EventLayer for 'other' classification."""
+        return self._settings.create_other_layer
+
+    @create_other_layer.setter
+    def create_other_layer(self, value: bool):
+        """Set whether to create an EventLayer for 'other' classification."""
+        if value != self._settings.create_other_layer:
+            self._settings.create_other_layer = value
+            self._save_setting('create_other_layer')
 
 

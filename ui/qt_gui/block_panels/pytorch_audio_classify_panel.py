@@ -241,6 +241,15 @@ class PyTorchAudioClassifyPanel(BlockPanelBase):
         self.multiclass_threshold_spin.valueChanged.connect(self._on_multiclass_threshold_changed)
         processing_layout.addRow("Multi-label threshold:", self.multiclass_threshold_spin)
 
+        # Create layer for "other" (binary/positive_vs_other models)
+        self.create_other_layer_check = QCheckBox("Create layer for 'other'")
+        self.create_other_layer_check.setToolTip(
+            "When enabled, events classified as 'other' (below threshold in binary/positive-vs-other "
+            "mode) get their own layer. When disabled, those events are dropped from the output."
+        )
+        self.create_other_layer_check.stateChanged.connect(self._on_create_other_layer_changed)
+        processing_layout.addRow("", self.create_other_layer_check)
+
         layout.addWidget(processing_group)
 
         # -- Execution Summary --
@@ -284,6 +293,7 @@ class PyTorchAudioClassifyPanel(BlockPanelBase):
             confidence_threshold = self._settings_manager.confidence_threshold
             multiclass_multi_label = self._settings_manager.multiclass_multi_label
             multiclass_confidence_threshold = self._settings_manager.multiclass_confidence_threshold
+            create_other_layer = self._settings_manager.create_other_layer
         except Exception as e:
             Log.error(f"PyTorchAudioClassifyPanel: Failed to load settings: {e}")
             return
@@ -298,6 +308,8 @@ class PyTorchAudioClassifyPanel(BlockPanelBase):
             self.multiclass_multi_label_check.blockSignals(True)
         if hasattr(self, "multiclass_threshold_spin"):
             self.multiclass_threshold_spin.blockSignals(True)
+        if hasattr(self, "create_other_layer_check"):
+            self.create_other_layer_check.blockSignals(True)
 
         # Model path
         self.model_path_edit.setText(model_path or "")
@@ -321,6 +333,8 @@ class PyTorchAudioClassifyPanel(BlockPanelBase):
             self.multiclass_multi_label_check.setChecked(multiclass_multi_label)
         if hasattr(self, "multiclass_threshold_spin"):
             self.multiclass_threshold_spin.setValue(multiclass_confidence_threshold)
+        if hasattr(self, "create_other_layer_check"):
+            self.create_other_layer_check.setChecked(create_other_layer)
 
         # Unblock signals
         self.model_path_edit.blockSignals(False)
@@ -332,6 +346,8 @@ class PyTorchAudioClassifyPanel(BlockPanelBase):
             self.multiclass_multi_label_check.blockSignals(False)
         if hasattr(self, "multiclass_threshold_spin"):
             self.multiclass_threshold_spin.blockSignals(False)
+        if hasattr(self, "create_other_layer_check"):
+            self.create_other_layer_check.blockSignals(False)
 
         # Update derived displays
         self._update_model_source_info()
@@ -912,6 +928,18 @@ class PyTorchAudioClassifyPanel(BlockPanelBase):
             self.set_status_message(str(e), error=True)
             self.refresh()
 
+    def _on_create_other_layer_changed(self, state):
+        """Handle create other layer checkbox change."""
+        try:
+            enabled = state == Qt.CheckState.Checked.value
+            self._settings_manager.create_other_layer = enabled
+            self.set_status_message(
+                f"Create 'other' layer: {'on' if enabled else 'off'}", error=False
+            )
+        except ValueError as e:
+            self.set_status_message(str(e), error=True)
+            self.refresh()
+
     def _on_multiclass_threshold_changed(self, value: float):
         """Handle multiclass confidence threshold change."""
         try:
@@ -931,6 +959,7 @@ class PyTorchAudioClassifyPanel(BlockPanelBase):
             "confidence_threshold",
             "multiclass_multi_label",
             "multiclass_confidence_threshold",
+            "create_other_layer",
         ]
         if setting_name in relevant:
             self.refresh()

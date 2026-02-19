@@ -14,7 +14,8 @@ from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QDockWidget, QMenuBar, QMenu, QToolBar, QStatusBar,
     QMessageBox, QFileDialog, QSizePolicy, QApplication, QTabWidget,
-    QLabel, QPlainTextEdit, QPushButton, QProgressBar, QFrame, QProgressDialog
+    QLabel, QPlainTextEdit, QPushButton, QProgressBar, QFrame, QProgressDialog,
+    QTabBar, QStackedWidget
 )
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QSettings, pyqtSlot
 from PyQt6.QtGui import QShowEvent, QAction, QKeySequence, QUndoStack
@@ -517,6 +518,7 @@ class MainWindow(QMainWindow):
                     dock.setFeatures(panel_features)
         
         self._enforce_main_dock_tabbing()
+        self._setup_dock_tab_close_buttons()
     
     def _apply_dock_styling(self):
         """Apply global stylesheet to QApplication for instant app-wide propagation.
@@ -529,6 +531,66 @@ class MainWindow(QMainWindow):
         app = QApplication.instance()
         if app:
             app.setStyleSheet(get_stylesheet() + StyleFactory.dock_tabs())
+    
+    def _setup_dock_tab_close_buttons(self):
+        """
+        Enable close buttons on dock tab bars.
+        
+        Qt creates QTabBar for tabified dock widgets internally. We find these,
+        enable tabsClosable, and connect tabCloseRequested to close the correct dock.
+        """
+        for tab_bar in self.findChildren(QTabBar):
+            # Skip tab bars that belong to QTabWidget (e.g. settings dialog)
+            if isinstance(tab_bar.parent(), QTabWidget):
+                continue
+            # Skip if already configured
+            if tab_bar.property("_dock_tab_configured"):
+                continue
+            # Only configure tab bars with 2+ tabs (tabified dock groups)
+            if tab_bar.count() < 2:
+                continue
+            tab_bar.setTabsClosable(True)
+            tab_bar.tabCloseRequested.connect(self._on_dock_tab_close_requested)
+            tab_bar.setProperty("_dock_tab_configured", True)
+    
+    def _on_dock_tab_close_requested(self, index: int):
+        """Close the dock widget corresponding to the tab at the given index."""
+        tab_bar = self.sender()
+        if not isinstance(tab_bar, QTabBar) or index < 0 or index >= tab_bar.count():
+            return
+        # Try to find dock via parent hierarchy (Qt places tab bar and stacked content together)
+        parent = tab_bar.parent()
+        if parent:
+            stacked = parent.findChild(QStackedWidget)
+            if stacked and stacked.count() == tab_bar.count():
+                content = stacked.widget(index)
+                if content:
+                    for dock in self.findChildren(QDockWidget):
+                        if dock.widget() is content:
+                            dock.close()
+                            return
+        # Fallback: use tabifiedDockWidgets with spatial matching
+        tab_bar_center = tab_bar.mapToGlobal(tab_bar.rect().center())
+        best_dock = None
+        best_dist = float("inf")
+        for dock in self.findChildren(QDockWidget):
+            tabified = self.tabifiedDockWidgets(dock)
+            if len(tabified) != tab_bar.count() or index >= len(tabified):
+                continue
+            # Use first dock in group for position check
+            other = tabified[0]
+            if other.isFloating():
+                continue
+            try:
+                other_center = other.mapToGlobal(other.rect().center())
+                dist = (tab_bar_center.x() - other_center.x()) ** 2 + (tab_bar_center.y() - other_center.y()) ** 2
+                if dist < best_dist:
+                    best_dist = dist
+                    best_dock = tabified[index]
+            except Exception:
+                pass
+        if best_dock:
+            best_dock.close()
     
     def _toggle_dock_visibility(self, dock: QDockWidget, checked: bool):
         """Toggle dock visibility from Window menu"""
@@ -618,6 +680,7 @@ class MainWindow(QMainWindow):
             self._ensure_dock_features()
             self._enforce_main_dock_tabbing()
             self._update_empty_workspace_visibility()
+            self._setup_dock_tab_close_buttons()
             return
         
         # No saved state - start with blank workspace
@@ -626,6 +689,7 @@ class MainWindow(QMainWindow):
         self._ensure_dock_features()
         self._enforce_main_dock_tabbing()
         self._update_empty_workspace_visibility()
+        self._setup_dock_tab_close_buttons()
     
     def _set_default_layout(self):
         """Set default layout - blank workspace with all docks hidden.
@@ -709,6 +773,7 @@ class MainWindow(QMainWindow):
             
             # Add to dock system
             self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, panel)
+            QTimer.singleShot(0, self._setup_dock_tab_close_buttons)
             
             # Register with Dock State Manager
             window_id = f"block_panel_{block_id}"

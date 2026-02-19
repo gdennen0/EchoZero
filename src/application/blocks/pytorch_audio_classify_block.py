@@ -360,6 +360,7 @@ class PyTorchAudioClassifyBlockProcessor(BlockProcessor):
                 confidence_threshold = meta.get("confidence_threshold")
                 multiclass_multi_label = meta.get("multiclass_multi_label", False)
                 multiclass_confidence_threshold = meta.get("multiclass_confidence_threshold", 0.4)
+                create_other_layer = meta.get("create_other_layer", True)
                 output_events = self._classify_events(
                     event_item,
                     self._model_cache,
@@ -370,6 +371,7 @@ class PyTorchAudioClassifyBlockProcessor(BlockProcessor):
                     confidence_threshold=confidence_threshold,
                     multiclass_multi_label=multiclass_multi_label,
                     multiclass_confidence_threshold=multiclass_confidence_threshold,
+                    create_other_layer=create_other_layer,
                     progress_tracker=progress_tracker if event_count > 10 else None,
                     progress_total=event_count,
                 )
@@ -953,6 +955,7 @@ class PyTorchAudioClassifyBlockProcessor(BlockProcessor):
         confidence_threshold: Optional[float] = None,
         multiclass_multi_label: bool = False,
         multiclass_confidence_threshold: float = 0.4,
+        create_other_layer: bool = True,
         progress_tracker: Optional[Any] = None,
         progress_total: Optional[int] = None,
     ) -> EventDataItem:
@@ -970,6 +973,7 @@ class PyTorchAudioClassifyBlockProcessor(BlockProcessor):
             multiclass_multi_label: When True (multiclass only), create events for all
                 classes above threshold (one input event can produce multiple output events)
             multiclass_confidence_threshold: Min probability to include a class when multi_label is True
+            create_other_layer: When False, do not create an EventLayer for "other"; those events are dropped
             progress_tracker: Optional ProgressTracker for incremental progress
             progress_total: Total events (for progress); used when progress_tracker is set
 
@@ -1156,7 +1160,7 @@ class PyTorchAudioClassifyBlockProcessor(BlockProcessor):
         # Create EventLayers from grouped events
         layers = []
         for classification, layer_events in events_by_classification.items():
-            if layer_events:
+            if layer_events and (create_other_layer or classification != "other"):
                 layer = EventLayer(
                     name=classification,
                     events=layer_events,
