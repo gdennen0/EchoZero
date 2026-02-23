@@ -169,9 +169,9 @@ class EQKnob(QWidget):
             center_ratio = 0.5
             if abs(ratio - center_ratio) > 0.005:
                 if self._value >= 0:
-                    arc_color = QColor(80, 200, 100)
+                    arc_color = Colors.FILTER_SHELF
                 else:
-                    arc_color = QColor(220, 140, 60)
+                    arc_color = Colors.FILTER_PEAK
                 fill_pen = QPen(arc_color, 2.5)
                 fill_pen.setCapStyle(Qt.PenCapStyle.RoundCap)
                 painter.setPen(fill_pen)
@@ -221,10 +221,10 @@ class EQKnob(QWidget):
                 painter.setPen(QPen(Colors.TEXT_SECONDARY))
                 val_text = "0dB"
             elif self._value > 0:
-                painter.setPen(QPen(QColor(80, 200, 100)))
+                painter.setPen(QPen(Colors.FILTER_SHELF))
                 val_text = f"+{self._value:.1f}"
             else:
-                painter.setPen(QPen(QColor(220, 140, 60)))
+                painter.setPen(QPen(Colors.FILTER_PEAK))
                 val_text = f"{self._value:.1f}"
         else:
             painter.setPen(QPen(Colors.TEXT_SECONDARY))
@@ -504,7 +504,10 @@ class EQBandsWidget(QWidget):
         row.changed.connect(self._on_band_changed)
 
         if index % 2 == 1:
-            row.setStyleSheet("background: rgba(255,255,255,6); border-radius: 3px;")
+            c = Colors.OVERLAY_VERY_SUBTLE
+            row.setStyleSheet(
+                f"background: rgba({c.red()},{c.green()},{c.blue()},{c.alpha()/255}); border-radius: 3px;"
+            )
 
         self._band_layout.addWidget(row)
         self._band_rows.append(row)

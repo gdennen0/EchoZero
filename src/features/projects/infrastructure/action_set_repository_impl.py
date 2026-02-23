@@ -266,15 +266,15 @@ class SQLiteActionSetRepository(ActionSetRepository):
         actions = [ActionItem.from_dict(action_data) for action_data in actions_data]
         
         metadata = {}
-        if row.get("metadata"):
+        if row["metadata"]:
             metadata = Database.json_decode(row["metadata"]) or {}
         
         return ActionSet(
             id=row["id"],
             name=row["name"],
-            description=row.get("description") or "",
+            description=row["description"] or "",
             actions=actions,
-            project_id=row.get("project_id"),
+            project_id=row["project_id"],
             created_at=datetime.fromisoformat(row["created_at"]),
             modified_at=datetime.fromisoformat(row["modified_at"]),
             metadata=metadata

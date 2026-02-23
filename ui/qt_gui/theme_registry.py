@@ -73,6 +73,27 @@ class Theme:
     danger_bg: Optional[QColor] = None
     danger_fg: Optional[QColor] = None
 
+    # Optional overlay and domain-specific tokens
+    overlay_subtle: Optional[QColor] = None
+    overlay_feint: Optional[QColor] = None
+    overlay_dim: Optional[QColor] = None
+    overlay_very_subtle: Optional[QColor] = None
+    text_on_light: Optional[QColor] = None
+    text_on_dark: Optional[QColor] = None
+    filter_shelf: Optional[QColor] = None
+    filter_peak: Optional[QColor] = None
+    grid_line: Optional[QColor] = None
+
+    # Node editor
+    node_border: Optional[QColor] = None
+
+    # Timeline-specific
+    timeline_playhead: Optional[QColor] = None
+    timeline_selection: Optional[QColor] = None
+    timeline_grid_major: Optional[QColor] = None
+    timeline_grid_minor: Optional[QColor] = None
+    timeline_track_alt: Optional[QColor] = None
+
 
 class ThemeRegistry:
     """Registry of all available themes"""
@@ -97,6 +118,14 @@ class ThemeRegistry:
         "status_success", "status_warning", "status_error",
         "status_info", "status_inactive",
         "danger_bg", "danger_fg",
+        "overlay_subtle", "overlay_feint", "overlay_dim", "overlay_very_subtle",
+        "text_on_light", "text_on_dark",
+        "filter_shelf", "filter_peak",
+        "grid_line",
+        "node_border",
+        "timeline_playhead", "timeline_selection",
+        "timeline_grid_major", "timeline_grid_minor",
+        "timeline_track_alt",
     ]
     
     @classmethod

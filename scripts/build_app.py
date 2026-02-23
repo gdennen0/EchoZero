@@ -121,6 +121,20 @@ def _write_bundled_config(project_root: Path) -> None:
         )
 
 
+def _validate_production_template(project_root: Path) -> bool:
+    """Warn (but don't fail) if the production template is missing."""
+    template_path = project_root / "data" / "production_template.ez"
+    if not template_path.is_file():
+        print(
+            "Warning: data/production_template.ez not found. "
+            "Production mode will fall back to developer behaviour. "
+            "Use File > 'Export as Production Template' to create one."
+        )
+        return True  # Non-fatal; build continues
+    print(f"Production template found: {template_path} ({template_path.stat().st_size} bytes)")
+    return True
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Build EchoZero with PyInstaller")
     parser.add_argument("--clean", action="store_true", help="Clean PyInstaller cache before build")
@@ -136,6 +150,7 @@ def main() -> int:
         return 1
     if not _run_env_smoke_check(project_root):
         return 1
+    _validate_production_template(project_root)
     _write_bundled_config(project_root)
 
     cmd = [sys.executable, "-m", "PyInstaller", "--noconfirm"]
@@ -143,7 +158,7 @@ def main() -> int:
         cmd.append("--clean")
     cmd.append(str(spec_path))
 
-    print("Building EchoZero...")
+    print("Building EZ...")
     print(" ".join(cmd))
     result = subprocess.run(cmd, cwd=str(project_root))
     if result.returncode == 0:

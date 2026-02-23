@@ -9,7 +9,7 @@ Components:
 - StatusBarProgress: Status bar with integrated progress indicator
 - PropertiesPanel: Block properties display
 - ActionsPanel: Block actions display
-- DockStateManager: Simple Qt-native dock state management
+- WorkspaceManager: Unified workspace state management
 - IStatefulWindow: Interface for windows that save internal state
 """
 
@@ -22,9 +22,9 @@ from .progress_bar import StatusBarProgress
 from .properties_panel import PropertiesPanel
 from .actions_panel import ActionsPanel
 
-# Window State Management
+# Workspace State Management
 from .window_state_types import IStatefulWindow
-from .dock_state_manager import DockStateManager
+from .workspace_manager import WorkspaceManager
 
 __all__ = [
     'RunBlockThread',
@@ -32,7 +32,7 @@ __all__ = [
     'StatusBarProgress',
     'PropertiesPanel',
     'ActionsPanel',
-    # Window State
-    'DockStateManager',
+    # Workspace State
+    'WorkspaceManager',
     'IStatefulWindow',
 ]

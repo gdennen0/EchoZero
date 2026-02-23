@@ -325,7 +325,7 @@ class LicenseExpiredDialog(QDialog):
                 )
             elif reason == "access_denied":
                 message = (
-                    "Your account does not have an active EchoZero plan.\n"
+                    "Your account does not have an active EZ plan.\n"
                     "Subscribe at speedoflight.dev to continue."
                 )
             elif reason == "member_not_found":
@@ -335,7 +335,7 @@ class LicenseExpiredDialog(QDialog):
             else:
                 message = (
                     "Account verification failed.\n"
-                    "Please ensure you have an active EchoZero membership."
+                    "Please ensure you have an active EZ membership."
                 )
             if detail and reason not in ("invalid_request", "token_invalid"):
                 message = message.rstrip() + "\n\n(" + detail + ")"

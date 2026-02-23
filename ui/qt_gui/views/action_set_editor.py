@@ -38,100 +38,6 @@ class NonScrollableComboBox(QComboBox):
         event.ignore()
 
 
-class ActionItemModel(OrderedTableModel):
-    """
-    Custom model for action items that extends OrderedTableModel.
-    
-    Handles action-specific logic while leveraging base drag-and-drop functionality.
-    """
-    
-    def __init__(self, editor: 'ActionSetEditor', parent=None):
-        super().__init__(parent)
-        self.editor = editor
-    
-    def moveRow(self, sourceParent: QModelIndex, sourceRow: int, destinationParent: QModelIndex, destinationChild: int) -> bool:
-        """Override to call _update_order_indices after move"""
-        result = super().moveRow(sourceParent, sourceRow, destinationParent, destinationChild)
-        if result:
-            # Update order indices after move completes (use timer to avoid recursion)
-            QTimer.singleShot(0, self._update_order_indices)
-        return result
-    
-    def _update_order_indices(self):
-        """Update order_index values based on current row positions"""
-        if not self.editor.current_action_set or self.editor._is_refreshing:
-            return
-        
-        # Get all valid actions
-        valid_actions = [
-            a for a in self.editor.current_action_set.actions 
-            if a.action_name and ((a.action_type == "block" and a.block_id) or (a.action_type == "project"))
-        ]
-        
-        # Update order_index based on current model row positions
-        # Capture old state BEFORE modifying to ensure proper undo/redo
-        updates_needed = []
-        for table_row in range(self.rowCount()):
-            action_id = self.get_row_id(table_row)
-            if not action_id or self._is_empty_row_id(action_id):
-                continue
-            
-            action = self.editor._get_action_by_id(action_id)
-            if action and action.order_index != table_row:
-                # Capture old state before modifying
-                from src.features.projects.domain import ActionItem
-                old_action = ActionItem(
-                    id=action.id,
-                    action_set_id=action.action_set_id,
-                    project_id=action.project_id,
-                    action_type=action.action_type,
-                    block_id=action.block_id,
-                    block_name=action.block_name,
-                    action_name=action.action_name,
-                    action_description=action.action_description,
-                    action_args=action.action_args.copy() if action.action_args else {},
-                    order_index=action.order_index,  # OLD order_index
-                    created_at=action.created_at,
-                    modified_at=action.modified_at,
-                    metadata=action.metadata.copy() if action.metadata else {}
-                )
-                
-                # Update order_index in action object
-                action.order_index = table_row
-                
-                # Create updated action with new order_index
-                updated_action = ActionItem(
-                    id=action.id,
-                    action_set_id=action.action_set_id,
-                    project_id=action.project_id,
-                    action_type=action.action_type,
-                    block_id=action.block_id,
-                    block_name=action.block_name,
-                    action_name=action.action_name,
-                    action_description=action.action_description,
-                    action_args=action.action_args.copy() if action.action_args else {},
-                    order_index=table_row,  # NEW order_index
-                    created_at=action.created_at,
-                    modified_at=action.modified_at,
-                    metadata=action.metadata.copy() if action.metadata else {}
-                )
-                
-                updates_needed.append((updated_action, old_action))
-        
-        # Batch update via commands with explicit old state for proper undo/redo
-        if updates_needed:
-            if len(updates_needed) > 1:
-                self.editor.facade.command_bus.begin_macro(f"Reorder {len(updates_needed)} actions")
-            
-            for updated_action, old_action in updates_needed:
-                # Pass old_action explicitly to ensure undo restores correct order
-                cmd = UpdateActionItemCommand(self.editor.facade, updated_action, old_action)
-                self.editor.facade.command_bus.execute(cmd)
-            
-            if len(updates_needed) > 1:
-                self.editor.facade.command_bus.end_macro()
-
-
 class ActionSetEditor(ThemeAwareMixin, QWidget):
     """
     Action Set Editor - clean minimal UI for creating action sets.
@@ -207,26 +113,14 @@ class ActionSetEditor(ThemeAwareMixin, QWidget):
         main_layout.addWidget(description)
         
         # Actions table with columns: # | Block | Action | Parameters | Move | Edit | Delete
-        # Create model first
-        self.actions_model = ActionItemModel(self)
+        self.actions_model = OrderedTableModel(self)
         self.actions_model.setColumnCount(7)
         self.actions_model.setHorizontalHeaderLabels(["#", "Block", "Action", "Parameters", "", "", ""])
         
-        # Create ordered table view (reusable component)
         self.actions_table = OrderedTableView()
         self.actions_table.set_model(self.actions_model)
-        
-        # Set move buttons column (column 4)
         self.actions_table.set_move_buttons_column(4)
-        
-        # Set up order update handler (required for reordering)
-        self.actions_table.set_order_update_handler(self._on_order_changed)
-        
-        # Set up refresh handler to rebuild widgets after row moves
-        # This is needed because setIndexWidget widgets don't move automatically
-        self.actions_table.set_refresh_handler(self._refresh_actions_list)
-        
-        # Set up empty row handler
+        self.actions_table.set_move_handler(self._on_move_action)
         self.actions_table.set_empty_row_handler(self._on_empty_row_clicked)
         
         # Configure header
@@ -307,13 +201,78 @@ class ActionSetEditor(ThemeAwareMixin, QWidget):
         # Initialize with empty set
         self._new_action_set()
     
-    def _on_order_changed(self, row: int, new_index: int):
-        """Handle order change after drag-and-drop"""
+    def _on_move_action(self, row_id: str, direction: str):
+        """Handle +/- button click: swap order_index with adjacent action via commands."""
         if self._is_refreshing or not self.current_action_set:
             return
         
-        # Update order_index values for all affected rows
-        self.actions_model._update_order_indices()
+        action = self._get_action_by_id(row_id)
+        if not action or not action.id:
+            return
+        
+        # Get valid actions sorted by order_index
+        valid_actions = [
+            a for a in self.current_action_set.actions
+            if a.action_name and ((a.action_type == "block" and a.block_id) or (a.action_type == "project"))
+        ]
+        valid_actions.sort(key=lambda x: x.order_index)
+        
+        # Find position of this action in the sorted list
+        idx = next((i for i, a in enumerate(valid_actions) if a.id == row_id), None)
+        if idx is None:
+            return
+        
+        # Determine swap target
+        if direction == "up" and idx > 0:
+            swap_target = valid_actions[idx - 1]
+        elif direction == "down" and idx < len(valid_actions) - 1:
+            swap_target = valid_actions[idx + 1]
+        else:
+            return
+        
+        if not swap_target.id:
+            return
+        
+        # Swap order_index values via undoable commands
+        old_a = self._clone_action(action)
+        old_b = self._clone_action(swap_target)
+        
+        new_index_a = swap_target.order_index
+        new_index_b = action.order_index
+        
+        action.order_index = new_index_a
+        swap_target.order_index = new_index_b
+        
+        updated_a = self._clone_action(action)
+        updated_b = self._clone_action(swap_target)
+        
+        self.facade.command_bus.begin_macro(f"Move action {'up' if direction == 'up' else 'down'}")
+        self.facade.command_bus.execute(UpdateActionItemCommand(self.facade, updated_a, old_a))
+        self.facade.command_bus.execute(UpdateActionItemCommand(self.facade, updated_b, old_b))
+        self.facade.command_bus.end_macro()
+        
+        # Deferred refresh so the undo stack handler + this refresh both settle
+        QTimer.singleShot(0, self._refresh_from_database)
+        self.action_set_changed.emit()
+    
+    @staticmethod
+    def _clone_action(action: ActionItem) -> ActionItem:
+        """Create a shallow copy of an ActionItem for undo snapshots."""
+        return ActionItem(
+            id=action.id,
+            action_set_id=action.action_set_id,
+            project_id=action.project_id,
+            action_type=action.action_type,
+            block_id=action.block_id,
+            block_name=action.block_name,
+            action_name=action.action_name,
+            action_description=action.action_description,
+            action_args=action.action_args.copy() if action.action_args else {},
+            order_index=action.order_index,
+            created_at=action.created_at,
+            modified_at=action.modified_at,
+            metadata=action.metadata.copy() if action.metadata else {},
+        )
     
     def _on_empty_row_clicked(self, row: int):
         """Handle empty row click"""
@@ -331,6 +290,28 @@ class ActionSetEditor(ThemeAwareMixin, QWidget):
         # Always refresh to show empty row - it will be populated when load_project() is called
         self._refresh_actions_list()
         self.action_set_changed.emit()
+
+    def _ensure_action_set_in_db(self):
+        """Persist the current ActionSet to the DB so project save can find it."""
+        if not self.current_action_set or not self.current_project_id:
+            return
+        self.current_action_set.project_id = self.current_project_id
+        repo = getattr(self.facade, 'action_set_repo', None)
+        if not repo:
+            return
+        try:
+            existing = repo.get(self.current_action_set.id)
+            if existing:
+                existing.actions = self.current_action_set.actions
+                existing.name = self.current_action_set.name
+                existing.project_id = self.current_action_set.project_id
+                repo.update(existing)
+            else:
+                repo.create(self.current_action_set)
+        except ValueError:
+            pass
+        except Exception as e:
+            Log.warning(f"ActionSetEditor: Failed to persist action set to DB: {e}")
     
     def _refresh_actions_list(self):
         """Refresh the actions table display with inline editing"""
@@ -410,8 +391,8 @@ class ActionSetEditor(ThemeAwareMixin, QWidget):
                 # Block column - combo box for selection
                 block_combo = NonScrollableComboBox()
                 block_combo.setStyleSheet(StyleFactory.combo())
-                block_combo.setFixedHeight(36)  # Match table row height
-                block_combo.setMaxVisibleItems(1000)  # Show all items without scrolling
+                block_combo.setMaximumHeight(28)
+                block_combo.setMaxVisibleItems(1000)
                 self._populate_block_combo(block_combo)
                 # Select current block (or "project" for project actions)
                 block_id_to_match = "project" if action.action_type == "project" else action.block_id
@@ -429,8 +410,8 @@ class ActionSetEditor(ThemeAwareMixin, QWidget):
                 # Action column - combo box for selection
                 action_combo = NonScrollableComboBox()
                 action_combo.setStyleSheet(StyleFactory.combo())
-                action_combo.setFixedHeight(36)  # Match table row height
-                action_combo.setMaxVisibleItems(1000)  # Show all items without scrolling
+                action_combo.setMaximumHeight(28)
+                action_combo.setMaxVisibleItems(1000)
                 # Use "project" for project actions, block_id for block actions
                 block_id_for_combo = "project" if action.action_type == "project" else action.block_id
                 self._populate_action_combo(action_combo, block_id_for_combo)
@@ -579,8 +560,11 @@ class ActionSetEditor(ThemeAwareMixin, QWidget):
         if self.facade and self.facade.command_bus:
             undo_stack = self.facade.command_bus.get_stack()
             if undo_stack:
-                undo_stack.indexChanged.connect(self._on_undo_stack_changed)
-                Log.debug("ActionSetEditor: Subscribed to undo stack changes")
+                # Prevent duplicate connections
+                if not getattr(self, '_undo_stack_connected', False):
+                    undo_stack.indexChanged.connect(self._on_undo_stack_changed)
+                    self._undo_stack_connected = True
+                    Log.debug("ActionSetEditor: Subscribed to undo stack changes")
             else:
                 Log.warning("ActionSetEditor: Cannot subscribe to undo stack - get_stack() returned None")
     
@@ -666,10 +650,10 @@ class ActionSetEditor(ThemeAwareMixin, QWidget):
                 action_combo.clear()
                 action_combo.addItem("-- Select Action --", None)
                 action_combo.setEnabled(False)
-            edit_btn = self.actions_table.indexWidget(self.actions_model.index(row, 4))
+            edit_btn = self.actions_table.indexWidget(self.actions_model.index(row, 5))
             if edit_btn:
                 edit_btn.setEnabled(False)
-            delete_btn = self.actions_table.indexWidget(self.actions_model.index(row, 5))
+            delete_btn = self.actions_table.indexWidget(self.actions_model.index(row, 6))
             if delete_btn:
                 delete_btn.setEnabled(False)
             return
@@ -743,7 +727,7 @@ class ActionSetEditor(ThemeAwareMixin, QWidget):
                 action_args={},
                 order_index=len(all_valid_actions)  # Append at end
             )
-            # Use command to add (this will persist to database)
+            self._ensure_action_set_in_db()
             if self.current_action_set and self.current_action_set.id:
                 cmd = AddActionItemCommand(self.facade, self.current_action_set.id, new_action)
                 self.facade.command_bus.execute(cmd)
@@ -761,7 +745,7 @@ class ActionSetEditor(ThemeAwareMixin, QWidget):
         action_data = action_combo.itemData(action_combo.currentIndex())
         if not action_data:
             # No action selected - disable edit button
-            edit_btn = self.actions_table.indexWidget(self.actions_model.index(row, 4))
+            edit_btn = self.actions_table.indexWidget(self.actions_model.index(row, 5))
             if edit_btn:
                 edit_btn.setEnabled(False)
             params_item = QStandardItem("(add action to configure)")
@@ -770,10 +754,10 @@ class ActionSetEditor(ThemeAwareMixin, QWidget):
             return
         
         # Enable edit and delete buttons
-        edit_btn = self.actions_table.indexWidget(self.actions_model.index(row, 4))
+        edit_btn = self.actions_table.indexWidget(self.actions_model.index(row, 5))
         if edit_btn:
             edit_btn.setEnabled(True)
-        delete_btn = self.actions_table.indexWidget(self.actions_model.index(row, 5))
+        delete_btn = self.actions_table.indexWidget(self.actions_model.index(row, 6))
         if delete_btn:
             delete_btn.setEnabled(True)
         
@@ -888,7 +872,10 @@ class ActionSetEditor(ThemeAwareMixin, QWidget):
         
         # Ensure empty row exists at bottom
         current_rows = self.actions_model.rowCount()
-        valid_actions = [a for a in self.current_action_set.actions if a.block_id and a.action_name]
+        valid_actions = [
+            a for a in self.current_action_set.actions
+            if a.action_name and ((a.action_type == "block" and a.block_id) or (a.action_type == "project"))
+        ]
         if current_rows <= len(valid_actions):
             self._add_empty_row(len(valid_actions))
     
@@ -1018,7 +1005,7 @@ class ActionSetEditor(ThemeAwareMixin, QWidget):
                 # Set project_id
                 action_item.project_id = self.current_project_id
                 
-                # Ensure action set has an ID
+                self._ensure_action_set_in_db()
                 if not self.current_action_set or not self.current_action_set.id:
                     Log.warning(f"ActionSetEditor: Cannot add action item - current_action_set.id is None")
                     return
@@ -1108,7 +1095,7 @@ class ActionSetEditor(ThemeAwareMixin, QWidget):
                 ]
                 action_item.order_index = len(valid_actions)
                 
-                # Use command to add (this will persist to database)
+                self._ensure_action_set_in_db()
                 if self.current_action_set.id:
                     cmd = AddActionItemCommand(self.facade, self.current_action_set.id, action_item)
                     self.facade.command_bus.execute(cmd)
@@ -1187,6 +1174,7 @@ class ActionSetEditor(ThemeAwareMixin, QWidget):
                     Log.debug(f"ActionSetEditor: Updated action item '{action_item.action_name}' via command")
                 else:
                     # New action - add it
+                    self._ensure_action_set_in_db()
                     if self.current_action_set and self.current_action_set.id:
                         cmd = AddActionItemCommand(self.facade, self.current_action_set.id, action_item)
                         self.facade.command_bus.execute(cmd)
@@ -1213,10 +1201,8 @@ class ActionSetEditor(ThemeAwareMixin, QWidget):
         """Handle edit button click to configure parameters"""
         self._on_configure_params(row)
     
-    # _on_rows_moved removed - ActionItemModel.moveRow() handles this automatically
-    
     def _on_delete_action(self, row: int, action_id: Optional[str] = None):
-        """Delete a specific action using command (order updates automatically via table)"""
+        """Delete a specific action using command"""
         if not self.current_action_set or not self.current_project_id:
             return
         
@@ -1246,95 +1232,14 @@ class ActionSetEditor(ThemeAwareMixin, QWidget):
         )
         
         if reply == QMessageBox.StandardButton.Yes:
-            # Use command to delete (this will persist to database)
             cmd = DeleteActionItemCommand(self.facade, action_to_remove.id)
             self.facade.command_bus.execute(cmd)
+            Log.debug(f"ActionSetEditor: Deleted action item '{action_to_remove.action_name}' via command")
             
-            # After deletion, update order_index for remaining rows
-            # This happens automatically when we refresh from database,
-            # but we can also trigger it manually by updating remaining items
-            self._update_order_indices_from_table()
+            # Force deferred refresh to ensure UI updates reliably
+            QTimer.singleShot(0, self._refresh_from_database)
             
-            # UI will refresh automatically via undo stack change handler
             self.action_set_changed.emit()
-    
-    def _update_order_indices_from_table(self):
-        """Update order_index values based on current table row positions"""
-        if self._is_refreshing or not self.current_action_set:
-            return
-        
-        # Get all valid actions
-        valid_actions = [
-            a for a in self.current_action_set.actions 
-            if a.action_name and ((a.action_type == "block" and a.block_id) or (a.action_type == "project"))
-        ]
-        
-        # Update order_index based on table position
-        # Capture old state BEFORE modifying to ensure proper undo/redo
-        updates_needed = []
-        for table_row in range(self.actions_model.rowCount()):
-            order_item = self.actions_model.item(table_row, 0)
-            if not order_item:
-                continue
-            
-            action_id = order_item.data(Qt.ItemDataRole.UserRole)
-            if not action_id or action_id.startswith("temp_"):
-                continue
-            
-            action = self._get_action_by_id(action_id)
-            if action and action.order_index != table_row:
-                # Capture old state before modifying
-                from src.features.projects.domain import ActionItem
-                old_action = ActionItem(
-                    id=action.id,
-                    action_set_id=action.action_set_id,
-                    project_id=action.project_id,
-                    action_type=action.action_type,
-                    block_id=action.block_id,
-                    block_name=action.block_name,
-                    action_name=action.action_name,
-                    action_description=action.action_description,
-                    action_args=action.action_args.copy() if action.action_args else {},
-                    order_index=action.order_index,  # OLD order_index
-                    created_at=action.created_at,
-                    modified_at=action.modified_at,
-                    metadata=action.metadata.copy() if action.metadata else {}
-                )
-                
-                # Update order_index in action object
-                action.order_index = table_row
-                
-                # Create updated action with new order_index
-                updated_action = ActionItem(
-                    id=action.id,
-                    action_set_id=action.action_set_id,
-                    project_id=action.project_id,
-                    action_type=action.action_type,
-                    block_id=action.block_id,
-                    block_name=action.block_name,
-                    action_name=action.action_name,
-                    action_description=action.action_description,
-                    action_args=action.action_args.copy() if action.action_args else {},
-                    order_index=table_row,  # NEW order_index
-                    created_at=action.created_at,
-                    modified_at=action.modified_at,
-                    metadata=action.metadata.copy() if action.metadata else {}
-                )
-                
-                updates_needed.append((updated_action, old_action))
-        
-        # Batch update via commands with explicit old state for proper undo/redo
-        if updates_needed:
-            if len(updates_needed) > 1:
-                self.facade.command_bus.begin_macro(f"Reorder {len(updates_needed)} actions")
-            
-            for updated_action, old_action in updates_needed:
-                # Pass old_action explicitly to ensure undo restores correct order
-                cmd = UpdateActionItemCommand(self.facade, updated_action, old_action)
-                self.facade.command_bus.execute(cmd)
-            
-            if len(updates_needed) > 1:
-                self.facade.command_bus.end_macro()
     
     def _on_remove_action(self):
         """Remove selected action"""
@@ -1357,8 +1262,11 @@ class ActionSetEditor(ThemeAwareMixin, QWidget):
         )
         
         if reply == QMessageBox.StandardButton.Yes:
-            # Get valid actions to map indices correctly
-            valid_actions = [a for a in self.current_action_set.actions if a.block_id and a.action_name]
+            # Get valid actions to map indices correctly (include both block and project actions)
+            valid_actions = [
+                a for a in self.current_action_set.actions
+                if a.action_name and ((a.action_type == "block" and a.block_id) or (a.action_type == "project"))
+            ]
             # Remove in reverse order using commands
             if len(indices) > 1:
                 self.facade.command_bus.begin_macro(f"Delete {len(indices)} actions")
@@ -1376,7 +1284,9 @@ class ActionSetEditor(ThemeAwareMixin, QWidget):
             if len(indices) > 1:
                 self.facade.command_bus.end_macro()
             
-            # UI will refresh automatically via undo stack change handler
+            # Force deferred refresh to ensure UI updates reliably
+            QTimer.singleShot(0, self._refresh_from_database)
+            
             self.action_set_changed.emit()
     
     def _on_save_set(self):
@@ -1384,8 +1294,11 @@ class ActionSetEditor(ThemeAwareMixin, QWidget):
         if not self.current_action_set:
             return
         
-        # Filter out invalid actions
-        valid_actions = [a for a in self.current_action_set.actions if a.block_id and a.action_name]
+        # Filter out invalid actions (include both block and project actions)
+        valid_actions = [
+            a for a in self.current_action_set.actions
+            if a.action_name and ((a.action_type == "block" and a.block_id) or (a.action_type == "project"))
+        ]
         if not valid_actions:
             QMessageBox.warning(self, "No Actions", "Please add at least one action before saving.")
             return
@@ -1585,59 +1498,68 @@ class ActionSetEditor(ThemeAwareMixin, QWidget):
             self._is_loading_project = False
     
     def _load_action_items_from_project(self):
-        """Load action items from database for the current project"""
+        """Load action items from database for the current project.
+
+        First tries to load a persisted ActionSet from the DB (so the UUID
+        matches the stored action items).  Falls back to a fresh ActionSet
+        only when nothing is stored yet.
+        """
         if not self.current_project_id:
             Log.debug("ActionSetEditor: No project_id, skipping action items load")
             return
-        
+
         try:
+            repo = getattr(self.facade, 'action_set_repo', None)
+            if repo and not self.current_action_set:
+                existing_sets = repo.list_by_project(self.current_project_id)
+                if existing_sets:
+                    self.current_action_set = existing_sets[0]
+                    Log.debug(f"ActionSetEditor: Loaded action set '{self.current_action_set.name}' (id={self.current_action_set.id}) from DB")
+
             result = self.facade.list_action_items_by_project(self.current_project_id)
             if result.success and result.data:
                 all_action_items = result.data
                 Log.debug(f"ActionSetEditor: Found {len(all_action_items)} total action item(s) in project database")
-                
-                # Create or update action set
+
                 if not self.current_action_set:
                     self._new_action_set()
-                
-                # Filter action items by current action_set_id if we have one
-                # This ensures we only show items belonging to the current action set
+
                 if self.current_action_set.id:
                     action_items = [
-                        item for item in all_action_items 
+                        item for item in all_action_items
                         if item.action_set_id == self.current_action_set.id
                     ]
-                    Log.debug(f"ActionSetEditor: Filtered to {len(action_items)} action item(s) for action set {self.current_action_set.id}")
+                    if not action_items and all_action_items:
+                        self.current_action_set.id = all_action_items[0].action_set_id
+                        action_items = [
+                            item for item in all_action_items
+                            if item.action_set_id == self.current_action_set.id
+                        ]
+                        Log.debug(f"ActionSetEditor: Adopted action_set_id {self.current_action_set.id} from loaded items ({len(action_items)} matched)")
+                    else:
+                        Log.debug(f"ActionSetEditor: Filtered to {len(action_items)} action item(s) for action set {self.current_action_set.id}")
                 else:
-                    # No action_set_id yet - use all items (will be filtered when action set is created)
                     action_items = all_action_items
-                    # If items have an action_set_id, update our action set ID to match
                     if action_items and action_items[0].action_set_id:
                         self.current_action_set.id = action_items[0].action_set_id
                         Log.debug(f"ActionSetEditor: Set action_set_id to {self.current_action_set.id} from loaded items")
-                        # Re-filter with the new ID
                         action_items = [
-                            item for item in all_action_items 
+                            item for item in all_action_items
                             if item.action_set_id == self.current_action_set.id
                         ]
-                
-                # Set the action items in the current action set
+
                 self.current_action_set.actions = action_items
             else:
                 Log.debug(f"ActionSetEditor: No action items found for project {self.current_project_id}")
-                # Ensure we have an action set even if no items
                 if not self.current_action_set:
                     self._new_action_set()
                 else:
-                    # Clear actions if none found
                     self.current_action_set.actions = []
         except Exception as e:
             Log.warning(f"ActionSetEditor: Failed to load action items from project: {e}")
-            # Ensure we have an action set even on error
             if not self.current_action_set:
                 self._new_action_set()
             else:
-                # Clear actions on error
                 self.current_action_set.actions = []
     
     def _load_current_action_set_from_setlist(self):

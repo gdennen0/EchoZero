@@ -1,8 +1,14 @@
 """
-Design System
+Design System - Single Source of Truth for UI Styling
 
-Centralized design tokens for the entire UI.
-Colors, spacing, typography, and visual constants.
+All visual styling flows from here:
+- Colors: theme-aware palette (via Colors.apply_theme)
+- get_stylesheet(): complete global QSS for QApplication
+- get_application_palette(): QPalette built from Colors (used by qt_application,
+  main_window, splash_screen)
+
+StyleFactory provides component variant styles (button, table, etc.) but reads
+exclusively from Colors - no independent color definitions.
 """
 from PyQt6.QtGui import QColor, QFont
 from PyQt6.QtCore import Qt, QObject, pyqtSignal
@@ -198,7 +204,34 @@ class Colors:
     # Port label colors
     PORT_LABEL_TEXT = QColor(180, 180, 185)
     PORT_TYPE_TEXT = QColor(140, 140, 145)
-    
+
+    # Overlay colors (semi-transparent)
+    OVERLAY_SUBTLE = QColor(255, 255, 255, 18)
+    OVERLAY_FEINT = QColor(255, 255, 255, 15)
+    OVERLAY_DIM = QColor(255, 255, 255, 20)
+    OVERLAY_VERY_SUBTLE = QColor(255, 255, 255, 6)
+
+    # Text contrast on colored backgrounds (e.g. block headers)
+    TEXT_ON_LIGHT = QColor(20, 20, 25)
+    TEXT_ON_DARK = QColor(255, 255, 255)
+
+    # Domain-specific (EQ/filter visualization)
+    FILTER_SHELF = QColor(80, 200, 100)
+    FILTER_PEAK = QColor(220, 140, 60)
+
+    # Grid
+    GRID_LINE = QColor(60, 60, 60)
+
+    # Node editor
+    NODE_BORDER = QColor(255, 255, 255, 18)
+
+    # Timeline-specific
+    TIMELINE_PLAYHEAD = QColor(150, 150, 150)
+    TIMELINE_SELECTION = QColor(255, 200, 60)
+    TIMELINE_GRID_MAJOR = QColor(80, 80, 85)
+    TIMELINE_GRID_MINOR = QColor(50, 50, 55)
+    TIMELINE_TRACK_ALT = QColor(38, 38, 42)
+
     @classmethod
     def get_port_color(cls, port_type_name: str) -> QColor:
         """Get color for a port based on its type"""
@@ -232,6 +265,7 @@ class Colors:
             'CommandSequencer': cls.BLOCK_UTILITY,
             'AudioPlayer': cls.BLOCK_PLAYER,
             'AudioFilter': cls.BLOCK_TRANSFORM,
+            'ExportMA2': cls.BLOCK_EXPORT,
         }
         return color_map.get(block_type, cls.BLOCK_UTILITY)
     
@@ -302,7 +336,28 @@ class Colors:
         cls.PORT_AUDIO = theme.port_audio
         cls.PORT_EVENT = theme.port_event
         cls.PORT_GENERIC = theme.port_generic
-        
+
+        # New tokens (optional per theme, fallback to defaults)
+        cls.OVERLAY_SUBTLE = getattr(theme, 'overlay_subtle', None) or QColor(255, 255, 255, 18)
+        cls.OVERLAY_FEINT = getattr(theme, 'overlay_feint', None) or QColor(255, 255, 255, 15)
+        cls.OVERLAY_DIM = getattr(theme, 'overlay_dim', None) or QColor(255, 255, 255, 20)
+        cls.OVERLAY_VERY_SUBTLE = getattr(theme, 'overlay_very_subtle', None) or QColor(255, 255, 255, 6)
+        cls.TEXT_ON_LIGHT = getattr(theme, 'text_on_light', None) or QColor(20, 20, 25)
+        cls.TEXT_ON_DARK = getattr(theme, 'text_on_dark', None) or QColor(255, 255, 255)
+        cls.FILTER_SHELF = getattr(theme, 'filter_shelf', None) or QColor(80, 200, 100)
+        cls.FILTER_PEAK = getattr(theme, 'filter_peak', None) or QColor(220, 140, 60)
+        cls.GRID_LINE = getattr(theme, 'grid_line', None) or QColor(60, 60, 60)
+
+        # Node editor
+        cls.NODE_BORDER = getattr(theme, 'node_border', None) or QColor(255, 255, 255, 18)
+
+        # Timeline-specific
+        cls.TIMELINE_PLAYHEAD = getattr(theme, 'timeline_playhead', None) or QColor(150, 150, 150)
+        cls.TIMELINE_SELECTION = getattr(theme, 'timeline_selection', None) or QColor(255, 200, 60)
+        cls.TIMELINE_GRID_MAJOR = getattr(theme, 'timeline_grid_major', None) or QColor(80, 80, 85)
+        cls.TIMELINE_GRID_MINOR = getattr(theme, 'timeline_grid_minor', None) or QColor(50, 50, 55)
+        cls.TIMELINE_TRACK_ALT = getattr(theme, 'timeline_track_alt', None) or QColor(38, 38, 42)
+
         # Accent colors that may not be in all themes
         cls.ACCENT_ORANGE = getattr(theme, 'accent_orange', None) or QColor(220, 135, 65)
         cls.ACCENT_PURPLE = getattr(theme, 'accent_purple', None) or QColor(175, 115, 195)
@@ -363,6 +418,17 @@ class Colors:
             "port_input": "PORT_INPUT", "port_output": "PORT_OUTPUT",
             "port_audio": "PORT_AUDIO", "port_event": "PORT_EVENT",
             "port_manipulator": "PORT_MANIPULATOR", "port_generic": "PORT_GENERIC",
+            "overlay_subtle": "OVERLAY_SUBTLE", "overlay_feint": "OVERLAY_FEINT",
+            "overlay_dim": "OVERLAY_DIM", "overlay_very_subtle": "OVERLAY_VERY_SUBTLE",
+            "text_on_light": "TEXT_ON_LIGHT", "text_on_dark": "TEXT_ON_DARK",
+            "filter_shelf": "FILTER_SHELF", "filter_peak": "FILTER_PEAK",
+            "grid_line": "GRID_LINE",
+            "node_border": "NODE_BORDER",
+            "timeline_playhead": "TIMELINE_PLAYHEAD",
+            "timeline_selection": "TIMELINE_SELECTION",
+            "timeline_grid_major": "TIMELINE_GRID_MAJOR",
+            "timeline_grid_minor": "TIMELINE_GRID_MINOR",
+            "timeline_track_alt": "TIMELINE_TRACK_ALT",
         }
         for theme_field, cls_attr in attr_map.items():
             val = getattr(theme, theme_field, None)
@@ -381,17 +447,35 @@ class Colors:
             max(0, cls.BG_DARK.red() + 30), cls.BG_DARK.green(), cls.BG_DARK.blue()
         )
         cls.DANGER_FG = getattr(theme, 'danger_fg', None) or QColor(255, 107, 107)
-        
-        # Sync timeline and emit signal
+        cls.OVERLAY_SUBTLE = getattr(theme, 'overlay_subtle', None) or QColor(255, 255, 255, 18)
+        cls.OVERLAY_FEINT = getattr(theme, 'overlay_feint', None) or QColor(255, 255, 255, 15)
+        cls.OVERLAY_DIM = getattr(theme, 'overlay_dim', None) or QColor(255, 255, 255, 20)
+        cls.OVERLAY_VERY_SUBTLE = getattr(theme, 'overlay_very_subtle', None) or QColor(255, 255, 255, 6)
+        cls.TEXT_ON_LIGHT = getattr(theme, 'text_on_light', None) or QColor(20, 20, 25)
+        cls.TEXT_ON_DARK = getattr(theme, 'text_on_dark', None) or QColor(255, 255, 255)
+        cls.FILTER_SHELF = getattr(theme, 'filter_shelf', None) or QColor(80, 200, 100)
+        cls.FILTER_PEAK = getattr(theme, 'filter_peak', None) or QColor(220, 140, 60)
+        cls.GRID_LINE = getattr(theme, 'grid_line', None) or QColor(60, 60, 60)
+        cls.NODE_BORDER = getattr(theme, 'node_border', None) or QColor(255, 255, 255, 18)
+        cls.TIMELINE_PLAYHEAD = getattr(theme, 'timeline_playhead', None) or QColor(150, 150, 150)
+        cls.TIMELINE_SELECTION = getattr(theme, 'timeline_selection', None) or QColor(255, 200, 60)
+        cls.TIMELINE_GRID_MAJOR = getattr(theme, 'timeline_grid_major', None) or QColor(80, 80, 85)
+        cls.TIMELINE_GRID_MINOR = getattr(theme, 'timeline_grid_minor', None) or QColor(50, 50, 55)
+        cls.TIMELINE_TRACK_ALT = getattr(theme, 'timeline_track_alt', None) or QColor(38, 38, 42)
+
+        # Sync timeline style (needed for timeline-specific tokens)
         try:
             from ui.qt_gui.widgets.timeline.core.style import TimelineStyle
             TimelineStyle.apply_theme()
         except ImportError:
             pass
-        try:
-            _get_theme_signals().theme_changed.emit()
-        except RuntimeError:
-            pass
+
+        # NOTE: theme_changed is NOT emitted here.  The caller
+        # (settings_dialog -> _apply_live_preview / _save_settings) delegates
+        # to MainWindow._apply_theme() which updates the global stylesheet
+        # FIRST and only then emits theme_changed.  Emitting here would cause
+        # ThemeAwareMixin to clear child stylesheets while the global stylesheet
+        # still contains old colors, producing a visual flash.
 
 
 class Spacing:
@@ -407,11 +491,30 @@ class Spacing:
 class Typography:
     """Font definitions"""
     
+    _DEFAULT_FAMILY = "SF Pro Text, Segoe UI, -apple-system, system-ui"
+    _DEFAULT_SIZE = 13
+    
     @staticmethod
     def default_font() -> QFont:
+        """Return the default UI font, respecting app_settings if available."""
         font = QFont()
-        font.setFamily("SF Pro Text, Segoe UI, -apple-system, system-ui")
-        font.setPixelSize(13)
+        try:
+            from PyQt6.QtWidgets import QApplication
+            app = QApplication.instance()
+            if app and hasattr(app, 'property') and app.property('app_settings'):
+                mgr = app.property('app_settings')
+                family = (mgr.ui_font_family or "").strip()
+                size_val = mgr.ui_font_size
+                if family:
+                    font.setFamily(family)
+                else:
+                    font.setFamily(Typography._DEFAULT_FAMILY)
+                font.setPixelSize(size_val if size_val > 0 else Typography._DEFAULT_SIZE)
+                return font
+        except Exception:
+            pass
+        font.setFamily(Typography._DEFAULT_FAMILY)
+        font.setPixelSize(Typography._DEFAULT_SIZE)
         return font
     
     @staticmethod
@@ -491,6 +594,97 @@ class Effects:
     ANIMATION_DURATION_SLOW = 350  # ms
 
 
+def get_application_palette():
+    """
+    Build QPalette from current Colors.
+    Single source of truth for palette - used by qt_application, main_window, splash_screen.
+    Pure read of Colors.X attributes; caller must ensure Colors are applied first.
+    """
+    from PyQt6.QtGui import QPalette
+
+    palette = QPalette()
+    palette.setColor(QPalette.ColorRole.Window, Colors.BG_DARK)
+    palette.setColor(QPalette.ColorRole.WindowText, Colors.TEXT_PRIMARY)
+    palette.setColor(QPalette.ColorRole.Base, Colors.BG_MEDIUM)
+    palette.setColor(QPalette.ColorRole.AlternateBase, Colors.BG_LIGHT)
+    palette.setColor(QPalette.ColorRole.ToolTipBase, Colors.BG_MEDIUM)
+    palette.setColor(QPalette.ColorRole.ToolTipText, Colors.TEXT_PRIMARY)
+    palette.setColor(QPalette.ColorRole.Text, Colors.TEXT_PRIMARY)
+    palette.setColor(QPalette.ColorRole.Button, Colors.BG_MEDIUM)
+    palette.setColor(QPalette.ColorRole.ButtonText, Colors.TEXT_PRIMARY)
+    palette.setColor(QPalette.ColorRole.BrightText, Colors.ACCENT_RED)
+    palette.setColor(QPalette.ColorRole.Link, Colors.ACCENT_BLUE)
+    palette.setColor(QPalette.ColorRole.Highlight, Colors.ACCENT_BLUE)
+    palette.setColor(QPalette.ColorRole.HighlightedText, Colors.TEXT_PRIMARY)
+    return palette
+
+
+def force_style_refresh(widget):
+    """
+    Force widget and all descendants to re-read stylesheet/palette.
+    Uses unpolish+polish+StyleChange so Qt recomputes styles (fixes tabs, toolbar,
+    status bar not updating when theme changes).
+    """
+    from PyQt6.QtWidgets import QWidget, QApplication
+    from PyQt6.QtCore import QEvent
+
+    if widget is None:
+        return
+    style = QApplication.style()
+    if style is None:
+        return
+
+    def _refresh(w):
+        if not isinstance(w, QWidget):
+            return
+        try:
+            style.unpolish(w)
+            style.polish(w)
+            QApplication.sendEvent(w, QEvent(QEvent.Type.StyleChange))
+            w.update()
+            w.updateGeometry()
+        except (RuntimeError, TypeError):
+            pass
+
+    _refresh(widget)
+    for child in widget.findChildren(QWidget):
+        _refresh(child)
+
+
+def apply_ui_font(app) -> None:
+    """
+    Set the application-wide default font from settings.
+    
+    Call this when applying theme/styling so QApplication uses the configured font.
+    """
+    if app:
+        app.setFont(Typography.default_font())
+
+
+def _get_ui_font_css() -> tuple[str, str]:
+    """
+    Get font-family and font-size CSS values from app settings.
+    
+    Returns:
+        Tuple of (font_family_css, font_size_css). Empty family means system default.
+    """
+    default_family = '-apple-system, system-ui, "Segoe UI", sans-serif'
+    default_size = "13px"
+    try:
+        from PyQt6.QtWidgets import QApplication
+        app = QApplication.instance()
+        if app and hasattr(app, 'property') and app.property('app_settings'):
+            mgr = app.property('app_settings')
+            family = (mgr.ui_font_family or "").strip()
+            size_val = mgr.ui_font_size
+            fam_css = f'"{family}", {default_family}' if family else default_family
+            sz_css = f"{size_val}px" if size_val > 0 else default_size
+            return fam_css, sz_css
+    except Exception:
+        pass
+    return default_family, default_size
+
+
 def get_stylesheet() -> str:
     """
     Generate comprehensive global stylesheet for the application using current theme.
@@ -498,10 +692,9 @@ def get_stylesheet() -> str:
     This stylesheet is the single source of truth for all widget styling.
     When theme or sharp_corners changes, child widget stylesheets are cleared
     so that these rules take effect everywhere.
+    Pure read of Colors.X attributes; caller must ensure Colors are applied first.
     """
-    # Ensure theme is applied
-    Colors.apply_theme()
-    
+    font_family, font_size = _get_ui_font_css()
     br = border_radius  # Short alias for readability
     
     stylesheet = f"""
@@ -509,8 +702,8 @@ def get_stylesheet() -> str:
     QMainWindow, QWidget {{
         background-color: {Colors.BG_DARK.name()};
         color: {Colors.TEXT_PRIMARY.name()};
-        font-family: -apple-system, system-ui, "Segoe UI", sans-serif;
-        font-size: 13px;
+        font-family: {font_family};
+        font-size: {font_size};
     }}
     
     /* === Menu Bar === */
@@ -681,21 +874,98 @@ def get_stylesheet() -> str:
         background-color: {Colors.HOVER.name()};
     }}
     
-    /* === Dock Widgets === */
-    QDockWidget {{
-        titlebar-close-icon: none;
-        titlebar-normal-icon: none;
+    /* === Dock Widgets (PyQt6Ads) === */
+    ads--CDockWidget {{
+        background-color: {Colors.BG_DARK.name()};
+        border: none;
     }}
-    QDockWidget::title {{
+    ads--CDockWidgetTab {{
         background-color: {Colors.BG_MEDIUM.name()};
         color: {Colors.TEXT_SECONDARY.name()};
         border: 1px solid {Colors.BORDER.name()};
         border-bottom: none;
-        padding: 4px 12px;
+        padding: 4px 8px;
+        min-height: 20px;
+        max-height: 20px;
+        min-width: 60px;
         font-size: 12px;
         font-weight: 500;
     }}
-    QDockWidget::title:hover {{
+    ads--CDockWidgetTab QLabel {{
+        background-color: transparent;
+    }}
+    ads--CDockWidgetTab QPushButton {{
+        min-width: 14px;
+        max-width: 14px;
+        width: 14px;
+        padding: 0px;
+        margin-left: 6px;
+        margin-top: 0px;
+        margin-bottom: 0px;
+        margin-right: 0px;
+    }}
+    ads--CDockWidgetTab:hover {{
+        background-color: {Colors.HOVER.name()};
+        color: {Colors.TEXT_PRIMARY.name()};
+    }}
+    ads--CDockWidgetTab[activeTab="true"] {{
+        background-color: {Colors.HOVER.name()};
+        color: {Colors.TEXT_PRIMARY.name()};
+    }}
+    ads--CDockAreaTitleBar {{
+        background-color: {Colors.BG_MEDIUM.name()};
+        border-bottom: 1px solid {Colors.BORDER.name()};
+        padding: 0px;
+        min-height: 23px;
+        color: {Colors.TEXT_PRIMARY.name()};
+    }}
+    ads--CDockAreaTitleBar > QToolButton {{
+        background-color: {Colors.BG_MEDIUM.name()};
+    }}
+    ads--CDockAreaTitleBar > QToolButton:hover {{
+        background-color: {Colors.HOVER.name()};
+    }}
+    ads--CDockAreaTabBar {{
+        background-color: transparent;
+    }}
+    ads--CDockAreaTabBar #tabsContainerWidget {{
+        background-color: {Colors.BG_MEDIUM.name()};
+    }}
+    ads--CDockAreaTitleBar QAbstractButton, ads--CDockAreaTitleBar QLabel,
+    ads--CDockAreaTitleBar QComboBox {{
+        background-color: transparent;
+        border: none;
+        color: {Colors.TEXT_PRIMARY.name()};
+    }}
+    ads--CDockAreaWidget {{
+        background-color: {Colors.BG_DARK.name()};
+        border: 1px solid {Colors.BORDER.name()};
+    }}
+    ads--CDockAreaWidget[focused="true"] {{
+        border: 1px solid {Colors.BG_LIGHT.name()};
+    }}
+    ads--CDockContainerWidget {{
+        background-color: {Colors.BG_DARK.name()};
+    }}
+    ads--CDockSplitter::handle {{
+        background-color: {Colors.BORDER.name()};
+        width: 1px;
+        height: 1px;
+    }}
+    ads--CDockSplitter::handle:hover {{
+        background-color: {Colors.ACCENT_BLUE.name()};
+    }}
+    ads--CAutoHideSideBar {{
+        background-color: {Colors.BG_MEDIUM.name()};
+        border: none;
+    }}
+    ads--CAutoHideTab {{
+        background-color: {Colors.BG_MEDIUM.name()};
+        color: {Colors.TEXT_SECONDARY.name()};
+        border: 1px solid {Colors.BORDER.name()};
+        padding: 4px 8px;
+    }}
+    ads--CAutoHideTab:hover {{
         background-color: {Colors.HOVER.name()};
         color: {Colors.TEXT_PRIMARY.name()};
     }}
@@ -812,6 +1082,12 @@ def get_stylesheet() -> str:
     QStatusBar {{
         background-color: {Colors.BG_MEDIUM.name()};
         border-top: 1px solid {Colors.BORDER.name()};
+        color: {Colors.TEXT_PRIMARY.name()};
+    }}
+    QStatusBar::item {{
+        border: none;
+        color: {Colors.TEXT_PRIMARY.name()};
+        background: transparent;
     }}
     
     /* === Dialogs === */

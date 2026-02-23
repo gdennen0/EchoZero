@@ -1038,6 +1038,9 @@ class EditorPanel(BlockPanelBase):
         Recreation of owned items ONLY happens via Pull Data (_on_block_updated).
         This prevents infinite duplication on panel reopen.
         """
+        # #region agent log
+        import json as _dj4, time as _dt4; open('/Users/gdennen/Projects/EchoZero/.cursor/debug.log','a').write(_dj4.dumps({"timestamp":int(_dt4.time()*1000),"location":"editor_panel.py:refresh","message":"refresh() called","data":{"has_block":self.block is not None,"loaded_event_items":len(self._loaded_event_items) if hasattr(self,'_loaded_event_items') else -1,"loaded_audio_items":len(self._loaded_audio_items) if hasattr(self,'_loaded_audio_items') else -1},"hypothesisId":"H5"})+'\n')
+        # #endregion
         if not self.block:
             return
 
@@ -1605,10 +1608,9 @@ class EditorPanel(BlockPanelBase):
                 # Create new EventDataItem with preserved layers
                 owned_layers = []
                 for layer in input_layers:
-                    # Create new EventLayer with same name and events
                     owned_layer = EventLayer(
                         name=layer.name,
-                        events=layer.events.copy(),  # Copy events but keep same objects (preserve metadata)
+                        events=layer.events.copy(),
                         metadata=layer.metadata.copy() if layer.metadata else {}
                     )
                     owned_layers.append(owned_layer)
@@ -1616,7 +1618,7 @@ class EditorPanel(BlockPanelBase):
                 owned = EventDataItem(
                     id="",
                     block_id=self.block_id,
-                    name=f"{self.block.name}_{src.name}_edited",
+                    name=src.name,
                     type="Event",
                     metadata={
                         "output_port": "events",
@@ -1637,7 +1639,7 @@ class EditorPanel(BlockPanelBase):
                 owned = EventDataItem(
                     id="",
                     block_id=self.block_id,
-                    name=f"{self.block.name}_{src.name}_edited",
+                    name=src.name,
                     type="Event",
                     metadata={
                         "output_port": "events",
@@ -2072,6 +2074,9 @@ class EditorPanel(BlockPanelBase):
     
     def _on_block_updated_base(self, event):
         """Keep specialized EditorPanel BlockUpdated behavior active."""
+        # #region agent log
+        import json as _dj, time as _dt; open('/Users/gdennen/Projects/EchoZero/.cursor/debug.log','a').write(_dj.dumps({"timestamp":int(_dt.time()*1000),"location":"editor_panel.py:_on_block_updated_base","message":"BlockUpdated received in EditorPanel","data":{"block_id":self.block_id,"event_data":str(event.data) if hasattr(event,'data') else 'no data',"is_saving":self._is_saving},"hypothesisId":"H2"})+'\n')
+        # #endregion
         self._on_block_updated(event)
 
     def _on_block_updated(self, event):
@@ -2099,6 +2104,10 @@ class EditorPanel(BlockPanelBase):
         
         # Check if this is an execution-triggered update (requires full layer recreation)
         is_execution_triggered = event.data.get("execution_triggered", False) if hasattr(event, "data") else False
+
+        # #region agent log
+        import json as _dj2, time as _dt2; open('/Users/gdennen/Projects/EchoZero/.cursor/debug.log','a').write(_dj2.dumps({"timestamp":int(_dt2.time()*1000),"location":"editor_panel.py:_on_block_updated:path_check","message":"BlockUpdated path check","data":{"block_id":self.block_id,"is_event_only":is_event_only_update,"is_exec_triggered":is_execution_triggered,"pull_data_active":getattr(self,"_pull_data_active",False)},"hypothesisId":"H3"})+'\n')
+        # #endregion
 
         if getattr(self, "_pull_data_active", False) and not is_execution_triggered:
             return
@@ -2246,6 +2255,9 @@ class EditorPanel(BlockPanelBase):
             owned_items = self.facade.data_item_repo.list_by_block(self.block_id)
             event_items = [item for item in owned_items if isinstance(item, EventDataItem)]
             audio_items = [item for item in owned_items if isinstance(item, AudioDataItem)]
+            # #region agent log
+            import json as _dj3, time as _dt3; open('/Users/gdennen/Projects/EchoZero/.cursor/debug.log','a').write(_dj3.dumps({"timestamp":int(_dt3.time()*1000),"location":"editor_panel.py:_load_owned_data:after_load","message":"Loaded owned items from repo","data":{"block_id":self.block_id,"total_owned":len(owned_items),"event_count":len(event_items),"audio_count":len(audio_items),"event_ids":[i.id for i in event_items[:5]]},"hypothesisId":"H1"})+'\n')
+            # #endregion
 
             # Verify we have both EZ and sync layer items
             ez_items = [item for item in event_items if self._is_ez_layer_item(item)]

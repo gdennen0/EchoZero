@@ -56,22 +56,22 @@ class QtEchoZeroApp:
             progress_tracker.update_step("Creating QApplication")
             _process_qt_events()
         self.app = QApplication(sys.argv)
-        self.app.setApplicationName("EchoZero")
-        self.app.setOrganizationName("EchoZero")
+        self.app.setApplicationName("EZ")
+        self.app.setOrganizationName("EZ")
         
         # Set application style
         if progress_tracker:
             progress_tracker.update_step("Setting up dark theme")
             _process_qt_events()
         self.app.setStyle("Fusion")
-        self._setup_dark_theme()
-        
-        # Store app_settings_manager in QApplication for easy access
+
+        # Store app_settings_manager in QApplication before theme setup so user preset is available
         if hasattr(self.facade, 'app_settings') and self.facade.app_settings:
             self.app.setProperty('app_settings', self.facade.app_settings)
-            # Load user-created custom themes from DB so they appear in the theme selector
             self._load_custom_themes(self.facade.app_settings)
-        
+
+        self._setup_dark_theme()
+
         # Initialize block type registry (happens during MainWindow creation)
         if progress_tracker:
             progress_tracker.update_step("Initializing block type registry")
@@ -135,25 +135,12 @@ class QtEchoZeroApp:
     def _setup_dark_theme(self):
         """
         Bootstrap palette setup before MainWindow is created.
-        
+
         MainWindow._apply_theme() performs the full theme application
-        (including global stylesheet).  This method just ensures the
-        QApplication palette is reasonable for widgets created during
-        MainWindow.__init__().
+        (including global stylesheet).  This method ensures the
+        QApplication palette uses design_system as the single source of truth.
         """
-        from PyQt6.QtGui import QPalette
-        from ui.qt_gui.design_system import Colors
-        
-        Colors.apply_theme()
-        
-        palette = QPalette()
-        palette.setColor(QPalette.ColorRole.Window, Colors.BG_DARK)
-        palette.setColor(QPalette.ColorRole.WindowText, Colors.TEXT_PRIMARY)
-        palette.setColor(QPalette.ColorRole.Base, Colors.BG_MEDIUM)
-        palette.setColor(QPalette.ColorRole.Text, Colors.TEXT_PRIMARY)
-        palette.setColor(QPalette.ColorRole.Button, Colors.BG_MEDIUM)
-        palette.setColor(QPalette.ColorRole.ButtonText, Colors.TEXT_PRIMARY)
-        palette.setColor(QPalette.ColorRole.Highlight, Colors.ACCENT_BLUE)
-        palette.setColor(QPalette.ColorRole.HighlightedText, Colors.TEXT_PRIMARY)
-        self.app.setPalette(palette)
+        from ui.qt_gui.design_system import get_application_palette
+
+        self.app.setPalette(get_application_palette())
 

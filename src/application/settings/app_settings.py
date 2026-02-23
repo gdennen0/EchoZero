@@ -37,6 +37,8 @@ class AppSettings(BaseSettings):
     # Theme settings
     theme_preset: str = "default dark"  # Theme preset name (case-insensitive)
     sharp_corners: bool = False  # When True, all UI elements use 0px border-radius (no rounded edges)
+    ui_font_family: str = ""  # Empty = system default (SF Pro Text, Segoe UI, etc.)
+    ui_font_size: int = 0  # 0 = default 13px
     
     # Window state
     window_width: int = 1400
@@ -142,6 +144,29 @@ class AppSettingsManager(BaseSettingsManager):
         if value != self._settings.sharp_corners:
             self._settings.sharp_corners = value
             self._save_setting('sharp_corners')
+    
+    @property
+    def ui_font_family(self) -> str:
+        """UI font family (empty string = system default)."""
+        return self._settings.ui_font_family
+    
+    @ui_font_family.setter
+    def ui_font_family(self, value: str):
+        if value != self._settings.ui_font_family:
+            self._settings.ui_font_family = (value or "").strip()
+            self._save_setting('ui_font_family')
+    
+    @property
+    def ui_font_size(self) -> int:
+        """UI font size in pixels (0 = default 13px)."""
+        return self._settings.ui_font_size
+    
+    @ui_font_size.setter
+    def ui_font_size(self, value: int):
+        val = max(0, min(48, int(value))) if value is not None else 0
+        if val != self._settings.ui_font_size:
+            self._settings.ui_font_size = val
+            self._save_setting('ui_font_size')
     
     # =========================================================================
     # Window State Properties

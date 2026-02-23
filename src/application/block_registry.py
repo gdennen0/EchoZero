@@ -833,6 +833,31 @@ class BlockTypeRegistry:
             ]
         ))
 
+        # Export MA2 - Export events to GrandMA2 timecode format
+        self.register(BlockTypeMetadata(
+            name="Export MA2",
+            type_id="ExportMA2",
+            description="Export events to GrandMA2 timecode format",
+            execution_mode="executable",
+            inputs={"events": EVENT_TYPE},
+            tags=["export", "ma2", "grandma", "timecode", "lighting"],
+            commands=[
+                {
+                    "name": "set_output_path",
+                    "usage": "set_output_path <path>",
+                    "description": "Define where the MA2 file should be written",
+                    "arguments": [
+                        {
+                            "name": "path",
+                            "required": True,
+                            "source": "positional",
+                            "description": "Output file path"
+                        }
+                    ]
+                }
+            ]
+        ))
+        
         # Dataset Viewer - Manual audit of directory of audio clips
         self.register(BlockTypeMetadata(
             name="Dataset Viewer",

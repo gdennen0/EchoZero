@@ -1,5 +1,5 @@
 {
-  "app_name": "EchoZero",
+  "app_name": "EZ",
   "version": "0.1.0",
   "bundle_identifier": "dev.speedoflight.echozero",
   "company": "Speed of Light",
@@ -13,5 +13,7 @@
   },
   "bundled_runtime_defaults": {
     "MEMBERSTACK_VERIFY_URL": "https://echozero-auth.speeoflight.workers.dev"
-  }
+  },
+  "default_mode": "production",
+  "template_version": "1.0.0"
 }

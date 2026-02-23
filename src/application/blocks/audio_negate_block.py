@@ -380,16 +380,6 @@ def build_negative_track(
     regions_filled = 0
     skipped_events = 0
 
-    # #region agent log
-    try:
-        import json, time as _t
-        _first_events = [(e.time, e.duration) for e in events[:10]]
-        with open("/Users/gdennen/Projects/EchoZero/.cursor/debug.log", "a") as _f:
-            _f.write(json.dumps({"hypothesisId": "H1", "location": "audio_negate_block.py:build_negative_track:pre_loop", "message": "event info before loop", "data": {"total_events": len(events), "first_10_events": _first_events, "sample_rate": sample_rate, "total_samples": total_samples, "total_duration_sec": total_samples / sample_rate, "aligned_sub_shape": list(aligned_sub.shape), "aligned_sub_nonzero": int(np.count_nonzero(aligned_sub))}, "timestamp": int(_t.time() * 1000)}) + "\n")
-    except Exception:
-        pass
-    # #endregion
-
     for event in events:
         start = max(0, int(event.time * sample_rate))
         end = min(total_samples, int((event.time + event.duration) * sample_rate))
@@ -411,34 +401,11 @@ def build_negative_track(
 
         regions_filled += 1
 
-        # #region agent log
-        if regions_filled <= 5:
-            try:
-                import json, time as _t2
-                _sub_max = float(np.max(np.abs(aligned_sub[:, start:end]))) if end > start else 0.0
-                _neg_max = float(np.max(np.abs(negative[:, start:end]))) if end > start else 0.0
-                with open("/Users/gdennen/Projects/EchoZero/.cursor/debug.log", "a") as _f:
-                    _f.write(json.dumps({"hypothesisId": "H1,H2,H3", "location": "audio_negate_block.py:build_negative_track:event_loop", "message": "event slice detail", "data": {"event_idx": regions_filled, "event_time": event.time, "event_duration": event.duration, "event_end_time": event.time + event.duration, "start_sample": start, "end_sample": end, "region_samples": region_length, "region_ms": region_length / sample_rate * 1000, "sub_region_max_amplitude": _sub_max, "neg_region_max_amplitude": _neg_max}, "timestamp": int(_t2.time() * 1000)}) + "\n")
-            except Exception:
-                pass
-        # #endregion
-
     Log.info(
         f"build_negative_track: Filled {regions_filled} event regions into negative track. "
         f"Skipped {skipped_events} events (start>=end). "
         f"Negative track non-zero samples: {np.count_nonzero(negative)} / {negative.size}"
     )
-
-    # #region agent log
-    try:
-        import json, time as _t3
-        _neg_abs_max = float(np.max(np.abs(negative))) if negative.size > 0 else 0.0
-        _target_abs_max = float(np.max(np.abs(target_2d))) if target_2d.size > 0 else 0.0
-        with open("/Users/gdennen/Projects/EchoZero/.cursor/debug.log", "a") as _f:
-            _f.write(json.dumps({"hypothesisId": "H1,H2,H3", "location": "audio_negate_block.py:build_negative_track:post_loop", "message": "negative track summary", "data": {"regions_filled": regions_filled, "skipped_events": skipped_events, "negative_nonzero": int(np.count_nonzero(negative)), "negative_total": negative.size, "negative_max_amplitude": _neg_abs_max, "target_max_amplitude": _target_abs_max, "total_samples": total_samples}, "timestamp": int(_t3.time() * 1000)}) + "\n")
-    except Exception:
-        pass
-    # #endregion
 
     # Step 3: Spectral subtraction -- subtract negative frequencies from target
     # Using STFT-based spectral subtraction for cleaner frequency removal
@@ -496,43 +463,6 @@ def build_negative_track(
         result /= ola_gain
 
     np.clip(result, -1.0, 1.0, out=result)
-
-    # #region agent log
-    try:
-        import json, time as _t_audit
-        # Measure subtraction effectiveness at event regions
-        _event_target_energy = 0.0
-        _event_result_energy = 0.0
-        _event_samples = 0
-        for ev in events[:20]:  # sample first 20 events
-            _s = max(0, int(ev.time * sample_rate))
-            _e = min(total_samples, int((ev.time + ev.duration) * sample_rate))
-            if _s < _e:
-                _event_target_energy += float(np.sum(target_2d[:, _s:_e] ** 2))
-                _event_result_energy += float(np.sum(result[:, _s:_e] ** 2))
-                _event_samples += (_e - _s) * n_channels
-        _reduction_pct = (1.0 - _event_result_energy / _event_target_energy) * 100 if _event_target_energy > 0 else 0.0
-        _result_max = float(np.max(np.abs(result))) if result.size > 0 else 0.0
-        _target_max = float(np.max(np.abs(target_2d))) if target_2d.size > 0 else 0.0
-        # Also check a specific event region in detail
-        _ev0 = events[0] if events else None
-        _detail = {}
-        if _ev0:
-            _ds = max(0, int(_ev0.time * sample_rate))
-            _de = min(total_samples, int((_ev0.time + _ev0.duration) * sample_rate))
-            _detail = {
-                "event0_time": _ev0.time,
-                "target_region_max": float(np.max(np.abs(target_2d[:, _ds:_de]))),
-                "negative_region_max": float(np.max(np.abs(negative[:, _ds:_de]))),
-                "result_region_max": float(np.max(np.abs(result[:, _ds:_de]))),
-                "target_region_rms": float(np.sqrt(np.mean(target_2d[:, _ds:_de] ** 2))),
-                "result_region_rms": float(np.sqrt(np.mean(result[:, _ds:_de] ** 2))),
-            }
-        with open("/Users/gdennen/Projects/EchoZero/.cursor/debug.log", "a") as _f:
-            _f.write(json.dumps({"hypothesisId": "H-AUDIT", "location": "audio_negate_block.py:build_negative_track:post_subtraction", "message": "subtraction audit", "data": {"method": "spectral_subtraction", "event_target_energy": _event_target_energy, "event_result_energy": _event_result_energy, "energy_reduction_pct": round(_reduction_pct, 1), "event_samples_checked": _event_samples, "result_max": _result_max, "target_max": _target_max, "result_nonzero": int(np.count_nonzero(result)), "first_event_detail": _detail}, "timestamp": int(_t_audit.time() * 1000)}) + "\n")
-    except Exception:
-        pass
-    # #endregion
 
     # Restore original shape
     if is_mono_1d:
@@ -856,14 +786,6 @@ class AudioNegateBlockProcessor(BlockProcessor):
                     created_at=datetime.utcnow(),
                     file_path=str(neg_path),
                 )
-                # #region agent log
-                try:
-                    import json, time as _t4
-                    with open("/Users/gdennen/Projects/EchoZero/.cursor/debug.log", "a") as _f:
-                        _f.write(json.dumps({"hypothesisId": "H-SAVE", "location": "audio_negate_block.py:process:before_save", "message": "data before save_audio", "data": {"neg_shape": list(negative_track.shape), "neg_nonzero": int(np.count_nonzero(negative_track)), "neg_total": negative_track.size, "neg_pct_nonzero": round(np.count_nonzero(negative_track) / negative_track.size * 100, 1), "neg_max": float(np.max(np.abs(negative_track))), "sub_shape": list(subtracted_result.shape), "sub_nonzero": int(np.count_nonzero(subtracted_result)), "sub_max": float(np.max(np.abs(subtracted_result))), "neg_path": str(neg_path), "sub_path": str(sub_path), "neg_first_1000_nonzero": int(np.count_nonzero(negative_track[..., :44100])), "neg_mid_1000_nonzero": int(np.count_nonzero(negative_track[..., 1810000:1820000]))}, "timestamp": int(_t4.time() * 1000)}) + "\n")
-                except Exception:
-                    pass
-                # #endregion
                 neg_item.set_audio_data(negative_track, sample_rate)
                 neg_item.save_audio(str(neg_path))
                 neg_item.metadata["output_name"] = make_output_name("audio", "negative")
@@ -881,29 +803,6 @@ class AudioNegateBlockProcessor(BlockProcessor):
                 sub_item.set_audio_data(subtracted_result, sample_rate)
                 sub_item.save_audio(str(sub_path))
                 sub_item.metadata["output_name"] = make_output_name("audio", "subtracted")
-
-                # #region agent log
-                try:
-                    import json, time as _t5, os, soundfile as _sf
-                    _neg_file_size = os.path.getsize(str(neg_path)) if os.path.exists(str(neg_path)) else 0
-                    _sub_file_size = os.path.getsize(str(sub_path)) if os.path.exists(str(sub_path)) else 0
-                    _neg_item_data_nonzero = int(np.count_nonzero(neg_item._audio_data)) if neg_item._audio_data is not None else -1
-                    # Read the file BACK from disk and verify contents
-                    _readback, _rb_sr = _sf.read(str(neg_path))
-                    _rb_nonzero = int(np.count_nonzero(_readback))
-                    _rb_shape = list(_readback.shape)
-                    _rb_max = float(np.max(np.abs(_readback))) if _readback.size > 0 else 0
-                    # Check first 44100 samples (1 second) - should be all zeros if events start at 41s
-                    _first_sec_nonzero = int(np.count_nonzero(_readback[:44100]))
-                    with open("/Users/gdennen/Projects/EchoZero/.cursor/debug.log", "a") as _f:
-                        _f.write(json.dumps({"hypothesisId": "H-VERIFY", "location": "audio_negate_block.py:process:readback_verify", "message": "READBACK from disk", "data": {"neg_file_path": str(neg_path), "neg_file_size": _neg_file_size, "readback_shape": _rb_shape, "readback_sr": _rb_sr, "readback_nonzero": _rb_nonzero, "readback_total": _readback.size, "readback_pct_nonzero": round(_rb_nonzero / _readback.size * 100, 1), "readback_max": _rb_max, "first_sec_nonzero": _first_sec_nonzero, "in_memory_nonzero": _neg_item_data_nonzero}, "timestamp": int(_t5.time() * 1000)}) + "\n")
-                except Exception as _e:
-                    try:
-                        with open("/Users/gdennen/Projects/EchoZero/.cursor/debug.log", "a") as _f:
-                            _f.write(json.dumps({"hypothesisId": "H-VERIFY", "location": "audio_negate_block.py:process:readback_error", "message": f"readback failed: {_e}", "timestamp": int(time.time() * 1000)}) + "\n")
-                    except Exception:
-                        pass
-                # #endregion
 
                 # Generate waveforms for both
                 try:
@@ -937,23 +836,6 @@ class AudioNegateBlockProcessor(BlockProcessor):
                     waveform_service.compute_and_store(src_item)
                 except Exception:
                     pass
-
-                # #region agent log
-                try:
-                    import json, time as _t6, os, soundfile as _sf2
-                    _src_rb, _src_rb_sr = _sf2.read(str(src_path))
-                    _src_rb_nonzero = int(np.count_nonzero(_src_rb))
-                    _neg_rb2, _ = _sf2.read(str(neg_path))
-                    _neg_rb2_nonzero = int(np.count_nonzero(_neg_rb2))
-                    with open("/Users/gdennen/Projects/EchoZero/.cursor/debug.log", "a") as _f:
-                        _f.write(json.dumps({"hypothesisId": "H-SRC-VERIFY", "location": "audio_negate_block.py:process:src_readback", "message": "COMPARE files on disk", "data": {"src_path": str(src_path), "neg_path": str(neg_path), "sub_path": str(sub_path), "src_readback_nonzero": _src_rb_nonzero, "src_readback_total": _src_rb.size, "src_readback_pct": round(_src_rb_nonzero / _src_rb.size * 100, 1), "neg_readback_nonzero": _neg_rb2_nonzero, "neg_readback_total": _neg_rb2.size, "neg_readback_pct": round(_neg_rb2_nonzero / _neg_rb2.size * 100, 1), "files_identical": bool(np.array_equal(_src_rb, _neg_rb2)), "src_first_sec_nonzero": int(np.count_nonzero(_src_rb[:44100])), "neg_first_sec_nonzero": int(np.count_nonzero(_neg_rb2[:44100]))}, "timestamp": int(_t6.time() * 1000)}) + "\n")
-                except Exception as _e6:
-                    try:
-                        with open("/Users/gdennen/Projects/EchoZero/.cursor/debug.log", "a") as _f:
-                            _f.write(json.dumps({"hypothesisId": "H-SRC-VERIFY", "location": "audio_negate_block.py:process:src_readback_error", "message": f"readback failed: {_e6}", "timestamp": int(_t6.time() * 1000)}) + "\n")
-                    except Exception:
-                        pass
-                # #endregion
 
                 output_items.append(src_item)
                 output_items.append(neg_item)

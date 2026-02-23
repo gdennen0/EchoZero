@@ -365,7 +365,7 @@ class PyTorchAudioTrainerPanel(BlockPanelBase):
         self.save_to_dir_edit.setToolTip(
             "Directory where the model will be saved.\n\n"
             "A subfolder (model name + timestamp) is created here containing the .pth file and MODEL_SUMMARY.txt.\n"
-            "Leave empty to use the default EchoZero models directory."
+            "Leave empty to use the default EZ models directory."
         )
         save_to_layout = QHBoxLayout()
         save_to_layout.addWidget(self.save_to_dir_edit)

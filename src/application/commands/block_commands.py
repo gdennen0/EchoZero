@@ -235,6 +235,7 @@ class RenameBlockCommand(EchoZeroCommand):
         if self._old_name:
             self._facade.rename_block(self._block_id, self._old_name)
 
+
 class DuplicateBlockCommand(EchoZeroCommand):
     """
     Duplicate a block with its settings and filters (but not connections).
@@ -293,12 +294,9 @@ class DuplicateBlockCommand(EchoZeroCommand):
             if pos_result.success and pos_result.data:
                 self._source_position = pos_result.data.copy()
         
-        # Create new block with same type and name + " Copy"
-        new_name = f"{self._source_block_data['name']} Copy"
-        result = self._facade.add_block(
-            self._source_block_data["type"],
-            new_name
-        )
+        # Let BlockService._generate_unique_name pick the next available
+        # numbered name (e.g. Separator2, Separator3) instead of appending " Copy"
+        result = self._facade.add_block(self._source_block_data["type"])
         
         if not result.success or not result.data:
             self._log_error("Failed to create duplicated block")
@@ -306,14 +304,13 @@ class DuplicateBlockCommand(EchoZeroCommand):
         
         new_block = result.data
         self._duplicated_block_id = new_block.id
+        new_name = new_block.name
         
         # Copy metadata (includes settings and filter_selections)
-        # Use block_service.update_block to ensure metadata is properly saved
         if self._source_block_data.get("metadata"):
             result = self._facade.describe_block(self._duplicated_block_id)
             if result.success and result.data:
                 block = result.data
-                # Deep copy metadata to ensure nested structures are properly copied
                 block.metadata = deepcopy(self._source_block_data["metadata"])
                 self._facade.block_service.update_block(
                     self._facade.current_project_id,
@@ -323,7 +320,7 @@ class DuplicateBlockCommand(EchoZeroCommand):
         
         # Set position offset from source (to avoid overlap)
         if self._source_position:
-            offset_x = 250  # Offset to the right
+            offset_x = 250
             offset_y = 0
             new_x = self._source_position.get("x", 0) + offset_x
             new_y = self._source_position.get("y", 0) + offset_y
@@ -334,7 +331,6 @@ class DuplicateBlockCommand(EchoZeroCommand):
                 "block_name": new_name
             })
         
-        # Update description with actual name
         self.setText(f"Duplicate {new_name}")
     
     def undo(self):

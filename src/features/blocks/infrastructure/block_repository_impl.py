@@ -272,13 +272,21 @@ class SQLiteBlockRepository(BlockRepository):
         with self.db.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("""
-                SELECT id, name, type
+                SELECT id, name, type, metadata
                 FROM blocks
                 WHERE project_id = ?
                 ORDER BY name
             """, (project_id,))
             rows = cursor.fetchall()
-            return [BlockSummary(id=row["id"], name=row["name"], type=row["type"]) for row in rows]
+            return [
+                BlockSummary(
+                    id=row["id"],
+                    name=row["name"],
+                    type=row["type"],
+                    metadata=Database.json_decode(row["metadata"]) if row["metadata"] else {},
+                )
+                for row in rows
+            ]
 
     def load_block_detail(self, project_id: str, block_id: str) -> Optional[Block]:
         """

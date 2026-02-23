@@ -19,7 +19,7 @@ from ui.qt_gui.node_editor.eq_bands_block_item import EQBandsBlockItem
 from ui.qt_gui.node_editor.audio_negate_block_item import AudioNegateBlockItem
 from ui.qt_gui.node_editor.connection_item import ConnectionItem
 from ui.qt_gui.connection.connection_helper import ConnectionHelper
-from ui.qt_gui.design_system import Colors, Sizes
+from ui.qt_gui.design_system import Colors, Sizes, on_theme_changed, disconnect_theme_changed
 
 
 class NodeScene(QGraphicsScene):
@@ -73,6 +73,17 @@ class NodeScene(QGraphicsScene):
         
         # Refresh guard to prevent duplicate refreshes
         self._is_refreshing = False
+
+        # Theme change: update block items without full refresh
+        self._on_theme_changed_cb = self._on_theme_changed
+        on_theme_changed(self._on_theme_changed_cb)
+        self.destroyed.connect(lambda: disconnect_theme_changed(self._on_theme_changed_cb))
+
+    def _on_theme_changed(self):
+        """Propagate theme change to block items."""
+        for item in self.block_items.values():
+            if hasattr(item, "_on_theme_changed"):
+                item._on_theme_changed()
     
     def drawBackground(self, painter, rect):
         """Draw grid background"""
@@ -101,7 +112,7 @@ class NodeScene(QGraphicsScene):
             y += self.grid_size
         
         # Draw lines
-        pen = QPen(QColor(60, 60, 60))
+        pen = QPen(Colors.GRID_LINE)
         pen.setWidth(0)
         painter.setPen(pen)
         

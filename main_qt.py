@@ -144,13 +144,13 @@ def _validate_auth_config() -> tuple[str, str]:
         Log.error("MEMBERSTACK_APP_SECRET is required but not set.")
         project_root = Path(__file__).resolve().parent
         msg = (
-            "EchoZero requires MEMBERSTACK_APP_SECRET to authenticate.\n\n"
+            "EZ requires MEMBERSTACK_APP_SECRET to authenticate.\n\n"
             "To fix:\n"
             "1. Copy .env.example to .env\n"
             "2. Set MEMBERSTACK_APP_SECRET=<your_secret> in that file\n"
             "3. Place .env in project root: " + str(project_root) + "\n"
             "   Or in: " + str(user_env) + "\n\n"
-            "Get the secret from your EchoZero deployment admin, or set it at build time:\n"
+            "Get the secret from your EZ deployment admin, or set it at build time:\n"
             "MEMBERSTACK_APP_SECRET=... python scripts/build_app.py\n\n"
             "See docs/packaging/PACKAGING.md for details."
         )
@@ -391,9 +391,13 @@ def main():
     """Main entry point for Qt GUI"""
     # Create QApplication FIRST (required for splash screen)
     app = QApplication(sys.argv)
-    app.setApplicationName("EchoZero")
-    app.setOrganizationName("EchoZero")
-    
+    app.setApplicationName("EZ")
+    app.setOrganizationName("EZ")
+
+    # Theme applied before first window so login/splash use consistent baseline
+    from ui.qt_gui.design_system import Colors
+    Colors.apply_theme()
+
     # -- Authentication Gate --
     # User must be logged in before the app loads anything
     if not _authenticate(app):
@@ -419,12 +423,12 @@ def main():
     progress_timer.start(50)  # Update every 50ms
     
     Log.info("=" * 60)
-    Log.info("EchoZero Qt GUI")
+    Log.info("EZ Qt GUI")
     Log.info("=" * 60)
     
     try:
         # Initialize core services with progress tracking
-        Log.info("Initializing EchoZero services...")
+        Log.info("Initializing EZ services...")
         container = initialize_services(progress_tracker=progress_tracker)
         
         # Stop progress timer
@@ -469,7 +473,7 @@ def main():
         if container:
             container.cleanup()
         
-        Log.info("EchoZero Qt GUI exited successfully")
+        Log.info("EZ Qt GUI exited successfully")
         return exit_code
         
     except Exception as e:

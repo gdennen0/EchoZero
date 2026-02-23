@@ -1,9 +1,9 @@
 """
-Style Factory
+Style Factory - Component Variant Styles
 
-Centralized style builder for all common widget types.
-Every method reads from the current Colors and border_radius() at call time,
-so returned stylesheets always reflect the active theme.
+Builds stylesheet strings for per-widget overrides (primary buttons, execution
+status variants, etc.). Single source of truth: design_system.
+All methods read from Colors and border_radius() only - no hardcoded colors.
 
 Usage:
     from ui.qt_gui.style_factory import StyleFactory
@@ -550,36 +550,36 @@ class StyleFactory:
         """
 
     # =====================================================================
-    # Dock Tab Overrides
+    # Status / Execution Labels (variant overrides for dynamic state)
     # =====================================================================
 
     @staticmethod
-    def dock_tabs() -> str:
-        """Dock widget tab bar overrides (compact, 20px height)."""
+    def execution_status_label(variant: str = "default") -> str:
+        """
+        QLabel stylesheet for execution/status indicators.
+
+        Variants:
+            default  -- idle/ready state
+            running  -- block is running (green)
+            error    -- error state (red)
+        """
+        if variant == "running":
+            return f"""
+                QLabel {{
+                    font-weight: bold;
+                    color: {Colors.ACCENT_GREEN.name()};
+                }}
+            """
+        if variant == "error":
+            return f"""
+                QLabel {{
+                    font-weight: bold;
+                    color: {Colors.ACCENT_RED.name()};
+                }}
+            """
         return f"""
-            QTabBar {{
-                background-color: {Colors.BG_DARK.name()};
-                border: none;
-            }}
-            QTabBar::tab {{
-                background-color: {Colors.BG_MEDIUM.name()};
-                color: {Colors.TEXT_SECONDARY.name()};
-                border: 1px solid {Colors.BORDER.name()};
-                border-bottom: none;
-                padding: 4px 16px;
-                min-height: 20px;
-                max-height: 20px;
-                font-size: 12px;
-                font-weight: 500;
-            }}
-            QTabBar::tab:selected {{
-                background-color: {Colors.BG_DARK.name()};
-                color: {Colors.TEXT_PRIMARY.name()};
-                border-color: {Colors.ACCENT_BLUE.name()};
-                border-bottom: 2px solid {Colors.ACCENT_BLUE.name()};
-            }}
-            QTabBar::tab:hover:!selected {{
-                background-color: {Colors.HOVER.name()};
+            QLabel {{
+                font-weight: bold;
                 color: {Colors.TEXT_PRIMARY.name()};
             }}
         """

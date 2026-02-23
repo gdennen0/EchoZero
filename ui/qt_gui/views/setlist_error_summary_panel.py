@@ -1,15 +1,18 @@
 """
 Setlist Error Summary Panel
 
-Displays errors that occurred during setlist processing.
-Allows users to see failed songs and retry them.
+Compact error display for setlist processing failures.
+Shows full error messages inline, optimized for narrow sidebar layout.
 """
+import subprocess
+import sys
 from typing import List, Dict, Any
 from pathlib import Path
+
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout,
-    QLabel, QPushButton, QTableWidget, QTableWidgetItem,
-    QHeaderView, QGroupBox, QAbstractItemView, QMessageBox
+    QLabel, QPushButton, QScrollArea,
+    QFrame, QSizePolicy, QFileDialog, QMessageBox
 )
 from PyQt6.QtCore import Qt, pyqtSignal
 
@@ -20,229 +23,208 @@ from src.utils.message import Log
 
 class SetlistErrorSummaryPanel(ThemeAwareMixin, QWidget):
     """
-    Error summary panel for setlist processing.
-    
-    Shows failed songs with error messages and provides
-    options to retry failed songs or export error report.
+    Compact error summary for setlist processing.
+
+    Shows each failed song with its full error message inline.
+    Provides access to the log folder for deeper investigation.
     """
-    
-    # Signal emitted when retry is requested
-    retry_requested = pyqtSignal(str)  # song_id
-    
+
+    retry_requested = pyqtSignal(str)  # song_id (kept for backward compat)
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self.errors: List[Dict[str, Any]] = []
         self._setup_ui()
         self._init_theme_aware()
-    
+
     def _setup_ui(self):
-        """Setup the UI layout"""
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(Spacing.SM, Spacing.SM, Spacing.SM, Spacing.SM)
+        layout.setContentsMargins(0, Spacing.SM, 0, 0)
         layout.setSpacing(Spacing.XS)
-        
-        # Title
-        title = QLabel("Error Summary")
-        title.setFont(Typography.heading_font())
-        title.setStyleSheet(f"color: {Colors.TEXT_PRIMARY.name()}; font-size: 14px; font-weight: bold;")
-        layout.addWidget(title)
-        
-        # Error count
-        self.error_count_label = QLabel("0 errors")
-        self.error_count_label.setStyleSheet(f"color: {Colors.TEXT_SECONDARY.name()};")
-        layout.addWidget(self.error_count_label)
-        
-        # Errors table
-        self.errors_table = QTableWidget()
-        self.errors_table.setColumnCount(4)
-        self.errors_table.setHorizontalHeaderLabels(["Song", "Error", "", ""])
-        self.errors_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
-        self.errors_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
-        self.errors_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.Fixed)
-        self.errors_table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.Fixed)
-        self.errors_table.setColumnWidth(2, 60)  # Details button
-        self.errors_table.setColumnWidth(3, 60)  # Retry button
-        self.errors_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
-        self.errors_table.setAlternatingRowColors(True)
-        self.errors_table.setStyleSheet(StyleFactory.table())
-        layout.addWidget(self.errors_table)
-        
-        # Buttons
-        buttons_layout = QHBoxLayout()
-        buttons_layout.setSpacing(Spacing.SM)
-        
-        self.retry_all_btn = QPushButton("Retry All Failed")
-        self.retry_all_btn.setStyleSheet(StyleFactory.button("primary"))
-        self.retry_all_btn.clicked.connect(self._on_retry_all)
-        buttons_layout.addWidget(self.retry_all_btn)
-        
-        self.export_btn = QPushButton("Export Error Report")
-        self.export_btn.setStyleSheet(StyleFactory.button())
-        self.export_btn.clicked.connect(self._on_export)
-        buttons_layout.addWidget(self.export_btn)
-        
-        buttons_layout.addStretch()
-        
-        layout.addLayout(buttons_layout)
-        
-        # Initially hidden
+
+        # Header row: red accent bar with count
+        header = QHBoxLayout()
+        header.setSpacing(Spacing.SM)
+
+        self._header_label = QLabel("0 errors")
+        self._header_label.setStyleSheet(
+            f"color: {Colors.ACCENT_RED.name()}; "
+            f"font-size: 12px; font-weight: bold;"
+        )
+        header.addWidget(self._header_label)
+
+        header.addStretch()
+
+        # Open log folder button
+        log_btn = QPushButton("Open Logs")
+        log_btn.setStyleSheet(StyleFactory.button("small"))
+        log_btn.setToolTip("Open the application log folder")
+        log_btn.clicked.connect(self._on_open_log_folder)
+        header.addWidget(log_btn)
+
+        layout.addLayout(header)
+
+        # Scrollable error list
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setHorizontalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+        )
+        scroll.setVerticalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAsNeeded
+        )
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setStyleSheet("background: transparent;")
+
+        self._error_list_widget = QWidget()
+        self._error_list_layout = QVBoxLayout(self._error_list_widget)
+        self._error_list_layout.setContentsMargins(0, 0, 0, 0)
+        self._error_list_layout.setSpacing(Spacing.XS)
+        self._error_list_layout.addStretch()
+
+        scroll.setWidget(self._error_list_widget)
+        layout.addWidget(scroll, 1)
+
+        # Export button (compact, at bottom)
+        export_btn = QPushButton("Export Error Report")
+        export_btn.setStyleSheet(StyleFactory.button("small"))
+        export_btn.clicked.connect(self._on_export)
+        layout.addWidget(export_btn)
+
         self.setVisible(False)
-    
+
     def set_errors(self, errors: List[Dict[str, Any]]):
-        """Set errors to display"""
+        """Set errors to display."""
         self.errors = errors
-        self._update_table()
-        
-        # Show/hide panel based on errors
+        self._rebuild_error_list()
         self.setVisible(len(errors) > 0)
-        
-        # Update count
+
         count = len(errors)
-        self.error_count_label.setText(f"{count} error{'s' if count != 1 else ''}")
-    
-    def _update_table(self):
-        """Update errors table"""
-        self.errors_table.setRowCount(len(self.errors))
-        
-        for row, error in enumerate(self.errors):
+        self._header_label.setText(
+            f"{count} error{'s' if count != 1 else ''}"
+        )
+
+    def _rebuild_error_list(self):
+        """Rebuild the inline error list from current errors."""
+        # Clear existing error cards
+        while self._error_list_layout.count() > 1:
+            item = self._error_list_layout.takeAt(0)
+            widget = item.widget()
+            if widget:
+                widget.deleteLater()
+
+        for error in self.errors:
             song_path = error.get("song", "Unknown")
             error_msg = error.get("error", "Unknown error")
-            song_id = error.get("song_id")
-            
-            # Song name
-            song_item = QTableWidgetItem(Path(song_path).name)
-            song_item.setData(Qt.ItemDataRole.UserRole, song_id)  # Store song_id
-            self.errors_table.setItem(row, 0, song_item)
-            
-            # Error message (truncated for display)
-            display_msg = error_msg if len(error_msg) <= 60 else error_msg[:57] + "..."
-            error_item = QTableWidgetItem(display_msg)
-            error_item.setForeground(Colors.ACCENT_RED)
-            error_item.setToolTip(error_msg)  # Full error on hover
-            self.errors_table.setItem(row, 1, error_item)
-            
-            # Details button to show full error
-            details_btn = QPushButton("Details")
-            details_btn.setStyleSheet(StyleFactory.button("small"))
-            details_btn.clicked.connect(lambda checked, s=song_path, e=error_msg: self._show_error_details(s, e))
-            self.errors_table.setCellWidget(row, 2, details_btn)
-            
-            # Retry button
-            retry_btn = QPushButton("Retry")
-            retry_btn.setStyleSheet(StyleFactory.button("small"))
-            if song_id:
-                retry_btn.clicked.connect(lambda checked, sid=song_id: self._on_retry_song(sid))
-            self.errors_table.setCellWidget(row, 3, retry_btn)
-    
-    def _on_retry_song(self, song_id: str):
-        """Retry a specific song"""
-        self.retry_requested.emit(song_id)
-    
-    def _show_error_details(self, song_path: str, error_msg: str):
-        """Show full error details in a dialog"""
-        from PyQt6.QtWidgets import QDialog, QTextEdit, QDialogButtonBox
-        
-        dialog = QDialog(self)
-        dialog.setWindowTitle(f"Error Details - {Path(song_path).name}")
-        dialog.setMinimumSize(500, 300)
-        
-        layout = QVBoxLayout(dialog)
-        layout.setSpacing(Spacing.SM)
-        
-        # Song info
-        song_label = QLabel(f"Song: {Path(song_path).name}")
-        song_label.setStyleSheet(f"color: {Colors.TEXT_PRIMARY.name()}; font-weight: bold;")
-        layout.addWidget(song_label)
-        
-        path_label = QLabel(f"Path: {song_path}")
-        path_label.setStyleSheet(f"color: {Colors.TEXT_SECONDARY.name()}; font-size: 11px;")
-        path_label.setWordWrap(True)
-        layout.addWidget(path_label)
-        
-        # Error message in a text edit for easy copying
-        error_label = QLabel("Error Message:")
-        error_label.setStyleSheet(f"color: {Colors.TEXT_PRIMARY.name()};")
-        layout.addWidget(error_label)
-        
-        error_text = QTextEdit()
-        error_text.setPlainText(error_msg)
-        error_text.setReadOnly(True)
-        error_text.setStyleSheet(f"""
-            QTextEdit {{
+            card = self._create_error_card(song_path, error_msg)
+            # Insert before the stretch
+            self._error_list_layout.insertWidget(
+                self._error_list_layout.count() - 1, card
+            )
+
+    def _create_error_card(self, song_path: str, error_msg: str) -> QFrame:
+        """Create a compact error card showing song name and full error."""
+        card = QFrame()
+        card.setStyleSheet(f"""
+            QFrame {{
                 background-color: {Colors.BG_MEDIUM.name()};
-                border: 1px solid {Colors.BORDER.name()};
+                border: 1px solid {Colors.ACCENT_RED.darker(130).name()};
+                border-left: 3px solid {Colors.ACCENT_RED.name()};
                 border-radius: {border_radius(4)};
-                color: {Colors.ACCENT_RED.name()};
-                padding: 8px;
-                font-family: monospace;
+                padding: {Spacing.XS}px;
             }}
         """)
-        layout.addWidget(error_text, 1)
-        
-        # Buttons
-        button_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
-        button_box.rejected.connect(dialog.reject)
-        
-        # Add copy button
-        copy_btn = QPushButton("Copy Error")
-        copy_btn.clicked.connect(lambda: self._copy_to_clipboard(error_msg))
-        button_box.addButton(copy_btn, QDialogButtonBox.ButtonRole.ActionRole)
-        
-        layout.addWidget(button_box)
-        
-        dialog.setStyleSheet(f"""
-            QDialog {{
-                background-color: {Colors.BG_DARK.name()};
-            }}
-        """)
-        
-        dialog.exec()
-    
-    def _copy_to_clipboard(self, text: str):
-        """Copy text to clipboard"""
-        from PyQt6.QtWidgets import QApplication
-        clipboard = QApplication.clipboard()
-        clipboard.setText(text)
-        Log.info("SetlistErrorSummaryPanel: Copied error to clipboard")
-    
-    def _on_retry_all(self):
-        """Retry all failed songs"""
-        if not self.errors:
-            return
-        
-        reply = QMessageBox.question(
-            self, "Retry All Failed Songs",
-            f"Retry processing for {len(self.errors)} failed song(s)?",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+
+        card_layout = QVBoxLayout(card)
+        card_layout.setContentsMargins(
+            Spacing.SM, Spacing.XS, Spacing.XS, Spacing.XS
         )
-        
-        if reply == QMessageBox.StandardButton.Yes:
-            for error in self.errors:
-                song_id = error.get("song_id")
-                if song_id:
-                    self.retry_requested.emit(song_id)
-    
+        card_layout.setSpacing(2)
+
+        # Song name
+        name_label = QLabel(Path(song_path).name)
+        name_label.setStyleSheet(
+            f"color: {Colors.TEXT_PRIMARY.name()}; "
+            f"font-weight: bold; font-size: 11px; "
+            f"border: none; background: transparent;"
+        )
+        name_label.setToolTip(song_path)
+        card_layout.addWidget(name_label)
+
+        # Full error message (monospace, wrapped, selectable)
+        error_label = QLabel(error_msg)
+        error_label.setStyleSheet(
+            f"color: {Colors.ACCENT_RED.lighter(120).name()}; "
+            f"font-size: 10px; font-family: monospace; "
+            f"border: none; background: transparent;"
+        )
+        error_label.setWordWrap(True)
+        error_label.setTextInteractionFlags(
+            Qt.TextInteractionFlag.TextSelectableByMouse
+        )
+        error_label.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred
+        )
+        card_layout.addWidget(error_label)
+
+        return card
+
+    def _on_open_log_folder(self):
+        """Open the application log folder in the system file manager."""
+        try:
+            from src.utils.paths import get_logs_dir
+            logs_dir = get_logs_dir()
+
+            if not logs_dir.exists():
+                logs_dir.mkdir(parents=True, exist_ok=True)
+
+            if sys.platform == "darwin":
+                subprocess.Popen(["open", str(logs_dir)])
+            elif sys.platform == "win32":
+                subprocess.Popen(["explorer", str(logs_dir)])
+            else:
+                subprocess.Popen(["xdg-open", str(logs_dir)])
+
+            Log.info(f"SetlistErrorSummaryPanel: Opened log folder: {logs_dir}")
+        except Exception as e:
+            Log.error(f"SetlistErrorSummaryPanel: Failed to open log folder: {e}")
+            QMessageBox.warning(
+                self, "Could Not Open Logs",
+                f"Failed to open log folder:\n{e}"
+            )
+
     def _on_export(self):
-        """Export error report"""
-        from PyQt6.QtWidgets import QFileDialog
-        
+        """Export error report to a text file."""
         file_path, _ = QFileDialog.getSaveFileName(
             self, "Export Error Report",
             "setlist_errors.txt",
-            "Text Files (*.txt);;All Files (*)"
+            "Text Files (*.txt);;All Files (*)",
         )
-        
+
         if file_path:
             try:
                 with open(file_path, 'w', encoding='utf-8') as f:
                     f.write("Setlist Processing Error Report\n")
                     f.write("=" * 50 + "\n\n")
                     for i, error in enumerate(self.errors, 1):
-                        f.write(f"{i}. {Path(error.get('song', 'Unknown')).name}\n")
-                        f.write(f"   Error: {error.get('error', 'Unknown error')}\n")
-                        f.write(f"   Path: {error.get('song', 'Unknown')}\n\n")
-                QMessageBox.information(self, "Export Complete", f"Error report saved to:\n{file_path}")
+                        song = error.get("song", "Unknown")
+                        msg = error.get("error", "Unknown error")
+                        f.write(f"{i}. {Path(song).name}\n")
+                        f.write(f"   Path: {song}\n")
+                        f.write(f"   Error:\n")
+                        for line in msg.splitlines():
+                            f.write(f"     {line}\n")
+                        f.write("\n")
+
+                    from src.utils.paths import get_logs_dir
+                    f.write(f"Log folder: {get_logs_dir()}\n")
+
+                QMessageBox.information(
+                    self, "Export Complete",
+                    f"Error report saved to:\n{file_path}"
+                )
             except Exception as e:
-                QMessageBox.warning(self, "Export Failed", f"Failed to export error report:\n{e}")
-    
-    # Style helpers
+                QMessageBox.warning(
+                    self, "Export Failed",
+                    f"Failed to export error report:\n{e}"
+                )

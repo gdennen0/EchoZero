@@ -309,7 +309,7 @@ class WaveformWidget(QWidget):
             return
 
         # Faint center line
-        painter.setPen(QPen(QColor(255, 255, 255, 15), 1.0))
+        painter.setPen(QPen(Colors.OVERLAY_FEINT, 1.0))
         painter.drawLine(QPointF(2, cy), QPointF(w - 2, cy))
 
         # Draw waveform bars (respecting zoom / pan)
@@ -370,7 +370,7 @@ class WaveformWidget(QWidget):
             bar_y = h - bar_h - 1
             # Full extent (dim)
             painter.setPen(Qt.PenStyle.NoPen)
-            painter.setBrush(QBrush(QColor(255, 255, 255, 20)))
+            painter.setBrush(QBrush(Colors.OVERLAY_DIM))
             painter.drawRect(QRectF(margin_x, bar_y, usable_w, bar_h))
             # Visible portion (bright accent)
             vis_x = margin_x + start_frac * usable_w
@@ -596,16 +596,6 @@ class AudioPlayerWidget(QWidget):
                 if display == old_name:
                     match_idx = i
 
-            # #region agent log
-            try:
-                import json, time as _trs
-                _src_entries = [{"idx": i, "name": getattr(it, 'name', '?'), "file_path": getattr(it, 'file_path', '?')} for i, it in enumerate(items)]
-                with open("/Users/gdennen/Projects/EchoZero/.cursor/debug.log", "a") as _f:
-                    _f.write(json.dumps({"hypothesisId": "H-PLAYER-PATH", "location": "audio_player_block_item.py:refresh_sources", "message": "source list entries", "data": {"block_id": self.block_id, "num_items": len(items), "entries": _src_entries, "match_idx": match_idx}, "timestamp": int(_trs.time() * 1000)}) + "\n")
-            except Exception:
-                pass
-            # #endregion
-
             self.source_list.setCurrentRow(match_idx)
             # Manually sync _current_source_index because signals are blocked
             self._current_source_index = match_idx
@@ -733,14 +723,6 @@ class AudioPlayerWidget(QWidget):
             # Wait briefly for duration to become available
             QTimer.singleShot(100, self._update_duration)
 
-        # #region agent log
-        try:
-            import json, time as _tpl
-            with open("/Users/gdennen/Projects/EchoZero/.cursor/debug.log", "a") as _f:
-                _f.write(json.dumps({"hypothesisId": "H-PLAYER-PATH", "location": "audio_player_block_item.py:_play", "message": "playing file", "data": {"block_id": self.block_id, "idx": idx, "file_path": item.file_path, "item_name": getattr(item, 'name', '?'), "loaded_path": getattr(self, '_loaded_path', None)}, "timestamp": int(_tpl.time() * 1000)}) + "\n")
-        except Exception:
-            pass
-        # #endregion
         self._player.play()
         self._is_playing = True
         self.play_btn.setText("⏸")
@@ -773,14 +755,6 @@ class AudioPlayerWidget(QWidget):
             item = self._current_audio_items[row]
             self._duration = (item.length_ms or 0) / 1000.0
             self.time_label.setText(_format_time(self._duration))
-            # #region agent log
-            try:
-                import json, time as _tsc
-                with open("/Users/gdennen/Projects/EchoZero/.cursor/debug.log", "a") as _f:
-                    _f.write(json.dumps({"hypothesisId": "H-PLAYER-PATH", "location": "audio_player_block_item.py:_on_source_changed", "message": "source changed", "data": {"block_id": self.block_id, "row": row, "item_name": getattr(item, 'name', '?'), "file_path": getattr(item, 'file_path', '?')}, "timestamp": int(_tsc.time() * 1000)}) + "\n")
-            except Exception:
-                pass
-            # #endregion
             # Load waveform for newly selected source
             self._load_waveform_for_current()
         else:

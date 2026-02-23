@@ -77,6 +77,7 @@ def register_all_processors(
         from . import eq_bands_block
         from . import export_audio_dataset_block
         from . import dataset_viewer_block
+        from . import export_ma2_block
     except ImportError as e:
         Log.debug(f"Some processor modules not available: {e}")
         # Continue - not all processors may be implemented yet

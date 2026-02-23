@@ -8,10 +8,10 @@ from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QLabel, QProgressBar, QTextEdit
 )
 from PyQt6.QtCore import Qt, pyqtSignal, QObject
-from PyQt6.QtGui import QFont, QColor, QPalette
+from PyQt6.QtGui import QFont, QPixmap
 
 from src.application.bootstrap_loading_progress import LoadingProgressCallback
-from ui.qt_gui.design_system import border_radius, Colors
+from ui.qt_gui.design_system import border_radius, Colors, get_application_palette
 
 
 class SplashScreenSignals(QObject):
@@ -69,49 +69,48 @@ class SplashScreen(QWidget):
     def _setup_ui(self) -> None:
         """Create and layout UI components"""
         layout = QVBoxLayout(self)
-        layout.setSpacing(20)
-        layout.setContentsMargins(40, 40, 40, 40)
+        layout.setSpacing(10)
+        layout.setContentsMargins(24, 40, 24, 24)
         
-        # Application title
-        title_label = QLabel("EchoZero")
-        title_font = QFont()
-        title_font.setPointSize(32)
-        title_font.setBold(True)
-        title_label.setFont(title_font)
-        title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(title_label)
-        
-        # Version/subtitle
-        subtitle_label = QLabel("Audio Processing System")
-        subtitle_font = QFont()
-        subtitle_font.setPointSize(14)
-        subtitle_label.setFont(subtitle_font)
-        subtitle_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        subtitle_label.setStyleSheet(f"color: {Colors.TEXT_SECONDARY.name()};")
-        layout.addWidget(subtitle_label)
-        
-        layout.addSpacing(30)
-        
-        # Current module label
+        # Header: title + module + step (tight vertical, no padding)
+        header = QWidget()
+        header.setStyleSheet("QLabel { padding: 0; margin: 0; line-height: 1; }")
+        header_layout = QVBoxLayout(header)
+        header_layout.setSpacing(0)
+        header_layout.setContentsMargins(0, 0, 0, 0)
+        from pathlib import Path
+        logo_label = QLabel()
+        logo_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        logo_path = str(Path(__file__).resolve().parent.parent.parent.parent / "assets" / "ez_logo.png")
+        pixmap = QPixmap(logo_path)
+        if not pixmap.isNull():
+            scaled = pixmap.scaledToWidth(45, Qt.TransformationMode.SmoothTransformation)
+            logo_label.setPixmap(scaled)
+        else:
+            logo_label.setText("EZ")
+            title_font = QFont()
+            title_font.setPointSize(20)
+            title_font.setBold(True)
+            logo_label.setFont(title_font)
+        header_layout.addWidget(logo_label)
         self.module_label = QLabel("Initializing...")
         module_font = QFont()
-        module_font.setPointSize(12)
+        module_font.setPointSize(11)
         module_font.setBold(True)
         self.module_label.setFont(module_font)
         self.module_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(self.module_label)
-        
-        # Current step label (sub-component)
+        header_layout.addWidget(self.module_label)
         self.step_label = QLabel("")
         step_font = QFont()
-        step_font.setPointSize(10)
+        step_font.setPointSize(9)
         self.step_label.setFont(step_font)
         self.step_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.step_label.setStyleSheet(f"color: {Colors.TEXT_SECONDARY.name()};")
         self.step_label.setWordWrap(True)
-        layout.addWidget(self.step_label)
+        header_layout.addWidget(self.step_label)
+        layout.addWidget(header)
         
-        layout.addSpacing(20)
+        layout.addSpacing(10)
         
         # Overall progress bar
         self.overall_progress_bar = QProgressBar()
@@ -126,7 +125,7 @@ class SplashScreen(QWidget):
                 border-radius: {border_radius(5)};
                 text-align: center;
                 background-color: {Colors.BG_MEDIUM.name()};
-                height: 25px;
+                height: 18px;
             }}
             QProgressBar::chunk {{
                 background-color: {Colors.ACCENT_BLUE.name()};
@@ -155,12 +154,12 @@ class SplashScreen(QWidget):
         """)
         layout.addWidget(self.module_progress_bar)
         
-        layout.addSpacing(20)
+        layout.addSpacing(10)
         
         # Loading log (recent modules/steps)
         self.log_text = QTextEdit()
         self.log_text.setReadOnly(True)
-        self.log_text.setMaximumHeight(150)
+        self.log_text.setMaximumHeight(80)
         self.log_text.setStyleSheet(f"""
             QTextEdit {{
                 background-color: {Colors.BG_DARK.name()};
@@ -174,7 +173,7 @@ class SplashScreen(QWidget):
         layout.addWidget(self.log_text)
         
         # Set window size
-        self.resize(500, 500)
+        self.resize(420, 340)
         
         # Center on screen
         self._center_on_screen()
@@ -191,13 +190,8 @@ class SplashScreen(QWidget):
                 self.move(window_geometry.topLeft())
     
     def _apply_theme(self) -> None:
-        """Apply dark theme colors"""
-        palette = self.palette()
-        palette.setColor(QPalette.ColorRole.Window, QColor(35, 35, 35))
-        palette.setColor(QPalette.ColorRole.WindowText, QColor(255, 255, 255))
-        palette.setColor(QPalette.ColorRole.Base, QColor(25, 25, 25))
-        palette.setColor(QPalette.ColorRole.Text, QColor(255, 255, 255))
-        self.setPalette(palette)
+        """Apply theme from design_system (single source of truth)"""
+        self.setPalette(get_application_palette())
         self.setStyleSheet(f"""
             QWidget {{
                 background-color: {Colors.BG_DARK.name()};

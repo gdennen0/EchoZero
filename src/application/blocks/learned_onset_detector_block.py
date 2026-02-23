@@ -444,7 +444,7 @@ class LearnedOnsetDetectorBlockProcessor(BlockProcessor):
         return EventDataItem(
             id="",
             block_id=block.id,
-            name=f"{block.name}_{audio_item.name}_events",
+            name=audio_item.name,
             type="Event",
             metadata={"output_name": event_output_name},
             layers=[layer],

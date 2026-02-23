@@ -62,6 +62,3 @@ def parse_output_name(output_name: str) -> tuple[str, str]:
         raise ValueError(f"Invalid output_name format: {output_name}. Expected 'port:item' format.")
     port_name, item_name = output_name.split(":", 1)
     return port_name, item_name
-
-
-

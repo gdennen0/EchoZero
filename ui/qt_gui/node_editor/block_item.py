@@ -184,7 +184,7 @@ class BlockItem(QGraphicsItem):
             border_color = self._color.lighter(130)
             border_width = 1.0
         else:
-            border_color = QColor(255, 255, 255, 18)
+            border_color = Colors.NODE_BORDER
             border_width = 1.0
         
         painter.setPen(QPen(border_color, border_width))
@@ -210,7 +210,7 @@ class BlockItem(QGraphicsItem):
         fm = QFontMetrics(name_font)
         elided_name = fm.elidedText(self.block.name, Qt.TextElideMode.ElideRight, int(name_rect.width()))
         
-        text_color = QColor(255, 255, 255) if self._color.lightness() < 150 else QColor(20, 20, 25)
+        text_color = Colors.TEXT_ON_DARK if self._color.lightness() < 150 else Colors.TEXT_ON_LIGHT
         painter.setPen(QPen(text_color))
         painter.drawText(
             name_rect,
@@ -224,8 +224,12 @@ class BlockItem(QGraphicsItem):
         
         # -- Ports --
         self._draw_ports(painter, rect)
-    
-    
+
+    def _on_theme_changed(self):
+        """Refresh block color when theme changes (called by NodeScene)."""
+        self._color = Colors.get_block_color(self.block.type)
+        self.update()
+
     def _draw_ports(self, painter: QPainter, rect: QRectF):
         """Draw input, output, and bidirectional ports -- minimal design"""
         port_start_y = rect.top() + Sizes.BLOCK_HEADER_HEIGHT + Spacing.SM
@@ -1139,6 +1143,16 @@ class BlockItem(QGraphicsItem):
                 menu.addSeparator()
             duplicate_action = menu.addAction("Duplicate Block")
             duplicate_action.setData(("duplicate", None))
+            
+            # Production visibility toggle (developer-only)
+            mode_mgr = getattr(self.facade, 'app_mode_manager', None)
+            if mode_mgr and mode_mgr.is_developer:
+                menu.addSeparator()
+                prod_visible = (self.block.metadata or {}).get("production_visible", False)
+                toggle_action = menu.addAction("Show in Production Mode")
+                toggle_action.setCheckable(True)
+                toggle_action.setChecked(prod_visible)
+                toggle_action.setData(("toggle_production_visible", not prod_visible))
                     
         except ImportError:
             # Fallback if quick_actions not available
@@ -1186,6 +1200,11 @@ class BlockItem(QGraphicsItem):
             self._duplicate_block()
         elif action_type == "delete":
             self._delete_block()
+        elif action_type == "toggle_production_visible":
+            self.facade.update_block_metadata(
+                self.block.id, {"production_visible": action_data}
+            )
+            self.block.metadata = dict(self.block.metadata or {}, production_visible=action_data)
     
     def _execute_quick_action(self, action):
         """Execute a quick action, handling input requirements"""

@@ -7,8 +7,9 @@ Implements IStatefulWindow for saving/restoring internal state.
 """
 from typing import Dict, Any
 
+import PyQt6Ads as ads
 from PyQt6.QtWidgets import (
-    QDockWidget, QWidget, QVBoxLayout, QHBoxLayout,
+    QWidget, QVBoxLayout, QHBoxLayout,
     QLabel, QPushButton, QFrame, QMessageBox, QScrollArea, QSizePolicy,
     QLineEdit, QAbstractSpinBox
 )
@@ -28,7 +29,7 @@ from ui.qt_gui.core.window_state_types import IStatefulWindow
 from ui.qt_gui.widgets.block_status_dot import BlockStatusDot
 
 
-class BlockPanelBase(QDockWidget, IStatefulWindow):
+class BlockPanelBase(ads.CDockWidget, IStatefulWindow):
     """
     Base class for all block panels.
     
@@ -54,22 +55,17 @@ class BlockPanelBase(QDockWidget, IStatefulWindow):
             facade: Application facade for operations
             parent: Parent widget (must be MainWindow for docking to work)
         """
-        # Initialize with a temporary title - will be updated after loading block data
-        # The title parameter is important for Qt's dock system to work correctly
-        super().__init__("Loading...", parent)
+        super().__init__("Loading...")
         
         self.block_id = block_id
         self.facade = facade
         self.block: Block = None
-        self._is_saving = False  # Guard flag to prevent refresh during save
+        self._is_saving = False
         
-        # Configure dock widget - same settings as main docks (Node Editor, Batch Runner)
-        self.setAllowedAreas(Qt.DockWidgetArea.AllDockWidgetAreas)
-        self.setFeatures(
-            QDockWidget.DockWidgetFeature.DockWidgetClosable |
-            QDockWidget.DockWidgetFeature.DockWidgetMovable |
-            QDockWidget.DockWidgetFeature.DockWidgetFloatable
-        )
+        self.setFeature(ads.CDockWidget.DockWidgetFeature.DockWidgetClosable, True)
+        self.setFeature(ads.CDockWidget.DockWidgetFeature.DockWidgetMovable, True)
+        self.setFeature(ads.CDockWidget.DockWidgetFeature.DockWidgetFloatable, True)
+        self.setFeature(ads.CDockWidget.DockWidgetFeature.DockWidgetPinnable, True)
         
         # Setup UI
         self._setup_ui()
@@ -80,12 +76,13 @@ class BlockPanelBase(QDockWidget, IStatefulWindow):
         # Subscribe to events
         self._subscribe_to_events()
         
-        # Connect to dock state changes for safe reparenting
-        self.topLevelChanged.connect(self._on_dock_level_changed)
+        # Hide prod toggle when mode switches at runtime
+        self._mode_connection = None
+        mode_mgr = getattr(self.facade, 'app_mode_manager', None)
+        if mode_mgr:
+            self._mode_connection = lambda _: self._update_prod_toggle_state()
+            mode_mgr.mode_changed.connect(self._mode_connection)
         
-        # Auto-refresh local styling when theme changes (Tier 3 propagation).
-        # The global QApplication stylesheet covers default widget styles;
-        # this hook lets subclasses re-apply variant/context-specific overrides.
         on_theme_changed(self._on_theme_changed)
     
     def _setup_ui(self):
@@ -160,14 +157,10 @@ class BlockPanelBase(QDockWidget, IStatefulWindow):
         
         # Apply styling
         self.setStyleSheet(f"""
-            QDockWidget {{
+            ads--CDockWidget {{
                 background-color: {Colors.BG_DARK.name()};
                 color: {Colors.TEXT_PRIMARY.name()};
                 border: 1px solid {Colors.BORDER.name()};
-            }}
-            QDockWidget::title {{
-                background-color: {Colors.BG_MEDIUM.name()};
-                padding: {Spacing.SM}px;
             }}
         """)
     
@@ -198,6 +191,29 @@ class BlockPanelBase(QDockWidget, IStatefulWindow):
         layout.addWidget(self.name_label)
         
         layout.addStretch()
+        
+        # "Show in Production" toggle (visible only in developer mode)
+        self._prod_toggle = QPushButton()
+        self._prod_toggle.setCheckable(True)
+        self._prod_toggle.setToolTip("When checked, this panel is available in Production Mode")
+        self._prod_toggle.clicked.connect(self._on_prod_toggle)
+        self._prod_toggle.setFixedHeight(24)
+        self._prod_toggle.setStyleSheet(f"""
+            QPushButton {{
+                font-size: 10px;
+                padding: 2px 8px;
+                border: 1px solid {Colors.BORDER.name()};
+                border-radius: 4px;
+                background: transparent;
+                color: {Colors.TEXT_SECONDARY.name()};
+            }}
+            QPushButton:checked {{
+                border-color: {Colors.ACCENT_GREEN.name()};
+                color: {Colors.ACCENT_GREEN.name()};
+            }}
+        """)
+        self._update_prod_toggle_state()
+        layout.addWidget(self._prod_toggle)
         
         # Status indicator - unified widget that auto-updates
         self.status_dot = BlockStatusDot(self.block_id, self.facade, parent=header)
@@ -238,7 +254,7 @@ class BlockPanelBase(QDockWidget, IStatefulWindow):
         # Close button
         close_btn = QPushButton("Close")
         close_btn.setFixedWidth(80)
-        close_btn.clicked.connect(self.close)
+        close_btn.clicked.connect(self.closeDockWidget)
         layout.addWidget(close_btn)
         
         return footer
@@ -323,14 +339,37 @@ class BlockPanelBase(QDockWidget, IStatefulWindow):
         if result.success:
             self.block = result.data
             self._update_header()
+            self._update_prod_toggle_state()
             self.refresh()
-            # Status indicator auto-updates via BlockStatusDot widget
-            # Check for filter warnings after loading data
             self._check_and_display_filter_warnings()
         else:
             Log.error(f"Failed to load block data for {self.block_id}: {result.message}")
             self.status_message.setText("Error loading block")
             self.status_message.setStyleSheet(f"color: {Colors.ACCENT_RED.name()};")
+
+    def _update_prod_toggle_state(self):
+        """Sync the production-visible toggle with current block metadata."""
+        if not hasattr(self, '_prod_toggle'):
+            return
+        mode_mgr = getattr(self.facade, 'app_mode_manager', None)
+        is_dev = mode_mgr.is_developer if mode_mgr else True
+        self._prod_toggle.setVisible(is_dev)
+        if self.block:
+            checked = (self.block.metadata or {}).get('production_visible', False)
+            self._prod_toggle.setChecked(checked)
+            label = "PROD" if checked else "prod"
+            self._prod_toggle.setText(label)
+
+    def _on_prod_toggle(self, checked: bool):
+        """User toggled production visibility for this block."""
+        self.facade.update_block_metadata(
+            self.block_id, {"production_visible": checked}
+        )
+        if self.block:
+            meta = dict(self.block.metadata or {})
+            meta["production_visible"] = checked
+            self.block.metadata = meta
+        self._prod_toggle.setText("PROD" if checked else "prod")
     
     def _update_header(self):
         """Update header with block information"""
@@ -756,21 +795,12 @@ class BlockPanelBase(QDockWidget, IStatefulWindow):
                 child.setStyleSheet("")
     
     def _apply_base_styles(self):
-        """Re-apply base BlockPanelBase frame styles with current theme tokens.
-        
-        These styles are genuinely different from the global defaults
-        (e.g. QDockWidget border, header background, separator color).
-        """
-        # Dock widget frame
+        """Re-apply base BlockPanelBase frame styles with current theme tokens."""
         self.setStyleSheet(f"""
-            QDockWidget {{
+            ads--CDockWidget {{
                 background-color: {Colors.BG_DARK.name()};
                 color: {Colors.TEXT_PRIMARY.name()};
                 border: 1px solid {Colors.BORDER.name()};
-            }}
-            QDockWidget::title {{
-                background-color: {Colors.BG_MEDIUM.name()};
-                padding: {Spacing.SM}px;
             }}
         """)
         
@@ -796,46 +826,6 @@ class BlockPanelBase(QDockWidget, IStatefulWindow):
         """
         pass
     
-    def _on_dock_level_changed(self, floating: bool):
-        """
-        Handle dock level changes (floating/docked).
-        
-        Subclasses can override to add custom behavior during dock state changes.
-        This is called when the panel transitions between floating and docked states,
-        including when tabifying with other docks.
-        """
-        Log.debug(f"BlockPanel {self.block_id}: Dock level changed, floating={floating}")
-        
-        # When floating, set window flags to behave like a regular window
-        # This prevents the panel from disappearing when the app loses focus on macOS
-        if floating:
-            # Set window flags to match main window behavior (regular Window type)
-            # By default, Qt uses Tool window type for floating docks, which causes them
-            # to hide on macOS when the app loses focus. Setting to Window type fixes this.
-            # We preserve existing hint flags but change the window type to Window
-            current_flags = self.windowFlags()
-            # Keep only hint flags (not window type flags)
-            # Window type flags are: Widget, Window, Dialog, Tool, Sheet, Drawer, Popup
-            # We'll explicitly set to Window type
-            hint_mask = (
-                Qt.WindowType.WindowStaysOnTopHint |
-                Qt.WindowType.WindowStaysOnBottomHint |
-                Qt.WindowType.FramelessWindowHint |
-                Qt.WindowType.CustomizeWindowHint |
-                Qt.WindowType.WindowTitleHint |
-                Qt.WindowType.WindowSystemMenuHint |
-                Qt.WindowType.WindowMinimizeButtonHint |
-                Qt.WindowType.WindowMaximizeButtonHint |
-                Qt.WindowType.WindowCloseButtonHint |
-                Qt.WindowType.WindowContextHelpButtonHint |
-                Qt.WindowType.WindowShadeButtonHint
-            )
-            hint_flags = current_flags & hint_mask
-            # Set to regular Window type (same as main window) with preserved hints
-            new_flags = Qt.WindowType.Window | hint_flags
-            self.setWindowFlags(new_flags)
-            # Must show the window again after changing flags
-            self.show()
     
     def create_filter_widget(
         self,
@@ -965,9 +955,18 @@ class BlockPanelBase(QDockWidget, IStatefulWindow):
         # Unsubscribe from events
         try:
             self.facade.event_bus.unsubscribe("BlockUpdated", self._on_block_updated_base)
-            # BlockStatusDot widget handles its own event cleanup
-        except:
+        except Exception:
             pass
+        
+        # Disconnect mode_changed signal
+        if self._mode_connection is not None:
+            try:
+                mode_mgr = getattr(self.facade, 'app_mode_manager', None)
+                if mode_mgr:
+                    mode_mgr.mode_changed.disconnect(self._mode_connection)
+            except (TypeError, RuntimeError):
+                pass
+            self._mode_connection = None
         
         # Disconnect theme signal to prevent callbacks on deleted widgets
         try:

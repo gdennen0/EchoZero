@@ -68,7 +68,7 @@ class LoginDialog(QDialog):
     
     def _setup_ui(self):
         """Build the dialog UI."""
-        self.setWindowTitle("EchoZero Login")
+        self.setWindowTitle("EZ Login")
         self.setFixedSize(420, 340)
         self.setModal(True)
         
@@ -93,7 +93,7 @@ class LoginDialog(QDialog):
         layout.setContentsMargins(Spacing.XL, Spacing.XL, Spacing.XL, Spacing.XL)
         
         # -- Title --
-        title_label = QLabel("EchoZero")
+        title_label = QLabel("EZ")
         title_font = QFont()
         title_font.setFamily("SF Pro Display, Segoe UI, -apple-system, system-ui")
         title_font.setPixelSize(28)
@@ -293,7 +293,7 @@ class LoginDialog(QDialog):
                 )
             elif reason == "access_denied":
                 message = (
-                    "Your account does not have an active EchoZero plan.\n"
+                    "Your account does not have an active EZ plan.\n"
                     "Subscribe at speedoflight.dev to continue."
                 )
             elif reason == "member_not_found":
@@ -309,7 +309,7 @@ class LoginDialog(QDialog):
             else:
                 message = (
                     "Account verification failed.\n"
-                    "Please ensure you have an active EchoZero membership and try again."
+                    "Please ensure you have an active EZ membership and try again."
                 )
             if detail and reason not in ("invalid_request", "token_invalid"):
                 message = message.rstrip() + "\n\n(" + detail + ")"

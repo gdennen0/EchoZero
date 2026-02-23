@@ -1021,7 +1021,7 @@ class TimelineScene(QGraphicsScene):
                 if layer.index % 2 == 0:
                     painter.fillRect(track_rect, Colors.BG_DARK)
                 else:
-                    painter.fillRect(track_rect, Colors.BG_MEDIUM.darker(110))
+                    painter.fillRect(track_rect, Colors.TRACK_ALT_BG)
             
             # Note: Track separator lines removed - group headers and layer backgrounds provide sufficient visual separation
         
@@ -1118,11 +1118,11 @@ class TimelineScene(QGraphicsScene):
         display_major = major_interval * major_skip
         
         # === STEP 2: Prepare cosmetic pens ===
-        minor_pen = QPen(Colors.BORDER.darker(130), 1, Qt.PenStyle.DotLine)
-        minor_pen.setCosmetic(True)  # Consistent width at any zoom
+        minor_pen = QPen(Colors.GRID_LINE_MINOR, 1, Qt.PenStyle.DotLine)
+        minor_pen.setCosmetic(True)
         
-        major_pen = QPen(Colors.BORDER, 1)
-        major_pen.setCosmetic(True)  # Consistent width at any zoom
+        major_pen = QPen(Colors.GRID_LINE_MAJOR, 1)
+        major_pen.setCosmetic(True)
         
         # === STEP 3: Calculate visible range using INTEGER line indices ===
         visible_left = max(rect.left(), scene_rect.left())

@@ -95,7 +95,7 @@ class MA3ConflictDialog(QDialog):
         
         # EchoZero version
         ez_layout = QVBoxLayout()
-        ez_header = QLabel("EchoZero Version")
+        ez_header = QLabel("EZ Version")
         ez_header.setStyleSheet(f"font-weight: bold; color: {Colors.ACCENT_GREEN.name()};")
         ez_layout.addWidget(ez_header)
         
@@ -128,7 +128,7 @@ class MA3ConflictDialog(QDialog):
         self.resolution_group.addButton(self.use_ma3_radio, ConflictResolution.USE_MA3.value)
         resolution_layout.addWidget(self.use_ma3_radio)
         
-        self.use_ez_radio = QRadioButton("Use EchoZero Version")
+        self.use_ez_radio = QRadioButton("Use EZ Version")
         self.use_ez_radio.setStyleSheet(f"color: {Colors.TEXT_PRIMARY.name()};")
         self.resolution_group.addButton(self.use_ez_radio, ConflictResolution.USE_EZ.value)
         resolution_layout.addWidget(self.use_ez_radio)
@@ -215,7 +215,7 @@ class MA3ConflictDialog(QDialog):
                     ez_lines.append(f"{key}: {value}")
             self.ez_text.setPlainText("\n".join(ez_lines))
         else:
-            self.ez_text.setPlainText("(deleted in EchoZero)")
+            self.ez_text.setPlainText("(deleted in EZ)")
         
         # Restore previous resolution if exists
         if conflict.event_id in self.resolutions:

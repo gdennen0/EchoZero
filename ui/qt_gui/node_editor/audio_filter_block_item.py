@@ -189,9 +189,9 @@ class RotaryKnob(QWidget):
             center_ratio = 0.5
             if abs(ratio - center_ratio) > 0.005:
                 if self._value >= 0:
-                    fill_pen = QPen(QColor(80, 200, 100), 3.0)
+                    fill_pen = QPen(Colors.FILTER_SHELF, 3.0)
                 else:
-                    fill_pen = QPen(QColor(220, 140, 60), 3.0)
+                    fill_pen = QPen(Colors.FILTER_PEAK, 3.0)
                 fill_pen.setCapStyle(Qt.PenCapStyle.RoundCap)
                 painter.setPen(fill_pen)
                 start_angle = self.ARC_START_DEG - self.ARC_SPAN_DEG * center_ratio
@@ -244,10 +244,10 @@ class RotaryKnob(QWidget):
                 painter.setPen(QPen(Colors.TEXT_SECONDARY))
                 val_text = "0dB"
             elif self._value > 0:
-                painter.setPen(QPen(QColor(80, 200, 100)))
+                painter.setPen(QPen(Colors.FILTER_SHELF))
                 val_text = f"+{self._value:.1f}"
             else:
-                painter.setPen(QPen(QColor(220, 140, 60)))
+                painter.setPen(QPen(Colors.FILTER_PEAK))
                 val_text = f"{self._value:.1f}"
         else:
             painter.setPen(QPen(Colors.TEXT_SECONDARY))

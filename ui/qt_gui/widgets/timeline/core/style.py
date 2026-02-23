@@ -85,6 +85,13 @@ class TimelineStyle:
         cls.ACCENT_GREEN = GlobalColors.ACCENT_GREEN
         cls.ACCENT_RED = GlobalColors.ACCENT_RED
         cls.ACCENT_YELLOW = GlobalColors.ACCENT_YELLOW
+
+        # Timeline-specific tokens from global theme
+        cls.PLAYHEAD_COLOR = GlobalColors.TIMELINE_PLAYHEAD
+        cls.SELECTION_COLOR = GlobalColors.TIMELINE_SELECTION
+        cls.GRID_LINE_MAJOR = GlobalColors.TIMELINE_GRID_MAJOR
+        cls.GRID_LINE_MINOR = GlobalColors.TIMELINE_GRID_MINOR
+        cls.TRACK_ALT_BG = GlobalColors.TIMELINE_TRACK_ALT
     
     # =========================================================================
     # Timeline-Specific Colors
@@ -94,6 +101,7 @@ class TimelineStyle:
     SNAP_LINE_COLOR = QColor(100, 180, 255, 100)  # Light blue, semi-transparent
     GRID_LINE_MAJOR = QColor(80, 80, 85)
     GRID_LINE_MINOR = QColor(50, 50, 55)
+    TRACK_ALT_BG = QColor(38, 38, 42)      # Alternating track row background
     
     # =========================================================================
     # Layer/Track Colors (cycles through for multiple layers)

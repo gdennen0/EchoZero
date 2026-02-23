@@ -91,7 +91,9 @@ class ProjectService:
         self._setlist_song_repo = setlist_song_repo
         self._action_set_repo = action_set_repo
         self._action_item_repo = action_item_repo
-        # Small cache for last accessed snapshot (memory-efficient)
+        # In-memory snapshot store: song_id -> snapshot_dict
+        self._loaded_snapshots: Dict[str, dict] = {}
+        # Single-entry cache for fast repeated access to the same snapshot
         self._snapshot_cache: Optional[Tuple[str, dict]] = None  # (song_id, snapshot_dict)
         Log.info("ProjectService: Initialized")
     
@@ -190,7 +192,8 @@ class ProjectService:
                         pass
                 raise e
             
-            # Update cache
+            # Keep in-memory stores in sync
+            self._loaded_snapshots[song_id] = snapshot_dict
             self._snapshot_cache = (song_id, snapshot_dict)
             
             Log.debug(f"ProjectService: Saved snapshot for song {song_id} to project file")
@@ -200,9 +203,10 @@ class ProjectService:
     
     def get_snapshot(self, song_id: str, project: Optional[Project] = None) -> Optional[dict]:
         """
-        Get snapshot dictionary from project file (memory-efficient).
+        Get snapshot dictionary for a song.
         
-        Checks cache first, then reads from project file if not cached.
+        Checks single-entry cache, then in-memory store, then falls back to
+        reading the project file for legacy compatibility.
         
         Args:
             song_id: Song identifier
@@ -211,46 +215,45 @@ class ProjectService:
         Returns:
             Snapshot dictionary or None if not found
         """
-        # Check cache first
         if self._snapshot_cache and self._snapshot_cache[0] == song_id:
-            snapshot = self._snapshot_cache[1]
+            return self._snapshot_cache[1]
+        
+        # Check in-memory store (populated on project load/import)
+        snapshot = self._loaded_snapshots.get(song_id)
+        if snapshot is not None:
+            self._snapshot_cache = (song_id, snapshot)
             return snapshot
         
-        # Get project if not provided
+        # Fallback: read from .ez file for cases where _loaded_snapshots
+        # wasn't populated (e.g. snapshot written by external tool)
         if not project:
-            # Try to get current project from repository
             projects = self._project_repo.list_all()
             if projects:
-                project = projects[0]  # Use first project as fallback
+                project = projects[0]
             else:
                 Log.warning(f"ProjectService: Cannot load snapshot - no project found")
                 return None
         
         project_file = self._get_export_file_path(project)
         if not project_file or not project_file.exists():
-            Log.debug(f"ProjectService: Project file not found: {project_file}")
             return None
         
         try:
-            # Read project file - handle both ZIP and JSON formats
             if zipfile.is_zipfile(project_file):
-                # New ZIP format - read project.json from ZIP
                 with zipfile.ZipFile(project_file, 'r') as zip_file:
                     if "project.json" not in zip_file.namelist():
                         return None
                     project_json_str = zip_file.read("project.json").decode('utf-8')
                     data = json.loads(project_json_str)
             else:
-                # Legacy JSON format - read directly
                 with open(project_file, 'r', encoding='utf-8') as f:
                     data = json.load(f)
             
-            # Get snapshot from file
             snapshots = data.get("snapshots", {})
             snapshot = snapshots.get(song_id)
             
-            # Update cache
             if snapshot:
+                self._loaded_snapshots[song_id] = snapshot
                 self._snapshot_cache = (song_id, snapshot)
             
             return snapshot
@@ -293,6 +296,10 @@ class ProjectService:
         # Save to repository
         created_project = self._project_repo.create(project)
         
+        # Fresh project has no snapshots
+        self._loaded_snapshots = {}
+        self._snapshot_cache = None
+        
         # Emit event
         self._event_bus.publish(ProjectCreated(
             project_id=created_project.id,
@@ -321,8 +328,12 @@ class ProjectService:
             project_file = self._get_export_file_path(project)
             self._record_recent_project(project, project_file)
             
-            # Clear snapshot cache when loading project (snapshots are read from file on demand)
+            # Populate in-memory snapshot store from .ez file so saves preserve them
             self._snapshot_cache = None
+            snapshots = self._read_snapshots_from_file(project)
+            self._loaded_snapshots = dict(snapshots) if snapshots else {}
+            if self._loaded_snapshots:
+                Log.debug(f"ProjectService: Loaded {len(self._loaded_snapshots)} snapshot(s) into memory")
             
             Log.info(f"ProjectService: Loaded project '{project.name}' (id: {project_id})")
         else:
@@ -610,174 +621,94 @@ class ProjectService:
                         total_persisted += 1
                 Log.info(f"ProjectService: Verified {total_persisted} data item(s) in database after import (expected {len(raw_data_items)})")
 
-        # Restore UI state from project file (built-in, automatic)
-        if self._ui_state_repo:
-            try:
-                ui_state_serialized = data.get("ui_state", {})
-                if ui_state_serialized:
-                    self._ui_state_repo.deserialize_from_project(created_project.id, ui_state_serialized)
-            except Exception as e:
-                Log.warning(f"ProjectService: Failed to restore UI state from project file: {e}")
-                # Don't fail project load - UI state is non-critical
+        # Restore UI state
+        ui_state_serialized = data.get("ui_state", {})
+        if ui_state_serialized:
+            self._ui_state_repo.deserialize_from_project(created_project.id, ui_state_serialized)
 
-        # Restore block local state from project file
-        if self._block_local_state_repo:
-            try:
-                block_local_state_serialized = data.get("block_local_state", {})
-                if block_local_state_serialized:
-                    for block_id, local_state in block_local_state_serialized.items():
-                        try:
-                            self._block_local_state_repo.set_inputs(block_id, local_state)
-                        except Exception as e:
-                            Log.warning(f"ProjectService: Failed to restore block local state for {block_id}: {e}")
-                    Log.info(f"ProjectService: Restored {len(block_local_state_serialized)} block local state entry(ies) from project file")
-            except Exception as e:
-                Log.warning(f"ProjectService: Failed to restore block local state from project file: {e}")
-                # Don't fail project load - block local state is non-critical
+        # Restore block local state
+        block_local_state_serialized = data.get("block_local_state", {})
+        for block_id, local_state in block_local_state_serialized.items():
+            self._block_local_state_repo.set_inputs(block_id, local_state)
+        if block_local_state_serialized:
+            Log.info(f"ProjectService: Restored {len(block_local_state_serialized)} block local state entry(ies)")
 
-        # Restore layer order from project file
-        if self._layer_order_repo:
-            try:
-                layer_orders_serialized = data.get("layer_orders", {})
-                if layer_orders_serialized:
-                    for block_id, order_list in layer_orders_serialized.items():
-                        try:
-                            order = [
-                                LayerKey.from_dict(entry)
-                                for entry in (order_list or [])
-                                if isinstance(entry, dict)
-                            ]
-                            self._layer_order_repo.set_order(LayerOrder(block_id=block_id, order=order))
-                        except Exception as e:
-                            Log.warning(f"ProjectService: Failed to restore layer order for {block_id}: {e}")
-                    Log.info(f"ProjectService: Restored {len(layer_orders_serialized)} layer order entry(ies) from project file")
-            except Exception as e:
-                Log.warning(f"ProjectService: Failed to restore layer order from project file: {e}")
-                # Don't fail project load - layer order is non-critical
+        # Restore layer orders
+        layer_orders_serialized = data.get("layer_orders", {})
+        for block_id, order_list in layer_orders_serialized.items():
+            order = [
+                LayerKey.from_dict(entry)
+                for entry in (order_list or [])
+                if isinstance(entry, dict)
+            ]
+            self._layer_order_repo.set_order(LayerOrder(block_id=block_id, order=order))
+        if layer_orders_serialized:
+            Log.info(f"ProjectService: Restored {len(layer_orders_serialized)} layer order entry(ies)")
 
-        # Restore setlists and songs from project file (follows blocks pattern - tables cleared by _clear_runtime_tables)
-        if self._setlist_repo and self._setlist_song_repo:
-            try:
-                setlists_serialized = data.get("setlists", [])
-                for setlist_data in setlists_serialized:
-                    try:
-                        # Update project_id to match the loaded project
-                        setlist_data["project_id"] = created_project.id
-                        setlist = Setlist.from_dict(setlist_data)
-                        songs_data = setlist_data.get("songs", [])
-                        
-                        # Create setlist (tables already cleared by _clear_runtime_tables)
-                        setlist = self._setlist_repo.create(setlist)
-                        
-                        # Create songs for this setlist
-                        for song_data in songs_data:
-                            song_data["setlist_id"] = setlist.id
-                            song = SetlistSong.from_dict(song_data)
-                            self._setlist_song_repo.create(song)
-                        
-                        Log.info(f"ProjectService: Restored setlist with {len(songs_data)} song(s) from project file")
-                    except Exception as e:
-                        Log.warning(f"ProjectService: Failed to restore setlist: {e}")
-            except Exception as e:
-                Log.warning(f"ProjectService: Failed to restore setlists from project file: {e}")
-                # Don't fail project load - setlists are non-critical
+        # Restore setlists and songs
+        for setlist_data in data.get("setlists", []):
+            setlist_data["project_id"] = created_project.id
+            setlist = Setlist.from_dict(setlist_data)
+            songs_data = setlist_data.get("songs", [])
 
-        # Restore action sets from project file (follows blocks pattern - tables cleared by _clear_runtime_tables)
-        # IMPORTANT: Action sets must be restored BEFORE action items, so action items can reference them
-        if self._action_set_repo:
-            try:
-                from src.features.projects.domain.action_set import ActionSet
-                action_sets_serialized = data.get("action_sets", [])
-                Log.debug(f"ProjectService: Found {len(action_sets_serialized)} action set(s) in project file")
-                restored_count = 0
-                for action_set_data in action_sets_serialized:
-                    try:
-                        # Update project_id to match the loaded project
-                        action_set_data["project_id"] = created_project.id
-                        action_set = ActionSet.from_dict(action_set_data)
-                        
-                        # Check if action set already exists (by ID or name)
-                        existing = None
-                        if action_set.id:
-                            try:
-                                existing = self._action_set_repo.get(action_set.id)
-                            except Exception:
-                                pass
-                        
-                        if existing:
-                            # Update existing action set
-                            self._action_set_repo.update(action_set)
-                            Log.debug(f"ProjectService: Updated existing action set '{action_set.name}' (id: {action_set.id})")
-                        else:
-                            # Create new action set
-                            self._action_set_repo.create(action_set)
-                            Log.debug(f"ProjectService: Created new action set '{action_set.name}' (id: {action_set.id})")
-                        
-                        restored_count += 1
-                        Log.debug(f"ProjectService: Restored action set '{action_set.name}' with {len(action_set.actions)} action(s)")
-                    except Exception as e:
-                        Log.warning(f"ProjectService: Failed to restore action set '{action_set_data.get('name', 'unknown')}': {e}")
-                
-                if restored_count > 0:
-                    Log.info(f"ProjectService: Restored {restored_count} action set(s) from project file")
-            except Exception as e:
-                Log.warning(f"ProjectService: Failed to restore action sets from project file: {e}")
-                # Don't fail project load - action sets are non-critical
-        else:
-            Log.debug("ProjectService: action_set_repo not available, skipping action sets restoration")
+            setlist = self._setlist_repo.create(setlist)
+            self._setlist_song_repo.delete_by_setlist(setlist.id)
 
-        # Restore action items from project file (user-configured action events)
-        if self._action_item_repo:
-            try:
-                from src.features.projects.domain.action_set import ActionItem
-                action_items_serialized = data.get("action_items", [])
-                Log.debug(f"ProjectService: Found {len(action_items_serialized)} action item(s) in project file")
-                restored_count = 0
-                for action_item_data in action_items_serialized:
-                    try:
-                        # Update project_id to match the loaded project
-                        action_item_data["project_id"] = created_project.id
-                        action_item = ActionItem.from_dict(action_item_data)
-                        
-                        # Check if action item already exists (by ID)
-                        existing = None
-                        if action_item.id:
-                            try:
-                                existing = self._action_item_repo.get(action_item.id)
-                            except Exception:
-                                pass
-                        
-                        if existing:
-                            # Update existing action item
-                            self._action_item_repo.update(action_item)
-                            Log.debug(f"ProjectService: Updated existing action item '{action_item.action_name}' (id: {action_item.id})")
-                        else:
-                            # Create new action item
-                            self._action_item_repo.create(action_item)
-                            Log.debug(f"ProjectService: Created new action item '{action_item.action_name}' (id: {action_item.id})")
-                        
-                        restored_count += 1
-                    except Exception as e:
-                        Log.warning(f"ProjectService: Failed to restore action item '{action_item_data.get('action_name', 'unknown')}': {e}")
-                
-                if restored_count > 0:
-                    Log.info(f"ProjectService: Restored {restored_count} action item(s) from project file")
-            except Exception as e:
-                Log.warning(f"ProjectService: Failed to restore action items from project file: {e}")
-                # Don't fail project load - action items are non-critical
-        else:
-            Log.debug("ProjectService: action_item_repo not available, skipping action items restoration")
+            missing_paths = []
+            for song_data in songs_data:
+                song_data["setlist_id"] = setlist.id
+                song = SetlistSong.from_dict(song_data)
+                self._setlist_song_repo.create(song)
+                if song.audio_path and not os.path.exists(song.audio_path):
+                    missing_paths.append(song.audio_path)
 
-        # Load snapshots from project file
-        try:
-            snapshots_serialized = data.get("snapshots", {})
-            self._loaded_snapshots = dict(snapshots_serialized)  # song_id -> snapshot_dict
-            if snapshots_serialized:
-                Log.info(f"ProjectService: Loaded {len(snapshots_serialized)} snapshot(s) from project file")
-        except Exception as e:
-            Log.warning(f"ProjectService: Failed to load snapshots from project file: {e}")
-            self._loaded_snapshots = {}  # Clear on error
-            # Don't fail project load - snapshots are non-critical
+            if missing_paths:
+                Log.warning(
+                    f"ProjectService: {len(missing_paths)} song audio path(s) not found on this machine "
+                    f"(first: {missing_paths[0]}). Setlist audio folder may need to be re-linked."
+                )
+            if setlist.audio_folder_path and not os.path.isdir(setlist.audio_folder_path):
+                Log.warning(f"ProjectService: Setlist audio folder not found: {setlist.audio_folder_path}")
+
+            Log.info(f"ProjectService: Restored setlist with {len(songs_data)} song(s)")
+
+        # Restore action sets (before action items so the table can be rebuilt)
+        from src.features.projects.domain.action_set import ActionSet, ActionItem
+        action_sets_data = data.get("action_sets", [])
+        for action_set_data in action_sets_data:
+            action_set_data["project_id"] = created_project.id
+            action_set = ActionSet.from_dict(action_set_data)
+            self._action_set_repo.create(action_set)
+        if action_sets_data:
+            Log.info(f"ProjectService: Restored {len(action_sets_data)} action set(s)")
+
+        # Rebuild action_items table from action sets (authoritative) + standalone items
+        action_ids_from_sets = set()
+        for action_set_data in action_sets_data:
+            for action_dict in action_set_data.get("actions", []):
+                action_dict["project_id"] = created_project.id
+                item = ActionItem.from_dict(action_dict)
+                self._action_item_repo.create(item)
+                action_ids_from_sets.add(item.id)
+
+        standalone_count = 0
+        for action_item_data in data.get("action_items", []):
+            if action_item_data.get("id", "") in action_ids_from_sets:
+                continue
+            action_item_data["project_id"] = created_project.id
+            item = ActionItem.from_dict(action_item_data)
+            self._action_item_repo.create(item)
+            standalone_count += 1
+
+        total_items = len(action_ids_from_sets) + standalone_count
+        if total_items > 0:
+            Log.info(f"ProjectService: Restored {total_items} action item(s) ({len(action_ids_from_sets)} from sets, {standalone_count} standalone)")
+
+        # Load snapshots
+        snapshots_serialized = data.get("snapshots", {})
+        self._loaded_snapshots = dict(snapshots_serialized)
+        if snapshots_serialized:
+            Log.info(f"ProjectService: Loaded {len(snapshots_serialized)} snapshot(s)")
 
         self._record_recent_project(created_project, file_path)
         
@@ -880,7 +811,7 @@ class ProjectService:
             Log.warning(f"ProjectService: Failed to read snapshots from project file: {e}")
             return {}
     
-    def _write_project_file(self, project: Project) -> Optional[str]:
+    def _write_project_file(self, project: Project) -> str:
         """
         Write project file to disk in the save directory.
         
@@ -888,265 +819,178 @@ class ProjectService:
         - project.json: All project data (metadata, blocks, connections, etc.)
         - data/: All data files bundled in the archive
         
-        This allows the project to be transported as a single file.
+        Raises on any failure -- callers see the real error, not a silent None.
         
         Args:
             project: Project entity to save
+            
+        Returns:
+            Path to the written project file
+            
+        Raises:
+            ValueError: If project has no save directory
         """
         project_file = self._get_export_file_path(project)
         if project_file is None:
-            return None
+            raise ValueError("Cannot determine project file path: no save_directory set")
         
-        try:
-            save_dir = project_file.parent
-            save_dir.mkdir(parents=True, exist_ok=True)
-            
-            # Gather all project data
-            blocks = []
-            connections = []
-            data_items = []
-            
-            if self._block_repo:
-                try:
-                    block_entities = self._block_repo.list_by_project(project.id)
-                    blocks = [block.to_dict() for block in block_entities]
-                    
-                    # Get data items for each block and collect files for ZIP packaging
-                    files_to_zip = {}  # Maps ZIP path -> source file path
-                    if self._data_item_repo:
-                        try:
-                            for block_entity in block_entities:
-                                block_data_items = self._data_item_repo.list_by_block(block_entity.id)
-                                for data_item in block_data_items:
-                                    item_dict = data_item.to_dict()
-                                    
-                                    # Package audio file if it exists
-                                    original_path = item_dict.get("file_path")
-                                    if original_path and os.path.exists(original_path):
-                                        try:
-                                            safe_id = item_dict["id"].replace("-", "_")
-                                            file_ext = os.path.splitext(os.path.basename(original_path))[1] or ".dat"
-                                            zip_path = f"data/{safe_id}{file_ext}"
-                                            
-                                            files_to_zip[zip_path] = original_path
-                                            item_dict["file_path"] = zip_path
-                                            
-                                            Log.debug(f"ProjectService: Will package file {original_path} -> {zip_path} in ZIP")
-                                        except Exception as e:
-                                            Log.warning(f"ProjectService: Failed to prepare file {original_path} for packaging: {e}")
-                                    
-                                    # Clean metadata before export: remove duplicates and runtime flags
-                                    item_metadata = item_dict.get("metadata", {})
-                                    for stale_key in ("file_path", "sample_rate", "channels", "duration_samples", "_file_valid", "original_path"):
-                                        item_metadata.pop(stale_key, None)
-                                    
-                                    # Package waveform (AudioDataItems only)
-                                    if item_dict.get("type") == "Audio":
-                                        try:
-                                            from src.shared.application.services.waveform_service import get_waveform_service
-                                            import numpy as np
-                                            waveform_service = get_waveform_service()
-                                            waveform_info = item_metadata.get("waveform", {})
-                                            resolution = waveform_info.get("resolution") or waveform_service.DEFAULT_RESOLUTION
-                                            
-                                            det_path = waveform_service.get_waveform_path(item_dict["id"], resolution)
-                                            if det_path.exists():
-                                                arr = np.load(str(det_path))
-                                                if arr.ndim != 1:
-                                                    Log.error(
-                                                        f"ProjectService: Waveform for {item_dict.get('name', item_dict['id'])} is not 1D "
-                                                        f"(shape: {arr.shape}). Skipping waveform. Re-run pipeline to regenerate."
-                                                    )
-                                                    item_metadata.pop("waveform", None)
-                                                else:
-                                                    safe_id = item_dict["id"].replace("-", "_")
-                                                    waveform_zip_path = f"data/{safe_id}_waveform.npy"
-                                                    files_to_zip[waveform_zip_path] = str(det_path)
-                                                    item_metadata["waveform"] = {
-                                                        "file_path": waveform_zip_path,
-                                                        "resolution": resolution,
-                                                        "points_count": len(arr),
-                                                    }
-                                                    Log.debug(f"ProjectService: Will package waveform -> {waveform_zip_path} (r{resolution}, {len(arr)} pts)")
-                                            else:
-                                                item_metadata.pop("waveform", None)
-                                        except Exception as e:
-                                            Log.error(f"ProjectService: Failed to prepare waveform for export ({item_dict.get('name', item_dict['id'])}): {e}")
-                                    
-                                    # Remove original_path -- do not leak machine paths
-                                    item_dict.pop("original_path", None)
-                                    
-                                    data_items.append(item_dict)
-                        except Exception as e:
-                            Log.warning(f"ProjectService: Failed to get data items for block {block_entity.id}: {e}")
-                except Exception as e:
-                    Log.warning(f"ProjectService: Failed to get blocks for export: {e}")
-            
-            if self._connection_repo:
-                try:
-                    connections = [conn.to_dict() for conn in self._connection_repo.list_by_project(project.id)]
-                except Exception as e:
-                    Log.warning(f"ProjectService: Failed to get connections for export: {e}")
-            
-            # Serialize UI state (built-in, automatic)
-            ui_state_serialized = {}
-            if self._ui_state_repo:
-                try:
-                    ui_state_serialized = self._ui_state_repo.serialize_for_project(project.id)
-                    total_entries = sum(len(entries) for entries in ui_state_serialized.values())
-                    if total_entries > 0:
-                        Log.debug(f"ProjectService: Serialized {total_entries} UI state entry(ies) for project file")
-                except Exception as e:
-                    Log.warning(f"ProjectService: Failed to serialize UI state: {e}")
-            
-            # Serialize block local state (input/output references)
-            block_local_state_serialized = {}
-            if self._block_local_state_repo:
-                try:
-                    for block_entity in block_entities:
-                        local_state = self._block_local_state_repo.get_inputs(block_entity.id)
-                        if local_state:
-                            block_local_state_serialized[block_entity.id] = local_state
-                    if block_local_state_serialized:
-                        Log.debug(f"ProjectService: Serialized {len(block_local_state_serialized)} block local state entry(ies) for project file")
-                except Exception as e:
-                    Log.warning(f"ProjectService: Failed to serialize block local state: {e}")
-
-            # Serialize layer orders (Editor ordering)
-            layer_orders_serialized = {}
-            if self._layer_order_repo:
-                try:
-                    for block_entity in block_entities:
-                        layer_order = self._layer_order_repo.get_order(block_entity.id)
-                        if layer_order and layer_order.order:
-                            layer_orders_serialized[block_entity.id] = [
-                                key.to_dict() for key in layer_order.order
-                            ]
-                    if layer_orders_serialized:
-                        Log.debug(f"ProjectService: Serialized {len(layer_orders_serialized)} layer order entry(ies) for project file")
-                except Exception as e:
-                    Log.warning(f"ProjectService: Failed to serialize layer orders: {e}")
-            
-            # Serialize setlists and songs (follows blocks pattern)
-            setlists_serialized = []
-            if self._setlist_repo and self._setlist_song_repo:
-                try:
-                    setlist_entities = self._setlist_repo.list_by_project(project.id)
-                    for setlist in setlist_entities:
-                        setlist_dict = setlist.to_dict()
-                        songs = self._setlist_song_repo.list_by_setlist(setlist.id)
-                        setlist_dict["songs"] = [song.to_dict() for song in songs]
-                        setlists_serialized.append(setlist_dict)
-                    if setlists_serialized:
-                        total_songs = sum(len(s.get("songs", [])) for s in setlists_serialized)
-                        Log.debug(f"ProjectService: Serialized {len(setlists_serialized)} setlist(s) with {total_songs} song(s) for project file")
-                except Exception as e:
-                    Log.warning(f"ProjectService: Failed to serialize setlists: {e}")
-            
-            # Serialize action sets (follows blocks pattern)
-            action_sets_serialized = []
-            if self._action_set_repo:
-                try:
-                    action_set_entities = self._action_set_repo.list_by_project(project.id)
-                    Log.debug(f"ProjectService: Found {len(action_set_entities)} action set(s) in database for project {project.id}")
-                    for action_set in action_set_entities:
-                        action_set_dict = action_set.to_dict()
-                        action_sets_serialized.append(action_set_dict)
-                        Log.debug(f"ProjectService: Serializing action set '{action_set.name}' with {len(action_set.actions)} action(s)")
-                    if action_sets_serialized:
-                        Log.info(f"ProjectService: Serialized {len(action_sets_serialized)} action set(s) for project file")
-                except Exception as e:
-                    Log.warning(f"ProjectService: Failed to serialize action sets: {e}")
-            else:
-                Log.debug("ProjectService: action_set_repo not available, skipping action sets serialization")
-            
-            # Serialize action items (user-configured action events)
-            action_items_serialized = []
-            if self._action_item_repo:
-                try:
-                    action_item_entities = self._action_item_repo.list_by_project(project.id)
-                    Log.debug(f"ProjectService: Found {len(action_item_entities)} action item(s) in database for project {project.id}")
-                    for action_item in action_item_entities:
-                        action_item_dict = action_item.to_dict()
-                        action_items_serialized.append(action_item_dict)
-                    if action_items_serialized:
-                        Log.info(f"ProjectService: Serialized {len(action_items_serialized)} action item(s) for project file")
-                except Exception as e:
-                    Log.warning(f"ProjectService: Failed to serialize action items: {e}")
-            else:
-                Log.debug("ProjectService: action_item_repo not available, skipping action items serialization")
-            
-            # Create complete project file data
-            project_data = {
-                "format_version": "1.0",
-                "project_id": project.id,
-                "name": project.name,
-                "version": project.version,
-                "created_at": project.created_at.isoformat(),
-                "modified_at": project.modified_at.isoformat(),
-                "metadata": project.metadata,
-                "save_directory": project.save_directory,
-                "blocks": blocks,
-                "connections": connections,
-                "data_items": data_items,
-                "ui_state": ui_state_serialized,  # Built-in UI state persistence
-                "block_local_state": block_local_state_serialized,  # Block input/output references
-                "layer_orders": layer_orders_serialized,  # Editor layer ordering
-                "setlists": setlists_serialized,  # Setlists and songs
-                "action_sets": action_sets_serialized,  # Action sets
-                "action_items": action_items_serialized,  # User-configured action events
-                "snapshots": self._read_snapshots_from_file(project)  # Snapshots for setlist songs (read from file)
-            }
-            
-            # Write ZIP archive atomically using temp file + rename
-            # This prevents data corruption if the write is interrupted
-            project_dir = project_file.parent
-            temp_fd, temp_path = tempfile.mkstemp(
-                suffix='.ez.tmp',
-                prefix='.ez_save_',
-                dir=str(project_dir)
-            )
-            os.close(temp_fd)  # Close fd immediately; zipfile opens by path
-            try:
-                # Create ZIP archive
-                with zipfile.ZipFile(temp_path, 'w', zipfile.ZIP_DEFLATED) as zip_file:
-                    # Write project.json to ZIP root
-                    project_json_str = json.dumps(project_data, indent=2, ensure_ascii=False)
-                    zip_file.writestr("project.json", project_json_str.encode('utf-8'))
-                    
-                    # Add all data files to ZIP under data/ folder
-                    for zip_path, source_path in files_to_zip.items():
-                        try:
-                            zip_file.write(source_path, zip_path)
-                            Log.debug(f"ProjectService: Added {source_path} to ZIP as {zip_path}")
-                        except Exception as e:
-                            Log.warning(f"ProjectService: Failed to add {source_path} to ZIP: {e}")
+        save_dir = project_file.parent
+        save_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Gather blocks
+        block_entities = self._block_repo.list_by_project(project.id)
+        blocks = [block.to_dict() for block in block_entities]
+        
+        # Gather data items and collect files for ZIP packaging
+        files_to_zip = {}
+        data_items = []
+        for block_entity in block_entities:
+            block_data_items = self._data_item_repo.list_by_block(block_entity.id)
+            for data_item in block_data_items:
+                item_dict = data_item.to_dict()
                 
-                # Atomic rename (preserves original if this fails)
-                shutil.move(temp_path, str(project_file))
-            except Exception:
-                # Clean up temp file if rename failed
-                if os.path.exists(temp_path):
-                    os.unlink(temp_path)
-                raise
+                original_path = item_dict.get("file_path")
+                if original_path and os.path.exists(original_path):
+                    safe_id = item_dict["id"].replace("-", "_")
+                    file_ext = os.path.splitext(os.path.basename(original_path))[1] or ".dat"
+                    zip_path = f"data/{safe_id}{file_ext}"
+                    files_to_zip[zip_path] = original_path
+                    item_dict["file_path"] = zip_path
+                
+                item_metadata = item_dict.get("metadata", {})
+                for stale_key in ("file_path", "sample_rate", "channels", "duration_samples", "_file_valid", "original_path"):
+                    item_metadata.pop(stale_key, None)
+                
+                if item_dict.get("type") == "Audio":
+                    from src.shared.application.services.waveform_service import get_waveform_service
+                    import numpy as np
+                    waveform_service = get_waveform_service()
+                    waveform_info = item_metadata.get("waveform", {})
+                    resolution = waveform_info.get("resolution") or waveform_service.DEFAULT_RESOLUTION
+                    
+                    det_path = waveform_service.get_waveform_path(item_dict["id"], resolution)
+                    if det_path.exists():
+                        arr = np.load(str(det_path))
+                        if arr.ndim != 1:
+                            raise ValueError(
+                                f"Waveform for {item_dict.get('name', item_dict['id'])} is not 1D "
+                                f"(shape: {arr.shape}). Re-run pipeline to regenerate."
+                            )
+                        safe_id = item_dict["id"].replace("-", "_")
+                        waveform_zip_path = f"data/{safe_id}_waveform.npy"
+                        files_to_zip[waveform_zip_path] = str(det_path)
+                        item_metadata["waveform"] = {
+                            "file_path": waveform_zip_path,
+                            "resolution": resolution,
+                            "points_count": len(arr),
+                        }
+                    else:
+                        item_metadata.pop("waveform", None)
+                
+                item_dict.pop("original_path", None)
+                data_items.append(item_dict)
+        
+        # Gather connections
+        connections = [conn.to_dict() for conn in self._connection_repo.list_by_project(project.id)]
+        
+        # Serialize UI state
+        ui_state_serialized = self._ui_state_repo.serialize_for_project(project.id)
+        
+        # Serialize block local state
+        block_local_state_serialized = {}
+        for block_entity in block_entities:
+            local_state = self._block_local_state_repo.get_inputs(block_entity.id)
+            if local_state:
+                block_local_state_serialized[block_entity.id] = local_state
+        
+        # Serialize layer orders
+        layer_orders_serialized = {}
+        for block_entity in block_entities:
+            layer_order = self._layer_order_repo.get_order(block_entity.id)
+            if layer_order and layer_order.order:
+                layer_orders_serialized[block_entity.id] = [
+                    key.to_dict() for key in layer_order.order
+                ]
+        
+        # Serialize setlists and songs
+        setlists_serialized = []
+        for setlist in self._setlist_repo.list_by_project(project.id):
+            setlist_dict = setlist.to_dict()
+            songs = self._setlist_song_repo.list_by_setlist(setlist.id)
+            setlist_dict["songs"] = [song.to_dict() for song in songs]
+            setlists_serialized.append(setlist_dict)
+        
+        # Serialize action sets
+        action_sets_serialized = []
+        for action_set in self._action_set_repo.list_by_project(project.id):
+            live_items = self._action_item_repo.list_by_action_set(action_set.id)
+            if live_items:
+                action_set.actions = live_items
+            action_sets_serialized.append(action_set.to_dict())
+        
+        # Derive action items from action sets (authoritative) + standalone items
+        action_items_serialized = []
+        action_ids_from_sets = set()
+        for as_dict in action_sets_serialized:
+            for action_dict in as_dict.get("actions", []):
+                action_items_serialized.append(action_dict)
+                if action_dict.get("id"):
+                    action_ids_from_sets.add(action_dict["id"])
+        for item in self._action_item_repo.list_by_project(project.id):
+            if item.id not in action_ids_from_sets:
+                action_items_serialized.append(item.to_dict())
+        
+        # Build project data
+        project_data = {
+            "format_version": "1.0",
+            "project_id": project.id,
+            "name": project.name,
+            "version": project.version,
+            "created_at": project.created_at.isoformat(),
+            "modified_at": project.modified_at.isoformat(),
+            "metadata": project.metadata,
+            "save_directory": project.save_directory,
+            "blocks": blocks,
+            "connections": connections,
+            "data_items": data_items,
+            "ui_state": ui_state_serialized,
+            "block_local_state": block_local_state_serialized,
+            "layer_orders": layer_orders_serialized,
+            "setlists": setlists_serialized,
+            "action_sets": action_sets_serialized,
+            "action_items": action_items_serialized,
+            "snapshots": dict(self._loaded_snapshots),
+        }
+        
+        # Write ZIP archive atomically (temp file + rename)
+        project_dir = project_file.parent
+        temp_fd, temp_path = tempfile.mkstemp(
+            suffix='.ez.tmp',
+            prefix='.ez_save_',
+            dir=str(project_dir)
+        )
+        os.close(temp_fd)
+        try:
+            with zipfile.ZipFile(temp_path, 'w', zipfile.ZIP_DEFLATED) as zip_file:
+                project_json_str = json.dumps(project_data, indent=2, ensure_ascii=False)
+                zip_file.writestr("project.json", project_json_str.encode('utf-8'))
+                
+                for zip_path, source_path in files_to_zip.items():
+                    zip_file.write(source_path, zip_path)
             
-            ui_state_count = sum(len(entries) for entries in ui_state_serialized.values()) if ui_state_serialized else 0
-            block_local_state_count = len(block_local_state_serialized) if block_local_state_serialized else 0
-            layer_order_count = len(layer_orders_serialized) if layer_orders_serialized else 0
-            setlist_count = len(setlists_serialized)
-            total_songs = sum(len(s.get("songs", [])) for s in setlists_serialized)
-            action_set_count = len(action_sets_serialized)
-            action_item_count = len(action_items_serialized)
-            snapshot_count = len(self._loaded_snapshots)
-            Log.info(f"ProjectService: Created project file: {project_file} ({len(blocks)} blocks, {len(connections)} connections, {len(data_items)} data items, {ui_state_count} UI state entries, {block_local_state_count} block local state entries, {layer_order_count} layer order entries, {setlist_count} setlist(s) with {total_songs} song(s), {action_set_count} action set(s), {action_item_count} action item(s), {snapshot_count} snapshot(s))")
-            return str(project_file)
-            
-        except Exception as e:
-            Log.error(f"ProjectService: Failed to write project file: {e}")
-            import traceback
-            traceback.print_exc()
-            # Don't raise - database save succeeded, file write is secondary
-        return None
+            shutil.move(temp_path, str(project_file))
+        except Exception:
+            if os.path.exists(temp_path):
+                os.unlink(temp_path)
+            raise
+        
+        Log.info(
+            f"ProjectService: Created project file: {project_file} "
+            f"({len(blocks)} blocks, {len(connections)} connections, {len(data_items)} data items, "
+            f"{len(setlists_serialized)} setlist(s), {len(action_sets_serialized)} action set(s), "
+            f"{len(action_items_serialized)} action item(s), {len(self._loaded_snapshots)} snapshot(s))"
+        )
+        return str(project_file)
 
     def _get_export_file_path(self, project: Project) -> Optional[Path]:
         """Get the file path for exported project files."""

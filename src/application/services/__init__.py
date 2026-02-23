@@ -1,5 +1,8 @@
 """Application services - Use case orchestration"""
 
+# Application mode
+from src.application.services.app_mode_manager import AppModeManager, AppMode
+
 # Progress tracking
 from src.shared.application.services.progress_models import (
     ProgressStatus,
@@ -19,6 +22,9 @@ from src.shared.application.services.progress_context import (
 )
 
 __all__ = [
+    # Application mode
+    'AppModeManager',
+    'AppMode',
     # Progress tracking
     'ProgressStatus',
     'ProgressLevel',

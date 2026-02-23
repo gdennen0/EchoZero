@@ -91,15 +91,6 @@ class ExpectedOutputsService:
         # Check if this block type outputs based on connections
         block_type = block.type
         if block_type not in self.CONNECTION_BASED_OUTPUTS:
-            # #region agent log
-            try:
-                import json, time
-                if block_type == "AudioFilter":
-                    with open("/Users/gdennen/Projects/EchoZero/.cursor/debug.log", "a") as _f:
-                        _f.write(json.dumps({"hypothesisId": "H-D", "location": "expected_outputs_service.py:not-in-connection-based", "message": "AudioFilter NOT in CONNECTION_BASED_OUTPUTS - returning static", "data": {"block_type": block_type, "static_outputs": static_outputs}, "timestamp": int(time.time() * 1000)}) + "\n")
-            except Exception:
-                pass
-            # #endregion
             return static_outputs
         
         # Apply connection-based transformations
@@ -208,16 +199,6 @@ class ExpectedOutputsService:
                 # For connection-based outputs with no filters configured, set to empty instead of "main"
                 # This ensures blocks don't show "main" when they depend on filtered inputs
                 result[output_port] = []
-        
-        # #region agent log
-        try:
-            import json, time
-            if block_type == "AudioFilter":
-                with open("/Users/gdennen/Projects/EchoZero/.cursor/debug.log", "a") as _f:
-                    _f.write(json.dumps({"hypothesisId": "H-D", "location": "expected_outputs_service.py:connection-based-result", "message": "AudioFilter CONNECTION_BASED result", "data": {"result": result, "block_name": block.name}, "timestamp": int(time.time() * 1000)}) + "\n")
-        except Exception:
-            pass
-        # #endregion
         
         return result
 

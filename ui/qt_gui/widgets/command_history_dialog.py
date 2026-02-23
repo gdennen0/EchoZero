@@ -139,7 +139,7 @@ class CommandHistoryDialog(ThemeAwareMixin, QDialog):
         initial_item.setData(Qt.ItemDataRole.UserRole, -1)
         if current_index == 0:
             initial_item.setBackground(QBrush(Colors.ACCENT_BLUE.darker(150)))
-            initial_item.setForeground(QBrush(QColor("white")))
+            initial_item.setForeground(QBrush(Colors.TEXT_PRIMARY))
         else:
             initial_item.setForeground(QBrush(Colors.TEXT_SECONDARY))
         self.command_list.addItem(initial_item)
@@ -167,7 +167,7 @@ class CommandHistoryDialog(ThemeAwareMixin, QDialog):
             if i == current_index - 1:
                 item.setText(f"-> {text}")
                 item.setBackground(QBrush(Colors.ACCENT_BLUE.darker(150)))
-                item.setForeground(QBrush(QColor("white")))
+                item.setForeground(QBrush(Colors.TEXT_PRIMARY))
             
             self.command_list.addItem(item)
         

@@ -1,46 +1,57 @@
 """
 Main Window
 
-Simple workspace with toolbar and all-dock layout.
-Node Editor has embedded Properties and Quick Actions panels.
-All windows are Level 1 docks that can be tabbed together.
+Professional workspace with modular dockable panels.
+All panels (Node Editor, Setlist, Execution, Block Panels) are equal-citizen
+CDockWidgets managed by PyQt6Ads CDockManager. Panels can be freely docked,
+tabbed, split, floated, and pinned to auto-hide sidebars (VSCode style).
 """
-import os
 import json
-import sys
-from datetime import datetime
+import os
+import random
+import time
+from pathlib import Path
 
+import PyQt6Ads as ads
 from PyQt6.QtWidgets import (
-    QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
-    QDockWidget, QMenuBar, QMenu, QToolBar, QStatusBar,
-    QMessageBox, QFileDialog, QSizePolicy, QApplication, QTabWidget,
-    QLabel, QPlainTextEdit, QPushButton, QProgressBar, QFrame, QProgressDialog,
-    QTabBar, QStackedWidget
+    QMainWindow, QWidget, QVBoxLayout,
+    QMenuBar, QMenu, QToolBar, QStatusBar,
+    QMessageBox, QFileDialog, QSizePolicy, QApplication,
+    QLabel, QPushButton, QFrame, QProgressDialog,
+    QInputDialog, QToolButton, QAbstractButton,
 )
-from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QSettings, pyqtSlot
-from PyQt6.QtGui import QShowEvent, QAction, QKeySequence, QUndoStack
+from PyQt6.QtCore import Qt, QTimer, pyqtSignal, pyqtSlot
+from PyQt6.QtGui import QShowEvent, QAction, QKeySequence, QUndoStack, QPixmap
 
 from src.application.api.application_facade import ApplicationFacade
 from src.application.commands import CommandBus
 from src.utils.message import Log
 from src.utils.settings import app_settings
-from ui.qt_gui.design_system import get_stylesheet, Colors
-from ui.qt_gui.style_factory import StyleFactory
-from ui.qt_gui.core.dock_state_manager import DockStateManager
-from ui.qt_gui.core.empty_workspace_widget import EmptyWorkspaceWidget
+from ui.qt_gui.design_system import get_stylesheet, get_application_palette, force_style_refresh, apply_ui_font, Colors
+from ui.qt_gui.core.workspace_manager import WorkspaceManager
 from ui.qt_gui.core.run_block_thread import RunBlockThread
 from ui.qt_gui.core.save_project_thread import SaveProjectThread
 
 
+def _load_welcome_phrases() -> list[str]:
+    path = Path(__file__).resolve().parent.parent.parent / "assets" / "welcome_phrases.txt"
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+        return [l for l in lines if l.strip()] or ["Welcome to EchoZero."]
+    except OSError:
+        return ["Welcome to EchoZero."]
+
+
+_WELCOME_PHRASES = _load_welcome_phrases()
+
+
 class MainWindow(QMainWindow):
     """
-    Simple workspace with two main dockable views.
+    Professional workspace with modular dockable panels (VSCode style).
     
-    Layout:
-    - Main toolbar (New/Open/Save)
-    - Two main docks that can tabify: Node Editor and Batch Runner
-    - Node Editor includes embedded Properties and Quick Actions panels
-    - Block panels open as floating windows
+    All panels are equal-citizen CDockWidgets managed by PyQt6Ads CDockManager.
+    Supports tabbed views, split panes, floating windows, auto-hide sidebars,
+    close buttons on every tab, focus highlighting, and named perspectives.
     """
     
     # Qt signals for thread-safe GUI updates
@@ -54,25 +65,35 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.facade = facade
         
-        self.setWindowTitle("EchoZero")
+        # Resolve application mode (production vs developer)
+        from src.application.services.app_mode_manager import AppModeManager, AppMode
+        self._mode_manager: AppModeManager = getattr(facade, 'app_mode_manager', None)
+        if self._mode_manager is None:
+            self._mode_manager = AppModeManager(AppMode.DEVELOPER)
+        
+        self.setWindowTitle("EZ")
         self.setMinimumSize(800, 600)
         
         # Apply theme and design system
         self._apply_theme()
         
-        # Configure dock behavior for clean workspace layout:
-        # - Force tabbed docking (no side-by-side split for main docks)
-        # - Keep tabs at top for consistency across all dock areas
-        self.setDockOptions(
-            QMainWindow.DockOption.AnimatedDocks |
-            QMainWindow.DockOption.AllowTabbedDocks |
-            QMainWindow.DockOption.ForceTabbedDocks
-        )
-        
-        # Disable nested docking to keep layout predictable
-        self.setDockNestingEnabled(False)
-        self.setTabPosition(Qt.DockWidgetArea.AllDockWidgetAreas, QTabWidget.TabPosition.North)
-        
+        # PyQt6Ads CDockManager replaces Qt's native dock system entirely.
+        # Config flags must be set before CDockManager is instantiated.
+        ads.CDockManager.setConfigFlag(ads.CDockManager.eConfigFlag.OpaqueSplitterResize, True)
+        ads.CDockManager.setConfigFlag(ads.CDockManager.eConfigFlag.FocusHighlighting, False)
+        ads.CDockManager.setConfigFlag(ads.CDockManager.eConfigFlag.AllTabsHaveCloseButton, True)
+        ads.CDockManager.setConfigFlag(ads.CDockManager.eConfigFlag.DockAreaHasCloseButton, True)
+        ads.CDockManager.setConfigFlag(ads.CDockManager.eConfigFlag.MiddleMouseButtonClosesTab, True)
+        ads.CDockManager.setConfigFlag(ads.CDockManager.eConfigFlag.DockAreaHasUndockButton, True)
+        ads.CDockManager.setConfigFlag(ads.CDockManager.eConfigFlag.EqualSplitOnInsertion, True)
+        ads.CDockManager.setConfigFlag(ads.CDockManager.eConfigFlag.HideSingleCentralWidgetTitleBar, True)
+        self.dock_manager = ads.CDockManager(self)
+        # Disable CDockManager's internal stylesheet so our app stylesheet applies.
+        # Without this, ADS internal styles override our theme (tabs stay wrong color).
+        self.dock_manager.setStyleSheet("")
+
+        self._register_minimal_close_icons()
+
         # Undo/Redo stack (industry-standard Qt implementation)
         self.undo_stack = QUndoStack(self)
         max_undo = app_settings.get("max_undo_steps", 50)
@@ -97,20 +118,17 @@ class MainWindow(QMainWindow):
         self.open_panels = {}
         self.block_panels_menu = None
         
-        # Dock State Manager (simple Qt-native state management)
-        # Uses Qt's saveState/restoreState for dock positions
-        self.dock_manager = DockStateManager(self, facade)
+        # Workspace Manager (unified state management via CDockManager)
+        self.workspace = WorkspaceManager(self, self.dock_manager, facade)
         
         # Setup UI
         self._create_actions()
         self._create_menus()
         self._create_toolbars()
-        self._create_minimal_central()
         self._create_dock_widgets()
         self._create_progress_bar()
         self._create_status_bar()
         
-        # Initialize block panels menu
         if self.block_panels_menu:
             self._update_block_panels_menu()
         
@@ -118,13 +136,18 @@ class MainWindow(QMainWindow):
         self._subscribe_to_events()
         self._update_ui_state()
         
+        # Mode visibility is applied in _initialize_and_restore after
+        # the project and layout have been loaded.
+        if self._mode_manager:
+            self._mode_manager.mode_changed.connect(self._on_mode_changed_external)
+        
         # Track if initialization has run (will run in showEvent)
         self._initialization_complete = False
         
         # Track if we're in the close sequence (to prevent double-saves)
         self._closing = False
         
-        Log.info("Main window created (all-dock workspace)")
+        Log.info(f"Main window created (mode={self._mode_manager.mode.value})")
     
     def _create_actions(self):
         """Create menu and toolbar actions"""
@@ -147,6 +170,7 @@ class MainWindow(QMainWindow):
         
         self.action_settings = QAction("&Settings...", self)
         self.action_settings.setShortcut(QKeySequence("Ctrl+,"))
+        self.action_settings.setMenuRole(QAction.MenuRole.PreferencesRole)  # macOS: appears in app menu
         self.action_settings.triggered.connect(self._on_open_settings)
         
         self.action_exit = QAction("E&xit", self)
@@ -164,29 +188,46 @@ class MainWindow(QMainWindow):
         self.action_select_all.setShortcut(QKeySequence.StandardKey.SelectAll)
         self.action_select_all.triggered.connect(self._on_select_all)
         
-        # View actions - dock toggles
-        self.action_view_node_editor = QAction("&Node Editor", self)
-        self.action_view_node_editor.setShortcut(QKeySequence("Ctrl+1"))
-        self.action_view_node_editor.setCheckable(True)
-        self.action_view_node_editor.setChecked(False)  # Hidden by default
-
-        self.action_view_setlist = QAction("&Setlist", self)
-        self.action_view_setlist.setShortcut(QKeySequence("Ctrl+3"))
-        self.action_view_setlist.setCheckable(True)
-        self.action_view_setlist.setChecked(False)  # Hidden by default
-
-        self.action_view_execution = QAction("E&xecution", self)
-        self.action_view_execution.setCheckable(True)
-        self.action_view_execution.setChecked(False)
-        self.action_view_execution.setToolTip("Show execution log and process status")
+        # View toggle actions are created from CDockWidget.toggleViewAction() 
+        # in _create_dock_widgets() after docks exist. Placeholders for shortcuts:
+        self.action_view_node_editor = None
+        self.action_view_setlist = None
+        self.action_view_execution = None
         
-        self.action_reset_layout = QAction("&Reset Layout", self)
+        self.action_reset_layout = QAction("&Reset to Default Layout", self)
         self.action_reset_layout.triggered.connect(self._reset_dock_layout)
         
         self.action_command_history = QAction("Command &History...", self)
         self.action_command_history.setShortcut(QKeySequence("Ctrl+H"))
         self.action_command_history.triggered.connect(self._on_show_command_history)
+        
     
+    def _register_minimal_close_icons(self):
+        """Replace default boxed-X dock tab close icons with a minimal thin X."""
+        from PyQt6.QtGui import QIcon, QPainter, QPen, QPixmap
+
+        dpr = self.devicePixelRatioF()
+        logical = 16
+        px = int(logical * dpr)
+        pixmap = QPixmap(px, px)
+        pixmap.setDevicePixelRatio(dpr)
+        pixmap.fill(Qt.GlobalColor.transparent)
+
+        painter = QPainter(pixmap)
+        pen = QPen(Colors.TEXT_SECONDARY)
+        pen.setWidthF(1.0)
+        painter.setPen(pen)
+        m = 4.5
+        end = logical - m
+        painter.drawLine(int(m), int(m), int(end), int(end))
+        painter.drawLine(int(end), int(m), int(m), int(end))
+        painter.end()
+
+        icon = QIcon(pixmap)
+        ip = ads.CDockManager.iconProvider()
+        ip.registerCustomIcon(ads.eIcon.TabCloseIcon, icon)
+        ip.registerCustomIcon(ads.eIcon.DockAreaCloseIcon, icon)
+
     def _create_menus(self):
         """Create menu bar"""
         menubar = self.menuBar()
@@ -199,6 +240,13 @@ class MainWindow(QMainWindow):
         file_menu.addAction(self.action_save_project)
         file_menu.addAction(self.action_save_project_as)
         file_menu.addSeparator()
+        
+        # Developer-only: Export as Production Template
+        self.action_export_template = QAction("Export as Production &Template...", self)
+        self.action_export_template.triggered.connect(self._on_export_template)
+        file_menu.addAction(self.action_export_template)
+        
+        file_menu.addSeparator()
         file_menu.addAction(self.action_undo)
         file_menu.addAction(self.action_redo)
         file_menu.addSeparator()
@@ -207,7 +255,8 @@ class MainWindow(QMainWindow):
         file_menu.addAction(self.action_exit)
         
         # Edit menu (standard location for undo/redo too)
-        edit_menu = menubar.addMenu("&Edit")
+        self._edit_menu = menubar.addMenu("&Edit")
+        edit_menu = self._edit_menu
         edit_menu.addAction(self.action_undo)
         edit_menu.addAction(self.action_redo)
         edit_menu.addSeparator()
@@ -215,14 +264,12 @@ class MainWindow(QMainWindow):
         edit_menu.addSeparator()
         edit_menu.addAction(self.action_select_all)
         
-        # Window menu
+        # Window menu -- view toggle actions are inserted by _create_dock_widgets()
         window_menu = menubar.addMenu("&Window")
+        self._window_menu = window_menu
         
-        # Main views
-        window_menu.addAction(self.action_view_node_editor)
-        window_menu.addAction(self.action_view_setlist)
-        window_menu.addAction(self.action_view_execution)
-        window_menu.addSeparator()
+        # Placeholder separator before block panels (view actions inserted before this)
+        self._window_menu_panels_sep = window_menu.addSeparator()
         
         # Block panels submenu (dynamically updated)
         self.block_panels_menu = window_menu.addMenu("Block &Panels")
@@ -233,25 +280,22 @@ class MainWindow(QMainWindow):
         window_menu.addSeparator()
         window_menu.addAction(self.action_reset_layout)
         
-        # Layout management submenu
-        layout_menu = window_menu.addMenu("&Layouts")
+        # Layout presets submenu
+        self._layout_menu = window_menu.addMenu("&Layouts")
+        layout_menu = self._layout_menu
         
-        # Save as Default
-        self.action_save_as_default = QAction("Save as &Default", self)
-        self.action_save_as_default.triggered.connect(self._save_as_default_layout)
-        layout_menu.addAction(self.action_save_as_default)
+        action_save_preset = QAction("&Save Layout Preset...", self)
+        action_save_preset.triggered.connect(self._on_save_preset)
+        layout_menu.addAction(action_save_preset)
+        
+        self._preset_restore_menu = layout_menu.addMenu("&Restore Preset")
+        self._preset_restore_menu.aboutToShow.connect(self._populate_preset_menu)
         
         layout_menu.addSeparator()
         
-        # Export Layout
-        self.action_export_layout = QAction("&Export Layout...", self)
-        self.action_export_layout.triggered.connect(self._on_export_layout)
-        layout_menu.addAction(self.action_export_layout)
-        
-        # Import Layout
-        self.action_import_layout = QAction("&Import Layout...", self)
-        self.action_import_layout.triggered.connect(self._on_import_layout)
-        layout_menu.addAction(self.action_import_layout)
+        action_delete_preset = QAction("&Delete Preset...", self)
+        action_delete_preset.triggered.connect(self._on_delete_preset)
+        layout_menu.addAction(action_delete_preset)
         
         # Help menu
         help_menu = menubar.addMenu("&Help")
@@ -261,264 +305,276 @@ class MainWindow(QMainWindow):
     
     def _create_toolbars(self):
         """Create toolbar"""
-        toolbar = self.addToolBar("Main Toolbar")
-        toolbar.setMovable(False)
+        self._main_toolbar = self.addToolBar("Main Toolbar")
+        self._main_toolbar.setMovable(False)
         
-        toolbar.addAction(self.action_new_project)
-        toolbar.addAction(self.action_open_project)
-        toolbar.addAction(self.action_save_project)
-        toolbar.addSeparator()
-        toolbar.addAction(self.action_settings)
-    
-    def _create_minimal_central(self):
-        """Create central widget with empty workspace guidance"""
-        # Show helpful message when no docks are docked
-        self.empty_workspace = EmptyWorkspaceWidget()
-        self.setCentralWidget(self.empty_workspace)
-    
-    def _update_empty_workspace_visibility(self):
-        """Show/hide empty workspace based on whether any docks are docked (not floating)"""
-        if not hasattr(self, 'empty_workspace') or self.empty_workspace is None:
-            return
+        self._main_toolbar.addAction(self.action_new_project)
+        self._main_toolbar.addAction(self.action_open_project)
+        self._main_toolbar.addAction(self.action_save_project)
+        self._main_toolbar.addSeparator()
+        self._main_toolbar.addAction(self.action_settings)
         
-        # Check if any dock is docked (not floating and not hidden)
-        has_docked_windows = False
-        
-        # Check all dock widgets in the main window
-        for dock in self.findChildren(QDockWidget):
-            # A dock is "docked" if it's not floating and not explicitly hidden
-            # Note: We check isHidden() instead of isVisible() because isVisible()
-            # can return False for docks that are part of a tab group (not active tab)
-            if not dock.isFloating() and not dock.isHidden():
-                has_docked_windows = True
-                break
-        
-        # Show empty workspace only when no docks are docked
-        self.empty_workspace.setVisible(not has_docked_windows)
-    
-    def _on_dock_floating_changed(self, floating: bool):
-        """Called when a dock's floating state changes"""
-        # Update empty workspace visibility
-        self._update_empty_workspace_visibility()
     
     def _create_dock_widgets(self):
-        """Create main dockable windows (Node Editor, Setlist, Batch Runner)"""
-        # Create Node Editor dock
+        """Create all dockable panels via CDockManager.
+        
+        All real panels start hidden. A welcome dock is shown in the center
+        until a project is loaded (via _show_workspace / _show_welcome).
+        """
+        # Welcome screen (shown when no project is loaded)
+        self._welcome_dock = self._create_welcome_dock()
+
+        # Node Editor
         self.node_editor_dock = self._create_node_editor_dock()
         self.node_editor_window = self.node_editor_dock.widget()
 
-        # Create Setlist dock
+        # Setlist (tabbed with Node Editor in center area)
         self.setlist_dock = self._create_setlist_dock()
         self.setlist_window = self.setlist_dock.widget()
-        
-        # Tabify Setlist with Node Editor (same level as main views)
-        if self.node_editor_dock and self.setlist_dock:
-            self.tabifyDockWidget(self.node_editor_dock, self.setlist_dock)
 
-        # Execution panel (view process and progress log)
+        # Execution
         self.execution_dock = self._create_execution_dock()
         if self.execution_dock:
-            self.addDockWidget(Qt.DockWidgetArea.BottomDockWidgetArea, self.execution_dock)
-            self.execution_dock.hide()
-            self.dock_manager.register_dock("execution", self.execution_dock)
+            self.dock_manager.addDockWidget(ads.DockWidgetArea.BottomDockWidgetArea, self.execution_dock)
+            self.execution_dock.toggleView(False)
+            self.workspace.register_dock("execution", self.execution_dock)
 
-        # Connect Node Editor signals
+        # Connect panel signals
         if self.node_editor_window:
             self.node_editor_window.block_panel_requested.connect(self.open_block_panel)
-        
-        # Connect Setlist signals
         if self.setlist_window and hasattr(self.setlist_window, 'setlist_view'):
             self.setlist_window.setlist_view.song_switched.connect(self._on_setlist_song_switched)
-        
-        # Update empty workspace visibility (docks start floating, so it should be visible)
-        self._update_empty_workspace_visibility()
-        
-        # Connect view toggles to dock visibility
-        if self.node_editor_dock:
-            self.action_view_node_editor.triggered.connect(
-                lambda checked: self._toggle_dock_visibility(self.node_editor_dock, checked))
-            self.node_editor_dock.visibilityChanged.connect(
-                self.action_view_node_editor.setChecked)
-        
-        if self.setlist_dock:
-            self.action_view_setlist.triggered.connect(
-                lambda checked: self._toggle_dock_visibility(self.setlist_dock, checked))
-            self.setlist_dock.visibilityChanged.connect(
-                self.action_view_setlist.setChecked)
 
+        # Production visibility toggles for built-in docks (title bar buttons)
+        self._dock_prod_toggles = {}
+        for dock in [self.node_editor_dock, self.setlist_dock, self.execution_dock]:
+            if dock:
+                self._add_dock_prod_toggle(dock)
+
+        # Create view toggle actions from CDockWidget.toggleViewAction()
+        if self.node_editor_dock:
+            self.action_view_node_editor = self.node_editor_dock.toggleViewAction()
+            self.action_view_node_editor.setShortcut(QKeySequence("Ctrl+1"))
+        if self.setlist_dock:
+            self.action_view_setlist = self.setlist_dock.toggleViewAction()
+            self.action_view_setlist.setShortcut(QKeySequence("Ctrl+3"))
         if self.execution_dock:
-            self.action_view_execution.triggered.connect(
-                lambda checked: self._toggle_dock_visibility(self.execution_dock, checked))
-            self.execution_dock.visibilityChanged.connect(
-                self.action_view_execution.setChecked)
-        
-        # Apply standard dock styling
+            self.action_view_execution = self.execution_dock.toggleViewAction()
+            self.action_view_execution.setToolTip("Show execution log and process status")
+
+        # Insert view toggle actions into the Window menu
+        if hasattr(self, '_window_menu') and self._window_menu:
+            for action in [self.action_view_node_editor, self.action_view_setlist, self.action_view_execution]:
+                if action:
+                    self._window_menu.insertAction(self._window_menu_panels_sep, action)
+
+        # Start in welcome state -- real panels hidden until project loads
+        self._show_welcome()
+
         self._apply_dock_styling()
-        
-        # NOTE: Docks start floating by default
-        # Layout will be applied by _restore_layout() after initialization
     
     def _create_node_editor_dock(self):
-        """Create Node Editor dock"""
+        """Create Node Editor dock."""
         from ui.qt_gui.node_editor.node_editor_window import NodeEditorWindow
         
         node_editor_window = NodeEditorWindow(self.facade, undo_stack=self.undo_stack)
         dock = self._create_dock("Node Editor", node_editor_window, "NodeEditorDock")
-        
-        # Add to dock system (hidden by default - layout restore will show if needed)
-        self.addDockWidget(Qt.DockWidgetArea.TopDockWidgetArea, dock)
-        dock.hide()
-        
-        # Register with Dock State Manager
-        self.dock_manager.register_dock("node_editor", dock)
-        
+        self.dock_manager.addDockWidget(ads.DockWidgetArea.CenterDockWidgetArea, dock)
+        self.workspace.register_dock("node_editor", dock)
         return dock
     
     def _create_setlist_dock(self):
-        """Create Setlist dock"""
+        """Create Setlist dock."""
         from ui.qt_gui.views.setlist_window import SetlistWindow
         
         setlist_window = SetlistWindow(self.facade)
         dock = self._create_dock("Setlist", setlist_window, "SetlistDock")
-        
-        # Add to dock system (same level as Node Editor)
-        self.addDockWidget(Qt.DockWidgetArea.TopDockWidgetArea, dock)
-        dock.hide()
-        
-        # Register with Dock State Manager
-        self.dock_manager.register_dock("setlist", dock)
-        
+        # Add to the same area as Node Editor so they are tabbed together
+        ne_area = self.node_editor_dock.dockAreaWidget() if self.node_editor_dock else None
+        if ne_area:
+            self.dock_manager.addDockWidget(ads.DockWidgetArea.CenterDockWidgetArea, dock, ne_area)
+        else:
+            self.dock_manager.addDockWidget(ads.DockWidgetArea.CenterDockWidgetArea, dock)
+        self.workspace.register_dock("setlist", dock)
         return dock
 
     def _create_execution_dock(self):
-        """Create Execution dock (process status and log)."""
-        panel = QWidget()
-        layout = QVBoxLayout(panel)
-        layout.setContentsMargins(8, 8, 8, 8)
-        layout.setSpacing(8)
+        """Create Execution dock (compact status bar + collapsible log)."""
+        from ui.qt_gui.widgets.execution_panel import ExecutionPanel
 
-        self._execution_status_label = QLabel("Idle")
-        self._execution_status_label.setStyleSheet("font-weight: bold;")
-        layout.addWidget(self._execution_status_label)
+        self._execution_panel = ExecutionPanel()
+        self._execution_panel.cancel_requested.connect(self._on_cancel_execution)
 
-        row = QHBoxLayout()
-        self._execution_panel_progress = QProgressBar()
-        self._execution_panel_progress.setMinimum(0)
-        self._execution_panel_progress.setMaximum(100)
-        self._execution_panel_progress.setValue(0)
-        self._execution_panel_progress.setTextVisible(True)
-        row.addWidget(self._execution_panel_progress)
-        self._execution_cancel_btn = QPushButton("Cancel")
-        self._execution_cancel_btn.clicked.connect(self._on_cancel_execution)
-        row.addWidget(self._execution_cancel_btn)
-        layout.addLayout(row)
-
-        layout.addWidget(QLabel("Log:"))
-        self._execution_log_edit = QPlainTextEdit()
-        self._execution_log_edit.setReadOnly(True)
-        self._execution_log_edit.setMinimumHeight(120)
-        self._execution_log_edit.setPlaceholderText("Progress and output appear here when a block is running.")
-        layout.addWidget(self._execution_log_edit)
-
-        dock = self._create_dock("Execution", panel, "ExecutionDock")
+        dock = self._create_dock("Execution", self._execution_panel, "ExecutionDock")
         return dock
+
+    def _create_welcome_dock(self) -> ads.CDockWidget:
+        """Create the welcome/landing screen shown when no project is loaded."""
+        panel = QWidget()
+        panel.setObjectName("WelcomePanel")
+        layout = QVBoxLayout(panel)
+        layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.setSpacing(16)
+
+        logo_label = QLabel()
+        logo_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        logo_path = str(Path(__file__).resolve().parent.parent.parent / "assets" / "ez_logo.png")
+        pixmap = QPixmap(logo_path)
+        if not pixmap.isNull():
+            scaled = pixmap.scaledToWidth(90, Qt.TransformationMode.SmoothTransformation)
+            logo_label.setPixmap(scaled)
+        else:
+            logo_label.setText("EZ")
+            logo_label.setStyleSheet(f"font-size: 28px; font-weight: bold; color: {Colors.TEXT_PRIMARY.name()};")
+        layout.addWidget(logo_label)
+
+        subtitle = QLabel(random.choice(_WELCOME_PHRASES))
+        subtitle.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        subtitle.setStyleSheet(
+            f"font-size: 14px; color: {Colors.TEXT_SECONDARY.name()}; font-style: italic;"
+        )
+        subtitle.setMinimumWidth(420)
+        subtitle.setWordWrap(True)
+        layout.addWidget(subtitle)
+
+        self._welcome_subtitle = subtitle
+        self._welcome_rotate_timer = QTimer(self)
+        self._welcome_rotate_timer.timeout.connect(self._rotate_welcome_phrase)
+        self._welcome_rotate_timer.start(8000)
+
+        layout.addSpacing(12)
+
+        btn_container = QFrame()
+        btn_container.setObjectName("WelcomeButtonContainer")
+        btn_container.setFixedSize(220, 82)
+        btn_layout = QVBoxLayout(btn_container)
+        btn_layout.setContentsMargins(0, 0, 0, 0)
+        btn_layout.setSpacing(10)
+
+        btn_new = QPushButton("New Project")
+        btn_new.clicked.connect(self._on_new_project)
+        btn_layout.addWidget(btn_new, stretch=1)
+
+        btn_open = QPushButton("Open Project...")
+        btn_open.clicked.connect(self._on_open_project)
+        btn_layout.addWidget(btn_open, stretch=1)
+
+        layout.addWidget(btn_container, alignment=Qt.AlignmentFlag.AlignCenter)
+
+        dock = ads.CDockWidget("Welcome")
+        dock.setObjectName("WelcomeDock")
+        dock.setWidget(panel)
+        dock.setFeature(ads.CDockWidget.DockWidgetFeature.DockWidgetClosable, False)
+        dock.setFeature(ads.CDockWidget.DockWidgetFeature.DockWidgetMovable, False)
+        dock.setFeature(ads.CDockWidget.DockWidgetFeature.DockWidgetFloatable, False)
+        dock.setFeature(ads.CDockWidget.DockWidgetFeature.NoTab, True)
+        self.dock_manager.addDockWidget(ads.DockWidgetArea.CenterDockWidgetArea, dock)
+        return dock
+
+    def _rotate_welcome_phrase(self):
+        if hasattr(self, '_welcome_subtitle') and self._welcome_subtitle is not None:
+            self._welcome_subtitle.setText(random.choice(_WELCOME_PHRASES))
+
+    def _show_welcome(self):
+        """Show welcome screen, hide all workspace docks."""
+        if self._welcome_dock:
+            self._welcome_dock.setFeature(ads.CDockWidget.DockWidgetFeature.NoTab, True)
+            self._welcome_dock.toggleView(True)
+        if hasattr(self, '_welcome_rotate_timer'):
+            self._rotate_welcome_phrase()
+            self._welcome_rotate_timer.start(8000)
+        if self.node_editor_dock:
+            self.node_editor_dock.toggleView(False)
+        if self.setlist_dock:
+            self.setlist_dock.toggleView(False)
+        if self.execution_dock:
+            self.execution_dock.toggleView(False)
+    def _show_workspace(self):
+        """Dismiss the welcome screen.
+
+        Dock visibility is handled entirely by ``_apply_mode_visibility``
+        which runs immediately after this in every call-site.
+        """
+        if self._welcome_dock:
+            self._welcome_dock.toggleView(False)
+        if hasattr(self, '_welcome_rotate_timer'):
+            self._welcome_rotate_timer.stop()
 
     def _execution_set_running_ui(self, running: bool):
         """Update Execution panel for running vs idle state."""
-        status_label = getattr(self, "_execution_status_label", None)
-        progress_bar = getattr(self, "_execution_panel_progress", None)
-        cancel_btn = getattr(self, "_execution_cancel_btn", None)
-        if not status_label:
+        panel = getattr(self, "_execution_panel", None)
+        if not panel:
             return
         if running:
             name = getattr(self, "_current_run_block_name", "Block")
-            status_label.setText(f"Running: {name}")
-            status_label.setStyleSheet("font-weight: bold; color: #27ae60;")
-            if progress_bar:
-                progress_bar.setValue(0)
-            if cancel_btn:
-                cancel_btn.setEnabled(True)
+            panel.set_running(name)
             if self.execution_dock and not self.execution_dock.isVisible():
-                self.execution_dock.show()
+                self.execution_dock.toggleView(True)
         else:
-            status_label.setText("Idle")
-            status_label.setStyleSheet("font-weight: bold;")
-            if cancel_btn:
-                cancel_btn.setEnabled(False)
+            panel.set_idle()
 
     def _append_execution_log(self, line: str, is_error: bool = False):
-        """Append a line to the execution log with timestamp and update the Execution panel."""
-        timestamp = datetime.now().strftime("%H:%M:%S")
-        stamped = f"[{timestamp}] {line}"
-        self._execution_log_lines = getattr(self, "_execution_log_lines", [])
-        self._execution_log_lines.append(stamped)
-        if is_error:
-            status_label = getattr(self, "_execution_status_label", None)
-            if status_label:
-                status_label.setText(line[:80] + "..." if len(line) > 80 else line)
-                status_label.setStyleSheet("font-weight: bold; color: #c0392b;")
-        log_edit = getattr(self, "_execution_log_edit", None)
-        if log_edit:
-            log_edit.appendPlainText(stamped)
-            log_edit.verticalScrollBar().setValue(log_edit.verticalScrollBar().maximum())
+        """Append a line to the execution log with timestamp."""
+        panel = getattr(self, "_execution_panel", None)
+        if panel:
+            panel.append_log(line, is_error)
 
-    def _create_dock(self, title: str, widget: QWidget, object_name: str) -> QDockWidget:
-        """Create a dock widget with standard settings"""
-        dock = QDockWidget(title, self)
+    # ----- Built-in dock production visibility -----
+
+    def _add_dock_prod_toggle(self, dock: ads.CDockWidget):
+        """Add a 'PROD' toggle action to a dock's title bar."""
+        key = f"prod_visible_{dock.objectName()}"
+        checked = self._get_dock_prod_pref(key)
+
+        action = QAction("PROD" if checked else "prod", dock)
+        action.setCheckable(True)
+        action.setChecked(checked)
+        action.setToolTip("When checked, this window is available in Production Mode")
+        action.triggered.connect(lambda c, k=key, a=action: self._on_dock_prod_toggled(k, c, a))
+        dock.setTitleBarActions([action])
+        self._dock_prod_toggles[dock.objectName()] = action
+
+        if self._mode_manager:
+            action.setVisible(self._mode_manager.is_developer)
+
+    def _sync_dock_prod_toggle_visibility(self):
+        """Show/hide all dock PROD toggles based on current mode."""
+        is_dev = self._mode_manager.is_developer if self._mode_manager else True
+        for action in self._dock_prod_toggles.values():
+            action.setVisible(is_dev)
+
+    def _on_dock_prod_toggled(self, pref_key: str, checked: bool, action: QAction):
+        action.setText("PROD" if checked else "prod")
+        prefs = getattr(self.facade, 'preferences_repo', None)
+        if prefs:
+            prefs.set(pref_key, checked)
+
+    def _get_dock_prod_pref(self, pref_key: str) -> bool:
+        prefs = getattr(self.facade, 'preferences_repo', None)
+        if prefs:
+            return bool(prefs.get(pref_key, False))
+        return False
+
+    def _is_dock_production_visible(self, dock: ads.CDockWidget) -> bool:
+        """Check if a built-in dock should be visible in production mode."""
+        key = f"prod_visible_{dock.objectName()}"
+        return self._get_dock_prod_pref(key)
+
+    def _create_dock(self, title: str, widget: QWidget, object_name: str) -> ads.CDockWidget:
+        """Create a CDockWidget with standard features.
+        
+        All docks get the same feature set: movable, closable, floatable, pinnable.
+        This is the single creation path for every panel in the application.
+        """
+        dock = ads.CDockWidget(title)
         dock.setObjectName(object_name)
-        dock.setAllowedAreas(Qt.DockWidgetArea.AllDockWidgetAreas)
-        dock.setFeatures(self._main_dock_features())
         dock.setWidget(widget)
-        
-        # Connect to floating state changes to update empty workspace visibility
-        dock.topLevelChanged.connect(self._on_dock_floating_changed)
-        dock.visibilityChanged.connect(lambda: self._update_empty_workspace_visibility())
-        
+        dock.setFeature(ads.CDockWidget.DockWidgetFeature.DockWidgetClosable, True)
+        dock.setFeature(ads.CDockWidget.DockWidgetFeature.DockWidgetMovable, True)
+        dock.setFeature(ads.CDockWidget.DockWidgetFeature.DockWidgetFloatable, True)
+        dock.setFeature(ads.CDockWidget.DockWidgetFeature.DockWidgetPinnable, True)
+        dock.topLevelChanged.connect(self._on_dock_top_level_changed)
         return dock
-    
-    def _main_dock_features(self) -> QDockWidget.DockWidgetFeature:
-        """Feature policy for primary workspace docks (tabbed in main window)."""
-        return (
-            QDockWidget.DockWidgetFeature.DockWidgetMovable |
-            QDockWidget.DockWidgetFeature.DockWidgetClosable
-        )
-    
-    def _panel_dock_features(self) -> QDockWidget.DockWidgetFeature:
-        """Feature policy for block panels (can float or dock)."""
-        return (
-            QDockWidget.DockWidgetFeature.DockWidgetMovable |
-            QDockWidget.DockWidgetFeature.DockWidgetFloatable |
-            QDockWidget.DockWidgetFeature.DockWidgetClosable
-        )
-    
-    def _enforce_main_dock_tabbing(self):
-        """Keep primary docks as a single top-tabbed group."""
-        if self.node_editor_dock and self.setlist_dock:
-            self.tabifyDockWidget(self.node_editor_dock, self.setlist_dock)
-            if self.node_editor_dock.isVisible():
-                self.node_editor_dock.raise_()
-    
-    def _ensure_dock_features(self):
-        """
-        Self-healing: Re-apply standard features to all docks.
-        
-        Called after restoring saved state to ensure dock behavior is never
-        broken by corrupted or outdated saved configurations.
-        """
-        main_dock_names = {"NodeEditorDock", "SetlistDock"}
-        main_features = self._main_dock_features()
-        panel_features = self._panel_dock_features()
-
-        for dock in self.findChildren(QDockWidget):
-            if dock:
-                dock.setAllowedAreas(Qt.DockWidgetArea.AllDockWidgetAreas)
-                if dock.objectName() in main_dock_names:
-                    dock.setFeatures(main_features)
-                else:
-                    dock.setFeatures(panel_features)
-        
-        self._enforce_main_dock_tabbing()
-        self._setup_dock_tab_close_buttons()
     
     def _apply_dock_styling(self):
         """Apply global stylesheet to QApplication for instant app-wide propagation.
@@ -530,183 +586,159 @@ class MainWindow(QMainWindow):
         """
         app = QApplication.instance()
         if app:
-            app.setStyleSheet(get_stylesheet() + StyleFactory.dock_tabs())
-    
-    def _setup_dock_tab_close_buttons(self):
+            apply_ui_font(app)
+            app.setStyleSheet(get_stylesheet())
+
+    # ==================== Auto-hide single-tab title bars ====================
+
+    def _setup_auto_hide_single_tabs(self):
+        """Hide dock area title bars when only one dock occupies the area.
+
+        Connects to dock lifecycle signals so the title bar reappears
+        automatically when docks are tabified together and hides again
+        when a dock area is back to a single widget.
         """
-        Enable close buttons on dock tab bars.
-        
-        Qt creates QTabBar for tabified dock widgets internally. We find these,
-        enable tabsClosable, and connect tabCloseRequested to close the correct dock.
-        """
-        for tab_bar in self.findChildren(QTabBar):
-            # Skip tab bars that belong to QTabWidget (e.g. settings dialog)
-            if isinstance(tab_bar.parent(), QTabWidget):
-                continue
-            # Skip if already configured
-            if tab_bar.property("_dock_tab_configured"):
-                continue
-            # Only configure tab bars with 2+ tabs (tabified dock groups)
-            if tab_bar.count() < 2:
-                continue
-            tab_bar.setTabsClosable(True)
-            tab_bar.tabCloseRequested.connect(self._on_dock_tab_close_requested)
-            tab_bar.setProperty("_dock_tab_configured", True)
-    
-    def _on_dock_tab_close_requested(self, index: int):
-        """Close the dock widget corresponding to the tab at the given index."""
-        tab_bar = self.sender()
-        if not isinstance(tab_bar, QTabBar) or index < 0 or index >= tab_bar.count():
-            return
-        # Try to find dock via parent hierarchy (Qt places tab bar and stacked content together)
-        parent = tab_bar.parent()
-        if parent:
-            stacked = parent.findChild(QStackedWidget)
-            if stacked and stacked.count() == tab_bar.count():
-                content = stacked.widget(index)
-                if content:
-                    for dock in self.findChildren(QDockWidget):
-                        if dock.widget() is content:
-                            dock.close()
-                            return
-        # Fallback: use tabifiedDockWidgets with spatial matching
-        tab_bar_center = tab_bar.mapToGlobal(tab_bar.rect().center())
-        best_dock = None
-        best_dist = float("inf")
-        for dock in self.findChildren(QDockWidget):
-            tabified = self.tabifiedDockWidgets(dock)
-            if len(tabified) != tab_bar.count() or index >= len(tabified):
-                continue
-            # Use first dock in group for position check
-            other = tabified[0]
-            if other.isFloating():
-                continue
-            try:
-                other_center = other.mapToGlobal(other.rect().center())
-                dist = (tab_bar_center.x() - other_center.x()) ** 2 + (tab_bar_center.y() - other_center.y()) ** 2
-                if dist < best_dist:
-                    best_dist = dist
-                    best_dock = tabified[index]
-            except Exception:
-                pass
-        if best_dock:
-            best_dock.close()
-    
-    def _toggle_dock_visibility(self, dock: QDockWidget, checked: bool):
-        """Toggle dock visibility from Window menu"""
-        if checked:
-            # Ensure dock has correct features before showing
-            dock.setAllowedAreas(Qt.DockWidgetArea.AllDockWidgetAreas)
-            dock.setFeatures(self._main_dock_features())
-            dock.show()
-            dock.raise_()
-            self._enforce_main_dock_tabbing()
-        else:
-            dock.hide()
+        dm = self.dock_manager
+        dm.dockAreaCreated.connect(self._on_area_created_for_tabs)
+        dm.dockWidgetAdded.connect(self._on_dock_added_for_tabs)
+        dm.dockWidgetRemoved.connect(lambda _: self._schedule_titlebar_update())
+        dm.stateRestored.connect(self._schedule_titlebar_update)
+
+        self._tb_timer = QTimer(self)
+        self._tb_timer.setSingleShot(True)
+        self._tb_timer.setInterval(0)
+        self._tb_timer.timeout.connect(self._update_all_area_titlebars)
+
+    def _on_area_created_for_tabs(self, area):
+        self._schedule_titlebar_update()
+
+    def _on_dock_added_for_tabs(self, dock):
+        dock.viewToggled.connect(lambda _: self._schedule_titlebar_update())
+        self._schedule_titlebar_update()
+
+    def _schedule_titlebar_update(self):
+        """Coalesce rapid changes into a single deferred update."""
+        self._tb_timer.start()
+
+    def _update_all_area_titlebars(self):
+        """Show title bar only when a dock area contains multiple visible docks."""
+        try:
+            for i in range(self.dock_manager.dockAreaCount()):
+                area = self.dock_manager.dockArea(i)
+                if not area:
+                    continue
+                tb = area.titleBar()
+                if not tb:
+                    continue
+                tb.setVisible(area.openDockWidgetsCount() > 1)
+        except RuntimeError:
+            pass
+
+    def _toggle_dock_visibility(self, dock: ads.CDockWidget, checked: bool):
+        """Toggle dock visibility from Window menu."""
+        dock.toggleView(checked)
     
     
     def _save_all_window_state(self):
-        """Save complete window state using LayoutStateController"""
-        # Save dock state using Qt's native saveState
-        self.dock_manager.save_state()
+        """Save complete workspace state."""
+        self.workspace.save_state()
     
-    def _save_as_default_layout(self):
-        """Save current layout as default - for now just saves to session"""
-        # TODO: Could implement file export later if needed
-        self.dock_manager.save_state()
-        self.statusBar().showMessage("Default layout saved", 3000)
+    # ==================== Layout Presets ====================
     
-    def _on_export_layout(self):
-        """Export current layout to a file"""
-        # Simplified: just save and notify
-        self.dock_manager.save_state()
-        self.statusBar().showMessage("Layout saved to session", 3000)
+    def _on_save_preset(self):
+        """Save current layout as a named preset."""
+        name, ok = QInputDialog.getText(self, "Save Layout Preset", "Preset name:")
+        if ok and name.strip():
+            if self.workspace.save_preset(name.strip()):
+                self.statusBar().showMessage(f"Layout preset '{name.strip()}' saved", 3000)
     
-    def _on_import_layout(self):
-        """Import layout from a file"""
-        # Simplified: just restore and notify
-        if self.dock_manager.restore_state():
-            self.statusBar().showMessage("Layout restored from session", 3000)
-            self._ensure_dock_features()
-        else:
-            QMessageBox.warning(self, "Import Failed", "No saved layout found.")
+    def _populate_preset_menu(self):
+        """Populate the preset restore submenu with available presets."""
+        self._preset_restore_menu.clear()
+        presets = self.workspace.list_presets()
+        if not presets:
+            action = self._preset_restore_menu.addAction("(no presets)")
+            action.setEnabled(False)
+            return
+        for name in sorted(presets):
+            action = self._preset_restore_menu.addAction(name)
+            action.triggered.connect(lambda checked, n=name: self._restore_preset(n))
+    
+    def _restore_preset(self, name: str):
+        """Restore a named layout preset."""
+        if self.workspace.restore_preset(name):
+            self.statusBar().showMessage(f"Layout preset '{name}' restored", 3000)
+    
+    def _on_delete_preset(self):
+        """Delete a named preset."""
+        presets = self.workspace.list_presets()
+        if not presets:
+            QMessageBox.information(self, "No Presets", "No layout presets to delete.")
+            return
+        name, ok = QInputDialog.getItem(
+            self, "Delete Layout Preset", "Select preset:", sorted(presets), 0, False)
+        if ok and name:
+            self.workspace.delete_preset(name)
+            self.statusBar().showMessage(f"Layout preset '{name}' deleted", 3000)
 
     def _initialize_and_restore(self):
-        """Complete initialization: load project, create panels, restore state"""
+        """Complete initialization: load project, create panels, restore state."""
         try:
-            # Try to autoload project
+            is_prod = self._mode_manager.is_production if self._mode_manager else False
+
             project_loaded = self._try_autoload_project()
             
-            # If no project loaded, prompt user to create/open one
-            if not project_loaded:
-                project_loaded = self._prompt_for_project()
+            if not project_loaded and is_prod:
+                project_loaded = self._try_load_production_project()
             
-            # Only proceed with full UI if project is loaded
             if project_loaded:
-                # Create all saved panels BEFORE restoring state
-                # Qt's restoreState needs all docks to exist first
-                self._create_saved_panels()
-                
-                # Refresh node editor ONCE after everything is set up
-                # This is the single refresh point during initialization
-                if self.node_editor_window:
-                    self.node_editor_window.refresh()
-                
-                # Restore session state (zoom, viewport, selected block)
-                self._restore_session_state()
-                
-                # Restore layout state (dock positions, tabs, etc.)
-                self._restore_layout()
-                
-                Log.info(f"Initialization complete. Docks: {self.dock_manager.get_registered_docks()}")
+                self._on_project_ready()
             else:
-                # No project loaded - show minimal UI or exit
-                Log.info("No project loaded, showing minimal UI")
-                self._restore_layout()  # Still restore layout for consistency
-                self._update_empty_workspace_visibility()
-                # Disable project-dependent actions
+                Log.info("No project loaded, showing welcome screen")
+                self._show_welcome()
                 self._update_ui_for_no_project()
+                self._apply_mode_visibility()
             
         except Exception as e:
             Log.error(f"Error during initialization: {e}")
             import traceback
             traceback.print_exc()
     
-    def _restore_layout(self):
-        """Restore layout state using Qt's native restoreState"""
-        # Try to restore from session
-        if self.dock_manager.restore_state():
-            Log.info("Layout restored from session")
-            self._ensure_dock_features()
-            self._enforce_main_dock_tabbing()
-            self._update_empty_workspace_visibility()
-            self._setup_dock_tab_close_buttons()
-            return
+    def _on_project_ready(self):
+        """Transition from welcome state to full workspace after a project loads.
+
+        Order matters: create panels first (hidden), restore saved
+        positions, then apply mode visibility so non-production windows
+        never flash on screen.
+        """
+        self._create_saved_panels()
         
-        # No saved state - start with blank workspace
-        Log.info("No saved layout, starting with blank workspace")
-        self._set_default_layout()
-        self._ensure_dock_features()
-        self._enforce_main_dock_tabbing()
-        self._update_empty_workspace_visibility()
-        self._setup_dock_tab_close_buttons()
+        if self.node_editor_window:
+            self.node_editor_window.refresh()
+        
+        self._restore_layout()
+
+        self._show_workspace()
+        self._apply_mode_visibility()
+
+        self._update_ui_state()
+        self._update_block_panels_menu()
+        
+        Log.info(f"Initialization complete. Docks: {self.workspace.get_registered_docks()}")
+    
+    def _restore_layout(self):
+        """Restore layout from saved state, or apply default layout on first launch."""
+        if self.workspace.restore_state():
+            Log.info("Layout restored from saved state")
+        else:
+            Log.info("No saved layout, applying default")
+            self._set_default_layout()
+        
+        self._restore_session_state()
     
     def _set_default_layout(self):
-        """Set default layout - blank workspace with all docks hidden.
-        
-        On first run, the main window is empty. Users show windows via Window menu.
-        """
-        # Hide all core docks
-        if self.node_editor_dock:
-            self.node_editor_dock.hide()
-        if self.setlist_dock:
-            self.setlist_dock.hide()
-        if getattr(self, "execution_dock", None):
-            self.execution_dock.hide()
-        
-        # Hide any open block panels
-        for block_id, panel in self.open_panels.items():
-            panel.hide()
+        """Apply default layout (all docks hidden; mode visibility shows the right ones)."""
+        self.workspace.apply_default_layout()
     
     
     def _create_saved_panels(self):
@@ -716,8 +748,7 @@ class MainWindow(QMainWindow):
         Positioning happens in _restore_layout() via Qt's restoreState().
         """
         try:
-            # Get saved panel IDs from dock manager
-            panel_ids = self.dock_manager.get_open_panel_ids()
+            panel_ids = self.workspace.get_open_panel_ids()
             
             if not panel_ids:
                 Log.debug("No saved panels to restore")
@@ -746,9 +777,8 @@ class MainWindow(QMainWindow):
             Log.warning(f"Error creating saved panels: {e}")
     
     def _create_panel(self, block_id: str, block_type: str = None):
-        """Create a single panel (internal helper)"""
+        """Create a single block panel (internal helper)."""
         try:
-            # Get block info if not provided
             if not block_type:
                 result = self.facade.describe_block(block_id)
                 if not result.success:
@@ -760,24 +790,15 @@ class MainWindow(QMainWindow):
             if not panel_class:
                 return None
             
-            # Create panel WITH MainWindow as parent (required for Qt dock system)
             panel = panel_class(block_id, self.facade, parent=self)
             panel.panel_closed.connect(self._on_panel_closed)
-            
-            # Set object name for state save/restore (CRITICAL for Qt restoreState)
+            panel.topLevelChanged.connect(self._on_dock_top_level_changed)
             panel.setObjectName(f"BlockPanel_{block_id}")
             
-            # Connect signals for empty workspace visibility
-            panel.topLevelChanged.connect(self._on_dock_floating_changed)
-            panel.visibilityChanged.connect(lambda: self._update_empty_workspace_visibility())
+            self.dock_manager.addDockWidget(ads.DockWidgetArea.RightDockWidgetArea, panel)
             
-            # Add to dock system
-            self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, panel)
-            QTimer.singleShot(0, self._setup_dock_tab_close_buttons)
-            
-            # Register with Dock State Manager
             window_id = f"block_panel_{block_id}"
-            self.dock_manager.register_dock(window_id, panel)
+            self.workspace.register_dock(window_id, panel)
             
             self.open_panels[block_id] = panel
             return panel
@@ -788,18 +809,9 @@ class MainWindow(QMainWindow):
             return None
     
     def _reset_dock_layout(self):
-        """Reset to default blank layout"""
+        """Reset to default layout."""
         self._set_default_layout()
-        self._ensure_dock_features()
-        self.statusBar().showMessage("Layout reset to blank workspace", 3000)
-
-        # Update action states
-        if self.node_editor_dock:
-            self.action_view_node_editor.setChecked(self.node_editor_dock.isVisible())
-        if self.setlist_dock:
-            self.action_view_setlist.setChecked(self.setlist_dock.isVisible())
-        if getattr(self, "execution_dock", None):
-            self.action_view_execution.setChecked(self.execution_dock.isVisible())
+        self.statusBar().showMessage("Layout reset to default", 3000)
 
     def _update_block_panels_menu(self):
         """
@@ -829,11 +841,17 @@ class MainWindow(QMainWindow):
         # Get panel registry to check which blocks can have panels
         from ui.qt_gui.block_panels import is_panel_registered
         
+        # In production mode, only show blocks flagged as production_visible
+        is_prod = self._mode_manager.is_production if self._mode_manager else False
+        
         # Group blocks by type
         blocks_by_type = {}
         for block in result.data:
             # Only include blocks that have registered panel types
             if not is_panel_registered(block.type):
+                continue
+            
+            if is_prod and not self._is_block_production_visible(block):
                 continue
             
             if block.type not in blocks_by_type:
@@ -892,15 +910,134 @@ class MainWindow(QMainWindow):
         """Status bar is now created in _create_progress_bar"""
         pass  # Integrated into progress bar
     
+    # ==================== Mode Visibility ====================
+    
+    @staticmethod
+    def _is_block_production_visible(block) -> bool:
+        """Check if a block should be visible in production mode.
+
+        Only blocks explicitly marked ``production_visible: True`` in their
+        metadata are shown.  No defaults -- the user controls everything.
+        """
+        metadata = getattr(block, 'metadata', None) or {}
+        return bool(metadata.get("production_visible", False))
+
+    def _apply_mode_visibility(self):
+        """Show/hide menus, actions, and toolbar items based on current mode.
+
+        Safe to call from anywhere (init, project load, mode switch).
+        Only enforces production-mode dock restrictions.  In developer
+        mode it leaves dock visibility alone so the saved layout is
+        respected.
+        """
+        is_prod = self._mode_manager.is_production if self._mode_manager else False
+        has_project = bool(self.facade.get_current_project_id())
+        
+        # -- File menu: developer-only items --
+        self.action_save_project_as.setVisible(not is_prod)
+        if hasattr(self, 'action_export_template'):
+            self.action_export_template.setVisible(not is_prod)
+        
+        # -- Edit menu: visible in both modes; only Settings in production --
+        if hasattr(self, '_edit_menu'):
+            self._edit_menu.menuAction().setVisible(True)
+            self.action_undo.setVisible(not is_prod)
+            self.action_redo.setVisible(not is_prod)
+            self.action_select_all.setVisible(not is_prod)
+        
+        # -- Window menu: each dock's view action follows its prod toggle --
+        for dock, action in [
+            (self.node_editor_dock, self.action_view_node_editor),
+            (self.setlist_dock, self.action_view_setlist),
+            (self.execution_dock, self.action_view_execution),
+        ]:
+            if action and dock:
+                show = not is_prod or self._is_dock_production_visible(dock)
+                action.setVisible(show)
+        self.action_command_history.setVisible(not is_prod)
+        if hasattr(self, '_layout_menu'):
+            self._layout_menu.menuAction().setVisible(not is_prod)
+        
+        # -- Toolbar: always visible, same actions in both modes --
+        if hasattr(self, '_main_toolbar'):
+            self._main_toolbar.show()
+        
+        # -- Dock PROD toggle buttons: visible only in developer mode --
+        self._sync_dock_prod_toggle_visibility()
+        
+        # -- Dock widgets: only restrict in production or no-project --
+        has_project = bool(self.facade.get_current_project_id())
+        if not has_project:
+            for dock in [self.node_editor_dock, self.setlist_dock, self.execution_dock]:
+                if dock:
+                    dock.toggleView(False)
+        elif is_prod:
+            for dock in [self.node_editor_dock, self.setlist_dock, self.execution_dock]:
+                if dock:
+                    dock.toggleView(self._is_dock_production_visible(dock))
+            for block_id, panel in list(self.open_panels.items()):
+                block_result = self.facade.describe_block(block_id)
+                visible = (
+                    block_result.success
+                    and block_result.data
+                    and self._is_block_production_visible(block_result.data)
+                )
+                panel.toggleView(visible)
+        # Developer mode with project: dock visibility is whatever the
+        # saved layout set.  No override here.
+
+        # -- Block panels menu (filters to PROD-marked in production) --
+        if self.block_panels_menu:
+            self._update_block_panels_menu()
+        
+        # -- Window title hint --
+        mode_label = "" if is_prod else " [Developer]"
+        base_title = self.windowTitle().replace(" [Developer]", "")
+        self.setWindowTitle(base_title + mode_label)
+        
+    
+    def _on_mode_changed_external(self, _mode):
+        """React to mode changes (e.g. from Settings dialog).
+
+        Applies menu/action visibility, then restores built-in docks
+        if switching back to developer mode (production had hidden them).
+        """
+        self._apply_mode_visibility()
+        if self._mode_manager and self._mode_manager.is_developer:
+            self._restore_developer_docks()
+    
+    def _switch_mode(self, target):
+        """Switch application mode and apply visibility rules."""
+        self._mode_manager.switch_mode(target)
+        self._apply_mode_visibility()
+        from src.application.services.app_mode_manager import AppMode
+        if target == AppMode.DEVELOPER:
+            self._restore_developer_docks()
+    
+    def _restore_developer_docks(self):
+        """Show built-in docks that production mode may have hidden.
+
+        Only shows the three core docks -- block panels stay in whatever
+        state the user left them.
+        """
+        if not self.facade.get_current_project_id():
+            return
+        for dock in [self.node_editor_dock, self.setlist_dock, self.execution_dock]:
+            if dock:
+                dock.toggleView(True)
+    
+    
     # ==================== Panel Management ====================
     
     def open_block_panel(self, block_id: str):
-        """Open configuration panel for a block"""
+        """Open configuration panel for a block.
+        
+        In production mode, only blocks marked ``production_visible`` can
+        have their panels opened.
+        """
         if block_id in self.open_panels:
             panel = self.open_panels[block_id]
-            panel.show()
-            panel.raise_()
-            panel.setFocus()
+            panel.toggleView(True)
             return
         
         from PyQt6.QtWidgets import QApplication
@@ -916,6 +1053,11 @@ class MainWindow(QMainWindow):
             
             block = result.data
             
+            is_prod = self._mode_manager.is_production if self._mode_manager else False
+            if is_prod and not self._is_block_production_visible(block):
+                self.statusBar().showMessage("Panel not available in Production mode", 3000)
+                return
+            
             from ui.qt_gui.block_panels import get_panel_class
             panel_class = get_panel_class(block.type)
             
@@ -924,37 +1066,21 @@ class MainWindow(QMainWindow):
                     f"No panel available for {block.type} blocks.")
                 return
             
-            # Create panel WITH MainWindow as parent (required for Qt dock system)
             panel = panel_class(block_id, self.facade, parent=self)
             panel.panel_closed.connect(self._on_panel_closed)
-            
-            # Set object name for state save/restore
             panel.setObjectName(f"BlockPanel_{block_id}")
             
-            # Connect signals for empty workspace visibility (same as main docks)
-            panel.topLevelChanged.connect(self._on_dock_floating_changed)
-            panel.visibilityChanged.connect(lambda: self._update_empty_workspace_visibility())
+            floating_container = self.dock_manager.addDockWidgetFloating(panel)
+            floating_container.resize(1200, 600)
             
-            # Add to dock system then set floating
-            self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, panel)
-            panel.setFeatures(self._panel_dock_features())
-            panel.setFloating(True)
-            panel.setGeometry(200, 200, 1200, 600)
-            
-            # Register with Dock State Manager
             window_id = f"block_panel_{block_id}"
-            self.dock_manager.register_dock(window_id, panel)
+            self.workspace.register_dock(window_id, panel)
             
             self.open_panels[block_id] = panel
-            panel.show()
-            panel.raise_()
-            panel.activateWindow()
+            panel.toggleView(True)
             
-            # Update empty workspace visibility and block panels menu
-            self._update_empty_workspace_visibility()
             self._update_block_panels_menu()
-            
-            self.statusBar().showMessage(f"Panel opened: {block.name} (drag title bar to dock)", 3000)
+            self.statusBar().showMessage(f"Panel opened: {block.name}", 3000)
             
         except Exception as e:
             Log.error(f"Failed to create panel: {e}")
@@ -966,15 +1092,11 @@ class MainWindow(QMainWindow):
     
     def _on_panel_closed(self, block_id: str):
         if block_id in self.open_panels:
-            # Unregister from Dock State Manager
             window_id = f"block_panel_{block_id}"
-            self.dock_manager.unregister_dock(window_id)
+            self.workspace.unregister_dock(window_id)
             
             del self.open_panels[block_id]
-            # Update block panels menu
             self._update_block_panels_menu()
-            # Save layout state when panel is closed
-            # BUT NOT during app close - closeEvent already saved the complete state
             if not self._closing:
                 self._save_all_window_state()
     
@@ -1046,7 +1168,7 @@ class MainWindow(QMainWindow):
                 project_name = "Untitled"
             
             # Update window title with project name
-            self.setWindowTitle(f"EchoZero - {project_name}")
+            self.setWindowTitle(f"EZ - {project_name}")
         else:
             # No project - disable project-dependent actions
             self._update_ui_for_no_project()
@@ -1150,18 +1272,18 @@ class MainWindow(QMainWindow):
         if self.node_editor_window:
             self.node_editor_window.scene.flush_pending_position_saves()
         
-        # Close all block panels from previous project
         self._close_all_block_panels()
         
-        # Create untitled project (name will be set on first save)
         result = self.facade.create_project("Untitled", save_directory=None)
         if result.success:
-            # Clear undo history for new project
             self.undo_stack.clear()
+            self._show_workspace()
+            if not self.workspace.restore_state():
+                self._set_default_layout()
+            self._apply_mode_visibility()
             self.statusBar().showMessage("Created new project", 3000)
             self._update_ui_state()
             self.node_editor_window.refresh_and_center()
-            # Update menu after facade has project ID set
             self._update_block_panels_menu()
         else:
             QMessageBox.warning(self, "Error", result.message)
@@ -1172,20 +1294,24 @@ class MainWindow(QMainWindow):
         
         start_dir = app_settings.get_dialog_path("open_project")
         filename, _ = QFileDialog.getOpenFileName(
-            self, "Open Project", start_dir, "EchoZero Projects (*.ez);;All Files (*)")
+            self, "Open Project", start_dir, "EZ Projects (*.ez);;All Files (*)")
         
         if filename:
-            # Close all block panels from previous project
             self._close_all_block_panels()
             
             app_settings.set_dialog_path("open_project", filename)
             result = self.facade.load_project(filename)
             if result.success:
-                # Clear undo history for loaded project
                 self.undo_stack.clear()
+                self._show_workspace()
+                self._create_saved_panels()
+                restored = self.workspace.restore_state()
+                if not restored:
+                    self._set_default_layout()
+
+                self._apply_mode_visibility()
                 self._update_ui_state()
                 self.node_editor_window.refresh_and_center()
-                # Update menu after facade has project ID set
                 self._update_block_panels_menu()
                 
                 blocks = self.facade.list_blocks()
@@ -1311,7 +1437,7 @@ class MainWindow(QMainWindow):
         """Handle Save Project As action"""
         start_dir = app_settings.get_dialog_path("save_project")
         filename, _ = QFileDialog.getSaveFileName(
-            self, "Save Project As", start_dir, "EchoZero Projects (*.ez);;All Files (*)")
+            self, "Save Project As", start_dir, "EZ Projects (*.ez);;All Files (*)")
         
         if filename:
             app_settings.set_dialog_path("save_project", filename)
@@ -1322,6 +1448,38 @@ class MainWindow(QMainWindow):
                 f"Saved: {filename}",
                 self._update_ui_state
             )
+    
+    def _on_export_template(self):
+        """Export current project as the production template."""
+        from src.application.services.template_manager import TemplateManager
+        
+        if not self.facade.get_current_project_id():
+            QMessageBox.warning(self, "No Project", "Please open a project first.")
+            return
+        
+        # Let user choose target (default is data/production_template.ez)
+        from src.utils.paths import get_app_install_dir
+        install_dir = get_app_install_dir()
+        default_path = str(install_dir / "data" / "production_template.ez") if install_dir else ""
+        
+        filename, _ = QFileDialog.getSaveFileName(
+            self, "Export Production Template", default_path,
+            "EZ Template (*.ez);;All Files (*)")
+        
+        if not filename:
+            return
+        
+        from pathlib import Path
+        target = Path(filename)
+        
+        tmgr = TemplateManager(self.facade)
+        success, message = tmgr.export_as_template(target)
+        
+        if success:
+            QMessageBox.information(self, "Template Exported", message)
+            self.statusBar().showMessage("Production template exported", 5000)
+        else:
+            QMessageBox.warning(self, "Export Failed", message)
     
     def _on_open_settings(self):
         """Open the global settings dialog"""
@@ -1373,43 +1531,54 @@ class MainWindow(QMainWindow):
         Custom-painted widgets (node editor blocks, timeline items) refresh
         via ``update()`` since they read ``Colors.X`` at paint time.
         """
-        from PyQt6.QtGui import QPalette
-        
-        # 1. Sync design system globals from settings.
-        #    This also syncs TimelineStyle and emits theme_changed for Tier 3.
-        Colors.apply_theme()
-        
-        # 2. Update QApplication palette (Tier 1)
+        # If the settings dialog already called Colors.apply_theme_from_dict(),
+        # Colors.X attributes are already correct -- skip reloading from registry.
         app = QApplication.instance()
+        skip_reload = app and app.property("_theme_applied_from_dict")
+
+        if not skip_reload:
+            # Sets Colors.X from registry AND emits theme_changed internally.
+            Colors.apply_theme()
+
+        if skip_reload and app:
+            app.setProperty("_theme_applied_from_dict", False)
+
+        # Palette and stylesheet are pure reads of Colors.X -- no side effects.
         if app:
-            palette = app.palette()
-            palette.setColor(QPalette.ColorRole.Window, Colors.BG_DARK)
-            palette.setColor(QPalette.ColorRole.WindowText, Colors.TEXT_PRIMARY)
-            palette.setColor(QPalette.ColorRole.Base, Colors.BG_MEDIUM)
-            palette.setColor(QPalette.ColorRole.AlternateBase, Colors.BG_LIGHT)
-            palette.setColor(QPalette.ColorRole.ToolTipBase, Colors.BG_MEDIUM)
-            palette.setColor(QPalette.ColorRole.ToolTipText, Colors.TEXT_PRIMARY)
-            palette.setColor(QPalette.ColorRole.Text, Colors.TEXT_PRIMARY)
-            palette.setColor(QPalette.ColorRole.Button, Colors.BG_MEDIUM)
-            palette.setColor(QPalette.ColorRole.ButtonText, Colors.TEXT_PRIMARY)
-            palette.setColor(QPalette.ColorRole.BrightText, Colors.ACCENT_RED)
-            palette.setColor(QPalette.ColorRole.Link, Colors.ACCENT_BLUE)
-            palette.setColor(QPalette.ColorRole.Highlight, Colors.ACCENT_BLUE)
-            palette.setColor(QPalette.ColorRole.HighlightedText, Colors.TEXT_PRIMARY)
-            app.setPalette(palette)
-        
-        # 3. Regenerate and apply global stylesheet on QApplication (Tier 2).
-        #    This single call makes Qt re-evaluate every widget's style.
+            app.setPalette(get_application_palette())
+
         self._apply_dock_styling()
-        
-        # 4. Force repaint for custom-painted widgets (node editor, timeline).
+
+        # Emit theme_changed AFTER the global stylesheet is set so that
+        # ThemeAwareMixin widgets clearing child stylesheets fall back to
+        # the already-correct global stylesheet (no visual flash).
+        if skip_reload:
+            from ui.qt_gui.design_system import _get_theme_signals
+            try:
+                _get_theme_signals().theme_changed.emit()
+            except RuntimeError:
+                pass
+
+        force_style_refresh(self)
+
         if hasattr(self, 'node_editor_window') and self.node_editor_window:
             if hasattr(self.node_editor_window, 'refresh'):
                 self.node_editor_window.refresh()
-        
-        # Flush the event loop so paint events are processed synchronously
+
+        if hasattr(self, 'setlist_window') and self.setlist_window:
+            self.setlist_window.setStyleSheet(
+                f"background-color: {Colors.BG_DARK.name()};"
+            )
+            if hasattr(self.setlist_window, 'setlist_view') and self.setlist_window.setlist_view:
+                self.setlist_window.setlist_view.setStyleSheet(
+                    f"background-color: {Colors.BG_DARK.name()};"
+                )
+
+        self._apply_macos_titlebar()
+        self._apply_macos_titlebar_to_floating_docks()
+
         QApplication.processEvents()
-    
+
     # ==================== Execution ====================
     
     def _on_execute_single_block(self, block_id: str):
@@ -1428,7 +1597,9 @@ class MainWindow(QMainWindow):
 
         self._execution_in_progress = True
         self.statusBar().showMessage(f"Executing: {self._current_run_block_name}...")
-        self._execution_log_lines = []
+        panel = getattr(self, "_execution_panel", None)
+        if panel:
+            panel.clear_log()
         self._append_execution_log(f"Starting: {self._current_run_block_name}")
         self._execution_set_running_ui(True)
 
@@ -1453,8 +1624,9 @@ class MainWindow(QMainWindow):
         """Called when RunBlockThread finishes; clear flag and refresh UI."""
         self._execution_in_progress = False
         self._execution_set_running_ui(False)
-        if getattr(self, "_execution_panel_progress", None):
-            self._execution_panel_progress.setValue(100)
+        panel = getattr(self, "_execution_panel", None)
+        if panel:
+            panel.set_progress(100)
         self._on_thread_finished()
 
     def _on_thread_complete(self, success):
@@ -1590,19 +1762,18 @@ class MainWindow(QMainWindow):
     def _on_subprocess_progress(self, event):
         """Handle SubprocessProgress events from blocks (in-process thread execution)."""
         try:
-            from src.utils.message import Log
             data = event.data or {}
             message = data.get('message', '...')
             percentage = data.get('percentage', 0)
             Log.debug(f"MainWindow: Received SubprocessProgress - {message} ({percentage}%)")
             self._append_execution_log(f"{percentage}% - {message}")
-            if getattr(self, "_execution_panel_progress", None):
-                self._execution_panel_progress.setValue(percentage)
+            panel = getattr(self, "_execution_panel", None)
+            if panel:
+                panel.set_progress(percentage)
             name = getattr(self, "_current_run_block_name", None)
             display_msg = f"{name}: {message}" if name else message
             self.subprocess_progress_signal.emit(display_msg, percentage)
         except Exception as e:
-            from src.utils.message import Log
             Log.error(f"MainWindow: Error handling SubprocessProgress: {e}")
     
     def _update_progress_start(self, msg, current, total):
@@ -1661,8 +1832,8 @@ class MainWindow(QMainWindow):
         self._command_history_dialog.show()
     
     def _on_about(self):
-        QMessageBox.about(self, "About EchoZero",
-            "<h3>EchoZero</h3>"
+        QMessageBox.about(self, "About EZ",
+            "<h3>EZ</h3>"
             "<p>Modular audio processing pipeline builder</p>"
             "<p>Version 0.1.0</p>"
             "<p><b>Features:</b></p>"
@@ -1675,14 +1846,50 @@ class MainWindow(QMainWindow):
     
     # ==================== Autoload & Session ====================
     
+    def _try_load_production_project(self) -> bool:
+        """Load the production project from template (copy-on-first-use).
+        
+        Returns True if the project was successfully loaded.
+        """
+        from src.application.services.template_manager import TemplateManager
+        
+        tmgr = TemplateManager(self.facade)
+        
+        # Check for template updates
+        if tmgr.has_working_copy() and tmgr.is_update_available():
+            reply = QMessageBox.question(
+                self,
+                "Template Update Available",
+                "A new processing template is available.\n\n"
+                "Update and reset to the new template?\n"
+                "(Your current song list will be lost.)",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            if reply == QMessageBox.StandardButton.Yes:
+                tmgr.reset_to_template()
+        
+        success, message = tmgr.load_production_project()
+        if success:
+            self.undo_stack.clear()
+            self._update_ui_state()
+            self._update_block_panels_menu()
+            self.statusBar().showMessage("Production project loaded", 3000)
+            Log.info("Production project loaded from template")
+            return True
+        
+        Log.warning(f"Failed to load production project: {message}")
+        return False
+    
     def _try_autoload_project(self):
         """Attempt to autoload the most recent project on startup. Returns True if project was loaded."""
-        # Check if autoload is enabled (use AppSettingsManager from facade)
         if not (hasattr(self.facade, 'app_settings') and self.facade.app_settings):
             Log.info("App settings not available, skipping autoload")
             return False
         
-        if not self.facade.app_settings.restore_last_project:
+        # Production mode always tries autoload; developer mode respects the setting
+        is_prod = self._mode_manager.is_production if self._mode_manager else False
+        if not is_prod and not self.facade.app_settings.restore_last_project:
             Log.info("Autoload disabled in settings, skipping")
             return False
         
@@ -1822,149 +2029,87 @@ class MainWindow(QMainWindow):
         
         return False  # Return False if user declined or creation failed
 
-    def _prompt_for_project(self) -> bool:
-        """
-        Prompt user to create a new project or open an existing one.
-        Returns True if a project was loaded/created, False otherwise.
-        """
-        from PyQt6.QtWidgets import QDialog, QVBoxLayout, QPushButton, QLabel
-        
-        dialog = QDialog(self)
-        dialog.setWindowTitle("Welcome to EchoZero")
-        dialog.setMinimumWidth(400)
-        dialog.setModal(True)
-        
-        layout = QVBoxLayout(dialog)
-        
-        # Welcome message
-        welcome_label = QLabel(
-            "No project is currently open.\n\n"
-            "What would you like to do?"
-        )
-        welcome_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(welcome_label)
-        
-        # Buttons
-        btn_new = QPushButton("New Project")
-        btn_new.setDefault(True)
-        btn_new.clicked.connect(lambda: dialog.done(1))
-        layout.addWidget(btn_new)
-        
-        btn_open = QPushButton("Open Project...")
-        btn_open.clicked.connect(lambda: dialog.done(2))
-        layout.addWidget(btn_open)
-        
-        btn_cancel = QPushButton("Cancel")
-        btn_cancel.clicked.connect(lambda: dialog.done(0))
-        layout.addWidget(btn_cancel)
-        
-        # Show dialog
-        result = dialog.exec()
-        
-        if result == 1:  # New Project
-            # Create new untitled project
-            new_result = self.facade.create_project("Untitled", save_directory=None)
-            if new_result.success:
-                self.undo_stack.clear()
-                self._update_ui_state()
-                if self.node_editor_window:
-                    self.node_editor_window.refresh_and_center()
-                self._update_block_panels_menu()
-                self.statusBar().showMessage("Created new project", 3000)
-                Log.info("Created new project from welcome dialog")
-                return True
-            else:
-                QMessageBox.warning(self, "Error", f"Failed to create project: {new_result.message}")
-                return False
-        
-        elif result == 2:  # Open Project
-            # Trigger open project dialog
-            self._on_open_project()
-            # Check if project was actually loaded
-            if self.facade.get_current_project_id():
-                return True
-            return False
-        
-        else:  # Cancel
-            Log.info("User cancelled project selection")
-            return False
-
     def _update_ui_for_no_project(self):
-        """Disable project-dependent UI elements when no project is loaded"""
-        # Disable save actions
+        """Disable project-dependent UI elements when no project is loaded."""
         self.action_save_project.setEnabled(False)
         self.action_save_project_as.setEnabled(False)
-        
-        # Disable execution-related actions if they exist
-        # (Add more as needed)
-        
-        # Update window title
-        self.setWindowTitle("EchoZero - No Project")
-        
-        # Show empty workspace message
-        self._update_empty_workspace_visibility()
+        self.setWindowTitle("EZ - No Project")
 
     def _save_session(self):
-        """Save session-specific state (selected blocks, zoom, panels, etc.)"""
+        """Save session-specific state (zoom, viewport, selected block)."""
         try:
-            # Save node editor state
             if self.node_editor_window:
                 selected = self.node_editor_window.scene.selected_blocks()
                 if selected:
-                    self.facade.set_session_state("selected_block", selected[0])
-                self.facade.set_session_state("zoom_level", self.node_editor_window.view.zoom_level)
-                self.facade.set_session_state("viewport_center", self.node_editor_window.view.get_viewport_center())
-            
-            # Save block panel states (positions, geometry, floating status)
-            # These are excluded from Qt's saveState and restored separately
-            if self.open_panels:
-                self.facade.set_session_state("open_panels", list(self.open_panels.keys()))
-                
-                panel_states = {}
-                for block_id, panel in self.open_panels.items():
-                    geom = panel.geometry()
-                    panel_states[block_id] = {
-                        'floating': panel.isFloating(),
-                        'floating_geometry': {
-                            'x': geom.x(),
-                            'y': geom.y(),
-                            'width': geom.width(),
-                            'height': geom.height()
-                        } if panel.isFloating() else None,
-                        'visible': panel.isVisible()
-                    }
-                if panel_states:
-                    self.facade.set_session_state("panel_states", panel_states)
-            
-            # Window layout (main windows, tab groups) is saved separately via _save_all_window_state()
-            # which uses Qt's native saveState()
+                    self.workspace.save_session("selected_block", selected[0])
+                self.workspace.save_session(
+                    "zoom_level", self.node_editor_window.view.zoom_level)
+                self.workspace.save_session(
+                    "viewport_center", self.node_editor_window.view.get_viewport_center())
         except Exception as e:
             Log.error(f"Session save error: {e}")
     
     def _restore_session_state(self):
-        """Restore session-specific state (selected blocks, zoom, etc.)"""
+        """Restore session-specific state (zoom, viewport, selected block)."""
         try:
             if not self.facade.get_current_project_id():
                 return
             
-            # Restore node editor state
-            result = self.facade.get_session_state("zoom_level")
-            if result.success and result.data and self.node_editor_window:
-                if isinstance(result.data, (int, float)):
-                    self.node_editor_window.view.set_zoom_level(result.data)
-            
-            result = self.facade.get_session_state("viewport_center")
-            if result.success and result.data and self.node_editor_window:
-                if isinstance(result.data, dict):
+            if self.node_editor_window:
+                zoom = self.workspace.get_session("zoom_level")
+                if isinstance(zoom, (int, float)):
+                    self.node_editor_window.view.set_zoom_level(zoom)
+                
+                center = self.workspace.get_session("viewport_center")
+                if isinstance(center, dict):
                     self.node_editor_window.view.center_on_point(
-                        result.data.get("x", 0), result.data.get("y", 0))
-            
-            result = self.facade.get_session_state("selected_block")
-            if result.success and result.data and self.node_editor_window:
-                self.node_editor_window.scene.select_block(result.data)
+                        center.get("x", 0), center.get("y", 0))
+                
+                selected = self.workspace.get_session("selected_block")
+                if selected:
+                    self.node_editor_window.scene.select_block(selected)
         except Exception as e:
             Log.error(f"Session state restore error: {e}")
     
+    def _apply_macos_titlebar(self):
+        """Apply theme to macOS native title bar (macOS only, no-op on other platforms)."""
+        try:
+            from ui.qt_gui.platform.macos_titlebar import apply_titlebar_theme
+            apply_titlebar_theme(self)
+        except Exception:
+            pass
+
+    def _apply_macos_titlebar_to_floating_docks(self):
+        """Apply macOS title bar theme to all floating dock widget windows."""
+        try:
+            from ui.qt_gui.platform.macos_titlebar import apply_titlebar_theme
+            for dock in self.dock_manager.findChildren(ads.CDockWidget):
+                if dock.isFloating():
+                    top_level = dock.window()
+                    if top_level and top_level != self:
+                        apply_titlebar_theme(top_level)
+        except Exception:
+            pass
+
+    def _on_dock_top_level_changed(self, floating: bool):
+        """When a dock becomes floating, apply macOS title bar theme after window is ready."""
+        if not floating:
+            return
+        try:
+            dock = self.sender()
+            if dock and dock.isFloating():
+                def apply():
+                    try:
+                        from ui.qt_gui.platform.macos_titlebar import apply_titlebar_theme
+                        top_level = dock.window()
+                        if top_level and top_level != self:
+                            apply_titlebar_theme(top_level)
+                    except Exception:
+                        pass
+                QTimer.singleShot(50, apply)
+        except Exception:
+            pass
+
     def showEvent(self, event: QShowEvent):
         """Called when window is shown - initialize and restore state"""
         super().showEvent(event)
@@ -1976,6 +2121,8 @@ class MainWindow(QMainWindow):
         if not self._initialization_complete:
             self._initialization_complete = True
             QTimer.singleShot(0, self._initialize_and_restore)
+            # macOS: apply native title bar theme after window is shown (winId valid)
+            QTimer.singleShot(100, self._apply_macos_titlebar)
     
     def closeEvent(self, event):
         Log.info("Closing main window...")
@@ -1987,7 +2134,7 @@ class MainWindow(QMainWindow):
             reply = QMessageBox.question(
                 self,
                 "Execution in Progress",
-                "A block execution is currently running.\n\nAre you sure you want to close EchoZero?",
+                "A block execution is currently running.\n\nAre you sure you want to close EZ?",
                 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
                 QMessageBox.StandardButton.No,
             )
@@ -2004,8 +2151,8 @@ class MainWindow(QMainWindow):
         
         for panel in list(self.open_panels.values()):
             try:
-                panel.close()
-            except:
+                panel.closeDockWidget()
+            except Exception:
                 pass
         
         if getattr(self, "save_thread", None) and self.save_thread.isRunning():
@@ -2016,20 +2163,31 @@ class MainWindow(QMainWindow):
         if self.setlist_window:
             self.setlist_window.cleanup()
         
+        # Required by PyQt6Ads to avoid cleanup crashes
+        self.dock_manager.deleteLater()
+        
         event.accept()
     
     @pyqtSlot(str)
     def _on_setlist_song_switched(self, song_id: str):
         """Handle signal when a song is switched in the Setlist view."""
         Log.info(f"MainWindow: Setlist song switched to {song_id}. Refreshing UI.")
+        # #region agent log
+        _panels_refreshed = []
+        # #endregion
         
         # Refresh Node Editor to show new data
         if self.node_editor_window:
             self.node_editor_window.refresh()
         
-        # Refresh block panels if they are open (they'll pick up new data via events)
-        for panel_id, panel_dock in self.dock_manager._docks.items():
+        for panel_id, panel_dock in self.workspace._docks.items():
             if panel_id.startswith("block_panel_") and panel_dock.isVisible():
                 panel_widget = panel_dock.widget()
                 if hasattr(panel_widget, 'refresh'):
+                    # #region agent log
+                    _panels_refreshed.append(panel_id)
+                    # #endregion
                     panel_widget.refresh()
+        # #region agent log
+        import json as _dj5, time as _dt5; open('/Users/gdennen/Projects/EchoZero/.cursor/debug.log','a').write(_dj5.dumps({"timestamp":int(_dt5.time()*1000),"location":"main_window.py:_on_setlist_song_switched","message":"Song switched handler completed","data":{"song_id":song_id,"panels_refreshed":_panels_refreshed},"hypothesisId":"H5"})+'\n')
+        # #endregion

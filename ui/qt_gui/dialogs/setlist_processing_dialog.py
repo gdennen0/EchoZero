@@ -95,8 +95,8 @@ class SetlistProcessingDialog(ThemeAwareMixin, QDialog):
         self._current_block_message: str = ""
         
         self.setWindowTitle(f"Processing Setlist: {setlist_name}")
-        self.setMinimumSize(700, 600)  # Slightly larger for verbose info
-        self.setModal(True)
+        self.setMinimumSize(700, 600)
+        self.setModal(False)
         
         self._setup_ui()
         self._populate_tree()
@@ -374,38 +374,85 @@ class SetlistProcessingDialog(ThemeAwareMixin, QDialog):
         Log.debug(f"SetlistProcessingDialog: Tracking operation {operation_id}")
     
     def _update_verbose_info(self):
-        """Update verbose status information from progress store"""
+        """Update verbose status information and action tree from progress store."""
         # Update elapsed time
         elapsed = (datetime.now() - self._start_time).total_seconds()
         minutes = int(elapsed // 60)
         seconds = int(elapsed % 60)
         self._elapsed_label.setText(f"Elapsed: {minutes:02d}:{seconds:02d}")
         
-        # Read from progress store (single source of truth)
-        if self._operation_id:
-            state = self._progress_store.get_state(self._operation_id)
-            if state:
-                overall = state.get_overall_progress()
-                self._stats_label.setText(
-                    f"Completed: {overall['completed']} | Failed: {overall['failed']}"
-                )
-                
-                # Find current running level for status
-                current_message = "Processing..."
-                for level in state.levels.values():
-                    if level.status == ProgressStatus.RUNNING:
-                        current_message = f"{level.name}: {level.message}"
-                        break
-                
-                self._current_op_label.setText(f"Status: {current_message}")
-                return
-        
-        # Store not yet available -- show waiting state
+        if not self._operation_id:
+            self._stats_label.setText(
+                f"Completed: {self.completed_songs - self._failed_songs} | Failed: {self._failed_songs}"
+            )
+            if self.completed_songs == 0:
+                self._current_op_label.setText("Status: Starting...")
+            return
+
+        state = self._progress_store.get_state(self._operation_id)
+        if not state:
+            return
+
+        overall = state.get_overall_progress()
         self._stats_label.setText(
-            f"Completed: {self.completed_songs - self._failed_songs} | Failed: {self._failed_songs}"
+            f"Completed: {overall['completed']} | Failed: {overall['failed']}"
         )
-        if self.completed_songs == 0:
-            self._current_op_label.setText("Status: Starting...")
+
+        # Find current running level for status and update action tree
+        current_message = "Processing..."
+        for level in state.levels.values():
+            if level.status == ProgressStatus.RUNNING:
+                current_message = f"{level.name}: {level.message}"
+                # Parse action progress from song-level message to update tree
+                self._update_action_tree_from_level(level)
+                break
+
+        self._current_op_label.setText(f"Status: {current_message}")
+
+    def _update_action_tree_from_level(self, level):
+        """
+        Update the action tree based on the current progress level.
+
+        Ensures all actions before the current index are marked completed
+        so the tree stays consistent even if we miss intermediate poll cycles.
+        """
+        if not level.message:
+            return
+
+        action_idx = level.current
+        total = level.total
+
+        song_id = None
+        for sid in self.song_items:
+            if sid in level.level_id:
+                song_id = sid
+                break
+
+        if not song_id or song_id not in self.action_items_map:
+            return
+
+        actions_map = self.action_items_map[song_id]
+
+        # Catch up: mark all actions before the current index as completed
+        # (unless they were already marked as failed)
+        for i in range(action_idx):
+            if i in actions_map:
+                item_text = actions_map[i].text(0)
+                if not item_text.startswith("✓ ") and not item_text.startswith("✗ "):
+                    self.update_action_status(song_id, i, "completed")
+
+        msg = level.message
+        if ": running" in msg:
+            if action_idx in actions_map:
+                self.update_action_status(song_id, action_idx, "running")
+        elif ": completed" in msg:
+            completed_idx = action_idx - 1 if action_idx > 0 else action_idx
+            if completed_idx in actions_map:
+                self.update_action_status(song_id, completed_idx, "completed")
+        elif ": failed" in msg:
+            failed_idx = action_idx - 1 if action_idx > 0 else action_idx
+            if failed_idx in actions_map:
+                self.update_action_status(song_id, failed_idx, "failed")
     
     def processing_complete(self):
         """Called when all processing is complete"""

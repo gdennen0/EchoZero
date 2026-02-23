@@ -10,7 +10,7 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import Qt, pyqtSignal, QTimer
 
-from ui.qt_gui.design_system import Colors, border_radius
+from ui.qt_gui.design_system import Colors, border_radius, on_theme_changed
 
 
 class StatusBarProgress(QStatusBar):
@@ -115,7 +115,56 @@ class StatusBarProgress(QStatusBar):
         
         # Set default message
         self.showMessage("Ready")
-    
+
+        # Subscribe to theme changes (footer/status bar must update)
+        self._on_theme_cb = self._on_theme_changed
+        on_theme_changed(self._on_theme_cb)
+
+    def _on_theme_changed(self):
+        """Re-apply styles when theme changes (Settings > Theming)."""
+        self._apply_theme_styles()
+
+    def _apply_theme_styles(self):
+        """Re-apply all Colors-based styles (called on theme change)."""
+        self.setStyleSheet(f"""
+            QStatusBar {{
+                background-color: {Colors.BG_MEDIUM.name()};
+                border-top: 1px solid {Colors.BORDER.name()};
+                color: {Colors.TEXT_PRIMARY.name()};
+            }}
+            QStatusBar::item {{
+                border: none;
+                color: {Colors.TEXT_PRIMARY.name()};
+                background: transparent;
+            }}
+        """)
+        self.progress_label.setStyleSheet(f"""
+            color: {Colors.TEXT_SECONDARY.name()};
+            font-size: 11px;
+            background: transparent;
+        """)
+        self.percent_label.setStyleSheet(f"""
+            color: {Colors.TEXT_SECONDARY.name()};
+            font-size: 11px;
+            background: transparent;
+        """)
+        self.btn_cancel.setStyleSheet(f"""
+            QPushButton {{
+                background-color: transparent;
+                color: {Colors.TEXT_SECONDARY.name()};
+                border: 1px solid {Colors.BORDER.name()};
+                border-radius: {border_radius(9)};
+                font-size: 14px;
+                font-weight: bold;
+            }}
+            QPushButton:hover {{
+                background-color: {Colors.ACCENT_RED.name()};
+                color: {Colors.TEXT_PRIMARY.name()};
+                border-color: {Colors.ACCENT_RED.name()};
+            }}
+        """)
+        self._set_progress_style(Colors.ACCENT_BLUE)
+
     def _set_progress_style(self, color):
         """Set progress bar color"""
         self.progress_bar.setStyleSheet(f"""

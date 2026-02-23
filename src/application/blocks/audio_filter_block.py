@@ -558,17 +558,7 @@ class AudioFilterBlockProcessor(BlockProcessor):
             f"filtered audio item(s) on 'audio' port"
         )
 
-        # #region agent log
-        try:
-            import json, time
-            _out_names = [i.metadata.get("output_name", "?") for i in output_items]
-            with open("/Users/gdennen/Projects/EchoZero/.cursor/debug.log", "a") as _f:
-                _f.write(json.dumps({"hypothesisId": "H-A,H-B", "location": "audio_filter_block.py:process-exit", "message": "AudioFilter process() output", "data": {"num_output_items": len(output_items), "input_is_list": input_is_list, "output_names": _out_names}, "timestamp": int(time.time() * 1000)}) + "\n")
-        except Exception:
-            pass
-        # #endregion
-
-        # Mirror the input structure: single item or list (audio only; events input does not pass through)
+        # Mirror the input structure: single item or list (audio only; events input does not pass through) single item or list (audio only; events input does not pass through)
         if input_is_list:
             return {"audio": output_items}
         return {"audio": output_items[0]}
@@ -585,15 +575,6 @@ class AudioFilterBlockProcessor(BlockProcessor):
         (e.g., no connections, unconnected state).
         """
         from src.application.processing.output_name_helpers import make_output_name
-
-        # #region agent log
-        try:
-            import json, time
-            with open("/Users/gdennen/Projects/EchoZero/.cursor/debug.log", "a") as _f:
-                _f.write(json.dumps({"hypothesisId": "H-C", "location": "audio_filter_block.py:get_expected_outputs", "message": "get_expected_outputs called (static fallback)", "data": {"block_name": block.name}, "timestamp": int(time.time() * 1000)}) + "\n")
-        except Exception:
-            pass
-        # #endregion
 
         return {"audio": [make_output_name("audio", "main")]}
 

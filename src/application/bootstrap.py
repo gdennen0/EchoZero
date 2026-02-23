@@ -78,7 +78,8 @@ class ServiceContainer:
         show_manager_listener_service=None,
         show_manager_state_service=None,
         sync_port=None,
-        layer_group_order_service=None
+        layer_group_order_service=None,
+        app_mode_manager=None
     ):
         self.database = database
         self.event_bus = event_bus
@@ -111,6 +112,7 @@ class ServiceContainer:
         self.show_manager_listener_service = show_manager_listener_service
         self.show_manager_state_service = show_manager_state_service
         self.sync_port = sync_port
+        self.app_mode_manager = app_mode_manager
     
     def cleanup(self) -> None:
         """
@@ -325,6 +327,15 @@ def initialize_services(
     if filter_repetitive:
         Log.info("Repetitive log filtering enabled (cache hits, status checks filtered)")
     
+    # Initialize application mode manager (production vs developer)
+    if progress_tracker:
+        progress_tracker.update_step("Initializing app mode manager")
+        _process_qt_events()
+    from src.application.services.app_mode_manager import AppModeManager, AppMode
+    initial_mode = AppModeManager.resolve_initial_mode(app_settings_manager.debug_mode)
+    app_mode_manager = AppModeManager(initial_mode)
+    Log.info(f"App mode: {initial_mode.value}")
+
     if progress_tracker:
         progress_tracker.update_step("Initializing recent projects store")
         _process_qt_events()
@@ -426,9 +437,7 @@ def initialize_services(
         project_service=project_service
     )
     
-    # Initialize setlist service
-    from src.features.setlists.application import SetlistService
-    setlist_service = None  # Will be set after facade is created
+    from src.features.setlists.application import SetlistService, SetlistProcessingService
     
     # Initialize MA3 communication service (DISABLED - using ShowManager panel instead)
     # This service expects pipe-delimited format, but MA3 now sends OSC format
@@ -531,11 +540,11 @@ def initialize_services(
         progress_tracker.start_module("Integration", "Application facade and integration", 4)
         _process_qt_events()
     
-    # Initialize setlist service (needs facade, so create after facade)
+    # Initialize setlist processing service and setlist service (no facade dependency)
     if progress_tracker:
-        progress_tracker.update_step("Setlist service (partial)")
+        progress_tracker.update_step("Setlist service")
         _process_qt_events()
-    setlist_service = SetlistService(
+    setlist_processing_service = SetlistProcessingService(
         setlist_repo=setlist_repo,
         setlist_song_repo=setlist_song_repo,
         block_repo=block_repo,
@@ -544,7 +553,13 @@ def initialize_services(
         snapshot_service=snapshot_service,
         project_service=project_service,
         execution_engine=execution_engine,
-        facade=None  # Will be set after facade creation
+    )
+    setlist_service = SetlistService(
+        setlist_repo=setlist_repo,
+        setlist_song_repo=setlist_song_repo,
+        block_repo=block_repo,
+        snapshot_service=snapshot_service,
+        project_service=project_service,
     )
 
     layer_order_service = LayerOrderService(layer_order_repo)
@@ -577,8 +592,10 @@ def initialize_services(
         'data_filter_manager': data_filter_manager,
         'expected_outputs_service': expected_outputs_service,
         'setlist_service': setlist_service,
+        'setlist_processing_service': setlist_processing_service,
         'action_set_repo': action_set_repo,
-        'action_item_repo': action_item_repo
+        'action_item_repo': action_item_repo,
+        'app_mode_manager': app_mode_manager
     })()
     
     # Initialize application facade (unified API for all interfaces)
@@ -589,9 +606,6 @@ def initialize_services(
     from src.application.services.sync_port import SyncPort
     sync_port = SyncPort(facade)
     facade.sync_port = sync_port
-    
-    # Set facade in setlist service (circular dependency resolved)
-    setlist_service._facade = facade
     
     # Set facade provider in block status service (for active status recalculation)
     # This allows BlockStatusService to recalculate status immediately when BlockChanged events are received
@@ -684,7 +698,8 @@ def initialize_services(
         ma3_communication_service=ma3_communication_service,
         show_manager_listener_service=show_manager_listener_service,
         show_manager_state_service=None,  # Will be initialized after facade
-        sync_port=sync_port
+        sync_port=sync_port,
+        app_mode_manager=app_mode_manager
     )
 
     container.layer_order_service = layer_order_service

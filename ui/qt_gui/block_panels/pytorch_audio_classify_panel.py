@@ -1,19 +1,18 @@
 """
 PyTorchAudioClassify block panel.
 
-Provides UI for configuring PyTorch Audio Classify settings with drag-and-drop support.
+Provides UI for configuring PyTorch Audio Classify settings.
 Specifically designed for models created by PyTorch Audio Trainer.
 Can receive a model via the 'model' input port from a connected Trainer block,
-or load from a file path set in settings.
+or select a model from the models directory dropdown.
 """
 
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QFormLayout, QLabel,
-    QGroupBox, QLineEdit, QPushButton, QFileDialog, QSpinBox, QDoubleSpinBox, QComboBox,
-    QTextEdit, QCheckBox
+    QGroupBox, QPushButton, QSpinBox, QDoubleSpinBox, QComboBox,
+    QTextEdit, QCheckBox, QProgressBar, QScrollArea, QSizePolicy,
 )
-from PyQt6.QtCore import Qt, QTimer
-from PyQt6.QtGui import QDragEnterEvent, QDropEvent
+from PyQt6.QtCore import Qt, QTimer, QThread, pyqtSignal
 from pathlib import Path
 import os
 
@@ -21,33 +20,59 @@ from ui.qt_gui.block_panels.block_panel_base import BlockPanelBase
 from ui.qt_gui.block_panels.panel_registry import register_block_panel
 from ui.qt_gui.design_system import Colors, Spacing
 from src.application.settings.pytorch_audio_classify_settings import PyTorchAudioClassifySettingsManager
+from src.application.services.model_download_service import (
+    ModelDownloadService,
+    ModelDownloadError,
+    RemoteModel,
+    create_model_download_service,
+)
 from src.utils.message import Log
-from src.utils.settings import app_settings
+from src.utils.paths import get_models_dir
 
 
-class ModelPathEdit(QLineEdit):
-    """Custom QLineEdit with drag-and-drop support for model files."""
+class _ManifestWorker(QThread):
+    """Background thread to fetch the model manifest."""
 
-    def __init__(self, parent=None):
+    finished = pyqtSignal(list)
+    error = pyqtSignal(str)
+
+    def __init__(self, service: ModelDownloadService, parent=None):
         super().__init__(parent)
-        self.setAcceptDrops(True)
+        self._service = service
 
-    def dragEnterEvent(self, event: QDragEnterEvent):
-        """Accept drag events with file URLs."""
-        if event.mimeData().hasUrls():
-            event.acceptProposedAction()
+    def run(self):
+        try:
+            models = self._service.fetch_available_models()
+            self.finished.emit(models)
+        except ModelDownloadError as exc:
+            self.error.emit(str(exc))
+        except Exception as exc:
+            self.error.emit(f"Unexpected error: {exc}")
 
-    def dropEvent(self, event: QDropEvent):
-        """Handle dropped files."""
-        urls = event.mimeData().urls()
-        if urls:
-            path = urls[0].toLocalFile()
-            if os.path.exists(path):
-                self.setText(path)
-                # Commit-on-complete behavior: treat drop as a completed edit.
-                self.editingFinished.emit()
-            else:
-                Log.warning(f"PyTorchAudioClassifyPanel: Dropped path does not exist: {path}")
+
+class _DownloadWorker(QThread):
+    """Background thread to download a single model with progress."""
+
+    progress = pyqtSignal(int, int)
+    finished = pyqtSignal(str)
+    error = pyqtSignal(str)
+
+    def __init__(self, service: ModelDownloadService, model: RemoteModel, parent=None):
+        super().__init__(parent)
+        self._service = service
+        self._model = model
+
+    def run(self):
+        try:
+            path = self._service.download_model(
+                self._model,
+                progress_callback=lambda downloaded, total: self.progress.emit(downloaded, total),
+            )
+            self.finished.emit(path)
+        except ModelDownloadError as exc:
+            self.error.emit(str(exc))
+        except Exception as exc:
+            self.error.emit(f"Download failed: {exc}")
 
 
 @register_block_panel("PyTorchAudioClassify")
@@ -83,8 +108,8 @@ class PyTorchAudioClassifyPanel(BlockPanelBase):
         source_layout.setSpacing(Spacing.SM)
 
         self.model_source_label = QLabel(
-            "No model source configured.\n"
-            "Connect a PyTorch Audio Trainer output, or set a model path below."
+            "No model selected.\n"
+            "Connect a PyTorch Audio Trainer output, or select a model below."
         )
         self.model_source_label.setWordWrap(True)
         self.model_source_label.setStyleSheet(
@@ -93,6 +118,38 @@ class PyTorchAudioClassifyPanel(BlockPanelBase):
         source_layout.addWidget(self.model_source_label)
 
         layout.addWidget(source_group)
+
+        # -- Model Store --
+        store_group = QGroupBox("Model Store")
+        store_layout = QVBoxLayout(store_group)
+        store_layout.setSpacing(Spacing.SM)
+
+        store_header = QHBoxLayout()
+        store_header.setSpacing(Spacing.SM)
+
+        self.check_models_btn = QPushButton("Check for Available Models")
+        self.check_models_btn.setToolTip(
+            "Connect to the EchoZero model store and check for\n"
+            "pre-trained models available for download."
+        )
+        self.check_models_btn.clicked.connect(self._on_check_models)
+        store_header.addWidget(self.check_models_btn)
+        store_header.addStretch()
+
+        self.store_status_label = QLabel("")
+        self.store_status_label.setStyleSheet(
+            f"color: {Colors.TEXT_SECONDARY.name()}; font-size: 9pt;"
+        )
+        store_header.addWidget(self.store_status_label)
+        store_layout.addLayout(store_header)
+
+        self.store_list_container = QWidget()
+        self.store_list_layout = QVBoxLayout(self.store_list_container)
+        self.store_list_layout.setContentsMargins(0, 0, 0, 0)
+        self.store_list_layout.setSpacing(Spacing.SM)
+        store_layout.addWidget(self.store_list_container)
+
+        layout.addWidget(store_group)
 
         # -- Model Details (comprehensive info loaded from checkpoint) --
         details_group = QGroupBox("Model Details")
@@ -115,51 +172,51 @@ class PyTorchAudioClassifyPanel(BlockPanelBase):
         self.model_details_display.setMinimumHeight(120)
         self.model_details_display.setMaximumHeight(400)
         self.model_details_display.setPlaceholderText(
-            "No model loaded. Set a model path or connect a trainer block to see details."
+            "No model loaded. Select a model or connect a trainer block to see details."
         )
         details_layout.addWidget(self.model_details_display)
 
         layout.addWidget(details_group)
 
-        # -- Model Path Settings --
-        path_group = QGroupBox("Model Path (Manual)")
-        path_form = QFormLayout(path_group)
-        path_form.setSpacing(Spacing.SM)
+        # -- Model Selection --
+        model_group = QGroupBox("Model Selection")
+        model_form = QFormLayout(model_group)
+        model_form.setSpacing(Spacing.SM)
 
-        path_container = QVBoxLayout()
+        model_container = QVBoxLayout()
 
-        self.model_path_edit = ModelPathEdit()
-        self.model_path_edit.setPlaceholderText(
-            "Drag and drop model file here, or use Browse..."
-        )
-        self.model_path_edit.setToolTip(
-            "Path to model file (.pth) created by PyTorch Audio Trainer.\n\n"
+        combo_row = QHBoxLayout()
+        combo_row.setSpacing(Spacing.SM)
+
+        self.model_combo = QComboBox()
+        self.model_combo.setToolTip(
+            "Select a model from the models directory.\n\n"
+            "Models are .pth files created by PyTorch Audio Trainer.\n"
             "If a Trainer block is connected to the model input port,\n"
-            "the connected model takes priority over this path.\n\n"
-            "Supports drag-and-drop."
+            "the connected model takes priority."
         )
-        self.model_path_edit.editingFinished.connect(self._on_model_path_editing_finished)
-        path_container.addWidget(self.model_path_edit)
+        self.model_combo.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToContents)
+        self.model_combo.setMinimumWidth(200)
+        self.model_combo.currentIndexChanged.connect(self._on_model_combo_changed)
+        combo_row.addWidget(self.model_combo, 1)
 
-        # Validation status
+        refresh_btn = QPushButton("Refresh")
+        refresh_btn.setToolTip("Rescan the models directory for available models")
+        refresh_btn.setFixedWidth(70)
+        refresh_btn.clicked.connect(self._refresh_model_list)
+        combo_row.addWidget(refresh_btn)
+
+        model_container.addLayout(combo_row)
+
         self.model_path_status_label = QLabel("")
         self.model_path_status_label.setWordWrap(True)
         self.model_path_status_label.setStyleSheet(
             f"color: {Colors.TEXT_SECONDARY.name()}; font-size: 9pt;"
         )
-        path_container.addWidget(self.model_path_status_label)
+        model_container.addWidget(self.model_path_status_label)
 
-        # Browse button
-        btn_layout = QHBoxLayout()
-        btn_layout.setSpacing(Spacing.SM)
-        browse_btn = QPushButton("Browse...")
-        browse_btn.clicked.connect(self._on_browse_model)
-        btn_layout.addWidget(browse_btn)
-        btn_layout.addStretch()
-        path_container.addLayout(btn_layout)
-
-        path_form.addRow("Model Path:", path_container)
-        layout.addWidget(path_group)
+        model_form.addRow("Model:", model_container)
+        layout.addWidget(model_group)
 
         # -- Processing Settings --
         processing_group = QGroupBox("Processing Settings")
@@ -277,14 +334,12 @@ class PyTorchAudioClassifyPanel(BlockPanelBase):
 
     def refresh(self):
         """Update UI with current block settings."""
-        # Guard: settings manager might not be initialized yet (during __init__)
         if not hasattr(self, "_settings_manager") or not self._settings_manager:
             return
 
         if not self.block or not self._settings_manager.is_loaded():
             return
 
-        # Load settings from settings manager (single source of truth)
         try:
             model_path = self._settings_manager.model_path
             sample_rate = self._settings_manager.sample_rate
@@ -299,7 +354,7 @@ class PyTorchAudioClassifyPanel(BlockPanelBase):
             return
 
         # Block signals while updating
-        self.model_path_edit.blockSignals(True)
+        self.model_combo.blockSignals(True)
         self.sample_rate_spin.blockSignals(True)
         self.batch_size_spin.blockSignals(True)
         self.device_combo.blockSignals(True)
@@ -311,8 +366,8 @@ class PyTorchAudioClassifyPanel(BlockPanelBase):
         if hasattr(self, "create_other_layer_check"):
             self.create_other_layer_check.blockSignals(True)
 
-        # Model path
-        self.model_path_edit.setText(model_path or "")
+        # Populate model list and select current
+        self._populate_model_combo(model_path)
 
         # Sample rate (None -> 0 = Auto)
         self.sample_rate_spin.setValue(sample_rate if sample_rate else 0)
@@ -337,7 +392,7 @@ class PyTorchAudioClassifyPanel(BlockPanelBase):
             self.create_other_layer_check.setChecked(create_other_layer)
 
         # Unblock signals
-        self.model_path_edit.blockSignals(False)
+        self.model_combo.blockSignals(False)
         self.sample_rate_spin.blockSignals(False)
         self.batch_size_spin.blockSignals(False)
         self.device_combo.blockSignals(False)
@@ -361,11 +416,10 @@ class PyTorchAudioClassifyPanel(BlockPanelBase):
     # =========================================================================
 
     def _update_model_source_info(self):
-        """Update the model source indicator (connected trainer vs. file path)."""
+        """Update the model source indicator (connected trainer vs. dropdown selection)."""
         if not hasattr(self, "model_source_label"):
             return
 
-        # Check if a model input port is connected
         model_connected = False
         if self.block and hasattr(self.facade, "connection_service"):
             try:
@@ -379,24 +433,24 @@ class PyTorchAudioClassifyPanel(BlockPanelBase):
 
         if model_connected:
             self.model_source_label.setText(
-                "Model source: Connected trainer block (takes priority over path below)"
+                "Model source: Connected trainer block (takes priority over selection)"
             )
             self.model_source_label.setStyleSheet(
                 f"color: {Colors.STATUS_SUCCESS.name()}; font-size: 10pt; padding: 4px;"
             )
         else:
-            model_path = self.model_path_edit.text().strip()
+            model_path = self._get_selected_model_path()
             if model_path and os.path.exists(model_path):
                 self.model_source_label.setText(
-                    f"Model source: File path ({Path(model_path).name})"
+                    f"Model source: {Path(model_path).name}"
                 )
                 self.model_source_label.setStyleSheet(
                     f"color: {Colors.TEXT_SECONDARY.name()}; font-size: 10pt; padding: 4px;"
                 )
             else:
                 self.model_source_label.setText(
-                    "No model source configured.\n"
-                    "Connect a PyTorch Audio Trainer output, or set a model path below."
+                    "No model selected.\n"
+                    "Connect a PyTorch Audio Trainer output, or select a model above."
                 )
                 self.model_source_label.setStyleSheet(
                     f"color: {Colors.STATUS_WARNING.name()}; font-size: 10pt; padding: 4px;"
@@ -407,7 +461,7 @@ class PyTorchAudioClassifyPanel(BlockPanelBase):
         if not hasattr(self, "model_path_status_label"):
             return
 
-        path = self.model_path_edit.text().strip()
+        path = self._get_selected_model_path()
 
         if not path:
             self.model_path_status_label.setText("")
@@ -830,51 +884,95 @@ class PyTorchAudioClassifyPanel(BlockPanelBase):
         )
 
     # =========================================================================
-    # Event Handlers
+    # Model Directory Scanning & Event Handlers
     # =========================================================================
 
-    def _on_model_path_editing_finished(self):
-        """Commit model path only when edit is complete."""
-        self._on_model_path_changed(self.model_path_edit.text())
+    def _scan_models_dir(self) -> list:
+        """
+        Scan the models directory for .pth files.
 
-    def _on_model_path_changed(self, text: str):
-        """Handle model path change."""
+        Returns a list of (display_name, full_path) tuples sorted by modification
+        time (newest first). Skips the checkpoints subdirectory.
+        """
+        models_dir = get_models_dir()
+        results = []
+
+        if not models_dir.exists():
+            return results
+
+        for pth_file in models_dir.rglob("*.pth"):
+            # Skip checkpoints directory (training intermediates, not final models)
+            rel = pth_file.relative_to(models_dir)
+            if rel.parts and rel.parts[0] == "checkpoints":
+                continue
+
+            # Display name: use parent folder name if the .pth is inside a subfolder,
+            # otherwise just the filename
+            if pth_file.parent != models_dir:
+                display = f"{pth_file.parent.name} / {pth_file.name}"
+            else:
+                display = pth_file.name
+
+            results.append((display, str(pth_file)))
+
+        # Sort by modification time, newest first
+        results.sort(key=lambda item: os.path.getmtime(item[1]), reverse=True)
+        return results
+
+    def _populate_model_combo(self, selected_path: str = None):
+        """
+        Populate the model combo box with available models.
+
+        If selected_path matches one of the discovered models, that entry is
+        selected.  Otherwise the first placeholder item is shown.
+        """
+        self.model_combo.blockSignals(True)
+        self.model_combo.clear()
+
+        models = self._scan_models_dir()
+
+        self.model_combo.addItem("-- Select a model --", "")
+
+        selected_idx = 0
+        for idx, (display, full_path) in enumerate(models, start=1):
+            self.model_combo.addItem(display, full_path)
+            if selected_path and os.path.normpath(full_path) == os.path.normpath(selected_path):
+                selected_idx = idx
+
+        if not models:
+            models_dir = get_models_dir()
+            self.model_combo.setItemText(0, f"No models found in {models_dir}")
+
+        self.model_combo.setCurrentIndex(selected_idx)
+        self.model_combo.blockSignals(False)
+
+    def _get_selected_model_path(self) -> str:
+        """Return the full path stored in the currently selected combo item, or empty string."""
+        if not hasattr(self, "model_combo"):
+            return ""
+        return self.model_combo.currentData() or ""
+
+    def _refresh_model_list(self):
+        """Rescan models directory and repopulate the dropdown."""
+        current_path = self._get_selected_model_path()
+        self._populate_model_combo(current_path or self._settings_manager.model_path)
+        self._update_model_source_info()
+        self._update_model_path_validation()
+        count = self.model_combo.count() - 1  # subtract placeholder
+        self.set_status_message(f"Found {count} model(s)", error=False)
+
+    def _on_model_combo_changed(self, index: int):
+        """Handle model selection from dropdown."""
+        path = self.model_combo.currentData()
         try:
-            self._settings_manager.model_path = text if text else None
+            self._settings_manager.model_path = path if path else None
             self._update_model_path_validation()
             self._update_model_source_info()
-            name = Path(text).name if text else "(none)"
-            self.set_status_message(f"Model path: {name}", error=False)
+            name = Path(path).name if path else "(none)"
+            self.set_status_message(f"Model selected: {name}", error=False)
         except ValueError as e:
             self.set_status_message(str(e), error=True)
             self.refresh()
-
-    def _on_browse_model(self):
-        """Open file dialog to select model file."""
-        current_path = self._settings_manager.model_path or ""
-        start_dir = (
-            str(Path(current_path).parent)
-            if current_path and os.path.exists(current_path)
-            else app_settings.get_dialog_path("pytorch_model")
-        )
-
-        file_path, _ = QFileDialog.getOpenFileName(
-            self,
-            "Select PyTorch Audio Trainer Model",
-            start_dir,
-            "PyTorch Models (*.pth);;All Files (*)",
-        )
-
-        if file_path:
-            app_settings.set_dialog_path("pytorch_model", file_path)
-            try:
-                self._settings_manager.model_path = file_path
-                self.set_status_message(f"Model path set: {Path(file_path).name}", error=False)
-                self._update_model_path_validation()
-                self._update_model_source_info()
-            except ValueError as e:
-                self.set_status_message(str(e), error=True)
-                self.refresh()
 
     def _on_sample_rate_changed(self, value: int):
         """Handle sample rate change."""
@@ -967,6 +1065,193 @@ class PyTorchAudioClassifyPanel(BlockPanelBase):
     def _on_settings_save_failed(self, keys: str, error: str) -> None:
         """Display loud, user-facing save errors from settings manager."""
         self.set_status_message(f"Save failed ({keys}): {error}", error=True)
+
+    # =========================================================================
+    # Model Store
+    # =========================================================================
+
+    def _get_download_service(self) -> ModelDownloadService:
+        """Lazy-create the download service."""
+        if not hasattr(self, "_download_service") or self._download_service is None:
+            self._download_service = create_model_download_service()
+        return self._download_service
+
+    def _on_check_models(self):
+        """Fetch the remote model manifest in a background thread."""
+        self.check_models_btn.setEnabled(False)
+        self.store_status_label.setText("Checking...")
+        self.store_status_label.setStyleSheet(
+            f"color: {Colors.TEXT_SECONDARY.name()}; font-size: 9pt;"
+        )
+
+        service = self._get_download_service()
+        self._manifest_worker = _ManifestWorker(service, parent=self)
+        self._manifest_worker.finished.connect(self._on_manifest_loaded)
+        self._manifest_worker.error.connect(self._on_manifest_error)
+        self._manifest_worker.start()
+
+    def _on_manifest_loaded(self, models: list):
+        """Populate the store list with available models."""
+        self.check_models_btn.setEnabled(True)
+
+        service = self._get_download_service()
+        status = service.get_download_status(models)
+
+        installed = sum(1 for v in status.values() if v)
+        available = len(models) - installed
+        parts = []
+        if installed:
+            parts.append(f"{installed} installed")
+        if available:
+            parts.append(f"{available} available")
+        self.store_status_label.setText(", ".join(parts) if parts else "No models found")
+        self.store_status_label.setStyleSheet(
+            f"color: {Colors.TEXT_SECONDARY.name()}; font-size: 9pt;"
+        )
+
+        self._store_models = models
+        self._rebuild_store_list(models, status)
+
+    def _on_manifest_error(self, error_msg: str):
+        """Handle manifest fetch failure."""
+        self.check_models_btn.setEnabled(True)
+        self.store_status_label.setText(error_msg)
+        self.store_status_label.setStyleSheet(
+            f"color: {Colors.STATUS_ERROR.name()}; font-size: 9pt;"
+        )
+
+    def _rebuild_store_list(self, models: list, status: dict):
+        """Clear and rebuild the model store list widgets."""
+        while self.store_list_layout.count():
+            child = self.store_list_layout.takeAt(0)
+            if child.widget():
+                child.widget().deleteLater()
+
+        for model in models:
+            row = self._create_store_row(model, installed=status.get(model.id, False))
+            self.store_list_layout.addWidget(row)
+
+    def _create_store_row(self, model: RemoteModel, installed: bool) -> QWidget:
+        """Build a single model row for the store list."""
+        row = QWidget()
+        row.setStyleSheet(
+            f"QWidget {{ background: {Colors.BG_MEDIUM.name()};"
+            f" border: 1px solid {Colors.BORDER.name()};"
+            f" border-radius: 4px; }}"
+        )
+        h = QHBoxLayout(row)
+        h.setContentsMargins(8, 6, 8, 6)
+        h.setSpacing(Spacing.SM)
+
+        info = QVBoxLayout()
+        info.setSpacing(2)
+
+        name_label = QLabel(f"<b>{model.name}</b>  <small>v{model.version}</small>")
+        name_label.setStyleSheet(f"color: {Colors.TEXT_PRIMARY.name()}; border: none;")
+        info.addWidget(name_label)
+
+        meta_parts = []
+        if model.architecture:
+            meta_parts.append(model.architecture.upper())
+        if model.classification_mode:
+            meta_parts.append(model.classification_mode)
+        if model.classes:
+            meta_parts.append(f"{len(model.classes)} classes")
+        if model.size_bytes:
+            meta_parts.append(f"{model.size_mb:.1f} MB")
+        meta_label = QLabel(" | ".join(meta_parts))
+        meta_label.setStyleSheet(
+            f"color: {Colors.TEXT_SECONDARY.name()}; font-size: 9pt; border: none;"
+        )
+        info.addWidget(meta_label)
+
+        if model.description:
+            desc_label = QLabel(model.description)
+            desc_label.setWordWrap(True)
+            desc_label.setStyleSheet(
+                f"color: {Colors.TEXT_SECONDARY.name()}; font-size: 9pt; border: none;"
+            )
+            info.addWidget(desc_label)
+
+        h.addLayout(info, 1)
+
+        action_layout = QVBoxLayout()
+        action_layout.setSpacing(2)
+
+        if installed:
+            status_label = QLabel("Installed")
+            status_label.setStyleSheet(
+                f"color: {Colors.STATUS_SUCCESS.name()}; font-weight: bold;"
+                f" font-size: 9pt; border: none;"
+            )
+            action_layout.addWidget(status_label, alignment=Qt.AlignmentFlag.AlignRight)
+        else:
+            dl_btn = QPushButton("Download")
+            dl_btn.setFixedWidth(90)
+            dl_btn.clicked.connect(lambda checked, m=model, b=dl_btn: self._on_download_model(m, b))
+            action_layout.addWidget(dl_btn, alignment=Qt.AlignmentFlag.AlignRight)
+
+        progress_bar = QProgressBar()
+        progress_bar.setFixedHeight(14)
+        progress_bar.setTextVisible(True)
+        progress_bar.setFormat("%p%")
+        progress_bar.setVisible(False)
+        progress_bar.setStyleSheet(
+            f"QProgressBar {{ border: 1px solid {Colors.BORDER.name()};"
+            f" border-radius: 3px; background: {Colors.BG_DARK.name()};"
+            f" text-align: center; color: {Colors.TEXT_PRIMARY.name()};"
+            f" font-size: 8pt; }}"
+            f" QProgressBar::chunk {{ background: {Colors.ACCENT_BLUE.name()};"
+            f" border-radius: 2px; }}"
+        )
+        progress_bar.setObjectName(f"progress_{model.id}")
+        action_layout.addWidget(progress_bar)
+
+        h.addLayout(action_layout)
+        return row
+
+    def _on_download_model(self, model: RemoteModel, button: QPushButton):
+        """Start downloading a model in the background."""
+        button.setEnabled(False)
+        button.setText("Downloading...")
+
+        progress_bar = self.store_list_container.findChild(QProgressBar, f"progress_{model.id}")
+        if progress_bar:
+            progress_bar.setValue(0)
+            progress_bar.setVisible(True)
+
+        service = self._get_download_service()
+        worker = _DownloadWorker(service, model, parent=self)
+
+        def on_progress(downloaded: int, total: int):
+            if progress_bar and total > 0:
+                pct = int(downloaded * 100 / total)
+                progress_bar.setValue(pct)
+
+        def on_finished(path: str):
+            if progress_bar:
+                progress_bar.setValue(100)
+                QTimer.singleShot(1000, lambda: progress_bar.setVisible(False))
+            button.setText("Installed")
+            button.setStyleSheet(f"color: {Colors.STATUS_SUCCESS.name()};")
+            self.set_status_message(f"Downloaded {model.name}", error=False)
+            self._refresh_model_list()
+
+        def on_error(msg: str):
+            if progress_bar:
+                progress_bar.setVisible(False)
+            button.setEnabled(True)
+            button.setText("Retry")
+            self.set_status_message(f"Download failed: {msg}", error=True)
+
+        worker.progress.connect(on_progress)
+        worker.finished.connect(on_finished)
+        worker.error.connect(on_error)
+
+        if not hasattr(self, "_download_workers"):
+            self._download_workers = []
+        self._download_workers.append(worker)
+        worker.start()
 
     # =========================================================================
     # External Updates

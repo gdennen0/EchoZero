@@ -130,15 +130,15 @@ class GridRenderer:
             minor_pen = QPen(minor_color, 1, Qt.PenStyle.DotLine)
         else:
             from ..core.style import TimelineStyle as Colors
-            minor_pen = QPen(Colors.BORDER.darker(130), 1, Qt.PenStyle.DotLine)
-        minor_pen.setCosmetic(True)  # Key Qt feature!
+            minor_pen = QPen(Colors.GRID_LINE_MINOR, 1, Qt.PenStyle.DotLine)
+        minor_pen.setCosmetic(True)
         
         if major_color:
             major_pen = QPen(major_color, 1)
         else:
             from ..core.style import TimelineStyle as Colors
-            major_pen = QPen(Colors.BORDER, 1)
-        major_pen.setCosmetic(True)  # Key Qt feature!
+            major_pen = QPen(Colors.GRID_LINE_MAJOR, 1)
+        major_pen.setCosmetic(True)
         
         # === STEP 3: Calculate visible range using INTEGER line indices ===
         # This avoids floating point modulo bugs

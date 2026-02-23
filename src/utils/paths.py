@@ -259,6 +259,35 @@ def cleanup_project_workspace(project_id: str) -> None:
         shutil.rmtree(workspace_dir, ignore_errors=True)
 
 
+def get_template_path() -> Optional[Path]:
+    """
+    Locate the bundled production template file.
+
+    Checks ``data/production_template.ez`` relative to the application
+    install directory (works for both frozen PyInstaller builds and
+    development runs from source).
+
+    Returns:
+        Path to the template file, or None if not found.
+    """
+    install_dir = get_app_install_dir()
+    if install_dir is None:
+        return None
+    template = install_dir / "data" / "production_template.ez"
+    if template.is_file():
+        return template
+    return None
+
+
+def get_production_project_path() -> Path:
+    """
+    Get the path where the production working-copy project is stored.
+
+    This is the user-local copy derived from the bundled template.
+    """
+    return get_user_data_dir() / "production_project.ez"
+
+
 def ensure_user_directories():
     """
     Ensure all user directories exist.

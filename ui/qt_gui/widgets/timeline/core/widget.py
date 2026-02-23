@@ -1455,6 +1455,11 @@ class TimelineWidget(QWidget):
         
         # Connect settings changes to update components
         self._settings_manager.settings_changed.connect(self._on_setting_changed)
+
+        # Subscribe to theme changes for instant style/color refresh
+        from ui.qt_gui.design_system import on_theme_changed, disconnect_theme_changed
+        self._on_theme_changed_cb = self._on_theme_changed
+        on_theme_changed(self._on_theme_changed_cb)
     
     def load_all_waveforms_now(self) -> None:
         """
@@ -1508,25 +1513,27 @@ class TimelineWidget(QWidget):
         """)
         
         # Timeline container - holds top row, content, and toolbar as a grouped unit
-        timeline_container = QFrame()
-        timeline_container.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-        timeline_container.setStyleSheet(f"background-color: {Colors.BG_DARK.name()};")
-        timeline_layout = QVBoxLayout(timeline_container)
+        self._timeline_container = QFrame()
+        self._timeline_container.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        self._timeline_container.setStyleSheet(f"background-color: {Colors.BG_DARK.name()};")
+        timeline_layout = QVBoxLayout(self._timeline_container)
         timeline_layout.setContentsMargins(0, 0, 0, 0)
         timeline_layout.setSpacing(0)
         
         # ========== TOP ROW (ruler, corner, event sources) ==========
         # Fixed height, expands horizontally with the container
         self._top_row = QFrame()
+        self._top_row.setObjectName("timeline_top_row")
         self._top_row.setFixedHeight(RULER_HEIGHT)
-        self._top_row.setStyleSheet(f"background-color: {Colors.BG_MEDIUM.name()};")
+        self._top_row.setStyleSheet(f"#timeline_top_row {{ background-color: {Colors.BG_MEDIUM.name()}; }}")
         top_layout = QHBoxLayout(self._top_row)
         top_layout.setContentsMargins(0, 0, 0, 0)
         top_layout.setSpacing(0)
         
         self._corner = QFrame()
+        self._corner.setObjectName("timeline_corner")
         self._corner.setFixedSize(120, RULER_HEIGHT)
-        self._corner.setStyleSheet(f"background-color: {Colors.BG_MEDIUM.name()};")
+        self._corner.setStyleSheet(f"#timeline_corner {{ background-color: {Colors.BG_MEDIUM.name()}; }}")
         top_layout.addWidget(self._corner)
         
         self._ruler = TimeRuler(self._grid_system, self._settings_manager)
@@ -1535,8 +1542,9 @@ class TimelineWidget(QWidget):
         
         self._top_right_widget = None
         self._top_right_container = QWidget()
+        self._top_right_container.setObjectName("timeline_top_right")
         self._top_right_container.setFixedHeight(RULER_HEIGHT)
-        self._top_right_container.setStyleSheet(f"background-color: {Colors.BG_MEDIUM.name()};")
+        self._top_right_container.setStyleSheet(f"#timeline_top_right {{ background-color: {Colors.BG_MEDIUM.name()}; }}")
         self._top_right_container.setVisible(False)
         self._top_right_layout = QHBoxLayout(self._top_right_container)
         self._top_right_layout.setContentsMargins(8, 0, 8, 0)
@@ -1602,7 +1610,7 @@ class TimelineWidget(QWidget):
         self._toolbar = self._create_toolbar()
         timeline_layout.addWidget(self._toolbar)
         
-        self._main_splitter.addWidget(timeline_container)
+        self._main_splitter.addWidget(self._timeline_container)
         
         self._inspector_container = self._create_inspector_panel()
         self._main_splitter.addWidget(self._inspector_container)
@@ -1662,7 +1670,53 @@ class TimelineWidget(QWidget):
         Log.debug(f"TimelineWidget: Applied saved settings - snap_enabled={self._settings_manager.snap_enabled}, "
                   f"show_grid_lines={self._settings_manager.show_grid_lines}, "
                   f"default_layer_height={self._settings_manager.default_layer_height}")
-    
+
+    def _on_theme_changed(self):
+        """Re-apply styles and force instant repaint when theme changes (Settings > Theming)."""
+        self._apply_timeline_styles()
+        if hasattr(self, '_scene') and self._scene:
+            self._scene.invalidate(self._scene.sceneRect())
+        if hasattr(self, '_view') and self._view:
+            self._view.viewport().repaint()
+        if hasattr(self, '_layer_labels') and self._layer_labels:
+            self._layer_labels.repaint()
+
+    def _apply_timeline_styles(self):
+        """Re-apply all Colors-based stylesheets (called on theme change)."""
+        self._main_splitter.setStyleSheet(f"""
+            QSplitter::handle {{
+                background-color: {Colors.BORDER.name()};
+            }}
+            QSplitter::handle:hover {{
+                background-color: {Colors.ACCENT_BLUE.name()};
+            }}
+        """)
+        self._timeline_container.setStyleSheet(f"background-color: {Colors.BG_DARK.name()};")
+        self._top_row.setStyleSheet(f"#timeline_top_row {{ background-color: {Colors.BG_MEDIUM.name()}; }}")
+        self._corner.setStyleSheet(f"#timeline_corner {{ background-color: {Colors.BG_MEDIUM.name()}; }}")
+        self._top_right_container.setStyleSheet(f"#timeline_top_right {{ background-color: {Colors.BG_MEDIUM.name()}; }}")
+        self._content_splitter.setStyleSheet(f"""
+            QSplitter::handle:horizontal {{
+                background-color: {Colors.BORDER.name()};
+            }}
+            QSplitter::handle:horizontal:hover {{
+                background-color: {Colors.ACCENT_BLUE.name()};
+            }}
+        """)
+        self.setStyleSheet(f"""
+            QWidget {{
+                background-color: {Colors.BG_DARK.name()};
+            }}
+        """)
+        if hasattr(self, '_inspector_container') and self._inspector_container:
+            try:
+                from .style import TimelineStyle
+                self._inspector_container.setStyleSheet(
+                    f"background-color: {TimelineStyle.BG_DARK.name()};"
+                )
+            except Exception:
+                pass
+
     def _on_setting_changed(self, setting_name: str):
         """
         Handle settings changes and update the relevant component.
@@ -3853,6 +3907,12 @@ class TimelineWidget(QWidget):
     
     def cleanup(self) -> None:
         """Clean up resources."""
+        try:
+            from ui.qt_gui.design_system import disconnect_theme_changed
+            if hasattr(self, '_on_theme_changed_cb'):
+                disconnect_theme_changed(self._on_theme_changed_cb)
+        except Exception:
+            pass
         # Clean up event inspector first (stops timers, threads, and audio playback)
         # This must happen before other cleanup to prevent hanging on close
         if hasattr(self, '_event_inspector') and self._event_inspector:

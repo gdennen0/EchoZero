@@ -18,7 +18,7 @@ def _load_packaging_config():
         with open(path, 'r', encoding='utf-8') as f:
             return json.load(f)
     return {
-        'app_name': 'EchoZero',
+        'app_name': 'EZ',
         'version': '0.1.0',
         'bundle_identifier': 'dev.speedoflight.echozero',
         'company': 'Speed of Light',
@@ -68,6 +68,7 @@ hiddenimports = (
         'PyQt6.QtCore',
         'PyQt6.QtGui',
         'PyQt6.QtWidgets',
+        'PyQt6Ads',
     ]
 )
 

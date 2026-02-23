@@ -8,10 +8,12 @@ from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QTabWidget, QWidget,
     QLabel, QCheckBox, QSpinBox, QComboBox, QPushButton,
     QFormLayout, QLineEdit, QFileDialog, QGroupBox, QFrame,
-    QScrollArea, QSizePolicy, QColorDialog, QInputDialog
+    QScrollArea, QSizePolicy, QColorDialog, QInputDialog,
+    QApplication,
 )
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QFont, QColor
+from PyQt6.QtGui import QFontDatabase
 
 from src.application.settings import AppSettingsManager
 from src.utils.message import Log
@@ -61,10 +63,8 @@ class SettingsDialog(ThemeAwareMixin, QDialog):
         # Track original values for cancel/apply logic
         self._original_values = {}
         self._widgets = {}
-        self._preview_widgets = {}  # Initialize preview widgets dict
         
-        # Custom color editing state
-        self._custom_colors = {}  # {attr_name: "#hex"} for colors edited by the user
+        # Theme editing state
         self._colors_dirty = False  # True when any swatch has been modified
         self._original_theme_name = None  # Theme active when dialog opened (for cancel revert)
         
@@ -391,14 +391,20 @@ class SettingsDialog(ThemeAwareMixin, QDialog):
             combo.setCurrentIndex(0)
     
     def _create_theming_tab(self) -> QWidget:
-        """Create the Theming settings tab"""
+        """Create the Theming settings tab with scrollable content."""
         from ui.qt_gui.theme_registry import ThemeRegistry
-        
-        tab = QWidget()
-        layout = QVBoxLayout(tab)
+
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setMinimumWidth(400)
+
+        content = QWidget()
+        layout = QVBoxLayout(content)
         layout.setContentsMargins(Spacing.MD, Spacing.MD, Spacing.MD, Spacing.MD)
         layout.setSpacing(Spacing.MD)
-        
+
         # Theme Preset section
         layout.addWidget(self._create_section_label("Theme Preset"))
         
@@ -452,6 +458,27 @@ class SettingsDialog(ThemeAwareMixin, QDialog):
         layout.addSpacing(Spacing.MD)
         layout.addWidget(self._create_section_label("Appearance"))
         
+        # UI font
+        font_layout = QHBoxLayout()
+        font_layout.setSpacing(Spacing.SM)
+        font_layout.addWidget(QLabel("UI font:"))
+        self._widgets["ui_font_family"] = QComboBox()
+        self._widgets["ui_font_family"].setEditable(False)
+        self._populate_font_combo()
+        font_layout.addWidget(self._widgets["ui_font_family"])
+        font_layout.addWidget(QLabel("Size:"))
+        self._widgets["ui_font_size"] = QSpinBox()
+        self._widgets["ui_font_size"].setRange(0, 48)
+        self._widgets["ui_font_size"].setSpecialValueText("Default")
+        self._widgets["ui_font_size"].setSuffix(" px")
+        self._widgets["ui_font_size"].setKeyboardTracking(False)
+        font_layout.addWidget(self._widgets["ui_font_size"])
+        font_layout.addStretch()
+        layout.addLayout(font_layout)
+        layout.addWidget(self._create_description_label(
+            "Font for the entire application UI. Set to Default (0) to use system default size (13px). "
+            "Requires Apply or OK to take effect."))
+        
         self._widgets["sharp_corners"] = QCheckBox("Sharp corners (no rounded edges)")
         layout.addWidget(self._widgets["sharp_corners"])
         layout.addWidget(self._create_description_label(
@@ -473,283 +500,87 @@ class SettingsDialog(ThemeAwareMixin, QDialog):
             "Resets the theme preset, appearance options, and all editor/timeline "
             "visualization settings to their original defaults. Takes effect when you click Apply or OK."))
         
-        # Theme color editor section
+        # Theme color editor - table-based
         layout.addSpacing(Spacing.MD)
-        layout.addWidget(self._create_section_label("Color Editor"))
+        layout.addWidget(self._create_section_label("Theme Editor"))
         layout.addWidget(self._create_description_label(
-            "Click any swatch to change its color. Changes preview instantly. "
+            "Double-click any row to edit. Color changes preview instantly. "
             "Use 'Save as Preset...' to keep your changes."))
-        
-        preview_widget = QWidget()
-        preview_widget.setMinimumHeight(400)
-        preview_widget.setStyleSheet(f"""
-            QWidget {{
-                background-color: {Colors.BG_MEDIUM.name()};
-                border: 1px solid {Colors.BORDER.name()};
-                border-radius: {border_radius(4)};
-            }}
-        """)
-        preview_layout = QVBoxLayout(preview_widget)
-        preview_layout.setContentsMargins(Spacing.MD, Spacing.MD, Spacing.MD, Spacing.MD)
-        preview_layout.setSpacing(Spacing.SM)
-        
-        preview_label = QLabel("Preview of all theme colors (updates immediately)")
-        preview_label.setStyleSheet(f"color: {Colors.TEXT_SECONDARY.name()}; font-weight: bold;")
-        preview_layout.addWidget(preview_label)
-        
-        # Scroll area for color swatches
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setFrameShape(QFrame.Shape.NoFrame)
-        scroll.setStyleSheet(f"""
-            QScrollArea {{
-                background-color: transparent;
-                border: none;
-            }}
-        """)
-        
-        swatch_container = QWidget()
-        swatch_layout = QVBoxLayout(swatch_container)
-        swatch_layout.setSpacing(Spacing.MD)
-        swatch_layout.setContentsMargins(0, 0, 0, 0)
-        
-        # Background colors
-        bg_group = self._create_color_group("Backgrounds", [
-            ("Dark", "bg_dark"),
-            ("Medium", "bg_medium"),
-            ("Light", "bg_light"),
-        ])
-        swatch_layout.addWidget(bg_group)
-        
-        # Text colors
-        text_group = self._create_color_group("Text", [
-            ("Primary", "text_primary"),
-            ("Secondary", "text_secondary"),
-            ("Disabled", "text_disabled"),
-        ])
-        swatch_layout.addWidget(text_group)
-        
-        # Accent colors
-        accent_group = self._create_color_group("Accents", [
-            ("Blue", "accent_blue"),
-            ("Green", "accent_green"),
-            ("Red", "accent_red"),
-            ("Yellow", "accent_yellow"),
-        ])
-        swatch_layout.addWidget(accent_group)
-        
-        # Block colors
-        block_group = self._create_color_group("Block Types", [
-            ("Load", "block_load"),
-            ("Analyze", "block_analyze"),
-            ("Transform", "block_transform"),
-            ("Export", "block_export"),
-            ("Editor", "block_editor"),
-            ("Visualize", "block_visualize"),
-            ("Utility", "block_utility"),
-        ])
-        swatch_layout.addWidget(block_group)
-        
-        # Connection colors
-        connection_group = self._create_color_group("Connections", [
-            ("Normal", "connection_normal"),
-            ("Hover", "connection_hover"),
-            ("Selected", "connection_selected"),
-        ])
-        swatch_layout.addWidget(connection_group)
-        
-        # Port colors
-        port_group = self._create_color_group("Ports", [
-            ("Input", "port_input"),
-            ("Output", "port_output"),
-            ("Audio", "port_audio"),
-            ("Event", "port_event"),
-            ("Manipulator", "port_manipulator"),
-            ("Generic", "port_generic"),
-        ])
-        swatch_layout.addWidget(port_group)
-        
-        # UI element colors
-        ui_group = self._create_color_group("UI Elements", [
-            ("Border", "border"),
-            ("Hover", "hover"),
-            ("Selected", "selected"),
-        ])
-        swatch_layout.addWidget(ui_group)
-        
-        swatch_layout.addStretch()
-        scroll.setWidget(swatch_container)
-        preview_layout.addWidget(scroll)
-        
-        layout.addWidget(preview_widget)
-        
+
+        from ui.qt_gui.widgets.theme_editor_table import ThemeEditorTable
+        self._theme_editor_table = ThemeEditorTable()
+        self._theme_editor_table.value_changed.connect(self._on_theme_table_changed)
+        layout.addWidget(self._theme_editor_table)
+
+        # Export to .qss button
+        export_btn = QPushButton("Export to .qss")
+        export_btn.setToolTip("Save current theme stylesheet to a file for sharing or debugging")
+        export_btn.clicked.connect(self._on_export_qss)
+        layout.addWidget(export_btn)
+
         layout.addStretch()
-        return tab
-    
-    def _get_colors_attr_name(self, theme_attr_name: str) -> str:
-        """Convert theme attribute name to Colors class attribute name"""
-        # Map theme attribute names to Colors class constants
-        mapping = {
-            "bg_dark": "BG_DARK",
-            "bg_medium": "BG_MEDIUM",
-            "bg_light": "BG_LIGHT",
-            "text_primary": "TEXT_PRIMARY",
-            "text_secondary": "TEXT_SECONDARY",
-            "text_disabled": "TEXT_DISABLED",
-            "accent_blue": "ACCENT_BLUE",
-            "accent_green": "ACCENT_GREEN",
-            "accent_red": "ACCENT_RED",
-            "accent_yellow": "ACCENT_YELLOW",
-            "block_load": "BLOCK_LOAD",
-            "block_analyze": "BLOCK_ANALYZE",
-            "block_transform": "BLOCK_TRANSFORM",
-            "block_export": "BLOCK_EXPORT",
-            "block_editor": "BLOCK_EDITOR",
-            "block_visualize": "BLOCK_VISUALIZE",
-            "block_utility": "BLOCK_UTILITY",
-            "connection_normal": "CONNECTION_NORMAL",
-            "connection_hover": "CONNECTION_HOVER",
-            "connection_selected": "CONNECTION_SELECTED",
-            "port_input": "PORT_INPUT",
-            "port_output": "PORT_OUTPUT",
-            "port_audio": "PORT_AUDIO",
-            "port_event": "PORT_EVENT",
-            "port_manipulator": "PORT_MANIPULATOR",
-            "port_generic": "PORT_GENERIC",
-            "border": "BORDER",
-            "hover": "HOVER",
-            "selected": "SELECTED",
-        }
-        return mapping.get(theme_attr_name, "BG_DARK")
-    
-    def _create_color_group(self, title: str, colors: list) -> QWidget:
-        """Create a group of clickable color swatches with labels"""
-        group = QWidget()
-        layout = QVBoxLayout(group)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(Spacing.XS)
-        
-        title_label = QLabel(title)
-        title_label.setStyleSheet(f"color: {Colors.TEXT_SECONDARY.name()}; font-weight: bold; font-size: 11px;")
-        layout.addWidget(title_label)
-        
-        swatch_layout = QHBoxLayout()
-        swatch_layout.setSpacing(Spacing.SM)
-        
-        for label, attr_name in colors:
-            row = QHBoxLayout()
-            row.setSpacing(Spacing.XS)
-            
-            label_widget = QLabel(f"{label}:")
-            label_widget.setStyleSheet(f"color: {Colors.TEXT_DISABLED.name()}; font-size: 10px; min-width: 60px;")
-            label_widget.setFixedWidth(60)
-            row.addWidget(label_widget)
-            
-            swatch = QPushButton()
-            swatch.setFixedSize(30, 30)
-            swatch.setCursor(Qt.CursorShape.PointingHandCursor)
-            swatch.setToolTip(f"Click to change {label} color")
-            colors_attr = self._get_colors_attr_name(attr_name)
-            color = getattr(Colors, colors_attr)
-            self._set_swatch_color(swatch, color.name())
-            
-            # Connect click to open color picker for this attr_name
-            swatch.clicked.connect(lambda checked=False, a=attr_name, s=swatch: self._on_swatch_clicked(a, s))
-            row.addWidget(swatch)
-            
-            # Store reference for updates
-            self._preview_widgets[attr_name] = swatch
-            
-            swatch_layout.addLayout(row)
-        
-        swatch_layout.addStretch()
-        layout.addLayout(swatch_layout)
-        
-        return group
-    
-    def _set_swatch_color(self, swatch, hex_color: str):
-        """Apply color to a swatch widget."""
-        swatch.setStyleSheet(
-            f"background-color: {hex_color}; border: 1px solid {Colors.BORDER.name()}; "
-            f"border-radius: {border_radius(3)}; min-width: 0px; padding: 0px;"
+        content.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.MinimumExpanding)
+        scroll.setWidget(content)
+        return scroll
+
+    def _on_theme_table_changed(self):
+        """Theme editor table value changed - apply live preview, sync widgets, mark dirty."""
+        self._mark_colors_dirty(True)
+        # Sync font/size/sharp from table to widgets so Apply saves correct values
+        vals = self._theme_editor_table.get_values()
+        if "ui_font_size" in vals and "ui_font_size" in self._widgets:
+            self._widgets["ui_font_size"].setValue(vals["ui_font_size"])
+        if "sharp_corners" in vals and "sharp_corners" in self._widgets:
+            self._widgets["sharp_corners"].setChecked(vals["sharp_corners"])
+        self._apply_live_preview()
+
+    def _on_export_qss(self):
+        """Export current theme stylesheet to a .qss file."""
+        from ui.qt_gui.design_system import get_stylesheet
+
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Export Stylesheet", "", "QSS Files (*.qss);;All Files (*)"
         )
-    
-    def _on_swatch_clicked(self, attr_name: str, swatch):
-        """Open QColorDialog when a swatch is clicked."""
-        # Current color for the swatch
-        current_hex = self._custom_colors.get(attr_name)
-        if not current_hex:
-            colors_attr = self._get_colors_attr_name(attr_name)
-            current_hex = getattr(Colors, colors_attr).name()
-        
-        color = QColorDialog.getColor(
-            QColor(current_hex), self, f"Choose color for {attr_name}"
-        )
-        if color.isValid():
-            hex_val = color.name()
-            self._custom_colors[attr_name] = hex_val
-            self._set_swatch_color(swatch, hex_val)
-            self._mark_colors_dirty(True)
-            self._apply_live_preview()
-    
+        if path:
+            try:
+                qss = get_stylesheet()
+                with open(path, "w", encoding="utf-8") as f:
+                    f.write(qss)
+                Log.info(f"Exported stylesheet to {path}")
+            except Exception as e:
+                Log.error(f"Export failed: {e}")
+
     def _on_theme_preset_changed(self, index: int):
-        """Update theme description and all preview colors when preset changes"""
+        """Update theme description and load theme into table when preset changes"""
         from ui.qt_gui.theme_registry import ThemeRegistry
-        
+
         theme_name = self._widgets["theme_preset"].itemData(index)
         if theme_name:
             theme = ThemeRegistry.get_theme(theme_name)
             if theme:
                 self._theme_description.setText(theme.description)
-                
-                # Clear custom edits -- switching preset resets the editor
-                self._custom_colors.clear()
                 self._mark_colors_dirty(False)
-                
-                # Build full color dict from the theme for swatches
-                color_attr_map = {
-                    "bg_dark": theme.bg_dark,
-                    "bg_medium": theme.bg_medium,
-                    "bg_light": theme.bg_light,
-                    "text_primary": theme.text_primary,
-                    "text_secondary": theme.text_secondary,
-                    "text_disabled": theme.text_disabled,
-                    "accent_blue": theme.accent_blue,
-                    "accent_green": theme.accent_green,
-                    "accent_red": theme.accent_red,
-                    "accent_yellow": theme.accent_yellow,
-                    "block_load": theme.block_load,
-                    "block_analyze": theme.block_analyze,
-                    "block_transform": theme.block_transform,
-                    "block_export": theme.block_export,
-                    "block_editor": theme.block_editor,
-                    "block_visualize": theme.block_visualize,
-                    "block_utility": theme.block_utility,
-                    "connection_normal": theme.connection_normal,
-                    "connection_hover": theme.connection_hover,
-                    "connection_selected": theme.connection_selected,
-                    "port_input": theme.port_input,
-                    "port_output": theme.port_output,
-                    "port_audio": theme.port_audio,
-                    "port_event": theme.port_event,
-                    "port_manipulator": theme.port_manipulator,
-                    "port_generic": theme.port_generic,
-                    "border": theme.border,
-                    "hover": theme.hover,
-                    "selected": theme.selected,
-                }
-                
-                for attr_name, color in color_attr_map.items():
-                    if attr_name in self._preview_widgets:
-                        swatch = self._preview_widgets[attr_name]
-                        self._set_swatch_color(swatch, color.name())
-                
+                if hasattr(self, "_theme_editor_table"):
+                    self._theme_editor_table.set_colors_from_theme(theme)
                 self._update_delete_btn_state()
     
     # =========================================================================
     # Custom color editing helpers
     # =========================================================================
     
+    @staticmethod
+    def _colors_dict_from_active() -> dict:
+        """Build ``{field_name: "#hex"}`` from the currently active Colors.X values."""
+        from ui.qt_gui.theme_registry import ThemeRegistry
+
+        result = {}
+        for field in ThemeRegistry.COLOR_FIELDS:
+            attr = field.upper()
+            color = getattr(Colors, attr, None)
+            if color is not None and hasattr(color, 'name'):
+                result[field] = color.name()
+        return result
+
     def _snapshot_original_theme(self):
         """Store the theme name that was active when the dialog opened."""
         if self._settings_manager:
@@ -762,24 +593,48 @@ class SettingsDialog(ThemeAwareMixin, QDialog):
             self._modified_label.setVisible(dirty)
     
     def _get_full_color_dict(self) -> dict:
-        """Build a complete color dict by starting from the selected preset
-        and overlaying any custom edits."""
+        """Build a complete color dict from the theme editor table."""
         from ui.qt_gui.theme_registry import ThemeRegistry
-        
-        theme_name = self._widgets["theme_preset"].currentData()
-        theme = ThemeRegistry.get_theme(theme_name) if theme_name else None
-        if not theme:
-            theme = ThemeRegistry.get_theme("default dark")
-        
-        base_dict = ThemeRegistry.theme_to_dict(theme) if theme else {}
-        # Overlay custom edits
-        base_dict.update(self._custom_colors)
-        return base_dict
+
+        if not hasattr(self, "_theme_editor_table"):
+            return {}
+        all_vals = self._theme_editor_table.get_values()
+        return {k: v for k, v in all_vals.items() if k in ThemeRegistry.COLOR_FIELDS and isinstance(v, str)}
     
     def _apply_live_preview(self):
-        """Push the current color edits to the UI for instant preview."""
+        """Push the current color edits to the UI for instant preview.
+
+        Sets Colors.X via apply_theme_from_dict, then delegates to
+        MainWindow._apply_theme() for the full refresh (palette, stylesheet,
+        force_style_refresh, macOS title bar, node editor).  The
+        _theme_applied_from_dict flag tells _apply_theme to skip reloading
+        Colors from the registry.
+        """
         color_dict = self._get_full_color_dict()
         Colors.apply_theme_from_dict(color_dict)
+
+        app = QApplication.instance()
+        if app:
+            app.setProperty("_theme_applied_from_dict", True)
+
+        main_window = self.parent()
+        if main_window and hasattr(main_window, '_apply_theme'):
+            main_window._apply_theme()
+    
+    def _populate_font_combo(self):
+        """Populate the UI font combo with System Default plus available font families."""
+        combo = self._widgets["ui_font_family"]
+        combo.blockSignals(True)
+        current = combo.currentData() if combo.count() > 0 else None
+        combo.clear()
+        combo.addItem("System Default", "")
+        for name in sorted(QFontDatabase.families()):
+            combo.addItem(name, name)
+        if current is not None:
+            idx = combo.findData(current)
+            if idx >= 0:
+                combo.setCurrentIndex(idx)
+        combo.blockSignals(False)
     
     def _populate_theme_combo(self):
         """Fill the theme preset combo box from the registry."""
@@ -846,7 +701,6 @@ class SettingsDialog(ThemeAwareMixin, QDialog):
         if idx >= 0:
             self._widgets["theme_preset"].setCurrentIndex(idx)
         
-        self._custom_colors.clear()
         self._mark_colors_dirty(False)
         Log.info(f"Custom theme '{name}' saved")
     
@@ -937,10 +791,11 @@ class SettingsDialog(ThemeAwareMixin, QDialog):
         # Developer section
         layout.addWidget(self._create_section_label("Developer"))
         
-        self._widgets["debug_mode"] = QCheckBox("Enable debug mode")
+        self._widgets["debug_mode"] = QCheckBox("Developer Mode (full UI, block editing, connection editing)")
         layout.addWidget(self._widgets["debug_mode"])
         layout.addWidget(self._create_description_label(
-            "Enable additional debugging features and verbose logging for development."))
+            "When enabled, all menus, toolbars, and editing features are available. "
+            "When disabled, the application enters Production Mode with a simplified interface."))
         
         layout.addStretch()
         return tab
@@ -978,6 +833,13 @@ class SettingsDialog(ThemeAwareMixin, QDialog):
         self._set_combobox("theme_preset", theme_preset)
         # Trigger description update
         self._on_theme_preset_changed(self._widgets["theme_preset"].currentIndex())
+        # Override table with the *actually active* Colors.X values so edits
+        # applied to builtin themes (which aren't written back to the registry)
+        # are reflected when the dialog reopens.
+        if hasattr(self, "_theme_editor_table"):
+            self._theme_editor_table.set_values(self._colors_dict_from_active())
+        self._set_combobox("ui_font_family", self._settings_manager.ui_font_family)
+        self._widgets["ui_font_size"].setValue(self._settings_manager.ui_font_size)
         self._set_checkbox("sharp_corners", self._settings_manager.sharp_corners)
         
         # Advanced
@@ -987,7 +849,13 @@ class SettingsDialog(ThemeAwareMixin, QDialog):
         self._widgets["auto_save_interval_minutes"].setValue(max(1, interval_minutes))
         self._widgets["max_undo_steps"].setValue(self._settings_manager.max_undo_steps)
         self._set_checkbox("use_subprocess_runner", self._settings_manager.use_subprocess_runner)
-        self._set_checkbox("debug_mode", self._settings_manager.debug_mode)
+        # Reflect the live app mode rather than the raw debug_mode setting
+        parent = self.parent()
+        mode_mgr = getattr(getattr(parent, 'facade', None), 'app_mode_manager', None)
+        if mode_mgr is not None:
+            self._set_checkbox("debug_mode", mode_mgr.is_developer)
+        else:
+            self._set_checkbox("debug_mode", self._settings_manager.debug_mode)
         
         # Store original values for cancel
         self._store_original_values()
@@ -1000,7 +868,7 @@ class SettingsDialog(ThemeAwareMixin, QDialog):
             elif isinstance(widget, QSpinBox):
                 self._original_values[key] = widget.value()
             elif isinstance(widget, QComboBox):
-                self._original_values[key] = widget.currentText()
+                self._original_values[key] = widget.currentData() if key == "ui_font_family" else widget.currentText()
             elif isinstance(widget, QLineEdit):
                 self._original_values[key] = widget.text()
     
@@ -1022,6 +890,11 @@ class SettingsDialog(ThemeAwareMixin, QDialog):
                         if combo.itemText(i).lower() == value.lower():
                             idx = i
                             break
+            elif key == "ui_font_family":
+                # Match by data (font family string; "" = System Default)
+                idx = combo.findData(value if value else "")
+                if idx < 0:
+                    idx = 0  # Fallback to System Default
             else:
                 # For other comboboxes, match by text
                 idx = combo.findText(value)
@@ -1059,11 +932,13 @@ class SettingsDialog(ThemeAwareMixin, QDialog):
         theme_preset = self._widgets["theme_preset"].currentData()
         if theme_preset:
             self._settings_manager.theme_preset = theme_preset
+        self._settings_manager.ui_font_family = self._widgets["ui_font_family"].currentData() or ""
+        self._settings_manager.ui_font_size = self._widgets["ui_font_size"].value()
         self._settings_manager.sharp_corners = self._widgets["sharp_corners"].isChecked()
         
         # If colors were edited but not saved as a preset, auto-save as the
         # currently selected preset (only for custom presets) or create one
-        if self._colors_dirty and self._custom_colors:
+        if self._colors_dirty:
             from ui.qt_gui.theme_registry import ThemeRegistry
             if theme_preset and not ThemeRegistry.is_builtin(theme_preset):
                 # Update the existing custom preset in-place
@@ -1072,7 +947,6 @@ class SettingsDialog(ThemeAwareMixin, QDialog):
                 description = theme.description if theme else f"Custom theme: {theme_preset}"
                 ThemeRegistry.register_custom_theme(theme_preset, description, color_dict)
                 self._settings_manager.save_custom_theme(theme_preset, description, color_dict)
-                self._custom_colors.clear()
                 self._mark_colors_dirty(False)
         
         # Advanced
@@ -1081,23 +955,39 @@ class SettingsDialog(ThemeAwareMixin, QDialog):
         self._settings_manager.auto_save_interval_seconds = self._widgets["auto_save_interval_minutes"].value() * 60
         self._settings_manager.max_undo_steps = self._widgets["max_undo_steps"].value()
         self._settings_manager.use_subprocess_runner = self._widgets["use_subprocess_runner"].isChecked()
-        self._settings_manager.debug_mode = self._widgets["debug_mode"].isChecked()
+        new_debug = self._widgets["debug_mode"].isChecked()
+        self._settings_manager.debug_mode = new_debug
         
         # Force save to ensure persistence
         self._settings_manager.force_save()
+        
+        # Propagate debug_mode change to the live AppModeManager
+        parent = self.parent()
+        mode_mgr = getattr(getattr(parent, 'facade', None), 'app_mode_manager', None)
+        if mode_mgr is not None:
+            from src.application.services.app_mode_manager import AppMode
+            target = AppMode.DEVELOPER if new_debug else AppMode.PRODUCTION
+            mode_mgr.switch_mode(target)
         
         # Apply theme and sharp corners immediately if changed
         from ui.qt_gui.design_system import set_sharp_corners
         set_sharp_corners(self._widgets["sharp_corners"].isChecked())
         
+        theme_applied_from_dict = False
         if 'theme_preset' in self._widgets:
             theme_preset = self._widgets["theme_preset"].currentData()
             if theme_preset:
-                if self._colors_dirty and self._custom_colors:
+                if self._colors_dirty:
+                    # Set flag BEFORE apply so theme_changed handlers
+                    # (get_stylesheet, get_application_palette) skip reload
+                    app = QApplication.instance()
+                    if app:
+                        app.setProperty("_theme_applied_from_dict", True)
                     Colors.apply_theme_from_dict(self._get_full_color_dict())
+                    theme_applied_from_dict = True
                 else:
                     Colors.apply_theme(theme_preset)
-        
+
         Log.info("Global settings saved")
         self.settings_changed.emit()
     
@@ -1144,6 +1034,8 @@ class SettingsDialog(ThemeAwareMixin, QDialog):
         # Theming
         self._set_combobox("theme_preset", defaults.theme_preset)
         self._on_theme_preset_changed(self._widgets["theme_preset"].currentIndex())
+        self._set_combobox("ui_font_family", defaults.ui_font_family)
+        self._widgets["ui_font_size"].setValue(defaults.ui_font_size)
         self._set_checkbox("sharp_corners", defaults.sharp_corners)
         
         # Advanced
@@ -1164,6 +1056,8 @@ class SettingsDialog(ThemeAwareMixin, QDialog):
         self._on_theme_preset_changed(self._widgets["theme_preset"].currentIndex())
         
         # Appearance
+        self._set_combobox("ui_font_family", defaults.ui_font_family)
+        self._widgets["ui_font_size"].setValue(defaults.ui_font_size)
         self._set_checkbox("sharp_corners", defaults.sharp_corners)
         
         # Emit signal so editor panels / timeline settings panels can reset their visualization settings
@@ -1198,9 +1092,14 @@ class SettingsDialog(ThemeAwareMixin, QDialog):
         self._refresh_swatch_colors()
     
     def _refresh_swatch_colors(self):
-        """Re-apply colors to all preview swatches after a theme change clears them."""
+        """Re-load theme editor table from current theme after external theme change.
+        Skips refresh when _colors_dirty (user is editing in table) to avoid
+        reverting in-progress edits when theme_changed fires from our own live preview.
+        """
+        if self._colors_dirty:
+            return  # User's table edits are the source of truth; don't overwrite
         from ui.qt_gui.theme_registry import ThemeRegistry
-        
+
         combo = self._widgets.get("theme_preset")
         if not combo:
             return
@@ -1210,13 +1109,8 @@ class SettingsDialog(ThemeAwareMixin, QDialog):
             theme = ThemeRegistry.get_theme("default dark")
         if not theme:
             return
-        
-        theme_dict = ThemeRegistry.theme_to_dict(theme)
-        
-        for attr_name, swatch in self._preview_widgets.items():
-            hex_color = self._custom_colors.get(attr_name) or theme_dict.get(attr_name)
-            if hex_color:
-                self._set_swatch_color(swatch, hex_color)
+        if hasattr(self, "_theme_editor_table"):
+            self._theme_editor_table.set_colors_from_theme(theme)
 
     def _apply_styling(self):
         """Apply dialog styling"""

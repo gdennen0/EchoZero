@@ -50,8 +50,11 @@ class PreferencesRepository:
             
             exists = cursor.fetchone() is not None
             
-            # Serialize value
-            value_json = Database.json_encode(value) if isinstance(value, (dict, list)) else str(value)
+            # Serialize value - use JSON for types that round-trip correctly (bool, dict, list).
+            # str(False) yields "False" which fails json.loads (JSON uses "false"), causing
+            # bool("False") to incorrectly yield True when retrieved.
+            import json
+            value_json = json.dumps(value) if isinstance(value, (dict, list, bool)) else str(value)
             
             if exists:
                 # Update existing
@@ -105,6 +108,9 @@ class PreferencesRepository:
                 import json
                 return json.loads(value_str)
             except (json.JSONDecodeError, TypeError):
+                # Legacy: str(False) stored "False" (capital F); json.loads fails
+                if value_str in ("False", "True"):
+                    return value_str == "True"
                 return value_str
     
     def get_all(self) -> Dict[str, Any]:

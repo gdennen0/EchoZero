@@ -37,6 +37,7 @@ from ui.qt_gui.block_panels.audio_negate_panel import AudioNegatePanel
 from ui.qt_gui.block_panels.eq_bands_panel import EQBandsPanel
 from ui.qt_gui.block_panels.export_audio_dataset_panel import ExportAudioDatasetPanel
 from ui.qt_gui.block_panels.dataset_viewer_panel import DatasetViewerPanel
+from ui.qt_gui.block_panels.export_ma2_panel import ExportMA2Panel
 
 __all__ = [
     'BlockPanelBase',
@@ -63,5 +64,6 @@ __all__ = [
     'EQBandsPanel',
     'ExportAudioDatasetPanel',
     'DatasetViewerPanel',
+    'ExportMA2Panel',
 ]
 

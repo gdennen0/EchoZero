@@ -96,7 +96,7 @@ class _CallbackHandler(BaseHTTPRequestHandler):
         }
 
         Log.info(f"LocalAuthServer: Secure callback received for member {member_id[:12]}...")
-        self._send_json_success("Login callback received. You can return to EchoZero.")
+        self._send_json_success("Login callback received. You can return to EZ.")
 
         # Schedule server shutdown (can't call shutdown from request handler thread)
         threading.Thread(target=self.server.shutdown, daemon=True).start()
@@ -106,7 +106,7 @@ class _CallbackHandler(BaseHTTPRequestHandler):
         html = """<!DOCTYPE html>
 <html>
 <head>
-    <title>EchoZero - Login Successful</title>
+    <title>EZ - Login Successful</title>
     <style>
         body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
@@ -141,7 +141,7 @@ class _CallbackHandler(BaseHTTPRequestHandler):
     <div class="container">
         <div class="check">&#10003;</div>
         <h1>Login Successful</h1>
-        <p>You can close this tab and return to EchoZero.</p>
+        <p>You can close this tab and return to EZ.</p>
     </div>
 </body>
 </html>"""
@@ -157,7 +157,7 @@ class _CallbackHandler(BaseHTTPRequestHandler):
         html = f"""<!DOCTYPE html>
 <html>
 <head>
-    <title>EchoZero - Login Error</title>
+    <title>EZ - Login Error</title>
     <style>
         body {{
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
@@ -189,7 +189,7 @@ class _CallbackHandler(BaseHTTPRequestHandler):
     <div class="container">
         <h1>Login Error</h1>
         <p>{message}</p>
-        <p>Please close this tab and try again from EchoZero.</p>
+        <p>Please close this tab and try again from EZ.</p>
     </div>
 </body>
 </html>"""

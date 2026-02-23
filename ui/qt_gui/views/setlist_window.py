@@ -3,12 +3,14 @@ Setlist Window
 
 Simple container for setlist processing view.
 Kept minimal to ensure docking works correctly.
+Uses design_system Colors for background to match app theme.
 """
 from PyQt6.QtWidgets import QWidget, QVBoxLayout, QScrollArea, QSizePolicy
 from PyQt6.QtCore import Qt
 
 from src.application.api.application_facade import ApplicationFacade
 from src.utils.message import Log
+from ui.qt_gui.design_system import Colors
 from ui.qt_gui.views.setlist_view import SetlistView
 
 
@@ -42,13 +44,22 @@ class SetlistWindow(QWidget):
         # Create the setlist view
         self.setlist_view = SetlistView(self.facade)
         scroll.setWidget(self.setlist_view)
-        
+
+        # Explicit theme-matching background (updated on theme apply from main_window)
+        self._apply_theme_background()
+
         layout.addWidget(scroll)
         
         # Set flexible size policy so dock can resize freely
         # But don't stretch vertically - content should justify to top
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
     
+    def _apply_theme_background(self):
+        """Apply design_system background colors (called on init and theme change)."""
+        self.setStyleSheet(f"background-color: {Colors.BG_DARK.name()};")
+        if self.setlist_view:
+            self.setlist_view.setStyleSheet(f"background-color: {Colors.BG_DARK.name()};")
+
     def refresh(self):
         """Refresh the view"""
         if self.setlist_view and hasattr(self.setlist_view, 'refresh'):

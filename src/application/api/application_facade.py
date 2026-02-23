@@ -82,14 +82,18 @@ class ApplicationFacade:
         # Application settings manager (standardized settings system)
         self.app_settings = getattr(services, "app_settings", None)
         
+        # Application mode manager (production vs developer)
+        self.app_mode_manager = getattr(services, "app_mode_manager", None)
+        
         # Data state and filter services
         self.data_state_service = getattr(services, "data_state_service", None)
         self.block_status_service = getattr(services, "block_status_service", None)
         self.data_filter_manager = getattr(services, "data_filter_manager", None)
         self.expected_outputs_service = getattr(services, "expected_outputs_service", None)
         
-        # Setlist service
+        # Setlist services
         self.setlist_service = getattr(services, "setlist_service", None)
+        self.setlist_processing_service = getattr(services, "setlist_processing_service", None)
         
         # Action set repositories
         # Database repo for project-specific storage
@@ -725,6 +729,7 @@ class ApplicationFacade:
         try:
             setlist = self.setlist_service.create_setlist_from_folder(
                 audio_folder_path=audio_folder_path,
+                facade=self,
                 default_actions=default_actions
             )
             return CommandResult.success_result(
@@ -884,7 +889,6 @@ class ApplicationFacade:
         setlist_id: str,
         song_id: str,
         progress_callback: Optional[Any] = None,
-        action_progress_callback: Optional[Callable[[int, int, str, str], None]] = None
     ) -> CommandResult:
         """
         Process a single song in a setlist.
@@ -893,32 +897,34 @@ class ApplicationFacade:
             setlist_id: Setlist identifier
             song_id: Song identifier
             progress_callback: Optional progress callback (message, current, total)
-            action_progress_callback: Optional callback for action-level progress (action_index, total_actions, action_name, status)
             
         Returns:
             CommandResult indicating success/failure
         """
-        if not self.setlist_service:
+        if not self.setlist_processing_service:
             return CommandResult.error_result(
-                message="Setlist service not available",
-                errors=["Setlist service not initialized"]
+                message="Setlist processing service not available",
+                errors=["Setlist processing service not initialized"]
             )
-        
+
         try:
-            success = self.setlist_service.process_song(
+            result = self.setlist_processing_service.process_song(
                 setlist_id=setlist_id,
                 song_id=song_id,
+                facade=self,
                 progress_callback=progress_callback,
-                action_progress_callback=action_progress_callback
             )
-            if success:
+            if result.success:
                 return CommandResult.success_result(
                     message="Song processed successfully"
                 )
             else:
+                error_detail = result.error_message or "Processing failed"
+                if result.failed_step:
+                    error_detail = f"[{result.failed_step}] {error_detail}"
                 return CommandResult.error_result(
-                    message="Song processing failed",
-                    errors=["See logs for details"]
+                    message=error_detail,
+                    errors=[error_detail]
                 )
         except Exception as e:
             Log.error(f"ApplicationFacade: Failed to process song: {e}")
@@ -951,7 +957,8 @@ class ApplicationFacade:
         try:
             success, error_msg = self.setlist_service.switch_active_song(
                 setlist_id=setlist_id,
-                song_id=song_id
+                song_id=song_id,
+                facade=self
             )
             if success:
                 return CommandResult.success_result(
@@ -973,43 +980,41 @@ class ApplicationFacade:
         self,
         setlist_id: str,
         error_callback: Optional[Callable[[str, str], None]] = None,
-        action_progress_callback: Optional[Callable[[str, int, int, str, str], None]] = None,
         cancel_check: Optional[Callable[[], bool]] = None
     ) -> CommandResult:
         """
         Process all songs in a setlist with error recovery.
         
+        Progress is reported via ProgressStore (no callback chain).
+        
         Args:
             setlist_id: Setlist identifier
             error_callback: Optional error callback (song_path, error_message)
-            action_progress_callback: Optional callback for action-level progress (song_id, action_index, total_actions, action_name, status)
             cancel_check: Optional callable that returns True if processing should be cancelled
             
         Returns:
             CommandResult with processing results
         """
-        if not self.setlist_service:
+        if not self.setlist_processing_service:
             return CommandResult.error_result(
-                message="Setlist service not available",
-                errors=["Setlist service not initialized"]
+                message="Setlist processing service not available",
+                errors=["Setlist processing service not initialized"]
             )
-        
+
         try:
-            results = self.setlist_service.process_setlist(
+            result = self.setlist_processing_service.process_setlist(
                 setlist_id=setlist_id,
+                facade=self,
                 error_callback=error_callback,
-                action_progress_callback=action_progress_callback,
                 cancel_check=cancel_check
             )
-            success_count = sum(1 for s in results.values() if s)
-            total_count = len(results)
-            error_count = total_count - success_count
-            message = f"Processed {success_count}/{total_count} song(s) successfully"
-            if error_count > 0:
-                message += f" ({error_count} error(s))"
+            message = f"Processed {result.success_count}/{result.total_count} song(s) successfully"
+            if result.failed_count > 0:
+                message += f" ({result.failed_count} error(s))"
+            results_dict = {r.song_id: r.success for r in result.song_results}
             return CommandResult.success_result(
                 message=message,
-                data=results
+                data=results_dict
             )
         except Exception as e:
             Log.error(f"ApplicationFacade: Failed to process setlist: {e}")
@@ -1031,7 +1036,7 @@ class ApplicationFacade:
         Returns:
             CommandResult with list of validation error strings (empty list = valid)
         """
-        if not self.setlist_service:
+        if not self.setlist_processing_service:
             return CommandResult.error_result(
                 message="Setlist service not available",
                 errors=["Setlist service not initialized"]
@@ -1046,7 +1051,7 @@ class ApplicationFacade:
                     )
                 project_id = self.current_project_id
             
-            errors = self.setlist_service.validate_action_items(project_id)
+            errors = self.setlist_processing_service.validate_action_items(project_id, facade=self)
             if errors:
                 return CommandResult.error_result(
                     message=f"Validation found {len(errors)} issue(s)",
@@ -1191,13 +1196,10 @@ class ApplicationFacade:
                         # Update existing - preserve ID but update all other fields
                         action_set.id = existing.id  # Preserve existing ID
                         self.action_set_repo.update(action_set)
-                        Log.debug(f"ApplicationFacade: Updated action set '{action_set.name}' in database (id: {action_set.id})")
                     else:
                         self.action_set_repo.create(action_set)
-                        Log.debug(f"ApplicationFacade: Created action set '{action_set.name}' in database (id: {action_set.id})")
                 except Exception as db_error:
                     Log.warning(f"ApplicationFacade: Failed to save action set to database: {db_error}")
-                    # Don't fail - file save succeeded
             
             Log.info(f"ApplicationFacade: Saved action set '{action_set.name}'")
             return CommandResult.success_result(
@@ -2881,10 +2883,18 @@ class ApplicationFacade:
         """
         Check if block execution should run in a separate process.
         
-        Returns False when we are already inside run_block_cli (parent sets
-        ECHOZERO_INSIDE_RUN_BLOCK_CLI when spawning) to avoid recursive subprocess spawning.
+        Returns False when:
+        - Already inside run_block_cli (prevents recursive subprocess spawning)
+        - Running inside a pipeline (setlist processing) where blocks share
+          in-process data that the subprocess cannot access
+        - Running on a non-main thread (e.g. SetlistProcessingThread)
         """
         if os.environ.get("ECHOZERO_INSIDE_RUN_BLOCK_CLI") == "1":
+            return False
+        if getattr(self, "_force_in_process", False):
+            return False
+        import threading
+        if threading.current_thread() is not threading.main_thread():
             return False
         if getattr(self, "app_settings", None) is not None:
             if getattr(self.app_settings, "use_subprocess_runner", False):

@@ -7,6 +7,7 @@ to maintain session-only semantics - only the current project data is stored.
 """
 import sqlite3
 import json
+import threading
 from pathlib import Path
 from typing import Optional, Dict, Any
 
@@ -36,6 +37,10 @@ class Database:
         
         # Connect to file-based database for live viewing
         self._connection = sqlite3.connect(str(self.db_path), check_same_thread=False)
+        self._connection.execute("PRAGMA journal_mode=WAL")
+        self._connection.execute("PRAGMA foreign_keys = ON")
+        self._connection.row_factory = sqlite3.Row
+        self._lock = threading.RLock()
         self._init_schema()
 
     def _init_schema(self):
@@ -240,6 +245,41 @@ class Database:
         if 'action_type' not in columns:
             cursor.execute("ALTER TABLE action_items ADD COLUMN action_type TEXT NOT NULL DEFAULT 'block'")
             Log.info("Database: Added action_type column to action_items table")
+        
+        # Migration: Make block_id nullable for project-level actions
+        # SQLite cannot ALTER COLUMN, so recreate the table to drop NOT NULL
+        if 'block_id' in columns and columns['block_id'][3]:  # [3] = notnull flag
+            Log.info("Database: Migrating action_items.block_id to nullable")
+            cursor.execute("ALTER TABLE action_items RENAME TO _action_items_migrate")
+            cursor.execute("""
+                CREATE TABLE action_items (
+                    id TEXT PRIMARY KEY,
+                    action_set_id TEXT,
+                    project_id TEXT NOT NULL,
+                    action_type TEXT NOT NULL DEFAULT 'block',
+                    block_id TEXT,
+                    block_name TEXT,
+                    action_name TEXT NOT NULL,
+                    action_description TEXT,
+                    action_args TEXT,
+                    order_index INTEGER DEFAULT 0,
+                    created_at TEXT NOT NULL,
+                    modified_at TEXT NOT NULL,
+                    metadata TEXT
+                )
+            """)
+            cursor.execute("""
+                INSERT INTO action_items
+                SELECT id, action_set_id, project_id, action_type, block_id, block_name,
+                       action_name, action_description, action_args, order_index,
+                       created_at, modified_at, metadata
+                FROM _action_items_migrate
+            """)
+            cursor.execute("DROP TABLE _action_items_migrate")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_action_items_action_set_id ON action_items(action_set_id)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_action_items_project_id ON action_items(project_id)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_action_items_order ON action_items(action_set_id, order_index)")
+            Log.info("Database: action_items.block_id is now nullable")
 
         # Migration: Add block name columns to connections table if they don't exist
         cursor.execute("PRAGMA table_info(connections)")
@@ -401,13 +441,10 @@ class Database:
         Log.info(f"Runtime database initialized{' (' + str(self.db_path) + ')' if self.db_path else ''}")
 
     def get_connection(self) -> sqlite3.Connection:
-        conn = self._connection
-        conn.row_factory = sqlite3.Row
-        conn.execute("PRAGMA foreign_keys = ON")
-        return conn
+        return self._connection
 
     def transaction(self):
-        return TransactionContext(self.get_connection())
+        return TransactionContext(self._connection, self._lock)
 
     def get_schema_version(self) -> int:
         with self.get_connection() as conn:
@@ -426,12 +463,13 @@ class Database:
         Note: preferences and session_state persist across projects,
         only ui_state (which is project-specific) is cleared.
         """
-        conn = self._connection
-        cursor = conn.cursor()
-        for table in ("data_items", "block_local_state", "connections", "blocks", "projects", "ui_state", "layer_orders", "setlist_songs", "setlists", "action_sets", "action_items"):
-            cursor.execute(f"DELETE FROM {table}")
-        conn.commit()
-        Log.info(f"Session data cleared: {self.db_path}")
+        with self._lock:
+            conn = self._connection
+            cursor = conn.cursor()
+            for table in ("data_items", "block_local_state", "connections", "blocks", "projects", "ui_state", "layer_orders", "setlist_songs", "setlists", "action_sets", "action_items"):
+                cursor.execute(f"DELETE FROM {table}")
+            conn.commit()
+            Log.info(f"Session data cleared: {self.db_path}")
 
     def reset(self) -> None:
         """
@@ -469,16 +507,41 @@ class Database:
 
 
 class TransactionContext:
-    def __init__(self, conn: sqlite3.Connection):
+    """Thread-safe transaction wrapper.
+
+    Acquires a lock so only one thread can write at a time, preventing
+    the 'cannot commit - no transaction is active' errors that occur
+    when Python's sqlite3 implicit-transaction tracking is used from
+    multiple threads on a shared connection.
+    """
+
+    def __init__(self, conn: sqlite3.Connection, lock: threading.Lock):
         self.conn = conn
+        self.lock = lock
 
     def __enter__(self) -> sqlite3.Connection:
+        # #region agent log
+        _depth = getattr(self.lock, '_count', 0) if hasattr(self.lock, '_count') else -1
+        import json as _dj, time as _dt; open('/Users/gdennen/Projects/EchoZero/.cursor/debug.log','a').write(_dj.dumps({"timestamp":int(_dt.time()*1000),"location":"database.py:txn_enter","message":"Acquiring transaction lock","data":{"thread":threading.current_thread().name,"lock_depth":_depth},"hypothesisId":"H6"})+'\n')
+        # #endregion
+        self.lock.acquire()
         return self.conn
 
     def __exit__(self, exc_type, exc_val, exc_tb):
-        if exc_type is None:
-            self.conn.commit()
-        else:
-            self.conn.rollback()
-            Log.error(f"Transaction rolled back: {exc_val}")
+        try:
+            if exc_type is None:
+                self.conn.commit()
+            else:
+                try:
+                    self.conn.rollback()
+                except sqlite3.OperationalError:
+                    pass
+                Log.error(f"Transaction rolled back: {exc_val}")
+        except sqlite3.OperationalError as _txe:
+            # #region agent log
+            import json as _dj, time as _dt; open('/Users/gdennen/Projects/EchoZero/.cursor/debug.log','a').write(_dj.dumps({"timestamp":int(_dt.time()*1000),"location":"database.py:txn_error","message":"TransactionContext commit/rollback failed","data":{"error":str(_txe),"thread":threading.current_thread().name},"hypothesisId":"H4"})+'\n')
+            # #endregion
+            raise
+        finally:
+            self.lock.release()
         return False

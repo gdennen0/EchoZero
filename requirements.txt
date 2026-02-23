@@ -53,15 +53,8 @@ colorama>=0.4.6              # Cross-platform colored terminal output
 # ==============================================================================
 # GUI Framework
 # ==============================================================================
-# Pin exact matching Qt wheels for deterministic installs across platforms.
-# Avoid transitive drift where PyQt6 and PyQt6-Qt6 resolve to incompatible builds.
-PyQt6==6.4.2                 # Qt6 Python bindings (main window, dialogs)
-PyQt6-Qt6==6.4.3             # Matching Qt runtime wheel for PyQt6 6.4.2
-PyQt6-sip==13.4.1            # Matching sip bridge for this PyQt6 release
-# PyQt6-Multimedia>=6.4.0    # OPTIONAL: Audio playback in timeline
-                              # Not available for Python 3.10 on Windows
-                              # Install manually if on Python 3.11+: pip install PyQt6-Multimedia>=6.4.0
-                              # App runs without it (audio playback disabled)
+PyQt6>=6.5.3                 # Qt6 Python bindings (main window, dialogs)
+PyQt6Ads>=4.5.0              # Advanced Docking System (VSCode-style panels)
 
 # ==============================================================================
 # Authentication
