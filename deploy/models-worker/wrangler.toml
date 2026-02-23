@@ -1,0 +1,15 @@
+name = "echozero-models"
+main = "src/worker.js"
+compatibility_date = "2024-12-01"
+
+# R2 bucket binding -- create the bucket first:
+#   wrangler r2 bucket create echozero-models
+[[r2_buckets]]
+binding = "MODELS_BUCKET"
+bucket_name = "echozero-models"
+
+# Secrets (set via wrangler secret put):
+#   wrangler secret put APP_SECRET
+#
+# MEMBERSTACK_ADMIN_KEY is NOT needed -- per-user auth is handled
+# client-side via the license lease. Only APP_SECRET is required.
