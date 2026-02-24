@@ -26,6 +26,7 @@ Provides a standardized workflow for developing new features in EchoZero, ensuri
 - **PROGRESS_TRACKING_SYSTEM.md** - Centralized progress tracking system proposal (multiple approaches)
 - **async_block_execution.md** - Async block execution feature guide
 - **SET_TARGET_TIMECODE_COMMAND.md** - Command to set ShowManager target timecode number
+- **EDITOR_KEYBOARD_NAVIGATION.md** - Editor arrow-key layer/event navigation, selected-layer outline, Spacebar audio preview (with council evaluation)
 
 ## Related Modules
 

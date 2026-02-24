@@ -307,12 +307,25 @@ class MainWindow(QMainWindow):
         """Create toolbar"""
         self._main_toolbar = self.addToolBar("Main Toolbar")
         self._main_toolbar.setMovable(False)
-        
+
         self._main_toolbar.addAction(self.action_new_project)
         self._main_toolbar.addAction(self.action_open_project)
         self._main_toolbar.addAction(self.action_save_project)
         self._main_toolbar.addSeparator()
         self._main_toolbar.addAction(self.action_settings)
+
+        spacer = QWidget()
+        spacer.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+        self._main_toolbar.addWidget(spacer)
+
+        logo_label = QLabel()
+        logo_label.setContentsMargins(0, 0, 8, 0)
+        logo_path = str(Path(__file__).resolve().parent.parent.parent / "assets" / "ez_logo.png")
+        logo_pixmap = QPixmap(logo_path)
+        if not logo_pixmap.isNull():
+            scaled = logo_pixmap.scaledToHeight(11, Qt.TransformationMode.SmoothTransformation)
+            logo_label.setPixmap(scaled)
+        self._main_toolbar.addWidget(logo_label)
         
     
     def _create_dock_widgets(self):
@@ -796,7 +809,13 @@ class MainWindow(QMainWindow):
             panel.setObjectName(f"BlockPanel_{block_id}")
             
             self.dock_manager.addDockWidget(ads.DockWidgetArea.RightDockWidgetArea, panel)
-            
+            # Hide immediately so the panel doesn't flash in the wrong position
+            # before restoreState() places it correctly.
+            panel.toggleView(False)
+
+            # Keep menu checkmarks accurate whenever panel visibility changes.
+            panel.viewToggled.connect(lambda _: self._update_block_panels_menu())
+
             window_id = f"block_panel_{block_id}"
             self.workspace.register_dock(window_id, panel)
             
@@ -871,8 +890,10 @@ class MainWindow(QMainWindow):
                 action = type_menu.addAction(block.name)
                 action.setCheckable(True)
                 
-                # Check if panel is already open
-                is_open = block.id in self.open_panels
+                # Panel is "open" only if it exists AND is not currently closed/hidden.
+                # open_panels tracks created panels; isClosed() reflects actual ADS state.
+                panel = self.open_panels.get(block.id)
+                is_open = panel is not None and not panel.isClosed()
                 action.setChecked(is_open)
                 
                 # Connect to toggle handler
@@ -1069,7 +1090,10 @@ class MainWindow(QMainWindow):
             panel = panel_class(block_id, self.facade, parent=self)
             panel.panel_closed.connect(self._on_panel_closed)
             panel.setObjectName(f"BlockPanel_{block_id}")
-            
+
+            # Keep menu checkmarks accurate whenever panel visibility changes.
+            panel.viewToggled.connect(lambda _: self._update_block_panels_menu())
+
             floating_container = self.dock_manager.addDockWidgetFloating(panel)
             floating_container.resize(1200, 600)
             
@@ -2148,7 +2172,10 @@ class MainWindow(QMainWindow):
         
         self._save_all_window_state()
         self._save_session()
-        
+
+        if hasattr(self.facade, "project_service") and self.facade.project_service:
+            self.facade.project_service.flush_dirty_snapshots()
+
         for panel in list(self.open_panels.values()):
             try:
                 panel.closeDockWidget()
@@ -2172,22 +2199,28 @@ class MainWindow(QMainWindow):
     def _on_setlist_song_switched(self, song_id: str):
         """Handle signal when a song is switched in the Setlist view."""
         Log.info(f"MainWindow: Setlist song switched to {song_id}. Refreshing UI.")
-        # #region agent log
-        _panels_refreshed = []
-        # #endregion
         
         # Refresh Node Editor to show new data
         if self.node_editor_window:
             self.node_editor_window.refresh()
         
+        total_block_panels = 0
+        visible_block_panels = 0
+        reload_targets = []
+        refresh_targets = []
+
         for panel_id, panel_dock in self.workspace._docks.items():
-            if panel_id.startswith("block_panel_") and panel_dock.isVisible():
+            if panel_id.startswith("block_panel_"):
+                total_block_panels += 1
+            if panel_id.startswith("block_panel_") and (panel_dock.isVisible() or not panel_dock.isClosed()):
+                visible_block_panels += 1
                 panel_widget = panel_dock.widget()
-                if hasattr(panel_widget, 'refresh'):
-                    # #region agent log
-                    _panels_refreshed.append(panel_id)
-                    # #endregion
-                    panel_widget.refresh()
-        # #region agent log
-        import json as _dj5, time as _dt5; open('/Users/gdennen/Projects/EchoZero/.cursor/debug.log','a').write(_dj5.dumps({"timestamp":int(_dt5.time()*1000),"location":"main_window.py:_on_setlist_song_switched","message":"Song switched handler completed","data":{"song_id":song_id,"panels_refreshed":_panels_refreshed},"hypothesisId":"H5"})+'\n')
-        # #endregion
+                # Dispatch against the dock panel object itself.
+                # For BlockPanelBase subclasses, reload/refresh live on the dock,
+                # while panel_dock.widget() is usually just the inner content widget.
+                if hasattr(panel_dock, "reload_for_song_switch"):
+                    reload_targets.append(panel_id)
+                    panel_dock.reload_for_song_switch()
+                elif hasattr(panel_dock, 'refresh'):
+                    refresh_targets.append(panel_id)
+                    panel_dock.refresh()

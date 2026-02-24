@@ -84,6 +84,7 @@ from src.shared.domain.entities import AudioDataItem
 from src.shared.domain.entities import DataItem
 from src.application.blocks import register_processor_class
 from src.utils.message import Log
+from src.utils.paths import get_user_cache_dir
 
 if TYPE_CHECKING:
     from src.features.blocks.domain import BlockStatusLevel
@@ -301,7 +302,8 @@ class SeparatorBlockProcessor(BlockProcessor):
         if output_dir_str:
             output_dir = Path(output_dir_str).expanduser()
         else:
-            output_dir = Path(audio_item.file_path).parent / f"{block.name}_stems"
+            # Default: app cache dir so stems are not written next to source audio
+            output_dir = get_user_cache_dir() / "stems" / f"{block.name}_stems"
         
         output_dir.mkdir(parents=True, exist_ok=True)
 

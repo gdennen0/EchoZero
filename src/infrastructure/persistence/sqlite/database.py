@@ -520,10 +520,6 @@ class TransactionContext:
         self.lock = lock
 
     def __enter__(self) -> sqlite3.Connection:
-        # #region agent log
-        _depth = getattr(self.lock, '_count', 0) if hasattr(self.lock, '_count') else -1
-        import json as _dj, time as _dt; open('/Users/gdennen/Projects/EchoZero/.cursor/debug.log','a').write(_dj.dumps({"timestamp":int(_dt.time()*1000),"location":"database.py:txn_enter","message":"Acquiring transaction lock","data":{"thread":threading.current_thread().name,"lock_depth":_depth},"hypothesisId":"H6"})+'\n')
-        # #endregion
         self.lock.acquire()
         return self.conn
 
@@ -538,9 +534,6 @@ class TransactionContext:
                     pass
                 Log.error(f"Transaction rolled back: {exc_val}")
         except sqlite3.OperationalError as _txe:
-            # #region agent log
-            import json as _dj, time as _dt; open('/Users/gdennen/Projects/EchoZero/.cursor/debug.log','a').write(_dj.dumps({"timestamp":int(_dt.time()*1000),"location":"database.py:txn_error","message":"TransactionContext commit/rollback failed","data":{"error":str(_txe),"thread":threading.current_thread().name},"hypothesisId":"H4"})+'\n')
-            # #endregion
             raise
         finally:
             self.lock.release()

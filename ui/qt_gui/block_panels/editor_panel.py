@@ -11,6 +11,7 @@ Features:
 
 from typing import Dict, List, Optional, Any, Tuple
 from pathlib import Path
+import json
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QFormLayout, QLabel,
     QGroupBox, QPushButton, QMessageBox, QFileDialog, QSplitter,
@@ -18,7 +19,7 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import QTimer
 
-from ui.qt_gui.block_panels.block_panel_base import BlockPanelBase
+from ui.qt_gui.block_panels.block_panel_base import BlockPanelBase, ScrollableTextDialog
 from ui.qt_gui.block_panels.panel_registry import register_block_panel
 from ui.qt_gui.design_system import Colors, Spacing, border_radius
 from ui.qt_gui.style_factory import StyleFactory
@@ -68,7 +69,7 @@ class EditorPanel(BlockPanelBase):
         
         # Guard flag to prevent recursive selection clearing loops
         self._clearing_selection = False
-    
+
     def _subscribe_to_events(self):
         """Subscribe to block events including direct visual updates."""
         # Call parent subscription (BlockUpdated)
@@ -779,6 +780,12 @@ class EditorPanel(BlockPanelBase):
         filter_button.clicked.connect(self._on_open_filter_dialog)
         filter_button.setStyleSheet(StyleFactory.button())
         layout.addWidget(filter_button)
+
+        replot_button = QPushButton("Replot Local")
+        replot_button.setToolTip("Rebuild the timeline from current local state without pulling upstream")
+        replot_button.clicked.connect(self._on_replot_local_clicked)
+        replot_button.setStyleSheet(StyleFactory.button())
+        layout.addWidget(replot_button)
         
         # Separator
         sep = QFrame()
@@ -1038,9 +1045,6 @@ class EditorPanel(BlockPanelBase):
         Recreation of owned items ONLY happens via Pull Data (_on_block_updated).
         This prevents infinite duplication on panel reopen.
         """
-        # #region agent log
-        import json as _dj4, time as _dt4; open('/Users/gdennen/Projects/EchoZero/.cursor/debug.log','a').write(_dj4.dumps({"timestamp":int(_dt4.time()*1000),"location":"editor_panel.py:refresh","message":"refresh() called","data":{"has_block":self.block is not None,"loaded_event_items":len(self._loaded_event_items) if hasattr(self,'_loaded_event_items') else -1,"loaded_audio_items":len(self._loaded_audio_items) if hasattr(self,'_loaded_audio_items') else -1},"hypothesisId":"H5"})+'\n')
-        # #endregion
         if not self.block:
             return
 
@@ -1050,8 +1054,20 @@ class EditorPanel(BlockPanelBase):
                 owned_outputs = self.facade.data_item_repo.list_by_block(self.block_id)
                 
                 if owned_outputs:
-                    # Use the same layer-build path as Pull Data (local-only mode)
                     self._load_owned_data(skip_ui_state_restore=True)
+                else:
+                    # No owned items yet -- check if local state has upstream
+                    # references (e.g. panel created after a startup song switch
+                    # already populated local state via backfill).
+                    try:
+                        local_inputs = self.facade.block_local_state_repo.get_inputs(self.block_id) or {}
+                        if local_inputs.get("events") or local_inputs.get("audio"):
+                            self._replot_local_state_data(
+                                initialize_owned_if_missing=True,
+                                status_message="Loaded from project state",
+                            )
+                    except Exception:
+                        pass
 
         # Load audio from local state (audio is a reference, not owned)
         if not self._loaded_audio_items:
@@ -1065,9 +1081,71 @@ class EditorPanel(BlockPanelBase):
             total_events = sum(len(item.get_events()) for item in self._loaded_event_items.values())
             self.info_label.setText(f"Loaded: {total_events} events")
         else:
-            self.info_label.setText("No data - pull input data to initialize Editor state")
+            if self.get_effective_state_scope() == self.SCOPE_PER_SONG:
+                self.info_label.setText("No state for this song yet")
+            else:
+                self.info_label.setText("No data - pull input data to initialize Editor state")
         
         self.set_status_message("Ready")
+
+    def reload_for_song_switch(self):
+        """
+        Force a clean editor reload from current restored state.
+
+        Used after setlist song switch to guarantee timeline redraw
+        from snapshot-restored data without invoking pull-data flows.
+        """
+        self._replot_local_state_data(initialize_owned_if_missing=True, status_message="Song switched")
+
+    def _on_replot_local_clicked(self):
+        """Replot timeline and audio strictly from local state references."""
+        self._replot_local_state_data(initialize_owned_if_missing=False, status_message="Replotted local state")
+
+    def _replot_local_state_data(
+        self,
+        *,
+        initialize_owned_if_missing: bool = False,
+        status_message: str = "Replotted local state"
+    ) -> bool:
+        """
+        Rebuild Editor visuals from local state only (no upstream pull).
+
+        This is the single local refresh pathway for:
+        - explicit user "Replot Local"
+        - setlist song switch redraw
+        """
+        if not self.block:
+            return False
+
+        try:
+            if initialize_owned_if_missing:
+                self._load_owned_data(skip_ui_state_restore=True)
+                if not self._loaded_event_items and not self._loaded_audio_items:
+                    self._initialize_owned_outputs_from_local_state(
+                        force=True,
+                        preserve_sync_layers=True,
+                        skip_ui_state_restore=True
+                    )
+
+            self._load_events_from_local_state()
+            self._load_audio_from_local_state()
+            self._update_status_labels()
+
+            if self._loaded_event_items:
+                total_events = sum(len(item.get_events()) for item in self._loaded_event_items.values())
+                self.info_label.setText(f"Loaded: {total_events} events")
+            else:
+                if self.get_effective_state_scope() == self.SCOPE_PER_SONG:
+                    self.info_label.setText("No state for this song yet")
+                else:
+                    self.info_label.setText("No local events available for replot")
+
+            self.set_status_message(status_message, error=False)
+            return True
+        except Exception as e:
+            Log.error(f"EditorPanel: Local replot failed: {e}")
+            self.set_status_message("Local replot failed", error=True)
+            return False
 
     def _load_events_from_local_state(self):
         """
@@ -1091,14 +1169,7 @@ class EditorPanel(BlockPanelBase):
 
         local_inputs = self.facade.block_local_state_repo.get_inputs(self.block_id) or {}
         events_ref = local_inputs.get("events")
-        
-        # DEBUG: Log what we got from local state
-        Log.info(
-            f"EditorPanel: _load_events_from_local_state - local_inputs keys: {list(local_inputs.keys())}, "
-            f"events_ref type: {type(events_ref).__name__}, "
-            f"events_ref value: {events_ref if isinstance(events_ref, str) else (len(events_ref) if isinstance(events_ref, list) else 'unknown')}"
-        )
-        
+
         # Get EventDataItems from local state references (EZ layers from upstream)
         # These references were just set by _on_pull_data_clicked() which always pulls fresh data
         event_items: list[EventDataItem] = []
@@ -1219,20 +1290,13 @@ class EditorPanel(BlockPanelBase):
 
     def _get_group_identity_for_item(self, item: EventDataItem) -> tuple[str, str]:
         """
-        Resolve the group_id and group_name for an EventDataItem.
+        Resolve a stable (group_id, group_name) for an EventDataItem.
 
-        EventDataItem is the single source of truth. We only honor metadata
-        group_id when it is an explicit MA3 sync group (tc_ prefix).
+        Delegates to the shared resolver so EditorPanel and
+        EditorGetLayersCommand always produce identical keys.
         """
-        group_id = item.id
-        group_name = item.name
-        if item.metadata:
-            meta_group_id = item.metadata.get("group_id")
-            meta_group_name = item.metadata.get("group_name")
-            if isinstance(meta_group_id, str) and meta_group_id.startswith("tc_"):
-                group_id = meta_group_id
-                group_name = meta_group_name or group_name
-        return group_id, group_name
+        from src.application.commands.editor_commands import resolve_stable_group_identity
+        return resolve_stable_group_identity(item)
     
     def _load_audio_from_local_state(self):
         """
@@ -1799,12 +1863,18 @@ class EditorPanel(BlockPanelBase):
             missing_txt = ""
         
         if missing_txt:
-            msg_lines = ["Upstream has no data for one or more connections:", ""]
-            msg_lines.append(missing_txt)
-            msg_lines.append("")
-            msg_lines.append("Execute upstream blocks first, then pull again.")
+            msg_lines = [
+                "Upstream has no data for one or more connections:",
+                "",
+                missing_txt,
+                "",
+                "Execute upstream blocks first, then pull again.",
+            ]
             if not skip_confirmation:
-                QMessageBox.information(self, "Pull Data", "\n".join(msg_lines))
+                dlg = ScrollableTextDialog(
+                    "Pull Data - Upstream Missing", "\n".join(msg_lines), parent=self
+                )
+                dlg.exec()
             self.set_status_message("Pull failed: upstream missing data", error=True)
         else:
             if not skip_confirmation:
@@ -1983,7 +2053,12 @@ class EditorPanel(BlockPanelBase):
             except Exception as e:
                 Log.debug(f"EditorPanel: Pull Data load audio failed: {e}")
 
-            self.set_status_message("Pulled data and rebuilt outputs", error=False)
+            # Single render path: refresh UI from local-state references after rebuild.
+            self._replot_local_state_data(
+                initialize_owned_if_missing=False,
+                status_message="Pulled data and rebuilt outputs"
+            )
+
         except Exception as e:
             import traceback
             Log.error(f"EditorPanel: Pull Data failed: {e}")
@@ -2074,9 +2149,6 @@ class EditorPanel(BlockPanelBase):
     
     def _on_block_updated_base(self, event):
         """Keep specialized EditorPanel BlockUpdated behavior active."""
-        # #region agent log
-        import json as _dj, time as _dt; open('/Users/gdennen/Projects/EchoZero/.cursor/debug.log','a').write(_dj.dumps({"timestamp":int(_dt.time()*1000),"location":"editor_panel.py:_on_block_updated_base","message":"BlockUpdated received in EditorPanel","data":{"block_id":self.block_id,"event_data":str(event.data) if hasattr(event,'data') else 'no data',"is_saving":self._is_saving},"hypothesisId":"H2"})+'\n')
-        # #endregion
         self._on_block_updated(event)
 
     def _on_block_updated(self, event):
@@ -2104,10 +2176,6 @@ class EditorPanel(BlockPanelBase):
         
         # Check if this is an execution-triggered update (requires full layer recreation)
         is_execution_triggered = event.data.get("execution_triggered", False) if hasattr(event, "data") else False
-
-        # #region agent log
-        import json as _dj2, time as _dt2; open('/Users/gdennen/Projects/EchoZero/.cursor/debug.log','a').write(_dj2.dumps({"timestamp":int(_dt2.time()*1000),"location":"editor_panel.py:_on_block_updated:path_check","message":"BlockUpdated path check","data":{"block_id":self.block_id,"is_event_only":is_event_only_update,"is_exec_triggered":is_execution_triggered,"pull_data_active":getattr(self,"_pull_data_active",False)},"hypothesisId":"H3"})+'\n')
-        # #endregion
 
         if getattr(self, "_pull_data_active", False) and not is_execution_triggered:
             return
@@ -2181,11 +2249,7 @@ class EditorPanel(BlockPanelBase):
         except Exception as e:
             Log.debug(f"EditorPanel: BlockUpdated load audio failed: {e}")
 
-        # Ensure UI refreshes - use QTimer to ensure it happens after event processing
-        # This is especially important when events come from background threads
-        from PyQt6.QtCore import QTimer
-        QTimer.singleShot(0, self.refresh)
-        Log.debug(f"EditorPanel: BlockUpdated - scheduled UI refresh for block {self.block_id}")
+        self.refresh()
     
     def _load_owned_data(self, skip_ui_state_restore: bool = False):
         """
@@ -2255,9 +2319,6 @@ class EditorPanel(BlockPanelBase):
             owned_items = self.facade.data_item_repo.list_by_block(self.block_id)
             event_items = [item for item in owned_items if isinstance(item, EventDataItem)]
             audio_items = [item for item in owned_items if isinstance(item, AudioDataItem)]
-            # #region agent log
-            import json as _dj3, time as _dt3; open('/Users/gdennen/Projects/EchoZero/.cursor/debug.log','a').write(_dj3.dumps({"timestamp":int(_dt3.time()*1000),"location":"editor_panel.py:_load_owned_data:after_load","message":"Loaded owned items from repo","data":{"block_id":self.block_id,"total_owned":len(owned_items),"event_count":len(event_items),"audio_count":len(audio_items),"event_ids":[i.id for i in event_items[:5]]},"hypothesisId":"H1"})+'\n')
-            # #endregion
 
             # Verify we have both EZ and sync layer items
             ez_items = [item for item in event_items if self._is_ez_layer_item(item)]
@@ -3570,7 +3631,7 @@ class EditorPanel(BlockPanelBase):
 
         EventDataItem is the single source of truth for group/layer existence.
         UI state stores only overrides keyed by (group_id, layer_name).
-        Any stale overrides are treated as errors (fail loud).
+        Stale overrides are pruned silently on save.
         """
         if not self.block or not hasattr(self, 'timeline_widget'):
             return

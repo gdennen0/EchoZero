@@ -4493,28 +4493,36 @@ class SyncSystemManager(QObject):
     # =========================================================================
     
     def _load_from_settings(self) -> None:
-        """Load synced layers and configuration from settings."""
+        """Load synced layers and configuration from settings.
+
+        Replaces the in-memory ``_synced_layers`` with exactly what the
+        settings contain, preserving runtime state (sync_status, etc.) for
+        entities that already exist.  Entities present in memory but absent
+        from settings are removed so that song-switch snapshots (which
+        restore a different set of layers) take effect cleanly.
+        """
         if not self._settings_manager:
             return
         
-        # Load configured timecode from settings
-        self._configured_timecode = self._settings_manager.target_timecode
+        new_tc = self._settings_manager.target_timecode
+        if new_tc != self._configured_timecode:
+            Log.info(f"SyncSystemManager: Timecode changed {self._configured_timecode} -> {new_tc}, clearing cached MA3 tracks")
+            self._ma3_tracks.clear()
+            self._ma3_tracks_version += 1
+        self._configured_timecode = new_tc
         Log.info(f"SyncSystemManager: Loaded target_timecode={self._configured_timecode} from settings")
         
         synced_data = self._settings_manager.synced_layers
         
+        loaded_ids: set = set()
         for data in synced_data:
             if not isinstance(data, dict):
                 continue
             
             try:
-                # Try new format first
                 if "id" in data and "source" in data:
                     entity = SyncLayerEntity.from_dict(data)
-                    # If entity already exists in memory, preserve its runtime
-                    # sync_status. The in-memory status reflects real-time state
-                    # (e.g. PENDING after downgrade) while persisted status may
-                    # be stale. Only structural fields are updated from DB.
+                    loaded_ids.add(entity.id)
                     existing = self._synced_layers.get(entity.id)
                     if existing:
                         existing.name = entity.name
@@ -4528,19 +4536,23 @@ class SyncSystemManager(QObject):
                         existing.settings = entity.settings
                         existing.ez_track_id = entity.ez_track_id
                         existing.group_name = entity.group_name
-                        # Preserve: sync_status, error_message, event_count,
-                        # last_sync_time (runtime state)
                     else:
                         self._synced_layers[entity.id] = entity
                 else:
-                    # Handle legacy format
                     entity = self._migrate_legacy_entity(data)
                     if entity:
+                        loaded_ids.add(entity.id)
                         existing = self._synced_layers.get(entity.id)
                         if not existing:
                             self._synced_layers[entity.id] = entity
             except Exception as e:
                 Log.warning(f"SyncSystemManager: Failed to load entity: {e}")
+        
+        stale_ids = set(self._synced_layers.keys()) - loaded_ids
+        if stale_ids:
+            Log.info(f"SyncSystemManager: Removing {len(stale_ids)} stale entities not in settings")
+            for stale_id in stale_ids:
+                del self._synced_layers[stale_id]
         
         Log.info(f"SyncSystemManager: Loaded {len(self._synced_layers)} synced layers")
         
@@ -4640,6 +4652,27 @@ class SyncSystemManager(QObject):
         self._load_from_settings()
         # Unhook all MA3 tracks to ensure clean state
         self.unhook_all_ma3_tracks()
+
+    def prepare_for_song_switch(self) -> None:
+        """
+        Prepare sync system for a song snapshot restore.
+
+        Reusable standard lifecycle step:
+        unhook active MA3 subscriptions so restore runs against stable state.
+        """
+        Log.info(f"SyncSystemManager: Preparing for song switch (block={self._show_manager_block_id})")
+        self.unhook_all_ma3_tracks()
+
+    def restore_after_song_switch(self) -> None:
+        """
+        Restore sync system after song snapshot restore.
+
+        Reusable standard lifecycle step:
+        reload synced entities from settings and reinitialize hooks for current timecode.
+        """
+        Log.info(f"SyncSystemManager: Restoring after song switch (block={self._show_manager_block_id})")
+        self._load_from_settings()
+        self._reinitialize_for_current_timecode()
     
     def cleanup(self) -> None:
         """

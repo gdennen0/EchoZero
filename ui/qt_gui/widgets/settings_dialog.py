@@ -9,15 +9,88 @@ from PyQt6.QtWidgets import (
     QLabel, QCheckBox, QSpinBox, QComboBox, QPushButton,
     QFormLayout, QLineEdit, QFileDialog, QGroupBox, QFrame,
     QScrollArea, QSizePolicy, QColorDialog, QInputDialog,
-    QApplication,
+    QApplication, QStyleOptionComboBox, QStyle,
 )
-from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtGui import QFont, QColor
+from PyQt6.QtCore import Qt, pyqtSignal, QSize, QRect, QRectF
+from PyQt6.QtGui import QFont, QColor, QPainter, QPen, QBrush, QPainterPath
 from PyQt6.QtGui import QFontDatabase
 
 from src.application.settings import AppSettingsManager
 from src.utils.message import Log
 from ui.qt_gui.design_system import Colors, Spacing, ThemeAwareMixin, border_radius
+
+
+class _ColorwayPreview(QWidget):
+    """Draws a horizontal strip of colored swatches representing a theme's palette."""
+
+    _SWATCH_LABELS = [
+        ("bg_dark", "BG"),
+        ("bg_medium", "Mid"),
+        ("accent_blue", "Accent"),
+        ("accent_green", "Green"),
+        ("accent_red", "Red"),
+        ("accent_yellow", "Yellow"),
+        ("block_load", "Load"),
+        ("block_analyze", "Analyze"),
+        ("block_transform", "Xform"),
+        ("block_editor", "Editor"),
+        ("block_export", "Export"),
+        ("text_primary", "Text"),
+    ]
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._colors: list[tuple[QColor, str]] = []
+        self.setFixedHeight(40)
+        self.setMinimumWidth(200)
+
+    def set_theme(self, theme) -> None:
+        """Load swatch colors from a Theme object."""
+        self._colors = []
+        for field, label in self._SWATCH_LABELS:
+            color = getattr(theme, field, None)
+            if color is not None:
+                self._colors.append((QColor(color), label))
+        self.update()
+
+    def paintEvent(self, event):
+        if not self._colors:
+            return
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+
+        count = len(self._colors)
+        spacing = 3
+        total_spacing = spacing * (count - 1)
+        available = self.width() - total_spacing
+        swatch_w = max(8, available // count)
+        h = self.height()
+        swatch_h = h - 14
+        y = 0
+
+        font = painter.font()
+        font.setPixelSize(9)
+        painter.setFont(font)
+
+        x = 0
+        for color, label in self._colors:
+            path = QPainterPath()
+            path.addRoundedRect(QRectF(x, y, swatch_w, swatch_h), 3, 3)
+            painter.setPen(QPen(QColor(0, 0, 0, 60), 1))
+            painter.setBrush(QBrush(color))
+            painter.drawPath(path)
+
+            lum = color.red() * 0.299 + color.green() * 0.587 + color.blue() * 0.114
+            text_color = QColor(30, 30, 30) if lum > 140 else QColor(220, 220, 220)
+            painter.setPen(text_color)
+            painter.drawText(
+                QRect(int(x), swatch_h + 1, swatch_w, 13),
+                Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop,
+                label,
+            )
+            x += swatch_w + spacing
+
+        painter.end()
 
 
 class SettingsDialog(ThemeAwareMixin, QDialog):
@@ -432,6 +505,10 @@ class SettingsDialog(ThemeAwareMixin, QDialog):
         desc_row.addWidget(self._modified_label)
         desc_row.addStretch()
         layout.addLayout(desc_row)
+
+        # Colorway preview strip
+        self._colorway_preview = _ColorwayPreview()
+        layout.addWidget(self._colorway_preview)
         
         # Update description when selection changes
         self._widgets["theme_preset"].currentIndexChanged.connect(self._on_theme_preset_changed)
@@ -551,7 +628,7 @@ class SettingsDialog(ThemeAwareMixin, QDialog):
                 Log.error(f"Export failed: {e}")
 
     def _on_theme_preset_changed(self, index: int):
-        """Update theme description and load theme into table when preset changes"""
+        """Update theme description, colorway preview, and load theme into table when preset changes"""
         from ui.qt_gui.theme_registry import ThemeRegistry
 
         theme_name = self._widgets["theme_preset"].itemData(index)
@@ -560,6 +637,8 @@ class SettingsDialog(ThemeAwareMixin, QDialog):
             if theme:
                 self._theme_description.setText(theme.description)
                 self._mark_colors_dirty(False)
+                if hasattr(self, "_colorway_preview"):
+                    self._colorway_preview.set_theme(theme)
                 if hasattr(self, "_theme_editor_table"):
                     self._theme_editor_table.set_colors_from_theme(theme)
                 self._update_delete_btn_state()

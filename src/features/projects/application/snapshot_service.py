@@ -96,7 +96,6 @@ class SnapshotService:
         from datetime import datetime
         
         Log.info(f"SnapshotService: Saving snapshot for song {song_id}")
-        
         # Use helper to get all block states (unified access)
         project_state = self._state_helper.get_project_state(project_id)
         
@@ -485,8 +484,9 @@ class SnapshotService:
         snapshot: DataStateSnapshot,
         project_dir: Optional[Path] = None,
         event_bus=None,
-        progress_callback: Optional[Callable[[str, int, int], None]] = None
-    ) -> None:
+        progress_callback: Optional[Callable[[str, int, int], None]] = None,
+        relevant_block_ids: Optional[set[str]] = None
+    ) -> Dict[str, Any]:
         """
         Restore snapshot into database.
         
@@ -501,52 +501,81 @@ class SnapshotService:
             project_dir: Optional project directory for resolving relative file paths
             event_bus: Optional event bus for publishing refresh events
             progress_callback: Optional callback(message, current, total) for progress updates
+            relevant_block_ids: Optional set of block IDs to scope clear/restore operations
         """
         Log.info(f"SnapshotService: Restoring snapshot for song {snapshot.song_id}")
-        
+        report: Dict[str, Any] = {
+            "song_id": snapshot.song_id,
+            "attempted_blocks": [],
+            "restored_blocks": [],
+            "failed_blocks": [],
+            "unknown_scope_blocks": [],
+            "cleared_data_items_count": 0,
+            "cleared_local_state_count": 0,
+            "cleared_metadata_count": 0,
+        }
+
         total_items = len(snapshot.data_items) + len(snapshot.block_local_state)
-        
-        # Clear existing data items first (like execution engine does)
-        if progress_callback:
-            progress_callback("Clearing existing data...", 0, total_items)
-        deleted_count = self._data_item_repo.delete_by_project(project_id)
-        if deleted_count > 0:
-            Log.info(f"SnapshotService: Cleared {deleted_count} existing data item(s) before restore")
-        
-        # Clear block local state for all blocks (clean slate before restore)
+
+        # Resolve scoped block IDs: explicit scope OR snapshot-derived scope.
+        # We always include snapshot block IDs to avoid dropping snapshot payload.
         blocks = self._block_repo.list_by_project(project_id)
-        cleared_local_state_count = 0
-        for block in blocks:
+        project_blocks_by_id = {b.id: b for b in blocks}
+        snapshot_block_ids = {
+            item_data.get("block_id")
+            for item_data in snapshot.data_items
+            if isinstance(item_data, dict) and item_data.get("block_id")
+        }
+        snapshot_block_ids.update(snapshot.block_local_state.keys())
+        snapshot_block_ids.update(snapshot.block_settings_overrides.keys())
+
+        desired_scope = set(snapshot_block_ids)
+        if relevant_block_ids:
+            desired_scope.update(relevant_block_ids)
+
+        scoped_block_ids = []
+        unknown_scope_blocks = []
+        for block_id in desired_scope:
+            if block_id in project_blocks_by_id:
+                scoped_block_ids.append(block_id)
+            else:
+                unknown_scope_blocks.append(block_id)
+        report["unknown_scope_blocks"] = sorted(unknown_scope_blocks)
+
+        if progress_callback:
+            progress_callback("Clearing existing data...", 0, max(total_items, 1))
+
+        # Clear only scoped block state/items (not the whole project).
+        for block_id in scoped_block_ids:
+            block = project_blocks_by_id[block_id]
+            try:
+                deleted_for_block = self._data_item_repo.delete_by_block(block_id)
+                if isinstance(deleted_for_block, int):
+                    report["cleared_data_items_count"] += deleted_for_block
+                else:
+                    Log.warning(
+                        f"SnapshotService: delete_by_block returned non-int for block '{block.name}'"
+                    )
+            except Exception as e:
+                Log.warning(f"SnapshotService: Failed to clear data items for block '{block.name}': {e}")
             try:
                 self._block_local_state_repo.clear_inputs(block.id)
-                cleared_local_state_count += 1
+                report["cleared_local_state_count"] += 1
             except Exception as e:
                 Log.warning(f"SnapshotService: Failed to clear local state for block '{block.name}': {e}")
-        if cleared_local_state_count > 0:
-            Log.info(f"SnapshotService: Cleared local state for {cleared_local_state_count} block(s) before restore")
-        
-        # Clear block metadata for all blocks (clean slate before restore)
-        # This ensures old metadata doesn't persist when switching songs
-        # If snapshot has block_settings_overrides, they'll be applied after restore
-        # If snapshot doesn't have overrides, blocks will have empty metadata (default state)
-        cleared_metadata_count = 0
-        block_metadata_before_clear = {b.id: dict(b.metadata) if b.metadata else {} for b in blocks}
-        for block in blocks:
             try:
-                # Clear metadata to empty dict before restore
                 block.metadata = {}
                 self._block_repo.update(block)
-                cleared_metadata_count += 1
+                report["cleared_metadata_count"] += 1
             except Exception as e:
                 Log.warning(f"SnapshotService: Failed to clear metadata for block '{block.name}': {e}")
-        if cleared_metadata_count > 0:
-            Log.info(f"SnapshotService: Cleared metadata for {cleared_metadata_count} block(s) before restore")
         
         # Group snapshot data by block for unified restore
         block_states = {}
+        snapshot_data_item_ids = {item_data.get("id") for item_data in snapshot.data_items if isinstance(item_data, dict)}
         for item_data in snapshot.data_items:
             block_id = item_data.get("block_id")
-            if block_id:
+            if block_id and block_id in scoped_block_ids:
                 if block_id not in block_states:
                     block_states[block_id] = {
                         "data_items": [],
@@ -556,7 +585,7 @@ class SnapshotService:
         
         # Add blocks that only have local state (no data items)
         for block_id, local_state in snapshot.block_local_state.items():
-            if block_id not in block_states:
+            if block_id in scoped_block_ids and block_id not in block_states:
                 block_states[block_id] = {
                     "data_items": [],
                     "local_state": local_state
@@ -568,6 +597,7 @@ class SnapshotService:
         affected_blocks = set()
         
         for idx, (block_id, state) in enumerate(block_states.items()):
+            report["attempted_blocks"].append(block_id)
             try:
                 current_item = sum(len(s["data_items"]) for s in list(block_states.values())[:idx]) + idx + 1
                 if progress_callback:
@@ -581,11 +611,13 @@ class SnapshotService:
                 self._state_helper.restore_block_state(block_id, state, project_dir)
                 
                 affected_blocks.add(block_id)
+                report["restored_blocks"].append(block_id)
                 restored_count += len(state["data_items"])
                 if state["local_state"]:
                     state_count += 1
             except Exception as e:
                 Log.warning(f"SnapshotService: Failed to restore block state for {block_id}: {e}")
+                report["failed_blocks"].append({"block_id": block_id, "error": str(e)})
         
         # Publish events to trigger UI refresh
         if event_bus:
@@ -637,18 +669,23 @@ class SnapshotService:
         
         # Apply block settings overrides (restore block metadata)
         # Note: We cleared all metadata above, so this will fully restore the snapshot's metadata
-        if snapshot.block_settings_overrides:
+        scoped_overrides = {
+            block_id: override
+            for block_id, override in snapshot.block_settings_overrides.items()
+            if block_id in scoped_block_ids
+        }
+        if scoped_overrides:
             try:
                 if progress_callback:
                     progress_callback("Applying block settings...", total_items, total_items + 1)
                 # Since we cleared metadata above, apply_block_overrides will fully restore it
-                self.apply_block_overrides(project_id, snapshot.block_settings_overrides)
-                Log.info(f"SnapshotService: Applied block settings overrides for {len(snapshot.block_settings_overrides)} block(s)")
+                self.apply_block_overrides(project_id, scoped_overrides)
+                Log.info(f"SnapshotService: Applied block settings overrides for {len(scoped_overrides)} block(s)")
                 
                 # Publish additional BlockUpdated events for blocks with settings changes
                 if event_bus:
                     from src.application.events import BlockUpdated
-                    for block_id in snapshot.block_settings_overrides.keys():
+                    for block_id in scoped_overrides.keys():
                         try:
                             block = self._block_repo.get_by_id(block_id)
                             if block:
@@ -670,11 +707,24 @@ class SnapshotService:
             # This is fine - they'll get their metadata when executed again
             Log.info(f"SnapshotService: Snapshot has no block_settings_overrides (old format) - blocks have empty metadata")
         
+        if report["failed_blocks"] or report["unknown_scope_blocks"]:
+            Log.error(
+                f"SnapshotService: Restore completed with issues for song {snapshot.song_id} "
+                f"(failed_blocks={len(report['failed_blocks'])}, "
+                f"unknown_scope_blocks={len(report['unknown_scope_blocks'])})"
+            )
+            for failed in report["failed_blocks"]:
+                Log.error(
+                    f"SnapshotService: Failed block restore - block_id={failed['block_id']} "
+                    f"error={failed['error']}"
+                )
+        
         Log.info(
             f"SnapshotService: Restored snapshot for song {snapshot.song_id} - "
             f"{restored_count} data items, {state_count} block states, "
             f"{len(snapshot.block_settings_overrides) if snapshot.block_settings_overrides else 0} block settings"
         )
+        return report
     
     def apply_block_overrides(
         self,

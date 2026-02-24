@@ -11,7 +11,7 @@ import PyQt6Ads as ads
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout,
     QLabel, QPushButton, QFrame, QMessageBox, QScrollArea, QSizePolicy,
-    QLineEdit, QAbstractSpinBox
+    QLineEdit, QAbstractSpinBox, QDialog, QTextEdit, QDialogButtonBox
 )
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QFont
@@ -27,6 +27,31 @@ from src.utils.message import Log
 from ui.qt_gui.design_system import Colors, Spacing, Typography, Sizes, get_stylesheet, on_theme_changed, disconnect_theme_changed
 from ui.qt_gui.core.window_state_types import IStatefulWindow
 from ui.qt_gui.widgets.block_status_dot import BlockStatusDot
+
+
+class ScrollableTextDialog(QDialog):
+    """Modal dialog with a scrollable, selectable, copyable text area."""
+
+    def __init__(self, title: str, text: str, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle(title)
+        self.setMinimumSize(600, 400)
+        self.resize(700, 480)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(16, 16, 16, 12)
+        layout.setSpacing(8)
+
+        text_edit = QTextEdit()
+        text_edit.setReadOnly(True)
+        text_edit.setPlainText(text)
+        text_edit.setFont(QFont("Monospace", 10))
+        text_edit.setLineWrapMode(QTextEdit.LineWrapMode.NoWrap)
+        layout.addWidget(text_edit, 1)
+
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok)
+        buttons.accepted.connect(self.accept)
+        layout.addWidget(buttons)
 
 
 class BlockPanelBase(ads.CDockWidget, IStatefulWindow):
@@ -45,6 +70,9 @@ class BlockPanelBase(ads.CDockWidget, IStatefulWindow):
     
     # Signals
     panel_closed = pyqtSignal(str)  # Emits block_id when panel is closed
+    STATE_SCOPE_KEY = "state_scope"
+    SCOPE_PER_SONG = "per_song"
+    SCOPE_GLOBAL = "global"
     
     def __init__(self, block_id: str, facade: ApplicationFacade, parent=None):
         """
@@ -61,6 +89,7 @@ class BlockPanelBase(ads.CDockWidget, IStatefulWindow):
         self.facade = facade
         self.block: Block = None
         self._is_saving = False
+        self._syncing_scope_metadata = False
         
         self.setFeature(ads.CDockWidget.DockWidgetFeature.DockWidgetClosable, True)
         self.setFeature(ads.CDockWidget.DockWidgetFeature.DockWidgetMovable, True)
@@ -214,6 +243,27 @@ class BlockPanelBase(ads.CDockWidget, IStatefulWindow):
         """)
         self._update_prod_toggle_state()
         layout.addWidget(self._prod_toggle)
+
+        # Scope toggle (per-song/global)
+        self._scope_toggle = QPushButton("PER-SONG")
+        self._scope_toggle.setCheckable(True)
+        self._scope_toggle.setFixedHeight(24)
+        self._scope_toggle.clicked.connect(self._on_scope_toggle)
+        self._scope_toggle.setStyleSheet(f"""
+            QPushButton {{
+                font-size: 10px;
+                padding: 2px 8px;
+                border: 1px solid {Colors.BORDER.name()};
+                border-radius: 4px;
+                background: transparent;
+                color: {Colors.TEXT_SECONDARY.name()};
+            }}
+            QPushButton:checked {{
+                border-color: {Colors.ACCENT_BLUE.name()};
+                color: {Colors.ACCENT_BLUE.name()};
+            }}
+        """)
+        layout.addWidget(self._scope_toggle)
         
         # Status indicator - unified widget that auto-updates
         self.status_dot = BlockStatusDot(self.block_id, self.facade, parent=header)
@@ -294,11 +344,17 @@ class BlockPanelBase(ads.CDockWidget, IStatefulWindow):
             missing_txt = ""
 
         if missing_txt:
-            msg_lines = ["Upstream has no data for one or more connections:", ""]
-            msg_lines.append(missing_txt)
-            msg_lines.append("")
-            msg_lines.append("Execute upstream blocks first, then pull again.")
-            QMessageBox.information(self, "Pull Data", "\n".join(msg_lines))
+            msg_lines = [
+                "Upstream has no data for one or more connections:",
+                "",
+                missing_txt,
+                "",
+                "Execute upstream blocks first, then pull again.",
+            ]
+            dlg = ScrollableTextDialog(
+                "Pull Data - Upstream Missing", "\n".join(msg_lines), parent=self
+            )
+            dlg.exec()
             self.set_status_message("Pull failed: upstream missing data", error=True)
         else:
             QMessageBox.warning(self, "Pull Data", getattr(result, "message", "Pull failed"))
@@ -338,8 +394,10 @@ class BlockPanelBase(ads.CDockWidget, IStatefulWindow):
         result = self.facade.describe_block(self.block_id)
         if result.success:
             self.block = result.data
+            self._ensure_state_scope_metadata()
             self._update_header()
             self._update_prod_toggle_state()
+            self._update_scope_toggle_state()
             self.refresh()
             self._check_and_display_filter_warnings()
         else:
@@ -370,6 +428,76 @@ class BlockPanelBase(ads.CDockWidget, IStatefulWindow):
             meta["production_visible"] = checked
             self.block.metadata = meta
         self._prod_toggle.setText("PROD" if checked else "prod")
+
+    def get_effective_state_scope(self) -> str:
+        """Get effective block state scope with defaults and ShowManager lock."""
+        if not self.block:
+            return self.SCOPE_PER_SONG
+        if self.block.type == "ShowManager":
+            return self.SCOPE_PER_SONG
+        metadata = self.block.metadata or {}
+        scope = str(metadata.get(self.STATE_SCOPE_KEY, self.SCOPE_PER_SONG)).strip().lower()
+        if scope not in (self.SCOPE_PER_SONG, self.SCOPE_GLOBAL):
+            return self.SCOPE_PER_SONG
+        return scope
+
+    def _update_scope_toggle_state(self):
+        """Sync scope toggle to current block scope."""
+        if not hasattr(self, "_scope_toggle"):
+            return
+        scope = self.get_effective_state_scope()
+        is_per_song = scope == self.SCOPE_PER_SONG
+        self._scope_toggle.setChecked(is_per_song)
+        self._scope_toggle.setText("PER-SONG" if is_per_song else "GLOBAL")
+        if self.block and self.block.type == "ShowManager":
+            self._scope_toggle.setEnabled(False)
+            self._scope_toggle.setToolTip("ShowManager sync mappings are always per-song.")
+        else:
+            self._scope_toggle.setEnabled(True)
+            self._scope_toggle.setToolTip(
+                "Per-song: block state changes with song switch. "
+                "Global: block state persists across songs."
+            )
+
+    def _on_scope_toggle(self, checked: bool):
+        """Persist block state scope preference."""
+        if not self.block:
+            return
+        if self.block.type == "ShowManager":
+            self._update_scope_toggle_state()
+            return
+        new_scope = self.SCOPE_PER_SONG if checked else self.SCOPE_GLOBAL
+        updated = self.set_block_metadata_key(
+            self.STATE_SCOPE_KEY,
+            new_scope,
+            success_message=f"State scope: {'Per-song' if checked else 'Global'}"
+        )
+        if updated and self.block:
+            meta = dict(self.block.metadata or {})
+            meta[self.STATE_SCOPE_KEY] = new_scope
+            self.block.metadata = meta
+        self._update_scope_toggle_state()
+
+    def _ensure_state_scope_metadata(self):
+        """Persist default/fixed scope metadata for consistency."""
+        if not self.block or self._syncing_scope_metadata:
+            return
+        desired_scope = self.get_effective_state_scope()
+        current_scope = (self.block.metadata or {}).get(self.STATE_SCOPE_KEY)
+        if current_scope == desired_scope:
+            return
+        self._syncing_scope_metadata = True
+        try:
+            result = self.facade.update_block_metadata(
+                self.block_id,
+                {self.STATE_SCOPE_KEY: desired_scope}
+            )
+            if hasattr(result, "success") and result.success:
+                meta = dict(self.block.metadata or {})
+                meta[self.STATE_SCOPE_KEY] = desired_scope
+                self.block.metadata = meta
+        finally:
+            self._syncing_scope_metadata = False
     
     def _update_header(self):
         """Update header with block information"""
@@ -395,6 +523,7 @@ class BlockPanelBase(ads.CDockWidget, IStatefulWindow):
         
         # Update window title
         self.setWindowTitle(f"{self.block.type} - {self.block.name}")
+        self._update_scope_toggle_state()
     
     def refresh_for_undo(self):
         """

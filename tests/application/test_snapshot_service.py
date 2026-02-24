@@ -26,7 +26,9 @@ class TestSnapshotServiceIntegration:
     @pytest.fixture
     def mock_data_item_repo(self):
         """Create mock data item repository"""
-        return Mock()
+        repo = Mock()
+        repo.delete_by_block.return_value = 0
+        return repo
     
     @pytest.fixture
     def mock_local_state_repo(self):
@@ -243,9 +245,6 @@ class TestSnapshotServiceIntegration:
         
         snapshot_service._state_helper.restore_block_state = track_restore
         
-        # Mock delete_by_project
-        mock_data_item_repo.delete_by_project.return_value = 0
-        
         # Act
         snapshot_service.restore_snapshot(project_id, snapshot)
         
@@ -254,8 +253,8 @@ class TestSnapshotServiceIntegration:
         assert restore_calls[0][0] == "block-1"
         assert restore_calls[0][1]["local_state"] == {"input1": "item-1"}
         
-        # Verify data items were cleared first
-        mock_data_item_repo.delete_by_project.assert_called_once_with(project_id)
+        # Verify data items were cleared with scoped block path
+        mock_data_item_repo.delete_by_block.assert_called_once_with("block-1")
     
     def test_restore_snapshot_groups_by_block(
         self,
@@ -309,8 +308,6 @@ class TestSnapshotServiceIntegration:
             None
         )
         mock_block_repo.update.return_value = Block(id="block-1", project_id=project_id, name="Block1", type="TestType", metadata={})
-        
-        mock_data_item_repo.delete_by_project.return_value = 0
         
         # Track calls to restore_block_state
         restore_calls = []
@@ -371,8 +368,6 @@ class TestSnapshotServiceIntegration:
         ]
         mock_block_repo.get_by_id.return_value = Block(id="block-1", project_id=project_id, name="TestBlock", type="TestType", metadata={})
         mock_block_repo.update.return_value = Block(id="block-1", project_id=project_id, name="TestBlock", type="TestType", metadata={})
-        
-        mock_data_item_repo.delete_by_project.return_value = 0
         
         # Track project_dir passed to restore
         restore_calls = []
@@ -436,13 +431,11 @@ class TestSnapshotServiceIntegration:
         
         snapshot_service._state_helper.restore_block_state = track_restore
         
-        mock_data_item_repo.delete_by_project.return_value = 0
-        
         # Act
         snapshot_service.restore_snapshot(project_id, snapshot)
         
         # Assert - should handle old format without errors
-        assert mock_data_item_repo.delete_by_project.called
+        assert mock_data_item_repo.delete_by_block.called
         assert len(restore_calls) == 1  # Should have called restore_block_state
     
     def test_snapshot_save_load_all_blocks_comprehensive(
@@ -640,8 +633,6 @@ class TestSnapshotServiceIntegration:
         assert saved_item_ids == expected_item_ids
         
         # Act 2: Clear everything (simulate switching songs)
-        mock_data_item_repo.delete_by_project.return_value = len(saved_snapshot.data_items)
-        
         # Track what gets restored
         restored_data_items = []
         restored_local_states = {}
@@ -752,8 +743,8 @@ class TestSnapshotServiceIntegration:
             assert block.id in restored_metadata
             assert restored_metadata[block.id] == block.metadata
         
-        # Verify data items were cleared first
-        mock_data_item_repo.delete_by_project.assert_called_once_with(project_id)
+        # Verify data items were cleared using scoped block deletes
+        assert mock_data_item_repo.delete_by_block.call_count == len(blocks)
         
         # Verify all blocks were updated (once for clearing metadata, once for applying overrides)
         # Each block gets updated twice: once when clearing metadata, once when applying overrides
@@ -763,4 +754,44 @@ class TestSnapshotServiceIntegration:
         for block in blocks:
             assert block.id in restored_metadata
             assert restored_metadata[block.id] == block.metadata
+
+    def test_restore_snapshot_scoped_clear_does_not_touch_unrelated_blocks(
+        self,
+        snapshot_service,
+        mock_block_repo,
+        mock_data_item_repo
+    ):
+        """Scoped restore clears only relevant/snapshot blocks."""
+        project_id = "project-1"
+        block_a = Block(id="block-a", project_id=project_id, name="A", type="Editor", metadata={})
+        block_b = Block(id="block-b", project_id=project_id, name="B", type="Editor", metadata={})
+        block_c = Block(id="block-c", project_id=project_id, name="C", type="Editor", metadata={})
+        mock_block_repo.list_by_project.return_value = [block_a, block_b, block_c]
+        mock_block_repo.get_by_id.side_effect = lambda bid: {"block-a": block_a, "block-b": block_b, "block-c": block_c}.get(bid)
+        mock_block_repo.update.side_effect = lambda blk: blk
+
+        snapshot = DataStateSnapshot(
+            id="snapshot-1",
+            song_id="song-1",
+            created_at=datetime.now(timezone.utc),
+            data_items=[{
+                "id": "item-1",
+                "block_id": "block-a",
+                "name": "A1",
+                "type": "Audio",
+                "created_at": datetime.now(timezone.utc).isoformat()
+            }],
+            block_local_state={"block-a": {"audio": "item-1"}}
+        )
+
+        report = snapshot_service.restore_snapshot(
+            project_id=project_id,
+            snapshot=snapshot,
+            relevant_block_ids={"block-b"}
+        )
+
+        cleared_blocks = {call.args[0] for call in mock_data_item_repo.delete_by_block.call_args_list}
+        assert cleared_blocks == {"block-a", "block-b"}
+        assert "block-c" not in cleared_blocks
+        assert set(report["attempted_blocks"]) == {"block-a"}
 

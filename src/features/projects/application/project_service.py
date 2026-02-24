@@ -95,6 +95,8 @@ class ProjectService:
         self._loaded_snapshots: Dict[str, dict] = {}
         # Single-entry cache for fast repeated access to the same snapshot
         self._snapshot_cache: Optional[Tuple[str, dict]] = None  # (song_id, snapshot_dict)
+        # Track snapshots that exist only in memory and need to be flushed to disk
+        self._dirty_snapshot_ids: set = set()
         Log.info("ProjectService: Initialized")
     
     def set_snapshot(self, song_id: str, snapshot_dict: dict, project: Optional[Project] = None) -> None:
@@ -195,12 +197,51 @@ class ProjectService:
             # Keep in-memory stores in sync
             self._loaded_snapshots[song_id] = snapshot_dict
             self._snapshot_cache = (song_id, snapshot_dict)
+            self._dirty_snapshot_ids.discard(song_id)
             
             Log.debug(f"ProjectService: Saved snapshot for song {song_id} to project file")
         except Exception as e:
             Log.error(f"ProjectService: Failed to save snapshot to project file: {e}")
             raise
-    
+
+    def cache_snapshot(self, song_id: str, snapshot_dict: dict) -> None:
+        """
+        Update in-memory snapshot cache without writing to the project file.
+
+        Marks the snapshot as dirty so it will be flushed to disk on the
+        next project save or explicit flush_dirty_snapshots() call.
+        """
+        self._loaded_snapshots[song_id] = snapshot_dict
+        self._snapshot_cache = (song_id, snapshot_dict)
+        self._dirty_snapshot_ids.add(song_id)
+
+    def flush_dirty_snapshots(self, project: Optional["Project"] = None) -> None:
+        """
+        Write any cached-only snapshots to the project file on disk.
+
+        Called during project save and application shutdown to ensure
+        no snapshot data is lost.
+        """
+        if not self._dirty_snapshot_ids:
+            return
+
+        if not project:
+            projects = self._project_repo.list_all()
+            project = projects[0] if projects else None
+        if not project:
+            Log.warning("ProjectService: Cannot flush dirty snapshots - no project")
+            return
+
+        dirty_ids = list(self._dirty_snapshot_ids)
+        Log.info(f"ProjectService: Flushing {len(dirty_ids)} dirty snapshot(s) to disk")
+        for sid in dirty_ids:
+            snap = self._loaded_snapshots.get(sid)
+            if snap:
+                try:
+                    self.set_snapshot(sid, snap, project)
+                except Exception as e:
+                    Log.error(f"ProjectService: Failed to flush snapshot {sid}: {e}")
+
     def get_snapshot(self, song_id: str, project: Optional[Project] = None) -> Optional[dict]:
         """
         Get snapshot dictionary for a song.
@@ -310,11 +351,23 @@ class ProjectService:
         Log.info(f"ProjectService: Created {status} project '{created_project.name}' (id: {created_project.id})")
         return created_project
     
+    def get_project(self, project_id: str) -> Optional[Project]:
+        """
+        Get a project by ID without reloading from disk.
+        
+        Lightweight lookup from the in-memory repository. Use this when you
+        already have the project loaded and just need the entity (e.g. during
+        song switching).
+        """
+        return self._project_repo.get(project_id)
+
     def load_project(self, project_id: str) -> Optional[Project]:
         """
         Load a project by ID.
         
         If project file exists, also reload snapshots from file.
+        Use get_project() instead when the project is already loaded and
+        you don't need to re-read the project file.
         
         Args:
             project_id: Project identifier
@@ -984,6 +1037,7 @@ class ProjectService:
                 os.unlink(temp_path)
             raise
         
+        self._dirty_snapshot_ids.clear()
         Log.info(
             f"ProjectService: Created project file: {project_file} "
             f"({len(blocks)} blocks, {len(connections)} connections, {len(data_items)} data items, "

@@ -15,6 +15,28 @@ from .base_command import EchoZeroCommand
 if TYPE_CHECKING:
     from src.application.api.application_facade import ApplicationFacade
 
+
+def resolve_stable_group_identity(item) -> tuple:
+    """
+    Resolve a stable (group_id, group_name) for an EventDataItem.
+
+    The identity must survive across song switches and re-pulls where
+    EventDataItem UUIDs change but the upstream source relationship
+    stays the same.
+
+    MA3 sync groups retain their explicit ``tc_*`` prefix.
+    All other items use ``{source_block_id}:{item.name}``.
+    """
+    group_name = item.name
+    if item.metadata:
+        meta_group_id = item.metadata.get("group_id")
+        meta_group_name = item.metadata.get("group_name")
+        if isinstance(meta_group_id, str) and meta_group_id.startswith("tc_"):
+            return meta_group_id, meta_group_name or group_name
+    source_block_id = (item.metadata or {}).get("_source_block_id") or item.block_id
+    return f"{source_block_id}:{item.name}", group_name
+
+
 class EditorCreateLayerCommand(EchoZeroCommand):
     """
     Create a layer in an Editor block (undoable).
@@ -988,8 +1010,7 @@ class EditorGetLayersCommand(EchoZeroCommand):
 
         allowed_keys = set()
         for item in event_items:
-            group_id = item.id
-            group_name = item.name
+            group_id, group_name = resolve_stable_group_identity(item)
             is_synced = False
             show_manager_block_id = None
             ma3_track_coord = None
@@ -1012,10 +1033,7 @@ class EditorGetLayersCommand(EchoZeroCommand):
                 ):
                     is_synced = True
                 meta_group_id = item.metadata.get("group_id")
-                meta_group_name = item.metadata.get("group_name")
                 if isinstance(meta_group_id, str) and meta_group_id.startswith("tc_"):
-                    group_id = meta_group_id
-                    group_name = meta_group_name or group_name
                     is_synced = True
 
             if not group_id or not group_name:
@@ -1075,7 +1093,7 @@ class EditorGetLayersCommand(EchoZeroCommand):
                 f"Stale editor_layers overrides for block {self._block_id}: "
                 f"{stale_override_keys[:10]}"
             )
-            Log.error(message)
+            Log.info(message)
             pruned_overrides = [
                 override for key, override in overrides_by_key.items()
                 if key in allowed_keys
@@ -1087,7 +1105,7 @@ class EditorGetLayersCommand(EchoZeroCommand):
                     data={'layers': pruned_overrides},
                 )
             except Exception as e:
-                Log.error(f"Failed to prune stale editor_layers overrides: {e}")
+                Log.warning(f"Failed to prune stale editor_layers overrides: {e}")
     
     def undo(self):
         """No-op for query commands."""

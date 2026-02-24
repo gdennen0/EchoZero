@@ -7,9 +7,10 @@ Provides UI for MA3 connection management, sync controls, and testing.
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QFormLayout, QLabel,
     QPushButton, QGroupBox, QLineEdit, QSpinBox, QComboBox,
-    QCheckBox, QFrame, QTextEdit, QSplitter,
+    QCheckBox, QFrame, QTextEdit, QSplitter, QScrollArea,
     QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView,
-    QTabWidget, QDoubleSpinBox, QInputDialog, QDialog
+    QTabWidget, QDoubleSpinBox, QInputDialog, QDialog, QSizePolicy,
+    QAbstractSpinBox
 )
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QObject
 from PyQt6.QtGui import QColor, QBrush
@@ -38,6 +39,8 @@ from src.features.show_manager.domain import (
 )
 import json
 import time
+
+
 
 class RefreshableComboBox(QComboBox):
     """QComboBox that calls a refresh callback before showing the dropdown."""
@@ -95,10 +98,14 @@ class ShowManagerPanel(BlockPanelBase):
         self._settings_manager.settings_changed.connect(self._on_setting_changed)
         # Connect to settings_loaded signal to refresh UI when settings are loaded from database
         self._settings_manager.settings_loaded.connect(self._on_settings_loaded)
+        self._settings_manager.settings_save_failed.connect(self._on_settings_save_failed)
         
         # Connection state (MA3 connection is tracked by SSM; panel reads via SSM property)
         self._was_fully_connected = False  # Track previous connection state for UI updates
         self._sync_list_updating: bool = False  # Guard flag for sync list updates
+        self._sync_list_pending: bool = False
+        self._available_list_updating: bool = False
+        self._available_list_pending: bool = False
         
         # Reconcile state (must be set before _load_connection_state_from_service
         # which can trigger _start_sync_layer_reconcile)
@@ -181,7 +188,6 @@ class ShowManagerPanel(BlockPanelBase):
         self._last_ma3_refresh_at: float = 0.0
         self._ma3_refresh_min_interval: float = 2.0
         self._force_tracks_refresh: bool = False
-        self._sync_list_pending: bool = False
         
         # Sync system manager (single source of truth for sync operations)
         # Use the facade's cached SSM so project-load monitoring shares the same instance
@@ -233,14 +239,213 @@ class ShowManagerPanel(BlockPanelBase):
         QTimer.singleShot(300, delayed_refresh)
     
     def create_content_widget(self) -> QWidget:
-        """Create ShowManager-specific UI with tabbed interface."""
+        """Create ShowManager panel: persistent status strip + sync layers as primary body."""
         widget = QWidget()
         main_layout = QVBoxLayout(widget)
         main_layout.setSpacing(0)
         main_layout.setContentsMargins(0, 0, 0, 0)
-        
-        self.tab_widget = QTabWidget()
-        self.tab_widget.setStyleSheet(f"""
+
+        # ── Layer 1: Persistent Status Strip ─────────────────────────────────
+        status_strip = QFrame()
+        status_strip.setFrameShape(QFrame.Shape.NoFrame)
+        status_strip.setStyleSheet(f"""
+            QFrame {{
+                background-color: {Colors.BG_DARK.name()};
+                border-bottom: 1px solid {Colors.BORDER.name()};
+            }}
+        """)
+        status_strip.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        strip_layout = QHBoxLayout(status_strip)
+        strip_layout.setContentsMargins(Spacing.SM, Spacing.XS, Spacing.SM, Spacing.XS)
+        strip_layout.setSpacing(Spacing.XS)
+
+        self.connection_status_indicator = BlockStatusDot(self.block_id, self.facade, parent=widget)
+        self.connection_status_indicator.setFixedSize(14, 14)
+        strip_layout.addWidget(self.connection_status_indicator)
+
+        self.connection_status_label = QLabel("Not Connected")
+        self.connection_status_label.setStyleSheet(
+            f"color: {Colors.TEXT_PRIMARY.name()}; font-weight: 600; font-size: 12px;"
+        )
+        strip_layout.addWidget(self.connection_status_label)
+
+        self.connection_details_label = QLabel("")
+        self.connection_details_label.setStyleSheet(
+            f"color: {Colors.TEXT_SECONDARY.name()}; font-size: 11px;"
+        )
+        strip_layout.addWidget(self.connection_details_label, stretch=1)
+
+        self.start_listening_btn = QPushButton("Listen")
+        self.start_listening_btn.setToolTip("Start OSC listener")
+        self.start_listening_btn.clicked.connect(self._on_start_listening)
+        self.start_listening_btn.setFixedHeight(26)
+        self.start_listening_btn.setStyleSheet(self._accent_button_style(Colors.ACCENT_BLUE))
+        strip_layout.addWidget(self.start_listening_btn)
+
+        self.stop_listening_btn = QPushButton("Stop")
+        self.stop_listening_btn.setToolTip("Stop OSC listener")
+        self.stop_listening_btn.clicked.connect(self._on_stop_listening)
+        self.stop_listening_btn.setEnabled(False)
+        self.stop_listening_btn.setFixedHeight(26)
+        strip_layout.addWidget(self.stop_listening_btn)
+
+        settings_btn = QPushButton("Settings")
+        settings_btn.setToolTip("Open connection settings and monitoring")
+        settings_btn.clicked.connect(self._show_connection_settings_dialog)
+        settings_btn.setFixedHeight(26)
+        strip_layout.addWidget(settings_btn)
+
+        main_layout.addWidget(status_strip)
+
+        # ── Layer 2: Sync Layers Body ────────────────────────────────────────
+        sync_body = QWidget()
+        sync_body.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        sync_layout = QVBoxLayout(sync_body)
+        sync_layout.setSpacing(Spacing.XS)
+        sync_layout.setContentsMargins(Spacing.SM, Spacing.SM, Spacing.SM, Spacing.SM)
+
+        # Timecode + hook status row
+        tc_row = QHBoxLayout()
+        tc_row.setSpacing(Spacing.XS)
+
+        tc_label = QLabel("TC:")
+        tc_label.setStyleSheet(f"color: {Colors.TEXT_SECONDARY.name()}; font-size: 11px;")
+        tc_row.addWidget(tc_label)
+
+        self.target_timecode_edit = QLineEdit()
+        self.target_timecode_edit.setPlaceholderText("101")
+        self.target_timecode_edit.setText("1")
+        self.target_timecode_edit.setFixedWidth(52)
+        self.target_timecode_edit.editingFinished.connect(self._on_target_timecode_changed)
+        tc_row.addWidget(self.target_timecode_edit)
+
+        self.load_timecode_btn = QPushButton("Load")
+        self.load_timecode_btn.setToolTip("Clear old data and load tracks from this timecode")
+        self.load_timecode_btn.clicked.connect(self._on_load_timecode_clicked)
+        self.load_timecode_btn.setFixedHeight(24)
+        tc_row.addWidget(self.load_timecode_btn)
+
+        sep = QFrame()
+        sep.setFrameShape(QFrame.Shape.VLine)
+        sep.setStyleSheet(f"color: {Colors.BORDER.name()};")
+        tc_row.addWidget(sep)
+
+        self.hook_status_label = QLabel("Hooks: 0/0")
+        self.hook_status_label.setStyleSheet(f"color: {Colors.TEXT_SECONDARY.name()}; font-size: 11px;")
+        tc_row.addWidget(self.hook_status_label)
+
+        self.refresh_layers_btn = QPushButton("Refresh")
+        self.refresh_layers_btn.setToolTip("Fetch MA3 tracks and refresh lists")
+        self.refresh_layers_btn.clicked.connect(self._on_manual_layer_refresh)
+        self.refresh_layers_btn.setFixedHeight(24)
+        tc_row.addWidget(self.refresh_layers_btn)
+
+        tc_row.addStretch()
+        sync_layout.addLayout(tc_row)
+
+        # Batch resolve row
+        batch_row = QHBoxLayout()
+        batch_row.setSpacing(Spacing.XS)
+
+        batch_label = QLabel("Batch:")
+        batch_label.setStyleSheet(f"color: {Colors.TEXT_SECONDARY.name()}; font-size: 11px;")
+        batch_row.addWidget(batch_label)
+
+        self.batch_keep_ez_btn = QPushButton("Keep EZ for All")
+        self.batch_keep_ez_btn.setToolTip("Keep Editor events for ALL synced layers and push them to MA3")
+        self.batch_keep_ez_btn.clicked.connect(self._on_batch_keep_ez)
+        self.batch_keep_ez_btn.setFixedHeight(24)
+        batch_row.addWidget(self.batch_keep_ez_btn)
+
+        self.batch_keep_ma3_btn = QPushButton("Keep MA3 for All")
+        self.batch_keep_ma3_btn.setToolTip("Keep MA3 events for ALL synced layers and apply them to the Editor")
+        self.batch_keep_ma3_btn.clicked.connect(self._on_batch_keep_ma3)
+        self.batch_keep_ma3_btn.setFixedHeight(24)
+        batch_row.addWidget(self.batch_keep_ma3_btn)
+
+        batch_row.addStretch()
+        sync_layout.addLayout(batch_row)
+
+        # Synced layers table – fills all remaining height
+        synced_label = QLabel("Synced Layers")
+        synced_label.setStyleSheet(
+            f"color: {Colors.TEXT_SECONDARY.name()}; font-size: 11px; font-weight: 600;"
+        )
+        sync_layout.addWidget(synced_label)
+
+        self.layers_table = QTableWidget()
+        self.layers_table.setColumnCount(10)
+        self.layers_table.setHorizontalHeaderLabels([
+            "Sync", "Type", "Layer", "Status", "TG", "Seq", "Resync", "Keep EZ", "Keep MA3", "Remove"
+        ])
+        self.layers_table.verticalHeader().setVisible(False)
+        self.layers_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.layers_table.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection)
+        self.layers_table.setAlternatingRowColors(True)
+        self.layers_table.setShowGrid(False)
+        self.layers_table.setWordWrap(False)
+
+        hdr = self.layers_table.horizontalHeader()
+        hdr.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
+        hdr.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
+        hdr.setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
+        hdr.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
+        hdr.setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
+        hdr.setSectionResizeMode(5, QHeaderView.ResizeMode.ResizeToContents)
+        hdr.setSectionResizeMode(6, QHeaderView.ResizeMode.ResizeToContents)
+        hdr.setSectionResizeMode(7, QHeaderView.ResizeMode.ResizeToContents)
+        hdr.setSectionResizeMode(8, QHeaderView.ResizeMode.ResizeToContents)
+        hdr.setSectionResizeMode(9, QHeaderView.ResizeMode.ResizeToContents)
+        hdr.setDefaultSectionSize(50)
+        self.layers_table.setStyleSheet(self._table_style())
+        sync_layout.addWidget(self.layers_table, stretch=1)
+
+        # Add / Map Layers button at bottom
+        add_map_btn = QPushButton("+ Add / Map Layers...")
+        add_map_btn.setToolTip("Open available layers to map new Editor or MA3 layers")
+        add_map_btn.clicked.connect(self._show_available_layers_dialog)
+        add_map_btn.setMinimumHeight(30)
+        add_map_btn.setStyleSheet(f"""
+            QPushButton {{
+                background-color: transparent;
+                color: {Colors.ACCENT_BLUE.name()};
+                border: 1px solid {Colors.ACCENT_BLUE.name()};
+                border-radius: {border_radius(4)};
+                font-weight: 600;
+                padding: 4px 0;
+            }}
+            QPushButton:hover {{
+                background-color: {Colors.ACCENT_BLUE.name()};
+                color: {Colors.TEXT_PRIMARY.name()};
+            }}
+        """)
+        sync_layout.addWidget(add_map_btn)
+
+        main_layout.addWidget(sync_body, stretch=1)
+
+        # Persistent dialogs — created once, never destroyed
+        self._settings_dialog: Optional[QDialog] = None
+        self._available_layers_dialog: Optional[QDialog] = None
+
+        # Build widget trees owned by dialogs (all existing self.* names preserved)
+        self._init_settings_dialog()
+        self._init_available_layers_dialog()
+
+        QTimer.singleShot(0, self._update_synced_layers_list)
+        return widget
+
+    def _init_settings_dialog(self):
+        """Create the persistent connection settings + monitoring dialog (created once, never destroyed)."""
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Connection Settings and Monitoring")
+        dialog.resize(740, 640)
+        dialog.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, False)
+        outer = QVBoxLayout(dialog)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSpacing(0)
+
+        tabs = QTabWidget()
+        tabs.setStyleSheet(f"""
             QTabWidget::pane {{
                 border: none;
                 border-top: 1px solid {Colors.BORDER.name()};
@@ -249,7 +454,7 @@ class ShowManagerPanel(BlockPanelBase):
             QTabBar::tab {{
                 background-color: {Colors.BG_MEDIUM.name()};
                 color: {Colors.TEXT_SECONDARY.name()};
-                padding: 6px 14px;
+                padding: 7px 18px;
                 margin-right: 1px;
                 border: none;
             }}
@@ -257,61 +462,33 @@ class ShowManagerPanel(BlockPanelBase):
                 background-color: {Colors.BG_DARK.name()};
                 color: {Colors.TEXT_PRIMARY.name()};
             }}
-            QTabBar::tab:hover {{
-                color: {Colors.TEXT_PRIMARY.name()};
-            }}
         """)
-        
-        self.tab_widget.addTab(self._create_connection_tab(), "Connection")
-        self.tab_widget.addTab(self._create_monitoring_tab(), "Monitoring")
-        self.tab_widget.addTab(self._create_layer_sync_tab(), "Layer Sync")
-        
-        main_layout.addWidget(self.tab_widget)
-        
-        return widget
-    
-    def _create_connection_tab(self) -> QWidget:
-        """Create Connection tab with status, settings, and controls."""
-        tab = QWidget()
-        layout = QVBoxLayout(tab)
-        layout.setSpacing(Spacing.SM)
-        layout.setContentsMargins(Spacing.SM, Spacing.SM, Spacing.SM, Spacing.SM)
-        
-        # === Connection Status (compact row) ===
+
+        # ── Connection tab ───────────────────────────────────────────────────
+        conn_tab = QWidget()
+        conn_layout = QVBoxLayout(conn_tab)
+        conn_layout.setSpacing(Spacing.SM)
+        conn_layout.setContentsMargins(Spacing.MD, Spacing.MD, Spacing.MD, Spacing.MD)
+
+        # Status row (fresh labels — do NOT move strip widgets here)
+        self._dlg_status_label = QLabel("Not Connected")
+        self._dlg_status_label.setStyleSheet(f"color: {Colors.TEXT_PRIMARY.name()}; font-weight: 600;")
+        self._dlg_details_label = QLabel("")
+        self._dlg_details_label.setStyleSheet(f"color: {Colors.TEXT_SECONDARY.name()}; font-size: 11px;")
         status_row = QHBoxLayout()
-        status_row.setSpacing(Spacing.SM)
-        
-        self.connection_status_indicator = BlockStatusDot(self.block_id, self.facade, parent=tab)
-        self.connection_status_indicator.setFixedSize(16, 16)
-        status_row.addWidget(self.connection_status_indicator)
-        
-        self.connection_status_label = QLabel("Not Connected")
-        self.connection_status_label.setStyleSheet(f"color: {Colors.TEXT_PRIMARY.name()}; font-weight: bold;")
-        status_row.addWidget(self.connection_status_label)
-        
-        self.connection_details_label = QLabel("")
-        self.connection_details_label.setStyleSheet(f"color: {Colors.TEXT_SECONDARY.name()}; font-size: 11px;")
-        status_row.addWidget(self.connection_details_label, stretch=1)
-        
-        refresh_btn = QPushButton("Refresh")
+        status_row.addWidget(self._dlg_status_label)
+        status_row.addWidget(self._dlg_details_label, stretch=1)
+        refresh_btn = QPushButton("Refresh Status")
         refresh_btn.clicked.connect(self._check_connection_status)
-        refresh_btn.setToolTip("Refresh connection status")
         status_row.addWidget(refresh_btn)
-        
-        layout.addLayout(status_row)
-        
-        # Divider
+        conn_layout.addLayout(status_row)
+
         divider = QFrame()
         divider.setFrameShape(QFrame.Shape.HLine)
         divider.setStyleSheet(f"color: {Colors.BORDER.name()};")
-        layout.addWidget(divider)
-        
-        # === Connection Settings (form) ===
-        form = QFormLayout()
-        form.setSpacing(Spacing.SM)
-        form.setContentsMargins(0, 0, 0, 0)
-        
-        # Interface selection (listen address)
+        conn_layout.addWidget(divider)
+
+        # Network form
         listen_address = "127.0.0.1"
         if hasattr(self, '_settings_manager') and self._settings_manager.is_loaded():
             listen_address = self._settings_manager.listen_address or "127.0.0.1"
@@ -320,96 +497,86 @@ class ShowManagerPanel(BlockPanelBase):
         self.listen_interface_edit = QLineEdit(listen_address)
         self.listen_interface_edit.setPlaceholderText("Custom IP")
         self.listen_interface_edit.editingFinished.connect(self._on_interface_custom_changed)
-        interface_widget = QWidget()
-        interface_layout = QHBoxLayout(interface_widget)
-        interface_layout.setContentsMargins(0, 0, 0, 0)
-        interface_layout.setSpacing(Spacing.XS)
-        interface_layout.addWidget(self.listen_interface_combo)
-        interface_layout.addWidget(self.listen_interface_edit)
-        form.addRow("Interface:", interface_widget)
         self._populate_interface_combo(listen_address)
-        
-        # MA3 Address
+
         initial_ip = "127.0.0.1"
         if hasattr(self, '_settings_manager') and self._settings_manager.is_loaded():
             initial_ip = self._settings_manager.ma3_ip
         self.ma3_ip_edit = QLineEdit(initial_ip)
         self.ma3_ip_edit.setPlaceholderText("e.g., 127.0.0.1")
         self.ma3_ip_edit.editingFinished.connect(self._on_ip_changed)
-        form.addRow("MA3 Address:", self.ma3_ip_edit)
-        
-        # Ports side by side
-        ports_row = QHBoxLayout()
-        ports_row.setSpacing(Spacing.SM)
-        
+
         initial_port = 9001
         if hasattr(self, '_settings_manager') and self._settings_manager.is_loaded():
             initial_port = self._settings_manager.ma3_port
         self.ma3_port_spin = QSpinBox()
         self.ma3_port_spin.setRange(1, 65535)
+        self.ma3_port_spin.setKeyboardTracking(False)
         self.ma3_port_spin.setValue(initial_port)
-        self.ma3_port_spin.valueChanged.connect(self._on_port_changed)
-        ports_row.addWidget(QLabel("Send:"))
-        ports_row.addWidget(self.ma3_port_spin)
-        
+        self.ma3_port_spin.editingFinished.connect(
+            lambda: self._on_port_changed(self.ma3_port_spin.value())
+        )
+
         initial_listen_port = 9000
         if hasattr(self, '_settings_manager') and self._settings_manager.is_loaded():
             initial_listen_port = self._settings_manager.listen_port
         self.listen_port_spin = QSpinBox()
         self.listen_port_spin.setRange(1, 65535)
+        self.listen_port_spin.setKeyboardTracking(False)
         self.listen_port_spin.setValue(initial_listen_port)
-        self.listen_port_spin.valueChanged.connect(self._on_listen_port_changed)
+        self.listen_port_spin.editingFinished.connect(
+            lambda: self._on_listen_port_changed(self.listen_port_spin.value())
+        )
+
+        interface_widget = QWidget()
+        iface_layout = QHBoxLayout(interface_widget)
+        iface_layout.setContentsMargins(0, 0, 0, 0)
+        iface_layout.setSpacing(Spacing.XS)
+        iface_layout.addWidget(self.listen_interface_combo)
+        iface_layout.addWidget(self.listen_interface_edit)
+
+        form = QFormLayout()
+        form.setSpacing(Spacing.SM)
+        form.addRow("Listen Interface:", interface_widget)
+        form.addRow("MA3 Address:", self.ma3_ip_edit)
+        ports_row = QHBoxLayout()
+        ports_row.setSpacing(Spacing.SM)
+        ports_row.addWidget(QLabel("Send:"))
+        ports_row.addWidget(self.ma3_port_spin)
         ports_row.addWidget(QLabel("Listen:"))
         ports_row.addWidget(self.listen_port_spin)
         ports_row.addStretch()
         form.addRow("Ports:", ports_row)
-        
-        # Listener + MA3 controls in one row
-        controls_row = QHBoxLayout()
-        controls_row.setSpacing(Spacing.XS)
-        
-        self.start_listening_btn = QPushButton("Start Listening")
-        self.start_listening_btn.clicked.connect(self._on_start_listening)
-        controls_row.addWidget(self.start_listening_btn)
-        
-        self.stop_listening_btn = QPushButton("Stop")
-        self.stop_listening_btn.clicked.connect(self._on_stop_listening)
-        self.stop_listening_btn.setEnabled(False)
-        controls_row.addWidget(self.stop_listening_btn)
-        
+        conn_layout.addLayout(form)
+
         self.configure_ma3_btn = QPushButton("Configure MA3")
         self.configure_ma3_btn.clicked.connect(self._on_configure_ma3)
         self.configure_ma3_btn.setEnabled(False)
-        controls_row.addWidget(self.configure_ma3_btn)
-        
-        self.ping_btn = QPushButton("Ping")
+        self.ping_btn = QPushButton("Ping MA3")
         self.ping_btn.clicked.connect(self._on_ping)
-        controls_row.addWidget(self.ping_btn)
-        
-        controls_row.addStretch()
-        form.addRow("Controls:", controls_row)
+        actions_row = QHBoxLayout()
+        actions_row.setSpacing(Spacing.XS)
+        actions_row.addWidget(self.configure_ma3_btn)
+        actions_row.addWidget(self.ping_btn)
+        actions_row.addStretch()
+        conn_layout.addLayout(actions_row)
 
-        # Force send (testing override)
         self.force_send_checkbox = QCheckBox("Force send OSC (bypass readiness checks)")
-        self.force_send_checkbox.setToolTip(
-            "Bypass MA3 readiness checks and send OSC even if not connected."
-        )
+        self.force_send_checkbox.setToolTip("Bypass MA3 readiness checks and send OSC even if not connected.")
         if hasattr(self, '_settings_manager') and self._settings_manager.is_loaded():
             self.force_send_checkbox.setChecked(self._settings_manager.force_send_osc)
         self.force_send_checkbox.toggled.connect(self._on_force_send_toggled)
-        form.addRow("", self.force_send_checkbox)
-        
-        layout.addLayout(form)
-        layout.addStretch()
-        return tab
-    
-    def _create_monitoring_tab(self) -> QWidget:
-        """Create Monitoring tab with OSC log, packet viewer, and commands."""
-        tab = QWidget()
-        layout = QVBoxLayout(tab)
-        layout.setSpacing(Spacing.SM)
-        layout.setContentsMargins(Spacing.SM, Spacing.SM, Spacing.SM, Spacing.SM)
-        
+        conn_layout.addWidget(self.force_send_checkbox)
+        conn_layout.addStretch()
+
+        tabs.addTab(conn_tab, "Connection")
+
+        # ── Monitoring tab ───────────────────────────────────────────────────
+        mon_tab = QWidget()
+        mon_layout = QVBoxLayout(mon_tab)
+        mon_layout.setSpacing(Spacing.SM)
+        mon_layout.setContentsMargins(Spacing.SM, Spacing.SM, Spacing.SM, Spacing.SM)
+
         mono_style = f"""
             QTextEdit {{
                 background-color: {Colors.BG_DARK.name()};
@@ -419,41 +586,34 @@ class ShowManagerPanel(BlockPanelBase):
                 border: 1px solid {Colors.BORDER.name()};
             }}
         """
-        
-        # === Live Log ===
-        log_bar = QHBoxLayout()
-        log_bar.setSpacing(Spacing.SM)
-        log_label = QLabel("Live OSC Log")
-        log_label.setStyleSheet(f"color: {Colors.TEXT_PRIMARY.name()}; font-weight: bold;")
-        log_bar.addWidget(log_label)
-        
         initial_listen_port_str = "127.0.0.1:9000"
         if hasattr(self, '_settings_manager') and self._settings_manager.is_loaded():
             initial_listen_port_str = self._format_listen_status()
         self.listen_status_label = QLabel(initial_listen_port_str)
         self.listen_status_label.setStyleSheet(f"color: {Colors.ACCENT_GREEN.name()}; font-size: 11px;")
-        log_bar.addWidget(self.listen_status_label)
-        
-        log_bar.addStretch()
-        clear_log_btn = QPushButton("Clear")
-        clear_log_btn.clicked.connect(lambda: self.log_text.clear())
-        log_bar.addWidget(clear_log_btn)
-        layout.addLayout(log_bar)
-        
+
         self.log_text = QTextEdit()
         self.log_text.setReadOnly(True)
         self.log_text.setMinimumHeight(120)
         self.log_text.setStyleSheet(mono_style)
-        layout.addWidget(self.log_text, stretch=2)
-        
-        # === OSC Packet Viewer (side by side) ===
-        packet_splitter = QSplitter(Qt.Orientation.Horizontal)
-        packet_splitter.setHandleWidth(1)
-        
+
+        log_bar = QHBoxLayout()
+        log_bar.addWidget(QLabel("Listener:"))
+        log_bar.addWidget(self.listen_status_label)
+        log_bar.addStretch()
+        clear_log_btn = QPushButton("Clear")
+        clear_log_btn.clicked.connect(lambda: self.log_text.clear())
+        log_bar.addWidget(clear_log_btn)
+        mon_layout.addLayout(log_bar)
+        mon_layout.addWidget(self.log_text, stretch=2)
+
+        pkt_label = QLabel("Packet Inspector")
+        pkt_label.setStyleSheet(f"color: {Colors.TEXT_SECONDARY.name()}; font-size: 11px; font-weight: 600;")
+        mon_layout.addWidget(pkt_label)
+
         self.osc_raw_text = QTextEdit()
         self.osc_raw_text.setReadOnly(True)
         self.osc_raw_text.setPlaceholderText("Raw packets (hex)")
-        self.osc_raw_text.setMaximumHeight(100)
         self.osc_raw_text.setStyleSheet(f"""
             QTextEdit {{
                 background-color: {Colors.BG_DARK.name()};
@@ -463,11 +623,9 @@ class ShowManagerPanel(BlockPanelBase):
                 border: 1px solid {Colors.BORDER.name()};
             }}
         """)
-        
         self.osc_parsed_text = QTextEdit()
         self.osc_parsed_text.setReadOnly(True)
         self.osc_parsed_text.setPlaceholderText("Interpreted response")
-        self.osc_parsed_text.setMaximumHeight(100)
         self.osc_parsed_text.setStyleSheet(f"""
             QTextEdit {{
                 background-color: {Colors.BG_DARK.name()};
@@ -477,161 +635,199 @@ class ShowManagerPanel(BlockPanelBase):
                 border: 1px solid {Colors.BORDER.name()};
             }}
         """)
-        
+        packet_splitter = QSplitter(Qt.Orientation.Horizontal)
+        packet_splitter.setHandleWidth(1)
         packet_splitter.addWidget(self.osc_raw_text)
         packet_splitter.addWidget(self.osc_parsed_text)
-        layout.addWidget(packet_splitter)
-        
-        # === Commands (compact) ===
-        cmd_row = QHBoxLayout()
-        cmd_row.setSpacing(Spacing.XS)
+        packet_splitter.setSizes([400, 400])
+        packet_splitter.setMaximumHeight(120)
+        mon_layout.addWidget(packet_splitter)
+
         self.custom_cmd_input = QLineEdit()
         self.custom_cmd_input.setPlaceholderText("Lua command (e.g., EZ.Ping())")
         self.custom_cmd_input.returnPressed.connect(self._on_send_command)
-        cmd_row.addWidget(self.custom_cmd_input, stretch=1)
-        
         send_btn = QPushButton("Send")
         send_btn.clicked.connect(self._on_send_command)
+        cmd_row = QHBoxLayout()
+        cmd_row.addWidget(self.custom_cmd_input, stretch=1)
         cmd_row.addWidget(send_btn)
-        layout.addLayout(cmd_row)
-        
-        # Quick command buttons (single row)
+        mon_layout.addLayout(cmd_row)
+
         quick_row = QHBoxLayout()
         quick_row.setSpacing(Spacing.XS)
-        
-        quick_commands = [
-            ("Ping", "EZ.Ping()"),
-            ("Status", "EZ.Status()"),
-            ("Timecodes", "EZ.GetTimecodes()"),
-        ]
-        for name, cmd in quick_commands:
-            btn = QPushButton(name)
-            btn.clicked.connect(lambda checked, c=cmd: self._send_lua_command(c))
-            quick_row.addWidget(btn)
-        
+        for _name, _cmd in [("Ping", "EZ.Ping()"), ("Status", "EZ.Status()"), ("Timecodes", "EZ.GetTimecodes()")]:
+            _btn = QPushButton(_name)
+            _btn.clicked.connect(lambda checked, c=_cmd: self._send_lua_command(c))
+            quick_row.addWidget(_btn)
+
         def get_tc():
             if hasattr(self, '_settings_manager') and self._settings_manager:
                 return self._settings_manager.target_timecode or 101
             return 101
-        
-        tc_commands = [
+
+        for _name, _cmd_fn in [
             ("TrackGroups", lambda: f"EZ.GetTrackGroups({get_tc()})"),
             ("Tracks 1", lambda: f"EZ.GetTracks({get_tc()}, 1)"),
             ("Events 1.1", lambda: f"EZ.GetEvents({get_tc()}, 1, 1)"),
             ("All Events", lambda: f"EZ.GetAllEvents({get_tc()})"),
-        ]
-        for name, cmd_fn in tc_commands:
-            btn = QPushButton(name)
-            btn.clicked.connect(lambda checked, fn=cmd_fn: self._send_lua_command(fn()))
-            quick_row.addWidget(btn)
-        
+        ]:
+            _btn = QPushButton(_name)
+            _btn.clicked.connect(lambda checked, fn=_cmd_fn: self._send_lua_command(fn()))
+            quick_row.addWidget(_btn)
         quick_row.addStretch()
-        layout.addLayout(quick_row)
-        
-        # === Events Display ===
-        events_bar = QHBoxLayout()
-        events_bar.setSpacing(Spacing.SM)
-        events_label = QLabel("MA3 Events")
-        events_label.setStyleSheet(f"color: {Colors.TEXT_PRIMARY.name()}; font-weight: bold;")
-        events_bar.addWidget(events_label)
-        
+        mon_layout.addLayout(quick_row)
+
         self.events_count_label = QLabel("0 events")
         self.events_count_label.setStyleSheet(f"color: {Colors.TEXT_SECONDARY.name()}; font-size: 11px;")
-        events_bar.addWidget(self.events_count_label)
-        events_bar.addStretch()
-        
         self.watch_btn = QPushButton("Start Watching")
         self.watch_btn.clicked.connect(self._on_toggle_watching)
-        events_bar.addWidget(self.watch_btn)
-        
-        clear_events_btn = QPushButton("Clear")
-        clear_events_btn.clicked.connect(lambda: self.events_text.clear())
-        events_bar.addWidget(clear_events_btn)
-        layout.addLayout(events_bar)
-        
         self.events_text = QTextEdit()
         self.events_text.setReadOnly(True)
         self.events_text.setMinimumHeight(80)
         self.events_text.setStyleSheet(mono_style)
-        layout.addWidget(self.events_text, stretch=1)
-        
-        # === Manual Event Creation (compact row) ===
-        manual_row = QHBoxLayout()
-        manual_row.setSpacing(Spacing.SM)
-        manual_row.addWidget(QLabel("Layer:"))
+
+        events_bar = QHBoxLayout()
+        events_bar.addWidget(QLabel("Events:"))
+        events_bar.addWidget(self.events_count_label)
+        events_bar.addStretch()
+        events_bar.addWidget(self.watch_btn)
+        clear_events_btn = QPushButton("Clear")
+        clear_events_btn.clicked.connect(lambda: self.events_text.clear())
+        events_bar.addWidget(clear_events_btn)
+        mon_layout.addLayout(events_bar)
+        mon_layout.addWidget(self.events_text, stretch=1)
+
         self.manual_layer_combo = QComboBox()
         self.manual_layer_combo.setEditable(False)
         self.manual_layer_combo.addItem("(Select layer...)")
-        manual_row.addWidget(self.manual_layer_combo)
-        
-        manual_row.addWidget(QLabel("Time:"))
         self.manual_time_input = QDoubleSpinBox()
         self.manual_time_input.setMinimum(0.0)
         self.manual_time_input.setMaximum(999999.0)
         self.manual_time_input.setSingleStep(0.1)
         self.manual_time_input.setDecimals(3)
         self.manual_time_input.setValue(0.0)
-        manual_row.addWidget(self.manual_time_input)
-        
         add_event_btn = QPushButton("Add Event")
         add_event_btn.clicked.connect(self._on_add_manual_event)
+        manual_row = QHBoxLayout()
+        manual_row.addWidget(QLabel("Layer:"))
+        manual_row.addWidget(self.manual_layer_combo)
+        manual_row.addWidget(QLabel("Time:"))
+        manual_row.addWidget(self.manual_time_input)
         manual_row.addWidget(add_event_btn)
         manual_row.addStretch()
-        layout.addLayout(manual_row)
-        
-        return tab
-    
-    def _create_layer_sync_tab(self) -> QWidget:
-        """Create Layer Sync tab with side-by-side Available + Synced tables."""
-        tab = QWidget()
-        layout = QVBoxLayout(tab)
-        layout.setSpacing(Spacing.XS)
+        mon_layout.addLayout(manual_row)
+
+        tabs.addTab(mon_tab, "Monitoring")
+        outer.addWidget(tabs)
+
+        close_btn = QPushButton("Close")
+        close_btn.clicked.connect(dialog.hide)
+        close_btn.setFixedHeight(32)
+        btn_row_layout = QHBoxLayout()
+        btn_row_layout.setContentsMargins(Spacing.SM, Spacing.XS, Spacing.SM, Spacing.SM)
+        btn_row_layout.addStretch()
+        btn_row_layout.addWidget(close_btn)
+        outer.addLayout(btn_row_layout)
+
+        self._settings_dialog = dialog
+
+    def _show_connection_settings_dialog(self):
+        """Show the persistent connection settings and monitoring dialog."""
+        # Sync dialog status labels with current strip state
+        try:
+            self._dlg_status_label.setText(self.connection_status_label.text())
+            self._dlg_details_label.setText(self.connection_details_label.text())
+        except Exception:
+            pass
+        if self._settings_dialog:
+            self._settings_dialog.show()
+            self._settings_dialog.raise_()
+            self._settings_dialog.activateWindow()
+
+    def _init_available_layers_dialog(self):
+        """Create the persistent available layers dialog (created once, never destroyed)."""
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Add or Map Layers")
+        dialog.resize(700, 480)
+        dialog.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, False)
+        layout = QVBoxLayout(dialog)
         layout.setContentsMargins(Spacing.SM, Spacing.SM, Spacing.SM, Spacing.SM)
-        
-        # === Toolbar row: Timecode + Sync Tools (compact single row) ===
-        toolbar = QHBoxLayout()
-        toolbar.setSpacing(Spacing.SM)
-        
-        tc_label = QLabel("Timecode:")
-        tc_label.setStyleSheet(f"color: {Colors.TEXT_SECONDARY.name()};")
-        toolbar.addWidget(tc_label)
-        
-        self.target_timecode_edit = QLineEdit()
-        self.target_timecode_edit.setPlaceholderText("e.g. 101")
-        self.target_timecode_edit.setText("1")
-        self.target_timecode_edit.setFixedWidth(60)
-        toolbar.addWidget(self.target_timecode_edit)
-        
-        self.load_timecode_btn = QPushButton("Switch")
-        self.load_timecode_btn.setToolTip("Clear old data and load tracks from this timecode")
-        self.load_timecode_btn.clicked.connect(self._on_load_timecode_clicked)
-        toolbar.addWidget(self.load_timecode_btn)
-        
-        # Separator
-        sep = QFrame()
-        sep.setFrameShape(QFrame.Shape.VLine)
-        sep.setStyleSheet(f"color: {Colors.BORDER.name()};")
-        toolbar.addWidget(sep)
-        
-        self.hook_status_label = QLabel("Hooks: 0/0")
-        self.hook_status_label.setStyleSheet(f"color: {Colors.TEXT_SECONDARY.name()}; font-size: 11px;")
-        toolbar.addWidget(self.hook_status_label)
-        
-        self.refresh_layers_btn = QPushButton("Refresh")
-        self.refresh_layers_btn.setToolTip("Fetch MA3 tracks and refresh lists")
-        self.refresh_layers_btn.clicked.connect(self._on_manual_layer_refresh)
-        toolbar.addWidget(self.refresh_layers_btn)
-        
-        toolbar.addStretch()
-        layout.addLayout(toolbar)
-        
-        # Shared table stylesheet
-        table_style = f"""
+        layout.setSpacing(Spacing.SM)
+
+        desc = QLabel("Select layers to sync between Editor and MA3. Check the Sync column to begin mapping.")
+        desc.setWordWrap(True)
+        desc.setStyleSheet(f"color: {Colors.TEXT_SECONDARY.name()};")
+        layout.addWidget(desc)
+
+        self.available_table = QTableWidget()
+        self.available_table.setColumnCount(7)
+        self.available_table.setHorizontalHeaderLabels(["Sync", "Type", "Layer", "Target", "TC", "TG", "Seq"])
+        self.available_table.verticalHeader().setVisible(False)
+        self.available_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.available_table.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection)
+        self.available_table.setAlternatingRowColors(True)
+        self.available_table.setShowGrid(False)
+        self.available_table.setWordWrap(False)
+        avail_header = self.available_table.horizontalHeader()
+        avail_header.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
+        avail_header.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
+        avail_header.setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
+        avail_header.setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)
+        avail_header.setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
+        avail_header.setSectionResizeMode(5, QHeaderView.ResizeMode.ResizeToContents)
+        avail_header.setSectionResizeMode(6, QHeaderView.ResizeMode.ResizeToContents)
+        avail_header.setDefaultSectionSize(50)
+        self.available_table.setStyleSheet(self._table_style())
+        layout.addWidget(self.available_table, stretch=1)
+
+        close_btn = QPushButton("Done")
+        close_btn.clicked.connect(dialog.hide)
+        close_btn.setFixedHeight(30)
+        btn_row = QHBoxLayout()
+        btn_row.addStretch()
+        btn_row.addWidget(close_btn)
+        layout.addLayout(btn_row)
+
+        self._available_layers_dialog = dialog
+
+    def _show_available_layers_dialog(self):
+        """Show the persistent available layers dialog."""
+        self._update_available_layers_list()
+        if self._available_layers_dialog:
+            self._available_layers_dialog.show()
+            self._available_layers_dialog.raise_()
+            self._available_layers_dialog.activateWindow()
+
+    def _create_section_group(self, title: str) -> QGroupBox:
+        """Create a consistently styled section container."""
+        group = QGroupBox(title)
+        group.setStyleSheet(f"""
+            QGroupBox {{
+                border: 1px solid {Colors.BORDER.name()};
+                border-radius: {border_radius(6)};
+                margin-top: 10px;
+                padding-top: 6px;
+                color: {Colors.TEXT_PRIMARY.name()};
+                font-weight: 600;
+                background-color: {Colors.BG_MEDIUM.name()};
+            }}
+            QGroupBox::title {{
+                subcontrol-origin: margin;
+                left: 10px;
+                padding: 0 4px;
+                color: {Colors.TEXT_PRIMARY.name()};
+            }}
+        """)
+        return group
+
+    def _table_style(self) -> str:
+        """Shared table style for layer sync tables."""
+        return f"""
             QTableWidget {{
                 background-color: {Colors.BG_MEDIUM.name()};
                 gridline-color: {Colors.BORDER.name()};
-                border: none;
-                border-top: 1px solid {Colors.BORDER.name()};
+                border: 1px solid {Colors.BORDER.name()};
+                border-radius: {border_radius(4)};
             }}
             QHeaderView::section {{
                 background-color: {Colors.BG_DARK.name()};
@@ -643,86 +839,12 @@ class ShowManagerPanel(BlockPanelBase):
                 border-bottom: 1px solid {Colors.BORDER.name()};
             }}
         """
-        
-        # === Split View: Available (left) | Synced (right) via QSplitter ===
-        splitter = QSplitter(Qt.Orientation.Horizontal)
-        splitter.setHandleWidth(1)
-        splitter.setStyleSheet(f"""
-            QSplitter::handle {{
-                background-color: {Colors.BORDER.name()};
-            }}
-        """)
-        
-        # --- Available Layers Panel ---
-        available_panel = QWidget()
-        available_layout = QVBoxLayout(available_panel)
-        available_layout.setContentsMargins(0, 0, 0, 0)
-        available_layout.setSpacing(0)
-        
-        avail_header_label = QLabel("Available Layers")
-        avail_header_label.setStyleSheet(f"""
-            background-color: {Colors.BG_DARK.name()};
-            color: {Colors.TEXT_PRIMARY.name()};
-            font-weight: bold;
-            padding: 4px 8px;
-            font-size: 12px;
-        """)
-        available_layout.addWidget(avail_header_label)
-        
-        self.available_table = QTableWidget()
-        self.available_table.setColumnCount(7)
-        self.available_table.setHorizontalHeaderLabels(["Sync", "Type", "Name", "Target", "TC", "TG", "Seq"])
-        self.available_table.verticalHeader().setVisible(False)
-        self.available_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
-        self.available_table.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection)
-        self.available_table.setAlternatingRowColors(True)
-        self.available_table.setShowGrid(False)
-        self.available_table.setWordWrap(False)
-        
-        avail_header = self.available_table.horizontalHeader()
-        avail_header.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
-        avail_header.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
-        avail_header.setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
-        avail_header.setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)
-        avail_header.setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
-        avail_header.setSectionResizeMode(5, QHeaderView.ResizeMode.ResizeToContents)
-        avail_header.setSectionResizeMode(6, QHeaderView.ResizeMode.ResizeToContents)
-        avail_header.setDefaultSectionSize(50)
-        self.available_table.setStyleSheet(table_style)
-        available_layout.addWidget(self.available_table)
-        
-        # --- Synced Layers Panel ---
-        synced_panel = QWidget()
-        synced_layout = QVBoxLayout(synced_panel)
-        synced_layout.setContentsMargins(0, 0, 0, 0)
-        synced_layout.setSpacing(0)
-        
-        synced_header_label = QLabel("Synced Layers")
-        synced_header_label.setStyleSheet(f"""
-            background-color: {Colors.BG_DARK.name()};
-            color: {Colors.TEXT_PRIMARY.name()};
-            font-weight: bold;
-            padding: 4px 8px;
-            font-size: 12px;
-        """)
-        synced_layout.addWidget(synced_header_label)
-        
-        # --- Batch actions toolbar for synced layers ---
-        batch_toolbar = QHBoxLayout()
-        batch_toolbar.setSpacing(Spacing.XS)
-        batch_toolbar.setContentsMargins(4, 2, 4, 2)
-        
-        batch_label = QLabel("Batch:")
-        batch_label.setStyleSheet(f"color: {Colors.TEXT_SECONDARY.name()}; font-size: 11px;")
-        batch_toolbar.addWidget(batch_label)
-        
-        self.batch_keep_ez_btn = QPushButton("All Keep EZ")
-        self.batch_keep_ez_btn.setToolTip(
-            "Keep Editor events for ALL synced layers and push them to MA3"
-        )
-        self.batch_keep_ez_btn.setStyleSheet(f"""
+
+    def _accent_button_style(self, accent_color) -> str:
+        """Shared style for accent batch-action buttons."""
+        return f"""
             QPushButton {{
-                background-color: {Colors.ACCENT_BLUE.name()};
+                background-color: {accent_color.name()};
                 color: {Colors.TEXT_PRIMARY.name()};
                 border: none;
                 border-radius: {border_radius(4)};
@@ -730,80 +852,13 @@ class ShowManagerPanel(BlockPanelBase):
                 font-size: 11px;
             }}
             QPushButton:hover {{
-                background-color: {Colors.ACCENT_BLUE.lighter(110).name()};
+                background-color: {accent_color.lighter(110).name()};
             }}
             QPushButton:disabled {{
                 background-color: {Colors.BG_MEDIUM.name()};
                 color: {Colors.TEXT_DISABLED.name()};
             }}
-        """)
-        self.batch_keep_ez_btn.clicked.connect(self._on_batch_keep_ez)
-        batch_toolbar.addWidget(self.batch_keep_ez_btn)
-        
-        self.batch_keep_ma3_btn = QPushButton("All Keep MA3")
-        self.batch_keep_ma3_btn.setToolTip(
-            "Keep MA3 events for ALL synced layers and apply them to the Editor"
-        )
-        self.batch_keep_ma3_btn.setStyleSheet(f"""
-            QPushButton {{
-                background-color: {Colors.ACCENT_GREEN.name()};
-                color: {Colors.TEXT_PRIMARY.name()};
-                border: none;
-                border-radius: {border_radius(4)};
-                padding: 3px 10px;
-                font-size: 11px;
-            }}
-            QPushButton:hover {{
-                background-color: {Colors.ACCENT_GREEN.lighter(110).name()};
-            }}
-            QPushButton:disabled {{
-                background-color: {Colors.BG_MEDIUM.name()};
-                color: {Colors.TEXT_DISABLED.name()};
-            }}
-        """)
-        self.batch_keep_ma3_btn.clicked.connect(self._on_batch_keep_ma3)
-        batch_toolbar.addWidget(self.batch_keep_ma3_btn)
-        
-        batch_toolbar.addStretch()
-        synced_layout.addLayout(batch_toolbar)
-        
-        self.layers_table = QTableWidget()
-        self.layers_table.setColumnCount(10)
-        self.layers_table.setHorizontalHeaderLabels([
-            "Sync", "Type", "Name", "Status", "TG", "Seq", "Resync", "Keep EZ", "Keep MA3", "Delete"
-        ])
-        self.layers_table.verticalHeader().setVisible(False)
-        self.layers_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
-        self.layers_table.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection)
-        self.layers_table.setAlternatingRowColors(True)
-        self.layers_table.setShowGrid(False)
-        self.layers_table.setWordWrap(False)
-        
-        header = self.layers_table.horizontalHeader()
-        header.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
-        header.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
-        header.setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
-        header.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
-        header.setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
-        header.setSectionResizeMode(5, QHeaderView.ResizeMode.ResizeToContents)
-        header.setSectionResizeMode(6, QHeaderView.ResizeMode.ResizeToContents)
-        header.setSectionResizeMode(7, QHeaderView.ResizeMode.ResizeToContents)
-        header.setSectionResizeMode(8, QHeaderView.ResizeMode.ResizeToContents)
-        header.setSectionResizeMode(9, QHeaderView.ResizeMode.ResizeToContents)
-        header.setDefaultSectionSize(50)
-        self.layers_table.setStyleSheet(table_style)
-        synced_layout.addWidget(self.layers_table)
-        
-        splitter.addWidget(available_panel)
-        splitter.addWidget(synced_panel)
-        splitter.setSizes([500, 500])
-        
-        layout.addWidget(splitter, stretch=1)
-        
-        # Initial update (after widgets are created)
-        QTimer.singleShot(0, self._update_synced_layers_list)
-        
-        return tab
+        """
     
     def _log(self, message: str):
         """Add message to live log view."""
@@ -846,31 +901,6 @@ class ShowManagerPanel(BlockPanelBase):
     
     def _apply_local_styles(self):
         """Re-apply variant button styles on theme change."""
-        # Helper for accent-colored buttons
-        def _accent_btn_style(accent_color):
-            return f"""
-                QPushButton {{
-                    background-color: {accent_color.name()};
-                    color: {Colors.TEXT_PRIMARY.name()};
-                    border: none;
-                    border-radius: {border_radius(4)};
-                    padding: 3px 10px;
-                    font-size: 11px;
-                }}
-                QPushButton:hover {{
-                    background-color: {accent_color.lighter(110).name()};
-                }}
-                QPushButton:disabled {{
-                    background-color: {Colors.BG_MEDIUM.name()};
-                    color: {Colors.TEXT_DISABLED.name()};
-                }}
-            """
-        
-        # Batch toolbar buttons
-        if hasattr(self, 'batch_keep_ez_btn'):
-            self.batch_keep_ez_btn.setStyleSheet(_accent_btn_style(Colors.ACCENT_BLUE))
-        if hasattr(self, 'batch_keep_ma3_btn'):
-            self.batch_keep_ma3_btn.setStyleSheet(_accent_btn_style(Colors.ACCENT_GREEN))
     
     def refresh(self):
         """Refresh UI with current block data."""
@@ -895,19 +925,23 @@ class ShowManagerPanel(BlockPanelBase):
         
         try:
             # Connection settings
-            self.ma3_ip_edit.setText(self._settings_manager.ma3_ip)
-            self.ma3_port_spin.setValue(self._settings_manager.ma3_port)
+            if not self._is_widget_actively_editing(self.ma3_ip_edit):
+                self.ma3_ip_edit.setText(self._settings_manager.ma3_ip)
+            if not self._is_widget_actively_editing(self.ma3_port_spin):
+                self.ma3_port_spin.setValue(self._settings_manager.ma3_port)
             if hasattr(self, 'listen_interface_combo'):
                 self._populate_interface_combo(self._settings_manager.listen_address)
-            self.listen_port_spin.setValue(self._settings_manager.listen_port)
+            if not self._is_widget_actively_editing(self.listen_port_spin):
+                self.listen_port_spin.setValue(self._settings_manager.listen_port)
             if hasattr(self, 'target_tc_spin'):
                 self.target_tc_spin.setValue(self._settings_manager.target_timecode)
             # Update Layer Sync tab textbox (but not during timecode switch)
             if hasattr(self, 'target_timecode_edit'):
                 if not getattr(self, '_switching_timecode', False):
-                    self.target_timecode_edit.blockSignals(True)
-                    self.target_timecode_edit.setText(str(self._settings_manager.target_timecode))
-                    self.target_timecode_edit.blockSignals(False)
+                    if not self._is_widget_actively_editing(self.target_timecode_edit):
+                        self.target_timecode_edit.blockSignals(True)
+                        self.target_timecode_edit.setText(str(self._settings_manager.target_timecode))
+                        self.target_timecode_edit.blockSignals(False)
             
             # Sync settings
             if hasattr(self, 'mapping_combo') and self.mapping_combo:
@@ -950,6 +984,30 @@ class ShowManagerPanel(BlockPanelBase):
             import traceback
             Log.error(f"ShowManagerPanel: Error refreshing UI: {e}\n{traceback.format_exc()}")
             traceback.print_exc()
+
+    def _is_widget_actively_editing(self, widget: QWidget) -> bool:
+        """Return True when a widget is focused for active user editing."""
+        if widget is None or not widget.hasFocus():
+            return False
+        return isinstance(widget, (QLineEdit, QAbstractSpinBox))
+
+    def _is_table_edit_in_progress(self, table: Optional[QTableWidget]) -> bool:
+        """Check if current focus is an editor inside the given table."""
+        if table is None:
+            return False
+        focus = self.focusWidget()
+        if focus is None or not isinstance(focus, (QLineEdit, QAbstractSpinBox)):
+            return False
+        parent = focus
+        while parent is not None:
+            if parent is table:
+                return True
+            parent = parent.parentWidget()
+        return False
+
+    def _on_settings_save_failed(self, keys: str, error: str) -> None:
+        """Fail loud for settings persistence failures."""
+        self.set_status_message(f"Save failed ({keys}): {error}", error=True)
     
     # === Connection Handling ===
     
@@ -1133,6 +1191,8 @@ class ShowManagerPanel(BlockPanelBase):
                 # Skip update if actively switching timecodes
                 if getattr(self, '_switching_timecode', False):
                     Log.debug("ShowManagerPanel: Skipping target_timecode_edit update during switch")
+                elif self._is_widget_actively_editing(self.target_timecode_edit):
+                    Log.debug("ShowManagerPanel: Deferring target_timecode_edit update while user is editing")
                 else:
                     current_tc = self._settings_manager.target_timecode
                     self.target_timecode_edit.blockSignals(True)
@@ -1150,9 +1210,10 @@ class ShowManagerPanel(BlockPanelBase):
         if skip_ssm_load:
             self._skip_ssm_load_after_block_updated = False
         if hasattr(self, '_sync_system_manager') and self._sync_system_manager and not skip_ssm_load:
-            # Reload synced layers from settings
             self._sync_system_manager._load_from_settings()
-        # Always refresh UI from current SSM state (whether we reloaded SSM or not)
+            self._available_ma3_target.clear()
+            self._available_editor_target.clear()
+            self._available_editor_config.clear()
         if hasattr(self, '_sync_system_manager') and self._sync_system_manager:
             self._update_synced_layers_list()
         
@@ -4387,6 +4448,23 @@ class ShowManagerPanel(BlockPanelBase):
             
             Log.info(f"ShowManagerPanel: Cleanup complete for deleted block {self.block_id}")
     
+    def _on_block_updated_base(self, event):
+        """Route BlockUpdated events appropriately.
+
+        Snapshot restore events (settings_updated=True, no changed_keys) need
+        the full ShowManagerPanel handler to reload settings and SSM state.
+        Normal settings changes (with changed_keys) use the base class patch
+        path so _skip_ssm_load_after_block_updated is NOT set, allowing SSM
+        to reload the new data (e.g. a freshly added sync layer).
+        """
+        updated_block_id = event.data.get('id')
+        if (updated_block_id == self.block_id
+                and event.data.get('settings_updated')
+                and not event.data.get('changed_keys')):
+            self._on_block_updated(event)
+        else:
+            super()._on_block_updated_base(event)
+
     def _on_block_updated(self, event):
         """
         Handle block update event - reload settings and refresh UI.
@@ -4422,11 +4500,12 @@ class ShowManagerPanel(BlockPanelBase):
                 # Only reload settings if block metadata actually has settings
                 # Skip if metadata is empty (might be during project load)
                 if self.block.metadata and len(self.block.metadata) > 0:
-                    # Skip pushing loaded settings into SSM in _on_settings_loaded:
-                    # this update is often caused by SSM's own _save_to_settings(), so
-                    # SSM already has the canonical state; reloading would spam logs and re-init.
-                    self._skip_ssm_load_after_block_updated = True
-                    # Reload settings from database (single source of truth)
+                    # For snapshot restores (settings_updated=True), SSM MUST reload
+                    # to pick up the new song's synced layers and timecode.
+                    # Only skip SSM reload for self-triggered saves where SSM
+                    # already has the canonical state.
+                    if not event.data.get("settings_updated"):
+                        self._skip_ssm_load_after_block_updated = True
                     self._settings_manager.reload_from_storage()
                     Log.debug(f"ShowManagerPanel: Settings manager reloaded from database")
                 else:
@@ -5139,6 +5218,14 @@ class ShowManagerPanel(BlockPanelBase):
         """Update the available layers list (MA3 tracks and Editor layers not synced)."""
         if not hasattr(self, 'available_table') or not self.available_table:
             return
+        if self._available_list_updating:
+            self._available_list_pending = True
+            return
+        if self._is_table_edit_in_progress(self.available_table):
+            self._available_list_pending = True
+            QTimer.singleShot(120, self._update_available_layers_list)
+            return
+        self._available_list_updating = True
         
         self.available_table.setRowCount(0)
         
@@ -5269,22 +5356,29 @@ class ShowManagerPanel(BlockPanelBase):
                 # TG - editable spinbox
                 tg_spin = QSpinBox()
                 tg_spin.setRange(1, 99999)
+                tg_spin.setKeyboardTracking(False)
                 tg_spin.setValue(config.get("tg", 1))
                 tg_spin.setToolTip("MA3 Track Group number (1-99999)")
-                tg_spin.valueChanged.connect(
-                    lambda value, lid=layer_id: self._on_available_editor_tg_changed(lid, value)
+                tg_spin.editingFinished.connect(
+                    lambda lid=layer_id, spin=tg_spin: self._on_available_editor_tg_changed(lid, spin.value())
                 )
                 self.available_table.setCellWidget(row, 5, self._wrap_table_cell_widget(tg_spin))
                 
                 # Seq - editable spinbox
                 seq_spin = QSpinBox()
                 seq_spin.setRange(1, 99999)
+                seq_spin.setKeyboardTracking(False)
                 seq_spin.setValue(config.get("seq", 1))
                 seq_spin.setToolTip("MA3 Sequence number (1-99999)")
-                seq_spin.valueChanged.connect(
-                    lambda value, lid=layer_id: self._on_available_editor_seq_changed(lid, value)
+                seq_spin.editingFinished.connect(
+                    lambda lid=layer_id, spin=seq_spin: self._on_available_editor_seq_changed(lid, spin.value())
                 )
                 self.available_table.setCellWidget(row, 6, self._wrap_table_cell_widget(seq_spin))
+        
+        self._available_list_updating = False
+        if self._available_list_pending:
+            self._available_list_pending = False
+            QTimer.singleShot(0, self._update_available_layers_list)
     
     def _on_available_sync_toggled(self, item_type: str, item_id: str, state: int) -> None:
         """Handle sync checkbox toggle in the Available tab.
@@ -5817,6 +5911,10 @@ class ShowManagerPanel(BlockPanelBase):
         if self._sync_list_updating:
             self._sync_list_pending = True
             return
+        if self._is_table_edit_in_progress(self.layers_table):
+            self._sync_list_pending = True
+            QTimer.singleShot(120, self._update_synced_layers_list)
+            return
         self._sync_list_updating = True
         
         # Clear existing rows
@@ -5835,7 +5933,6 @@ class ShowManagerPanel(BlockPanelBase):
             e for e in all_synced_layers 
             if e.ma3_timecode_no == current_tc
         ]
-        
         if not synced_layers:
             self._set_layers_table_message("No synced layers. Check the 'Available Layers' tab to add layers.")
             self._sync_list_updating = False
@@ -5992,26 +6089,32 @@ class ShowManagerPanel(BlockPanelBase):
         tg_spin = QSpinBox()
         tg_spin.setMinimum(1)
         tg_spin.setMaximum(99999)
+        tg_spin.setKeyboardTracking(False)
         tg_value = int(getattr(item, "track_group_no", 1) or 1)
         if item.item_type == "editor":
             key = getattr(item, "layer_id", None) or item.item_id
             tg_value = int(self._pending_track_group_by_editor.get(key, tg_value) or 1)
         tg_spin.setValue(tg_value)
         tg_spin.setToolTip("MA3 Track Group number for this layer (1-99999)")
-        tg_spin.valueChanged.connect(lambda value, row=item: self._on_layer_track_group_changed(row, value))
+        tg_spin.editingFinished.connect(
+            lambda row=item, spin=tg_spin: self._on_layer_track_group_changed(row, spin.value())
+        )
         self.layers_table.setCellWidget(row, 4, self._wrap_table_cell_widget(tg_spin))
 
         # Sequence spinbox (column 5)
         seq_spin = QSpinBox()
         seq_spin.setMinimum(1)
         seq_spin.setMaximum(99999)
+        seq_spin.setKeyboardTracking(False)
         seq_value = int(getattr(item, "sequence_no", 1) or 1)
         if item.item_type == "editor":
             key = getattr(item, "layer_id", None) or item.item_id
             seq_value = int(self._pending_sequence_by_editor.get(key, seq_value) or 1)
         seq_spin.setValue(seq_value)
         seq_spin.setToolTip("MA3 Sequence number for this layer (1-99999)")
-        seq_spin.valueChanged.connect(lambda value, row=item: self._on_layer_sequence_changed(row, value))
+        seq_spin.editingFinished.connect(
+            lambda row=item, spin=seq_spin: self._on_layer_sequence_changed(row, spin.value())
+        )
         self.layers_table.setCellWidget(row, 5, self._wrap_table_cell_widget(seq_spin))
 
         entity = None
@@ -6023,36 +6126,12 @@ class ShowManagerPanel(BlockPanelBase):
 
         resync_btn = QPushButton("Resync")
         resync_btn.setToolTip("Re-sync this layer (re-hook, diff calculation, and update)")
-        resync_btn.setStyleSheet(f"""
-            QPushButton {{
-                background-color: {Colors.ACCENT_BLUE.name()};
-                color: {Colors.TEXT_PRIMARY.name()};
-                border: none;
-                border-radius: {border_radius(4)};
-                padding: 4px 10px;
-            }}
-            QPushButton:hover {{
-                background-color: {Colors.ACCENT_BLUE.lighter(110).name()};
-            }}
-        """)
         resync_btn.clicked.connect(lambda _, row=item: self._on_layer_resync_requested(row))
         self.layers_table.setCellWidget(row, 6, self._wrap_table_cell_widget(resync_btn))
 
         if allow_apply:
             apply_ma3_btn = QPushButton("Keep EZ")
             apply_ma3_btn.setToolTip("Keep Editor events and push them to the MA3 track")
-            apply_ma3_btn.setStyleSheet(f"""
-                QPushButton {{
-                    background-color: {Colors.ACCENT_BLUE.name()};
-                    color: {Colors.TEXT_PRIMARY.name()};
-                    border: none;
-                    border-radius: {border_radius(4)};
-                    padding: 4px 10px;
-                }}
-                QPushButton:hover {{
-                    background-color: {Colors.ACCENT_BLUE.lighter(110).name()};
-                }}
-            """)
             apply_ma3_btn.clicked.connect(lambda _, row=item: self._on_apply_to_ma3_requested(row))
             self.layers_table.setCellWidget(row, 7, self._wrap_table_cell_widget(apply_ma3_btn))
         else:
@@ -6061,36 +6140,12 @@ class ShowManagerPanel(BlockPanelBase):
         if allow_apply:
             apply_ez_btn = QPushButton("Keep MA3")
             apply_ez_btn.setToolTip("Keep MA3 events and apply them to the Editor layer")
-            apply_ez_btn.setStyleSheet(f"""
-                QPushButton {{
-                    background-color: {Colors.ACCENT_GREEN.name()};
-                    color: {Colors.TEXT_PRIMARY.name()};
-                    border: none;
-                    border-radius: {border_radius(4)};
-                    padding: 4px 10px;
-                }}
-                QPushButton:hover {{
-                    background-color: {Colors.ACCENT_GREEN.lighter(110).name()};
-                }}
-            """)
             apply_ez_btn.clicked.connect(lambda _, row=item: self._on_apply_to_ez_requested(row))
             self.layers_table.setCellWidget(row, 8, self._wrap_table_cell_widget(apply_ez_btn))
         else:
             self.layers_table.setCellWidget(row, 8, self._wrap_table_cell_widget(QLabel("-")))
 
         delete_btn = QPushButton("Delete")
-        delete_btn.setStyleSheet(f"""
-            QPushButton {{
-                background-color: {Colors.ACCENT_RED.name()};
-                color: {Colors.TEXT_PRIMARY.name()};
-                border: none;
-                border-radius: {border_radius(4)};
-                padding: 4px 10px;
-            }}
-            QPushButton:hover {{
-                background-color: {Colors.ACCENT_RED.lighter(110).name()};
-            }}
-        """)
         delete_btn.clicked.connect(lambda _, row=item: self._on_layer_delete_requested(row))
         self.layers_table.setCellWidget(row, 9, self._wrap_table_cell_widget(delete_btn))
         

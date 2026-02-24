@@ -111,24 +111,22 @@ class SetlistProcessingService:
             "audio_path": song.audio_path,
         }, facade)
 
-        owns_progress_ctx = song_progress_ctx is None
-        _progress_cm = None
-        _song_cm = None
+        if song_progress_ctx is None:
+            song_name = Path(song.audio_path).name
+            with self._progress.setlist_processing(
+                setlist_id, song_name, total_songs=1
+            ) as op:
+                with op.song(song.id, song_name, audio_path=song.audio_path) as song_ctx:
+                    return self.process_song(
+                        setlist_id=setlist_id,
+                        song_id=song_id,
+                        facade=facade,
+                        progress_callback=progress_callback,
+                        song_progress_ctx=song_ctx,
+                    )
 
         try:
             facade._force_in_process = True
-
-            if owns_progress_ctx:
-                song_name = Path(song.audio_path).name
-                _progress_cm = self._progress.setlist_processing(
-                    setlist_id, song_name, total_songs=1
-                )
-                op = _progress_cm.__enter__()
-                _song_cm = op.song(song.id, song_name, audio_path=song.audio_path)
-                song_progress_ctx = _song_cm.__enter__()
-                # #region agent log
-                import json as _dj1, time as _dt1; open('/Users/gdennen/Projects/EchoZero/.cursor/debug.log','a').write(_dj1.dumps({"timestamp":int(_dt1.time()*1000),"location":"setlist_processing_service.py:128","message":"Created standalone progress ctx for single song","data":{"song_id":song_id,"song_name":song_name,"setlist_id":setlist_id},"hypothesisId":"H_PROGRESS"})+'\n')
-                # #endregion
 
             song.mark_processing()
             song.error_message = None
@@ -207,16 +205,7 @@ class SetlistProcessingService:
             if progress_callback:
                 progress_callback("Applying actions...", 20, 100)
 
-            action_set_id = self._get_active_action_set_id(project.id, facade)
-            if action_set_id:
-                action_items_result = facade.list_action_items(action_set_id)
-            else:
-                action_items_result = facade.list_action_items_by_project(project_id=project.id)
-
-            if not action_items_result.success:
-                raise Exception(f"Failed to load action items: {action_items_result.message}")
-
-            action_items = action_items_result.data or []
+            action_items = self._load_current_action_items(project.id, facade)
 
             from src.features.projects.domain import ActionItem
 
@@ -262,10 +251,6 @@ class SetlistProcessingService:
                     action_args={}
                 )
                 action_items.insert(set_audio_idx + 1, execute_action)
-
-            # #region agent log
-            import json as _dj, time as _dt; open('/Users/gdennen/Projects/EchoZero/.cursor/debug.log','a').write(_dj.dumps({"timestamp":int(_dt.time()*1000),"location":"setlist_processing_service.py:action_list","message":"Final action list before execution","data":{"song_audio_path":song.audio_path,"action_set_id":action_set_id,"total_actions":len(action_items),"action_names":[(a.block_name or "")+"->"+a.action_name for a in action_items],"has_audio_execute":has_audio_execute,"audio_block_id":audio_input_block.id},"hypothesisId":"H1"})+'\n')
-            # #endregion
 
             self._execute_action_items(
                 project.id, action_items, facade,
@@ -325,17 +310,11 @@ class SetlistProcessingService:
                 "success": True,
             }, facade)
 
-            # #region agent log
-            import json as _dj, time as _dt; open('/Users/gdennen/Projects/EchoZero/.cursor/debug.log','a').write(_dj.dumps({"timestamp":int(_dt.time()*1000),"location":"setlist_processing_service.py:song_success","message":"Song processing succeeded","data":{"song_path":song.audio_path},"hypothesisId":"H1"})+'\n')
-            # #endregion
             Log.info(f"SetlistProcessingService: Successfully processed song {song.audio_path}")
             return SongProcessingResult(success=True, song_id=song_id)
 
         except Exception as e:
             error_msg = f"[{current_step}] {e}"
-            # #region agent log
-            import json as _dj, time as _dt; open('/Users/gdennen/Projects/EchoZero/.cursor/debug.log','a').write(_dj.dumps({"timestamp":int(_dt.time()*1000),"location":"setlist_processing_service.py:song_failed","message":"Song processing failed","data":{"song_path":song.audio_path,"current_step":current_step,"error":str(e)[:500]},"hypothesisId":"H3"})+'\n')
-            # #endregion
             Log.error(f"SetlistProcessingService: Failed to process song {song.audio_path}: {error_msg}")
             song.mark_failed(error_message=error_msg)
             self._setlist_song_repo.update(song)
@@ -356,14 +335,6 @@ class SetlistProcessingService:
             )
         finally:
             facade._force_in_process = False
-            if owns_progress_ctx:
-                try:
-                    if _song_cm:
-                        _song_cm.__exit__(None, None, None)
-                    if _progress_cm:
-                        _progress_cm.__exit__(None, None, None)
-                except Exception:
-                    pass
 
     def process_setlist(
         self,
@@ -475,17 +446,12 @@ class SetlistProcessingService:
         """
         errors = []
 
-        action_set_id = self._get_active_action_set_id(project_id, facade)
-        if action_set_id:
-            action_items_result = facade.list_action_items(action_set_id)
-        else:
-            action_items_result = facade.list_action_items_by_project(project_id=project_id)
-
-        if not action_items_result.success:
-            errors.append(f"Failed to load action items: {action_items_result.message}")
+        try:
+            action_items = self._load_current_action_items(project_id, facade)
+        except Exception as e:
+            errors.append(str(e))
             return errors
 
-        action_items = action_items_result.data or []
         if not action_items:
             return errors
 
@@ -669,17 +635,10 @@ class SetlistProcessingService:
 
             try:
                 resolved_args = self._resolve_action_args(action_item.action_args, setlist_context)
-                # #region agent log
-                import json as _dj, time as _dt; open('/Users/gdennen/Projects/EchoZero/.cursor/debug.log','a').write(_dj.dumps({"timestamp":int(_dt.time()*1000),"location":"setlist_processing_service.py:action_exec","message":"Executing action","data":{"idx":idx,"action_display_name":action_display_name,"is_execute":is_execute,"resolved_args":str(resolved_args)[:200],"block_type":block.type},"hypothesisId":"H2"})+'\n')
-                # #endregion
                 if isinstance(resolved_args, dict):
                     result = action.handler(facade, action_item.block_id, **resolved_args)
                 else:
                     result = action.handler(facade, action_item.block_id, value=resolved_args)
-
-                # #region agent log
-                import json as _dj, time as _dt; open('/Users/gdennen/Projects/EchoZero/.cursor/debug.log','a').write(_dj.dumps({"timestamp":int(_dt.time()*1000),"location":"setlist_processing_service.py:action_result","message":"Action result","data":{"idx":idx,"action_display_name":action_display_name,"is_execute":is_execute,"result_type":type(result).__name__,"result_summary":str(result)[:300] if result else "None"},"hypothesisId":"H1"})+'\n')
-                # #endregion
 
                 from src.application.api.result_types import CommandResult as _CR
                 action_failed = False
@@ -748,6 +707,67 @@ class SetlistProcessingService:
         except Exception as e:
             Log.warning(f"SetlistProcessingService: Could not resolve action set: {e}")
         return None
+
+    def _load_current_action_items(self, project_id: str, facade: "ApplicationFacade") -> List:
+        """
+        Load current action items for processing and prune stale block actions.
+
+        Stale actions are block actions pointing to blocks that no longer exist.
+        They are removed from persistence so no ghost actions remain.
+        """
+        action_set_id = self._get_active_action_set_id(project_id, facade)
+        if action_set_id:
+            action_items_result = facade.list_action_items(action_set_id)
+        else:
+            action_items_result = facade.list_action_items_by_project(project_id=project_id)
+
+        if not action_items_result.success:
+            raise Exception(f"Failed to load action items: {action_items_result.message}")
+
+        action_items = action_items_result.data or []
+        if not action_items:
+            return []
+
+        blocks = self._block_repo.list_by_project(project_id)
+        block_by_id = {block.id: block for block in blocks}
+
+        valid_items: List = []
+        stale_items: List = []
+
+        for item in action_items:
+            if item.action_type != "block":
+                valid_items.append(item)
+                continue
+
+            if not item.block_id or item.block_id not in block_by_id:
+                stale_items.append(item)
+                continue
+
+            # Keep display name in sync with current block name.
+            current_block = block_by_id[item.block_id]
+            if item.block_name != current_block.name:
+                item.block_name = current_block.name
+                try:
+                    facade.update_action_item(item)
+                except Exception as e:
+                    Log.debug(f"SetlistProcessingService: Could not refresh action block name: {e}")
+
+            valid_items.append(item)
+
+        if stale_items:
+            for stale in stale_items:
+                try:
+                    facade.remove_action_item(stale.id)
+                    Log.warning(
+                        f"SetlistProcessingService: Removed stale action '{stale.action_name}' "
+                        f"for missing block '{stale.block_name or stale.block_id}'"
+                    )
+                except Exception as e:
+                    Log.warning(
+                        f"SetlistProcessingService: Failed to remove stale action '{stale.id}': {e}"
+                    )
+
+        return valid_items
 
     # -- Cleanup --
 

@@ -254,6 +254,10 @@ class TranscribeNotePanel(BlockPanelBase):
         # Refresh UI with current settings
         self.refresh()
     
+    def _on_block_updated_base(self, event):
+        """Route EventBus BlockUpdated to TranscribeNotePanel's handler."""
+        self._on_block_updated(event)
+
     def _on_block_updated(self, event):
         """
         Handle block update event - reload settings and refresh UI.

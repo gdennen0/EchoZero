@@ -206,7 +206,7 @@ class BlockItem(QGraphicsItem):
         name_font.setPixelSize(12)
         painter.setFont(name_font)
         
-        name_rect = header_rect.adjusted(Spacing.SM, 0, -Spacing.SM, 0)
+        name_rect = header_rect.adjusted(Spacing.SM + 20, 0, -Spacing.SM, 0)
         fm = QFontMetrics(name_font)
         elided_name = fm.elidedText(self.block.name, Qt.TextElideMode.ElideRight, int(name_rect.width()))
         
@@ -217,6 +217,9 @@ class BlockItem(QGraphicsItem):
             Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
             elided_name
         )
+
+        # -- Scope badge (S=per-song, G=global) --
+        self._draw_scope_badge(painter, header_rect)
         
         # -- Status dot (top-right of header) --
         if self._block_status:
@@ -224,6 +227,40 @@ class BlockItem(QGraphicsItem):
         
         # -- Ports --
         self._draw_ports(painter, rect)
+
+    def _effective_state_scope(self) -> str:
+        """Resolve effective state scope for node badge rendering."""
+        if self.block.type == "ShowManager":
+            return "per_song"
+        metadata = self.block.metadata or {}
+        scope = str(metadata.get("state_scope", "per_song")).strip().lower()
+        return "global" if scope == "global" else "per_song"
+
+    def _draw_scope_badge(self, painter: QPainter, header_rect: QRectF) -> None:
+        """Draw a compact scope badge in the block header."""
+        scope = self._effective_state_scope()
+        badge_text = "S" if scope == "per_song" else "G"
+        badge_bg = Colors.ACCENT_PURPLE if scope == "per_song" else Colors.ACCENT_BLUE
+        text_color = Colors.TEXT_ON_DARK
+
+        badge_w = 16
+        badge_h = 14
+        badge_rect = QRectF(
+            header_rect.left() + 4,
+            header_rect.top() + 3,
+            badge_w,
+            badge_h
+        )
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QBrush(badge_bg))
+        painter.drawRoundedRect(badge_rect, 3, 3)
+
+        badge_font = Typography.default_font()
+        badge_font.setPixelSize(9)
+        badge_font.setWeight(QFont.Weight.Bold)
+        painter.setFont(badge_font)
+        painter.setPen(QPen(text_color))
+        painter.drawText(badge_rect, Qt.AlignmentFlag.AlignCenter, badge_text)
 
     def _on_theme_changed(self):
         """Refresh block color when theme changes (called by NodeScene)."""

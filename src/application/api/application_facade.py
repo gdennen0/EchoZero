@@ -534,6 +534,26 @@ class ApplicationFacade:
                 except Exception as e:
                     Log.warning(f"ApplicationFacade: Failed to flush settings for ShowManager {block.id}: {e}")
     
+    def _snapshot_active_song_before_save(self, project) -> None:
+        """Save a snapshot for the currently active song before project save.
+
+        Without this, changes made to block metadata (e.g. sync layers) since
+        the last song switch would not be captured in the snapshot, because
+        auto-save only runs on song switch.
+        """
+        if not self.setlist_service:
+            return
+        sss = getattr(self.setlist_service, "_snapshot_switch_service", None)
+        if not sss:
+            return
+        active_id = getattr(sss, "_active_song_id", None)
+        if not active_id:
+            return
+        try:
+            sss._save_outgoing_song_snapshot(active_id, project.id, self)
+        except Exception as e:
+            Log.warning(f"ApplicationFacade: Failed to snapshot active song {active_id} before save: {e}")
+
     def save_project(self) -> CommandResult:
         """
         Save current project.
@@ -563,8 +583,10 @@ class ApplicationFacade:
             # Before saving project, ensure all block settings are flushed
             # This ensures synced layers and other settings persist
             self._flush_all_block_settings()
-            
-            
+
+            # Snapshot the active song so latest block metadata is captured
+            self._snapshot_active_song_before_save(project)
+
             self.project_service.save_project(project)
             return CommandResult.success_result(
                 message=f"Saved project '{project.name}'",
@@ -961,8 +983,9 @@ class ApplicationFacade:
                 facade=self
             )
             if success:
+                success_message = error_msg if error_msg else "Switched to song successfully"
                 return CommandResult.success_result(
-                    message="Switched to song successfully"
+                    message=success_message
                 )
             else:
                 return CommandResult.error_result(
@@ -1879,6 +1902,7 @@ class ApplicationFacade:
                         except Exception as cleanup_err:
                             Log.warning(f"ApplicationFacade: Processor cleanup failed for '{block.name}': {cleanup_err}")
 
+                self._remove_action_items_for_deleted_block(block.id)
                 self.block_service.remove_block(self.current_project_id, block.id)
                 return CommandResult.success_result(
                     message=f"Deleted block '{block.name}'"
@@ -1892,6 +1916,42 @@ class ApplicationFacade:
             return CommandResult.error_result(
                 message=f"Failed to delete block: {e}",
                 errors=[str(e)]
+            )
+
+    def _remove_action_items_for_deleted_block(self, block_id: str) -> None:
+        """
+        Remove stale action items that target a block being deleted.
+
+        Keeps action sets aligned with the current graph so ghost actions
+        do not remain after block deletion.
+        """
+        if not self.action_item_repo or not self.current_project_id:
+            return
+
+        try:
+            action_items = self.action_item_repo.list_by_project(self.current_project_id)
+            stale_items = [
+                item for item in action_items
+                if item.action_type == "block" and item.block_id == block_id
+            ]
+            if not stale_items:
+                return
+
+            affected_action_sets = {item.action_set_id for item in stale_items if item.action_set_id}
+            for item in stale_items:
+                self.action_item_repo.delete(item.id)
+
+            for action_set_id in affected_action_sets:
+                remaining_items = self.action_item_repo.list_by_action_set(action_set_id)
+                self.action_item_repo.reorder(action_set_id, [item.id for item in remaining_items])
+
+            Log.info(
+                f"ApplicationFacade: Removed {len(stale_items)} stale action item(s) "
+                f"for deleted block {block_id}"
+            )
+        except Exception as e:
+            Log.warning(
+                f"ApplicationFacade: Failed to remove stale action items for block {block_id}: {e}"
             )
     
     def list_blocks(self) -> CommandResult[List[Block]]:
@@ -3875,9 +3935,6 @@ class ApplicationFacade:
             )
             return None if isinstance(item_ids, str) else []
         
-        # Get enabled output_names for selective loading
-        enabled_output_names = self.data_filter_manager.get_enabled_output_names(block, port_name)
-        
         # Normalize item_ids to list for processing
         is_single_id = isinstance(item_ids, str)
         id_list = [item_ids] if is_single_id else list(item_ids) if isinstance(item_ids, list) else None
@@ -3885,31 +3942,15 @@ class ApplicationFacade:
         if id_list is None:
             return item_ids
         
-        # OPTIMIZATION: Only load items that might pass the filter
-        # If enabled_output_names is None, no filter - load all
-        # If enabled_output_names is set, only load items with matching output_name
+        # Load candidate items and let DataFilterManager apply the single
+        # source-of-truth filter semantics (including unknown output names).
         items = []
-        skipped_by_filter = 0
         
         for item_id in id_list:
             item = self.data_item_repo.get(item_id)
             if item is None:
                 continue
-            
-            # If we have a filter, check output_name BEFORE adding to list
-            if enabled_output_names is not None:
-                output_name = item.metadata.get('output_name')
-                if output_name and output_name not in enabled_output_names:
-                    skipped_by_filter += 1
-                    continue
-            
             items.append(item)
-        
-        if skipped_by_filter > 0:
-            Log.debug(
-                f"ApplicationFacade: Filtered out {skipped_by_filter} items during load for "
-                f"{block.name}.{port_name} (only loaded items with enabled output_names)"
-            )
         
         if not items:
             return None if is_single_id else []

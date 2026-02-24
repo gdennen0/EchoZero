@@ -884,11 +884,9 @@ def get_stylesheet() -> str:
         color: {Colors.TEXT_SECONDARY.name()};
         border: 1px solid {Colors.BORDER.name()};
         border-bottom: none;
-        padding: 4px 8px;
-        min-height: 20px;
-        max-height: 20px;
+        padding: 1px 8px;
         min-width: 60px;
-        font-size: 12px;
+        font-size: 11px;
         font-weight: 500;
     }}
     ads--CDockWidgetTab QLabel {{
@@ -916,7 +914,8 @@ def get_stylesheet() -> str:
         background-color: {Colors.BG_MEDIUM.name()};
         border-bottom: 1px solid {Colors.BORDER.name()};
         padding: 0px;
-        min-height: 23px;
+        min-height: 20px;
+        max-height: 20px;
         color: {Colors.TEXT_PRIMARY.name()};
     }}
     ads--CDockAreaTitleBar > QToolButton {{

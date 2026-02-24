@@ -13,7 +13,7 @@ from PyQt6.QtWidgets import (
     QProgressBar, QTableWidget, QTableWidgetItem, QHeaderView,
     QFileDialog, QAbstractItemView,
     QMessageBox, QStyledItemDelegate,
-    QTabWidget
+    QTabWidget, QApplication
 )
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QColor, QPainter, QPen
@@ -358,12 +358,14 @@ class SetlistView(ThemeAwareMixin, QWidget):
     # ------------------------------------------------------------------
 
     def _apply_mode_to_tabs(self):
-        """Disable the Pipeline tab in production mode."""
+        """Hide the Pipeline tab in production mode; show it in developer mode."""
         mode_mgr = getattr(self.facade, 'app_mode_manager', None)
         if mode_mgr is None:
             return
         is_prod = mode_mgr.is_production
-        self._tab_widget.setTabEnabled(1, not is_prod)
+        if is_prod and self._tab_widget.currentIndex() == 1:
+            self._tab_widget.setCurrentIndex(0)
+        self._tab_widget.setTabVisible(1, not is_prod)
 
         if not getattr(self, '_mode_connected', False):
             mode_mgr.mode_changed.connect(self._on_mode_changed)
@@ -373,7 +375,9 @@ class SetlistView(ThemeAwareMixin, QWidget):
         """React to runtime mode switch."""
         from src.application.services.app_mode_manager import AppMode
         is_prod = new_mode == AppMode.PRODUCTION
-        self._tab_widget.setTabEnabled(1, not is_prod)
+        if is_prod and self._tab_widget.currentIndex() == 1:
+            self._tab_widget.setCurrentIndex(0)
+        self._tab_widget.setTabVisible(1, not is_prod)
 
     # ------------------------------------------------------------------
     # Song switching
@@ -410,6 +414,8 @@ class SetlistView(ThemeAwareMixin, QWidget):
         self.progress_bar.setVisible(True)
         self.progress_bar.setRange(0, 0)  # Indeterminate
         self.songs_table.setEnabled(False)
+        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+        QApplication.processEvents()
 
         try:
             result = self.facade.switch_active_song(
@@ -443,6 +449,12 @@ class SetlistView(ThemeAwareMixin, QWidget):
                     f"SetlistView: Switched to song "
                     f"{Path(song.audio_path).name} (id: {song_id})"
                 )
+                if result.message and result.message != "Switched to song successfully":
+                    QMessageBox.warning(
+                        self,
+                        "Switch Completed With Warnings",
+                        result.message
+                    )
             else:
                 error_msg = result.message
                 if result.errors:
@@ -469,6 +481,7 @@ class SetlistView(ThemeAwareMixin, QWidget):
                 "Your previous state has been preserved."
             )
         finally:
+            QApplication.restoreOverrideCursor()
             self.progress_bar.setVisible(False)
             self.progress_bar.setRange(0, 100)
             self.songs_table.setEnabled(True)
@@ -500,89 +513,46 @@ class SetlistView(ThemeAwareMixin, QWidget):
 
     def _on_process_all(self):
         """Process all songs using a background thread."""
-        if not self.current_setlist_id:
-            Log.warning("SetlistView: No setlist loaded")
-            return
-
-        action_set_id = self._get_active_action_set_id()
-        if action_set_id:
-            action_items_result = self.facade.list_action_items(action_set_id)
-        else:
-            action_items_result = self.facade.list_action_items_by_project(
-                self.facade.current_project_id
+        if self._should_confirm_overwrite_all_snapshots():
+            reply = QMessageBox.question(
+                self,
+                "Replace Existing Song States?",
+                (
+                    "Processing all songs will replace existing saved song states "
+                    "(snapshots) for songs that are already processed.\n\n"
+                    "This action keeps your block graph but overwrites per-song "
+                    "saved states with newly processed results.\n\n"
+                    "Continue?"
+                ),
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
             )
-        if not action_items_result.success or not action_items_result.data:
-            QMessageBox.warning(
-                self, "No Actions",
-                "No action items configured. Add actions in the Pipeline tab first."
-            )
-            return
+            if reply != QMessageBox.StandardButton.Yes:
+                return
+        self._start_processing(song_id=None)
 
-        action_items = action_items_result.data
-        action_items_dict = [
-            {
-                "action_name": item.action_name,
-                "block_name": item.block_name,
-                "action_type": item.action_type,
-            }
-            for item in action_items
-        ]
+    def _should_confirm_overwrite_all_snapshots(self) -> bool:
+        """
+        Return True when Process All would overwrite one or more existing snapshots.
+        """
+        if not self.current_setlist_id or not self.facade.current_project_id:
+            return False
+        if not self.songs:
+            return False
+        if not hasattr(self.facade, "project_service") or not self.facade.project_service:
+            return False
 
-        songs_data = [
-            {
-                "id": song.id,
-                "name": Path(song.audio_path).name,
-                "audio_path": song.audio_path,
-            }
-            for song in self.songs
-        ]
-
-        setlist_name = "Setlist"
-        if self.current_setlist and self.current_setlist.audio_folder_path:
-            setlist_name = Path(self.current_setlist.audio_folder_path).name
-
-        self._processing_dialog = SetlistProcessingDialog(
-            setlist_name=setlist_name,
-            songs=songs_data,
-            action_items=action_items_dict,
-            parent=self,
-            event_bus=self.facade.event_bus,
-        )
-
-        self._processing_errors = []
-
-        progress_store = get_progress_store()
-
-        def on_progress_started(event_type: str, state):
-            if event_type == "started" and state.operation_type == "setlist_processing":
-                self._processing_dialog.set_operation_id(state.operation_id)
-                progress_store.remove_callback(on_progress_started)
-
-        progress_store.add_callback(on_progress_started)
-
-        self.process_all_btn.setEnabled(False)
-
-        self._processing_thread = SetlistProcessingThread(
-            facade=self.facade,
-            setlist_id=self.current_setlist_id,
-            parent=self,
-        )
-
-        self._processing_thread.song_progress.connect(self._on_thread_song_progress)
-        self._processing_thread.error_occurred.connect(self._on_thread_error)
-        self._processing_thread.processing_complete.connect(self._on_thread_complete)
-        self._processing_thread.processing_failed.connect(self._on_thread_failed)
-
-        self._processing_dialog.cancelled.connect(
-            self._processing_thread.request_cancel
-        )
-
-        self._processing_dialog.show()
-        self._processing_dialog.raise_()
-        self._processing_dialog.activateWindow()
-
-        Log.info("SetlistView: Starting background setlist processing thread")
-        self._processing_thread.start()
+        try:
+            project = self.facade.project_service.load_project(self.facade.current_project_id)
+            if not project:
+                return False
+            for song in self.songs:
+                snapshot = self.facade.project_service.get_snapshot(song.id, project)
+                if snapshot:
+                    return True
+        except Exception as e:
+            Log.debug(f"SetlistView: Snapshot overwrite preflight check failed: {e}")
+        return False
 
     # ------------------------------------------------------------------
     # Processing thread signal handlers
@@ -661,12 +631,12 @@ class SetlistView(ThemeAwareMixin, QWidget):
 
     def _process_single_song(self, song_id: str):
         """Process a single song using a background thread and progress dialog."""
-        if not self.current_setlist_id:
-            return
+        self._start_processing(song_id=song_id)
 
-        song = next((s for s in self.songs if s.id == song_id), None)
-        if not song:
-            Log.warning(f"SetlistView: Song {song_id} not found")
+    def _start_processing(self, song_id: Optional[str] = None):
+        """Start setlist processing for all songs or a specific song."""
+        if not self.current_setlist_id:
+            Log.warning("SetlistView: No setlist loaded")
             return
 
         action_set_id = self._get_active_action_set_id()
@@ -683,6 +653,23 @@ class SetlistView(ThemeAwareMixin, QWidget):
             )
             return
 
+        if song_id:
+            target_song = next((s for s in self.songs if s.id == song_id), None)
+            if not target_song:
+                Log.warning(f"SetlistView: Song {song_id} not found")
+                return
+            songs_to_process = [target_song]
+            setlist_name = Path(target_song.audio_path).stem
+            start_log = (
+                f"SetlistView: Starting background single-song processing thread for {song_id}"
+            )
+        else:
+            songs_to_process = list(self.songs)
+            setlist_name = "Setlist"
+            if self.current_setlist and self.current_setlist.audio_folder_path:
+                setlist_name = Path(self.current_setlist.audio_folder_path).name
+            start_log = "SetlistView: Starting background setlist processing thread"
+
         action_items_dict = [
             {
                 "action_name": item.action_name,
@@ -698,9 +685,8 @@ class SetlistView(ThemeAwareMixin, QWidget):
                 "name": Path(song.audio_path).name,
                 "audio_path": song.audio_path,
             }
+            for song in songs_to_process
         ]
-
-        setlist_name = Path(song.audio_path).stem
 
         self._processing_dialog = SetlistProcessingDialog(
             setlist_name=setlist_name,
@@ -743,7 +729,7 @@ class SetlistView(ThemeAwareMixin, QWidget):
         self._processing_dialog.raise_()
         self._processing_dialog.activateWindow()
 
-        Log.info(f"SetlistView: Starting background single-song processing thread for {song_id}")
+        Log.info(start_log)
         self._processing_thread.start()
 
     def _on_retry_song(self, song_id: str):
@@ -1060,9 +1046,13 @@ class SetlistView(ThemeAwareMixin, QWidget):
             songs = result.data
             self.songs = songs
 
-            # Fix statuses for songs that have snapshots but wrong status
+            # Fix statuses for songs that have snapshots but wrong status.
+            # Only run once per setlist to avoid repeated snapshot lookups.
+            checked_key = self.current_setlist_id
             if (
-                self.facade.current_project_id
+                checked_key
+                and checked_key != getattr(self, "_status_checked_for_setlist", None)
+                and self.facade.current_project_id
                 and hasattr(self.facade, 'project_service')
                 and self.facade.project_service
             ):
@@ -1088,6 +1078,7 @@ class SetlistView(ThemeAwareMixin, QWidget):
                                     self.facade.setlist_service._setlist_song_repo.update(
                                         song
                                     )
+                    self._status_checked_for_setlist = checked_key
                 except Exception as e:
                     Log.debug(
                         f"SetlistView: Could not check snapshots: {e}"

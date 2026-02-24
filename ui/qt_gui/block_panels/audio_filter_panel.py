@@ -344,6 +344,10 @@ class AudioFilterPanel(BlockPanelBase):
             self._settings_manager.reload_from_storage()
         self.refresh()
 
+    def _on_block_updated_base(self, event):
+        """Route EventBus BlockUpdated to AudioFilterPanel's handler."""
+        self._on_block_updated(event)
+
     def _on_block_updated(self, event):
         """Handle block update event - reload settings and refresh UI."""
         updated_block_id = event.data.get("id")

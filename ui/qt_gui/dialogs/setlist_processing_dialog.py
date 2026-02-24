@@ -8,23 +8,25 @@ Shows detailed progress of setlist processing with:
 - Real-time status updates
 - Verbose timing and status information from ProgressEventStore
 - Block-level progress from SubprocessProgress events (e.g., Demucs separation %)
+- Live log console showing all log output during processing
 """
 from pathlib import Path
 from typing import Dict, List, Optional, Any, Callable
 from datetime import datetime
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QTreeWidget, QTreeWidgetItem, QHeaderView, QProgressBar,
-    QWidget, QSizePolicy, QFrame
+    QTreeWidget, QTreeWidgetItem, QProgressBar,
+    QWidget, QFrame, QSplitter
 )
 from PyQt6.QtCore import Qt, pyqtSignal, QTimer
-from PyQt6.QtGui import QIcon, QColor
+from PyQt6.QtGui import QColor
 
 from ui.qt_gui.design_system import Colors, Spacing, Typography, ThemeAwareMixin, border_radius
 from ui.qt_gui.style_factory import StyleFactory
+from ui.qt_gui.widgets.log_console_widget import LogConsoleWidget
 from src.application.services import get_progress_store, ProgressStatus
 from src.application.events import EventBus, SubprocessProgress
-from src.utils.message import Log
+from src.utils.message import Log, GUIConsoleHandler
 
 
 class SetlistProcessingDialog(ThemeAwareMixin, QDialog):
@@ -94,12 +96,17 @@ class SetlistProcessingDialog(ThemeAwareMixin, QDialog):
         self._current_block_progress: int = 0
         self._current_block_message: str = ""
         
+        # Log console handler (attached to logger while dialog is open)
+        self._log_handler: Optional[GUIConsoleHandler] = None
+        self._logs_visible = True
+        
         self.setWindowTitle(f"Processing Setlist: {setlist_name}")
-        self.setMinimumSize(700, 600)
+        self.setMinimumSize(700, 700)
         self.setModal(False)
         
         self._setup_ui()
         self._populate_tree()
+        self._attach_log_handler()
         
         # Connect thread-safe signal for block progress updates
         self._block_progress_signal.connect(self._update_block_progress)
@@ -205,6 +212,10 @@ class SetlistProcessingDialog(ThemeAwareMixin, QDialog):
         
         layout.addWidget(self._status_frame)
         
+        # Splitter for tree and log console
+        self._splitter = QSplitter(Qt.Orientation.Vertical)
+        self._splitter.setStyleSheet(StyleFactory.splitter())
+        
         # Tree widget showing songs and actions
         self.tree = QTreeWidget()
         self.tree.setHeaderLabel("Progress")
@@ -213,7 +224,46 @@ class SetlistProcessingDialog(ThemeAwareMixin, QDialog):
         self.tree.setIndentation(20)
         self.tree.setStyleSheet(StyleFactory.tree())
         self.tree.header().setVisible(False)
-        layout.addWidget(self.tree, stretch=1)
+        self._splitter.addWidget(self.tree)
+        
+        # Log console container
+        self._log_container = QWidget()
+        log_container_layout = QVBoxLayout(self._log_container)
+        log_container_layout.setContentsMargins(0, 0, 0, 0)
+        log_container_layout.setSpacing(0)
+        
+        # Log header with toggle
+        log_header = QHBoxLayout()
+        log_header.setSpacing(Spacing.SM)
+        
+        self._log_toggle_btn = QPushButton("Hide Logs")
+        self._log_toggle_btn.setFixedWidth(90)
+        self._log_toggle_btn.setStyleSheet(StyleFactory.button())
+        self._log_toggle_btn.clicked.connect(self._toggle_logs)
+        log_header.addWidget(self._log_toggle_btn)
+        
+        log_title = QLabel("Processing Logs")
+        log_title.setStyleSheet(f"color: {Colors.TEXT_SECONDARY.name()}; font-size: 12px; font-weight: bold;")
+        log_header.addWidget(log_title)
+        log_header.addStretch()
+        
+        open_log_dir_btn = QPushButton("Open Log Folder")
+        open_log_dir_btn.setFixedWidth(120)
+        open_log_dir_btn.setStyleSheet(StyleFactory.button())
+        open_log_dir_btn.clicked.connect(self._open_log_directory)
+        log_header.addWidget(open_log_dir_btn)
+        
+        log_container_layout.addLayout(log_header)
+        
+        # Log console widget
+        self._log_console = LogConsoleWidget()
+        self._log_console.filter_debug.setChecked(False)
+        log_container_layout.addWidget(self._log_console)
+        
+        self._splitter.addWidget(self._log_container)
+        self._splitter.setSizes([300, 200])
+        
+        layout.addWidget(self._splitter, stretch=1)
         
         # Buttons
         button_layout = QHBoxLayout()
@@ -493,8 +543,9 @@ class SetlistProcessingDialog(ThemeAwareMixin, QDialog):
         Log.info("SetlistProcessingDialog: Cancellation requested")
     
     def closeEvent(self, event):
-        """Clean up timer and event subscriptions when dialog closes"""
+        """Clean up timer, log handler, and event subscriptions when dialog closes"""
         self._update_timer.stop()
+        self._detach_log_handler()
         self._unsubscribe_from_events()
         super().closeEvent(event)
     
@@ -561,6 +612,36 @@ class SetlistProcessingDialog(ThemeAwareMixin, QDialog):
             
         except Exception as e:
             Log.warning(f"SetlistProcessingDialog: Error updating block progress: {e}")
+    
+    def _open_log_directory(self):
+        """Open the log directory in the system file manager."""
+        from src.utils.paths import get_logs_dir
+        from PyQt6.QtGui import QDesktopServices
+        from PyQt6.QtCore import QUrl
+        log_dir = get_logs_dir()
+        log_dir.mkdir(parents=True, exist_ok=True)
+        QDesktopServices.openUrl(QUrl.fromLocalFile(str(log_dir)))
+    
+    def _toggle_logs(self):
+        """Toggle visibility of the log console"""
+        self._logs_visible = not self._logs_visible
+        self._log_console.setVisible(self._logs_visible)
+        self._log_toggle_btn.setText("Hide Logs" if self._logs_visible else "Show Logs")
+    
+    def _attach_log_handler(self):
+        """Attach a temporary log handler that feeds into the embedded log console."""
+        import logging
+        self._log_handler = GUIConsoleHandler(self._log_console)
+        formatter = logging.Formatter(fmt="%(name)s | %(message)s")
+        self._log_handler.setFormatter(formatter)
+        self._log_handler.setLevel(logging.DEBUG)
+        Log._logger.addHandler(self._log_handler)
+    
+    def _detach_log_handler(self):
+        """Remove the temporary log handler from the logger."""
+        if self._log_handler is not None:
+            Log._logger.removeHandler(self._log_handler)
+            self._log_handler = None
     
     def is_cancelled(self) -> bool:
         """Check if processing was cancelled"""
