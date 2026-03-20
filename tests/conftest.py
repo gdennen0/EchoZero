@@ -6,6 +6,9 @@ All fixtures follow pytest conventions — import-free via conftest auto-discove
 
 from __future__ import annotations
 
+# Ignore legacy v1 test directories (they depend on PyQt6 and old src/ imports)
+collect_ignore_glob = ["unit/*", "application/*", "integration/*"]
+
 import sqlite3
 import tempfile
 from pathlib import Path
