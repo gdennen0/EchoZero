@@ -1,0 +1,74 @@
+[build-system]
+requires = ["setuptools>=68.0", "setuptools-scm>=8.0"]
+build-backend = "setuptools.backends._legacy:_Backend"
+
+[project]
+name = "echozero"
+version = "2.0.0-dev"
+description = "Desktop audio analysis and event editing workstation for live production"
+requires-python = ">=3.11"
+license = { text = "Proprietary" }
+authors = [
+    { name = "Griffin Dennen", email = "griffin@813creative.net" },
+]
+
+dependencies = [
+    "numpy>=1.24",
+    "scipy>=1.10",
+    "librosa>=0.10",
+    "soundfile>=0.12",
+    "PySide6>=6.5",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4",
+    "pytest-cov>=4.1",
+    "pytest-timeout>=2.2",
+    "mypy>=1.5",
+    "black>=23.7",
+    "isort>=5.12",
+]
+
+[tool.black]
+line-length = 99
+target-version = ["py311"]
+
+[tool.isort]
+profile = "black"
+line_length = 99
+known_first_party = ["echozero"]
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+check_untyped_defs = true
+no_implicit_optional = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-v --tb=short --strict-markers"
+markers = [
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+    "integration: marks integration tests",
+    "golden: marks golden file snapshot tests",
+]
+
+[tool.coverage.run]
+source = ["echozero"]
+omit = ["echozero/ui/*"]
+
+[tool.coverage.report]
+fail_under = 85
+show_missing = true
+exclude_lines = [
+    "pragma: no cover",
+    "if TYPE_CHECKING:",
+    "if __name__ == .__main__.",
+]
