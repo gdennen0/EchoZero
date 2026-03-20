@@ -1,0 +1,487 @@
+{
+  "source_project": "SyncLayerTest",
+  "source_item": "MA3_TC_101",
+  "source_type": "Event",
+  "layers": [
+    {
+      "name": "ma3_<BEAM>",
+      "event_count": 41,
+      "events": [
+        {
+          "time": 21.341963,
+          "duration": 0.3,
+          "classification": "ma3_<BEAM>",
+          "source": "unknown"
+        },
+        {
+          "time": 123.618071,
+          "duration": 0.3,
+          "classification": "ma3_<BEAM>",
+          "source": "unknown"
+        },
+        {
+          "time": 180.0,
+          "duration": 0.3,
+          "classification": "ma3_<BEAM>",
+          "source": "unknown"
+        },
+        {
+          "time": 180.0,
+          "duration": 0.3,
+          "classification": "ma3_<BEAM>",
+          "source": "unknown"
+        },
+        {
+          "time": 180.0,
+          "duration": 0.3,
+          "classification": "ma3_<BEAM>",
+          "source": "unknown"
+        },
+        {
+          "time": 180.0,
+          "duration": 0.3,
+          "classification": "ma3_<BEAM>",
+          "source": "unknown"
+        },
+        {
+          "time": 180.0,
+          "duration": 0.3,
+          "classification": "ma3_<BEAM>",
+          "source": "unknown"
+        },
+        {
+          "time": 180.0,
+          "duration": 0.3,
+          "classification": "ma3_<BEAM>",
+          "source": "unknown"
+        },
+        {
+          "time": 191.4494,
+          "duration": 0.3,
+          "classification": "ma3_<BEAM>",
+          "source": "unknown"
+        },
+        {
+          "time": 191.4494,
+          "duration": 0.3,
+          "classification": "ma3_<BEAM>",
+          "source": "unknown"
+        },
+        {
+          "time": 191.4494,
+          "duration": 0.3,
+          "classification": "ma3_<BEAM>",
+          "source": "unknown"
+        },
+        {
+          "time": 191.4494,
+          "duration": 0.3,
+          "classification": "ma3_<BEAM>",
+          "source": "unknown"
+        },
+        {
+          "time": 191.4494,
+          "duration": 0.3,
+          "classification": "ma3_<BEAM>",
+          "source": "unknown"
+        },
+        {
+          "time": 191.4494,
+          "duration": 0.3,
+          "classification": "ma3_<BEAM>",
+          "source": "unknown"
+        },
+        {
+          "time": 191.4494,
+          "duration": 0.3,
+          "classification": "ma3_<BEAM>",
+          "source": "unknown"
+        },
+        {
+          "time": 191.4494,
+          "duration": 0.3,
+          "classification": "ma3_<BEAM>",
+          "source": "unknown"
+        },
+        {
+          "time": 191.4494,
+          "duration": 0.3,
+          "classification": "ma3_<BEAM>",
+          "source": "unknown"
+        },
+        {
+          "time": 191.4494,
+          "duration": 0.3,
+          "classification": "ma3_<BEAM>",
+          "source": "unknown"
+        },
+        {
+          "time": 191.4494,
+          "duration": 0.3,
+          "classification": "ma3_<BEAM>",
+          "source": "unknown"
+        },
+        {
+          "time": 191.4494,
+          "duration": 0.3,
+          "classification": "ma3_<BEAM>",
+          "source": "unknown"
+        },
+        {
+          "time": 191.4494,
+          "duration": 0.3,
+          "classification": "ma3_<BEAM>",
+          "source": "unknown"
+        },
+        {
+          "time": 191.4494,
+          "duration": 0.3,
+          "classification": "ma3_<BEAM>",
+          "source": "unknown"
+        },
+        {
+          "time": 191.4494,
+          "duration": 0.3,
+          "classification": "ma3_<BEAM>",
+          "source": "unknown"
+        },
+        {
+          "time": 191.4494,
+          "duration": 0.3,
+          "classification": "ma3_<BEAM>",
+          "source": "unknown"
+        },
+        {
+          "time": 191.4494,
+          "duration": 0.3,
+          "classification": "ma3_<BEAM>",
+          "source": "unknown"
+        },
+        {
+          "time": 191.4494,
+          "duration": 0.3,
+          "classification": "ma3_<BEAM>",
+          "source": "unknown"
+        },
+        {
+          "time": 191.4494,
+          "duration": 0.3,
+          "classification": "ma3_<BEAM>",
+          "source": "unknown"
+        },
+        {
+          "time": 191.4494,
+          "duration": 0.3,
+          "classification": "ma3_<BEAM>",
+          "source": "unknown"
+        },
+        {
+          "time": 191.4494,
+          "duration": 0.3,
+          "classification": "ma3_<BEAM>",
+          "source": "unknown"
+        },
+        {
+          "time": 191.4494,
+          "duration": 0.3,
+          "classification": "ma3_<BEAM>",
+          "source": "unknown"
+        },
+        {
+          "time": 191.4494,
+          "duration": 0.3,
+          "classification": "ma3_<BEAM>",
+          "source": "unknown"
+        },
+        {
+          "time": 191.4494,
+          "duration": 0.3,
+          "classification": "ma3_<BEAM>",
+          "source": "unknown"
+        },
+        {
+          "time": 191.4494,
+          "duration": 0.3,
+          "classification": "ma3_<BEAM>",
+          "source": "unknown"
+        },
+        {
+          "time": 191.4494,
+          "duration": 0.3,
+          "classification": "ma3_<BEAM>",
+          "source": "unknown"
+        },
+        {
+          "time": 191.4494,
+          "duration": 0.3,
+          "classification": "ma3_<BEAM>",
+          "source": "unknown"
+        },
+        {
+          "time": 191.4494,
+          "duration": 0.3,
+          "classification": "ma3_<BEAM>",
+          "source": "unknown"
+        },
+        {
+          "time": 191.4494,
+          "duration": 0.3,
+          "classification": "ma3_<BEAM>",
+          "source": "unknown"
+        },
+        {
+          "time": 191.4494,
+          "duration": 0.3,
+          "classification": "ma3_<BEAM>",
+          "source": "unknown"
+        },
+        {
+          "time": 191.4494,
+          "duration": 0.3,
+          "classification": "ma3_<BEAM>",
+          "source": "unknown"
+        },
+        {
+          "time": 191.4494,
+          "duration": 0.3,
+          "classification": "ma3_<BEAM>",
+          "source": "unknown"
+        },
+        {
+          "time": 191.4494,
+          "duration": 0.3,
+          "classification": "ma3_<BEAM>",
+          "source": "unknown"
+        }
+      ]
+    },
+    {
+      "name": "ma3_<vkik2>",
+      "event_count": 13,
+      "events": [
+        {
+          "time": 21.341963,
+          "duration": 0.3,
+          "classification": "ma3_<vkik2>",
+          "source": "unknown"
+        },
+        {
+          "time": 64.54034,
+          "duration": 0.3,
+          "classification": "ma3_<vkik2>",
+          "source": "unknown"
+        },
+        {
+          "time": 119.958873,
+          "duration": 0.3,
+          "classification": "ma3_<vkik2>",
+          "source": "unknown"
+        },
+        {
+          "time": 157.104096,
+          "duration": 0.3,
+          "classification": "ma3_<vkik2>",
+          "source": "unknown"
+        },
+        {
+          "time": 180.0,
+          "duration": 0.3,
+          "classification": "ma3_<vkik2>",
+          "source": "unknown"
+        },
+        {
+          "time": 180.0,
+          "duration": 0.3,
+          "classification": "ma3_<vkik2>",
+          "source": "unknown"
+        },
+        {
+          "time": 180.0,
+          "duration": 0.3,
+          "classification": "ma3_<vkik2>",
+          "source": "unknown"
+        },
+        {
+          "time": 189.241432,
+          "duration": 0.3,
+          "classification": "ma3_<vkik2>",
+          "source": "unknown"
+        },
+        {
+          "time": 208.4494,
+          "duration": 0.3,
+          "classification": "ma3_<vkik2>",
+          "source": "unknown"
+        },
+        {
+          "time": 233.4494,
+          "duration": 0.3,
+          "classification": "ma3_<vkik2>",
+          "source": "unknown"
+        },
+        {
+          "time": 242.616067,
+          "duration": 0.3,
+          "classification": "ma3_<vkik2>",
+          "source": "unknown"
+        },
+        {
+          "time": 242.616067,
+          "duration": 0.3,
+          "classification": "ma3_<vkik2>",
+          "source": "unknown"
+        },
+        {
+          "time": 254.4494,
+          "duration": 0.3,
+          "classification": "ma3_<vkik2>",
+          "source": "unknown"
+        }
+      ]
+    },
+    {
+      "name": "ma3_<Vkik>",
+      "event_count": 23,
+      "events": [
+        {
+          "time": 14.168161,
+          "duration": 0.3,
+          "classification": "ma3_<Vkik>",
+          "source": "unknown"
+        },
+        {
+          "time": 14.317906,
+          "duration": 0.3,
+          "classification": "ma3_<Vkik>",
+          "source": "unknown"
+        },
+        {
+          "time": 18.192853,
+          "duration": 0.3,
+          "classification": "ma3_<Vkik>",
+          "source": "unknown"
+        },
+        {
+          "time": 18.860031,
+          "duration": 0.3,
+          "classification": "ma3_<Vkik>",
+          "source": "unknown"
+        },
+        {
+          "time": 19.009776,
+          "duration": 0.3,
+          "classification": "ma3_<Vkik>",
+          "source": "unknown"
+        },
+        {
+          "time": 19.193365,
+          "duration": 0.3,
+          "classification": "ma3_<Vkik>",
+          "source": "unknown"
+        },
+        {
+          "time": 19.676442,
+          "duration": 0.3,
+          "classification": "ma3_<Vkik>",
+          "source": "unknown"
+        },
+        {
+          "time": 19.860031,
+          "duration": 0.3,
+          "classification": "ma3_<Vkik>",
+          "source": "unknown"
+        },
+        {
+          "time": 20.009776,
+          "duration": 0.3,
+          "classification": "ma3_<Vkik>",
+          "source": "unknown"
+        },
+        {
+          "time": 20.15952,
+          "duration": 0.3,
+          "classification": "ma3_<Vkik>",
+          "source": "unknown"
+        },
+        {
+          "time": 20.343108,
+          "duration": 0.3,
+          "classification": "ma3_<Vkik>",
+          "source": "unknown"
+        },
+        {
+          "time": 180.408334,
+          "duration": 0.3,
+          "classification": "ma3_<Vkik>",
+          "source": "unknown"
+        },
+        {
+          "time": 226.65952,
+          "duration": 0.3,
+          "classification": "ma3_<Vkik>",
+          "source": "unknown"
+        },
+        {
+          "time": 227.726187,
+          "duration": 0.3,
+          "classification": "ma3_<Vkik>",
+          "source": "unknown"
+        },
+        {
+          "time": 228.85952,
+          "duration": 0.3,
+          "classification": "ma3_<Vkik>",
+          "source": "unknown"
+        },
+        {
+          "time": 229.992853,
+          "duration": 0.3,
+          "classification": "ma3_<Vkik>",
+          "source": "unknown"
+        },
+        {
+          "time": 231.126187,
+          "duration": 0.3,
+          "classification": "ma3_<Vkik>",
+          "source": "unknown"
+        },
+        {
+          "time": 232.25952,
+          "duration": 0.3,
+          "classification": "ma3_<Vkik>",
+          "source": "unknown"
+        },
+        {
+          "time": 233.392853,
+          "duration": 0.3,
+          "classification": "ma3_<Vkik>",
+          "source": "unknown"
+        },
+        {
+          "time": 240.326187,
+          "duration": 0.3,
+          "classification": "ma3_<Vkik>",
+          "source": "unknown"
+        },
+        {
+          "time": 240.326187,
+          "duration": 0.3,
+          "classification": "ma3_<Vkik>",
+          "source": "unknown"
+        },
+        {
+          "time": 251.326187,
+          "duration": 0.3,
+          "classification": "ma3_<Vkik>",
+          "source": "unknown"
+        },
+        {
+          "time": 251.326187,
+          "duration": 0.3,
+          "classification": "ma3_<Vkik>",
+          "source": "unknown"
+        }
+      ]
+    }
+  ]
+}

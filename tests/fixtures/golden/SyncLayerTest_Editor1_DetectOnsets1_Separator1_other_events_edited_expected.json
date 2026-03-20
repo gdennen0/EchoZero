@@ -1,0 +1,43 @@
+{
+  "source_project": "SyncLayerTest",
+  "source_item": "Editor1_DetectOnsets1_Separator1_other_events_edited",
+  "source_type": "Event",
+  "layers": [
+    {
+      "name": "Separator1_other-clip",
+      "event_count": 5,
+      "events": [
+        {
+          "time": 0.023219954648526078,
+          "duration": 1.6718367346938776,
+          "classification": "clip",
+          "source": "DetectOnsets"
+        },
+        {
+          "time": 131.44816326530614,
+          "duration": 0.22058956916097827,
+          "classification": "clip",
+          "source": "DetectOnsets"
+        },
+        {
+          "time": 158.61551020408163,
+          "duration": 2.0,
+          "classification": "clip",
+          "source": "DetectOnsets"
+        },
+        {
+          "time": 179.6063492063492,
+          "duration": 1.0365079365079453,
+          "classification": "clip",
+          "source": "DetectOnsets"
+        },
+        {
+          "time": 180.66285714285715,
+          "duration": 0.5688888888888926,
+          "classification": "clip",
+          "source": "DetectOnsets"
+        }
+      ]
+    }
+  ]
+}
