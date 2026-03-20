@@ -124,6 +124,19 @@ Every module must be traceable to EchoZero's First Principles:
 
 ---
 
+## Testing Rules
+
+- **Every test must assert on output values, not just execution success.** A test that only checks "did it run without crashing" is not a test — it's a smoke check. Tests must verify that the output is correct, not just that the function returned.
+- **Bad:** `result = detect_onsets(audio)` (no assertion — just ran it)
+- **Bad:** `assert result is not None` (proves nothing about correctness)
+- **Good:** `assert len(result.events) == 10` (verifies count)
+- **Good:** `assert abs(result.events[0].time - 0.1) < 0.01` (verifies timing within tolerance)
+- **Golden file tests compare against known-correct output.** When a golden file exists, use `assert_matches_golden()` helper. Tolerances for floating-point comparisons (audio timing) should be explicit, never exact equality.
+- **User-only tests** (audio playback timing, hardware interaction) are marked `@pytest.mark.manual` and skipped in CI. They require Griff to run locally.
+- **Test functions should be under 20 lines.** Extract setup into fixtures. If a test needs a paragraph of setup, the setup belongs in conftest.py.
+
+---
+
 ## Agent Exit Checklist
 
 Before submitting any work unit:
