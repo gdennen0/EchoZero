@@ -2998,6 +2998,193 @@ Output auto-splits into one layer per classification label. "kicks" layer, "snar
 - Sub-agents handle ~80% of code volume. Griff handles 100% of architecture + review.
 **Rationale:** Leverage sub-agent parallelization while maintaining architectural coherence through single-point review.
 
+### D258: Style Bible (STYLE.md)
+**Date:** 2026-03-20
+**Status:** Decided
+**Source:** S.A.S.S. Panel — echozero-dev-workflow
+**Decision:**
+- Create `STYLE.md` in repo root as mandatory context for every agent session.
+- Covers: naming conventions, module/function size limits, documentation requirements, FP compliance checks, banned anti-patterns, consistency rules.
+- Every public class/function gets a docstring. Every file gets a 3-line header (what/why/how).
+- No file exceeds 300 lines (500 hard limit). No function exceeds 30 lines (50 hard limit).
+- Agent exit checklist included — agents self-verify before submitting.
+**Rationale:** Makes slop structurally impossible by making the rules explicit. Makes review fast — Griff can spot violations in 5 seconds, not 5 minutes.
+
+### D259: Three-Tier Review System
+**Date:** 2026-03-20
+**Status:** Decided
+**Source:** S.A.S.S. Panel — echozero-dev-workflow
+**Decision:**
+- **Tier 1 (Auto-merge):** Tests, infrastructure, formatting, dependency updates. Chonch merges if CI passes.
+- **Tier 2 (Architecture check):** New modules, patterns, schema changes. Chonch verifies against Style Bible + FP1-7, merges if clean.
+- **Tier 3 (Griff decision):** Domain model changes, user-facing behavior, anything uncertain. Chonch sends a yes/no question with context. 30 seconds per review.
+**Rationale:** ~80% of merges never reach Griff. What does reach him is pre-digested into 30-second decisions.
+
+### D260: Coherence Guardian Role
+**Date:** 2026-03-20
+**Status:** Decided
+**Source:** S.A.S.S. Panel — echozero-dev-workflow
+**Decision:**
+- Chonch maintains cross-module consistency as "coherence guardian."
+- Before spawning agents: writes context preamble (what/why/principles/patterns/anti-patterns).
+- After receiving output: checks naming, headers, FP compliance, duplicate patterns.
+- Maintains COHERENCE.md: tracks established patterns, module registry, decision queue, technical debt.
+**Rationale:** The gap between "each module works" and "the codebase feels cohesive" requires active maintenance.
+
+### D261: Work Unit Lifecycle
+**Date:** 2026-03-20
+**Status:** Decided
+**Source:** S.A.S.S. Panel — echozero-dev-workflow
+**Decision:**
+- Six-step lifecycle: DEFINE → CONTEXT → EXECUTE → VERIFY → MERGE → RECORD.
+- Work unit spec includes: intent (3 lines), deliverables, interface contract, constraints, patterns to follow, anti-patterns to avoid.
+- Context package curated per unit (not full distillation dump): STYLE.md + relevant domain + existing patterns.
+- Agent exit checklist enforced before submission.
+**Rationale:** A well-defined work unit produces good code regardless of which agent runs it. A vague one produces slop regardless of agent quality.
+
+### D262: Three Workstreams
+**Date:** 2026-03-20
+**Status:** Decided
+**Source:** S.A.S.S. Panel — echozero-dev-workflow
+**Decision:**
+- EchoZero is three parallel workstreams:
+  1. Core Engine (Python) — audio analysis, pipeline, ML, persistence.
+  2. Desktop UI (PySide6 → Swift) — user-facing application.
+  3. Web Presence (Website + Licensing) — marketing, purchase, activation.
+- Independent workstreams with defined interfaces between them.
+**Rationale:** Clear separation enables parallel development without coupling.
+
+### D263: Website Is Not Blocking
+**Date:** 2026-03-20
+**Status:** Decided
+**Source:** S.A.S.S. Panel — echozero-dev-workflow
+**Decision:**
+- Website does NOT block engine or UI work. Separate track.
+- Phase 1: Landing page (Webflow, can start after Week 8).
+- Phase 2: Purchase + license flow (Stripe, needed by Week 33 for beta).
+- Phase 3: User portal (post-launch, only if volume justifies).
+**Rationale:** A working product with no website beats a beautiful website with no product.
+
+### D264: Swift Is v2 UI
+**Date:** 2026-03-20
+**Status:** Decided
+**Source:** S.A.S.S. Panel — echozero-dev-workflow
+**Decision:**
+- PySide6 is v1 UI. Swift is v2 UI. Sequential, not simultaneous.
+- PySide6 first because: same language as Core, faster iteration, cross-platform Day 1, proves product first.
+- API Contract enables the swap — Swift UI is just another API client.
+- Protect for Swift now: no Qt types in API contract, no Qt in domain logic, FEEL.py transport-agnostic, document behaviors not implementations.
+**Rationale:** Prove the product before investing in a native rewrite. The multi-process architecture (D244) already enables the swap.
+
+### D265: Cohesion Problem — Terminology, Feature, Design Drift
+**Date:** 2026-03-20
+**Status:** Decided
+**Source:** S.A.S.S. Panel — echozero-dev-workflow
+**Decision:**
+- Acknowledge three drift risks: terminology drift (same thing, different names), feature drift (promises vs. reality), design language drift (visual inconsistency).
+- Address via GLOSSARY.md, cross-workstream sync points, and design lock.
+**Rationale:** Drift is the inevitable result of parallel development by multiple agents. Must be actively managed.
+
+### D266: The Glossary (GLOSSARY.md)
+**Date:** 2026-03-20
+**Status:** Decided
+**Source:** S.A.S.S. Panel — echozero-dev-workflow
+**Decision:**
+- Maintain `GLOSSARY.md` in repo root. Every concept has ONE canonical name.
+- All agents, documentation, UI text, website copy use glossary terms.
+- When two documents disagree on terminology, GLOSSARY.md wins.
+**Rationale:** One vocabulary across the entire product eliminates terminology drift.
+
+### D267: Single Source of Truth Map
+**Date:** 2026-03-20
+**Status:** Decided
+**Source:** S.A.S.S. Panel — echozero-dev-workflow
+**Decision:**
+- Maintain a map in COHERENCE.md linking every concept to its authoritative definition location.
+- When two documents disagree, the authoritative source wins. Fix the other document.
+**Rationale:** Prevents conflicting definitions from accumulating across the growing document set.
+
+### D268: Cross-Workstream Sync Points
+**Date:** 2026-03-20
+**Status:** Decided
+**Source:** S.A.S.S. Panel — echozero-dev-workflow
+**Decision:**
+- Three mandatory sync points:
+  1. **Feature Lock (Week 20):** What the product does is decided. No new features after this.
+  2. **Copy Lock (Week 30):** All user-facing text finalized. Glossary terms everywhere.
+  3. **Design Lock (Week 32):** Visual design finalized. Consistent across website, UI, installer.
+**Rationale:** Between sync points, workstreams evolve independently. Sync points force alignment.
+
+### D269: Griff's Actual Workflow
+**Date:** 2026-03-20
+**Status:** Decided
+**Source:** S.A.S.S. Panel — echozero-dev-workflow
+**Decision:**
+- Morning check (5-10 min): scan overnight output, answer Tier 3 questions, read daily digest.
+- Evening session (30-60 min, when available): deeper review, test app, tune FEEL.py, domain decisions.
+- Weekend session (2-4 hours, occasionally): bigger architectural work, domain specs, design decisions.
+- Workflow must be productive in 5-minute windows.
+**Rationale:** Griff is a touring LD with intermittent availability. The workflow adapts to him, not the other way around.
+
+### D270: Daily Digest
+**Date:** 2026-03-20
+**Status:** Decided
+**Source:** S.A.S.S. Panel — echozero-dev-workflow
+**Decision:**
+- Chonch produces a daily digest via Telegram. Max 15 lines.
+- Contents: what merged (with line counts), what needs input (yes/no questions), progress stats, what's next.
+- Tier 3 questions formatted as yes/no with context and defaults.
+**Rationale:** Pre-digested information optimized for phone reading in 2 minutes.
+
+### D271: Decision Queue
+**Date:** 2026-03-20
+**Status:** Decided
+**Source:** S.A.S.S. Panel — echozero-dev-workflow
+**Decision:**
+- Max 5 Tier 3 items in queue at any time. Tracked in COHERENCE.md.
+- Each item has a "default if no response in 48h" — what Chonch would do if Griff doesn't respond.
+- Items older than 48h: Chonch takes the default action and notes it. Griff can override later.
+**Rationale:** Work never blocks on Griff's availability. Defaults prevent queue backup.
+
+### D272: Quality Gate Checklist
+**Date:** 2026-03-20
+**Status:** Decided
+**Source:** S.A.S.S. Panel — echozero-dev-workflow
+**Decision:**
+- **Automated (CI):** All tests pass, mypy --strict, black, isort, no file >500 lines, coverage ≥85%.
+- **Manual (Chonch):** Docstrings, file headers, naming, FP compliance, no duplicate patterns, no glossary violations, no Qt in domain.
+- **Domain (Griff — Tier 3 only):** Domain model correctness, user-facing behavior, FEEL.py changes.
+**Rationale:** Layered quality gates catch different types of issues at different costs.
+
+### D273: Zero Tolerance for Broken Tests
+**Date:** 2026-03-20
+**Status:** Decided
+**Source:** S.A.S.S. Panel — echozero-dev-workflow
+**Decision:**
+- A merge that breaks any existing test is automatically rejected. Fix first, then merge.
+- No "fix it in the next PR." No "it's just a flaky test."
+**Rationale:** With multiple agents writing concurrently, one broken test cascades into conflicting fixes. Mainline must always be green.
+
+### D274: Document Maintenance Schedule
+**Date:** 2026-03-20
+**Status:** Decided
+**Source:** S.A.S.S. Panel — echozero-dev-workflow
+**Decision:**
+- DECISIONS.md: per decision. DISTILLATION.md: weekly. STYLE.md: when new patterns emerge.
+- GLOSSARY.md: when new concepts appear. COHERENCE.md: per merge. FEEL.py: during tuning sessions.
+- API-CONTRACT.md: when endpoints change. Daily digest: daily. Memory files: per session.
+**Rationale:** Each document has a clear owner and cadence. No orphaned documents.
+
+### D275: Document Staleness Detection
+**Date:** 2026-03-20
+**Status:** Decided
+**Source:** S.A.S.S. Panel — echozero-dev-workflow
+**Decision:**
+- Every document has a `Last verified: YYYY-MM-DD` line.
+- If not verified in 2 weeks, Chonch flags for review.
+- "Verified" means someone read it and confirmed it still reflects reality.
+**Rationale:** Stale docs create zombie patterns — agents read outdated guidance and implement the wrong thing.
+
 ---
 
 ## Reference Documents
