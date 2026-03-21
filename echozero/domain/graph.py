@@ -1,144 +1,16 @@
 """
-Domain entities: Frozen dataclasses and graph aggregate for EchoZero's pipeline model.
-Exists because the domain layer must be pure data — no Qt, no database, no side effects (FP1, FP7).
-All other layers depend on these types; nothing here depends on infrastructure or UI.
+Graph: Directed acyclic graph aggregate root with full invariant enforcement.
+Exists because the pipeline-as-data model (FP1) requires a validated, traversable DAG structure.
+Owns blocks and connections — all validation happens here, not on individual entities.
 """
 
 from __future__ import annotations
 
 from collections import deque
-from dataclasses import dataclass, field
-from enum import Enum, auto
-from typing import Any
 
+from echozero.domain.enums import Direction, PortType
+from echozero.domain.types import Block, Connection, Port
 from echozero.errors import ValidationError
-
-# ---------------------------------------------------------------------------
-# Enums
-# ---------------------------------------------------------------------------
-
-
-class PortType(Enum):
-    """Classifies what kind of data flows through a port."""
-
-    AUDIO = auto()
-    EVENT = auto()
-    OSC = auto()
-    CONTROL = auto()
-
-
-class Direction(Enum):
-    """Specifies whether a port accepts or produces data."""
-
-    INPUT = auto()
-    OUTPUT = auto()
-    CONTROL = auto()
-
-
-class BlockState(Enum):
-    """Tracks whether a block's outputs are current or need re-execution."""
-
-    FRESH = auto()
-    STALE = auto()
-    UPSTREAM_ERROR = auto()
-    ERROR = auto()
-
-
-class BlockCategory(Enum):
-    """Classifies a block's execution semantics: pure transform, manual, or ephemeral."""
-
-    PROCESSOR = auto()
-    WORKSPACE = auto()
-    PLAYBACK = auto()
-
-
-# ---------------------------------------------------------------------------
-# Value objects (frozen dataclasses)
-# ---------------------------------------------------------------------------
-
-
-@dataclass(frozen=True)
-class Port:
-    """A typed input or output slot on a block."""
-
-    name: str
-    port_type: PortType
-    direction: Direction
-
-
-@dataclass(frozen=True)
-class Connection:
-    """A typed link between an output port and an input port on two blocks."""
-
-    source_block_id: str
-    source_output_name: str
-    target_block_id: str
-    target_input_name: str
-
-
-@dataclass(frozen=True)
-class Event:
-    """A time-stamped marker or region on the timeline."""
-
-    id: str
-    time: float
-    duration: float
-    classifications: dict[str, Any]
-    metadata: dict[str, Any]
-    origin: str
-
-
-@dataclass(frozen=True)
-class Layer:
-    """A named group of events on the timeline."""
-
-    id: str
-    name: str
-    events: tuple[Event, ...]
-
-
-@dataclass(frozen=True)
-class EventData:
-    """Immutable collection of layers produced by a pipeline execution."""
-
-    layers: tuple[Layer, ...]
-
-
-@dataclass(frozen=True)
-class AudioData:
-    """Reference to an audio file on disk with format metadata."""
-
-    sample_rate: int
-    duration: float
-    file_path: str
-    channel_count: int = 1
-
-
-@dataclass(frozen=True)
-class BlockSettings:
-    """Configuration entries for a block instance."""
-
-    entries: dict[str, Any]
-
-
-@dataclass(frozen=True)
-class Block:
-    """A processing unit in the pipeline graph."""
-
-    id: str
-    name: str
-    block_type: str
-    category: BlockCategory
-    input_ports: tuple[Port, ...]
-    output_ports: tuple[Port, ...]
-    control_ports: tuple[Port, ...] = ()
-    settings: BlockSettings = field(default_factory=lambda: BlockSettings(entries={}))
-    state: BlockState = BlockState.FRESH
-
-
-# ---------------------------------------------------------------------------
-# Aggregate root
-# ---------------------------------------------------------------------------
 
 
 class Graph:
@@ -203,7 +75,9 @@ class Graph:
             adjacency[conn.source_block_id].append(conn.target_block_id)
             in_degree[conn.target_block_id] += 1
 
-        queue: deque[str] = deque(bid for bid, degree in in_degree.items() if degree == 0)
+        queue: deque[str] = deque(
+            bid for bid, degree in in_degree.items() if degree == 0
+        )
         result: list[str] = []
 
         while queue:
@@ -273,11 +147,9 @@ class Graph:
         src_id = connection.source_block_id
         tgt_id = connection.target_block_id
 
-        # Self-connection
         if src_id == tgt_id:
             raise ValidationError("Self-connections are not allowed")
 
-        # Endpoints exist
         if src_id not in self.blocks:
             raise ValidationError(f"Source block not found: {src_id}")
         if tgt_id not in self.blocks:
@@ -286,29 +158,30 @@ class Graph:
         source_block = self.blocks[src_id]
         target_block = self.blocks[tgt_id]
 
-        # Source port exists and is an output
         source_port = self._find_port(
             source_block, connection.source_output_name, Direction.OUTPUT
         )
         if source_port is None:
             raise ValidationError(
-                f"Output port '{connection.source_output_name}' not found on block '{src_id}'"
+                f"Output port '{connection.source_output_name}' "
+                f"not found on block '{src_id}'"
             )
 
-        # Target port exists and is an input
-        target_port = self._find_port(target_block, connection.target_input_name, Direction.INPUT)
+        target_port = self._find_port(
+            target_block, connection.target_input_name, Direction.INPUT
+        )
         if target_port is None:
             raise ValidationError(
-                f"Input port '{connection.target_input_name}' not found on block '{tgt_id}'"
+                f"Input port '{connection.target_input_name}' "
+                f"not found on block '{tgt_id}'"
             )
 
-        # Type compatibility
         if source_port.port_type != target_port.port_type:
             raise ValidationError(
-                f"Port type mismatch: {source_port.port_type.name} -> {target_port.port_type.name}"
+                f"Port type mismatch: "
+                f"{source_port.port_type.name} -> {target_port.port_type.name}"
             )
 
-        # Audio fan-in restriction: only one connection to an Audio input
         if target_port.port_type == PortType.AUDIO:
             existing = sum(
                 1
@@ -318,12 +191,14 @@ class Graph:
             )
             if existing >= 1:
                 raise ValidationError(
-                    f"Audio input '{connection.target_input_name}' on block '{tgt_id}' "
-                    f"already has a connection (fan-in not allowed for Audio)"
+                    f"Audio input '{connection.target_input_name}' on block "
+                    f"'{tgt_id}' already has a connection (fan-in not allowed for Audio)"
                 )
 
     @staticmethod
-    def _find_port(block: Block, port_name: str, direction: Direction) -> Port | None:
+    def _find_port(
+        block: Block, port_name: str, direction: Direction
+    ) -> Port | None:
         """Look up a port by name and direction on a block."""
         if direction == Direction.OUTPUT:
             ports = block.output_ports
