@@ -12,6 +12,20 @@ Modules:
 """
 
 from echozero.domain.enums import BlockCategory, BlockState, Direction, PortType
+from echozero.domain.events import (
+    BlockAddedEvent,
+    BlockRemovedEvent,
+    BlockStateChangedEvent,
+    ConnectionAddedEvent,
+    ConnectionRemovedEvent,
+    DomainEvent,
+    ExecutionCompletedEvent,
+    ExecutionStartedEvent,
+    ProjectLoadedEvent,
+    ProjectSavedEvent,
+    SettingsChangedEvent,
+    create_event_id,
+)
 from echozero.domain.graph import Graph
 from echozero.domain.types import (
     AudioData,
@@ -30,6 +44,19 @@ __all__ = [
     "Direction",
     "BlockState",
     "BlockCategory",
+    # Domain events
+    "DomainEvent",
+    "BlockAddedEvent",
+    "BlockRemovedEvent",
+    "ConnectionAddedEvent",
+    "ConnectionRemovedEvent",
+    "BlockStateChangedEvent",
+    "ExecutionStartedEvent",
+    "ExecutionCompletedEvent",
+    "SettingsChangedEvent",
+    "ProjectLoadedEvent",
+    "ProjectSavedEvent",
+    "create_event_id",
     # Types
     "Port",
     "Connection",
