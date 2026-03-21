@@ -9,7 +9,27 @@
 
 *Updated as modules are merged. New agents must follow these patterns.*
 
-*(No patterns established yet — Sprint 0)*
+### Enums
+- Use `enum.Enum` with `auto()`. One-line docstring per enum class.
+- Pattern: `class PortType(Enum):`
+
+### Value Objects
+- Frozen dataclasses (`@dataclass(frozen=True)`).
+- No IDs on value objects that are identified by their content (e.g., Connection is identified by endpoint tuple).
+- Value objects with identity (Event, Layer, Block) use `id: str` (UUID string).
+
+### Aggregate Root
+- Graph is the aggregate root — mutable, owns blocks and connections.
+- All invariant validation lives on Graph, not on individual entities.
+- Methods: `add_X()` validates then stores. `remove_X()` cascades as needed.
+
+### Error Handling
+- Domain violations raise `ValidationError` (from `echozero.errors`).
+- Error messages include the offending value: `f"Duplicate block ID: {block.id}"`
+
+### Collections
+- Immutable sequences use `tuple[X, ...]` (not `list`).
+- Mutable collections on aggregate roots use `dict` (keyed by ID) or `list`.
 
 ---
 
@@ -19,7 +39,10 @@
 
 | Module | Purpose | Lines | Tests | Added | Agent |
 |--------|---------|-------|-------|-------|-------|
-| *(none yet)* | | | | | |
+| `echozero/errors.py` | Typed error hierarchy (DomainError, ValidationError, etc.) | 28 | 2 (smoke) | 2026-03-20 | Chonch |
+| `echozero/result.py` | Result[T] type for pipeline operations | 68 | 4 (smoke) | 2026-03-20 | Chonch |
+| `echozero/domain.py` | Core domain entities: Block, Event, Connection, Graph | 248 | 39 | 2026-03-20 | Claude Code |
+| `echozero/ui/FEEL.py` | Human-tunable UI constants | 120 | 0 | 2026-03-20 | Chonch |
 
 ---
 
