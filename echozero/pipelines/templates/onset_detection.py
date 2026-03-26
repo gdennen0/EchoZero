@@ -12,11 +12,14 @@ from echozero.pipelines.registry import PromotedParam, pipeline_template
     description='Detect note onsets in audio',
     promoted_params=[
         PromotedParam('audio_file', 'Audio File', str, required=True,
-                      description='Path to audio file'),
+                      description='Path to audio file',
+                      maps_to_block='load_audio', maps_to_setting='file_path'),
         PromotedParam('threshold', 'Sensitivity', float, default=0.3,
-                      description='Detection threshold (0.0-1.0)'),
+                      description='Detection threshold (0.0-1.0)',
+                      maps_to_block='detect_onsets', maps_to_setting='threshold'),
         PromotedParam('method', 'Method', str, default='default',
-                      description='Detection method'),
+                      description='Detection method',
+                      maps_to_block='detect_onsets', maps_to_setting='method'),
     ],
 )
 def build_onset_detection() -> Graph:

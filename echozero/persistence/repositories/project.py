@@ -2,6 +2,10 @@
 ProjectRepository: CRUD operations for Project entities in SQLite.
 Exists because the domain layer must not know about SQL — repositories translate
 between frozen dataclasses and database rows at the persistence boundary.
+
+Note: The ``graph_json`` column in the projects table is managed by
+``ProjectSession.save_graph()`` / ``load_graph()``, not by this repository.
+ProjectRepository handles project metadata only (name, settings, timestamps).
 """
 
 from __future__ import annotations

@@ -62,6 +62,7 @@ class Take:
     source: TakeSource | None
     created_at: datetime
     is_main: bool = False
+    is_archived: bool = False
     notes: str = ""
 
     @staticmethod
@@ -71,6 +72,7 @@ class Take:
         origin: TakeOrigin = "pipeline",
         source: TakeSource | None = None,
         is_main: bool = False,
+        is_archived: bool = False,
         notes: str = "",
     ) -> Take:
         """Factory: create a new Take with a fresh UUID and timestamp."""
@@ -82,6 +84,7 @@ class Take:
             source=source,
             created_at=datetime.now(timezone.utc),
             is_main=is_main,
+            is_archived=is_archived,
             notes=notes,
         )
 

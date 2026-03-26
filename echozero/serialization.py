@@ -215,11 +215,6 @@ def deserialize_take_data(data: dict[str, Any]) -> EventData | AudioData:
     raise ValueError(f"Unknown take data type: {dtype}")
 
 
-# Backward-compatible aliases (private names used in existing code)
-_serialize_take_data = serialize_take_data
-_deserialize_take_data = deserialize_take_data
-
-
 # ---------------------------------------------------------------------------
 # Take serialization
 # ---------------------------------------------------------------------------
@@ -234,7 +229,7 @@ def serialize_take(take: Take) -> dict[str, Any]:
         "created_at": take.created_at.isoformat(),
         "is_main": take.is_main,
         "notes": take.notes,
-        "data": _serialize_take_data(take.data),
+        "data": serialize_take_data(take.data),
     }
     if take.source is not None:
         result["source"] = {
@@ -262,7 +257,7 @@ def deserialize_take(data: dict[str, Any]) -> Take:
     return Take(
         id=data["id"],
         label=data["label"],
-        data=_deserialize_take_data(data["data"]),
+        data=deserialize_take_data(data["data"]),
         origin=data["origin"],
         source=source,
         created_at=datetime.fromisoformat(data["created_at"]),

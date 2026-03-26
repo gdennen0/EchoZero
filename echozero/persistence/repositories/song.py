@@ -140,6 +140,21 @@ class SongVersionRepository(BaseRepository[SongVersion]):
         )
         return [self._from_row(r) for r in rows]
 
+    def update(self, version: SongVersion) -> None:
+        """Overwrite a song version's mutable fields (label, audio_file, duration, sample_rate, hash)."""
+        self._execute(
+            "UPDATE song_versions SET label = ?, audio_file = ?, duration_seconds = ?, "
+            "original_sample_rate = ?, audio_hash = ? WHERE id = ?",
+            (
+                version.label,
+                version.audio_file,
+                version.duration_seconds,
+                version.original_sample_rate,
+                version.audio_hash,
+                version.id,
+            ),
+        )
+
     def delete(self, version_id: str) -> None:
         """Delete a song version by ID. Cascades to layers and takes."""
         self._execute(

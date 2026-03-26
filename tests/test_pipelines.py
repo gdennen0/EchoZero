@@ -329,14 +329,148 @@ class TestValidateBindings:
         # Only the required param should fail
         assert len(errors) == 1
 
-    def test_extra_bindings_ignored(self, template_with_params: PipelineTemplate) -> None:
+    def test_extra_bindings_reports_unknown(self, template_with_params: PipelineTemplate) -> None:
         errors = template_with_params.validate_bindings({
             'file': 'test.wav',
             'unknown_key': 42,
         })
-        assert errors == []
+        assert len(errors) == 1
+        assert 'unknown_key' in errors[0].lower() or 'Unknown' in errors[0]
 
-    def test_no_promoted_params(self) -> None:
+    def test_no_promoted_params_reports_unknown(self) -> None:
         t = _make_template()
         errors = t.validate_bindings({'anything': 'goes'})
+        assert len(errors) == 1
+        assert 'anything' in errors[0]
+
+    def test_int_to_float_coercion(self, template_with_params: PipelineTemplate) -> None:
+        """int where float is expected should be accepted (int→float coercion)."""
+        errors = template_with_params.validate_bindings({
+            'file': 'test.wav',
+            'threshold': 1,  # int instead of float
+        })
         assert errors == []
+
+    def test_bool_not_coerced_to_float(self, template_with_params: PipelineTemplate) -> None:
+        """bool should not be silently coerced to float despite bool being a subclass of int."""
+        errors = template_with_params.validate_bindings({
+            'file': 'test.wav',
+            'threshold': True,  # bool should not match float
+        })
+        assert len(errors) == 1
+        assert 'threshold' in errors[0]
+
+    def test_unknown_key_with_valid_bindings(self, template_with_params: PipelineTemplate) -> None:
+        """Unknown key mixed with valid bindings should still report the unknown key."""
+        errors = template_with_params.validate_bindings({
+            'file': 'test.wav',
+            'threshold': 0.5,
+            'nonexistent': 'value',
+        })
+        assert len(errors) == 1
+        assert 'nonexistent' in errors[0]
+
+    def test_multiple_unknown_keys(self, template_with_params: PipelineTemplate) -> None:
+        """Multiple unknown keys should each generate an error."""
+        errors = template_with_params.validate_bindings({
+            'file': 'test.wav',
+            'foo': 1,
+            'bar': 2,
+        })
+        assert len(errors) == 2
+        error_text = ' '.join(errors)
+        assert 'foo' in error_text
+        assert 'bar' in error_text
+
+
+# ===================================================================
+# Bindings consumption test (item 22)
+# ===================================================================
+
+class TestBindingsConsumption:
+    """build() with bindings should update block settings."""
+
+    @pytest.fixture
+    def template(self) -> PipelineTemplate:
+        import echozero.pipelines.templates.onset_detection  # noqa: F401
+        reg = get_registry()
+        t = reg.get('onset_detection')
+        assert t is not None
+        return t
+
+    def test_build_with_audio_file_binding(self, template: PipelineTemplate) -> None:
+        g = template.build(bindings={'audio_file': '/path/to/song.wav'})
+        assert g.blocks['load_audio'].settings.entries['file_path'] == '/path/to/song.wav'
+
+    def test_build_with_threshold_binding(self, template: PipelineTemplate) -> None:
+        g = template.build(bindings={'threshold': 0.7})
+        assert g.blocks['detect_onsets'].settings.entries['threshold'] == 0.7
+
+    def test_build_with_method_binding(self, template: PipelineTemplate) -> None:
+        g = template.build(bindings={'method': 'energy'})
+        assert g.blocks['detect_onsets'].settings.entries['method'] == 'energy'
+
+    def test_build_with_all_bindings(self, template: PipelineTemplate) -> None:
+        g = template.build(bindings={
+            'audio_file': '/music/track.wav',
+            'threshold': 0.9,
+            'method': 'spectral_flux',
+        })
+        assert g.blocks['load_audio'].settings.entries['file_path'] == '/music/track.wav'
+        assert g.blocks['detect_onsets'].settings.entries['threshold'] == 0.9
+        assert g.blocks['detect_onsets'].settings.entries['method'] == 'spectral_flux'
+
+    def test_build_without_bindings_uses_defaults(self, template: PipelineTemplate) -> None:
+        g = template.build()
+        assert g.blocks['load_audio'].settings.entries['file_path'] == ''
+        assert g.blocks['detect_onsets'].settings.entries['threshold'] == 0.3
+        assert g.blocks['detect_onsets'].settings.entries['method'] == 'default'
+
+    def test_build_with_empty_bindings(self, template: PipelineTemplate) -> None:
+        g = template.build(bindings={})
+        # Empty dict should not change anything
+        assert g.blocks['detect_onsets'].settings.entries['threshold'] == 0.3
+
+    def test_build_preserves_other_settings(self, template: PipelineTemplate) -> None:
+        g = template.build(bindings={'threshold': 0.5})
+        # method should remain at default
+        assert g.blocks['detect_onsets'].settings.entries['method'] == 'default'
+        # target_sample_rate should be unaffected
+        assert g.blocks['load_audio'].settings.entries['target_sample_rate'] == 44100
+
+    def test_build_preserves_connections(self, template: PipelineTemplate) -> None:
+        g = template.build(bindings={'audio_file': 'test.wav'})
+        assert len(g.connections) == 1
+        assert g.connections[0].source_block_id == 'load_audio'
+        assert g.connections[0].target_block_id == 'detect_onsets'
+
+    def test_build_preserves_block_count(self, template: PipelineTemplate) -> None:
+        g = template.build(bindings={'audio_file': 'test.wav'})
+        assert len(g.blocks) == 2
+
+
+# ===================================================================
+# PromotedParam maps_to fields
+# ===================================================================
+
+class TestPromotedParamMapsTo:
+    def test_maps_to_defaults_empty(self) -> None:
+        p = PromotedParam('key', 'Name', str)
+        assert p.maps_to_block == ''
+        assert p.maps_to_setting == ''
+
+    def test_maps_to_fields(self) -> None:
+        p = PromotedParam(
+            'audio_file', 'Audio File', str,
+            maps_to_block='load_audio', maps_to_setting='file_path',
+        )
+        assert p.maps_to_block == 'load_audio'
+        assert p.maps_to_setting == 'file_path'
+
+    def test_onset_detection_params_have_maps_to(self) -> None:
+        import echozero.pipelines.templates.onset_detection  # noqa: F401
+        reg = get_registry()
+        t = reg.get('onset_detection')
+        for param in t.promoted_params:
+            assert param.maps_to_block != '', f"{param.key} missing maps_to_block"
+            assert param.maps_to_setting != '', f"{param.key} missing maps_to_setting"

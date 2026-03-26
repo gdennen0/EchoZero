@@ -13,6 +13,7 @@ from datetime import datetime, timezone
 import pytest
 
 from echozero.domain.types import AudioData, Event, EventData, Layer
+from echozero.errors import PersistenceError
 from echozero.persistence.base import BaseRepository
 from echozero.persistence.entities import (
     LayerRecord,
@@ -1115,31 +1116,31 @@ class TestEdgeCases:
         p = _make_project()
         pr.create(p)
         conn.commit()
-        with pytest.raises(sqlite3.IntegrityError):
+        with pytest.raises(PersistenceError):
             pr.create(p)
 
     def test_song_with_missing_project_fk_raises(self, conn):
         sr = SongRepository(conn)
         s = _make_song("nonexistent_project_id")
-        with pytest.raises(sqlite3.IntegrityError):
+        with pytest.raises(PersistenceError):
             sr.create(s)
 
     def test_version_with_missing_song_fk_raises(self, conn):
         vr = SongVersionRepository(conn)
         v = _make_version("nonexistent_song_id")
-        with pytest.raises(sqlite3.IntegrityError):
+        with pytest.raises(PersistenceError):
             vr.create(v)
 
     def test_layer_with_missing_version_fk_raises(self, conn):
         lr = LayerRepository(conn)
         layer = _make_layer("nonexistent_version_id")
-        with pytest.raises(sqlite3.IntegrityError):
+        with pytest.raises(PersistenceError):
             lr.create(layer)
 
     def test_take_with_missing_layer_fk_raises(self, conn):
         tr = TakeRepository(conn)
         t = _make_take()
-        with pytest.raises(sqlite3.IntegrityError):
+        with pytest.raises(PersistenceError):
             tr.create("nonexistent_layer_id", t)
 
     def test_duplicate_song_id_raises(self, conn):
@@ -1151,7 +1152,7 @@ class TestEdgeCases:
         s = _make_song(p.id)
         sr.create(s)
         conn.commit()
-        with pytest.raises(sqlite3.IntegrityError):
+        with pytest.raises(PersistenceError):
             sr.create(s)
 
     def test_project_with_null_optional_settings(self, conn):
@@ -1186,3 +1187,383 @@ class TestEdgeCases:
         assert got.color is None
         assert got.parent_layer_id is None
         assert got.source_pipeline is None
+
+
+# ---------------------------------------------------------------------------
+# SongVersionRepository.update (item 14)
+# ---------------------------------------------------------------------------
+
+
+class TestSongVersionUpdate:
+    def _setup(self, conn) -> tuple[SongVersionRepository, str]:
+        pr = ProjectRepository(conn)
+        sr = SongRepository(conn)
+        p = _make_project()
+        pr.create(p)
+        s = _make_song(p.id)
+        sr.create(s)
+        conn.commit()
+        return SongVersionRepository(conn), s.id
+
+    def test_update_label(self, conn):
+        vr, song_id = self._setup(conn)
+        v = _make_version(song_id, label="Original")
+        vr.create(v)
+        conn.commit()
+        updated = replace(v, label="Remastered")
+        vr.update(updated)
+        conn.commit()
+        got = vr.get(v.id)
+        assert got.label == "Remastered"
+
+    def test_update_audio_file(self, conn):
+        vr, song_id = self._setup(conn)
+        v = _make_version(song_id, audio_file="audio/old.wav")
+        vr.create(v)
+        conn.commit()
+        updated = replace(v, audio_file="audio/new.wav")
+        vr.update(updated)
+        conn.commit()
+        got = vr.get(v.id)
+        assert got.audio_file == "audio/new.wav"
+
+    def test_update_duration(self, conn):
+        vr, song_id = self._setup(conn)
+        v = _make_version(song_id, duration_seconds=100.0)
+        vr.create(v)
+        conn.commit()
+        updated = replace(v, duration_seconds=250.5)
+        vr.update(updated)
+        conn.commit()
+        got = vr.get(v.id)
+        assert got.duration_seconds == 250.5
+
+    def test_update_sample_rate(self, conn):
+        vr, song_id = self._setup(conn)
+        v = _make_version(song_id, original_sample_rate=44100)
+        vr.create(v)
+        conn.commit()
+        updated = replace(v, original_sample_rate=96000)
+        vr.update(updated)
+        conn.commit()
+        got = vr.get(v.id)
+        assert got.original_sample_rate == 96000
+
+    def test_update_audio_hash(self, conn):
+        vr, song_id = self._setup(conn)
+        v = _make_version(song_id, audio_hash="old_hash")
+        vr.create(v)
+        conn.commit()
+        updated = replace(v, audio_hash="new_hash_abc")
+        vr.update(updated)
+        conn.commit()
+        got = vr.get(v.id)
+        assert got.audio_hash == "new_hash_abc"
+
+    def test_update_preserves_created_at(self, conn):
+        vr, song_id = self._setup(conn)
+        v = _make_version(song_id)
+        vr.create(v)
+        conn.commit()
+        updated = replace(v, label="Changed")
+        vr.update(updated)
+        conn.commit()
+        got = vr.get(v.id)
+        assert got.created_at == v.created_at
+
+    def test_update_round_trip(self, conn):
+        vr, song_id = self._setup(conn)
+        v = _make_version(song_id, label="V1", audio_file="a.wav",
+                          duration_seconds=200.0, original_sample_rate=48000,
+                          audio_hash="hash1")
+        vr.create(v)
+        conn.commit()
+        updated = replace(v, label="V2", audio_file="b.wav",
+                          duration_seconds=300.0, original_sample_rate=96000,
+                          audio_hash="hash2")
+        vr.update(updated)
+        conn.commit()
+        got = vr.get(v.id)
+        assert got.label == "V2"
+        assert got.audio_file == "b.wav"
+        assert got.duration_seconds == 300.0
+        assert got.original_sample_rate == 96000
+        assert got.audio_hash == "hash2"
+
+
+# ---------------------------------------------------------------------------
+# Take.is_archived round-trip (item 15)
+# ---------------------------------------------------------------------------
+
+
+class TestTakeIsArchived:
+    def _setup(self, conn) -> tuple[TakeRepository, str]:
+        pr = ProjectRepository(conn)
+        sr = SongRepository(conn)
+        vr = SongVersionRepository(conn)
+        lr = LayerRepository(conn)
+        p = _make_project()
+        pr.create(p)
+        s = _make_song(p.id)
+        sr.create(s)
+        v = _make_version(s.id)
+        vr.create(v)
+        layer = _make_layer(v.id)
+        lr.create(layer)
+        conn.commit()
+        return TakeRepository(conn), layer.id
+
+    def test_default_not_archived(self, conn):
+        tr, lid = self._setup(conn)
+        t = _make_take(is_main=True)
+        tr.create(lid, t)
+        conn.commit()
+        got = tr.get(t.id)
+        assert got.is_archived is False
+
+    def test_create_archived(self, conn):
+        tr, lid = self._setup(conn)
+        t = _make_take(is_main=True, is_archived=True)
+        tr.create(lid, t)
+        conn.commit()
+        got = tr.get(t.id)
+        assert got.is_archived is True
+
+    def test_update_to_archived(self, conn):
+        tr, lid = self._setup(conn)
+        t = _make_take(is_main=True)
+        tr.create(lid, t)
+        conn.commit()
+        updated = replace(t, is_archived=True)
+        tr.update(updated)
+        conn.commit()
+        got = tr.get(t.id)
+        assert got.is_archived is True
+
+    def test_update_to_unarchived(self, conn):
+        tr, lid = self._setup(conn)
+        t = _make_take(is_main=True, is_archived=True)
+        tr.create(lid, t)
+        conn.commit()
+        updated = replace(t, is_archived=False)
+        tr.update(updated)
+        conn.commit()
+        got = tr.get(t.id)
+        assert got.is_archived is False
+
+    def test_archived_round_trip(self, conn):
+        tr, lid = self._setup(conn)
+        t = _make_take(is_main=True, is_archived=True, label="Archived Take")
+        tr.create(lid, t)
+        conn.commit()
+        got = tr.get(t.id)
+        assert got.is_archived is True
+        assert got.label == "Archived Take"
+
+
+# ---------------------------------------------------------------------------
+# Duplicate ID tests (item 18)
+# ---------------------------------------------------------------------------
+
+
+class TestDuplicateIds:
+    def _setup_version(self, conn) -> tuple[str, str, str]:
+        """Create project -> song -> version and return (project_id, song_id, version_id)."""
+        pr = ProjectRepository(conn)
+        sr = SongRepository(conn)
+        vr = SongVersionRepository(conn)
+        p = _make_project()
+        pr.create(p)
+        s = _make_song(p.id)
+        sr.create(s)
+        v = _make_version(s.id)
+        vr.create(v)
+        conn.commit()
+        return p.id, s.id, v.id
+
+    def test_duplicate_song_version_id_raises(self, conn):
+        _, song_id, _ = self._setup_version(conn)
+        vr = SongVersionRepository(conn)
+        v = _make_version(song_id)
+        vr.create(v)
+        conn.commit()
+        with pytest.raises(PersistenceError):
+            vr.create(v)
+
+    def test_duplicate_layer_id_raises(self, conn):
+        _, _, vid = self._setup_version(conn)
+        lr = LayerRepository(conn)
+        layer = _make_layer(vid)
+        lr.create(layer)
+        conn.commit()
+        with pytest.raises(PersistenceError):
+            lr.create(layer)
+
+    def test_duplicate_take_id_raises(self, conn):
+        _, _, vid = self._setup_version(conn)
+        lr = LayerRepository(conn)
+        tr = TakeRepository(conn)
+        layer = _make_layer(vid)
+        lr.create(layer)
+        conn.commit()
+        t = _make_take(is_main=True)
+        tr.create(layer.id, t)
+        conn.commit()
+        with pytest.raises(PersistenceError):
+            tr.create(layer.id, t)
+
+    def test_duplicate_pipeline_config_id_raises(self, conn):
+        _, _, vid = self._setup_version(conn)
+        pcr = PipelineConfigRepository(conn)
+        cfg = _make_pipeline_config(vid)
+        pcr.create(cfg)
+        conn.commit()
+        with pytest.raises(PersistenceError):
+            pcr.create(cfg)
+
+
+# ---------------------------------------------------------------------------
+# data_json null guard test (item 26)
+# ---------------------------------------------------------------------------
+
+
+class TestDataJsonNullGuard:
+    def test_null_data_json_raises_persistence_error(self, conn):
+        """Take with NULL data_json should raise PersistenceError, not TypeError."""
+        pr = ProjectRepository(conn)
+        sr = SongRepository(conn)
+        vr = SongVersionRepository(conn)
+        lr = LayerRepository(conn)
+        tr = TakeRepository(conn)
+
+        p = _make_project()
+        pr.create(p)
+        s = _make_song(p.id)
+        sr.create(s)
+        v = _make_version(s.id)
+        vr.create(v)
+        layer = _make_layer(v.id)
+        lr.create(layer)
+        conn.commit()
+
+        # Manually insert a take with NULL data_json
+        conn.execute(
+            "INSERT INTO takes "
+            "(id, layer_id, label, origin, is_main, is_archived, "
+            "source_json, data_json, created_at, notes) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (_uid(), layer.id, "Bad Take", "pipeline", 0, 0,
+             None, None, _now().isoformat(), ""),
+        )
+        conn.commit()
+
+        takes = conn.execute(
+            "SELECT id FROM takes WHERE layer_id = ?", (layer.id,)
+        ).fetchall()
+        assert len(takes) == 1
+
+        with pytest.raises(PersistenceError, match="Take has no data"):
+            tr.list_by_layer(layer.id)
+
+
+# ---------------------------------------------------------------------------
+# PersistenceError wrapping test (item 27)
+# ---------------------------------------------------------------------------
+
+
+class TestPersistenceErrorWrapping:
+    def test_sqlite3_error_becomes_persistence_error(self, conn):
+        """sqlite3.IntegrityError through a repo method becomes PersistenceError."""
+        pr = ProjectRepository(conn)
+        p = _make_project()
+        pr.create(p)
+        conn.commit()
+        with pytest.raises(PersistenceError) as exc_info:
+            pr.create(p)
+        # Original sqlite3 error is preserved as __cause__
+        assert exc_info.value.__cause__ is not None
+        assert isinstance(exc_info.value.__cause__, sqlite3.IntegrityError)
+
+    def test_bad_sql_becomes_persistence_error(self, conn):
+        """sqlite3.OperationalError through _execute becomes PersistenceError."""
+        from echozero.persistence.base import BaseRepository
+
+        class TestRepo(BaseRepository[str]):
+            def _from_row(self, row):
+                return str(row[0])
+
+        repo = TestRepo(conn)
+        with pytest.raises(PersistenceError) as exc_info:
+            repo._execute("SELECT * FROM nonexistent_table_xyz")
+        assert isinstance(exc_info.value.__cause__, sqlite3.OperationalError)
+
+
+# ---------------------------------------------------------------------------
+# Migration infrastructure test (item 23)
+# ---------------------------------------------------------------------------
+
+
+class TestMigrationInfrastructure:
+    def test_apply_migrations_with_mock_migration(self):
+        """Mock a migration and verify it runs."""
+        from echozero.persistence.schema import (
+            _MIGRATIONS,
+            SCHEMA_VERSION,
+            apply_migrations,
+            get_schema_version,
+            set_schema_version,
+        )
+        # Use a fresh in-memory DB
+        conn = sqlite3.connect(":memory:")
+        conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA foreign_keys = ON")
+
+        # Create minimal schema with just _meta at version 0
+        conn.executescript(
+            "CREATE TABLE IF NOT EXISTS _meta (key TEXT PRIMARY KEY, value TEXT);"
+        )
+
+        # Set version to SCHEMA_VERSION - 1 to simulate needing one migration
+        fake_old_version = SCHEMA_VERSION  # current version
+        fake_new_version = fake_old_version + 1
+
+        set_schema_version(conn, fake_old_version)
+        conn.commit()
+
+        # Create a dummy table as migration target
+        migration_ran = []
+
+        def mock_migration(c):
+            c.execute(
+                "CREATE TABLE IF NOT EXISTS _migration_test (id TEXT PRIMARY KEY)"
+            )
+            migration_ran.append(True)
+
+        # Temporarily patch _MIGRATIONS and SCHEMA_VERSION
+        import echozero.persistence.schema as schema_mod
+        original_version = schema_mod.SCHEMA_VERSION
+        original_migrations = dict(_MIGRATIONS)
+
+        try:
+            schema_mod.SCHEMA_VERSION = fake_new_version
+            _MIGRATIONS[fake_new_version] = mock_migration
+
+            apply_migrations(conn)
+
+            assert len(migration_ran) == 1
+            assert get_schema_version(conn) == fake_new_version
+
+            # Verify the migration actually created the table
+            tables = {
+                row['name']
+                for row in conn.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table'"
+                ).fetchall()
+            }
+            assert '_migration_test' in tables
+        finally:
+            # Restore
+            schema_mod.SCHEMA_VERSION = original_version
+            _MIGRATIONS.clear()
+            _MIGRATIONS.update(original_migrations)
+            conn.close()

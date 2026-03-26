@@ -8,6 +8,8 @@ persistence-layer mutations that bypass the event bus (reordering, visibility ch
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 from echozero.domain.events import (
     BlockAddedEvent,
     BlockRemovedEvent,
@@ -36,6 +38,7 @@ class DirtyTracker:
     def __init__(self, event_bus: EventBus | None = None) -> None:
         self._dirty: bool = False
         self._dirty_entity_ids: set[str] = set()
+        self._last_saved_at: datetime | None = None
         self._event_bus = event_bus
         if event_bus is not None:
             self._subscribe(event_bus)
@@ -80,6 +83,12 @@ class DirtyTracker:
         """Reset dirty state — called after a successful save."""
         self._dirty = False
         self._dirty_entity_ids.clear()
+        self._last_saved_at = datetime.now(timezone.utc)
+
+    @property
+    def last_saved_at(self) -> datetime | None:
+        """The timestamp of the last successful save/clear, or None if never saved."""
+        return self._last_saved_at
 
     @property
     def dirty_ids(self) -> set[str]:

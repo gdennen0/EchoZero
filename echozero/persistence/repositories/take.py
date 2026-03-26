@@ -11,6 +11,7 @@ import json
 import sqlite3
 from datetime import datetime
 
+from echozero.errors import PersistenceError
 from echozero.persistence.base import BaseRepository
 from echozero.serialization import serialize_take_data, deserialize_take_data
 from echozero.takes import Take, TakeSource
@@ -22,6 +23,8 @@ class TakeRepository(BaseRepository[Take]):
     def _from_row(self, row: sqlite3.Row) -> Take:
         """Convert a database row to a domain Take."""
         source = self._deserialize_source(row['source_json'])
+        if row['data_json'] is None:
+            raise PersistenceError("Take has no data")
         data = deserialize_take_data(json.loads(row['data_json']))
 
         return Take(
@@ -32,6 +35,7 @@ class TakeRepository(BaseRepository[Take]):
             source=source,
             created_at=datetime.fromisoformat(row['created_at']),
             is_main=bool(row['is_main']),
+            is_archived=bool(row['is_archived']),
             notes=row['notes'] or "",
         )
 
@@ -48,7 +52,7 @@ class TakeRepository(BaseRepository[Take]):
                 take.label,
                 take.origin,
                 int(take.is_main),
-                0,
+                int(take.is_archived),
                 self._serialize_source(take.source),
                 json.dumps(serialize_take_data(take.data)),
                 take.created_at.isoformat(),
@@ -79,14 +83,15 @@ class TakeRepository(BaseRepository[Take]):
         return [self._from_row(r) for r in rows]
 
     def update(self, take: Take) -> None:
-        """Overwrite a take's mutable fields (label, origin, is_main, notes, source, data)."""
+        """Overwrite a take's mutable fields (label, origin, is_main, is_archived, notes, source, data)."""
         self._execute(
-            "UPDATE takes SET label = ?, origin = ?, is_main = ?, "
+            "UPDATE takes SET label = ?, origin = ?, is_main = ?, is_archived = ?, "
             "source_json = ?, data_json = ?, notes = ? WHERE id = ?",
             (
                 take.label,
                 take.origin,
                 int(take.is_main),
+                int(take.is_archived),
                 self._serialize_source(take.source),
                 json.dumps(serialize_take_data(take.data)),
                 take.notes,

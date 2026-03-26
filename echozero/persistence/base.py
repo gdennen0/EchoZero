@@ -10,6 +10,8 @@ import sqlite3
 from abc import ABC, abstractmethod
 from typing import Generic, TypeVar
 
+from echozero.errors import PersistenceError
+
 T = TypeVar('T')
 
 
@@ -24,7 +26,10 @@ class BaseRepository(ABC, Generic[T]):
         """Convert a database row to a domain/entity object."""
 
     def _execute(self, sql: str, params: tuple = ()) -> sqlite3.Cursor:
-        return self._conn.execute(sql, params)
+        try:
+            return self._conn.execute(sql, params)
+        except sqlite3.Error as e:
+            raise PersistenceError(str(e)) from e
 
     def _fetchone(self, sql: str, params: tuple = ()) -> sqlite3.Row | None:
         return self._execute(sql, params).fetchone()

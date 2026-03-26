@@ -109,7 +109,7 @@ def get_schema_version(conn: sqlite3.Connection) -> int:
     ).fetchone()
     if row is None:
         return 0
-    return int(row[0])
+    return int(row['value'])
 
 
 def set_schema_version(conn: sqlite3.Connection, version: int) -> None:

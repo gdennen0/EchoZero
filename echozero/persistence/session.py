@@ -166,8 +166,8 @@ class ProjectSession:
     @contextmanager
     def transaction(self):
         """Execute multiple operations atomically. Commits on success, rolls back on exception."""
-        self._check_closed()
         with self._lock:
+            self._check_closed()
             try:
                 yield self
                 self.db.commit()
@@ -177,16 +177,16 @@ class ProjectSession:
 
     def commit(self) -> None:
         """Explicitly commit pending changes."""
-        self._check_closed()
         with self._lock:
+            self._check_closed()
             self.db.commit()
 
     # -- Save / close -------------------------------------------------------
 
     def save(self) -> None:
         """Flush any pending changes to the SQLite DB. Clears dirty flag."""
-        self._check_closed()
         with self._lock:
+            self._check_closed()
             self.db.commit()
             self.dirty_tracker.clear()
 
@@ -199,15 +199,16 @@ class ProjectSession:
 
     def close(self) -> None:
         """Close the DB connection. Does NOT delete the working dir (crash recovery)."""
-        if self._closed:
-            return
         self.stop_autosave()
-        self.dirty_tracker._unsubscribe()
-        try:
-            self.db.close()
-        except Exception:
-            pass  # Already closed or broken — don't raise
-        self._closed = True
+        with self._lock:
+            if self._closed:
+                return
+            self._closed = True
+            self.dirty_tracker._unsubscribe()
+            try:
+                self.db.close()
+            except Exception as exc:
+                logger.debug("Error closing database: %r", exc)
 
     def _check_closed(self) -> None:
         """Raise if the session has been closed."""
@@ -268,8 +269,8 @@ class ProjectSession:
 
     def save_graph(self, graph: Graph) -> None:
         """Serialize graph to JSON and store in the project row."""
-        self._check_closed()
         with self._lock:
+            self._check_closed()
             graph_json = json.dumps(serialize_graph(graph))
             self.db.execute(
                 "UPDATE projects SET graph_json = ? WHERE id = ?",
@@ -279,8 +280,8 @@ class ProjectSession:
 
     def load_graph(self) -> Graph | None:
         """Load graph from project row, or None if not set."""
-        self._check_closed()
         with self._lock:
+            self._check_closed()
             row = self.db.execute(
                 "SELECT graph_json FROM projects WHERE id = ?",
                 (self.project.id,),
