@@ -78,23 +78,6 @@ class BlockStateChangedEvent(DomainEvent):
 
 
 @dataclass(frozen=True)
-class ExecutionStartedEvent(DomainEvent):
-    """A block began executing within a pipeline run."""
-
-    block_id: str
-    execution_id: str
-
-
-@dataclass(frozen=True)
-class ExecutionCompletedEvent(DomainEvent):
-    """A block finished executing — success or failure."""
-
-    block_id: str
-    execution_id: str
-    success: bool
-
-
-@dataclass(frozen=True)
 class SettingsChangedEvent(DomainEvent):
     """A block's configuration was modified."""
 

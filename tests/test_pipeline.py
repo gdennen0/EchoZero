@@ -14,8 +14,8 @@ import pytest
 from echozero.commands import (
     AddBlockCommand,
     AddConnectionCommand,
+    ChangeBlockSettingsCommand,
     Command,
-    ExecuteBlockCommand,
     RemoveBlockCommand,
     RemoveConnectionCommand,
 )
@@ -192,7 +192,7 @@ class TestHandlerDispatch:
 
     def test_unknown_command_returns_err(self, bus: EventBus) -> None:
         p = Pipeline(event_bus=bus)
-        cmd = ExecuteBlockCommand(block_id="b1")
+        cmd = ChangeBlockSettingsCommand(block_id="b1", setting_key="vol", new_value=1.0)
         result = p.dispatch(cmd)
 
         assert isinstance(result, Err)
@@ -364,8 +364,8 @@ class TestCommandProperties:
             is True
         )
 
-    def test_operational_commands_are_not_undoable(self) -> None:
-        assert ExecuteBlockCommand(block_id="b1").is_undoable is False
+    def test_change_settings_command_is_undoable(self) -> None:
+        assert ChangeBlockSettingsCommand(block_id="b1", setting_key="x", new_value=1).is_undoable is True
 
     def test_command_ids_are_unique(self) -> None:
         cmd_a = AddBlockCommand(block_id="b1")

@@ -7,8 +7,9 @@ Owns blocks and connections — all validation happens here, not on individual e
 from __future__ import annotations
 
 from collections import deque
+from dataclasses import replace
 
-from echozero.domain.enums import Direction, PortType
+from echozero.domain.enums import BlockState, Direction, PortType
 from echozero.domain.types import Block, Connection, Port
 from echozero.errors import ValidationError
 
@@ -27,6 +28,12 @@ class Graph:
         if block.id in self.blocks:
             raise ValidationError(f"Duplicate block ID: {block.id}")
         self.blocks[block.id] = block
+
+    def set_block_state(self, block_id: str, state: BlockState) -> None:
+        """Replace a block's state, preserving all other fields."""
+        if block_id not in self.blocks:
+            raise ValidationError(f"Block not found: {block_id}")
+        self.blocks[block_id] = replace(self.blocks[block_id], state=state)
 
     def remove_block(self, block_id: str) -> None:
         """Remove a block and all connections that reference it."""

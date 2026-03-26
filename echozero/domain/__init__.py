@@ -7,7 +7,7 @@ Modules:
     enums    — PortType, Direction, BlockState, BlockCategory
     types    — Port, Connection, Event, Layer, EventData, AudioData, BlockSettings, Block
     graph    — Graph aggregate root with invariant enforcement
-    events   — Domain event types for the EventBus (BlockAdded, ExecutionCompleted, etc.)
+    events   — Domain event types for the EventBus (BlockAdded, SettingsChanged, etc.)
     project  — Project, Song, Setlist entities (added when needed)
 """
 
@@ -19,8 +19,6 @@ from echozero.domain.events import (
     ConnectionAddedEvent,
     ConnectionRemovedEvent,
     DomainEvent,
-    ExecutionCompletedEvent,
-    ExecutionStartedEvent,
     ProjectLoadedEvent,
     ProjectSavedEvent,
     SettingsChangedEvent,
@@ -51,8 +49,6 @@ __all__ = [
     "ConnectionAddedEvent",
     "ConnectionRemovedEvent",
     "BlockStateChangedEvent",
-    "ExecutionStartedEvent",
-    "ExecutionCompletedEvent",
     "SettingsChangedEvent",
     "ProjectLoadedEvent",
     "ProjectSavedEvent",

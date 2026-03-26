@@ -185,6 +185,60 @@ class TestGraphBlocks:
 
 
 # ---------------------------------------------------------------------------
+# Graph: set_block_state
+# ---------------------------------------------------------------------------
+
+
+class TestGraphSetBlockState:
+    """Verify block state mutation via set_block_state."""
+
+    def test_set_block_state_updates_state(self) -> None:
+        graph = Graph()
+        graph.add_block(_make_block(block_id="a"))
+        assert graph.blocks["a"].state == BlockState.FRESH
+
+        graph.set_block_state("a", BlockState.STALE)
+
+        assert graph.blocks["a"].state == BlockState.STALE
+
+    def test_set_block_state_preserves_other_fields(self) -> None:
+        graph = Graph()
+        original = _make_block(block_id="a", name="MyBlock", output_ports=(_audio_out(),))
+        graph.add_block(original)
+
+        graph.set_block_state("a", BlockState.ERROR)
+
+        updated = graph.blocks["a"]
+        assert updated.state == BlockState.ERROR
+        assert updated.id == original.id
+        assert updated.name == original.name
+        assert updated.block_type == original.block_type
+        assert updated.category == original.category
+        assert updated.output_ports == original.output_ports
+
+    def test_set_block_state_nonexistent_raises(self) -> None:
+        graph = Graph()
+
+        with pytest.raises(ValidationError, match="Block not found"):
+            graph.set_block_state("ghost", BlockState.STALE)
+
+    def test_set_block_state_to_same_state(self) -> None:
+        graph = Graph()
+        graph.add_block(_make_block(block_id="a"))
+
+        graph.set_block_state("a", BlockState.FRESH)
+        assert graph.blocks["a"].state == BlockState.FRESH
+
+    def test_set_block_state_all_states(self) -> None:
+        graph = Graph()
+        graph.add_block(_make_block(block_id="a"))
+
+        for state in BlockState:
+            graph.set_block_state("a", state)
+            assert graph.blocks["a"].state == state
+
+
+# ---------------------------------------------------------------------------
 # Graph: valid connections
 # ---------------------------------------------------------------------------
 

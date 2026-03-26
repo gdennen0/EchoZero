@@ -109,18 +109,3 @@ class ChangeBlockSettingsCommand(Command):
     def is_undoable(self) -> bool:
         return True
 
-
-# ---------------------------------------------------------------------------
-# Operational commands (not undoable)
-# ---------------------------------------------------------------------------
-
-
-@dataclass(frozen=True)
-class ExecuteBlockCommand(Command):
-    """Trigger execution of a single block in the pipeline."""
-
-    block_id: str = ""
-
-    @property
-    def is_undoable(self) -> bool:
-        return False

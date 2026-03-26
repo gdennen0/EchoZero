@@ -16,7 +16,6 @@ from echozero.domain.events import (
     BlockRemovedEvent,
     BlockStateChangedEvent,
     DomainEvent,
-    ExecutionCompletedEvent,
     create_event_id,
 )
 from echozero.event_bus import EventBus

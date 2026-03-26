@@ -19,7 +19,7 @@ from echozero.result import Err, Ok, err, is_err, is_ok, map_result, ok, unwrap
 def test_version_exists() -> None:
     """Package version is set and follows semver format."""
     assert hasattr(echozero, "__version__")
-    assert echozero.__version__ == "2.0.0-dev"
+    assert echozero.__version__ == "2.1.0-dev"
 
 
 def test_error_hierarchy() -> None:

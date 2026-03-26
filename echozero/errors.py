@@ -9,12 +9,28 @@ class EchoZeroError(Exception):
     """Base exception for all EchoZero errors."""
 
 
+# Alias for the standardized name used in architecture specs (EZ2Error → EchoZeroError)
+EZ2Error = EchoZeroError
+
+
 class DomainError(EchoZeroError):
     """An operation violates a domain rule or invariant."""
 
 
 class ValidationError(DomainError):
     """Input data or state fails validation before processing."""
+
+
+class PersistenceError(EchoZeroError):
+    """Raised by persistence layer operations."""
+
+
+class EngineError(EchoZeroError):
+    """Raised by pipeline engine operations."""
+
+
+class ConfigurationError(EchoZeroError):
+    """Raised for invalid configuration or missing dependencies."""
 
 
 class InfrastructureError(EchoZeroError):

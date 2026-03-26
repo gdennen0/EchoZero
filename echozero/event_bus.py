@@ -7,10 +7,13 @@ Consumers subscribe by event type; events publish breadth-first after UoW commit
 from __future__ import annotations
 
 import collections
+import logging
 from collections.abc import Callable
 from typing import Any
 
 from echozero.domain.events import DomainEvent
+
+logger = logging.getLogger(__name__)
 
 
 class EventBus:
@@ -59,6 +62,7 @@ class EventBus:
                         handler(event)
                     except Exception as exc:
                         # Never let one broken handler kill the bus
-                        print(
-                            f"EventBus: handler {handler!r} raised {exc!r} for {type(event).__name__}"
+                        logger.warning(
+                            "EventBus: handler %r raised %r for %s",
+                            handler, exc, type(event).__name__,
                         )
