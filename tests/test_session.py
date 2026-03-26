@@ -504,13 +504,40 @@ class TestSessionSave:
         finally:
             session.close()
 
-    def test_save_as_raises_not_implemented(self, tmp_root):
-        session = ProjectSession.create_new("Stub", working_dir_root=tmp_root)
+    def test_save_as_creates_ez_file(self, tmp_root, tmp_path):
+        """save_as() creates a .ez archive file."""
+        session = ProjectSession.create_new("SaveAs", working_dir_root=tmp_root)
         try:
-            with pytest.raises(NotImplementedError):
-                session.save_as(Path("/tmp/test.ez"))
+            ez_path = tmp_path / "output.ez"
+            session.save_as(ez_path)
+            assert ez_path.exists()
+
+            import zipfile
+            assert zipfile.is_zipfile(ez_path)
+            with zipfile.ZipFile(ez_path, "r") as zf:
+                assert "manifest.json" in zf.namelist()
+                assert "project.db" in zf.namelist()
         finally:
             session.close()
+
+    def test_save_as_clears_dirty(self, tmp_root, tmp_path):
+        """save_as() clears the dirty tracker."""
+        session = ProjectSession.create_new("DirtySaveAs", working_dir_root=tmp_root)
+        try:
+            session.dirty_tracker.mark_dirty()
+            assert session.is_dirty() is True
+            ez_path = tmp_path / "output.ez"
+            session.save_as(ez_path)
+            assert session.is_dirty() is False
+        finally:
+            session.close()
+
+    def test_save_as_after_close_raises(self, tmp_root, tmp_path):
+        """save_as() raises RuntimeError after close."""
+        session = ProjectSession.create_new("Closed", working_dir_root=tmp_root)
+        session.close()
+        with pytest.raises(RuntimeError, match="closed"):
+            session.save_as(tmp_path / "output.ez")
 
     def test_full_hierarchy_round_trip(self, tmp_root):
         """Create -> add songs/versions/layers/takes -> save -> reopen -> verify."""
@@ -1011,11 +1038,19 @@ class TestSessionOpen:
             session.close()
 
     def test_open_nonexistent_ez_path_raises(self, tmp_path):
-        """Open with ez_path that has no working dir should raise."""
+        """Open with ez_path that doesn't exist should raise."""
         tmp_root = tmp_path / "working"
         ez_path = tmp_path / "nonexistent.ez"
-        ez_path.touch()
+        # File doesn't exist at all
         with pytest.raises(FileNotFoundError):
+            ProjectSession.open(ez_path, working_dir_root=tmp_root)
+
+    def test_open_invalid_ez_file_raises(self, tmp_path):
+        """Open with an invalid (non-ZIP) .ez file should raise."""
+        tmp_root = tmp_path / "working"
+        ez_path = tmp_path / "bad.ez"
+        ez_path.write_bytes(b"not a zip file")
+        with pytest.raises(Exception):  # BadZipFile or ValueError
             ProjectSession.open(ez_path, working_dir_root=tmp_root)
 
 

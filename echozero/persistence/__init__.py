@@ -10,8 +10,17 @@ Modules:
     repositories/ — CRUD for each entity type
     dirty         — DirtyTracker for change detection and autosave
     session       — ProjectSession lifecycle manager
+    archive       — .ez pack/unpack with atomic write
+    audio         — Audio import, content-addressing, hash verification
 """
 
+from echozero.persistence.archive import is_valid_ez, pack_ez, unpack_ez
+from echozero.persistence.audio import (
+    compute_audio_hash,
+    import_audio,
+    resolve_audio_path,
+    verify_audio,
+)
 from echozero.persistence.base import BaseRepository
 from echozero.persistence.dirty import DirtyTracker
 from echozero.persistence.entities import (
@@ -58,4 +67,13 @@ __all__ = [
     # Session + tracking
     "DirtyTracker",
     "ProjectSession",
+    # Archive
+    "pack_ez",
+    "unpack_ez",
+    "is_valid_ez",
+    # Audio
+    "import_audio",
+    "compute_audio_hash",
+    "verify_audio",
+    "resolve_audio_path",
 ]

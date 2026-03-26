@@ -21,7 +21,7 @@ from pathlib import Path
 from echozero.domain.graph import Graph
 from echozero.event_bus import EventBus
 from echozero.persistence.dirty import DirtyTracker
-from echozero.persistence.entities import Project, ProjectSettings
+from echozero.persistence.entities import Project, ProjectSettings, Song, SongVersion
 from echozero.persistence.repositories import (
     LayerRepository,
     PipelineConfigRepository,
@@ -45,11 +45,11 @@ def _setup_connection(conn: sqlite3.Connection) -> None:
     conn.row_factory = sqlite3.Row
 
 
-def _working_dir_for_path(ez_path: Path) -> Path:
+def _working_dir_for_path(ez_path: Path, root: Path | None = None) -> Path:
     """Derive a working directory from an .ez file path using sha256[:16]."""
     canonical = str(ez_path.resolve())
     digest = hashlib.sha256(canonical.encode()).hexdigest()[:16]
-    return WORKING_DIR_ROOT / digest
+    return (root or WORKING_DIR_ROOT) / digest
 
 
 def _working_dir_for_id(project_id: str) -> Path:
@@ -151,14 +151,18 @@ class ProjectSession:
     ) -> ProjectSession:
         """Open an existing project from an .ez file path.
 
-        Since archive.py doesn't exist yet, this opens from the working directory
-        keyed by sha256(canonical_path)[:16]. The working dir must already exist
-        with a project.db (e.g., from a previous session or create_new).
+        If the working directory already exists with a project.db (recovery scenario),
+        opens it directly. Otherwise, unpacks the .ez archive first.
         """
         root = working_dir_root or WORKING_DIR_ROOT
-        working_dir = root / hashlib.sha256(
-            str(ez_path.resolve()).encode()
-        ).hexdigest()[:16]
+        working_dir = _working_dir_for_path(ez_path, root)
+
+        if not (working_dir / "project.db").exists():
+            # Fresh open — unpack the archive
+            from echozero.persistence.archive import unpack_ez
+
+            unpack_ez(ez_path, working_dir)
+
         return cls.open_db(working_dir, event_bus)
 
     # -- Transaction control ------------------------------------------------
@@ -191,11 +195,17 @@ class ProjectSession:
             self.dirty_tracker.clear()
 
     def save_as(self, ez_path: Path) -> None:
-        """Save to .ez archive — STUB for Phase 3."""
-        raise NotImplementedError(
-            "save_as() requires archive.py (Phase 3). "
-            "Use save() to persist to the working directory."
-        )
+        """Save project to .ez archive. Atomic write."""
+        self._check_closed()
+        with self._lock:
+            from echozero.persistence.archive import pack_ez
+
+            # Commit any pending changes first
+            self.db.commit()
+            # WAL checkpoint before packing to ensure DB is fully written
+            self.db.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+            pack_ez(self.working_dir, ez_path)
+            self.dirty_tracker.clear()
 
     def close(self) -> None:
         """Close the DB connection. Does NOT delete the working dir (crash recovery)."""
@@ -289,6 +299,54 @@ class ProjectSession:
             if row is None or row['graph_json'] is None:
                 return None
             return deserialize_graph(json.loads(row['graph_json']))
+
+    # -- Audio import -------------------------------------------------------
+
+    def import_song(
+        self,
+        title: str,
+        audio_source: Path,
+        artist: str = "",
+        label: str = "Original",
+    ) -> tuple[Song, SongVersion]:
+        """Import an audio file as a new song. Copies audio, creates Song + SongVersion."""
+        self._check_closed()
+        from echozero.persistence.audio import import_audio
+
+        with self._lock:
+            # Import audio (content-addressed copy)
+            audio_rel_path, audio_hash = import_audio(audio_source, self.working_dir)
+
+            song_id = uuid.uuid4().hex
+            version_id = uuid.uuid4().hex
+            now = datetime.now(timezone.utc)
+
+            song = Song(
+                id=song_id,
+                project_id=self.project.id,
+                title=title,
+                artist=artist,
+                order=len(self.songs.list_by_project(self.project.id)),
+                active_version_id=version_id,
+            )
+
+            version = SongVersion(
+                id=version_id,
+                song_id=song_id,
+                label=label,
+                audio_file=audio_rel_path,
+                duration_seconds=0.0,
+                original_sample_rate=0,
+                audio_hash=audio_hash,
+                created_at=now,
+            )
+
+            self.songs.create(song)
+            self.song_versions.create(version)
+            self.db.commit()
+            self.dirty_tracker.mark_dirty(song_id)
+
+            return song, version
 
     # -- Autosave -----------------------------------------------------------
 
