@@ -131,13 +131,6 @@ def _default_separate(
             "Demucs is not installed. Install with: pip install demucs"
         )
 
-    try:
-        import soundfile as sf
-    except ImportError:
-        raise ExecutionError(
-            "soundfile is not installed. Install with: pip install soundfile"
-        )
-
     # Configure the separator
     separator = demucs.api.Separator(
         model=model_name,
@@ -236,12 +229,9 @@ def _write_audio(
     # Convert torch tensor to numpy: (channels, samples) → (samples, channels)
     audio_np = tensor.cpu().numpy().T
 
-    if output_format == "mp3":
-        # soundfile doesn't write mp3 natively; write wav then convert
-        # For now, just write wav — mp3 encoding can be added later
-        sf.write(file_path.replace(".mp3", ".wav"), audio_np, sample_rate)
-    else:
-        sf.write(file_path, audio_np, sample_rate)
+    # Note: output_format and mp3_bitrate are accepted for future use.
+    # V1 always writes WAV. MP3 encoding requires pydub or ffmpeg.
+    sf.write(file_path, audio_np, sample_rate)
 
 
 # ---------------------------------------------------------------------------
@@ -255,7 +245,12 @@ class SeparateAudioProcessor:
         self._separate_fn = separate_fn or _default_separate
 
     def execute(self, block_id: str, context: ExecutionContext) -> Result[dict[str, AudioData]]:
-        """Read upstream audio, separate into stems, return dict of AudioData per stem."""
+        """Read upstream audio, separate into stems, return dict of AudioData per stem.
+
+        Stems are written to a temp directory. The returned AudioData file_paths point
+        into this temp dir. The caller (or downstream pipeline) owns cleanup after the
+        files are consumed (e.g. imported into content-addressed storage).
+        """
         # Report start
         context.progress_bus.publish(
             ProgressReport(
@@ -341,8 +336,6 @@ class SeparateAudioProcessor:
                 output_format=output_format,
                 mp3_bitrate=mp3_bitrate,
             )
-        except ExecutionError:
-            raise  # Let these through
         except Exception as exc:
             return err(
                 ExecutionError(f"Separation failed for block '{block_id}': {exc}")

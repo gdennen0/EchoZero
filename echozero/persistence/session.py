@@ -196,8 +196,8 @@ class ProjectSession:
 
     def save_as(self, ez_path: Path) -> None:
         """Save project to .ez archive. Atomic write."""
-        self._check_closed()
         with self._lock:
+            self._check_closed()
             from echozero.persistence.archive import pack_ez
 
             # Commit any pending changes first
