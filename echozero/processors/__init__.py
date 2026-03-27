@@ -6,5 +6,6 @@ Each processor implements the BlockExecutor protocol and is registered with the 
 
 from echozero.processors.detect_onsets import DetectOnsetsProcessor
 from echozero.processors.load_audio import LoadAudioProcessor
+from echozero.processors.separate_audio import SeparateAudioProcessor
 
-__all__ = ["LoadAudioProcessor", "DetectOnsetsProcessor"]
+__all__ = ["LoadAudioProcessor", "DetectOnsetsProcessor", "SeparateAudioProcessor"]

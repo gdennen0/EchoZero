@@ -2,3 +2,4 @@
 
 # Import templates to trigger registration via @pipeline_template decorator
 from echozero.pipelines.templates import onset_detection  # noqa: F401
+from echozero.pipelines.templates import stem_separation  # noqa: F401
