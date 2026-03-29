@@ -7,7 +7,7 @@ These DTOs map 1:1 to SQLite rows; repositories translate between them and domai
 
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 from typing import Any, Literal
 
@@ -142,6 +142,15 @@ class PipelineConfig:
     knob_values: dict[str, Any]
     created_at: datetime
     updated_at: datetime
+    block_overrides: dict[str, list[str]] = field(default_factory=dict)
+    """Tracks per-block setting overrides. {block_id: [setting_key, ...]}
+    
+    When a user edits a block's setting directly (via with_block_setting),
+    that (block_id, key) pair is recorded here. Global knob updates skip
+    overridden settings, preserving the user's per-block customizations.
+    
+    Use clear_block_override() to re-link a setting back to the global knob.
+    """
 
     def with_knob_value(
         self,
@@ -184,6 +193,9 @@ class PipelineConfig:
                 continue
             if target_block_id is not None and block_id != target_block_id:
                 continue
+            # Skip blocks where this setting has been overridden per-block
+            if block_id in self.block_overrides and key in self.block_overrides[block_id]:
+                continue
             new_settings = dict(block.settings)
             new_settings[key] = value
             graph.replace_block(_replace(block, settings=BlockSettings(new_settings)))
@@ -211,9 +223,10 @@ class PipelineConfig:
         graph_data = json.loads(self.graph_json)
         graph = deserialize_graph(graph_data)
 
-        # Build per-block change sets respecting maps_to_block
+        # Build per-block change sets respecting maps_to_block and overrides
         for block_id, block in graph.blocks.items():
             changed = {}
+            overridden_keys = self.block_overrides.get(block_id, [])
             for key, value in updates.items():
                 if key not in block.settings:
                     continue
@@ -221,6 +234,9 @@ class PipelineConfig:
                 if knob_metadata and key in knob_metadata:
                     target = getattr(knob_metadata[key], 'maps_to_block', None)
                 if target is not None and block_id != target:
+                    continue
+                # Skip overridden settings
+                if key in overridden_keys:
                     continue
                 changed[key] = value
             if changed:
@@ -244,6 +260,8 @@ class PipelineConfig:
 
         This is the per-block "inspector" level edit. Does NOT update
         knob_values — this is an independent override on a specific block.
+        Marks the (block_id, key) pair as overridden so global knob updates
+        won't clobber it.
 
         Raises KeyError if the block doesn't exist in the graph.
         """
@@ -263,9 +281,17 @@ class PipelineConfig:
         new_settings[key] = value
         graph.replace_block(_replace(block, settings=BlockSettings(new_settings)))
 
+        # Record override
+        new_overrides = {k: list(v) for k, v in self.block_overrides.items()}
+        if block_id not in new_overrides:
+            new_overrides[block_id] = []
+        if key not in new_overrides[block_id]:
+            new_overrides[block_id].append(key)
+
         return replace(
             self,
             graph_json=json.dumps(serialize_graph(graph)),
+            block_overrides=new_overrides,
             updated_at=datetime.now(timezone.utc),
         )
 
@@ -290,9 +316,55 @@ class PipelineConfig:
         new_settings = {**dict(block.settings), **updates}
         graph.replace_block(_replace(block, settings=BlockSettings(new_settings)))
 
+        # Record overrides
+        new_overrides = {k: list(v) for k, v in self.block_overrides.items()}
+        if block_id not in new_overrides:
+            new_overrides[block_id] = []
+        for key in updates:
+            if key not in new_overrides[block_id]:
+                new_overrides[block_id].append(key)
+
         return replace(
             self,
             graph_json=json.dumps(serialize_graph(graph)),
+            block_overrides=new_overrides,
+            updated_at=datetime.now(timezone.utc),
+        )
+
+    def clear_block_override(
+        self,
+        block_id: str,
+        key: str,
+    ) -> PipelineConfig:
+        """Remove a per-block override, re-linking the setting to the global knob.
+
+        The setting value is updated to match the current knob value.
+        """
+        import json
+        from echozero.serialization import deserialize_graph, serialize_graph
+        from echozero.domain.types import BlockSettings
+        from dataclasses import replace as _replace
+
+        new_overrides = {k: list(v) for k, v in self.block_overrides.items()}
+        if block_id in new_overrides and key in new_overrides[block_id]:
+            new_overrides[block_id].remove(key)
+            if not new_overrides[block_id]:
+                del new_overrides[block_id]
+
+        # Restore block setting to current knob value
+        graph_data = json.loads(self.graph_json)
+        graph = deserialize_graph(graph_data)
+
+        block = graph.blocks.get(block_id)
+        if block is not None and key in self.knob_values:
+            new_settings = dict(block.settings)
+            new_settings[key] = self.knob_values[key]
+            graph.replace_block(_replace(block, settings=BlockSettings(new_settings)))
+
+        return replace(
+            self,
+            graph_json=json.dumps(serialize_graph(graph)),
+            block_overrides=new_overrides,
             updated_at=datetime.now(timezone.utc),
         )
 

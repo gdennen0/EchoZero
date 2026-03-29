@@ -89,6 +89,7 @@ CREATE TABLE IF NOT EXISTS pipeline_configs (
     graph_json TEXT NOT NULL,
     outputs_json TEXT NOT NULL DEFAULT '[]',
     knob_values_json TEXT NOT NULL DEFAULT '{}',
+    block_overrides_json TEXT NOT NULL DEFAULT '{}',
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
 );
@@ -148,6 +149,7 @@ def _migrate_v1_to_v2(conn: sqlite3.Connection) -> None:
             graph_json TEXT NOT NULL,
             outputs_json TEXT NOT NULL DEFAULT '[]',
             knob_values_json TEXT NOT NULL DEFAULT '{}',
+            block_overrides_json TEXT NOT NULL DEFAULT '{}',
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL
         );

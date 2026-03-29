@@ -377,6 +377,83 @@ class TestPerBlockSettings:
         assert drums.settings.get("threshold") == 0.1
 
 
+class TestOverrideProtection:
+    """Per-block overrides survive global knob changes."""
+
+    def test_global_knob_skips_overridden_block(self, session, song_version):
+        orch = Orchestrator(get_registry(), _executors())
+        config = unwrap(orch.create_config(session, song_version.id, "full_analysis"))
+
+        # Set global to 0.5, then override drums to 0.1
+        config = config.with_knob_value("threshold", 0.5)
+        config = config.with_block_setting("drums_onsets", "threshold", 0.1)
+
+        # Now change global to 0.8 — drums should stay at 0.1
+        config = config.with_knob_value("threshold", 0.8)
+
+        pipeline = config.to_pipeline()
+        assert pipeline.graph.blocks["drums_onsets"].settings.get("threshold") == 0.1
+        assert pipeline.graph.blocks["bass_onsets"].settings.get("threshold") == 0.8
+
+    def test_override_tracked_in_block_overrides(self, session, song_version):
+        orch = Orchestrator(get_registry(), _executors())
+        config = unwrap(orch.create_config(session, song_version.id, "full_analysis"))
+
+        config = config.with_block_setting("drums_onsets", "threshold", 0.1)
+        assert "drums_onsets" in config.block_overrides
+        assert "threshold" in config.block_overrides["drums_onsets"]
+
+    def test_clear_override_relinks_to_knob(self, session, song_version):
+        orch = Orchestrator(get_registry(), _executors())
+        config = unwrap(orch.create_config(session, song_version.id, "full_analysis"))
+
+        config = config.with_knob_value("threshold", 0.5)
+        config = config.with_block_setting("drums_onsets", "threshold", 0.1)
+
+        # Clear the override — drums should snap back to knob value (0.5)
+        config = config.clear_block_override("drums_onsets", "threshold")
+
+        pipeline = config.to_pipeline()
+        assert pipeline.graph.blocks["drums_onsets"].settings.get("threshold") == 0.5
+        assert "drums_onsets" not in config.block_overrides
+
+    def test_override_persists_to_db(self, session, song_version):
+        orch = Orchestrator(get_registry(), _executors())
+        config = unwrap(orch.create_config(session, song_version.id, "full_analysis"))
+
+        config = config.with_block_setting("drums_onsets", "threshold", 0.1)
+        session.pipeline_configs.update(config)
+        session.commit()
+
+        loaded = session.pipeline_configs.get(config.id)
+        assert "drums_onsets" in loaded.block_overrides
+        assert "threshold" in loaded.block_overrides["drums_onsets"]
+
+        # Global knob still skips drums after reload
+        loaded = loaded.with_knob_value("threshold", 0.9)
+        pipeline = loaded.to_pipeline()
+        assert pipeline.graph.blocks["drums_onsets"].settings.get("threshold") == 0.1
+
+    def test_multiple_overrides_on_same_block(self, session, song_version):
+        orch = Orchestrator(get_registry(), _executors())
+        config = unwrap(orch.create_config(session, song_version.id, "onset_detection"))
+
+        config = config.with_block_settings("detect_onsets", {
+            "threshold": 0.1,
+            "method": "complex",
+        })
+        assert "threshold" in config.block_overrides["detect_onsets"]
+        assert "method" in config.block_overrides["detect_onsets"]
+
+    def test_no_override_without_block_setting(self, session, song_version):
+        """Knob changes don't create overrides."""
+        orch = Orchestrator(get_registry(), _executors())
+        config = unwrap(orch.create_config(session, song_version.id, "full_analysis"))
+
+        config = config.with_knob_value("threshold", 0.5)
+        assert config.block_overrides == {}
+
+
 class TestMapsToBlock:
     """Knobs with maps_to_block targeting."""
 

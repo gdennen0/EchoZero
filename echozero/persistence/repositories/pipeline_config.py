@@ -29,6 +29,7 @@ class PipelineConfigRepository(BaseRepository[PipelineConfig]):
             knob_values=json.loads(row['knob_values_json']),
             created_at=datetime.fromisoformat(row['created_at']),
             updated_at=datetime.fromisoformat(row['updated_at']),
+            block_overrides=json.loads(row['block_overrides_json']),
         )
 
     def create(self, config: PipelineConfig) -> None:
@@ -36,8 +37,8 @@ class PipelineConfigRepository(BaseRepository[PipelineConfig]):
         self._execute(
             "INSERT INTO pipeline_configs "
             "(id, song_version_id, template_id, name, graph_json, outputs_json, "
-            "knob_values_json, created_at, updated_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "knob_values_json, block_overrides_json, created_at, updated_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 config.id,
                 config.song_version_id,
@@ -46,6 +47,7 @@ class PipelineConfigRepository(BaseRepository[PipelineConfig]):
                 config.graph_json,
                 config.outputs_json,
                 json.dumps(config.knob_values),
+                json.dumps(config.block_overrides),
                 config.created_at.isoformat(),
                 config.updated_at.isoformat(),
             ),
@@ -55,7 +57,7 @@ class PipelineConfigRepository(BaseRepository[PipelineConfig]):
         """Return a pipeline config by ID, or None if not found."""
         row = self._fetchone(
             "SELECT id, song_version_id, template_id, name, graph_json, outputs_json, "
-            "knob_values_json, created_at, updated_at "
+            "knob_values_json, block_overrides_json, created_at, updated_at "
             "FROM pipeline_configs WHERE id = ?",
             (config_id,),
         )
@@ -67,7 +69,7 @@ class PipelineConfigRepository(BaseRepository[PipelineConfig]):
         """Return all pipeline configs for a song version, ordered by creation."""
         rows = self._fetchall(
             "SELECT id, song_version_id, template_id, name, graph_json, outputs_json, "
-            "knob_values_json, created_at, updated_at "
+            "knob_values_json, block_overrides_json, created_at, updated_at "
             "FROM pipeline_configs WHERE song_version_id = ? ORDER BY created_at",
             (song_version_id,),
         )
@@ -77,7 +79,7 @@ class PipelineConfigRepository(BaseRepository[PipelineConfig]):
         """Return all configs created from a given template. For migration."""
         rows = self._fetchall(
             "SELECT id, song_version_id, template_id, name, graph_json, outputs_json, "
-            "knob_values_json, created_at, updated_at "
+            "knob_values_json, block_overrides_json, created_at, updated_at "
             "FROM pipeline_configs WHERE template_id = ? ORDER BY created_at",
             (template_id,),
         )
@@ -88,13 +90,14 @@ class PipelineConfigRepository(BaseRepository[PipelineConfig]):
         self._execute(
             "UPDATE pipeline_configs SET "
             "name = ?, graph_json = ?, outputs_json = ?, "
-            "knob_values_json = ?, updated_at = ? "
+            "knob_values_json = ?, block_overrides_json = ?, updated_at = ? "
             "WHERE id = ?",
             (
                 config.name,
                 config.graph_json,
                 config.outputs_json,
                 json.dumps(config.knob_values),
+                json.dumps(config.block_overrides),
                 config.updated_at.isoformat(),
                 config.id,
             ),
