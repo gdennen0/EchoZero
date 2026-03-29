@@ -300,6 +300,129 @@ class TestFullLifecycle:
         assert len(takes) >= 2  # first run main + second run non-main
 
 
+class TestPerBlockSettings:
+    """Per-block setting overrides (inspector-level edits)."""
+
+    def test_with_block_setting_updates_one_block(self, session, song_version):
+        orch = Orchestrator(get_registry(), _executors())
+        config = unwrap(orch.create_config(session, song_version.id, "full_analysis"))
+
+        # Override drums threshold only
+        updated = config.with_block_setting("drums_onsets", "threshold", 0.1)
+
+        pipeline = updated.to_pipeline()
+        for block in pipeline.graph.blocks.values():
+            if block.id == "drums_onsets":
+                assert block.settings.get("threshold") == 0.1
+            elif block.block_type == "DetectOnsets":
+                # Other onset blocks should still have original value
+                assert block.settings.get("threshold") == 0.3
+
+    def test_with_block_setting_doesnt_touch_knob_values(self, session, song_version):
+        orch = Orchestrator(get_registry(), _executors())
+        config = unwrap(orch.create_config(session, song_version.id, "full_analysis"))
+
+        updated = config.with_block_setting("drums_onsets", "threshold", 0.1)
+        # Knob values unchanged — this is a block-level override
+        assert updated.knob_values["threshold"] == config.knob_values["threshold"]
+
+    def test_with_block_settings_batch(self, session, song_version):
+        orch = Orchestrator(get_registry(), _executors())
+        config = unwrap(orch.create_config(session, song_version.id, "onset_detection"))
+
+        updated = config.with_block_settings("detect_onsets", {
+            "threshold": 0.9,
+            "method": "complex",
+        })
+        pipeline = updated.to_pipeline()
+        block = pipeline.graph.blocks["detect_onsets"]
+        assert block.settings.get("threshold") == 0.9
+        assert block.settings.get("method") == "complex"
+
+    def test_nonexistent_block_raises(self, session, song_version):
+        orch = Orchestrator(get_registry(), _executors())
+        config = unwrap(orch.create_config(session, song_version.id, "onset_detection"))
+
+        with pytest.raises(KeyError, match="ghost_block"):
+            config.with_block_setting("ghost_block", "threshold", 0.5)
+
+    def test_knob_then_block_override(self, session, song_version):
+        """Pipeline knob sets all, then block override adjusts one."""
+        orch = Orchestrator(get_registry(), _executors())
+        config = unwrap(orch.create_config(session, song_version.id, "full_analysis"))
+
+        # Set all thresholds to 0.5 via knob
+        config = config.with_knob_value("threshold", 0.5)
+        # Override just drums to 0.1
+        config = config.with_block_setting("drums_onsets", "threshold", 0.1)
+
+        pipeline = config.to_pipeline()
+        for block in pipeline.graph.blocks.values():
+            if block.id == "drums_onsets":
+                assert block.settings.get("threshold") == 0.1
+            elif block.block_type == "DetectOnsets":
+                assert block.settings.get("threshold") == 0.5
+
+    def test_block_override_persists_to_db(self, session, song_version):
+        orch = Orchestrator(get_registry(), _executors())
+        config = unwrap(orch.create_config(session, song_version.id, "full_analysis"))
+
+        updated = config.with_block_setting("drums_onsets", "threshold", 0.1)
+        session.pipeline_configs.update(updated)
+        session.commit()
+
+        loaded = session.pipeline_configs.get(config.id)
+        pipeline = loaded.to_pipeline()
+        drums = pipeline.graph.blocks["drums_onsets"]
+        assert drums.settings.get("threshold") == 0.1
+
+
+class TestMapsToBlock:
+    """Knobs with maps_to_block targeting."""
+
+    def test_targeted_knob_only_updates_mapped_block(self, session, song_version):
+        from echozero.pipelines.params import Knob, KnobWidget
+        orch = Orchestrator(get_registry(), _executors())
+        config = unwrap(orch.create_config(session, song_version.id, "full_analysis"))
+
+        # Simulate a knob that targets only drums_onsets
+        knob_meta = {
+            "threshold": Knob(
+                default=0.3, widget=KnobWidget.SLIDER,
+                min_value=0.0, max_value=1.0,
+                maps_to_block="drums_onsets",
+            ),
+        }
+        updated = config.with_knob_value("threshold", 0.1, knob_metadata=knob_meta)
+
+        pipeline = updated.to_pipeline()
+        for block in pipeline.graph.blocks.values():
+            if block.id == "drums_onsets":
+                assert block.settings.get("threshold") == 0.1
+            elif block.block_type == "DetectOnsets":
+                assert block.settings.get("threshold") == 0.3  # unchanged
+
+    def test_global_knob_updates_all(self, session, song_version):
+        """Knob without maps_to_block updates all matching blocks."""
+        from echozero.pipelines.params import Knob, KnobWidget
+        orch = Orchestrator(get_registry(), _executors())
+        config = unwrap(orch.create_config(session, song_version.id, "full_analysis"))
+
+        knob_meta = {
+            "threshold": Knob(
+                default=0.3, widget=KnobWidget.SLIDER,
+                min_value=0.0, max_value=1.0,
+                maps_to_block=None,  # global
+            ),
+        }
+        updated = config.with_knob_value("threshold", 0.8, knob_metadata=knob_meta)
+
+        pipeline = updated.to_pipeline()
+        for block in pipeline.graph.blocks.values():
+            if block.block_type == "DetectOnsets":
+                assert block.settings.get("threshold") == 0.8
+
+
 class TestConfigToFromPipeline:
     """Verify PipelineConfig.from_pipeline and to_pipeline round-trips."""
 

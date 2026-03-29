@@ -101,6 +101,7 @@ class Knob:
     file_types: tuple[str, ...] | None = None
     depends_on: str | None = None
     placeholder: str = ""
+    maps_to_block: str | None = None  # block_id this knob targets (None = all blocks with this setting)
 
 
 # ---------------------------------------------------------------------------
@@ -218,6 +219,7 @@ def knob(
     file_types: tuple[str, ...] | None = None,
     depends_on: str | None = None,
     placeholder: str = "",
+    maps_to_block: str | None = None,
 ) -> Knob:
     """Build a validated Knob.
 
@@ -278,6 +280,7 @@ def knob(
         file_types=file_types,
         depends_on=depends_on,
         placeholder=placeholder,
+        maps_to_block=maps_to_block,
     )
 
 

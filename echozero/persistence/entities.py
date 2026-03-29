@@ -143,69 +143,156 @@ class PipelineConfig:
     created_at: datetime
     updated_at: datetime
 
-    def with_knob_value(self, key: str, value: Any) -> PipelineConfig:
+    def with_knob_value(
+        self,
+        key: str,
+        value: Any,
+        knob_metadata: dict[str, Any] | None = None,
+    ) -> PipelineConfig:
         """Return a new config with an updated knob value.
 
-        Updates both knob_values and the corresponding BlockSettings in graph_json.
-        Does NOT validate — caller should validate via template knobs first.
+        Updates knob_values and the corresponding BlockSettings in graph_json.
+
+        If knob_metadata is provided and the knob has maps_to_block set,
+        only that specific block is updated. Otherwise all blocks with
+        the matching setting key are updated (global behavior).
+
+        Args:
+            key: Knob name (e.g. "threshold")
+            value: New value
+            knob_metadata: Optional dict of {knob_name: Knob} from the template.
+                           Used to determine maps_to_block targeting.
         """
         import json
         from echozero.serialization import deserialize_graph, serialize_graph
+        from echozero.domain.types import BlockSettings
+        from dataclasses import replace as _replace
 
         new_knob_values = dict(self.knob_values)
         new_knob_values[key] = value
 
-        # Update the graph's block settings to match
         graph_data = json.loads(self.graph_json)
         graph = deserialize_graph(graph_data)
 
-        # Walk blocks and update any that have this setting key
-        from echozero.domain.types import BlockSettings
-        from dataclasses import replace as _replace
-        for block_id, block in graph.blocks.items():
-            if key in block.settings:
-                new_settings = dict(block.settings)
-                new_settings[key] = value
-                updated = _replace(block, settings=BlockSettings(new_settings))
-                graph.replace_block(updated)
+        # Determine target block(s)
+        target_block_id = None
+        if knob_metadata and key in knob_metadata:
+            target_block_id = getattr(knob_metadata[key], 'maps_to_block', None)
 
-        new_graph_json = json.dumps(serialize_graph(graph))
+        for block_id, block in graph.blocks.items():
+            if key not in block.settings:
+                continue
+            if target_block_id is not None and block_id != target_block_id:
+                continue
+            new_settings = dict(block.settings)
+            new_settings[key] = value
+            graph.replace_block(_replace(block, settings=BlockSettings(new_settings)))
 
         return replace(
             self,
             knob_values=new_knob_values,
-            graph_json=new_graph_json,
+            graph_json=json.dumps(serialize_graph(graph)),
             updated_at=datetime.now(timezone.utc),
         )
 
-    def with_knob_values(self, updates: dict[str, Any]) -> PipelineConfig:
+    def with_knob_values(
+        self,
+        updates: dict[str, Any],
+        knob_metadata: dict[str, Any] | None = None,
+    ) -> PipelineConfig:
         """Return a new config with multiple updated knob values. Batch version."""
         import json
         from echozero.serialization import deserialize_graph, serialize_graph
+        from echozero.domain.types import BlockSettings
+        from dataclasses import replace as _replace
 
         new_knob_values = {**self.knob_values, **updates}
 
         graph_data = json.loads(self.graph_json)
         graph = deserialize_graph(graph_data)
 
-        from echozero.domain.types import BlockSettings
-        from dataclasses import replace as _replace
+        # Build per-block change sets respecting maps_to_block
         for block_id, block in graph.blocks.items():
             changed = {}
             for key, value in updates.items():
-                if key in block.settings:
-                    changed[key] = value
+                if key not in block.settings:
+                    continue
+                target = None
+                if knob_metadata and key in knob_metadata:
+                    target = getattr(knob_metadata[key], 'maps_to_block', None)
+                if target is not None and block_id != target:
+                    continue
+                changed[key] = value
             if changed:
                 new_settings = {**dict(block.settings), **changed}
-                updated = _replace(block, settings=BlockSettings(new_settings))
-                graph.replace_block(updated)
-
-        new_graph_json = json.dumps(serialize_graph(graph))
+                graph.replace_block(_replace(block, settings=BlockSettings(new_settings)))
 
         return replace(
             self,
             knob_values=new_knob_values,
-            graph_json=new_graph_json,
+            graph_json=json.dumps(serialize_graph(graph)),
+            updated_at=datetime.now(timezone.utc),
+        )
+
+    def with_block_setting(
+        self,
+        block_id: str,
+        key: str,
+        value: Any,
+    ) -> PipelineConfig:
+        """Return a new config with a single block's setting updated.
+
+        This is the per-block "inspector" level edit. Does NOT update
+        knob_values — this is an independent override on a specific block.
+
+        Raises KeyError if the block doesn't exist in the graph.
+        """
+        import json
+        from echozero.serialization import deserialize_graph, serialize_graph
+        from echozero.domain.types import BlockSettings
+        from dataclasses import replace as _replace
+
+        graph_data = json.loads(self.graph_json)
+        graph = deserialize_graph(graph_data)
+
+        block = graph.blocks.get(block_id)
+        if block is None:
+            raise KeyError(f"Block '{block_id}' not found in pipeline graph")
+
+        new_settings = dict(block.settings)
+        new_settings[key] = value
+        graph.replace_block(_replace(block, settings=BlockSettings(new_settings)))
+
+        return replace(
+            self,
+            graph_json=json.dumps(serialize_graph(graph)),
+            updated_at=datetime.now(timezone.utc),
+        )
+
+    def with_block_settings(
+        self,
+        block_id: str,
+        updates: dict[str, Any],
+    ) -> PipelineConfig:
+        """Return a new config with multiple settings updated on a single block."""
+        import json
+        from echozero.serialization import deserialize_graph, serialize_graph
+        from echozero.domain.types import BlockSettings
+        from dataclasses import replace as _replace
+
+        graph_data = json.loads(self.graph_json)
+        graph = deserialize_graph(graph_data)
+
+        block = graph.blocks.get(block_id)
+        if block is None:
+            raise KeyError(f"Block '{block_id}' not found in pipeline graph")
+
+        new_settings = {**dict(block.settings), **updates}
+        graph.replace_block(_replace(block, settings=BlockSettings(new_settings)))
+
+        return replace(
+            self,
+            graph_json=json.dumps(serialize_graph(graph)),
             updated_at=datetime.now(timezone.utc),
         )
 
