@@ -67,3 +67,74 @@ def verify_audio(working_dir: Path, audio_file: str, expected_hash: str) -> bool
 def resolve_audio_path(working_dir: Path, audio_file: str) -> Path:
     """Resolve a project-relative audio path to an absolute path."""
     return working_dir / audio_file
+
+
+# ---------------------------------------------------------------------------
+# Audio metadata scanning
+# ---------------------------------------------------------------------------
+
+
+class AudioMetadata:
+    """Audio file metadata discovered during import.
+
+    Populated by scan_audio_metadata(). Carries all info we can extract from
+    the file itself — duration, sample rate, channels, format. Extensible
+    for future metadata (bit depth, codec, loudness, etc.).
+    """
+
+    __slots__ = ("duration_seconds", "sample_rate", "channel_count")
+
+    def __init__(
+        self,
+        duration_seconds: float,
+        sample_rate: int,
+        channel_count: int,
+    ) -> None:
+        self.duration_seconds = duration_seconds
+        self.sample_rate = sample_rate
+        self.channel_count = channel_count
+
+    def __repr__(self) -> str:
+        return (
+            f"AudioMetadata(duration={self.duration_seconds:.2f}s, "
+            f"sr={self.sample_rate}, ch={self.channel_count})"
+        )
+
+
+def scan_audio_metadata(
+    audio_path: Path,
+    scan_fn=None,
+) -> AudioMetadata:
+    """Read audio file metadata without loading samples.
+
+    Args:
+        audio_path: Path to the audio file.
+        scan_fn: Optional injectable function(path) -> AudioMetadata for testing.
+
+    Returns:
+        AudioMetadata with duration, sample rate, and channel count.
+
+    Raises:
+        RuntimeError: If metadata cannot be read.
+    """
+    if scan_fn is not None:
+        return scan_fn(audio_path)
+
+    try:
+        import soundfile as sf
+    except ImportError:
+        raise RuntimeError(
+            "Audio metadata scanning requires soundfile. "
+            "Install with: pip install soundfile"
+        )
+
+    try:
+        info = sf.info(str(audio_path))
+    except Exception as exc:
+        raise RuntimeError(f"Failed to read audio metadata from '{audio_path}': {exc}")
+
+    return AudioMetadata(
+        duration_seconds=info.duration,
+        sample_rate=info.samplerate,
+        channel_count=info.channels,
+    )

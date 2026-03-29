@@ -507,11 +507,15 @@ class TestFullSessionRoundTrip:
         audio_source.parent.mkdir(parents=True)
         audio_source.write_bytes(b"imported audio content")
 
+        from echozero.persistence.audio import AudioMetadata
+
         song, version = session.import_song(
             title="My Track",
             audio_source=audio_source,
             artist="DJ Test",
             label="Studio Mix",
+            default_templates=[],
+            scan_fn=lambda p: AudioMetadata(duration_seconds=60.0, sample_rate=44100, channel_count=2),
         )
 
         session.save_as(ez_path)

@@ -302,53 +302,138 @@ class ProjectSession:
 
     # -- Audio import -------------------------------------------------------
 
+    def _create_version(
+        self,
+        song_id: str,
+        audio_source: Path,
+        label: str,
+        scan_fn=None,
+    ) -> SongVersion:
+        """Shared version factory: import audio, scan metadata, create SongVersion.
+
+        This is the single path for all audio → SongVersion creation.
+        Both import_song and add_song_version call this.
+
+        Args:
+            song_id: Song this version belongs to.
+            audio_source: Path to the audio file on disk.
+            label: Human-readable version label.
+            scan_fn: Optional injectable for testing (skips real audio scanning).
+
+        Returns:
+            The newly created and persisted SongVersion with real metadata.
+        """
+        from echozero.persistence.audio import import_audio, scan_audio_metadata
+
+        audio_rel_path, audio_hash = import_audio(audio_source, self.working_dir)
+
+        # Scan real metadata from the file
+        full_audio_path = self.working_dir / audio_rel_path
+        metadata = scan_audio_metadata(full_audio_path, scan_fn=scan_fn)
+
+        version = SongVersion(
+            id=uuid.uuid4().hex,
+            song_id=song_id,
+            label=label,
+            audio_file=audio_rel_path,
+            duration_seconds=metadata.duration_seconds,
+            original_sample_rate=metadata.sample_rate,
+            audio_hash=audio_hash,
+            created_at=datetime.now(timezone.utc),
+        )
+        self.song_versions.create(version)
+        return version
+
     def import_song(
         self,
         title: str,
         audio_source: Path,
         artist: str = "",
         label: str = "Original",
+        default_templates: list[str] | None = None,
+        scan_fn=None,
     ) -> tuple[Song, SongVersion]:
-        """Import an audio file as a new song. Copies audio, creates Song + SongVersion."""
+        """Import an audio file as a new song with default pipeline configs.
+
+        Creates Song + SongVersion + default PipelineConfigs from registered templates.
+
+        Args:
+            title: Song title.
+            audio_source: Path to the audio file.
+            artist: Artist name (optional).
+            label: Version label (default "Original").
+            default_templates: Template IDs to create configs for. If None, uses all
+                registered templates. Pass [] to skip default config creation.
+            scan_fn: Optional injectable for audio scanning (testing).
+
+        Returns:
+            (Song, SongVersion) tuple.
+        """
         self._check_closed()
-        from echozero.persistence.audio import import_audio
 
         with self._lock:
-            # Import audio (content-addressed copy)
-            audio_rel_path, audio_hash = import_audio(audio_source, self.working_dir)
-
             song_id = uuid.uuid4().hex
-            version_id = uuid.uuid4().hex
-            now = datetime.now(timezone.utc)
 
+            # Song must exist before version (FK constraint)
             song = Song(
                 id=song_id,
                 project_id=self.project.id,
                 title=title,
                 artist=artist,
                 order=len(self.songs.list_by_project(self.project.id)),
-                active_version_id=version_id,
+                active_version_id=None,  # set after version creation
             )
-
-            version = SongVersion(
-                id=version_id,
-                song_id=song_id,
-                label=label,
-                audio_file=audio_rel_path,
-                duration_seconds=0.0,
-                original_sample_rate=0,
-                audio_hash=audio_hash,
-                created_at=now,
-            )
-
             self.songs.create(song)
-            self.song_versions.create(version)
+
+            # Create version (imports audio, scans metadata, persists)
+            version = self._create_version(song_id, audio_source, label, scan_fn)
+
+            # Point song to the new version
+            from dataclasses import replace as _replace
+            updated_song = _replace(song, active_version_id=version.id)
+            self.songs.update(updated_song)
+
+            # Create default pipeline configs from templates
+            self._apply_default_templates(version.id, default_templates)
+
             self.db.commit()
             self.dirty_tracker.mark_dirty(song_id)
 
-            return song, version
+            return updated_song, version
 
-    # -- Song version update (D278) ----------------------------------------
+    def _apply_default_templates(
+        self,
+        song_version_id: str,
+        template_ids: list[str] | None = None,
+    ) -> None:
+        """Create PipelineConfigs from registered templates for a new version.
+
+        Args:
+            song_version_id: The version to attach configs to.
+            template_ids: Specific template IDs. None = all registered. [] = none.
+        """
+        from echozero.pipelines.registry import get_registry
+        from echozero.persistence.entities import PipelineConfig
+
+        registry = get_registry()
+
+        if template_ids is None:
+            templates = registry.list()
+        else:
+            templates = [t for tid in template_ids if (t := registry.get(tid)) is not None]
+
+        for template in templates:
+            # Build pipeline with default knob values
+            pipeline = template.build_pipeline()
+
+            config = PipelineConfig.from_pipeline(
+                pipeline,
+                template_id=template.id,
+                song_version_id=song_version_id,
+                knob_values={k: v.default for k, v in template.knobs.items()},
+                name=template.name,
+            )
+            self.pipeline_configs.create(config)
 
     def add_song_version(
         self,
@@ -356,14 +441,15 @@ class ProjectSession:
         audio_source: Path,
         label: str | None = None,
         activate: bool = True,
+        scan_fn=None,
     ) -> SongVersion:
         """Add a new version of an existing song and copy all pipeline configs.
 
         This is the D278 "Update Track" flow:
-        1. Import the new audio file (content-addressed).
-        2. Create a new SongVersion.
+        1. Import + scan the new audio file.
+        2. Create a new SongVersion with real metadata.
         3. Copy all PipelineConfigs from the current active version → new version
-           (same graph, same knobs, same block overrides — but new IDs and PENDING status).
+           (same graph, same knobs, same block overrides — but new IDs).
         4. Optionally set the new version as active.
 
         Args:
@@ -371,6 +457,7 @@ class ProjectSession:
             audio_source: Path to the new audio file.
             label: Human-readable label (e.g. "Festival Edit"). Auto-generated if None.
             activate: If True, set the new version as the song's active version.
+            scan_fn: Optional injectable for audio scanning (testing).
 
         Returns:
             The newly created SongVersion.
@@ -380,65 +467,45 @@ class ProjectSession:
         """
         self._check_closed()
         from dataclasses import replace as _replace
-        from echozero.persistence.audio import import_audio
 
         with self._lock:
             song = self.songs.get(song_id)
             if song is None:
                 raise ValueError(f"Song not found: {song_id}")
 
-            # Get the current active version to copy configs from
             source_version_id = song.active_version_id
             if source_version_id is None:
                 raise ValueError(
                     f"Song '{song_id}' has no active version to copy configs from"
                 )
 
-            # Import audio
-            audio_rel_path, audio_hash = import_audio(audio_source, self.working_dir)
-
-            # Create new version
-            new_version_id = uuid.uuid4().hex
-            now = datetime.now(timezone.utc)
-
-            # Auto-generate label from version count
+            # Auto-generate label
             if label is None:
-                existing_versions = self.song_versions.list_by_song(song_id)
-                label = f"v{len(existing_versions) + 1}"
+                existing = self.song_versions.list_by_song(song_id)
+                label = f"v{len(existing) + 1}"
 
-            new_version = SongVersion(
-                id=new_version_id,
-                song_id=song_id,
-                label=label,
-                audio_file=audio_rel_path,
-                duration_seconds=0.0,
-                original_sample_rate=0,
-                audio_hash=audio_hash,
-                created_at=now,
-            )
-            self.song_versions.create(new_version)
+            # Create version (imports audio, scans metadata)
+            version = self._create_version(song_id, audio_source, label, scan_fn)
 
-            # Copy all pipeline configs from source version → new version
-            source_configs = self.pipeline_configs.list_by_version(source_version_id)
-            for config in source_configs:
+            # Copy all pipeline configs from source version
+            now = datetime.now(timezone.utc)
+            for config in self.pipeline_configs.list_by_version(source_version_id):
                 new_config = _replace(
                     config,
                     id=uuid.uuid4().hex,
-                    song_version_id=new_version_id,
+                    song_version_id=version.id,
                     created_at=now,
                     updated_at=now,
                 )
                 self.pipeline_configs.create(new_config)
 
-            # Activate if requested
             if activate:
-                updated_song = _replace(song, active_version_id=new_version_id)
-                self.songs.update(updated_song)
+                self.songs.update(_replace(song, active_version_id=version.id))
 
             self.db.commit()
             self.dirty_tracker.mark_dirty(song_id)
 
-            return new_version
+            return version
 
     # -- Autosave -----------------------------------------------------------
 
