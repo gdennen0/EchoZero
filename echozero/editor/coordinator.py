@@ -10,6 +10,12 @@ import threading
 from typing import Any
 
 from echozero.editor.cache import ExecutionCache
+from echozero.editor.staleness import (
+    StaleReason,
+    StaleTracker,
+    connection_changed_reason,
+    setting_changed_reason,
+)
 from echozero.domain.enums import BlockState
 from echozero.domain.events import (
     BlockRemovedEvent,
@@ -86,15 +92,22 @@ class Coordinator:
         engine: ExecutionEngine,
         cache: ExecutionCache,
         runtime_bus: RuntimeBus,
+        stale_tracker: StaleTracker | None = None,
     ) -> None:
         self._graph = graph
         self._pipeline = pipeline
         self._engine = engine
         self._cache = cache
         self._runtime_bus = runtime_bus
+        self._stale_tracker = stale_tracker or StaleTracker()
         self._cancel_event: threading.Event = threading.Event()
         self._executing: bool = False
         self._auto_evaluate: bool = False
+
+    @property
+    def stale_tracker(self) -> StaleTracker:
+        """Access the stale reason tracker for UI queries."""
+        return self._stale_tracker
 
     @property
     def is_executing(self) -> bool:
@@ -137,8 +150,9 @@ class Coordinator:
                     block = self._graph.blocks[block_id]
                     port_name = block.output_ports[0].name if block.output_ports else "out"
                     self._cache.store(block_id, port_name, value, plan.execution_id)
-                # Mark block as FRESH after successful execution
+                # Mark block as FRESH and clear stale reasons
                 self._graph.set_block_state(block_id, BlockState.FRESH)
+                self._stale_tracker.clear(block_id)
             return ok(plan.execution_id)
 
         assert isinstance(result, Err)
@@ -148,8 +162,16 @@ class Coordinator:
         """Signal cancellation to in-flight execution."""
         self._cancel_event.set()
 
-    def propagate_stale(self, block_id: str) -> set[str]:
+    def propagate_stale(
+        self,
+        block_id: str,
+        reason: StaleReason | None = None,
+    ) -> set[str]:
         """Mark a block and all downstream as STALE, invalidating their cache entries.
+
+        If a reason is provided, it's recorded on every affected block so the UI
+        can show WHY each block is stale. Reasons accumulate — multiple changes
+        before re-run produce multiple reasons per block.
 
         Returns the set of affected block IDs.
         """
@@ -157,6 +179,8 @@ class Coordinator:
         for bid in affected:
             if bid in self._graph.blocks:
                 self._graph.set_block_state(bid, BlockState.STALE)
+        if reason is not None:
+            self._stale_tracker.add_reason_to_downstream(affected, reason)
         return affected
 
     # -- Document bus wiring ------------------------------------------------
@@ -176,19 +200,35 @@ class Coordinator:
         document_bus.unsubscribe(BlockRemovedEvent, self._on_block_removed)
 
     def _on_settings_changed(self, event: SettingsChangedEvent) -> None:
-        self.propagate_stale(event.block_id)
+        block = self._graph.blocks.get(event.block_id)
+        block_name = block.name if block else event.block_id
+        reason = setting_changed_reason(
+            event.block_id, block_name, event.setting_key,
+        )
+        self.propagate_stale(event.block_id, reason=reason)
         if self._auto_evaluate:
             self.request_run()
 
     def _on_connection_added(self, event: ConnectionAddedEvent) -> None:
-        self.propagate_stale(event.target_block_id)
+        target = self._graph.blocks.get(event.target_block_id)
+        target_name = target.name if target else event.target_block_id
+        reason = connection_changed_reason(
+            event.target_block_id, target_name, "added",
+        )
+        self.propagate_stale(event.target_block_id, reason=reason)
         if self._auto_evaluate:
             self.request_run()
 
     def _on_connection_removed(self, event: ConnectionRemovedEvent) -> None:
-        self.propagate_stale(event.target_block_id)
+        target = self._graph.blocks.get(event.target_block_id)
+        target_name = target.name if target else event.target_block_id
+        reason = connection_changed_reason(
+            event.target_block_id, target_name, "removed",
+        )
+        self.propagate_stale(event.target_block_id, reason=reason)
         if self._auto_evaluate:
             self.request_run()
 
     def _on_block_removed(self, event: BlockRemovedEvent) -> None:
         self._cache.invalidate(event.block_id)
+        self._stale_tracker.clear(event.block_id)
