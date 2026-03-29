@@ -1,0 +1,684 @@
+"""
+Audio engine tests: Clock, Transport, AudioLayer, Mixer, and AudioEngine integration.
+Exists because the audio engine is DAW-grade infrastructure — every component needs
+thorough verification before we wire it to real hardware.
+
+All tests run without sounddevice (stream_factory injection for AudioEngine).
+"""
+
+from __future__ import annotations
+
+import numpy as np
+import pytest
+
+from echozero.audio.clock import Clock, LoopRegion
+from echozero.audio.transport import Transport, TransportState
+from echozero.audio.layer import AudioLayer
+from echozero.audio.mixer import Mixer
+from echozero.audio.engine import AudioEngine
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+
+def _sine(samples: int = 44100, freq: float = 440.0, sr: int = 44100) -> np.ndarray:
+    """Generate a mono sine wave."""
+    t = np.arange(samples, dtype=np.float32) / sr
+    return np.sin(2 * np.pi * freq * t).astype(np.float32)
+
+
+class FakeStream:
+    """Mock audio stream for testing without sounddevice."""
+
+    def __init__(self, **kwargs):
+        self.callback = kwargs.get("callback")
+        self.started = False
+        self.closed = False
+
+    def start(self):
+        self.started = True
+
+    def stop(self):
+        self.started = False
+
+    def close(self):
+        self.closed = True
+
+
+def fake_stream_factory(**kwargs):
+    return FakeStream(**kwargs)
+
+
+class RecordingSubscriber:
+    """Clock subscriber that records every tick."""
+
+    def __init__(self):
+        self.ticks: list[tuple[int, int]] = []
+
+    def on_clock_tick(self, position_samples: int, sample_rate: int) -> None:
+        self.ticks.append((position_samples, sample_rate))
+
+
+# ===========================================================================
+# Clock tests
+# ===========================================================================
+
+
+class TestClock:
+    def test_initial_position_is_zero(self) -> None:
+        clock = Clock(44100)
+        assert clock.position == 0
+        assert clock.position_seconds == 0.0
+
+    def test_advance_returns_pre_advance_position(self) -> None:
+        clock = Clock(44100)
+        pos = clock.advance(256)
+        assert pos == 0
+        assert clock.position == 256
+
+    def test_advance_accumulates(self) -> None:
+        clock = Clock(44100)
+        clock.advance(256)
+        clock.advance(256)
+        assert clock.position == 512
+
+    def test_seek(self) -> None:
+        clock = Clock(44100)
+        clock.advance(1000)
+        clock.seek(500)
+        assert clock.position == 500
+
+    def test_seek_negative_clamps_to_zero(self) -> None:
+        clock = Clock(44100)
+        clock.seek(-100)
+        assert clock.position == 0
+
+    def test_seek_seconds(self) -> None:
+        clock = Clock(44100)
+        clock.seek_seconds(1.0)
+        assert clock.position == 44100
+
+    def test_position_seconds(self) -> None:
+        clock = Clock(44100)
+        clock.advance(22050)
+        assert abs(clock.position_seconds - 0.5) < 1e-6
+
+    def test_reset(self) -> None:
+        clock = Clock(44100)
+        clock.advance(10000)
+        clock.reset()
+        assert clock.position == 0
+
+    def test_subscriber_called_on_advance(self) -> None:
+        clock = Clock(44100)
+        sub = RecordingSubscriber()
+        clock.add_subscriber(sub)
+        clock.advance(256)
+        assert len(sub.ticks) == 1
+        assert sub.ticks[0] == (0, 44100)
+
+    def test_subscriber_receives_pre_advance_position(self) -> None:
+        clock = Clock(44100)
+        sub = RecordingSubscriber()
+        clock.add_subscriber(sub)
+        clock.advance(256)
+        clock.advance(256)
+        assert sub.ticks[1] == (256, 44100)
+
+    def test_remove_subscriber(self) -> None:
+        clock = Clock(44100)
+        sub = RecordingSubscriber()
+        clock.add_subscriber(sub)
+        clock.advance(256)
+        clock.remove_subscriber(sub)
+        clock.advance(256)
+        assert len(sub.ticks) == 1
+
+    def test_remove_nonexistent_subscriber_is_safe(self) -> None:
+        clock = Clock(44100)
+        sub = RecordingSubscriber()
+        clock.remove_subscriber(sub)  # should not raise
+
+    def test_duplicate_subscriber_not_added(self) -> None:
+        clock = Clock(44100)
+        sub = RecordingSubscriber()
+        clock.add_subscriber(sub)
+        clock.add_subscriber(sub)
+        clock.advance(256)
+        assert len(sub.ticks) == 1  # called once, not twice
+
+    # -- Loop tests ---------------------------------------------------------
+
+    def test_loop_region_validation(self) -> None:
+        with pytest.raises(ValueError):
+            LoopRegion(start=-1, end=100)
+        with pytest.raises(ValueError):
+            LoopRegion(start=100, end=100)  # end must be > start
+        with pytest.raises(ValueError):
+            LoopRegion(start=100, end=50)
+
+    def test_loop_wraps_position(self) -> None:
+        clock = Clock(44100)
+        clock.set_loop(0, 1000)
+        clock.loop_enabled = True
+        clock.seek(900)
+        pos = clock.advance(200)  # would go to 1100, wraps to 100
+        assert pos == 900
+        assert clock.position == 100
+
+    def test_loop_disabled_does_not_wrap(self) -> None:
+        clock = Clock(44100)
+        clock.set_loop(0, 1000)
+        clock.loop_enabled = False
+        clock.seek(900)
+        clock.advance(200)
+        assert clock.position == 1100
+
+    def test_loop_wraps_multiple_times(self) -> None:
+        clock = Clock(44100)
+        clock.set_loop(0, 100)
+        clock.loop_enabled = True
+        clock.seek(50)
+        clock.advance(250)  # 50 + 250 = 300, loop is 100 long, so 300 % 100 = 0
+        assert clock.position == 0
+
+    def test_loop_with_offset_start(self) -> None:
+        clock = Clock(44100)
+        clock.set_loop(500, 1000)
+        clock.loop_enabled = True
+        clock.seek(900)
+        clock.advance(200)  # 1100 - 1000 = 100 overshoot, loop len = 500, so 500 + 100 = 600
+        assert clock.position == 600
+
+    def test_set_loop_seconds(self) -> None:
+        clock = Clock(44100)
+        clock.set_loop_seconds(1.0, 2.0)
+        assert clock.loop_region is not None
+        assert clock.loop_region.start == 44100
+        assert clock.loop_region.end == 88200
+
+
+# ===========================================================================
+# Transport tests
+# ===========================================================================
+
+
+class TestTransport:
+    def test_initial_state_is_stopped(self) -> None:
+        transport = Transport(Clock(44100))
+        assert transport.state == TransportState.STOPPED
+        assert transport.is_stopped
+
+    def test_play_from_stopped(self) -> None:
+        transport = Transport(Clock(44100))
+        transport.play()
+        assert transport.state == TransportState.PLAYING
+        assert transport.is_playing
+
+    def test_pause_from_playing(self) -> None:
+        transport = Transport(Clock(44100))
+        transport.play()
+        transport.pause()
+        assert transport.state == TransportState.PAUSED
+        assert transport.is_paused
+
+    def test_pause_from_stopped_is_noop(self) -> None:
+        transport = Transport(Clock(44100))
+        transport.pause()
+        assert transport.is_stopped
+
+    def test_stop_resets_position(self) -> None:
+        clock = Clock(44100)
+        transport = Transport(clock)
+        transport.play()
+        clock.advance(10000)
+        transport.stop()
+        assert transport.is_stopped
+        assert clock.position == 0
+
+    def test_stop_returns_to_seek_position(self) -> None:
+        clock = Clock(44100)
+        transport = Transport(clock)
+        transport.seek(5000)
+        transport.play()
+        clock.advance(10000)
+        transport.stop()
+        assert clock.position == 5000
+
+    def test_resume_from_paused(self) -> None:
+        clock = Clock(44100)
+        transport = Transport(clock)
+        transport.play()
+        clock.advance(5000)
+        transport.pause()
+        pos_at_pause = clock.position
+        transport.play()
+        assert transport.is_playing
+        assert clock.position == pos_at_pause  # didn't reset
+
+    def test_stop_from_paused(self) -> None:
+        clock = Clock(44100)
+        transport = Transport(clock)
+        transport.play()
+        clock.advance(5000)
+        transport.pause()
+        transport.stop()
+        assert transport.is_stopped
+        assert clock.position == 0
+
+    def test_play_while_playing_is_noop(self) -> None:
+        transport = Transport(Clock(44100))
+        transport.play()
+        transport.play()
+        assert transport.is_playing
+
+    def test_stop_while_stopped_is_noop(self) -> None:
+        transport = Transport(Clock(44100))
+        transport.stop()
+        assert transport.is_stopped
+
+    def test_seek_while_playing(self) -> None:
+        clock = Clock(44100)
+        transport = Transport(clock)
+        transport.play()
+        clock.advance(5000)
+        transport.seek(1000)
+        assert transport.is_playing
+        assert clock.position == 1000
+
+    def test_seek_seconds(self) -> None:
+        clock = Clock(44100)
+        transport = Transport(clock)
+        transport.seek_seconds(2.0)
+        assert clock.position == 88200
+
+    def test_toggle_play_pause(self) -> None:
+        transport = Transport(Clock(44100))
+        transport.toggle_play_pause()
+        assert transport.is_playing
+        transport.toggle_play_pause()
+        assert transport.is_paused
+        transport.toggle_play_pause()
+        assert transport.is_playing
+
+    def test_toggle_from_stopped(self) -> None:
+        transport = Transport(Clock(44100))
+        assert transport.is_stopped
+        transport.toggle_play_pause()
+        assert transport.is_playing
+
+    def test_return_to_start(self) -> None:
+        clock = Clock(44100)
+        transport = Transport(clock)
+        transport.seek(5000)
+        transport.play()
+        clock.advance(10000)
+        transport.return_to_start()
+        assert clock.position == 0
+        # Still playing
+        assert transport.is_playing
+
+    def test_return_to_start_from_stopped(self) -> None:
+        clock = Clock(44100)
+        transport = Transport(clock)
+        transport.seek(5000)
+        transport.return_to_start()
+        assert clock.position == 0
+        assert transport.is_stopped
+
+
+# ===========================================================================
+# AudioLayer tests
+# ===========================================================================
+
+
+class TestAudioLayer:
+    def test_read_within_bounds(self) -> None:
+        buf = _sine(1000)
+        layer = AudioLayer("l1", "test", buf, 44100)
+        chunk = layer.read_samples(0, 256)
+        assert chunk.shape == (256,)
+        np.testing.assert_array_equal(chunk, buf[:256])
+
+    def test_read_beyond_end_is_zero_padded(self) -> None:
+        buf = _sine(100)
+        layer = AudioLayer("l1", "test", buf, 44100)
+        chunk = layer.read_samples(50, 100)
+        # 50 real samples + 50 zeros
+        np.testing.assert_array_equal(chunk[:50], buf[50:100])
+        np.testing.assert_array_equal(chunk[50:], np.zeros(50, dtype=np.float32))
+
+    def test_read_before_start_is_zeros(self) -> None:
+        buf = _sine(100)
+        layer = AudioLayer("l1", "test", buf, 44100)
+        chunk = layer.read_samples(-200, 100)
+        np.testing.assert_array_equal(chunk, np.zeros(100, dtype=np.float32))
+
+    def test_read_completely_past_end(self) -> None:
+        buf = _sine(100)
+        layer = AudioLayer("l1", "test", buf, 44100)
+        chunk = layer.read_samples(200, 100)
+        np.testing.assert_array_equal(chunk, np.zeros(100, dtype=np.float32))
+
+    def test_offset_shifts_read(self) -> None:
+        buf = _sine(1000)
+        layer = AudioLayer("l1", "test", buf, 44100, offset=500)
+        # Before offset: silence
+        chunk = layer.read_samples(0, 256)
+        np.testing.assert_array_equal(chunk, np.zeros(256, dtype=np.float32))
+        # At offset: real audio
+        chunk = layer.read_samples(500, 256)
+        np.testing.assert_array_equal(chunk, buf[:256])
+
+    def test_duration_properties(self) -> None:
+        buf = _sine(44100)
+        layer = AudioLayer("l1", "test", buf, 44100)
+        assert layer.duration_samples == 44100
+        assert abs(layer.duration_seconds - 1.0) < 1e-6
+
+    def test_end_sample_with_offset(self) -> None:
+        buf = _sine(1000)
+        layer = AudioLayer("l1", "test", buf, 44100, offset=500)
+        assert layer.end_sample == 1500
+
+    def test_auto_converts_to_float32(self) -> None:
+        buf = np.ones(100, dtype=np.float64)
+        layer = AudioLayer("l1", "test", buf, 44100)
+        assert layer.buffer.dtype == np.float32
+
+    def test_mute_solo_defaults(self) -> None:
+        buf = _sine(100)
+        layer = AudioLayer("l1", "test", buf, 44100)
+        assert layer.muted is False
+        assert layer.solo is False
+        assert layer.volume == 1.0
+
+
+# ===========================================================================
+# Mixer tests
+# ===========================================================================
+
+
+class TestMixer:
+    def test_empty_mixer_returns_silence(self) -> None:
+        mixer = Mixer()
+        out = mixer.read_mix(0, 256)
+        assert out.shape == (256,)
+        np.testing.assert_array_equal(out, np.zeros(256, dtype=np.float32))
+
+    def test_single_layer(self) -> None:
+        buf = _sine(1000)
+        mixer = Mixer()
+        mixer.add_layer(AudioLayer("l1", "drums", buf, 44100))
+        out = mixer.read_mix(0, 256)
+        np.testing.assert_array_almost_equal(out, buf[:256])
+
+    def test_two_layers_summed(self) -> None:
+        buf1 = _sine(1000, freq=440)
+        buf2 = _sine(1000, freq=880)
+        mixer = Mixer()
+        mixer.add_layer(AudioLayer("l1", "drums", buf1, 44100))
+        mixer.add_layer(AudioLayer("l2", "bass", buf2, 44100))
+        out = mixer.read_mix(0, 256)
+        expected = buf1[:256] + buf2[:256]
+        np.testing.assert_array_almost_equal(out, expected)
+
+    def test_muted_layer_excluded(self) -> None:
+        buf = _sine(1000)
+        mixer = Mixer()
+        layer = AudioLayer("l1", "drums", buf, 44100)
+        layer.muted = True
+        mixer.add_layer(layer)
+        out = mixer.read_mix(0, 256)
+        np.testing.assert_array_equal(out, np.zeros(256, dtype=np.float32))
+
+    def test_solo_logic_plays_only_soloed(self) -> None:
+        buf1 = _sine(1000, freq=440)
+        buf2 = _sine(1000, freq=880)
+        mixer = Mixer()
+        l1 = AudioLayer("l1", "drums", buf1, 44100)
+        l2 = AudioLayer("l2", "bass", buf2, 44100)
+        l2.solo = True
+        mixer.add_layer(l1)
+        mixer.add_layer(l2)
+        out = mixer.read_mix(0, 256)
+        # Only l2 should play
+        np.testing.assert_array_almost_equal(out, buf2[:256])
+
+    def test_solo_overrides_mute(self) -> None:
+        buf = _sine(1000)
+        mixer = Mixer()
+        layer = AudioLayer("l1", "drums", buf, 44100)
+        layer.muted = True
+        layer.solo = True
+        mixer.add_layer(layer)
+        out = mixer.read_mix(0, 256)
+        # Soloed overrides muted
+        np.testing.assert_array_almost_equal(out, buf[:256])
+
+    def test_solo_exclusive(self) -> None:
+        mixer = Mixer()
+        l1 = AudioLayer("l1", "a", _sine(100), 44100)
+        l2 = AudioLayer("l2", "b", _sine(100), 44100)
+        l1.solo = True
+        l2.solo = True
+        mixer.add_layer(l1)
+        mixer.add_layer(l2)
+        mixer.solo_exclusive("l2")
+        assert not l1.solo
+        assert l2.solo
+
+    def test_unsolo_all(self) -> None:
+        mixer = Mixer()
+        l1 = AudioLayer("l1", "a", _sine(100), 44100)
+        l1.solo = True
+        mixer.add_layer(l1)
+        mixer.unsolo_all()
+        assert not l1.solo
+
+    def test_volume(self) -> None:
+        buf = _sine(1000)
+        mixer = Mixer()
+        layer = AudioLayer("l1", "drums", buf, 44100, volume=0.5)
+        mixer.add_layer(layer)
+        out = mixer.read_mix(0, 256)
+        np.testing.assert_array_almost_equal(out, buf[:256] * 0.5)
+
+    def test_master_volume(self) -> None:
+        buf = _sine(1000)
+        mixer = Mixer()
+        mixer.add_layer(AudioLayer("l1", "drums", buf, 44100))
+        mixer.master_volume = 0.5
+        out = mixer.read_mix(0, 256)
+        np.testing.assert_array_almost_equal(out, buf[:256] * 0.5)
+
+    def test_master_volume_clamped(self) -> None:
+        mixer = Mixer()
+        mixer.master_volume = 1.5
+        assert mixer.master_volume == 1.0
+        mixer.master_volume = -0.5
+        assert mixer.master_volume == 0.0
+
+    def test_remove_layer(self) -> None:
+        mixer = Mixer()
+        mixer.add_layer(AudioLayer("l1", "drums", _sine(100), 44100))
+        removed = mixer.remove_layer("l1")
+        assert removed is not None
+        assert removed.id == "l1"
+        assert mixer.layer_count == 0
+
+    def test_remove_nonexistent_returns_none(self) -> None:
+        mixer = Mixer()
+        assert mixer.remove_layer("ghost") is None
+
+    def test_get_layer(self) -> None:
+        mixer = Mixer()
+        mixer.add_layer(AudioLayer("l1", "drums", _sine(100), 44100))
+        assert mixer.get_layer("l1") is not None
+        assert mixer.get_layer("ghost") is None
+
+    def test_clear(self) -> None:
+        mixer = Mixer()
+        mixer.add_layer(AudioLayer("l1", "a", _sine(100), 44100))
+        mixer.add_layer(AudioLayer("l2", "b", _sine(100), 44100))
+        mixer.clear()
+        assert mixer.layer_count == 0
+
+    def test_duration_samples(self) -> None:
+        mixer = Mixer()
+        mixer.add_layer(AudioLayer("l1", "a", _sine(1000), 44100))
+        mixer.add_layer(AudioLayer("l2", "b", _sine(500), 44100, offset=1000))
+        assert mixer.duration_samples == 1500
+
+
+# ===========================================================================
+# AudioEngine integration tests
+# ===========================================================================
+
+
+class TestAudioEngine:
+    def test_create_engine(self) -> None:
+        engine = AudioEngine(stream_factory=fake_stream_factory)
+        assert engine.sample_rate == 44100
+        assert engine.buffer_size == 256
+        assert not engine.is_active
+
+    def test_play_opens_stream(self) -> None:
+        engine = AudioEngine(stream_factory=fake_stream_factory)
+        engine.play()
+        assert engine.is_active
+        assert engine.transport.is_playing
+
+    def test_stop(self) -> None:
+        engine = AudioEngine(stream_factory=fake_stream_factory)
+        engine.play()
+        engine.stop()
+        assert engine.transport.is_stopped
+
+    def test_pause_resume(self) -> None:
+        engine = AudioEngine(stream_factory=fake_stream_factory)
+        engine.play()
+        engine.pause()
+        assert engine.transport.is_paused
+        engine.play()
+        assert engine.transport.is_playing
+
+    def test_add_and_remove_layer(self) -> None:
+        engine = AudioEngine(stream_factory=fake_stream_factory)
+        layer = engine.add_layer("drums", _sine(1000), 44100, name="Drums")
+        assert engine.mixer.layer_count == 1
+        assert layer.name == "Drums"
+        engine.remove_layer("drums")
+        assert engine.mixer.layer_count == 0
+
+    def test_seek(self) -> None:
+        engine = AudioEngine(stream_factory=fake_stream_factory)
+        engine.seek(1000)
+        assert engine.clock.position == 1000
+
+    def test_seek_seconds(self) -> None:
+        engine = AudioEngine(stream_factory=fake_stream_factory)
+        engine.seek_seconds(1.0)
+        assert engine.clock.position == 44100
+
+    def test_toggle_play_pause(self) -> None:
+        engine = AudioEngine(stream_factory=fake_stream_factory)
+        engine.toggle_play_pause()
+        assert engine.transport.is_playing
+        engine.toggle_play_pause()
+        assert engine.transport.is_paused
+
+    def test_shutdown(self) -> None:
+        engine = AudioEngine(stream_factory=fake_stream_factory)
+        engine.play()
+        engine.shutdown()
+        assert not engine.is_active
+        assert engine.transport.is_stopped
+
+    def test_callback_outputs_silence_when_stopped(self) -> None:
+        engine = AudioEngine(stream_factory=fake_stream_factory)
+        outdata = np.zeros((256, 1), dtype=np.float32)
+        engine._audio_callback(outdata, 256, None, None)
+        np.testing.assert_array_equal(outdata, np.zeros((256, 1), dtype=np.float32))
+
+    def test_callback_outputs_audio_when_playing(self) -> None:
+        engine = AudioEngine(stream_factory=fake_stream_factory)
+        buf = _sine(1000)
+        engine.add_layer("l1", buf, 44100)
+        engine.play()
+
+        outdata = np.zeros((256, 1), dtype=np.float32)
+        engine._audio_callback(outdata, 256, None, None)
+
+        # Should have real audio in the output
+        assert np.any(outdata != 0)
+        np.testing.assert_array_almost_equal(outdata[:, 0], buf[:256])
+
+    def test_callback_advances_clock(self) -> None:
+        engine = AudioEngine(stream_factory=fake_stream_factory)
+        engine.add_layer("l1", _sine(1000), 44100)
+        engine.play()
+
+        outdata = np.zeros((256, 1), dtype=np.float32)
+        engine._audio_callback(outdata, 256, None, None)
+        assert engine.clock.position == 256
+
+        engine._audio_callback(outdata, 256, None, None)
+        assert engine.clock.position == 512
+
+    def test_callback_with_loop(self) -> None:
+        engine = AudioEngine(stream_factory=fake_stream_factory)
+        buf = _sine(1000)
+        engine.add_layer("l1", buf, 44100)
+        engine.clock.set_loop(0, 500)
+        engine.clock.loop_enabled = True
+        engine.play()
+
+        # Advance to near loop end
+        engine.seek(400)
+        outdata = np.zeros((256, 1), dtype=np.float32)
+        engine._audio_callback(outdata, 256, None, None)
+
+        # Should have wrapped
+        assert engine.clock.position < 500
+
+    def test_clock_subscriber_receives_ticks(self) -> None:
+        engine = AudioEngine(stream_factory=fake_stream_factory)
+        engine.add_layer("l1", _sine(1000), 44100)
+        sub = RecordingSubscriber()
+        engine.add_clock_subscriber(sub)
+        engine.play()
+
+        outdata = np.zeros((256, 1), dtype=np.float32)
+        engine._audio_callback(outdata, 256, None, None)
+
+        assert len(sub.ticks) == 1
+        assert sub.ticks[0] == (0, 44100)
+
+    def test_multi_track_mixing_through_callback(self) -> None:
+        engine = AudioEngine(stream_factory=fake_stream_factory)
+        buf1 = _sine(1000, freq=440)
+        buf2 = _sine(1000, freq=880)
+        engine.add_layer("drums", buf1, 44100)
+        engine.add_layer("bass", buf2, 44100)
+        engine.play()
+
+        outdata = np.zeros((256, 1), dtype=np.float32)
+        engine._audio_callback(outdata, 256, None, None)
+
+        expected = buf1[:256] + buf2[:256]
+        np.testing.assert_array_almost_equal(outdata[:, 0], expected)
+
+    def test_mute_through_callback(self) -> None:
+        engine = AudioEngine(stream_factory=fake_stream_factory)
+        buf = _sine(1000)
+        layer = engine.add_layer("drums", buf, 44100)
+        layer.muted = True
+        engine.play()
+
+        outdata = np.zeros((256, 1), dtype=np.float32)
+        engine._audio_callback(outdata, 256, None, None)
+
+        np.testing.assert_array_equal(outdata, np.zeros((256, 1), dtype=np.float32))
