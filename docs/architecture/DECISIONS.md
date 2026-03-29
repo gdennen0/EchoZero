@@ -3187,6 +3187,120 @@ Output auto-splits into one layer per classification label. "kicks" layer, "snar
 
 ---
 
+## Ingest Elimination, Schema Migration, Song Versions, Ad-Hoc Pipeline UX (2026-03-29)
+
+### D276: Kill Ingest — waveform generation is a block
+**Date:** 2026-03-29
+**Status:** Decided
+**Supersedes:** Eliminates the IngestPipeline concept entirely
+**Decision:**
+- The "ingest" concept is eliminated. There is no pre-engine shadow pipeline.
+- "Add Song" becomes two app-layer operations: **store file** (content-addressed copy) + **create default PipelineConfig** (template factory → serialized graph in DB). Near-instant.
+- **Waveform generation becomes a `GenerateWaveform` processor block** in the engine pipeline. It outputs a downsampled peak array for UI rendering.
+- All computation on audio is a block. No exceptions, no shadow pipelines. This is FP1 (Pipeline-as-Data) applied consistently.
+- The first analysis run includes waveform generation. Cache (content-addressed) ensures it only runs once.
+- Metadata scanning (duration, sample rate, channels) moves to LoadAudio — it already derives this. No redundancy.
+- **Consequence:** Users see a single progress flow (analysis) instead of two phases (ingest → analysis). "Add Song" is instant; "Analyze" is the first heavy operation.
+**Rationale:** Ingest duplicated engine-like work outside the engine. Waveform gen, metadata scanning — all computation that belongs in blocks. Eliminating ingest removes redundant code, simplifies the user mental model, and enforces FP1 consistency. If it's computation on audio, it's a block.
+
+### D277: Schema migration for PipelineConfig — versioned JSON + migration chain
+**Date:** 2026-03-29
+**Status:** Decided
+**Decision:**
+- `graph_json` in PipelineConfig includes a `"schema_version": 1` field at the top level.
+- On deserialize (`config.to_pipeline()`):
+  1. Read `schema_version`
+  2. Walk registered migrations: `v1→v2`, `v2→v3`, etc.
+  3. Each migration is a **pure function**: JSON dict in → JSON dict out.
+  4. New params → default values. Removed params → dropped silently. Renamed params → mapped.
+  5. Unknown block types → block marked as `DEGRADED` (skipped on run, warning shown in UI).
+  6. Migrated JSON written back to DB on first load (lazy migration).
+- **Fail-safe:** If migration throws, config is marked `CORRUPT`. User can still see it, cannot run it. Option: "Reset to Template" rebuilds from the current template version.
+- One migration file per version bump. Pure functions, easily testable. No ORM magic.
+- Migrations directory: `echozero/migrations/pipeline/`
+**Rationale:** Simple, fail-safe, forward-only. Defaults for new params and silent drops for removed params handle 95% of cases. DEGRADED blocks and CORRUPT configs handle the rest without data loss.
+
+### D278: Song update = new SongVersion, configs copied
+**Date:** 2026-03-29
+**Status:** Decided
+**Extends:** D90 (SongVersion entity)
+**Decision:**
+- When a user updates a track ("Update Track" on existing Song):
+  1. App stores new audio file (content-addressed, no collision with old file).
+  2. App creates new `SongVersion` linked to the same Song.
+  3. App **copies all PipelineConfigs** from the previous active version → new version (same graph, same knob values).
+  4. All copied configs start as `PENDING` (never been run on this audio).
+  5. Old version's Layers and Takes are **untouched** (historical record).
+  6. User hits Analyze → engine runs on new audio with same settings.
+- **Version switcher UI:** Song card shows current version. Small caret/dropdown in corner: `v1 ▾`. Click to see all versions with dates. Switch is instant (loads different SongVersion's layers/takes). Active version is bold. Old versions are read-only unless user explicitly "activates" them.
+- **No version comparison UI for V1.** Just switch and look. Diff view is a natural V2 feature.
+**Rationale:** Song updates are a huge workflow for touring LDs — same song, new arrangement or new master. Copying configs means the user's pipeline settings carry forward automatically. Old versions are preserved for reference/rollback. The version switcher is discoverable but non-intrusive.
+
+### D279: No results pool — layers + takes + ad-hoc pipeline dialog
+**Date:** 2026-03-29
+**Status:** Decided
+**Decision:**
+- There is no "results pool" or "staging area" for pipeline outputs. Pipeline runs produce layers with takes. Always.
+- **Default pipelines ("Analyze All"):** Auto-create layers, no confirmation. Current behavior.
+- **Ad-hoc pipelines (right-click layer → "Run Pipeline..."):** Confirmation dialog with preview stats and three paths:
+
+```
+┌─────────────────────────────────────────────┐
+│  Note Transcription — 312 notes detected     │
+│                                               │
+│  ○ Create new layer: "Vocal → Notes"         │
+│  ○ Add as take to: [Existing Layer ▾]        │
+│                                               │
+│  ☐ Continue pipeline → [Select next step ▾]  │
+│                                               │
+│              [Cancel]  [Apply]                │
+└─────────────────────────────────────────────┘
+```
+
+  - **Create new layer:** Fresh layer, results as main take. Default for new output types.
+  - **Add as take:** Dropdown shows compatible layers (same data type). Results become a non-main take. User can compare, promote later.
+  - **Continue pipeline:** Feed results forward as input to another pipeline run. Chain steps on the fly. Only persist at the final step.
+
+- **Custom pipelines (Stage Zero Editor):** Same dialog as ad-hoc.
+- **Compatibility filtering:** "Add as take" only shows layers whose data type matches (EventData → event layers, AudioData → audio layers). "Continue pipeline" only shows processors whose input port type matches the current output.
+- **Continue pipeline flow:** Each step is another engine run where input = previous output. App holds intermediate results in memory. No new persistence model. User commits when ready.
+**Rationale:** The Take System already handles variation within a layer. Layers handle "do I want this analysis at all." No new persistence concepts needed. The timeline IS the workspace — adding a separate staging area is a second place to look. "Continue pipeline" gives exploratory power without orphan management.
+
+### D280: Stale cascade with human-readable reasons
+**Date:** 2026-03-29
+**Status:** Decided
+**Extends:** D57-D59 (DataState, staleness)
+**Decision:**
+- When a user changes a knob on Block B:
+  1. App traces all blocks downstream of B in the graph.
+  2. All downstream PipelineConfigs marked `STALE`.
+  3. `stale_reason` stored per config: human-readable, specific. Not just "settings changed" but **what** changed.
+  4. Example: `"Block 'Separator' setting 'model' changed from 'htdemucs' to 'htdemucs_ft'"`
+  5. Multiple changes before re-run compound: user sees all reasons.
+- **Timeline/Layer visualization:**
+  - Stale layers get a subtle **amber tint** on their header bar.
+  - Hover shows the reason string.
+  - Small **⟳ icon** appears — click to re-run just that layer.
+- **Node graph visualization:**
+  - Downstream connections from the changed block go **amber/dashed**.
+  - Changed block gets a small dot indicator.
+  - Instant visual read on blast radius without being noisy.
+- **Global indicator:** If anything is stale, a subtle banner or badge: *"3 layers stale — Re-run All"*. One click to clear the backlog.
+- User decides when to re-run. Stale is informational, not blocking (except for export — stale layers cannot be pushed to MA3 without re-run or explicit override).
+**Rationale:** Stale cascade is already decided (D58). This adds the UX layer: specific reasons, visual indicators at both timeline and graph level, and one-click re-run. The "why" is the key addition — users need to understand blast radius before committing to a re-run.
+
+### D281: No race condition between add-song and analyze
+**Date:** 2026-03-29
+**Status:** Decided (resolved by D276)
+**Decision:**
+- With ingest eliminated (D276), "Add Song" is near-instant (file copy + DB rows + template config creation, milliseconds).
+- Analysis is the first heavy operation and is always user-initiated.
+- No race condition is possible — there is no async ingest phase that could still be running when the user hits Analyze.
+- If the user triggers Analyze, the PipelineConfig exists (created during Add Song) and the audio file is stored. All preconditions are met by construction.
+**Rationale:** Killing ingest (D276) eliminates the race condition entirely. No guard needed because the precondition (config + audio stored) is guaranteed before analysis can be triggered.
+
+---
+
 ## Reference Documents
 - `SPEC.md` - Behavioral specification (from legacy codebase)
 - `docs/architecture/ARCHITECTURE.md` - Vertical feature module architecture
