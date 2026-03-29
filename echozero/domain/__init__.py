@@ -34,6 +34,8 @@ from echozero.domain.types import (
     EventData,
     Layer,
     Port,
+    WaveformData,
+    WaveformPeaks,
 )
 
 __all__ = [
@@ -62,6 +64,8 @@ __all__ = [
     "AudioData",
     "BlockSettings",
     "Block",
+    "WaveformData",
+    "WaveformPeaks",
     # Aggregate
     "Graph",
 ]

@@ -70,6 +70,33 @@ class AudioData:
     channel_count: int = 1
 
 
+@dataclass(frozen=True)
+class WaveformPeaks:
+    """Min/max peak pairs for a single level of detail.
+
+    Each array has shape (N, 2) where [:,0] is min and [:,1] is max.
+    N = ceil(total_samples / window_size).
+    """
+
+    window_size: int
+    peaks: Any  # numpy ndarray, shape (N, 2) — typed as Any to avoid numpy import in domain
+
+
+@dataclass(frozen=True)
+class WaveformData:
+    """Multi-LOD waveform peaks for UI rendering.
+
+    Produced by GenerateWaveform processor. Each LOD level provides a different
+    resolution of min/max peak pairs for efficient rendering at different zoom levels.
+    LOD 0 = finest (64 samples/peak), LOD 3 = coarsest (4096 samples/peak).
+    """
+
+    lods: tuple[WaveformPeaks, ...]
+    sample_rate: int
+    duration: float
+    channel_count: int = 1
+
+
 class BlockSettings:
     """Immutable settings dict for a block.
 

@@ -12,6 +12,7 @@ from echozero.processors.eq_bands import EQBandsProcessor
 from echozero.processors.export_audio import ExportAudioProcessor
 from echozero.processors.export_audio_dataset import ExportAudioDatasetProcessor
 from echozero.processors.export_ma2 import ExportMA2Processor
+from echozero.processors.generate_waveform import GenerateWaveformProcessor
 from echozero.processors.load_audio import LoadAudioProcessor
 from echozero.processors.pytorch_audio_classify import PyTorchAudioClassifyProcessor
 from echozero.processors.separate_audio import SeparateAudioProcessor
@@ -26,6 +27,7 @@ __all__ = [
     "ExportAudioProcessor",
     "ExportAudioDatasetProcessor",
     "ExportMA2Processor",
+    "GenerateWaveformProcessor",
     "LoadAudioProcessor",
     "PyTorchAudioClassifyProcessor",
     "SeparateAudioProcessor",

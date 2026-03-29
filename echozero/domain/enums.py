@@ -14,6 +14,7 @@ class PortType(Enum):
     EVENT = auto()
     OSC = auto()
     CONTROL = auto()
+    WAVEFORM = auto()
 
 
 class Direction(Enum):
