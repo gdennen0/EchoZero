@@ -9,7 +9,7 @@ from __future__ import annotations
 import threading
 from typing import Any
 
-from echozero.cache import ExecutionCache
+from echozero.editor.cache import ExecutionCache
 from echozero.domain.enums import BlockState
 from echozero.domain.events import (
     BlockRemovedEvent,
@@ -20,7 +20,7 @@ from echozero.domain.events import (
 from echozero.domain.graph import Graph
 from echozero.event_bus import EventBus
 from echozero.execution import ExecutionEngine, GraphPlanner
-from echozero.pipeline import Pipeline
+from echozero.editor.pipeline import Pipeline
 from echozero.progress import RuntimeBus
 from echozero.result import Err, Result, err, is_ok, ok, unwrap
 

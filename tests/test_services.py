@@ -17,11 +17,11 @@ import echozero.pipelines.templates  # noqa: F401 — register templates
 from echozero.domain.types import AudioData, Event, EventData, Layer
 from echozero.errors import ExecutionError, ValidationError
 from echozero.execution import ExecutionContext
-from echozero.persistence.entities import Song, SongPipelineConfig, SongVersion
+from echozero.persistence.entities import PipelineConfig, Song, SongVersion
 from echozero.persistence.session import ProjectSession
 from echozero.pipelines.registry import get_registry
 from echozero.result import Err, Ok, err, ok
-from echozero.services.analysis import AnalysisResult, AnalysisService
+from echozero.services.orchestrator import AnalysisResult, Orchestrator as AnalysisService
 from echozero.services.setlist import SetlistProcessor, SetlistResult
 
 
@@ -76,7 +76,7 @@ class SettingsCapturingExecutor:
     def execute(self, block_id: str, context: ExecutionContext) -> Any:
         block = context.graph.blocks.get(block_id)
         if block:
-            self.captured_settings = dict(block.settings.entries)
+            self.captured_settings = dict(block.settings)
         return ok(EventData(
             layers=(Layer(id="onsets_layer", name="onsets", events=()),),
         ))
@@ -97,8 +97,8 @@ class FailingExecutor:
 def _default_executors() -> dict[str, Any]:
     """Return mock executors keyed by block type (matching onset_detection template)."""
     return {
-        "load_audio": MockLoadAudioExecutor(),
-        "detect_onsets": MockDetectOnsetsExecutor(),
+        "LoadAudio": MockLoadAudioExecutor(),
+        "DetectOnsets": MockDetectOnsetsExecutor(),
     }
 
 
@@ -243,7 +243,7 @@ class TestAnalysisServiceSuccess:
 
         assert take.source is not None
         assert take.source.block_id == "detect_onsets"
-        assert take.source.block_type == "detect_onsets"
+        assert take.source.block_type == "DetectOnsets"
         assert take.source.run_id  # Non-empty execution ID
 
         session.close()
@@ -314,8 +314,8 @@ class TestAnalysisServiceErrors:
     def test_engine_failure(self, tmp_path: Any) -> None:
         session, song, version = _create_session_with_song(tmp_path)
         executors = {
-            "load_audio": FailingExecutor(),
-            "detect_onsets": MockDetectOnsetsExecutor(),
+            "LoadAudio": FailingExecutor(),
+            "DetectOnsets": MockDetectOnsetsExecutor(),
         }
         service = AnalysisService(get_registry(), executors)
 
@@ -329,7 +329,7 @@ class TestAnalysisServiceErrors:
     def test_missing_executor_for_block_type(self, tmp_path: Any) -> None:
         session, song, version = _create_session_with_song(tmp_path)
         # Only register load_audio, missing detect_onsets
-        executors: dict[str, Any] = {"load_audio": MockLoadAudioExecutor()}
+        executors: dict[str, Any] = {"LoadAudio": MockLoadAudioExecutor()}
         service = AnalysisService(get_registry(), executors)
 
         result = service.analyze(session, version.id, "onset_detection")
@@ -351,8 +351,8 @@ class TestAnalysisServiceBindings:
         session, song, version = _create_session_with_song(tmp_path)
         capturing_executor = SettingsCapturingExecutor()
         executors: dict[str, Any] = {
-            "load_audio": MockLoadAudioExecutor(),
-            "detect_onsets": capturing_executor,
+            "LoadAudio": MockLoadAudioExecutor(),
+            "DetectOnsets": capturing_executor,
         }
         service = AnalysisService(get_registry(), executors)
 
@@ -380,7 +380,7 @@ class TestAnalysisServiceBindings:
             def execute(self, block_id: str, context: ExecutionContext) -> Any:
                 block = context.graph.blocks.get(block_id)
                 if block:
-                    self.captured_file_path = block.settings.entries.get("file_path")
+                    self.captured_file_path = block.settings.get("file_path")
                 return ok(AudioData(
                     sample_rate=44100, duration=180.0,
                     file_path="test.wav", channel_count=2,
@@ -388,8 +388,8 @@ class TestAnalysisServiceBindings:
 
         capturing = AudioPathCapturingExecutor()
         executors: dict[str, Any] = {
-            "load_audio": capturing,
-            "detect_onsets": MockDetectOnsetsExecutor(),
+            "LoadAudio": capturing,
+            "DetectOnsets": MockDetectOnsetsExecutor(),
         }
         service = AnalysisService(get_registry(), executors)
 
@@ -555,6 +555,15 @@ class TestAnalysisServiceRoundTrip:
 # ---------------------------------------------------------------------------
 
 
+def _create_pipeline_config(session, song_version_id, template_id="onset_detection"):
+    """Helper: create a PipelineConfig via Orchestrator.create_config and return the ID."""
+    from echozero.result import unwrap
+    service = AnalysisService(get_registry(), _default_executors())
+    result = service.create_config(session, song_version_id, template_id)
+    config = unwrap(result)
+    return config.id
+
+
 class TestSetlistProcessorSuccess:
     """Verify successful setlist processing."""
 
@@ -562,20 +571,10 @@ class TestSetlistProcessorSuccess:
         session, songs, versions = _create_session_with_songs(tmp_path, count=3)
         service = AnalysisService(get_registry(), _default_executors())
         processor = SetlistProcessor(service)
-        now = datetime.now(timezone.utc)
 
-        configs = [
-            SongPipelineConfig(
-                id=uuid.uuid4().hex,
-                song_version_id=v.id,
-                pipeline_id="onset_detection",
-                bindings={},
-                created_at=now,
-            )
-            for v in versions
-        ]
+        config_ids = [_create_pipeline_config(session, v.id) for v in versions]
 
-        result = processor.process_setlist(session, configs)
+        result = processor.process_setlist(session, config_ids)
 
         assert result.total == 3
         assert result.succeeded == 3
@@ -590,19 +589,10 @@ class TestSetlistProcessorSuccess:
         session, song, version = _create_session_with_song(tmp_path)
         service = AnalysisService(get_registry(), _default_executors())
         processor = SetlistProcessor(service)
-        now = datetime.now(timezone.utc)
 
-        configs = [
-            SongPipelineConfig(
-                id=uuid.uuid4().hex,
-                song_version_id=version.id,
-                pipeline_id="onset_detection",
-                bindings={},
-                created_at=now,
-            ),
-        ]
+        config_ids = [_create_pipeline_config(session, version.id)]
 
-        result = processor.process_setlist(session, configs)
+        result = processor.process_setlist(session, config_ids)
 
         assert result.total == 1
         assert result.succeeded == 1
@@ -623,34 +613,15 @@ class TestSetlistProcessorFailure:
         session, songs, versions = _create_session_with_songs(tmp_path, count=3)
         service = AnalysisService(get_registry(), _default_executors())
         processor = SetlistProcessor(service)
-        now = datetime.now(timezone.utc)
 
-        # Second config uses a nonexistent song_version_id
-        configs = [
-            SongPipelineConfig(
-                id=uuid.uuid4().hex,
-                song_version_id=versions[0].id,
-                pipeline_id="onset_detection",
-                bindings={},
-                created_at=now,
-            ),
-            SongPipelineConfig(
-                id=uuid.uuid4().hex,
-                song_version_id="nonexistent_version",
-                pipeline_id="onset_detection",
-                bindings={},
-                created_at=now,
-            ),
-            SongPipelineConfig(
-                id=uuid.uuid4().hex,
-                song_version_id=versions[2].id,
-                pipeline_id="onset_detection",
-                bindings={},
-                created_at=now,
-            ),
+        # Create valid configs for songs 0 and 2, use a bad ID for song 1
+        config_ids = [
+            _create_pipeline_config(session, versions[0].id),
+            "nonexistent_config_id",
+            _create_pipeline_config(session, versions[2].id),
         ]
 
-        result = processor.process_setlist(session, configs)
+        result = processor.process_setlist(session, config_ids)
 
         assert result.total == 3
         assert result.succeeded == 2
@@ -665,20 +636,10 @@ class TestSetlistProcessorFailure:
         session = ProjectSession.create_new("Test", working_dir_root=tmp_path)
         service = AnalysisService(get_registry(), _default_executors())
         processor = SetlistProcessor(service)
-        now = datetime.now(timezone.utc)
 
-        configs = [
-            SongPipelineConfig(
-                id=uuid.uuid4().hex,
-                song_version_id=f"bad_id_{i}",
-                pipeline_id="onset_detection",
-                bindings={},
-                created_at=now,
-            )
-            for i in range(3)
-        ]
+        config_ids = [f"bad_id_{i}" for i in range(3)]
 
-        result = processor.process_setlist(session, configs)
+        result = processor.process_setlist(session, config_ids)
 
         assert result.total == 3
         assert result.succeeded == 0
@@ -700,25 +661,15 @@ class TestSetlistProcessorProgress:
         session, songs, versions = _create_session_with_songs(tmp_path, count=3)
         service = AnalysisService(get_registry(), _default_executors())
         processor = SetlistProcessor(service)
-        now = datetime.now(timezone.utc)
 
-        configs = [
-            SongPipelineConfig(
-                id=uuid.uuid4().hex,
-                song_version_id=v.id,
-                pipeline_id="onset_detection",
-                bindings={},
-                created_at=now,
-            )
-            for v in versions
-        ]
+        config_ids = [_create_pipeline_config(session, v.id) for v in versions]
 
         progress_calls: list[tuple[str, int, int]] = []
 
         def on_progress(message: str, current: int, total: int) -> None:
             progress_calls.append((message, current, total))
 
-        processor.process_setlist(session, configs, on_progress=on_progress)
+        processor.process_setlist(session, config_ids, on_progress=on_progress)
 
         assert len(progress_calls) == 3
         assert progress_calls[0] == ("Processing song 1/3", 0, 3)
@@ -741,7 +692,7 @@ class TestSetlistProcessorEmpty:
         service = AnalysisService(get_registry(), _default_executors())
         processor = SetlistProcessor(service)
 
-        result = processor.process_setlist(session, [])
+        result = processor.process_setlist(session, config_ids=[])
 
         assert result.total == 0
         assert result.succeeded == 0
@@ -764,20 +715,10 @@ class TestSetlistProcessorRoundTrip:
         session, songs, versions = _create_session_with_songs(tmp_path, count=3)
         service = AnalysisService(get_registry(), _default_executors())
         processor = SetlistProcessor(service)
-        now = datetime.now(timezone.utc)
 
-        configs = [
-            SongPipelineConfig(
-                id=uuid.uuid4().hex,
-                song_version_id=v.id,
-                pipeline_id="onset_detection",
-                bindings={},
-                created_at=now,
-            )
-            for v in versions
-        ]
+        config_ids = [_create_pipeline_config(session, v.id) for v in versions]
 
-        result = processor.process_setlist(session, configs)
+        result = processor.process_setlist(session, config_ids)
         assert result.succeeded == 3
 
         working_dir = session.working_dir
@@ -797,3 +738,4 @@ class TestSetlistProcessorRoundTrip:
             assert isinstance(takes[0].data, EventData)
 
         session2.close()
+

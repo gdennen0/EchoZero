@@ -1,17 +1,17 @@
 """
 Persistence package: SQLite-backed storage for EchoZero project files.
 Exists because projects need durable, versioned storage that survives app restarts.
-All SQL is encapsulated here — no other package imports sqlite3.
+All SQL is encapsulated here - no other package imports sqlite3.
 
 Modules:
-    base          — BaseRepository[T] generic abstract base
-    entities      — Project, Song, SongVersion, LayerRecord, SongPipelineConfig, ProjectSettings
-    schema        — DDL, version tracking, migration infrastructure
-    repositories/ — CRUD for each entity type
-    dirty         — DirtyTracker for change detection and autosave
-    session       — ProjectSession lifecycle manager
-    archive       — .ez pack/unpack with atomic write
-    audio         — Audio import, content-addressing, hash verification
+    base          - BaseRepository[T] generic abstract base
+    entities      - Project, Song, SongVersion, LayerRecord, PipelineConfig, ProjectSettings
+    schema        - DDL, version tracking, migration infrastructure
+    repositories/ - CRUD for each entity type
+    dirty         - DirtyTracker for change detection and autosave
+    session       - ProjectSession lifecycle manager
+    archive       - .ez pack/unpack with atomic write
+    audio         - Audio import, content-addressing, hash verification
 """
 
 from echozero.persistence.archive import is_valid_ez, pack_ez, unpack_ez
@@ -29,7 +29,7 @@ from echozero.persistence.entities import (
     Project,
     ProjectSettings,
     Song,
-    SongPipelineConfig,
+    PipelineConfig,
     SongVersion,
 )
 from echozero.persistence.repositories import (
@@ -53,7 +53,7 @@ __all__ = [
     "SongVersion",
     "LayerRecord",
     "LayerType",
-    "SongPipelineConfig",
+    "PipelineConfig",
     # Schema
     "SCHEMA_VERSION",
     "init_db",

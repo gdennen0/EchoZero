@@ -52,7 +52,7 @@ class LoadAudioProcessor:
         if block is None:
             return err(ExecutionError(f"Block not found: {block_id}"))
 
-        file_path = block.settings.entries.get("file_path")
+        file_path = block.settings.get("file_path")
         if file_path is None:
             return err(
                 ValidationError(f"Block '{block_id}' is missing required setting 'file_path'")
@@ -78,3 +78,4 @@ class LoadAudioProcessor:
                 channel_count=info.channels,
             )
         )
+

@@ -11,7 +11,7 @@ import uuid
 
 import pytest
 
-from echozero.commands import (
+from echozero.editor.commands import (
     AddBlockCommand,
     AddConnectionCommand,
     ChangeBlockSettingsCommand,
@@ -29,7 +29,7 @@ from echozero.domain.events import (
 )
 from echozero.domain.types import Block, Connection, Port
 from echozero.event_bus import EventBus
-from echozero.pipeline import CommandContext, Pipeline
+from echozero.editor.pipeline import CommandContext, Pipeline
 from echozero.result import Err, Ok
 
 # ---------------------------------------------------------------------------
@@ -191,9 +191,16 @@ class TestHandlerDispatch:
         assert "Duplicate block ID" in str(result.error)
 
     def test_unknown_command_returns_err(self, bus: EventBus) -> None:
+        from dataclasses import dataclass
+
+        @dataclass(frozen=True)
+        class _UnknownCommand(Command):
+            @property
+            def is_undoable(self) -> bool:
+                return False
+
         p = Pipeline(event_bus=bus)
-        cmd = ChangeBlockSettingsCommand(block_id="b1", setting_key="vol", new_value=1.0)
-        result = p.dispatch(cmd)
+        result = p.dispatch(_UnknownCommand())
 
         assert isinstance(result, Err)
         assert "No handler registered" in str(result.error)
@@ -379,3 +386,4 @@ class TestCommandProperties:
 
         assert len(cmd.correlation_id) == 32
         assert cmd.correlation_id != cmd.command_id
+

@@ -1,55 +1,16 @@
-"""Pipeline template registry. Templates are Python builder functions that return Graphs."""
+"""Pipeline template registry. Templates are Python builder functions that return Pipelines."""
 
 from __future__ import annotations
 
+import inspect
 import logging
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field
 from typing import Any, Callable
 
 from echozero.domain.graph import Graph
-from echozero.domain.types import BlockSettings
+from echozero.pipelines.params import Knob, extract_knobs, validate_bindings as _validate_knob_bindings
 
 logger = logging.getLogger(__name__)
-
-
-@dataclass(frozen=True)
-class PromotedParam:
-    """A user-visible parameter promoted from a block setting."""
-
-    key: str           # programmatic key used in bindings
-    name: str          # display name
-    type: type         # python type (str, float, int, bool)
-    required: bool = False
-    default: Any = None
-    description: str = ''
-    maps_to_block: str = ''    # block_id this param maps to
-    maps_to_setting: str = ''  # setting key within that block
-
-
-def apply_bindings(
-    graph: Graph,
-    bindings: dict[str, Any],
-    promoted_params: tuple[PromotedParam, ...],
-) -> Graph:
-    """Apply user-supplied bindings to the graph by updating block settings.
-
-    For each binding key/value, finds the promoted param's maps_to_block and
-    maps_to_setting, then updates that block's settings with the bound value.
-    """
-    for key, value in bindings.items():
-        for param in promoted_params:
-            if param.key == key and param.maps_to_block and param.maps_to_setting:
-                block = graph.blocks.get(param.maps_to_block)
-                if block is not None:
-                    new_entries = dict(block.settings.entries)
-                    new_entries[param.maps_to_setting] = value
-                    new_block = replace(
-                        block, settings=BlockSettings(entries=new_entries)
-                    )
-                    # Replace in-place to preserve connections
-                    graph.blocks[block.id] = new_block
-                break
-    return graph
 
 
 @dataclass(frozen=True)
@@ -59,52 +20,83 @@ class PipelineTemplate:
     id: str
     name: str
     description: str
-    promoted_params: tuple[PromotedParam, ...]
-    builder: Callable[[], Graph]
+    knobs: dict[str, Knob] = field(default_factory=dict)
+    builder: Callable[..., Any] = None  # Returns Pipeline (from pipelines.pipeline)
 
     def build(self, bindings: dict[str, Any] | None = None) -> Graph:
-        """Build the pipeline graph, optionally applying user-supplied bindings.
+        """Build the pipeline, passing knob values to the builder function.
 
-        Args:
-            bindings: Optional dict mapping promoted param keys to values.
-                      If provided, block settings are updated after building.
-
-        Returns:
-            A Graph instance with bindings applied.
+        Returns the Graph from the built Pipeline for backward compatibility.
         """
-        graph = self.builder()
-        if bindings:
-            graph = apply_bindings(graph, bindings, self.promoted_params)
-        return graph
+        from echozero.pipelines.pipeline import Pipeline as EnginePipeline
+
+        sig = inspect.signature(self.builder)
+        params = sig.parameters
+
+        # Build kwargs from knob defaults + bindings
+        kwargs: dict[str, Any] = {}
+        for pname, param in params.items():
+            if pname in self.knobs:
+                if bindings and pname in bindings:
+                    kwargs[pname] = bindings[pname]
+                else:
+                    kwargs[pname] = self.knobs[pname].default
+            elif param.default is not inspect.Parameter.empty:
+                kwargs[pname] = param.default
+
+        result = self.builder(**kwargs)
+
+        # Support both Pipeline objects and raw Graph returns
+        if isinstance(result, EnginePipeline):
+            return result.graph
+        elif isinstance(result, Graph):
+            return result
+        else:
+            raise TypeError(
+                f"Pipeline builder '{self.id}' returned {type(result).__name__}, "
+                f"expected Pipeline or Graph."
+            )
+
+    def build_pipeline(self, bindings: dict[str, Any] | None = None) -> Any:
+        """Build and return the full Pipeline object (not just Graph).
+
+        Use this when you need access to pipeline outputs.
+        """
+        from echozero.pipelines.pipeline import Pipeline as EnginePipeline
+
+        sig = inspect.signature(self.builder)
+        params = sig.parameters
+
+        kwargs: dict[str, Any] = {}
+        for pname, param in params.items():
+            if pname in self.knobs:
+                if bindings and pname in bindings:
+                    kwargs[pname] = bindings[pname]
+                else:
+                    kwargs[pname] = self.knobs[pname].default
+            elif param.default is not inspect.Parameter.empty:
+                kwargs[pname] = param.default
+
+        result = self.builder(**kwargs)
+
+        if isinstance(result, EnginePipeline):
+            return result
+        elif isinstance(result, Graph):
+            # Wrap legacy Graph in a Pipeline
+            p = EnginePipeline(id=self.id, name=self.name)
+            p._graph = result
+            return p
+        else:
+            raise TypeError(
+                f"Pipeline builder '{self.id}' returned {type(result).__name__}, "
+                f"expected Pipeline or Graph."
+            )
 
     def validate_bindings(self, bindings: dict[str, Any]) -> list[str]:
-        """Return list of validation errors for the given bindings.
-
-        Checks for missing required params, wrong types (with int→float coercion),
-        and warns about unknown keys not in promoted_params.
-        """
-        errors = []
-        known_keys = {p.key for p in self.promoted_params}
-
-        # Warn about unknown keys
-        for key in bindings:
-            if key not in known_keys:
-                errors.append(f'Unknown parameter: {key}')
-
-        for param in self.promoted_params:
-            if param.required and param.key not in bindings:
-                errors.append(f'Missing required parameter: {param.name} ({param.key})')
-            if param.key in bindings:
-                value = bindings[param.key]
-                # Allow int where float is expected (int→float coercion)
-                if param.type is float and isinstance(value, int) and not isinstance(value, bool):
-                    continue
-                if not isinstance(value, param.type):
-                    errors.append(
-                        f'Parameter {param.key}: expected {param.type.__name__}, '
-                        f'got {type(value).__name__}'
-                    )
-        return errors
+        """Validate user-supplied bindings against this template's knobs."""
+        if not self.knobs:
+            return []
+        return _validate_knob_bindings(self.knobs, bindings)
 
 
 class PipelineRegistry:
@@ -114,7 +106,13 @@ class PipelineRegistry:
         self._templates: dict[str, PipelineTemplate] = {}
 
     def register(self, template: PipelineTemplate) -> None:
-        """Register a pipeline template. Overwrites any existing template with the same ID."""
+        """Register a pipeline template. Warns if overwriting an existing template."""
+        if template.id in self._templates:
+            logger.warning(
+                "Overwriting existing pipeline template '%s'. "
+                "This may indicate a duplicate registration.",
+                template.id,
+            )
         self._templates[template.id] = template
 
     def get(self, template_id: str) -> PipelineTemplate | None:
@@ -143,15 +141,34 @@ def pipeline_template(
     id: str,
     name: str,
     description: str = '',
-    promoted_params: list[PromotedParam] | None = None,
+    knobs: dict[str, Knob] | None = None,
 ) -> Callable:
-    """Decorator that registers a graph builder function as a pipeline template."""
-    def decorator(fn: Callable[[], Graph]) -> Callable[[], Graph]:
+    """Decorator that registers a builder function as a pipeline template.
+
+    The builder function should return a Pipeline (or Graph for backward compatibility).
+    Knobs can be specified explicitly or extracted from function signature.
+
+    Example::
+
+        @pipeline_template(id="onset_detection", name="Detect Onsets")
+        def onset_detection(
+            threshold=knob(0.3, label="Sensitivity", min_value=0.0, max_value=1.0),
+        ):
+            p = Pipeline("onset_detection", name="Detect Onsets")
+            load = p.add(LoadAudio())
+            onsets = p.add(DetectOnsets(threshold=threshold), audio_in=load.audio_out)
+            p.output("onsets", onsets.events_out)
+            return p
+    """
+    def decorator(fn: Callable) -> Callable:
+        # Extract knobs from function signature if not provided explicitly
+        resolved_knobs = knobs if knobs is not None else extract_knobs(fn)
+
         template = PipelineTemplate(
             id=id,
             name=name,
-            description=description,
-            promoted_params=tuple(promoted_params or []),
+            description=description or (fn.__doc__ or "").strip(),
+            knobs=resolved_knobs,
             builder=fn,
         )
         _registry.register(template)

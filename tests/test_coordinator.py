@@ -11,8 +11,8 @@ from typing import Any
 
 import pytest
 
-from echozero.cache import ExecutionCache
-from echozero.coordinator import Coordinator, ready_nodes
+from echozero.editor.cache import ExecutionCache
+from echozero.editor.coordinator import Coordinator, ready_nodes
 from echozero.domain.enums import BlockCategory, BlockState, Direction, PortType
 from echozero.domain.graph import Graph
 from echozero.domain.types import Block, BlockSettings, Connection, Port
@@ -24,7 +24,7 @@ from echozero.execution import (
     ExecutionEngine,
     GraphPlanner,
 )
-from echozero.pipeline import Pipeline
+from echozero.editor.pipeline import Pipeline
 from echozero.progress import RuntimeBus
 from echozero.result import Err, Ok, err, is_ok, ok, unwrap
 
@@ -49,7 +49,7 @@ def _make_block(
         category=BlockCategory.PROCESSOR,
         input_ports=input_ports,
         output_ports=output_ports,
-        settings=BlockSettings(entries=settings or {}),
+        settings=BlockSettings(settings or {}),
         state=state,
     )
 
@@ -666,3 +666,5 @@ class TestCoordinatorMultiPort:
 
         assert cache.get("a", "audio_out") is not None
         assert cache.get("a", "audio_out").value == "audio_data"
+
+

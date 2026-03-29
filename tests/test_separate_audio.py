@@ -49,7 +49,7 @@ def _make_load_block(block_id: str = "load", file_path: str = "test.wav") -> Blo
         category=BlockCategory.PROCESSOR,
         input_ports=(),
         output_ports=(_audio_out_port("audio_out"),),
-        settings=BlockSettings(entries={"file_path": file_path}),
+        settings=BlockSettings({"file_path": file_path}),
     )
 
 
@@ -84,7 +84,7 @@ def _make_separator_block(
             _audio_out_port("other_out"),
             _audio_out_port("vocals_out"),
         ),
-        settings=BlockSettings(entries=settings),
+        settings=BlockSettings(settings),
     )
 
 
@@ -518,3 +518,4 @@ class TestDeviceDetection:
         # auto resolves to either cuda or cpu
         result = _detect_device("auto")
         assert result in ("cpu", "cuda")
+

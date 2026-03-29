@@ -35,12 +35,12 @@ from echozero.domain.types import (
     Layer,
     Port,
 )
-from echozero.cache import ExecutionCache
-from echozero.coordinator import Coordinator, ready_nodes
+from echozero.editor.cache import ExecutionCache
+from echozero.editor.coordinator import Coordinator, ready_nodes
 from echozero.errors import ExecutionError, OperationCancelledError, ValidationError
 from echozero.event_bus import EventBus
 from echozero.execution import ExecutionEngine, ExecutionPlan, GraphPlanner
-from echozero.pipeline import Pipeline
+from echozero.editor.pipeline import Pipeline
 from echozero.progress import RuntimeBus
 from echozero.result import Err, Ok, err, is_err, is_ok, ok
 from echozero.serialization import (
@@ -690,7 +690,7 @@ class TestPipelineAnomalies:
 
     def test_dispatch_unregistered_command_returns_err(self):
         """Dispatching a command with no handler returns Err, not raise."""
-        from echozero.commands import Command
+        from echozero.editor.commands import Command
         from dataclasses import dataclass
 
         # Command base is frozen=True; subclass must also be frozen=True
@@ -708,7 +708,7 @@ class TestPipelineAnomalies:
 
     def test_dispatch_handler_exception_returns_err(self):
         """If handler raises, pipeline returns Err (not propagate)."""
-        from echozero.commands import Command
+        from echozero.editor.commands import Command
         from dataclasses import dataclass
 
         @dataclass(frozen=True)
@@ -724,3 +724,4 @@ class TestPipelineAnomalies:
         pipe.register(BoomCommand, boom_handler)
         result = pipe.dispatch(BoomCommand())
         assert is_err(result)
+

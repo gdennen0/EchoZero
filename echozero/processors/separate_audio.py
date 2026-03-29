@@ -276,7 +276,7 @@ class SeparateAudioProcessor:
         if block is None:
             return err(ExecutionError(f"Block not found: {block_id}"))
 
-        settings = block.settings.entries
+        settings = block.settings
         model = settings.get("model", "htdemucs")
         device_setting = settings.get("device", "auto")
         shifts = settings.get("shifts", 1)
@@ -378,3 +378,5 @@ class SeparateAudioProcessor:
         )
 
         return ok(outputs)
+
+

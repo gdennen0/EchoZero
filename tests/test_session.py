@@ -88,7 +88,7 @@ def _make_graph() -> Graph:
         output_ports=(
             Port(name="audio_out", port_type=PortType.AUDIO, direction=Direction.OUTPUT),
         ),
-        settings=BlockSettings(entries={"file": "test.wav"}),
+        settings=BlockSettings({"file": "test.wav"}),
     )
     b2 = Block(
         id="b2",
@@ -101,7 +101,7 @@ def _make_graph() -> Graph:
         output_ports=(
             Port(name="events_out", port_type=PortType.EVENT, direction=Direction.OUTPUT),
         ),
-        settings=BlockSettings(entries={"threshold": 0.3}),
+        settings=BlockSettings({"threshold": 0.3}),
     )
     graph.add_block(b1)
     graph.add_block(b2)
@@ -698,8 +698,8 @@ class TestSessionGraph:
             graph = _make_graph()
             session.save_graph(graph)
             loaded = session.load_graph()
-            assert loaded.blocks["b1"].settings.entries == {"file": "test.wav"}
-            assert loaded.blocks["b2"].settings.entries == {"threshold": 0.3}
+            assert loaded.blocks["b1"].settings == {"file": "test.wav"}
+            assert loaded.blocks["b2"].settings == {"threshold": 0.3}
         finally:
             session.close()
 
@@ -1264,3 +1264,4 @@ class TestOperationsAfterClose:
         with pytest.raises(RuntimeError, match="closed"):
             with session.transaction():
                 pass
+

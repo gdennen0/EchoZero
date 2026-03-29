@@ -4,96 +4,60 @@ Exists because source separation is the first step before per-instrument analysi
 Registers with the pipeline registry on import.
 """
 
-from echozero.domain.enums import BlockCategory, Direction, PortType
-from echozero.domain.graph import Graph
-from echozero.domain.types import Block, BlockSettings, Connection, Port
-from echozero.pipelines.registry import PromotedParam, pipeline_template
+from echozero.pipelines.block_specs import LoadAudio, Separator
+from echozero.pipelines.params import knob, KnobWidget
+from echozero.pipelines.pipeline import Pipeline
+from echozero.pipelines.registry import pipeline_template
 
 
 @pipeline_template(
     id="stem_separation",
     name="Stem Separation",
     description="Separate audio into individual stems (drums, bass, vocals, other) using Demucs.",
-    promoted_params=(
-        PromotedParam(
-            key="model",
-            name="Model",
-            type=str,
-            default="htdemucs",
-            maps_to_block="separate",
-            maps_to_setting="model",
-        ),
-        PromotedParam(
-            key="device",
-            name="Device",
-            type=str,
-            default="auto",
-            maps_to_block="separate",
-            maps_to_setting="device",
-        ),
-        PromotedParam(
-            key="shifts",
-            name="Quality Shifts",
-            type=int,
-            default=1,
-            maps_to_block="separate",
-            maps_to_setting="shifts",
-        ),
-        PromotedParam(
-            key="two_stems",
-            name="Two-Stem Mode",
-            type=str,
-            default=None,
-            maps_to_block="separate",
-            maps_to_setting="two_stems",
-        ),
-    ),
+    knobs={
+        'audio_file': knob("", label="Audio File",
+                            widget=KnobWidget.FILE_PICKER,
+                            file_types=(".wav", ".mp3", ".flac", ".aiff")),
+        'model': knob("htdemucs", label="Model",
+                       widget=KnobWidget.DROPDOWN,
+                       options=("htdemucs", "htdemucs_ft", "mdx_extra", "mdx_extra_q")),
+        'device': knob("auto", label="Device",
+                        widget=KnobWidget.DROPDOWN,
+                        options=("auto", "cpu", "cuda", "mps")),
+        'shifts': knob(1, label="Quality Shifts",
+                        min_value=0, max_value=10, step=1,
+                        description="More shifts = better quality, slower",
+                        advanced=True),
+        'two_stems': knob("none", label="Two-Stem Mode",
+                           widget=KnobWidget.DROPDOWN,
+                           options=("none", "vocals", "drums", "bass", "other"),
+                           description="Extract only one stem + remainder",
+                           advanced=True),
+    },
 )
-def build_stem_separation() -> Graph:
-    """Build a LoadAudio → SeparateAudio graph."""
-    load_block = Block(
-        id="load",
-        name="Load Audio",
-        block_type="LoadAudio",
-        category=BlockCategory.PROCESSOR,
-        input_ports=(),
-        output_ports=(
-            Port(name="audio_out", port_type=PortType.AUDIO, direction=Direction.OUTPUT),
+def build_stem_separation(
+    audio_file="",
+    model="htdemucs",
+    device="auto",
+    shifts=1,
+    two_stems="none",
+) -> Pipeline:
+    """Build a LoadAudio → SeparateAudio pipeline."""
+    p = Pipeline("stem_separation", name="Stem Separation")
+    load = p.add(LoadAudio(file_path=audio_file), id="load")
+    sep = p.add(
+        Separator(
+            model=model,
+            device=device,
+            shifts=shifts,
+            output_format="wav",
+            mp3_bitrate=320,
         ),
-        settings=BlockSettings(entries={"file_path": ""}),
-    )
-
-    separate_block = Block(
         id="separate",
-        name="Separate Audio",
-        block_type="SeparateAudio",
-        category=BlockCategory.PROCESSOR,
-        input_ports=(
-            Port(name="audio_in", port_type=PortType.AUDIO, direction=Direction.INPUT),
-        ),
-        output_ports=(
-            Port(name="drums_out", port_type=PortType.AUDIO, direction=Direction.OUTPUT),
-            Port(name="bass_out", port_type=PortType.AUDIO, direction=Direction.OUTPUT),
-            Port(name="other_out", port_type=PortType.AUDIO, direction=Direction.OUTPUT),
-            Port(name="vocals_out", port_type=PortType.AUDIO, direction=Direction.OUTPUT),
-        ),
-        settings=BlockSettings(entries={
-            "model": "htdemucs",
-            "device": "auto",
-            "shifts": 1,
-            "output_format": "wav",
-            "mp3_bitrate": 320,
-        }),
+        audio_in=load.audio_out,
     )
-
-    connection = Connection(
-        source_block_id="load",
-        source_output_name="audio_out",
-        target_block_id="separate",
-        target_input_name="audio_in",
-    )
-
-    return Graph(
-        blocks={"load": load_block, "separate": separate_block},
-        connections=(connection,),
-    )
+    p.output('drums', sep.drums_out)
+    p.output('bass', sep.bass_out)
+    p.output('vocals', sep.vocals_out)
+    p.output('other', sep.other_out)
+    return p

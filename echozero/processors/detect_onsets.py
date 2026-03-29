@@ -23,9 +23,30 @@ def _default_onset_detect(
     min_gap: float,
 ) -> list[float]:
     """Detect onsets using librosa. Production default — requires librosa installed."""
-    raise NotImplementedError(
-        "Default onset detection requires librosa. Provide a custom onset_detect_fn."
+    try:
+        import librosa
+        import numpy as np
+    except ImportError:
+        raise NotImplementedError(
+            "Default onset detection requires librosa. "
+            "Install with: pip install librosa"
+        )
+
+    y, sr = librosa.load(file_path, sr=sample_rate, mono=True)
+    onset_frames = librosa.onset.onset_detect(
+        y=y, sr=sr, backtrack=False, delta=threshold,
     )
+    onset_times = librosa.frames_to_time(onset_frames, sr=sr).tolist()
+
+    # Apply min_gap filter: remove onsets too close together
+    if min_gap > 0 and len(onset_times) > 1:
+        filtered = [onset_times[0]]
+        for t in onset_times[1:]:
+            if t - filtered[-1] >= min_gap:
+                filtered.append(t)
+        onset_times = filtered
+
+    return onset_times
 
 
 class DetectOnsetsProcessor:
@@ -64,8 +85,8 @@ class DetectOnsetsProcessor:
         if block is None:
             return err(ExecutionError(f"Block not found: {block_id}"))
 
-        threshold = block.settings.entries.get("threshold", 0.5)
-        min_gap = block.settings.entries.get("min_gap", 0.05)
+        threshold = block.settings.get("threshold", 0.5)
+        min_gap = block.settings.get("min_gap", 0.05)
 
         # Run onset detection
         try:

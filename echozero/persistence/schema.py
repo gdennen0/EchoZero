@@ -9,7 +9,7 @@ from __future__ import annotations
 import sqlite3
 from collections.abc import Callable
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 # ---------------------------------------------------------------------------
 # DDL — all tables for schema version 1
@@ -81,19 +81,24 @@ CREATE TABLE IF NOT EXISTS takes (
     notes TEXT DEFAULT ''
 );
 
-CREATE TABLE IF NOT EXISTS song_pipeline_configs (
+CREATE TABLE IF NOT EXISTS pipeline_configs (
     id TEXT PRIMARY KEY,
     song_version_id TEXT NOT NULL REFERENCES song_versions(id) ON DELETE CASCADE,
-    pipeline_id TEXT NOT NULL,
-    bindings TEXT NOT NULL,
-    created_at TEXT NOT NULL
+    template_id TEXT NOT NULL,
+    name TEXT NOT NULL,
+    graph_json TEXT NOT NULL,
+    outputs_json TEXT NOT NULL DEFAULT '[]',
+    knob_values_json TEXT NOT NULL DEFAULT '{}',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
 );
 
 CREATE INDEX IF NOT EXISTS idx_songs_project ON songs(project_id);
 CREATE INDEX IF NOT EXISTS idx_versions_song ON song_versions(song_id);
 CREATE INDEX IF NOT EXISTS idx_layers_version ON layers(song_version_id);
 CREATE INDEX IF NOT EXISTS idx_takes_layer ON takes(layer_id);
-CREATE INDEX IF NOT EXISTS idx_configs_version ON song_pipeline_configs(song_version_id);
+CREATE INDEX IF NOT EXISTS idx_configs_version ON pipeline_configs(song_version_id);
+CREATE INDEX IF NOT EXISTS idx_configs_template ON pipeline_configs(template_id);
 """
 
 
@@ -127,7 +132,57 @@ def set_schema_version(conn: sqlite3.Connection, version: int) -> None:
 # Numbered migration functions: key = target version, value = upgrade function.
 # Each function upgrades from (key - 1) to key.
 # Empty for V1 — this is just the infrastructure.
-_MIGRATIONS: dict[int, Callable[[sqlite3.Connection], None]] = {}
+def _migrate_v1_to_v2(conn: sqlite3.Connection) -> None:
+    """Replace song_pipeline_configs with pipeline_configs.
+
+    V1 had a flat bindings blob. V2 stores the full graph + outputs + knob values.
+    Existing configs are migrated with empty graph/outputs (user must re-configure).
+    """
+    # Create new table
+    conn.executescript("""\
+        CREATE TABLE IF NOT EXISTS pipeline_configs (
+            id TEXT PRIMARY KEY,
+            song_version_id TEXT NOT NULL REFERENCES song_versions(id) ON DELETE CASCADE,
+            template_id TEXT NOT NULL,
+            name TEXT NOT NULL,
+            graph_json TEXT NOT NULL,
+            outputs_json TEXT NOT NULL DEFAULT '[]',
+            knob_values_json TEXT NOT NULL DEFAULT '{}',
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_configs_version ON pipeline_configs(song_version_id);
+        CREATE INDEX IF NOT EXISTS idx_configs_template ON pipeline_configs(template_id);
+    """)
+
+    # Migrate existing data (best-effort — graph must be rebuilt from template)
+    rows = conn.execute(
+        "SELECT id, song_version_id, pipeline_id, bindings, created_at "
+        "FROM song_pipeline_configs"
+    ).fetchall()
+    for row in rows:
+        conn.execute(
+            "INSERT INTO pipeline_configs "
+            "(id, song_version_id, template_id, name, graph_json, outputs_json, "
+            "knob_values_json, created_at, updated_at) "
+            "VALUES (?, ?, ?, ?, '{}', '[]', ?, ?, ?)",
+            (
+                row['id'],
+                row['song_version_id'],
+                row['pipeline_id'],
+                row['pipeline_id'],  # name = template_id as placeholder
+                row['bindings'],     # preserve old bindings as knob_values
+                row['created_at'],
+                row['created_at'],   # updated_at = created_at
+            ),
+        )
+
+    conn.execute("DROP TABLE IF EXISTS song_pipeline_configs")
+
+
+_MIGRATIONS: dict[int, Callable[[sqlite3.Connection], None]] = {
+    2: _migrate_v1_to_v2,
+}
 
 
 def apply_migrations(conn: sqlite3.Connection) -> None:

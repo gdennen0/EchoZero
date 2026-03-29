@@ -1,60 +1,39 @@
 """Onset Detection pipeline template."""
 
-from echozero.domain.enums import BlockCategory, Direction, PortType
-from echozero.domain.graph import Graph
-from echozero.domain.types import Block, BlockSettings, Connection, Port
-from echozero.pipelines.registry import PromotedParam, pipeline_template
+from echozero.pipelines.block_specs import DetectOnsets, LoadAudio
+from echozero.pipelines.params import KnobWidget, knob
+from echozero.pipelines.pipeline import Pipeline
+from echozero.pipelines.registry import pipeline_template
 
 
 @pipeline_template(
     id='onset_detection',
     name='Onset Detection',
     description='Detect note onsets in audio',
-    promoted_params=[
-        PromotedParam('audio_file', 'Audio File', str, required=True,
-                      description='Path to audio file',
-                      maps_to_block='load_audio', maps_to_setting='file_path'),
-        PromotedParam('threshold', 'Sensitivity', float, default=0.3,
-                      description='Detection threshold (0.0-1.0)',
-                      maps_to_block='detect_onsets', maps_to_setting='threshold'),
-        PromotedParam('method', 'Method', str, default='default',
-                      description='Detection method',
-                      maps_to_block='detect_onsets', maps_to_setting='method'),
-    ],
+    knobs={
+        'audio_file': knob('', label='Audio File', widget=KnobWidget.FILE_PICKER,
+                           file_types=('.wav', '.mp3', '.flac', '.aiff')),
+        'threshold': knob(0.3, label='Sensitivity', min_value=0.0, max_value=1.0,
+                          step=0.05, description='Detection threshold'),
+        'method': knob('default', label='Method',
+                       widget=KnobWidget.DROPDOWN, options=('default', 'hfc', 'complex')),
+    },
 )
-def build_onset_detection() -> Graph:
+def build_onset_detection(
+    audio_file='',
+    threshold=0.3,
+    method='default',
+) -> Pipeline:
     """Build a LoadAudio -> DetectOnsets pipeline."""
-    g = Graph()
-    load = Block(
+    p = Pipeline('onset_detection', name='Onset Detection')
+    load = p.add(
+        LoadAudio(file_path=audio_file, target_sample_rate=44100),
         id='load_audio',
-        name='Load Audio',
-        block_type='load_audio',
-        category=BlockCategory.PROCESSOR,
-        input_ports=(),
-        output_ports=(
-            Port(name='audio', port_type=PortType.AUDIO, direction=Direction.OUTPUT),
-        ),
-        settings=BlockSettings(entries={'file_path': '', 'target_sample_rate': 44100}),
     )
-    detect = Block(
+    onsets = p.add(
+        DetectOnsets(threshold=threshold, method=method),
         id='detect_onsets',
-        name='Detect Onsets',
-        block_type='detect_onsets',
-        category=BlockCategory.PROCESSOR,
-        input_ports=(
-            Port(name='audio', port_type=PortType.AUDIO, direction=Direction.INPUT),
-        ),
-        output_ports=(
-            Port(name='events', port_type=PortType.EVENT, direction=Direction.OUTPUT),
-        ),
-        settings=BlockSettings(entries={'threshold': 0.3, 'method': 'default'}),
+        audio_in=load.audio_out,
     )
-    g.add_block(load)
-    g.add_block(detect)
-    g.add_connection(Connection(
-        source_block_id='load_audio',
-        source_output_name='audio',
-        target_block_id='detect_onsets',
-        target_input_name='audio',
-    ))
-    return g
+    p.output('onsets', onsets.events_out)
+    return p

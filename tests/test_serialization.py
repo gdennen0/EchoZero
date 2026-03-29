@@ -73,7 +73,7 @@ def _make_block(
         input_ports=input_ports,
         output_ports=output_ports,
         control_ports=control_ports,
-        settings=BlockSettings(entries=settings or {}),
+        settings=BlockSettings(settings or {}),
     )
 
 
@@ -161,7 +161,7 @@ class TestGraphSerialization:
         assert block.input_ports[0].direction == Direction.INPUT
         assert len(block.output_ports) == 1
         assert block.output_ports[0].port_type == PortType.EVENT
-        assert block.settings.entries == {"threshold": 0.8, "min_gap": 0.1}
+        assert block.settings == {"threshold": 0.8, "min_gap": 0.1}
 
     def test_connections_survive_round_trip(self) -> None:
         graph = Graph()
@@ -266,7 +266,7 @@ class TestGraphSerialization:
         data = serialize_graph(graph)
         restored = deserialize_graph(data)
 
-        assert restored.blocks["a"].settings.entries == {
+        assert restored.blocks["a"].settings == {
             "file_path": "/audio/test.wav",
             "volume": 0.75,
         }
@@ -496,3 +496,4 @@ class TestProjectSaveLoad:
 
         restored_graph, take_layers = load_project(path)
         assert len(take_layers) == 0
+

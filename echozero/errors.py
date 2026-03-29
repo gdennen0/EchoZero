@@ -9,10 +9,6 @@ class EchoZeroError(Exception):
     """Base exception for all EchoZero errors."""
 
 
-# Alias for the standardized name used in architecture specs (EZ2Error → EchoZeroError)
-EZ2Error = EchoZeroError
-
-
 class DomainError(EchoZeroError):
     """An operation violates a domain rule or invariant."""
 

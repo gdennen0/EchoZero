@@ -15,14 +15,14 @@ from typing import Any
 
 import pytest
 
-from echozero.cache import ExecutionCache
-from echozero.commands import (
+from echozero.editor.cache import ExecutionCache
+from echozero.editor.commands import (
     AddBlockCommand,
     AddConnectionCommand,
     ChangeBlockSettingsCommand,
     Command,
 )
-from echozero.coordinator import Coordinator
+from echozero.editor.coordinator import Coordinator
 from echozero.domain.enums import BlockCategory, BlockState, Direction, PortType
 from echozero.domain.events import (
     BlockAddedEvent,
@@ -45,7 +45,7 @@ from echozero.domain.types import (
 from echozero.errors import OperationCancelledError
 from echozero.event_bus import EventBus
 from echozero.execution import ExecutionContext, ExecutionEngine, GraphPlanner
-from echozero.pipeline import CommandContext, Pipeline
+from echozero.editor.pipeline import CommandContext, Pipeline
 from echozero.processors.detect_onsets import DetectOnsetsProcessor
 from echozero.processors.load_audio import AudioFileInfo, LoadAudioProcessor
 from echozero.progress import RuntimeBus, RuntimeReport
@@ -88,7 +88,7 @@ def _make_block(
         category=BlockCategory.PROCESSOR,
         input_ports=input_ports,
         output_ports=output_ports,
-        settings=BlockSettings(entries=settings or {}),
+        settings=BlockSettings(settings or {}),
         state=state,
     )
 
@@ -144,11 +144,11 @@ def _add_connection_handler(command: AddConnectionCommand, context: CommandConte
 
 def _change_settings_handler(command: ChangeBlockSettingsCommand, context: CommandContext) -> None:
     block = context.graph.blocks[command.block_id]
-    new_entries = dict(block.settings.entries)
+    new_entries = dict(block.settings)
     new_entries[command.setting_key] = command.new_value
-    context.graph.blocks[command.block_id] = replace(
-        block, settings=BlockSettings(entries=new_entries)
-    )
+    context.graph.replace_block(replace(
+        block, settings=BlockSettings(new_entries)
+    ))
     context.collect(
         SettingsChangedEvent(
             event_id=create_event_id(),
@@ -233,9 +233,9 @@ class TestPipelineBuildAndExecute:
 
         # Inject settings directly (as command handler would)
         block = graph.blocks["load1"]
-        graph.blocks["load1"] = replace(
-            block, settings=BlockSettings(entries={"file_path": str(audio_file)})
-        )
+        graph.replace_block(replace(
+            block, settings=BlockSettings({"file_path": str(audio_file)})
+        ))
 
         # Register processors
         engine.register_executor(
@@ -290,9 +290,9 @@ class TestPipelineBuildAndExecute:
         ))
 
         block = graph.blocks["load1"]
-        graph.blocks["load1"] = replace(
-            block, settings=BlockSettings(entries={"file_path": str(audio_file)})
-        )
+        graph.replace_block(replace(
+            block, settings=BlockSettings({"file_path": str(audio_file)})
+        ))
 
         engine.register_executor("LoadAudio", LoadAudioProcessor(
             audio_info_fn=lambda p: AudioFileInfo(44100, 5.0, 2)
@@ -343,9 +343,9 @@ class TestStalenessPropagation:
         ))
 
         block = graph.blocks["load1"]
-        graph.blocks["load1"] = replace(
-            block, settings=BlockSettings(entries={"file_path": str(audio_file)})
-        )
+        graph.replace_block(replace(
+            block, settings=BlockSettings({"file_path": str(audio_file)})
+        ))
 
         engine.register_executor("LoadAudio", LoadAudioProcessor(
             audio_info_fn=lambda p: AudioFileInfo(44100, 5.0, 2)
@@ -480,9 +480,9 @@ class TestAutoEvaluation:
         ))
 
         block = graph.blocks["load1"]
-        graph.blocks["load1"] = replace(
-            block, settings=BlockSettings(entries={"file_path": str(audio_file)})
-        )
+        graph.replace_block(replace(
+            block, settings=BlockSettings({"file_path": str(audio_file)})
+        ))
 
         engine.register_executor("LoadAudio", LoadAudioProcessor(
             audio_info_fn=lambda p: AudioFileInfo(44100, 5.0, 2)
@@ -591,3 +591,8 @@ class TestMultiPortOutput:
         assert consumer.received is not None
         assert isinstance(consumer.received, AudioData)
         assert consumer.received.sample_rate == 48000
+
+
+
+
+

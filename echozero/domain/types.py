@@ -7,6 +7,7 @@ All types are value objects or entities — no behavior, no side effects, no dep
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from types import MappingProxyType
 from typing import Any
 
 from echozero.domain.enums import BlockCategory, BlockState, Direction, PortType
@@ -69,11 +70,69 @@ class AudioData:
     channel_count: int = 1
 
 
-@dataclass(frozen=True)
 class BlockSettings:
-    """Configuration entries for a block instance."""
+    """Immutable settings dict for a block.
 
-    entries: dict[str, Any]
+    Usage:
+        settings = BlockSettings({"threshold": 0.3})
+        settings["threshold"]       # 0.3
+        settings.get("threshold")   # 0.3
+        settings["threshold"] = 1   # TypeError
+    """
+
+    __slots__ = ("_data",)
+
+    def __init__(self, data: dict[str, Any] | None = None) -> None:
+        object.__setattr__(self, "_data", MappingProxyType(dict(data or {})))
+
+    def __getitem__(self, key: str) -> Any:
+        return self._data[key]
+
+    def __contains__(self, key: object) -> bool:
+        return key in self._data
+
+    def __iter__(self):
+        return iter(self._data)
+
+    def __len__(self) -> int:
+        return len(self._data)
+
+    def get(self, key: str, default: Any = None) -> Any:
+        return self._data.get(key, default)
+
+    def keys(self):
+        return self._data.keys()
+
+    def values(self):
+        return self._data.values()
+
+    def items(self):
+        return self._data.items()
+
+    def __setitem__(self, key: str, value: Any) -> None:
+        raise TypeError("BlockSettings is immutable")
+
+    def __delitem__(self, key: str) -> None:
+        raise TypeError("BlockSettings is immutable")
+
+    def __setattr__(self, name: str, value: Any) -> None:
+        raise AttributeError("BlockSettings is immutable")
+
+    def __delattr__(self, name: str) -> None:
+        raise AttributeError("BlockSettings is immutable")
+
+    def __eq__(self, other: object) -> bool:
+        if isinstance(other, BlockSettings):
+            return self._data == other._data
+        if isinstance(other, dict):
+            return dict(self._data) == other
+        return NotImplemented
+
+    def __hash__(self) -> int:
+        return hash(tuple(sorted(self._data.items())))
+
+    def __repr__(self) -> str:
+        return f"BlockSettings({dict(self._data)})"
 
 
 @dataclass(frozen=True)
@@ -87,5 +146,5 @@ class Block:
     input_ports: tuple[Port, ...]
     output_ports: tuple[Port, ...]
     control_ports: tuple[Port, ...] = ()
-    settings: BlockSettings = field(default_factory=lambda: BlockSettings(entries={}))
+    settings: BlockSettings = field(default_factory=lambda: BlockSettings({}))
     state: BlockState = BlockState.FRESH

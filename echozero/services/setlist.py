@@ -1,7 +1,7 @@
 """
 SetlistProcessor: Coordinates sequential processing of all songs in a setlist.
 Exists because batch analysis of an entire setlist is the primary user workflow.
-Wraps AnalysisService with per-song error isolation and progress reporting.
+Wraps Orchestrator with per-song error isolation and progress reporting.
 """
 
 from __future__ import annotations
@@ -11,10 +11,10 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
-from echozero.persistence.entities import SongPipelineConfig
+from echozero.persistence.entities import PipelineConfig
 from echozero.persistence.session import ProjectSession
 from echozero.result import Result, is_ok
-from echozero.services.analysis import AnalysisResult, AnalysisService
+from echozero.services.orchestrator import AnalysisResult, Orchestrator
 
 
 @dataclass(frozen=True)
@@ -31,20 +31,20 @@ class SetlistResult:
 class SetlistProcessor:
     """Coordinates sequential processing of all songs in a setlist."""
 
-    def __init__(self, analysis_service: AnalysisService) -> None:
-        self._analysis = analysis_service
+    def __init__(self, orchestrator: Orchestrator) -> None:
+        self._orchestrator = orchestrator
 
     def process_setlist(
         self,
         session: ProjectSession,
-        configs: list[SongPipelineConfig],
+        config_ids: list[str],
         on_progress: Callable[[str, int, int], None] | None = None,
     ) -> SetlistResult:
-        """Process all songs sequentially. Continue on error.
+        """Process all songs sequentially using persisted PipelineConfig IDs.
 
         Args:
             session: The project session
-            configs: Per-song pipeline configs (song_version_id + pipeline_id + bindings)
+            config_ids: List of PipelineConfig IDs to execute
             on_progress: Callback(message, current_index, total_count)
 
         Returns SetlistResult with per-song results and summary.
@@ -53,17 +53,15 @@ class SetlistProcessor:
         results: list[Result[AnalysisResult]] = []
         succeeded = 0
         failed = 0
-        total = len(configs)
+        total = len(config_ids)
 
-        for i, config in enumerate(configs):
+        for i, config_id in enumerate(config_ids):
             if on_progress:
                 on_progress(f"Processing song {i + 1}/{total}", i, total)
 
-            result = self._analysis.analyze(
+            result = self._orchestrator.execute(
                 session=session,
-                song_version_id=config.song_version_id,
-                pipeline_id=config.pipeline_id,
-                bindings=config.bindings,
+                config_id=config_id,
             )
             results.append(result)
             if is_ok(result):

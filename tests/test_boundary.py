@@ -32,8 +32,8 @@ from echozero.domain.types import (
     Port,
 )
 from echozero.errors import ValidationError
-from echozero.cache import ExecutionCache
-from echozero.coordinator import ready_nodes
+from echozero.editor.cache import ExecutionCache
+from echozero.editor.coordinator import ready_nodes
 from echozero.execution import GraphPlanner, ExecutionPlan
 from echozero.takes import (
     Take,
@@ -528,3 +528,4 @@ class TestReadyNodesBoundaries:
         cache = ExecutionCache()
         result = ready_nodes(g, dirty={"root", "leaf"}, running={"root", "leaf"}, cache=cache)
         assert result == set()
+

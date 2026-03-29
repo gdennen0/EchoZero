@@ -101,7 +101,7 @@ class TestBlockCreation:
         assert block.output_ports == (port_out,)
         assert block.control_ports == ()
         assert block.state == BlockState.FRESH
-        assert block.settings.entries == {}
+        assert block.settings == {}
 
     def test_port_has_correct_attributes(self) -> None:
         port = Port(name="main", port_type=PortType.OSC, direction=Direction.OUTPUT)
@@ -116,7 +116,7 @@ class TestBlockCreation:
             block.name = "changed"  # type: ignore[misc]
 
     def test_block_with_custom_settings(self) -> None:
-        settings = BlockSettings(entries={"threshold": 0.5, "min_gap": 0.05})
+        settings = BlockSettings({"threshold": 0.5, "min_gap": 0.05})
         block = Block(
             id="b1",
             name="DetectOnsets",
@@ -127,8 +127,8 @@ class TestBlockCreation:
             settings=settings,
         )
 
-        assert block.settings.entries["threshold"] == 0.5
-        assert block.settings.entries["min_gap"] == 0.05
+        assert block.settings["threshold"] == 0.5
+        assert block.settings["min_gap"] == 0.05
 
 
 # ---------------------------------------------------------------------------
@@ -667,3 +667,4 @@ class TestAudioData:
         audio = AudioData(sample_rate=48000, duration=1.0, file_path="/a.wav")
 
         assert audio.channel_count == 1
+

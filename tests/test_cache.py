@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from echozero.cache import CachedOutput, ExecutionCache
+from echozero.editor.cache import CachedOutput, ExecutionCache
 from echozero.domain.enums import BlockCategory, Direction, PortType
 from echozero.domain.graph import Graph
 from echozero.domain.types import Block, BlockSettings, Connection, Port
@@ -245,3 +245,4 @@ class TestExecutionCache:
         result = cache.get("b1", "out")
         assert result is not None
         assert before <= result.produced_at <= after
+

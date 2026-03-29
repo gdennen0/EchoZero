@@ -219,18 +219,31 @@ class ExecutionEngine:
                 return err(result.error)
 
             # Signal success and store output
+            # Output dict is ALWAYS normalized to {port_name: value}.
+            # This ensures the Orchestrator can resolve by port name without
+            # guessing whether a processor returned a dict or a single value.
             assert isinstance(result, Ok)
             result_value = result.value
-            if isinstance(result_value, dict):
+
+            # Detect multi-port: executor returned a dict whose keys match
+            # the block's declared output port names.
+            output_port_names = {p.name for p in block.output_ports}
+            is_multi_port = (
+                isinstance(result_value, dict)
+                and len(output_port_names) > 1
+                and result_value.keys() <= output_port_names
+            )
+
+            if is_multi_port:
                 # Multi-port: executor returned {port_name: value}
-                for port_name, port_value in result_value.items():
-                    context.set_output(block_id, port_name, port_value)
+                for pname, pvalue in result_value.items():
+                    context.set_output(block_id, pname, pvalue)
                 outputs[block_id] = result_value
             else:
-                # Single-port: use first output port name (or 'out' as fallback)
-                port_name = block.output_ports[0].name if block.output_ports else "out"
-                context.set_output(block_id, port_name, result_value)
-                outputs[block_id] = result_value
+                # Single-port (or single output port): wrap in {port_name: value}
+                pname = block.output_ports[0].name if block.output_ports else "out"
+                context.set_output(block_id, pname, result_value)
+                outputs[block_id] = {pname: result_value}
             self._runtime_bus.publish(
                 ExecutionCompletedReport(
                     block_id=block_id,

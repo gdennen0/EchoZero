@@ -53,7 +53,7 @@ def _make_block(
         category=BlockCategory.PROCESSOR,
         input_ports=input_ports,
         output_ports=output_ports,
-        settings=BlockSettings(entries=settings or {}),
+        settings=BlockSettings(settings or {}),
     )
 
 
@@ -429,8 +429,8 @@ class TestExecutionEngine:
         result = engine.run(plan)
 
         assert isinstance(result, Ok)
-        assert result.value["x"] == 42
-        assert result.value["y"] == "hello"
+        assert result.value["x"] == {"out": 42}
+        assert result.value["y"] == {"out": "hello"}
 
     def test_cancellation_stops_execution(self) -> None:
         graph, runtime_bus, engine = self._make_engine()
@@ -693,3 +693,4 @@ class TestMultiPortOutput:
 
         assert isinstance(result, Ok)
         assert reader.received_input == "drums_data"
+

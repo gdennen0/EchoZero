@@ -22,7 +22,48 @@ from echozero.domain.types import (
     Layer,
     Port,
 )
+from echozero.pipelines.pipeline import Pipeline, PipelineOutput, PortRef
 from echozero.takes import Take, TakeLayer, TakeSource
+
+
+# ---------------------------------------------------------------------------
+# Pipeline serialization (Graph + named outputs)
+# ---------------------------------------------------------------------------
+
+
+def serialize_pipeline(pipeline: Pipeline) -> dict[str, Any]:
+    """Convert a Pipeline (graph + outputs) to a JSON-serializable dict."""
+    return {
+        "id": pipeline.id,
+        "name": pipeline.name,
+        "description": pipeline.description,
+        "graph": serialize_graph(pipeline.graph),
+        "outputs": [
+            {
+                "name": out.name,
+                "block_id": out.port_ref.block_id,
+                "port_name": out.port_ref.port_name,
+            }
+            for out in pipeline.outputs
+        ],
+    }
+
+
+def deserialize_pipeline(data: dict[str, Any]) -> Pipeline:
+    """Reconstruct a Pipeline from a serialized dict."""
+    graph = deserialize_graph(data["graph"])
+    pipeline = Pipeline(
+        id=data["id"],
+        name=data.get("name", data["id"]),
+        description=data.get("description", ""),
+    )
+    pipeline._graph = graph
+
+    for out_data in data.get("outputs", []):
+        port_ref = PortRef(out_data["block_id"], out_data["port_name"])
+        pipeline._outputs.append(PipelineOutput(out_data["name"], port_ref))
+
+    return pipeline
 
 
 # ---------------------------------------------------------------------------
@@ -52,7 +93,7 @@ def serialize_graph(graph: Graph) -> dict[str, Any]:
                 {"name": p.name, "port_type": p.port_type.name, "direction": p.direction.name}
                 for p in block.control_ports
             ],
-            "settings": block.settings.entries,
+            "settings": dict(block.settings),
         })
 
     connections = []
@@ -101,7 +142,7 @@ def deserialize_graph(data: dict[str, Any]) -> Graph:
                 )
                 for p in block_data.get("control_ports", [])
             ),
-            settings=BlockSettings(entries=block_data.get("settings", {})),
+            settings=BlockSettings(block_data.get("settings", {})),
             state=BlockState.STALE,
         )
         graph.add_block(block)
@@ -312,3 +353,4 @@ def load_project(path: str) -> tuple[Graph, list[TakeLayer]]:
         deserialize_take_layer(tl) for tl in data.get("take_layers", [])
     ]
     return graph, take_layers
+

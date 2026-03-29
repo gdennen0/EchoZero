@@ -20,7 +20,7 @@ from echozero.persistence.entities import (
     Project,
     ProjectSettings,
     Song,
-    SongPipelineConfig,
+    PipelineConfig,
     SongVersion,
 )
 from echozero.persistence.repositories import (
@@ -119,15 +119,19 @@ def _make_take(is_main: bool = False, **kw) -> Take:
     return Take(**defaults)
 
 
-def _make_pipeline_config(song_version_id: str, **kw) -> SongPipelineConfig:
+def _make_pipeline_config(song_version_id: str, **kw) -> PipelineConfig:
     defaults = dict(
         id=_uid(), song_version_id=song_version_id,
-        pipeline_id="onset_detection",
-        bindings={"audio_file": "test.wav", "threshold": 0.3},
+        template_id="onset_detection",
+        name="Onset Detection",
+        graph_json='{"blocks": [], "connections": []}',
+        outputs_json='[]',
+        knob_values={"threshold": 0.3},
         created_at=_now(),
+        updated_at=_now(),
     )
     defaults.update(kw)
-    return SongPipelineConfig(**defaults)
+    return PipelineConfig(**defaults)
 
 
 # ---------------------------------------------------------------------------
@@ -161,7 +165,7 @@ class TestSchema:
         assert "song_versions" in tables
         assert "layers" in tables
         assert "takes" in tables
-        assert "song_pipeline_configs" in tables
+        assert "pipeline_configs" in tables
 
     def test_schema_version_is_set(self, conn):
         assert get_schema_version(conn) == SCHEMA_VERSION
@@ -703,31 +707,62 @@ class TestPipelineConfigRepository:
 
     def test_create_and_get(self, conn):
         pcr, vid = self._setup(conn)
-        cfg = _make_pipeline_config(vid, pipeline_id="onset_detection")
+        cfg = _make_pipeline_config(vid, template_id="onset_detection")
         pcr.create(cfg)
         conn.commit()
         got = pcr.get(cfg.id)
         assert got is not None
         assert got.id == cfg.id
-        assert got.pipeline_id == "onset_detection"
+        assert got.template_id == "onset_detection"
         assert got.song_version_id == vid
+        assert got.name == cfg.name
 
-    def test_bindings_round_trip(self, conn):
+    def test_knob_values_round_trip(self, conn):
         pcr, vid = self._setup(conn)
-        bindings = {"audio_file": "test.wav", "threshold": 0.5, "method": "default"}
-        cfg = _make_pipeline_config(vid, bindings=bindings)
+        knob_values = {"threshold": 0.5, "method": "default"}
+        cfg = _make_pipeline_config(vid, knob_values=knob_values)
         pcr.create(cfg)
         conn.commit()
         got = pcr.get(cfg.id)
-        assert got.bindings == bindings
+        assert got.knob_values == knob_values
+
+    def test_graph_json_round_trip(self, conn):
+        pcr, vid = self._setup(conn)
+        graph_json = '{"blocks": [{"id": "load"}], "connections": []}'
+        cfg = _make_pipeline_config(vid, graph_json=graph_json)
+        pcr.create(cfg)
+        conn.commit()
+        got = pcr.get(cfg.id)
+        assert got.graph_json == graph_json
 
     def test_list_by_version(self, conn):
         pcr, vid = self._setup(conn)
-        pcr.create(_make_pipeline_config(vid, pipeline_id="onset_detection"))
-        pcr.create(_make_pipeline_config(vid, pipeline_id="full_analysis"))
+        pcr.create(_make_pipeline_config(vid, template_id="onset_detection"))
+        pcr.create(_make_pipeline_config(vid, template_id="full_analysis"))
         conn.commit()
         configs = pcr.list_by_version(vid)
         assert len(configs) == 2
+
+    def test_list_by_template(self, conn):
+        pcr, vid = self._setup(conn)
+        pcr.create(_make_pipeline_config(vid, template_id="onset_detection"))
+        pcr.create(_make_pipeline_config(vid, template_id="full_analysis"))
+        pcr.create(_make_pipeline_config(vid, template_id="onset_detection"))
+        conn.commit()
+        configs = pcr.list_by_template("onset_detection")
+        assert len(configs) == 2
+
+    def test_update(self, conn):
+        pcr, vid = self._setup(conn)
+        cfg = _make_pipeline_config(vid, knob_values={"threshold": 0.3})
+        pcr.create(cfg)
+        conn.commit()
+        updated = replace(cfg, knob_values={"threshold": 0.7}, name="Updated")
+        pcr.update(updated)
+        conn.commit()
+        got = pcr.get(cfg.id)
+        assert got.knob_values == {"threshold": 0.7}
+        assert got.name == "Updated"
 
     def test_delete_config(self, conn):
         pcr, vid = self._setup(conn)
@@ -755,34 +790,34 @@ class TestPipelineConfigRepository:
     def test_datetime_round_trip(self, conn):
         pcr, vid = self._setup(conn)
         now = _now()
-        cfg = _make_pipeline_config(vid, created_at=now)
+        cfg = _make_pipeline_config(vid, created_at=now, updated_at=now)
         pcr.create(cfg)
         conn.commit()
         got = pcr.get(cfg.id)
         assert got.created_at == now
+        assert got.updated_at == now
 
-    def test_empty_bindings(self, conn):
+    def test_empty_knob_values(self, conn):
         pcr, vid = self._setup(conn)
-        cfg = _make_pipeline_config(vid, bindings={})
+        cfg = _make_pipeline_config(vid, knob_values={})
         pcr.create(cfg)
         conn.commit()
         got = pcr.get(cfg.id)
-        assert got.bindings == {}
+        assert got.knob_values == {}
 
-    def test_complex_bindings(self, conn):
+    def test_complex_knob_values(self, conn):
         pcr, vid = self._setup(conn)
-        bindings = {
-            "audio_file": "/path/to/file.wav",
+        knob_values = {
             "threshold": 0.3,
             "enabled": True,
             "tags": ["kick", "snare"],
             "nested": {"key": "value"},
         }
-        cfg = _make_pipeline_config(vid, bindings=bindings)
+        cfg = _make_pipeline_config(vid, knob_values=knob_values)
         pcr.create(cfg)
         conn.commit()
         got = pcr.get(cfg.id)
-        assert got.bindings == bindings
+        assert got.knob_values == knob_values
 
 
 # ---------------------------------------------------------------------------

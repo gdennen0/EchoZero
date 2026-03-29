@@ -8,6 +8,8 @@ from __future__ import annotations
 
 from collections import deque
 from dataclasses import replace
+from types import MappingProxyType
+from typing import Any
 
 from echozero.domain.enums import BlockState, Direction, PortType
 from echozero.domain.types import Block, Connection, Port
@@ -15,11 +17,25 @@ from echozero.errors import ValidationError
 
 
 class Graph:
-    """The directed acyclic graph of blocks and connections — enforces all pipeline invariants."""
+    """The directed acyclic graph of blocks and connections — enforces all pipeline invariants.
+
+    blocks is read-only (MappingProxyType). Use add_block/remove_block for mutations.
+    connections is a copy on access. Use add_connection/remove_connection for mutations.
+    """
 
     def __init__(self) -> None:
-        self.blocks: dict[str, Block] = {}
-        self.connections: list[Connection] = []
+        self._blocks: dict[str, Block] = {}
+        self._connections: list[Connection] = []
+
+    @property
+    def blocks(self) -> MappingProxyType[str, Block]:
+        """Read-only view of blocks. Use add_block/remove_block to mutate."""
+        return MappingProxyType(self._blocks)
+
+    @property
+    def connections(self) -> list[Connection]:
+        """Copy of connections list. Use add_connection/remove_connection to mutate."""
+        return list(self._connections)
 
     # -- Mutators -----------------------------------------------------------
 
@@ -27,31 +43,41 @@ class Graph:
         """Insert a block into the graph, rejecting duplicate IDs."""
         if block.id in self.blocks:
             raise ValidationError(f"Duplicate block ID: {block.id}")
-        self.blocks[block.id] = block
+        self._blocks[block.id] = block
 
     def set_block_state(self, block_id: str, state: BlockState) -> None:
         """Replace a block's state, preserving all other fields."""
         if block_id not in self.blocks:
             raise ValidationError(f"Block not found: {block_id}")
-        self.blocks[block_id] = replace(self.blocks[block_id], state=state)
+        self._blocks[block_id] = replace(self._blocks[block_id], state=state)
+
+    def replace_block(self, block: Block) -> None:
+        """Replace a block in-place. Block ID must already exist.
+
+        Preserves all connections. Used for changing settings or state
+        without removing and re-adding connections.
+        """
+        if block.id not in self._blocks:
+            raise ValidationError(f"Block not found: {block.id}")
+        self._blocks[block.id] = block
 
     def remove_block(self, block_id: str) -> None:
         """Remove a block and all connections that reference it."""
-        if block_id not in self.blocks:
+        if block_id not in self._blocks:
             raise ValidationError(f"Block not found: {block_id}")
-        del self.blocks[block_id]
-        self.connections = [
+        del self._blocks[block_id]
+        self._connections = [
             c
-            for c in self.connections
+            for c in self._connections
             if c.source_block_id != block_id and c.target_block_id != block_id
         ]
 
     def add_connection(self, connection: Connection) -> None:
         """Add a connection after validating all invariants."""
         self._validate_connection(connection)
-        self.connections.append(connection)
+        self._connections.append(connection)
         if self.has_cycle():
-            self.connections.pop()
+            self._connections.pop()
             raise ValidationError(
                 f"Connection {connection.source_block_id} -> "
                 f"{connection.target_block_id} would create a cycle"
@@ -60,7 +86,7 @@ class Graph:
     def remove_connection(self, connection: Connection) -> None:
         """Remove a connection by value equality."""
         try:
-            self.connections.remove(connection)
+            self._connections.remove(connection)
         except ValueError:
             raise ValidationError("Connection not found") from None
 
@@ -70,15 +96,15 @@ class Graph:
         """Check all graph invariants: no cycles, valid ports, valid connections."""
         if self.has_cycle():
             raise ValidationError("Graph contains a cycle")
-        for connection in self.connections:
-            self._validate_connection(connection)
+        for connection in self._connections:
+            self._validate_connection(connection, exclude_self=True)
 
     def topological_sort(self) -> list[str]:
         """Return block IDs in execution order using Kahn's algorithm."""
         in_degree: dict[str, int] = {bid: 0 for bid in self.blocks}
         adjacency: dict[str, list[str]] = {bid: [] for bid in self.blocks}
 
-        for conn in self.connections:
+        for conn in self._connections:
             adjacency[conn.source_block_id].append(conn.target_block_id)
             in_degree[conn.target_block_id] += 1
 
@@ -106,7 +132,7 @@ class Graph:
             raise ValidationError(f"Block not found: {block_id}")
 
         adjacency: dict[str, list[str]] = {bid: [] for bid in self.blocks}
-        for conn in self.connections:
+        for conn in self._connections:
             adjacency[conn.source_block_id].append(conn.target_block_id)
 
         visited: set[str] = set()
@@ -122,11 +148,11 @@ class Graph:
 
     def has_cycle(self) -> bool:
         """Detect cycles using DFS with coloring."""
-        white = set(self.blocks.keys())
+        white = set(self._blocks.keys())
         gray: set[str] = set()
 
         adjacency: dict[str, list[str]] = {bid: [] for bid in self.blocks}
-        for conn in self.connections:
+        for conn in self._connections:
             adjacency[conn.source_block_id].append(conn.target_block_id)
 
         def _dfs(node: str) -> bool:
@@ -149,8 +175,15 @@ class Graph:
 
     # -- Internal -----------------------------------------------------------
 
-    def _validate_connection(self, connection: Connection) -> None:
-        """Validate a single connection against all invariants."""
+    def _validate_connection(self, connection: Connection, *, exclude_self: bool = False) -> None:
+        """Validate a single connection against all invariants.
+        
+        Args:
+            connection: The connection to validate.
+            exclude_self: If True, exclude this connection when counting existing
+                connections for fan-in checks. Used by validate() since the
+                connection is already in self._connections.
+        """
         src_id = connection.source_block_id
         tgt_id = connection.target_block_id
 
@@ -162,8 +195,8 @@ class Graph:
         if tgt_id not in self.blocks:
             raise ValidationError(f"Target block not found: {tgt_id}")
 
-        source_block = self.blocks[src_id]
-        target_block = self.blocks[tgt_id]
+        source_block = self._blocks[src_id]
+        target_block = self._blocks[tgt_id]
 
         source_port = self._find_port(
             source_block, connection.source_output_name, Direction.OUTPUT
@@ -192,9 +225,10 @@ class Graph:
         if target_port.port_type == PortType.AUDIO:
             existing = sum(
                 1
-                for c in self.connections
+                for c in self._connections
                 if c.target_block_id == tgt_id
                 and c.target_input_name == connection.target_input_name
+                and (not exclude_self or c is not connection)
             )
             if existing >= 1:
                 raise ValidationError(
@@ -218,3 +252,5 @@ class Graph:
             if port.name == port_name:
                 return port
         return None
+
+

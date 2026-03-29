@@ -52,6 +52,8 @@ class AddBlockCommand(Command):
     category: BlockCategory = BlockCategory.PROCESSOR
     input_ports: tuple[tuple[str, str, str], ...] = ()
     output_ports: tuple[tuple[str, str, str], ...] = ()
+    control_ports: tuple[tuple[str, str, str], ...] = ()
+    settings_entries: tuple[tuple[str, Any], ...] = ()
 
     @property
     def is_undoable(self) -> bool:

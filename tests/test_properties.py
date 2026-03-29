@@ -35,8 +35,8 @@ from echozero.domain.types import (
     Layer,
     Port,
 )
-from echozero.cache import ExecutionCache
-from echozero.coordinator import ready_nodes
+from echozero.editor.cache import ExecutionCache
+from echozero.editor.coordinator import ready_nodes
 from echozero.serialization import (
     deserialize_graph,
     deserialize_take,
@@ -326,13 +326,13 @@ class TestGraphRoundTrip:
             category=BlockCategory.PROCESSOR,
             input_ports=(),
             output_ports=(Port(name="out", port_type=PortType.EVENT, direction=Direction.OUTPUT),),
-            settings=BlockSettings(entries={"threshold": 0.5, "window": 1024, "mode": "fast"}),
+            settings=BlockSettings({"threshold": 0.5, "window": 1024, "mode": "fast"}),
         )
         g = Graph()
         g.add_block(b)
         s1 = serialize_graph(g)
         g2 = deserialize_graph(s1)
-        assert g2.blocks["b1"].settings.entries == b.settings.entries
+        assert g2.blocks["b1"].settings == b.settings
 
     def test_deserialized_graph_blocks_are_stale(self):
         """Deserialized graph always loads blocks as STALE (documented behavior)."""
@@ -629,3 +629,5 @@ class TestReadyNodesProperty:
 
         result = ready_nodes(g, dirty=dirty, running=running, cache=cache)
         assert result.issubset(dirty), f"Ready contains non-dirty nodes: {result - dirty}"
+
+

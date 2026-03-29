@@ -39,7 +39,7 @@ def _make_graph_with_load_block(
         category=BlockCategory.PROCESSOR,
         input_ports=(),
         output_ports=(Port(name="audio_out", port_type=PortType.AUDIO, direction=Direction.OUTPUT),),
-        settings=BlockSettings(entries=settings or {}),
+        settings=BlockSettings(settings or {}),
     )
     graph.add_block(block)
     return graph
@@ -208,3 +208,4 @@ class TestLoadAudioErrors:
 
         assert isinstance(result, Err)
         assert isinstance(result.error, ExecutionError)
+

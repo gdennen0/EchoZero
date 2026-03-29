@@ -48,7 +48,7 @@ def _make_graph_with_chain(
         category=BlockCategory.PROCESSOR,
         input_ports=(),
         output_ports=(_audio_out(),),
-        settings=BlockSettings(entries={"file_path": "/test/audio.wav"}),
+        settings=BlockSettings({"file_path": "/test/audio.wav"}),
     )
     onset_block = Block(
         id="onset1",
@@ -57,7 +57,7 @@ def _make_graph_with_chain(
         category=BlockCategory.PROCESSOR,
         input_ports=(_audio_in(),),
         output_ports=(_event_out(),),
-        settings=BlockSettings(entries=onset_settings or {}),
+        settings=BlockSettings(onset_settings or {}),
     )
     graph.add_block(load_block)
     graph.add_block(onset_block)
@@ -294,3 +294,4 @@ class TestDetectOnsetsProgress:
         event = result.value.layers[0].events[0]
         assert event.metadata["threshold"] == 0.3
         assert event.metadata["min_gap"] == 0.02
+
