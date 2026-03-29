@@ -485,7 +485,7 @@ class TestAutoEvaluation:
             timestamp=time.time(),
             correlation_id=create_event_id(),
             block_id="a",
-            setting_key="threshold",
+            setting_key="threshold", old_value=0.3, new_value=0.5,
         )
         doc_bus.publish(event)
 
@@ -534,7 +534,7 @@ class TestAutoEvaluation:
             timestamp=time.time(),
             correlation_id=create_event_id(),
             block_id="a",
-            setting_key="threshold",
+            setting_key="threshold", old_value=0.3, new_value=0.5,
         )
         doc_bus.publish(event)
 
@@ -559,7 +559,7 @@ class TestAutoEvaluation:
             timestamp=time.time(),
             correlation_id=create_event_id(),
             block_id="a",
-            setting_key="threshold",
+            setting_key="threshold", old_value=0.3, new_value=0.5,
         )
         doc_bus.publish(event)
 
@@ -607,7 +607,7 @@ class TestAutoEvaluation:
             timestamp=time.time(),
             correlation_id=create_event_id(),
             block_id="a",
-            setting_key="threshold",
+            setting_key="threshold", old_value=0.3, new_value=0.5,
         )
         doc_bus.publish(event)
 

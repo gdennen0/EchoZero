@@ -149,6 +149,7 @@ def _change_settings_handler(command: ChangeBlockSettingsCommand, context: Comma
     context.graph.replace_block(replace(
         block, settings=BlockSettings(new_entries)
     ))
+    old_value = block.settings.get(command.setting_key)
     context.collect(
         SettingsChangedEvent(
             event_id=create_event_id(),
@@ -156,6 +157,8 @@ def _change_settings_handler(command: ChangeBlockSettingsCommand, context: Comma
             correlation_id=command.correlation_id,
             block_id=command.block_id,
             setting_key=command.setting_key,
+            old_value=old_value,
+            new_value=command.new_value,
         )
     )
 

@@ -262,6 +262,7 @@ class TestDirtyTracker:
         tracker = DirtyTracker(event_bus)
         event_bus.publish(SettingsChangedEvent(
             **_make_event(), block_id="blk1", setting_key="threshold",
+            old_value=0.3, new_value=0.5,
         ))
         assert tracker.is_dirty() is True
         assert "blk1" in tracker.dirty_ids

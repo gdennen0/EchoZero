@@ -9,6 +9,7 @@ from __future__ import annotations
 import time
 import uuid
 from dataclasses import dataclass
+from typing import Any
 
 from echozero.domain.enums import BlockState
 
@@ -79,10 +80,12 @@ class BlockStateChangedEvent(DomainEvent):
 
 @dataclass(frozen=True)
 class SettingsChangedEvent(DomainEvent):
-    """A block's configuration was modified."""
+    """A block's configuration was modified. Carries before/after values for undo and stale reasons."""
 
     block_id: str
     setting_key: str
+    old_value: Any
+    new_value: Any
 
 
 # ---------------------------------------------------------------------------

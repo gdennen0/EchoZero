@@ -204,6 +204,8 @@ class Coordinator:
         block_name = block.name if block else event.block_id
         reason = setting_changed_reason(
             event.block_id, block_name, event.setting_key,
+            old_value=event.old_value,
+            new_value=event.new_value,
         )
         self.propagate_stale(event.block_id, reason=reason)
         if self._auto_evaluate:

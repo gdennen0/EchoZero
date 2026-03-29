@@ -10,6 +10,8 @@ from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import Any
 
+import numpy as np
+
 from echozero.domain.enums import BlockCategory, BlockState, Direction, PortType
 
 
@@ -79,7 +81,7 @@ class WaveformPeaks:
     """
 
     window_size: int
-    peaks: Any  # numpy ndarray, shape (N, 2) — typed as Any to avoid numpy import in domain
+    peaks: np.ndarray  # shape (N, 2), dtype float32
 
 
 @dataclass(frozen=True)

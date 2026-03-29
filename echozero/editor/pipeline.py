@@ -200,6 +200,7 @@ def _handle_remove_connection(command: RemoveConnectionCommand, context: Command
 def _handle_change_settings(command: ChangeBlockSettingsCommand, context: CommandContext) -> None:
     """Update a single setting on a block."""
     block = context.graph.blocks[command.block_id]
+    old_value = block.settings.get(command.setting_key)
     new_entries = dict(block.settings)
     new_entries[command.setting_key] = command.new_value
     context.graph.blocks[command.block_id] = replace(
@@ -212,6 +213,8 @@ def _handle_change_settings(command: ChangeBlockSettingsCommand, context: Comman
             correlation_id=command.correlation_id,
             block_id=command.block_id,
             setting_key=command.setting_key,
+            old_value=old_value,
+            new_value=command.new_value,
         )
     )
 
