@@ -64,7 +64,7 @@ class Transport:
     def play(self) -> None:
         """Start or resume playback."""
         if self._state == TransportState.PLAYING:
-            return  # already playing
+            return
         self._state = TransportState.PLAYING
 
     def pause(self) -> None:

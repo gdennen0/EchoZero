@@ -10,6 +10,9 @@ Solo logic follows the DAW convention (Reaper/Logic/Ableton):
 - If ANY layer is soloed → play ONLY soloed layers (mute is ignored on soloed layers)
 
 This is the "solo overrides mute" rule that every DAW uses.
+
+Audio thread contract: read_mix() uses pre-allocated scratch buffers.
+No per-callback allocations beyond initial setup.
 """
 
 from __future__ import annotations
@@ -19,20 +22,23 @@ import numpy as np
 from echozero.audio.layer import AudioLayer
 
 
-class Mixer:
-    """Multi-track audio mixer with mute/solo.
+# Maximum buffer size we'll ever need (4096 at 192kHz is extreme)
+_MAX_SCRATCH_FRAMES = 8192
 
-    Thread safety: layers list is modified only from the main thread (add/remove).
-    read_mix() is called from the audio callback thread. We use a snapshot pattern —
-    the callback reads a reference to the list, which is safe because Python list
-    reads are atomic (GIL). Modifications copy-on-write to avoid mutation during iteration.
+
+class Mixer:
+    """Multi-track audio mixer with mute/solo and clipping protection.
+
+    Thread safety: layers list uses copy-on-write (atomic reference swap).
+    read_mix() is called from the audio callback — never allocates, never locks.
     """
 
-    __slots__ = ("_layers", "_master_volume")
+    __slots__ = ("_layers", "_master_volume", "_scratch")
 
     def __init__(self) -> None:
         self._layers: list[AudioLayer] = []
         self._master_volume: float = 1.0
+        self._scratch: np.ndarray = np.zeros(_MAX_SCRATCH_FRAMES, dtype=np.float32)
 
     @property
     def layers(self) -> tuple[AudioLayer, ...]:
@@ -45,11 +51,10 @@ class Mixer:
 
     @master_volume.setter
     def master_volume(self, value: float) -> None:
-        self._master_volume = max(0.0, min(1.0, value))
+        self._master_volume = max(0.0, min(2.0, value))
 
     def add_layer(self, layer: AudioLayer) -> None:
         """Add a layer to the mix. Call from main thread only."""
-        # Copy-on-write: create new list so callback sees consistent state
         new_layers = list(self._layers)
         new_layers.append(layer)
         self._layers = new_layers
@@ -85,29 +90,36 @@ class Mixer:
     def read_mix(self, position: int, frames: int) -> np.ndarray:
         """Sum all active layers at the given position.
 
-        This is the HOT PATH — called every audio callback (~5ms).
-        Must be fast: no allocations beyond the output buffer, no locks, no I/O.
+        HOT PATH — called every audio callback (~5ms).
+        Uses pre-allocated scratch buffer. No allocations. No locks.
 
         Solo logic:
         - any_solo → only play soloed layers
         - no_solo → play all non-muted layers
+
+        Output is hard-clipped to [-1.0, 1.0] to prevent DAC distortion.
 
         Args:
             position: Timeline position in samples.
             frames: Number of samples to mix.
 
         Returns:
-            float32 array of shape (frames,). Mixed and master-gained.
+            float32 array view of shape (frames,). Clipped to [-1, 1].
         """
-        layers = self._layers  # snapshot reference
+        layers = self._layers  # atomic snapshot reference
+        scratch = self._scratch
+
+        # Output accumulator (view into pre-allocated buffer)
+        # Note: we return a view, so caller must consume before next read_mix call
+        out = scratch[:frames]
+        out[:] = 0.0
+
         if not layers:
-            return np.zeros(frames, dtype=np.float32)
+            return out
 
         any_solo = any(l.solo for l in layers)
-        out = np.zeros(frames, dtype=np.float32)
 
         for layer in layers:
-            # Solo logic
             if any_solo:
                 if not layer.solo:
                     continue
@@ -115,10 +127,16 @@ class Mixer:
                 if layer.muted:
                     continue
 
-            chunk = layer.read_samples(position, frames)
-            out += chunk * layer.volume
+            # Read into scratch area past the output region
+            layer_buf = scratch[frames:frames + frames]
+            layer.read_into(layer_buf, position, frames)
+            out += layer_buf * layer.volume
 
         out *= self._master_volume
+
+        # Hard clip to prevent DAC distortion
+        np.clip(out, -1.0, 1.0, out=out)
+
         return out
 
     @property

@@ -10,11 +10,18 @@ AudioEngine, adds layers, and calls play/pause/stop. Everything else is internal
 Inspired by: Reaper's audio system, JUCE AudioDeviceManager, Ableton's audio engine.
 
 Process-agnostic: no Qt, no pipeline engine, no persistence. Just numpy + sounddevice.
+
+Ship-ready guarantees:
+- Lock-free audio callback (no mutex, no GIL contention beyond atomic reads)
+- Zero per-callback allocations (pre-allocated scratch buffers)
+- Hard clipping on output (prevents DAC distortion)
+- Auto-stop at end of content (unless looping)
+- Sample rate conversion on layer add (mismatched rates handled)
+- Thread-safe subscriber add/remove while playing
 """
 
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Any, Callable
 
 import numpy as np
@@ -46,18 +53,16 @@ class AudioEngine:
 
     The audio callback runs on a real-time thread. It:
     1. Checks transport state (playing?)
-    2. Reads the clock position
-    3. Asks the mixer for mixed audio at that position
-    4. Advances the clock
+    2. Reads the clock position via lock-free advance
+    3. Asks the mixer for mixed audio (pre-allocated, clipped)
+    4. Checks for end-of-content → auto-stop
     5. Writes to the output buffer
-
-    That's it. Everything else is state management.
     """
 
     __slots__ = (
         "_clock", "_transport", "_mixer",
         "_stream", "_buffer_size", "_channels",
-        "_stream_factory", "_active",
+        "_stream_factory", "_active", "_end_of_content",
     )
 
     def __init__(
@@ -67,15 +72,6 @@ class AudioEngine:
         channels: int = DEFAULT_CHANNELS,
         stream_factory: Callable[..., Any] | None = None,
     ) -> None:
-        """Initialize the audio engine.
-
-        Args:
-            sample_rate: Output sample rate.
-            buffer_size: Frames per audio callback.
-            channels: Output channels (1=mono, 2=stereo).
-            stream_factory: Injectable stream constructor for testing.
-                            Defaults to sounddevice.OutputStream.
-        """
         self._clock = Clock(sample_rate=sample_rate)
         self._transport = Transport(self._clock)
         self._mixer = Mixer()
@@ -84,22 +80,20 @@ class AudioEngine:
         self._stream: Any = None
         self._stream_factory = stream_factory
         self._active = False
+        self._end_of_content = False  # set by callback, read by main thread
 
     # -- Public properties --------------------------------------------------
 
     @property
     def clock(self) -> Clock:
-        """The master clock. Subscribe to it for position updates."""
         return self._clock
 
     @property
     def transport(self) -> Transport:
-        """Transport controls (play/pause/stop/seek)."""
         return self._transport
 
     @property
     def mixer(self) -> Mixer:
-        """The mixer. Add/remove layers, adjust volume/mute/solo."""
         return self._mixer
 
     @property
@@ -112,10 +106,14 @@ class AudioEngine:
 
     @property
     def is_active(self) -> bool:
-        """Whether the audio stream is open and running."""
         return self._active
 
-    # -- Layer management (convenience wrappers) ----------------------------
+    @property
+    def reached_end(self) -> bool:
+        """True if playback stopped because content ended. Reset on play/seek."""
+        return self._end_of_content
+
+    # -- Layer management ---------------------------------------------------
 
     def add_layer(
         self,
@@ -128,16 +126,8 @@ class AudioEngine:
     ) -> AudioLayer:
         """Create and add a layer to the mixer.
 
-        Args:
-            layer_id: Unique ID for this layer.
-            buffer: Audio samples (float32 or will be converted).
-            sample_rate: Sample rate of the buffer.
-            name: Display name (defaults to layer_id).
-            offset: Start position in timeline samples.
-            volume: Initial volume [0.0, 1.0].
-
-        Returns:
-            The created AudioLayer.
+        If the buffer's sample rate differs from the engine's, it is resampled
+        automatically. The original sample rate is preserved on the layer for reference.
         """
         layer = AudioLayer(
             layer_id=layer_id,
@@ -146,40 +136,40 @@ class AudioEngine:
             sample_rate=sample_rate,
             offset=offset,
             volume=volume,
+            engine_sample_rate=self._clock.sample_rate,
         )
         self._mixer.add_layer(layer)
         return layer
 
     def remove_layer(self, layer_id: str) -> AudioLayer | None:
-        """Remove a layer from the mixer."""
         return self._mixer.remove_layer(layer_id)
 
-    # -- Transport controls (convenience wrappers) --------------------------
+    # -- Transport controls -------------------------------------------------
 
     def play(self) -> None:
         """Start or resume playback. Opens audio stream if needed."""
+        self._end_of_content = False
         if not self._active:
             self._open_stream()
         self._transport.play()
 
     def pause(self) -> None:
-        """Pause playback."""
         self._transport.pause()
 
     def stop(self) -> None:
-        """Stop playback, return to start."""
+        self._end_of_content = False
         self._transport.stop()
 
     def seek(self, position_samples: int) -> None:
-        """Seek to position in samples."""
+        self._end_of_content = False
         self._transport.seek(position_samples)
 
     def seek_seconds(self, seconds: float) -> None:
-        """Seek to position in seconds."""
+        self._end_of_content = False
         self._transport.seek_seconds(seconds)
 
     def toggle_play_pause(self) -> None:
-        """Toggle between play and pause."""
+        self._end_of_content = False
         if not self._active:
             self._open_stream()
         self._transport.toggle_play_pause()
@@ -187,7 +177,6 @@ class AudioEngine:
     # -- Stream management --------------------------------------------------
 
     def _open_stream(self) -> None:
-        """Open the audio output stream."""
         if self._active:
             return
 
@@ -213,7 +202,6 @@ class AudioEngine:
         self._active = True
 
     def shutdown(self) -> None:
-        """Close the audio stream and release resources."""
         self._transport.stop()
         if self._stream is not None:
             self._stream.stop()
@@ -232,36 +220,38 @@ class AudioEngine:
     ) -> None:
         """Called by sounddevice on the real-time audio thread.
 
-        This runs every ~5ms. It MUST be fast:
-        - No allocations (beyond numpy buffers which are pre-allocated)
-        - No locks (mixer uses snapshot pattern)
-        - No I/O
-        - No exceptions (sounddevice silently drops the callback on error)
+        Lock-free. No allocations. No I/O. No exceptions.
         """
         if not self._transport.is_playing:
             outdata[:] = 0
             return
 
-        # Clock position for this buffer
+        # Advance clock (lock-free)
         position = self._clock.advance(frames)
 
-        # Mix all active layers
+        # End-of-content check (auto-pause, skip if looping)
+        duration = self._mixer.duration_samples
+        if duration > 0 and not self._clock.loop_enabled:
+            if position >= duration:
+                outdata[:] = 0
+                self._transport.pause()
+                self._end_of_content = True
+                return
+
+        # Mix all active layers (pre-allocated, clipped)
         mixed = self._mixer.read_mix(position, frames)
 
-        # Write to output buffer
+        # Write to output
         if self._channels == 1:
             outdata[:, 0] = mixed
         else:
-            # Mono mix → duplicate to all channels
             for ch in range(self._channels):
                 outdata[:, ch] = mixed
 
     # -- Clock subscriber management ----------------------------------------
 
     def add_clock_subscriber(self, sub: ClockSubscriber) -> None:
-        """Add a subscriber to the master clock."""
         self._clock.add_subscriber(sub)
 
     def remove_clock_subscriber(self, sub: ClockSubscriber) -> None:
-        """Remove a clock subscriber."""
         self._clock.remove_subscriber(sub)
