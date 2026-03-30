@@ -291,7 +291,10 @@ class PyTorchAudioClassifyProcessor:
             return err(exc)
         except Exception as exc:
             return err(
-                ExecutionError(f"Classification failed for block '{block_id}': {exc}")
+                ExecutionError(
+                    f"Classification failed for block '{block_id}': "
+                    f"{type(exc).__name__}: {exc}"
+                )
             )
 
         # Report near-complete

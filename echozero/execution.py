@@ -12,8 +12,12 @@ import uuid
 from dataclasses import dataclass, field
 from typing import Any, Protocol, TypeVar
 
+import logging
+
 from echozero.domain.graph import Graph
 from echozero.errors import ExecutionError, OperationCancelledError
+
+logger = logging.getLogger(__name__)
 from echozero.progress import (
     ExecutionCompletedReport,
     ExecutionStartedReport,
@@ -54,7 +58,16 @@ class ExecutionContext:
         Returns None if no connection exists or the upstream output hasn't been produced yet.
         Raises ExecutionError if the value doesn't match expected_type.
         """
-        # Find the connection that feeds this input port
+        # Find the connection(s) that feed this input port
+        matching = [
+            c for c in self.graph.connections
+            if c.target_block_id == block_id and c.target_input_name == input_port_name
+        ]
+        if len(matching) > 1:
+            logger.debug(
+                "Block '%s' port '%s' has %d incoming connections — using first",
+                block_id, input_port_name, len(matching),
+            )
         for conn in self.graph.connections:
             if conn.target_block_id == block_id and conn.target_input_name == input_port_name:
                 value = self._outputs.get(
@@ -238,6 +251,8 @@ class ExecutionEngine:
 
             if is_multi_port:
                 # Multi-port: executor returned {port_name: value}
+                # Filter out None values — partial returns don't store empty ports
+                result_value = {k: v for k, v in result_value.items() if v is not None}
                 for pname, pvalue in result_value.items():
                     context.set_output(block_id, pname, pvalue)
                 outputs[block_id] = result_value

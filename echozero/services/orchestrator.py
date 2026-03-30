@@ -265,84 +265,23 @@ class Orchestrator:
         bindings: dict[str, Any] | None = None,
         on_progress: Callable[[str, float], None] | None = None,
     ) -> Result[AnalysisResult]:
-        """Run a pipeline against a song version and persist results."""
-        start_time = time.monotonic()
+        """Run a pipeline against a song version and persist results.
 
-        if on_progress:
-            on_progress("Loading song version", 0.0)
-
-        # 1. Load SongVersion
-        song_version = session.song_versions.get(song_version_id)
-        if song_version is None:
-            return err(ValidationError(f"SongVersion not found: {song_version_id}"))
-
-        # 2. Get template
-        template = self._registry.get(pipeline_id)
-        if template is None:
-            return err(ValidationError(f"Pipeline template not found: {pipeline_id}"))
-
-        if on_progress:
-            on_progress("Preparing pipeline", 0.1)
-
-        # 3. Merge bindings: auto-bindings + user bindings
-        auto_bindings: dict[str, Any] = {"audio_file": song_version.audio_file}
-        merged_bindings = {**auto_bindings, **(bindings or {})}
-
-        # 4. Validate bindings
-        errors = template.validate_bindings(merged_bindings)
-        if errors:
-            return err(ValidationError("; ".join(errors)))
-
-        # 5. Build the FULL Pipeline (not just Graph)
-        pipeline = template.build_pipeline(merged_bindings)
-
-        if on_progress:
-            on_progress("Executing pipeline", 0.2)
-
-        # 6. Execute
-        runtime_bus = RuntimeBus()
-        engine = ExecutionEngine(pipeline.graph, runtime_bus)
-        for block_type, executor in self._executors.items():
-            engine.register_executor(block_type, executor)
-
-        planner = GraphPlanner()
-        plan = planner.plan(pipeline.graph)
-        result = engine.run(plan)
-
-        if is_err(result):
-            assert isinstance(result, Err)
-            return err(result.error)
-
-        raw_outputs = unwrap(result)
-
-        if on_progress:
-            on_progress("Persisting results", 0.8)
-
-        # 7. Map pipeline outputs → persistence
-        layer_ids, take_ids = self._persist_outputs(
-            pipeline=pipeline,
-            raw_outputs=raw_outputs,
-            session=session,
-            song_version_id=song_version_id,
-            pipeline_id=pipeline_id,
-            execution_id=plan.execution_id,
+        Legacy entry point — creates a config from the template, then delegates
+        to execute() so the two code paths share a single implementation.
+        """
+        # Create a config from the template (validates template + song_version_id)
+        config_result = self.create_config(
+            session,
+            song_version_id,
+            pipeline_id,
+            knob_overrides=bindings,
         )
+        if is_err(config_result):
+            return config_result  # propagate validation error
 
-        # 8. Commit
-        session.commit()
-
-        if on_progress:
-            on_progress("Complete", 1.0)
-
-        duration_ms = (time.monotonic() - start_time) * 1000
-
-        return ok(AnalysisResult(
-            song_version_id=song_version_id,
-            pipeline_id=pipeline_id,
-            layer_ids=layer_ids,
-            take_ids=take_ids,
-            duration_ms=duration_ms,
-        ))
+        config = unwrap(config_result)
+        return self.execute(session, config.id, on_progress=on_progress)
 
     # -- Output → Persistence routing --
 

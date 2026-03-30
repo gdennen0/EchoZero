@@ -276,14 +276,14 @@ def merge_events(
         return target_events + source_events
 
     elif strategy == "subtract":
-        source_times = [e.time for e in source_events]
+        source_times = sorted(e.time for e in source_events)
         return tuple(
             e for e in target_events
             if not _has_time_match(e.time, source_times, time_epsilon)
         )
 
     elif strategy == "intersect":
-        source_times = [e.time for e in source_events]
+        source_times = sorted(e.time for e in source_events)
         return tuple(
             e for e in target_events
             if _has_time_match(e.time, source_times, time_epsilon)
@@ -307,8 +307,17 @@ def merge_events(
 def _has_time_match(
     time: float, candidates: list[float], epsilon: float
 ) -> bool:
-    """Check if any candidate is within epsilon of the given time."""
-    return any(abs(time - c) <= epsilon for c in candidates)
+    """Check if any candidate is within epsilon of the given time.
+
+    Assumes candidates is sorted — uses bisect for O(log n) lookup.
+    """
+    import bisect
+    pos = bisect.bisect_left(candidates, time - epsilon)
+    # Check the insertion point and neighbours
+    for i in range(pos, min(pos + 2, len(candidates))):
+        if abs(candidates[i] - time) <= epsilon:
+            return True
+    return False
 
 
 # ---------------------------------------------------------------------------
@@ -346,29 +355,38 @@ def merge_take_into(
     if not isinstance(source.data, EventData) or not isinstance(target.data, EventData):
         raise TakeLayerError("Merge is only supported for EventData takes")
 
-    # Get source events (all or cherry-picked)
+    # Merge all layers by matching on index — extra target layers are kept as-is
     if source.data.layers and target.data.layers:
-        # For now: merge first layer of each. Multi-layer merge TBD.
-        source_events = source.data.layers[0].events
-        target_events = target.data.layers[0].events
+        # Build a lookup of source layers by index
+        source_layers_by_idx = {i: lyr for i, lyr in enumerate(source.data.layers)}
 
-        if event_indices is not None:
-            source_events = tuple(
-                e for i, e in enumerate(source_events) if i in event_indices
+        merged_layers: list = []
+        for i, target_layer in enumerate(target.data.layers):
+            source_layer = source_layers_by_idx.get(i)
+            if source_layer is None:
+                # No corresponding source layer — keep target layer unchanged
+                merged_layers.append(target_layer)
+                continue
+
+            source_events = source_layer.events
+            target_events = target_layer.events
+
+            if event_indices is not None and i == 0:
+                # Cherry-pick only applies to first layer for now
+                source_events = tuple(
+                    e for idx, e in enumerate(source_events) if idx in event_indices
+                )
+
+            merged_events = merge_events(
+                target_events,
+                source_events,
+                strategy=strategy,
+                time_epsilon=time_epsilon,
+                time_range=time_range,
             )
+            merged_layers.append(replace(target_layer, events=merged_events))
 
-        merged_events = merge_events(
-            target_events,
-            source_events,
-            strategy=strategy,
-            time_epsilon=time_epsilon,
-            time_range=time_range,
-        )
-
-        # Build new EventData with merged events
-        new_layer = replace(target.data.layers[0], events=merged_events)
-        remaining_layers = target.data.layers[1:]
-        new_data = EventData(layers=(new_layer,) + remaining_layers)
+        new_data = EventData(layers=tuple(merged_layers))
     else:
         new_data = target.data
 

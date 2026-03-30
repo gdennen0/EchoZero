@@ -367,7 +367,10 @@ class SeparateAudioProcessor:
             )
         except Exception as exc:
             return err(
-                ExecutionError(f"Separation failed for block '{block_id}': {exc}")
+                ExecutionError(
+                    f"Separation failed for block '{block_id}': "
+                    f"{type(exc).__name__}: {exc}"
+                )
             )
 
         if not stem_results:
