@@ -32,6 +32,10 @@ def resample_buffer(buffer: np.ndarray, source_sr: int, target_sr: int) -> np.nd
     Returns:
         Resampled float32 buffer at target_sr.
     """
+    # A9: guard against empty buffer (avoids arange/indexing errors on zero-length input)
+    if len(buffer) == 0:
+        return buffer
+
     if source_sr == target_sr:
         return buffer
     ratio = target_sr / source_sr
@@ -121,7 +125,17 @@ class AudioLayer:
             out: Pre-allocated float32 buffer, at least `frames` long.
             position: Timeline position in samples.
             frames: Number of samples to read.
+
+        Raises:
+            ValueError: If frames > len(out) — caller passed an undersized buffer.
         """
+        # A8: explicit bounds check to catch caller bugs early
+        if frames > len(out):
+            raise ValueError(
+                f"frames ({frames}) > buffer length ({len(out)}): "
+                "caller must provide a buffer at least `frames` long"
+            )
+
         out[:frames] = 0.0
 
         local_pos = position - self.offset

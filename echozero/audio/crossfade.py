@@ -51,7 +51,6 @@ class CrossfadeBuffer:
 
     Holds:
     - Equal-power fade curves (computed once)
-    - Scratch buffers for the outgoing and incoming audio segments
 
     The engine calls apply() when a loop wrap is detected. The crossfade
     blends the tail of the outgoing region with the head of the incoming region
@@ -62,16 +61,17 @@ class CrossfadeBuffer:
 
         # In the audio callback, when loop wrap detected:
         xfade.apply(out_buffer, mixer, tail_pos, head_pos, frames)
+
+    A14: removed vestigial _tail_buf and _head_buf scratch arrays — they were
+    pre-allocated but never used (the engine builds tail/head slices directly
+    from its own pre-allocated _output_scratch).
     """
 
-    __slots__ = ("_length", "_fade_out", "_fade_in", "_tail_buf", "_head_buf")
+    __slots__ = ("_length", "_fade_out", "_fade_in")
 
     def __init__(self, crossfade_samples: int = DEFAULT_CROSSFADE_SAMPLES) -> None:
         self._length = crossfade_samples
         self._fade_out, self._fade_in = build_equal_power_curves(crossfade_samples)
-        # Scratch buffers for reading tail/head audio
-        self._tail_buf = np.zeros(crossfade_samples, dtype=np.float32)
-        self._head_buf = np.zeros(crossfade_samples, dtype=np.float32)
 
     @property
     def length(self) -> int:

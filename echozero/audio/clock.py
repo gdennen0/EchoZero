@@ -75,6 +75,7 @@ class Clock:
     __slots__ = (
         "_position", "_sample_rate", "_subscribers",
         "_loop_snapshot", "_lock", "_last_wrap_offset",
+        "_subscriber_errors",
     )
 
     def __init__(self, sample_rate: int = 44100) -> None:
@@ -84,6 +85,8 @@ class Clock:
         self._loop_snapshot: _LoopSnapshot = _LoopSnapshot(enabled=False, region=None)
         self._lock = threading.Lock()  # main thread only, never held during advance()
         self._last_wrap_offset: int = -1  # -1 = no wrap
+        # A5: count exceptions thrown by subscribers so callers can detect degraded state
+        self._subscriber_errors: int = 0
 
     @property
     def position(self) -> int:
@@ -97,11 +100,17 @@ class Clock:
 
     @property
     def sample_rate(self) -> int:
+        """Sample rate. Read-only after construction — immutable by design."""
         return self._sample_rate
 
-    @sample_rate.setter
-    def sample_rate(self, value: int) -> None:
-        self._sample_rate = value
+    # A14: sample_rate setter removed. Sample rate is immutable after __init__.
+    # Changing sample rate mid-session would invalidate all sample-based positions
+    # and layer buffers. Construct a new Clock if you need a different rate.
+
+    @property
+    def subscriber_errors(self) -> int:
+        """Count of exceptions thrown by subscribers. Monotonically increasing."""
+        return self._subscriber_errors
 
     def seek(self, position_samples: int) -> None:
         """Jump to a position. Safe from any thread."""
@@ -120,6 +129,11 @@ class Clock:
 
         LOCK-FREE: reads _position (atomic int) and _loop_snapshot (atomic ref).
         No lock, no allocation, no I/O.
+
+        Note on last_wrap_offset: only the FIRST wrap within a buffer is tracked.
+        If frames > loop_length, multiple wraps may occur; the engine's tiling
+        logic (A4 fix) handles multi-wrap reads correctly even though only the
+        first wrap offset is recorded here.
         """
         read_pos = self._position
         new_pos = read_pos + frames
@@ -137,10 +151,16 @@ class Clock:
 
         self._position = new_pos
 
-        # Notify subscribers (snapshot reference, safe if list swapped mid-iteration)
+        # Notify subscribers (snapshot reference, safe if list swapped mid-iteration).
+        # A5: wrap each callback in try/except so a misbehaving subscriber cannot
+        # kill the audio thread. Errors are counted but the subscriber is NOT removed
+        # here — removal requires a lock and must happen on the main thread.
         subs = self._subscribers
         for sub in subs:
-            sub.on_clock_tick(read_pos, self._sample_rate)
+            try:
+                sub.on_clock_tick(read_pos, self._sample_rate)
+            except Exception:
+                self._subscriber_errors += 1
 
         return read_pos
 
@@ -153,6 +173,9 @@ class Clock:
         split-read and crossfade at the boundary.
 
         Only valid immediately after advance(). Read once, use once.
+
+        Note: only the first wrap within a buffer is tracked (A12). The engine's
+        tiling logic handles the multi-wrap case (frames > loop_length) correctly.
         """
         return self._last_wrap_offset
 

@@ -18,6 +18,8 @@ Ship-ready guarantees:
 - Auto-stop at end of content (unless looping)
 - Sample rate conversion on layer add (mismatched rates handled)
 - Thread-safe subscriber add/remove while playing
+- Crossfade output clipped to [-1, 1] (equal-power peaks at √2 ≈ 1.414 otherwise)
+- Glitch counter tracks sounddevice underrun/overrun events
 """
 
 from __future__ import annotations
@@ -64,6 +66,11 @@ class AudioEngine:
         "_clock", "_transport", "_mixer", "_crossfade",
         "_stream", "_buffer_size", "_channels",
         "_stream_factory", "_active", "_end_of_content",
+        "_output_scratch",       # A2: pre-allocated output buffer for loop-wrap path
+        "_pre_scratch",          # pre-allocated buffer for pre-wrap audio
+        "_post_scratch",         # pre-allocated buffer for post-wrap audio
+        "_glitch_count",         # A10: sounddevice underrun/overrun counter
+        "_last_status",          # A10: last non-None sounddevice status object
     )
 
     def __init__(
@@ -85,6 +92,17 @@ class AudioEngine:
         self._stream_factory = stream_factory
         self._active = False
         self._end_of_content = False  # set by callback, read by main thread
+
+        # A2: pre-allocated output scratch buffers. Sized to 2× buffer_size so that
+        # split-read pre/post segments can each be a full buffer's worth.
+        scratch_size = max(buffer_size * 2, 8192)
+        self._output_scratch: np.ndarray = np.zeros(scratch_size, dtype=np.float32)
+        self._pre_scratch: np.ndarray = np.zeros(scratch_size, dtype=np.float32)
+        self._post_scratch: np.ndarray = np.zeros(scratch_size, dtype=np.float32)
+
+        # A10: glitch tracking
+        self._glitch_count: int = 0
+        self._last_status: Any = None
 
     # -- Public properties --------------------------------------------------
 
@@ -116,6 +134,16 @@ class AudioEngine:
     def reached_end(self) -> bool:
         """True if playback stopped because content ended. Reset on play/seek."""
         return self._end_of_content
+
+    @property
+    def glitch_count(self) -> int:
+        """A10: Number of audio glitches (underruns/overruns) reported by sounddevice."""
+        return self._glitch_count
+
+    @property
+    def last_audio_status(self) -> Any:
+        """A10: Last non-None sounddevice status object. None if no glitches yet."""
+        return self._last_status
 
     # -- Layer management ---------------------------------------------------
 
@@ -229,7 +257,14 @@ class AudioEngine:
         Loop crossfade: when the clock wraps at a loop boundary, we do a split
         read — tail audio from before the wrap, head audio from after — and
         blend them with an equal-power crossfade to eliminate the click.
+
+        A10: if status is truthy, a glitch (underrun/overrun) occurred.
         """
+        # A10: track glitches without raising
+        if status:
+            self._glitch_count += 1
+            self._last_status = status
+
         if not self._transport.is_playing:
             outdata[:] = 0
             return
@@ -250,36 +285,63 @@ class AudioEngine:
         wrap_offset = self._clock.last_wrap_offset
         loop_region = self._clock.loop_region
 
-        if wrap_offset > 0 and loop_region is not None:
-            # SPLIT READ: the buffer spans a loop boundary.
-            # Part 1: pre-wrap audio (position → position + wrap_offset)
-            pre_mix = self._mixer.read_mix(position, wrap_offset)
-            pre_audio = pre_mix.copy()  # copy — read_mix reuses its scratch
+        # A11: wrap_offset == 0 is valid — wrap at the very first sample of this buffer.
+        # Previously `wrap_offset > 0` missed this case, leaving it as a hard cut.
+        # When wrap_offset == 0 there is no pre-wrap audio (pre segment is empty),
+        # so we skip straight to reading from loop_start for all `frames` samples.
+        if wrap_offset >= 0 and loop_region is not None:
+            # SPLIT READ: the buffer spans (or starts at) a loop boundary.
+            loop_len = loop_region.end - loop_region.start
 
-            # Part 2: post-wrap audio (loop_start → loop_start + remaining)
-            remaining = frames - wrap_offset
-            post_mix = self._mixer.read_mix(loop_region.start, remaining)
-            post_audio = post_mix.copy()
+            # Part 1: pre-wrap audio (position → loop_region.end)
+            # wrap_offset == 0 means no pre-wrap samples — skip this segment.
+            pre_frames = wrap_offset  # 0 when wrap_offset == 0
+            if pre_frames > 0:
+                # A6: use read_mix_into so the result lands in _pre_scratch directly
+                self._mixer.read_mix_into(self._pre_scratch, position, pre_frames)
 
-            # Assemble into output buffer (reuse mixer scratch for final output)
-            mixed = self._mixer.read_mix(position, frames)  # just to get the scratch view
-            mixed[:wrap_offset] = pre_audio
-            mixed[wrap_offset:] = post_audio[:remaining]
+            # Part 2: post-wrap audio (loop_start → loop_start + remaining).
+            # A4: if remaining > loop_len, tile by reading in loop_len chunks.
+            remaining = frames - pre_frames
+            post_filled = 0
+            read_pos = loop_region.start
+            while post_filled < remaining:
+                chunk = min(loop_len, remaining - post_filled)
+                self._mixer.read_mix_into(
+                    self._post_scratch[post_filled:], read_pos, chunk
+                )
+                # Advance within the loop, wrapping if necessary
+                read_pos = loop_region.start + ((read_pos - loop_region.start + chunk) % loop_len)
+                post_filled += chunk
+
+            # Assemble into _output_scratch (A2: no third read_mix call)
+            out = self._output_scratch[:frames]
+            if pre_frames > 0:
+                out[:pre_frames] = self._pre_scratch[:pre_frames]
+            out[pre_frames:frames] = self._post_scratch[:remaining]
 
             # CROSSFADE at the splice point to eliminate click.
-            # Blend the last N samples of pre with the first N of post.
-            xfade = self._crossfade
-            xfade_len = min(xfade.length, wrap_offset, remaining)
-            if xfade_len > 0:
-                # tail = last xfade_len samples of pre-wrap region
-                tail = pre_audio[wrap_offset - xfade_len:wrap_offset]
-                # head = first xfade_len samples of post-wrap region
-                head = post_audio[:xfade_len]
-                # Apply: overwrites mixed[wrap_offset - xfade_len : wrap_offset]
-                xfade.apply(mixed, tail, head, wrap_offset - xfade_len, xfade_len)
+            # Only apply if there IS a pre-wrap segment to blend from.
+            if pre_frames > 0:
+                xfade = self._crossfade
+                xfade_len = min(xfade.length, pre_frames, remaining)
+                if xfade_len > 0:
+                    # tail = last xfade_len samples of pre-wrap region
+                    tail = self._pre_scratch[pre_frames - xfade_len:pre_frames]
+                    # head = first xfade_len samples of post-wrap region
+                    head = self._post_scratch[:xfade_len]
+                    xfade.apply(out, tail, head, pre_frames - xfade_len, xfade_len)
+
+            # A3: clip crossfade output — equal-power peaks at √2 ≈ 1.414
+            np.clip(out[:frames], -1.0, 1.0, out=out[:frames])
+
+            mixed = out
+
         else:
-            # Normal path: no loop wrap, straight read
-            mixed = self._mixer.read_mix(position, frames)
+            # Normal path: no loop wrap, straight read into _output_scratch
+            # A6: use read_mix_into to avoid a copy
+            self._mixer.read_mix_into(self._output_scratch, position, frames)
+            mixed = self._output_scratch[:frames]
 
         # Write to output
         if self._channels == 1:

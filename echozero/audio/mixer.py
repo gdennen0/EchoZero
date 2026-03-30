@@ -11,7 +11,7 @@ Solo logic follows the DAW convention (Reaper/Logic/Ableton):
 
 This is the "solo overrides mute" rule that every DAW uses.
 
-Audio thread contract: read_mix() uses pre-allocated scratch buffers.
+Audio thread contract: read_mix_into() uses pre-allocated caller-provided buffers.
 No per-callback allocations beyond initial setup.
 """
 
@@ -30,15 +30,19 @@ class Mixer:
     """Multi-track audio mixer with mute/solo and clipping protection.
 
     Thread safety: layers list uses copy-on-write (atomic reference swap).
-    read_mix() is called from the audio callback — never allocates, never locks.
+    read_mix_into() is called from the audio callback — never allocates, never locks.
     """
 
-    __slots__ = ("_layers", "_master_volume", "_scratch")
+    __slots__ = ("_layers", "_master_volume", "_scratch", "_layer_scratch")
 
     def __init__(self) -> None:
         self._layers: list[AudioLayer] = []
         self._master_volume: float = 1.0
+        # A1: two separate scratch buffers so they never overlap regardless of frames size.
+        # Previously scratch[0:frames] was the output and scratch[frames:frames*2] was
+        # the per-layer temp; if frames > 4096 those regions overlap.
         self._scratch: np.ndarray = np.zeros(_MAX_SCRATCH_FRAMES, dtype=np.float32)
+        self._layer_scratch: np.ndarray = np.zeros(_MAX_SCRATCH_FRAMES, dtype=np.float32)
 
     @property
     def layers(self) -> tuple[AudioLayer, ...]:
@@ -88,10 +92,16 @@ class Mixer:
             layer.solo = False
 
     def read_mix(self, position: int, frames: int) -> np.ndarray:
-        """Sum all active layers at the given position.
+        """Sum all active layers at the given position. Returns a COPY.
 
         HOT PATH — called every audio callback (~5ms).
-        Uses pre-allocated scratch buffer. No allocations. No locks.
+        Uses pre-allocated scratch buffer. No allocations except the final .copy().
+
+        For zero-copy hot-path use, prefer read_mix_into() which writes directly
+        into a caller-supplied buffer.
+
+        A6: returns out.copy() so callers who store the result don't get stale
+        data when the internal scratch is reused on the next call.
 
         Solo logic:
         - any_solo → only play soloed layers
@@ -104,18 +114,33 @@ class Mixer:
             frames: Number of samples to mix.
 
         Returns:
-            float32 array view of shape (frames,). Clipped to [-1, 1].
+            float32 array of shape (frames,), clipped to [-1, 1]. Owned by caller.
         """
-        layers = self._layers  # atomic snapshot reference
-        scratch = self._scratch
+        out = self._scratch[:frames]
+        self._mix_into(out, position, frames)
+        return out.copy()
 
-        # Output accumulator (view into pre-allocated buffer)
-        # Note: we return a view, so caller must consume before next read_mix call
-        out = scratch[:frames]
+    def read_mix_into(self, output: np.ndarray, position: int, frames: int) -> None:
+        """Sum all active layers directly into a caller-provided buffer.
+
+        Zero-copy hot path for the audio engine callback. The engine pre-allocates
+        _output_scratch and passes it here, avoiding any allocation on the RT thread.
+
+        Args:
+            output: Caller-owned float32 buffer. Must be at least `frames` long.
+            position: Timeline position in samples.
+            frames: Number of samples to mix.
+        """
+        out = output[:frames]
+        self._mix_into(out, position, frames)
+
+    def _mix_into(self, out: np.ndarray, position: int, frames: int) -> None:
+        """Internal: accumulate all layers into `out` (length == frames, pre-sliced)."""
+        layers = self._layers  # atomic snapshot reference
         out[:] = 0.0
 
         if not layers:
-            return out
+            return
 
         any_solo = any(l.solo for l in layers)
 
@@ -127,8 +152,8 @@ class Mixer:
                 if layer.muted:
                     continue
 
-            # Read into scratch area past the output region
-            layer_buf = scratch[frames:frames + frames]
+            # A1: use separate _layer_scratch so it never overlaps with `out`
+            layer_buf = self._layer_scratch[:frames]
             layer.read_into(layer_buf, position, frames)
             out += layer_buf * layer.volume
 
@@ -136,8 +161,6 @@ class Mixer:
 
         # Hard clip to prevent DAC distortion
         np.clip(out, -1.0, 1.0, out=out)
-
-        return out
 
     @property
     def duration_samples(self) -> int:

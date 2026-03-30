@@ -80,10 +80,14 @@ class Transport:
         self._clock.seek(self._stop_position)
 
     def seek(self, position_samples: int) -> None:
-        """Jump to position. Valid in any state."""
+        """Jump to position. Valid in any state.
+
+        A7: Always update _stop_position regardless of playback state.
+        Previously only updated when STOPPED, which meant that seeking while
+        PLAYING and then calling stop() would return to the wrong position.
+        """
         self._clock.seek(position_samples)
-        if self._state == TransportState.STOPPED:
-            self._stop_position = max(0, position_samples)
+        self._stop_position = max(0, position_samples)
 
     def seek_seconds(self, seconds: float) -> None:
         """Jump to position in seconds."""
@@ -97,7 +101,13 @@ class Transport:
             self.play()
 
     def return_to_start(self) -> None:
-        """Return to position 0 regardless of state."""
+        """Return to position 0 regardless of state.
+
+        A13: Intentional behaviour — if PAUSED, transition to STOPPED.
+        Calling return_to_start() signals "I want to go back to the beginning"
+        which is a stop action. If currently PLAYING we keep playing from 0
+        (rewind while rolling, common DAW behaviour).
+        """
         self._stop_position = 0
         self._clock.seek(0)
         if self._state != TransportState.PLAYING:
