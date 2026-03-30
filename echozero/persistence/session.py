@@ -130,6 +130,7 @@ class ProjectSession:
         self._autosave_interval: float = 0.0
         self._autosave_lock = threading.Lock()
         self._lockfile_path: Path | None = None
+        self._in_transaction: bool = False
 
     # -- Factory methods ----------------------------------------------------
 
@@ -227,12 +228,15 @@ class ProjectSession:
         """Execute multiple operations atomically. Commits on success, rolls back on exception."""
         with self._lock:
             self._check_closed()
+            self._in_transaction = True
             try:
                 yield self
                 self.db.commit()
             except Exception:
                 self.db.rollback()
                 raise
+            finally:
+                self._in_transaction = False
 
     def commit(self) -> None:
         """Explicitly commit pending changes."""
@@ -258,7 +262,13 @@ class ProjectSession:
             # Commit any pending changes first
             self.db.commit()
             # WAL checkpoint before packing to ensure DB is fully written
-            self.db.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+            result = self.db.execute("PRAGMA wal_checkpoint(TRUNCATE)").fetchone()
+            if result and result[0] != 0:
+                logger.warning(
+                    "WAL checkpoint returned non-zero status %d — "
+                    "archive may not include latest changes",
+                    result[0],
+                )
             pack_ez(self.working_dir, ez_path)
             self.dirty_tracker.clear()
 
@@ -595,6 +605,10 @@ class ProjectSession:
         try:
             if not self._closed and self.dirty_tracker.is_dirty():
                 with self._lock:
+                    if self._in_transaction:
+                        # Don't commit during an active transaction — it would
+                        # commit a partial set of changes.
+                        return
                     self.db.commit()
                     self.dirty_tracker.clear()
                 logger.debug("Autosave: committed changes for project %s", self.project.id)

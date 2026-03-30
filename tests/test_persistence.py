@@ -1464,7 +1464,9 @@ class TestDuplicateIds:
 
 class TestDataJsonNullGuard:
     def test_null_data_json_raises_persistence_error(self, conn):
-        """Take with NULL data_json should raise PersistenceError, not TypeError."""
+        """Take with NULL data_json: _from_row raises PersistenceError, but
+        list_by_layer skips the corrupt row instead of crashing the whole listing.
+        P8 fix: one bad take must not poison the entire layer listing."""
         pr = ProjectRepository(conn)
         sr = SongRepository(conn)
         vr = SongVersionRepository(conn)
@@ -1482,12 +1484,13 @@ class TestDataJsonNullGuard:
         conn.commit()
 
         # Manually insert a take with NULL data_json
+        corrupt_id = _uid()
         conn.execute(
             "INSERT INTO takes "
             "(id, layer_id, label, origin, is_main, is_archived, "
             "source_json, data_json, created_at, notes) "
             "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            (_uid(), layer.id, "Bad Take", "pipeline", 0, 0,
+            (corrupt_id, layer.id, "Bad Take", "pipeline", 0, 0,
              None, None, _now().isoformat(), ""),
         )
         conn.commit()
@@ -1497,8 +1500,21 @@ class TestDataJsonNullGuard:
         ).fetchall()
         assert len(takes) == 1
 
+        # list_by_layer should skip the corrupt row and return an empty list,
+        # NOT raise — this is the P8 resilience fix.
+        result = tr.list_by_layer(layer.id)
+        assert result == []
+
+        # _from_row itself still raises PersistenceError on a NULL data_json row
+        # (the error is just caught at the listing level now).
+        row = conn.execute(
+            "SELECT id, layer_id, label, origin, is_main, is_archived, "
+            "source_json, data_json, created_at, notes "
+            "FROM takes WHERE id = ?",
+            (corrupt_id,),
+        ).fetchone()
         with pytest.raises(PersistenceError, match="Take has no data"):
-            tr.list_by_layer(layer.id)
+            tr._from_row(row)
 
 
 # ---------------------------------------------------------------------------

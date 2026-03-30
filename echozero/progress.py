@@ -78,8 +78,11 @@ class RuntimeBus:
         self._subscribers.append(callback)
 
     def unsubscribe(self, callback: Callable[[RuntimeReport], None]) -> None:
-        """Remove a previously registered callback."""
-        self._subscribers.remove(callback)
+        """Remove a previously registered callback. No-op if not subscribed."""
+        try:
+            self._subscribers.remove(callback)
+        except ValueError:
+            pass
 
     def publish(self, report: RuntimeReport) -> None:
         """Deliver a runtime report to all subscribers immediately."""

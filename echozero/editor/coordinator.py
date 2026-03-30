@@ -128,6 +128,9 @@ class Coordinator:
 
         Returns the execution_id on success, or an Err on failure.
         """
+        if self._executing:
+            from echozero.errors import ExecutionError
+            return err(ExecutionError("Execution already in progress. Cancel first."))
         self._cancel_event.clear()
         planner = GraphPlanner()
         plan = planner.plan(self._graph, target_block_id=target)

@@ -59,9 +59,17 @@ def _default_classify(
         raise ValidationError(f"Model file must be .pth format, got {model_path}")
 
     try:
-        # Load model state and config
-        checkpoint = torch.load(model_path, map_location=device, weights_only=False)
+        # Load model state and config — weights_only=True prevents arbitrary code execution
+        # via malicious pickle payloads embedded in .pth files.
+        checkpoint = torch.load(model_path, map_location=device, weights_only=True)
+    except Exception as exc:
+        raise ExecutionError(
+            f"Failed to load model from {model_path}. "
+            f"Only SafeTensors/weights-only checkpoints are supported for security. "
+            f"Error: {exc}"
+        )
 
+    try:
         # Try to extract model and config from checkpoint
         if isinstance(checkpoint, dict):
             if "model_state_dict" in checkpoint:
@@ -88,7 +96,7 @@ def _default_classify(
         model.eval()
         model.to(device)
     except Exception as exc:
-        raise ExecutionError(f"Failed to load model from {model_path}: {exc}")
+        raise ExecutionError(f"Failed to initialize model from {model_path}: {exc}")
 
     # Classify each event
     classified_events: list[Event] = []

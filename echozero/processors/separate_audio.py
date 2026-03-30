@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import os
 import tempfile
+import uuid
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -62,6 +63,20 @@ VALID_DEVICES = {"auto", "cpu", "cuda"}
 VALID_TWO_STEMS = {"vocals", "drums", "bass", "other"}
 VALID_OUTPUT_FORMATS = {"wav", "mp3"}
 VALID_MP3_BITRATES = {128, 192, 320}
+
+
+def cleanup_stem_temp_dirs(working_dir: Path) -> int:
+    """Remove temporary stem directories. Returns count of dirs removed."""
+    tmp_stems = working_dir / "tmp" / "stems"
+    if not tmp_stems.exists():
+        return 0
+    import shutil
+    count = 0
+    for d in tmp_stems.iterdir():
+        if d.is_dir():
+            shutil.rmtree(d, ignore_errors=True)
+            count += 1
+    return count
 
 
 # ---------------------------------------------------------------------------
@@ -160,7 +175,13 @@ def _default_separate(
     out_path = Path(output_dir)
     out_path.mkdir(parents=True, exist_ok=True)
 
-    ext = "mp3" if output_format == "mp3" else "wav"
+    # V1: always WAV. MP3 requires additional dependencies.
+    if output_format == "mp3":
+        import logging
+        logging.getLogger(__name__).warning(
+            "MP3 output format requested but not yet supported. Writing WAV instead."
+        )
+    ext = "wav"  # Always WAV for V1
     sample_rate = separator.samplerate
     results: list[StemResult] = []
 
@@ -311,8 +332,16 @@ class SeparateAudioProcessor:
         # Resolve device
         device = _detect_device(device_setting)
 
-        # Create temp output directory for stems
-        output_dir = tempfile.mkdtemp(prefix=f"ez_stems_{block_id}_")
+        # Create temp output directory for stems.
+        # Use working_dir/tmp/stems if available (allows batch cleanup), else system temp.
+        working_dir = settings.get("working_dir")
+        if working_dir:
+            tmp_base = Path(working_dir) / "tmp" / "stems"
+            tmp_base.mkdir(parents=True, exist_ok=True)
+            output_dir = str(tmp_base / f"{block_id}_{uuid.uuid4().hex[:8]}")
+            Path(output_dir).mkdir(parents=True, exist_ok=True)
+        else:
+            output_dir = tempfile.mkdtemp(prefix=f"ez_stems_{block_id}_")
 
         # Report progress
         context.progress_bus.publish(

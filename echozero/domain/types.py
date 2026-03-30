@@ -164,7 +164,13 @@ class BlockSettings:
         return NotImplemented
 
     def __hash__(self) -> int:
-        return hash(tuple(sorted(self._data.items())))
+        import json
+        try:
+            # Convert to stable JSON string for hashing — handles lists, dicts, etc.
+            return hash(json.dumps(dict(self._data), sort_keys=True, default=str))
+        except (TypeError, ValueError):
+            # Fallback: hash the repr
+            return hash(repr(dict(self._data)))
 
     def __repr__(self) -> str:
         return f"BlockSettings({dict(self._data)})"

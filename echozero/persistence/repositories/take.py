@@ -8,6 +8,7 @@ existing serialization module; the repository handles the mapping transparently.
 from __future__ import annotations
 
 import json
+import logging
 import sqlite3
 from datetime import datetime
 
@@ -15,6 +16,8 @@ from echozero.errors import PersistenceError
 from echozero.persistence.base import BaseRepository
 from echozero.serialization import serialize_take_data, deserialize_take_data
 from echozero.takes import Take, TakeSource
+
+logger = logging.getLogger(__name__)
 
 
 class TakeRepository(BaseRepository[Take]):
@@ -73,14 +76,24 @@ class TakeRepository(BaseRepository[Take]):
         return self._from_row(row)
 
     def list_by_layer(self, layer_id: str) -> list[Take]:
-        """Return all takes for a layer, ordered by creation time."""
+        """Return all takes for a layer, ordered by creation time.
+
+        Corrupt rows (e.g. NULL data_json) are skipped with a warning rather than
+        crashing the entire listing.
+        """
         rows = self._fetchall(
             "SELECT id, layer_id, label, origin, is_main, is_archived, "
             "source_json, data_json, created_at, notes "
             "FROM takes WHERE layer_id = ? ORDER BY created_at",
             (layer_id,),
         )
-        return [self._from_row(r) for r in rows]
+        results = []
+        for r in rows:
+            try:
+                results.append(self._from_row(r))
+            except Exception as exc:
+                logger.warning("Skipping corrupt take %s: %s", r['id'], exc)
+        return results
 
     def update(self, take: Take) -> None:
         """Overwrite a take's mutable fields (label, origin, is_main, is_archived, notes, source, data)."""
@@ -104,7 +117,10 @@ class TakeRepository(BaseRepository[Take]):
         self._execute("DELETE FROM takes WHERE id = ?", (take_id,))
 
     def get_main(self, layer_id: str) -> Take | None:
-        """Return the main take for a layer, or None if no main exists."""
+        """Return the main take for a layer, or None if no main exists.
+
+        Returns None if the main take row is corrupt rather than raising.
+        """
         row = self._fetchone(
             "SELECT id, layer_id, label, origin, is_main, is_archived, "
             "source_json, data_json, created_at, notes "
@@ -113,7 +129,11 @@ class TakeRepository(BaseRepository[Take]):
         )
         if row is None:
             return None
-        return self._from_row(row)
+        try:
+            return self._from_row(row)
+        except Exception as exc:
+            logger.warning("Main take for layer %s is corrupt: %s", layer_id, exc)
+            return None
 
     # -- internal helpers ---------------------------------------------------
 
