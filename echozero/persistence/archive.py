@@ -7,6 +7,8 @@ Pack on explicit save, unpack on open. Audio files use STORED compression (alrea
 from __future__ import annotations
 
 import json
+import shutil
+import tempfile
 import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
@@ -75,6 +77,9 @@ def pack_ez(working_dir: Path, dest_path: Path) -> None:
 def unpack_ez(ez_path: Path, working_dir: Path) -> dict:
     """Unpack a .ez archive to a working directory.
 
+    Extracts to a temp directory first for atomicity — if extraction fails,
+    the working_dir is NOT created or left in partial state.
+
     Args:
         ez_path: Path to the .ez archive
         working_dir: Target working directory (created if needed)
@@ -83,33 +88,57 @@ def unpack_ez(ez_path: Path, working_dir: Path) -> dict:
         The manifest dict from manifest.json
 
     Raises:
-        ValueError if archive is invalid or manifest is missing
+        ValueError if archive is invalid, manifest is missing, or zip-slip detected
         FileNotFoundError if ez_path doesn't exist
     """
     if not ez_path.exists():
         raise FileNotFoundError(f"Archive not found: {ez_path}")
 
-    working_dir.mkdir(parents=True, exist_ok=True)
+    # Extract to temp dir first for atomicity (P2)
+    parent = working_dir.parent
+    parent.mkdir(parents=True, exist_ok=True)
 
-    with zipfile.ZipFile(ez_path, "r") as zf:
-        # Validate manifest exists
-        if "manifest.json" not in zf.namelist():
-            raise ValueError(f"Invalid .ez archive: no manifest.json in {ez_path}")
+    tmp_dir = Path(tempfile.mkdtemp(dir=parent))
+    try:
+        with zipfile.ZipFile(ez_path, "r") as zf:
+            # Validate manifest exists
+            if "manifest.json" not in zf.namelist():
+                raise ValueError(f"Invalid .ez archive: no manifest.json in {ez_path}")
 
-        # Read manifest
-        manifest_data = zf.read("manifest.json")
-        manifest = json.loads(manifest_data)
+            # Zip-slip validation (P1/A1): check every member stays within tmp_dir
+            tmp_dir_resolved = tmp_dir.resolve()
+            for member in zf.namelist():
+                member_path = (tmp_dir / member).resolve()
+                if not member_path.is_relative_to(tmp_dir_resolved):
+                    raise ValueError(
+                        f"Archive contains path traversal: {member!r}"
+                    )
 
-        # Check format version
-        fmt_version = manifest.get("format_version", 0)
-        if fmt_version > MANIFEST_VERSION:
-            raise ValueError(
-                f"Archive format version {fmt_version} is newer than supported "
-                f"({MANIFEST_VERSION}). Please update EchoZero."
-            )
+            # Read manifest
+            manifest_data = zf.read("manifest.json")
+            manifest = json.loads(manifest_data)
 
-        # Extract everything
-        zf.extractall(working_dir)
+            # Check format version
+            fmt_version = manifest.get("format_version", 0)
+            if fmt_version > MANIFEST_VERSION:
+                raise ValueError(
+                    f"Archive format version {fmt_version} is newer than supported "
+                    f"({MANIFEST_VERSION}). Please update EchoZero."
+                )
+
+            # Extract to temp dir
+            zf.extractall(tmp_dir)
+
+        # Atomic move from temp to final location
+        if working_dir.exists():
+            shutil.rmtree(working_dir)
+        shutil.move(str(tmp_dir), str(working_dir))
+
+    except Exception:
+        # Clean up temp dir on failure
+        if tmp_dir.exists():
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+        raise
 
     return manifest
 

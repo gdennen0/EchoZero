@@ -308,10 +308,11 @@ class TestDomainTypeBoundaries:
         assert e.duration == 0.0
 
     def test_event_negative_time(self):
-        """Negative time is structurally valid (domain doesn't restrict it)."""
-        e = Event(id="e-neg", time=-1.5, duration=0.1,
+        """Negative time is now rejected by domain validation (X1 audit fix)."""
+        import pytest
+        with pytest.raises(ValueError, match="time must be >= 0"):
+            Event(id="e-neg", time=-1.5, duration=0.1,
                   classifications={}, metadata={}, origin="test")
-        assert e.time == -1.5
 
     def test_event_very_large_time(self):
         e = Event(id="e-big", time=1e12, duration=0.0,

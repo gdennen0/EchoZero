@@ -45,6 +45,12 @@ class Event:
     metadata: dict[str, Any]
     origin: str
 
+    def __post_init__(self) -> None:
+        if self.time < 0:
+            raise ValueError(f"Event time must be >= 0, got {self.time}")
+        if self.duration < 0:
+            raise ValueError(f"Event duration must be >= 0, got {self.duration}")
+
 
 @dataclass(frozen=True)
 class Layer:

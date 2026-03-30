@@ -8,9 +8,11 @@ can be detected and recovered on next open.
 
 from __future__ import annotations
 
+import ctypes
 import hashlib
 import json
 import logging
+import os
 import sqlite3
 import threading
 import uuid
@@ -36,6 +38,55 @@ from echozero.serialization import deserialize_graph, serialize_graph
 logger = logging.getLogger(__name__)
 
 WORKING_DIR_ROOT: Path = Path.home() / ".echozero" / "working"
+
+
+def _is_pid_alive(pid: int) -> bool:
+    """Check if a process is still running. Cross-platform."""
+    if os.name == "nt":
+        # Windows: use ctypes OpenProcess with SYNCHRONIZE access
+        SYNCHRONIZE = 0x100000
+        kernel32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
+        handle = kernel32.OpenProcess(SYNCHRONIZE, False, pid)
+        if handle:
+            kernel32.CloseHandle(handle)
+            return True
+        return False
+    else:
+        try:
+            os.kill(pid, 0)
+            return True
+        except OSError:
+            return False
+
+
+def _acquire_project_lock(working_dir: Path) -> Path:
+    """Acquire a lockfile. Raises RuntimeError if project is already open."""
+    lock_path = working_dir / "project.lock"
+    if lock_path.exists():
+        try:
+            old_pid = int(lock_path.read_text().strip())
+            if _is_pid_alive(old_pid):
+                raise RuntimeError(
+                    f"Project is already open by process {old_pid}. "
+                    f"Close it first, or delete {lock_path} if the process crashed."
+                )
+            else:
+                # Process is dead — stale lock
+                logger.warning("Removing stale lock from process %d", old_pid)
+        except (ValueError, OSError):
+            # Corrupt lock file — remove it
+            pass
+    lock_path.write_text(str(os.getpid()))
+    return lock_path
+
+
+def _release_project_lock(lock_path: Path | None) -> None:
+    """Release the lockfile."""
+    if lock_path is not None and lock_path.exists():
+        try:
+            lock_path.unlink()
+        except OSError:
+            pass
 
 
 def _setup_connection(conn: sqlite3.Connection) -> None:
@@ -78,6 +129,7 @@ class ProjectSession:
         self._autosave_timer: threading.Timer | None = None
         self._autosave_interval: float = 0.0
         self._autosave_lock = threading.Lock()
+        self._lockfile_path: Path | None = None
 
     # -- Factory methods ----------------------------------------------------
 
@@ -111,6 +163,7 @@ class ProjectSession:
 
         dirty_tracker = DirtyTracker(event_bus)
         session = cls(project, working_dir, conn, dirty_tracker, event_bus)
+        session._lockfile_path = _acquire_project_lock(working_dir)
 
         # Persist the initial project row
         ProjectRepository(conn).create(project)
@@ -140,7 +193,9 @@ class ProjectSession:
         project = projects[0]
 
         dirty_tracker = DirtyTracker(event_bus)
-        return cls(project, working_dir, conn, dirty_tracker, event_bus)
+        session = cls(project, working_dir, conn, dirty_tracker, event_bus)
+        session._lockfile_path = _acquire_project_lock(working_dir)
+        return session
 
     @classmethod
     def open(
@@ -213,6 +268,8 @@ class ProjectSession:
         with self._lock:
             if self._closed:
                 return
+            _release_project_lock(self._lockfile_path)
+            self._lockfile_path = None
             self._closed = True
             self.dirty_tracker._unsubscribe()
             try:
@@ -587,4 +644,6 @@ class ProjectSession:
             str(ez_path.resolve()).encode()
         ).hexdigest()[:16]
         if working_dir.exists():
+            # Release any stale lockfile before removing
+            _release_project_lock(working_dir / "project.lock")
             shutil.rmtree(working_dir)
