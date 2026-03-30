@@ -54,8 +54,8 @@ class DirtyTracker:
             for event_type in _MUTATION_EVENTS:
                 try:
                     self._event_bus.unsubscribe(event_type, self._on_mutation)
-                except ValueError:
-                    pass  # Already removed
+                except Exception:
+                    pass  # Already removed or EventBus changed exception type
 
     def _on_mutation(self, event: DomainEvent) -> None:
         """Handler called by the EventBus for any mutation event."""

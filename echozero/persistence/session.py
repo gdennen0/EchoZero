@@ -391,10 +391,19 @@ class ProjectSession:
             The newly created and persisted SongVersion with real metadata.
         """
         from echozero.persistence.audio import import_audio, scan_audio_metadata
+        from echozero.errors import ValidationError
+
+        # Validate audio file BEFORE copying into the project
+        try:
+            scan_audio_metadata(audio_source, scan_fn=scan_fn)
+        except Exception as exc:
+            raise ValidationError(
+                f"Invalid audio file '{audio_source.name}': {exc}"
+            ) from exc
 
         audio_rel_path, audio_hash = import_audio(audio_source, self.working_dir)
 
-        # Scan real metadata from the file
+        # Scan real metadata from the copied file
         full_audio_path = self.working_dir / audio_rel_path
         metadata = scan_audio_metadata(full_audio_path, scan_fn=scan_fn)
 

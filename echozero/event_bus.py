@@ -62,7 +62,8 @@ class EventBus:
                         handler(event)
                     except Exception as exc:
                         # Never let one broken handler kill the bus
-                        logger.warning(
+                        logger.error(
                             "EventBus: handler %r raised %r for %s",
                             handler, exc, type(event).__name__,
+                            exc_info=True,
                         )

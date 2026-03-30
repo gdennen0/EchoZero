@@ -57,11 +57,12 @@ def pack_ez(working_dir: Path, dest_path: Path) -> None:
             # Audio files (STORED — already compressed)
             audio_dir = working_dir / "audio"
             if audio_dir.exists():
-                for audio_file in sorted(audio_dir.iterdir()):
+                for audio_file in sorted(audio_dir.rglob('*')):
                     if audio_file.is_file():
+                        rel_path = audio_file.relative_to(working_dir)
                         zf.write(
                             audio_file,
-                            f"audio/{audio_file.name}",
+                            str(rel_path).replace('\\', '/'),
                             compress_type=zipfile.ZIP_STORED,
                         )
 
@@ -144,11 +145,12 @@ def unpack_ez(ez_path: Path, working_dir: Path) -> dict:
 
 
 def is_valid_ez(ez_path: Path) -> bool:
-    """Check if a file is a valid .ez archive (has manifest.json)."""
+    """Check if a file is a valid .ez archive (has manifest.json and project.db)."""
     try:
         if not ez_path.exists():
             return False
         with zipfile.ZipFile(ez_path, "r") as zf:
-            return "manifest.json" in zf.namelist()
+            names = zf.namelist()
+            return "manifest.json" in names and "project.db" in names
     except (zipfile.BadZipFile, OSError):
         return False

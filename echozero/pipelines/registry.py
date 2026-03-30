@@ -23,17 +23,10 @@ class PipelineTemplate:
     knobs: dict[str, Knob] = field(default_factory=dict)
     builder: Callable[..., Any] = None  # Returns Pipeline (from pipelines.pipeline)
 
-    def build(self, bindings: dict[str, Any] | None = None) -> Graph:
-        """Build the pipeline, passing knob values to the builder function.
-
-        Returns the Graph from the built Pipeline for backward compatibility.
-        """
-        from echozero.pipelines.pipeline import Pipeline as EnginePipeline
-
+    def _build_kwargs(self, bindings: dict[str, Any] | None = None) -> dict[str, Any]:
+        """Build kwargs from knob defaults + bindings for the builder function."""
         sig = inspect.signature(self.builder)
         params = sig.parameters
-
-        # Build kwargs from knob defaults + bindings
         kwargs: dict[str, Any] = {}
         for pname, param in params.items():
             if pname in self.knobs:
@@ -43,7 +36,16 @@ class PipelineTemplate:
                     kwargs[pname] = self.knobs[pname].default
             elif param.default is not inspect.Parameter.empty:
                 kwargs[pname] = param.default
+        return kwargs
 
+    def build(self, bindings: dict[str, Any] | None = None) -> Graph:
+        """Build the pipeline, passing knob values to the builder function.
+
+        Returns the Graph from the built Pipeline for backward compatibility.
+        """
+        from echozero.pipelines.pipeline import Pipeline as EnginePipeline
+
+        kwargs = self._build_kwargs(bindings)
         result = self.builder(**kwargs)
 
         # Support both Pipeline objects and raw Graph returns
@@ -64,27 +66,14 @@ class PipelineTemplate:
         """
         from echozero.pipelines.pipeline import Pipeline as EnginePipeline
 
-        sig = inspect.signature(self.builder)
-        params = sig.parameters
-
-        kwargs: dict[str, Any] = {}
-        for pname, param in params.items():
-            if pname in self.knobs:
-                if bindings and pname in bindings:
-                    kwargs[pname] = bindings[pname]
-                else:
-                    kwargs[pname] = self.knobs[pname].default
-            elif param.default is not inspect.Parameter.empty:
-                kwargs[pname] = param.default
-
+        kwargs = self._build_kwargs(bindings)
         result = self.builder(**kwargs)
 
         if isinstance(result, EnginePipeline):
             return result
         elif isinstance(result, Graph):
-            # Wrap legacy Graph in a Pipeline
-            p = EnginePipeline(id=self.id, name=self.name)
-            p._graph = result
+            # Wrap legacy Graph in a Pipeline using public constructor
+            p = EnginePipeline(id=self.id, name=self.name, graph=result)
             return p
         else:
             raise TypeError(
@@ -126,6 +115,10 @@ class PipelineRegistry:
     def ids(self) -> list[str]:
         """Return all registered template IDs."""
         return list(self._templates.keys())
+
+    def clear(self) -> None:
+        """Remove all templates — for test isolation."""
+        self._templates.clear()
 
 
 # Global registry instance

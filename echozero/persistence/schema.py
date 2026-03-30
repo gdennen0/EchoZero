@@ -139,6 +139,11 @@ def _migrate_v1_to_v2(conn: sqlite3.Connection) -> None:
     V1 had a flat bindings blob. V2 stores the full graph + outputs + knob values.
     Existing configs are migrated with empty graph/outputs (user must re-configure).
     """
+    # Check if old table exists (may not if DB was created at V2+)
+    old_table = conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='song_pipeline_configs'"
+    ).fetchone()
+
     # Create new table
     conn.executescript("""\
         CREATE TABLE IF NOT EXISTS pipeline_configs (
@@ -156,6 +161,9 @@ def _migrate_v1_to_v2(conn: sqlite3.Connection) -> None:
         CREATE INDEX IF NOT EXISTS idx_configs_version ON pipeline_configs(song_version_id);
         CREATE INDEX IF NOT EXISTS idx_configs_template ON pipeline_configs(template_id);
     """)
+
+    if old_table is None:
+        return  # DB was created at V2+ — nothing to migrate
 
     # Migrate existing data (best-effort — graph must be rebuilt from template)
     rows = conn.execute(
