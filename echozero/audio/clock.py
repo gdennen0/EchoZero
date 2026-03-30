@@ -74,7 +74,7 @@ class Clock:
 
     __slots__ = (
         "_position", "_sample_rate", "_subscribers",
-        "_loop_snapshot", "_lock",
+        "_loop_snapshot", "_lock", "_last_wrap_offset",
     )
 
     def __init__(self, sample_rate: int = 44100) -> None:
@@ -83,6 +83,7 @@ class Clock:
         self._subscribers: list[ClockSubscriber] = []
         self._loop_snapshot: _LoopSnapshot = _LoopSnapshot(enabled=False, region=None)
         self._lock = threading.Lock()  # main thread only, never held during advance()
+        self._last_wrap_offset: int = -1  # -1 = no wrap
 
     @property
     def position(self) -> int:
@@ -114,18 +115,22 @@ class Clock:
         """Advance the clock by `frames` samples. Called from audio callback.
 
         Returns the position BEFORE the advance (the position for this buffer).
-        Handles loop wrapping if active.
+        Handles loop wrapping if active. After calling, check `last_wrap_offset`
+        to see if a loop wrap occurred within this buffer.
 
         LOCK-FREE: reads _position (atomic int) and _loop_snapshot (atomic ref).
         No lock, no allocation, no I/O.
         """
         read_pos = self._position
         new_pos = read_pos + frames
+        self._last_wrap_offset = -1  # no wrap by default
 
         # Loop wrapping — reads immutable snapshot atomically
         snap = self._loop_snapshot
         if snap.enabled and snap.region is not None:
             if new_pos >= snap.region.end:
+                # How many frames into this buffer did the wrap happen?
+                self._last_wrap_offset = snap.region.end - read_pos
                 overshoot = new_pos - snap.region.end
                 loop_len = snap.region.end - snap.region.start
                 new_pos = snap.region.start + (overshoot % loop_len)
@@ -138,6 +143,18 @@ class Clock:
             sub.on_clock_tick(read_pos, self._sample_rate)
 
         return read_pos
+
+    @property
+    def last_wrap_offset(self) -> int:
+        """Frames into the last advance() call where a loop wrap occurred.
+
+        -1 means no wrap happened. Otherwise, the value is the sample offset
+        within the buffer where the wrap occurs. The engine uses this to
+        split-read and crossfade at the boundary.
+
+        Only valid immediately after advance(). Read once, use once.
+        """
+        return self._last_wrap_offset
 
     def set_loop(self, start: int, end: int) -> None:
         """Set the loop region. Validates immediately."""

@@ -18,6 +18,7 @@ import numpy as np
 import pytest
 
 from echozero.audio.clock import Clock, LoopRegion
+from echozero.audio.crossfade import CrossfadeBuffer, build_equal_power_curves
 from echozero.audio.transport import Transport, TransportState
 from echozero.audio.layer import AudioLayer, resample_buffer
 from echozero.audio.mixer import Mixer
@@ -856,3 +857,109 @@ class TestAudioEngine:
         engine._audio_callback(outdata, 256, None, None)
 
         assert np.max(outdata) <= 1.0
+
+
+# ===========================================================================
+# Crossfade tests
+# ===========================================================================
+
+
+class TestCrossfade:
+    def test_equal_power_curves_sum_to_one(self) -> None:
+        """Equal-power: fade_out² + fade_in² ≈ 1.0 at every point."""
+        fade_out, fade_in = build_equal_power_curves(256)
+        power_sum = fade_out ** 2 + fade_in ** 2
+        np.testing.assert_array_almost_equal(power_sum, np.ones(256, dtype=np.float32), decimal=5)
+
+    def test_fade_out_starts_at_one(self) -> None:
+        fade_out, _ = build_equal_power_curves(256)
+        assert abs(fade_out[0] - 1.0) < 1e-5
+
+    def test_fade_in_ends_at_one(self) -> None:
+        _, fade_in = build_equal_power_curves(256)
+        assert abs(fade_in[-1] - 1.0) < 1e-5
+
+    def test_crossfade_buffer_apply(self) -> None:
+        """Applying crossfade blends tail and head smoothly."""
+        xfade = CrossfadeBuffer(crossfade_samples=64)
+        output = np.zeros(256, dtype=np.float32)
+        tail = np.ones(64, dtype=np.float32)    # outgoing: constant 1.0
+        head = np.zeros(64, dtype=np.float32)    # incoming: constant 0.0
+
+        xfade.apply(output, tail, head, xfade_start=96, xfade_len=64)
+
+        # At start of crossfade: should be close to tail (1.0)
+        assert output[96] > 0.9
+        # At end of crossfade: should be close to head (0.0)
+        assert output[96 + 63] < 0.1
+        # Middle: should be between 0 and 1
+        mid = output[96 + 32]
+        assert 0.3 < mid < 0.7
+
+    def test_crossfade_same_signal_is_unchanged(self) -> None:
+        """Crossfading a signal with itself should preserve it."""
+        xfade = CrossfadeBuffer(crossfade_samples=64)
+        signal = np.full(64, 0.5, dtype=np.float32)
+        output = np.zeros(128, dtype=np.float32)
+
+        xfade.apply(output, signal, signal, xfade_start=32, xfade_len=64)
+
+        # Equal-power crossfade of identical signals:
+        # out = signal * cos(t) + signal * sin(t) = signal * (cos(t) + sin(t))
+        # This is NOT exactly 0.5 everywhere (cos + sin peaks at √2 at midpoint)
+        # But it should be close — never below 0.5 and peaks at ~0.707
+        region = output[32:96]
+        assert np.min(region) >= 0.49
+        assert np.max(region) <= 0.75
+
+    def test_clock_reports_wrap_offset(self) -> None:
+        """Clock.last_wrap_offset tells engine where the wrap happened."""
+        clock = Clock(44100)
+        clock.set_loop(0, 1000)
+        clock.loop_enabled = True
+        clock.seek(800)
+
+        clock.advance(400)  # wraps at sample 1000, offset = 200 into the buffer
+
+        assert clock.last_wrap_offset == 200
+
+    def test_clock_no_wrap_offset_negative_one(self) -> None:
+        clock = Clock(44100)
+        clock.set_loop(0, 1000)
+        clock.loop_enabled = True
+        clock.seek(0)
+
+        clock.advance(256)  # no wrap
+
+        assert clock.last_wrap_offset == -1
+
+    def test_engine_loop_crossfade_no_click(self) -> None:
+        """Engine callback produces smooth output at loop boundary (no hard discontinuity)."""
+        engine = AudioEngine(sample_rate=44100, buffer_size=512, stream_factory=fake_stream_factory)
+
+        # Create a ramp signal: 0 → 1 over 2000 samples.
+        # At the loop boundary (sample 1000), the signal value is 0.5.
+        # After wrap to sample 0, the signal value is 0.0.
+        # Without crossfade: instant jump from 0.5 to 0.0 = click.
+        # With crossfade: smooth blend.
+        ramp = np.linspace(0.0, 1.0, 2000, dtype=np.float32)
+        engine.add_layer("ramp", ramp, 44100)
+        engine.clock.set_loop(0, 1000)
+        engine.clock.loop_enabled = True
+        engine.play()
+
+        # Seek to just before the wrap point
+        engine.seek(800)
+        outdata = np.zeros((512, 1), dtype=np.float32)
+        engine._audio_callback(outdata, 512, None, None)
+
+        # The wrap happens at offset 200 (800 + 200 = 1000).
+        # Check that there's no hard discontinuity > 0.1 between adjacent samples
+        # in the region around the wrap point.
+        signal = outdata[:, 0]
+        diffs = np.abs(np.diff(signal[180:220]))
+        max_jump = np.max(diffs)
+
+        # Without crossfade this would be ~0.5 (ramp value at 1000 is 0.5, at 0 is 0.0)
+        # With crossfade it should be much smaller
+        assert max_jump < 0.1, f"Max jump at loop boundary: {max_jump:.4f} (should be < 0.1)"

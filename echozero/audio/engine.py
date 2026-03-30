@@ -27,6 +27,7 @@ from typing import Any, Callable
 import numpy as np
 
 from echozero.audio.clock import Clock, ClockSubscriber
+from echozero.audio.crossfade import CrossfadeBuffer, DEFAULT_CROSSFADE_SAMPLES
 from echozero.audio.layer import AudioLayer
 from echozero.audio.mixer import Mixer
 from echozero.audio.transport import Transport, TransportState
@@ -60,7 +61,7 @@ class AudioEngine:
     """
 
     __slots__ = (
-        "_clock", "_transport", "_mixer",
+        "_clock", "_transport", "_mixer", "_crossfade",
         "_stream", "_buffer_size", "_channels",
         "_stream_factory", "_active", "_end_of_content",
     )
@@ -75,6 +76,9 @@ class AudioEngine:
         self._clock = Clock(sample_rate=sample_rate)
         self._transport = Transport(self._clock)
         self._mixer = Mixer()
+        self._crossfade = CrossfadeBuffer(
+            crossfade_samples=int(sample_rate * 0.004)  # 4ms
+        )
         self._buffer_size = buffer_size
         self._channels = channels
         self._stream: Any = None
@@ -221,6 +225,10 @@ class AudioEngine:
         """Called by sounddevice on the real-time audio thread.
 
         Lock-free. No allocations. No I/O. No exceptions.
+
+        Loop crossfade: when the clock wraps at a loop boundary, we do a split
+        read — tail audio from before the wrap, head audio from after — and
+        blend them with an equal-power crossfade to eliminate the click.
         """
         if not self._transport.is_playing:
             outdata[:] = 0
@@ -238,8 +246,40 @@ class AudioEngine:
                 self._end_of_content = True
                 return
 
-        # Mix all active layers (pre-allocated, clipped)
-        mixed = self._mixer.read_mix(position, frames)
+        # Check if a loop wrap happened within this buffer
+        wrap_offset = self._clock.last_wrap_offset
+        loop_region = self._clock.loop_region
+
+        if wrap_offset > 0 and loop_region is not None:
+            # SPLIT READ: the buffer spans a loop boundary.
+            # Part 1: pre-wrap audio (position → position + wrap_offset)
+            pre_mix = self._mixer.read_mix(position, wrap_offset)
+            pre_audio = pre_mix.copy()  # copy — read_mix reuses its scratch
+
+            # Part 2: post-wrap audio (loop_start → loop_start + remaining)
+            remaining = frames - wrap_offset
+            post_mix = self._mixer.read_mix(loop_region.start, remaining)
+            post_audio = post_mix.copy()
+
+            # Assemble into output buffer (reuse mixer scratch for final output)
+            mixed = self._mixer.read_mix(position, frames)  # just to get the scratch view
+            mixed[:wrap_offset] = pre_audio
+            mixed[wrap_offset:] = post_audio[:remaining]
+
+            # CROSSFADE at the splice point to eliminate click.
+            # Blend the last N samples of pre with the first N of post.
+            xfade = self._crossfade
+            xfade_len = min(xfade.length, wrap_offset, remaining)
+            if xfade_len > 0:
+                # tail = last xfade_len samples of pre-wrap region
+                tail = pre_audio[wrap_offset - xfade_len:wrap_offset]
+                # head = first xfade_len samples of post-wrap region
+                head = post_audio[:xfade_len]
+                # Apply: overwrites mixed[wrap_offset - xfade_len : wrap_offset]
+                xfade.apply(mixed, tail, head, wrap_offset - xfade_len, xfade_len)
+        else:
+            # Normal path: no loop wrap, straight read
+            mixed = self._mixer.read_mix(position, frames)
 
         # Write to output
         if self._channels == 1:

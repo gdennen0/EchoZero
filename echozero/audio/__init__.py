@@ -8,6 +8,7 @@ auto-stop, sample rate conversion, thread-safe subscriber management.
 """
 
 from echozero.audio.clock import Clock, ClockSubscriber, LoopRegion
+from echozero.audio.crossfade import CrossfadeBuffer, build_equal_power_curves
 from echozero.audio.transport import Transport, TransportState
 from echozero.audio.layer import AudioLayer, resample_buffer
 from echozero.audio.mixer import Mixer
