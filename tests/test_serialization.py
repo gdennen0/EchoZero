@@ -199,16 +199,28 @@ class TestGraphSerialization:
         assert port_data["port_type"] == "AUDIO"
         assert port_data["direction"] == "OUTPUT"
 
-    def test_all_blocks_loaded_as_stale(self) -> None:
+    def test_state_is_round_tripped(self) -> None:
+        """S1 audit fix: state is now serialized and restored, not forced STALE."""
         graph = Graph()
         graph.add_block(_make_block("a"))
         graph.add_block(_make_block("b"))
+        # Default block state is FRESH; after serialization it should stay FRESH
+        data = serialize_graph(graph)
+        restored = deserialize_graph(data)
+
+        assert restored.blocks["a"].state == BlockState.FRESH
+        assert restored.blocks["b"].state == BlockState.FRESH
+
+    def test_stale_state_is_preserved(self) -> None:
+        """STALE blocks should stay STALE after round-trip."""
+        graph = Graph()
+        graph.add_block(_make_block("a"))
+        graph.set_block_state("a", BlockState.STALE)
 
         data = serialize_graph(graph)
         restored = deserialize_graph(data)
 
         assert restored.blocks["a"].state == BlockState.STALE
-        assert restored.blocks["b"].state == BlockState.STALE
 
     def test_empty_graph_round_trip(self) -> None:
         graph = Graph()
@@ -452,7 +464,8 @@ class TestProjectSaveLoad:
 
         assert set(restored_graph.blocks.keys()) == {"a", "b"}
         assert len(restored_graph.connections) == 1
-        assert restored_graph.blocks["a"].state == BlockState.STALE
+        # S1 audit fix: state is now round-tripped. Default state is FRESH.
+        assert restored_graph.blocks["a"].state == BlockState.FRESH
 
         assert len(restored_layers) == 1
         assert restored_layers[0].layer_id == "onsets"
@@ -473,7 +486,8 @@ class TestProjectSaveLoad:
         assert "graph" in data
         assert "take_layers" in data
 
-    def test_all_blocks_stale_after_load(self, tmp_path: Any) -> None:
+    def test_all_blocks_fresh_after_load(self, tmp_path: Any) -> None:
+        """S1 audit fix: state is now round-tripped. Blocks default to FRESH."""
         graph = Graph()
         graph.add_block(_make_block("x"))
         graph.add_block(_make_block("y"))
@@ -484,7 +498,7 @@ class TestProjectSaveLoad:
         restored_graph, _ = load_project(path)
 
         for block in restored_graph.blocks.values():
-            assert block.state == BlockState.STALE
+            assert block.state == BlockState.FRESH
 
     def test_load_project_without_takes(self, tmp_path: Any) -> None:
         """Backward compat: project file without take_layers key."""

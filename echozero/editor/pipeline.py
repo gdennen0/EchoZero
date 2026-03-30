@@ -203,9 +203,8 @@ def _handle_change_settings(command: ChangeBlockSettingsCommand, context: Comman
     old_value = block.settings.get(command.setting_key)
     new_entries = dict(block.settings)
     new_entries[command.setting_key] = command.new_value
-    context.graph.blocks[command.block_id] = replace(
-        block, settings=BlockSettings(new_entries)
-    )
+    updated_block = replace(block, settings=BlockSettings(new_entries))
+    context.graph.replace_block(updated_block)
     context.collect(
         SettingsChangedEvent(
             event_id=create_event_id(),

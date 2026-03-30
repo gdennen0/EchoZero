@@ -147,20 +147,29 @@ class TakeLayer:
 
     def promote_to_main(self, take_id: str) -> None:
         """Promote a take to main. Demotes current main."""
-        found = False
+        # Check if take exists and is not archived (T1)
+        target_take = None
+        for t in self.takes:
+            if t.id == take_id:
+                target_take = t
+                break
+        if target_take is None:
+            raise TakeLayerError(
+                f"Take '{take_id}' not found in layer '{self.layer_id}'"
+            )
+        if target_take.is_archived:
+            raise TakeLayerError(
+                f"Cannot promote archived take '{take_id}'. Unarchive it first."
+            )
+
         new_takes: list[Take] = []
         for t in self.takes:
             if t.id == take_id:
                 new_takes.append(replace(t, is_main=True))
-                found = True
             elif t.is_main:
                 new_takes.append(replace(t, is_main=False))
             else:
                 new_takes.append(t)
-        if not found:
-            raise TakeLayerError(
-                f"Take '{take_id}' not found in layer '{self.layer_id}'"
-            )
         self.takes = new_takes
 
     def replace_take(self, take_id: str, new_take: Take) -> None:

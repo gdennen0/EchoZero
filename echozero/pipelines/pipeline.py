@@ -88,12 +88,19 @@ class Pipeline:
         p.output("onsets", onsets.events_out)
     """
 
-    def __init__(self, id: str, name: str = "", description: str = "") -> None:
+    def __init__(
+        self,
+        id: str,
+        name: str = "",
+        description: str = "",
+        graph: "Graph | None" = None,
+        outputs: "list[PipelineOutput] | None" = None,
+    ) -> None:
         self.id = id
         self.name = name or id
         self.description = description
-        self._graph = Graph()
-        self._outputs: list[PipelineOutput] = []
+        self._graph = graph or Graph()
+        self._outputs: list[PipelineOutput] = list(outputs or [])
         self._block_counter: dict[str, int] = {}
 
     @property

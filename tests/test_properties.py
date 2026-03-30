@@ -339,11 +339,12 @@ class TestGraphRoundTrip:
         g = Graph()
         root = _make_root_block("r")
         g.add_block(root)
-        # Mark as FRESH
+        # Mark as FRESH (S1 audit fix: state is now round-tripped, not forced STALE)
         g.set_block_state("r", BlockState.FRESH)
         s1 = serialize_graph(g)
         g2 = deserialize_graph(s1)
-        assert g2.blocks["r"].state == BlockState.STALE
+        # Deserialized state should match the serialized state (FRESH), not always STALE
+        assert g2.blocks["r"].state == BlockState.FRESH
 
 
 # ===========================================================================

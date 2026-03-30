@@ -196,11 +196,16 @@ class Orchestrator:
         #    (audio_file is always the song version's path, not a knob)
         from echozero.domain.types import BlockSettings
         from dataclasses import replace as _replace
-        for block_id, block in pipeline.graph.blocks.items():
-            if block.block_type == "LoadAudio":
-                new_settings = {**dict(block.settings), "file_path": song_version.audio_file}
-                updated = _replace(block, settings=BlockSettings(new_settings))
-                pipeline.graph.replace_block(updated)
+        # Collect IDs first, then mutate — avoids dict-mutation-during-iteration (O1)
+        load_audio_ids = [
+            bid for bid, b in pipeline.graph.blocks.items()
+            if b.block_type == "LoadAudio"
+        ]
+        for block_id in load_audio_ids:
+            block = pipeline.graph.blocks[block_id]
+            new_settings = {**dict(block.settings), "file_path": song_version.audio_file}
+            updated = _replace(block, settings=BlockSettings(new_settings))
+            pipeline.graph.replace_block(updated)
 
         if on_progress:
             on_progress("Executing pipeline", 0.2)

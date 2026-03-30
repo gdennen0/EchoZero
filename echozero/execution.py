@@ -203,7 +203,9 @@ class ExecutionEngine:
                         error=f"Executor raised: {exc}",
                     )
                 )
-                return err(RuntimeError(f"Executor raised: {exc}"))
+                chained = ExecutionError(f"Executor for '{block.block_type}' raised: {exc}")
+                chained.__cause__ = exc
+                return err(chained)
 
             if is_err(result):
                 # Signal failure

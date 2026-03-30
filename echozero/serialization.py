@@ -50,20 +50,33 @@ def serialize_pipeline(pipeline: Pipeline) -> dict[str, Any]:
 
 
 def deserialize_pipeline(data: dict[str, Any]) -> Pipeline:
-    """Reconstruct a Pipeline from a serialized dict."""
+    """Reconstruct a Pipeline from a serialized dict.
+
+    Uses Pipeline's public constructor (graph + outputs params) instead of
+    reaching into private attributes — avoids bypassing validation (S2).
+    Duplicate output names are caught explicitly here.
+    """
+    from echozero.errors import ValidationError
+
     graph = deserialize_graph(data["graph"])
-    pipeline = Pipeline(
+
+    outputs: list[PipelineOutput] = []
+    seen_names: set[str] = set()
+    for out_data in data.get("outputs", []):
+        name = out_data["name"]
+        if name in seen_names:
+            raise ValidationError(f"Duplicate pipeline output name: {name!r}")
+        seen_names.add(name)
+        port_ref = PortRef(out_data["block_id"], out_data["port_name"])
+        outputs.append(PipelineOutput(name, port_ref))
+
+    return Pipeline(
         id=data["id"],
         name=data.get("name", data["id"]),
         description=data.get("description", ""),
+        graph=graph,
+        outputs=outputs,
     )
-    pipeline._graph = graph
-
-    for out_data in data.get("outputs", []):
-        port_ref = PortRef(out_data["block_id"], out_data["port_name"])
-        pipeline._outputs.append(PipelineOutput(out_data["name"], port_ref))
-
-    return pipeline
 
 
 # ---------------------------------------------------------------------------
@@ -143,7 +156,7 @@ def deserialize_graph(data: dict[str, Any]) -> Graph:
                 for p in block_data.get("control_ports", [])
             ),
             settings=BlockSettings(block_data.get("settings", {})),
-            state=BlockState.STALE,
+            state=BlockState[block_data.get("state", "FRESH")],
         )
         graph.add_block(block)
 
