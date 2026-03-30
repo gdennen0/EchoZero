@@ -33,7 +33,7 @@ class Mixer:
     read_mix_into() is called from the audio callback — never allocates, never locks.
     """
 
-    __slots__ = ("_layers", "_master_volume", "_scratch", "_layer_scratch")
+    __slots__ = ("_layers", "_master_volume", "_scratch", "_layer_scratch", "_solo_count")
 
     def __init__(self) -> None:
         self._layers: list[AudioLayer] = []
@@ -43,6 +43,8 @@ class Mixer:
         # the per-layer temp; if frames > 4096 those regions overlap.
         self._scratch: np.ndarray = np.zeros(_MAX_SCRATCH_FRAMES, dtype=np.float32)
         self._layer_scratch: np.ndarray = np.zeros(_MAX_SCRATCH_FRAMES, dtype=np.float32)
+        # A15: track solo count so read_mix doesn't need any(l.solo for l in layers)
+        self._solo_count: int = 0
 
     @property
     def layers(self) -> tuple[AudioLayer, ...]:
@@ -67,6 +69,9 @@ class Mixer:
         """Remove a layer by ID. Returns the removed layer or None."""
         new_layers = [l for l in self._layers if l.id != layer_id]
         removed = [l for l in self._layers if l.id == layer_id]
+        # A15: update solo count if removing a soloed layer
+        if removed and removed[0].solo:
+            self._solo_count = max(0, self._solo_count - 1)
         self._layers = new_layers
         return removed[0] if removed else None
 
@@ -80,6 +85,7 @@ class Mixer:
     def clear(self) -> None:
         """Remove all layers."""
         self._layers = []
+        self._solo_count = 0
 
     def solo_exclusive(self, layer_id: str) -> None:
         """Solo one layer, unsolo all others. Standard DAW behavior for click-solo."""
