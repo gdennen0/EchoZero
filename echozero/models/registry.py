@@ -20,6 +20,8 @@ from __future__ import annotations
 
 import json
 import logging
+import os
+import threading
 from dataclasses import asdict, dataclass, field
 from enum import Enum, auto
 from pathlib import Path
@@ -55,6 +57,7 @@ class ModelStatus(Enum):
     AVAILABLE = "available"   # file exists, ready to use
     MISSING = "missing"       # registered but file not found
     DOWNLOADING = "downloading"  # cloud download in progress (future)
+    CORRUPT = "corrupt"       # file exists but integrity check failed
 
 
 # ---------------------------------------------------------------------------
@@ -105,7 +108,7 @@ class ModelRegistry:
     """Catalog of available ML models with resolution.
 
     Backed by a JSON manifest file in the models directory.
-    Thread-safe for reads. Writes should happen from one thread (app init, user action).
+    Thread-safe: writes protected by RLock.
 
     Usage:
         registry = ModelRegistry(models_dir)
@@ -127,6 +130,8 @@ class ModelRegistry:
         self._models_dir = models_dir
         self._cards: dict[str, ModelCard] = {}  # id → card
         self._defaults: dict[ModelType, str] = {}  # type → default model id
+        self._lock = threading.RLock()
+        self._in_use: set[str] = set()
 
     @property
     def models_dir(self) -> Path:
@@ -134,71 +139,96 @@ class ModelRegistry:
 
     def load(self) -> None:
         """Load the manifest from disk. Creates directory + empty manifest if missing."""
-        self._models_dir.mkdir(parents=True, exist_ok=True)
-        manifest_path = self._models_dir / MANIFEST_FILENAME
+        with self._lock:
+            self._models_dir.mkdir(parents=True, exist_ok=True)
+            manifest_path = self._models_dir / MANIFEST_FILENAME
 
-        if not manifest_path.exists():
-            self._cards = {}
-            self._defaults = {}
-            self.save()
-            return
+            if not manifest_path.exists():
+                self._cards = {}
+                self._defaults = {}
+                self.save()
+                return
 
-        data = json.loads(manifest_path.read_text(encoding="utf-8"))
-        self._cards = {
-            card_id: ModelCard.from_dict(card_data)
-            for card_id, card_data in data.get("models", {}).items()
-        }
-        self._defaults = {
-            ModelType(k): v
-            for k, v in data.get("defaults", {}).items()
-        }
-        logger.info("Loaded %d models from registry", len(self._cards))
+            try:
+                data = json.loads(manifest_path.read_text(encoding="utf-8"))
+            except Exception as e:
+                logger.warning(
+                    "Corrupt manifest at %s, falling back to empty registry: %s",
+                    manifest_path, e,
+                )
+                self._cards = {}
+                self._defaults = {}
+                return
+
+            cards: dict[str, ModelCard] = {}
+            for card_id, card_data in data.get("models", {}).items():
+                try:
+                    cards[card_id] = ModelCard.from_dict(card_data)
+                except Exception as e:
+                    logger.warning("Skipping bad model entry %r: %s", card_id, e)
+            self._cards = cards
+
+            defaults: dict[ModelType, str] = {}
+            for k, v in data.get("defaults", {}).items():
+                try:
+                    defaults[ModelType(k)] = v
+                except (ValueError, KeyError) as e:
+                    logger.warning("Skipping unknown default type %r: %s", k, e)
+            self._defaults = defaults
+
+            logger.info("Loaded %d models from registry", len(self._cards))
 
     def save(self) -> None:
-        """Persist the manifest to disk."""
-        self._models_dir.mkdir(parents=True, exist_ok=True)
-        manifest_path = self._models_dir / MANIFEST_FILENAME
-        data = {
-            "version": 1,
-            "models": {card_id: card.to_dict() for card_id, card in self._cards.items()},
-            "defaults": {k.value: v for k, v in self._defaults.items()},
-        }
-        manifest_path.write_text(json.dumps(data, indent=2), encoding="utf-8")
+        """Persist the manifest to disk (atomic write)."""
+        with self._lock:
+            self._models_dir.mkdir(parents=True, exist_ok=True)
+            manifest_path = self._models_dir / MANIFEST_FILENAME
+            data = {
+                "version": 1,
+                "models": {card_id: card.to_dict() for card_id, card in self._cards.items()},
+                "defaults": {k.value: v for k, v in self._defaults.items()},
+            }
+            tmp = manifest_path.with_suffix(".tmp")
+            tmp.write_text(json.dumps(data, indent=2), encoding="utf-8")
+            os.replace(str(tmp), str(manifest_path))
 
     # -- Registration -------------------------------------------------------
 
     def register(self, card: ModelCard) -> None:
         """Register a model. Overwrites if same ID exists."""
-        self._cards[card.id] = card
-        # Auto-set default if first of this type
-        if card.model_type not in self._defaults:
-            self._defaults[card.model_type] = card.id
+        with self._lock:
+            self._cards[card.id] = card
+            # Auto-set default if first of this type
+            if card.model_type not in self._defaults:
+                self._defaults[card.model_type] = card.id
 
     def unregister(self, model_id: str) -> ModelCard | None:
         """Remove a model from the registry. Returns the card or None."""
-        card = self._cards.pop(model_id, None)
-        if card is not None:
-            # Clear default if it pointed to this model
-            if self._defaults.get(card.model_type) == model_id:
-                # Find next available of same type, or clear
-                others = [c for c in self._cards.values() if c.model_type == card.model_type]
-                if others:
-                    self._defaults[card.model_type] = others[0].id
-                else:
-                    del self._defaults[card.model_type]
-        return card
+        with self._lock:
+            card = self._cards.pop(model_id, None)
+            if card is not None:
+                # Clear default if it pointed to this model
+                if self._defaults.get(card.model_type) == model_id:
+                    # Find next available of same type, or clear
+                    others = [c for c in self._cards.values() if c.model_type == card.model_type]
+                    if others:
+                        self._defaults[card.model_type] = others[0].id
+                    else:
+                        del self._defaults[card.model_type]
+            return card
 
     def set_default(self, model_type: ModelType, model_id: str) -> None:
         """Set the default model for a type. The model must already be registered."""
-        if model_id not in self._cards:
-            raise KeyError(f"Model '{model_id}' not registered")
-        card = self._cards[model_id]
-        if card.model_type != model_type:
-            raise ValueError(
-                f"Model '{model_id}' is type {card.model_type.value}, "
-                f"not {model_type.value}"
-            )
-        self._defaults[model_type] = model_id
+        with self._lock:
+            if model_id not in self._cards:
+                raise KeyError(f"Model '{model_id}' not registered")
+            card = self._cards[model_id]
+            if card.model_type != model_type:
+                raise ValueError(
+                    f"Model '{model_id}' is type {card.model_type.value}, "
+                    f"not {model_type.value}"
+                )
+            self._defaults[model_type] = model_id
 
     # -- Resolution ---------------------------------------------------------
 
@@ -245,15 +275,58 @@ class ModelRegistry:
     # -- Path resolution ----------------------------------------------------
 
     def model_path(self, card: ModelCard) -> Path:
-        """Resolve a ModelCard to its absolute file path."""
-        return self._models_dir / card.relative_path
+        """Resolve a ModelCard to its absolute file path.
+
+        Raises ValueError if the path escapes the models directory (path traversal).
+        Recreates models_dir if it has been removed at runtime.
+        """
+        self._models_dir.mkdir(parents=True, exist_ok=True)
+        path = (self._models_dir / card.relative_path).resolve()
+        base = self._models_dir.resolve()
+        try:
+            path.is_relative_to(base)  # probe — raises AttributeError on < 3.9
+            if not path.is_relative_to(base):
+                raise ValueError(
+                    f"Model path escapes models directory: {card.relative_path!r}"
+                )
+        except AttributeError:
+            # Python < 3.9 fallback
+            base_str = str(base)
+            if not (str(path) == base_str or str(path).startswith(base_str + os.sep)):
+                raise ValueError(
+                    f"Model path escapes models directory: {card.relative_path!r}"
+                )
+        return path
 
     def check_status(self, card: ModelCard) -> ModelStatus:
-        """Check whether the model file actually exists on disk."""
+        """Check whether the model file actually exists on disk and is not corrupt."""
+        self._models_dir.mkdir(parents=True, exist_ok=True)
         path = self.model_path(card)
-        if path.exists():
-            return ModelStatus.AVAILABLE
-        return ModelStatus.MISSING
+        if not path.exists():
+            return ModelStatus.MISSING
+        if path.is_file() and path.stat().st_size == 0:
+            return ModelStatus.CORRUPT
+        expected_hash = card.metadata.get("sha256")
+        if expected_hash and path.is_file():
+            import hashlib
+            actual = hashlib.sha256(path.read_bytes()).hexdigest()
+            if actual != expected_hash:
+                return ModelStatus.CORRUPT
+        return ModelStatus.AVAILABLE
+
+    # -- Reference counting -------------------------------------------------
+
+    def acquire(self, model_id: str) -> None:
+        """Mark model as in-use. Prevents uninstall."""
+        self._in_use.add(model_id)
+
+    def release(self, model_id: str) -> None:
+        """Release model from in-use."""
+        self._in_use.discard(model_id)
+
+    def is_in_use(self, model_id: str) -> bool:
+        """Return True if the model is currently acquired."""
+        return model_id in self._in_use
 
     # -- Introspection ------------------------------------------------------
 

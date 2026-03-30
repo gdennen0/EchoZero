@@ -30,8 +30,10 @@ Design decisions:
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
+import re
 import shutil
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -109,6 +111,52 @@ class RemoteSource(Protocol):
 
 
 # ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+
+_SAFE_ID_RE = re.compile(r'^[a-zA-Z0-9][a-zA-Z0-9_\-.]*$')
+
+
+def _validate_model_id(model_id: str) -> str:
+    """Sanitize model_id for safe filesystem use.
+
+    Raises ValueError if the result is unsafe.
+    """
+    safe_id = model_id.replace("/", "_")
+    if not _SAFE_ID_RE.match(safe_id):
+        raise ValueError(f"Invalid model ID after sanitization: {model_id!r}")
+    if ".." in safe_id:
+        raise ValueError(f"Model ID contains path traversal: {model_id!r}")
+    return safe_id
+
+
+def _parse_version(v: str) -> tuple[int, ...]:
+    """Parse version string to comparable tuple. Handles 'X.Y.Z' format."""
+    try:
+        return tuple(int(x) for x in v.split("."))
+    except (ValueError, AttributeError):
+        return (0,)
+
+
+def _sha256_file(path: Path) -> str:
+    """Compute SHA-256 hex digest of a file."""
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(65536), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def _extract_version_from_tags(tags: list[str]) -> str | None:
+    """Extract a version string from HuggingFace model tags."""
+    for tag in tags:
+        if tag.startswith("v") and "." in tag:
+            return tag.lstrip("v")
+    return None
+
+
+# ---------------------------------------------------------------------------
 # HuggingFace implementation
 # ---------------------------------------------------------------------------
 
@@ -118,6 +166,10 @@ class HuggingFaceSource:
 
     Requires `huggingface_hub` pip package. Handles download, caching, and
     version resolution through HF's infrastructure.
+
+    Note: Downloads do not enforce a timeout by default. If needed, configure
+    the HF_HUB_DOWNLOAD_TIMEOUT environment variable (seconds) before importing,
+    or set huggingface_hub.constants.HF_HUB_DOWNLOAD_TIMEOUT at startup.
 
     Usage:
         source = HuggingFaceSource()
@@ -167,7 +219,10 @@ class HuggingFaceSource:
                     description=getattr(model, "description", ""),
                 ))
         except Exception as e:
-            logger.error("Failed to check HuggingFace for models: %s", e)
+            logger.error(
+                "Failed to check HuggingFace for %s models (org=%r): %s",
+                model_type.value, org, e,
+            )
 
         return updates
 
@@ -225,8 +280,8 @@ class HuggingFaceSource:
         updates = self.check_available(org, model_type)
         if not updates:
             return None
-        # Sort by version, return highest
-        versions = sorted(updates, key=lambda u: u.available_version, reverse=True)
+        # Sort by semantic version, return highest
+        versions = sorted(updates, key=lambda u: _parse_version(u.available_version), reverse=True)
         return versions[0].available_version
 
 
@@ -260,7 +315,18 @@ class LocalFileSource:
         if self._source_dir is None:
             raise RuntimeError("No source directory configured")
 
-        source_path = self._source_dir / model_id
+        source_path = (self._source_dir / model_id).resolve()
+        # Path traversal check
+        base = self._source_dir.resolve()
+        try:
+            if not source_path.is_relative_to(base):
+                raise ValueError(f"Model ID escapes source directory: {model_id!r}")
+        except AttributeError:
+            # Python < 3.9 fallback
+            base_str = str(base)
+            if not (str(source_path) == base_str or str(source_path).startswith(base_str + import_os_sep())):
+                raise ValueError(f"Model ID escapes source directory: {model_id!r}")
+
         if not source_path.exists():
             raise FileNotFoundError(f"Model not found at {source_path}")
 
@@ -279,6 +345,11 @@ class LocalFileSource:
 
     def get_latest_version(self, org: str, model_type: ModelType) -> str | None:
         return None
+
+
+def import_os_sep() -> str:
+    import os
+    return os.sep
 
 
 # ---------------------------------------------------------------------------
@@ -351,8 +422,8 @@ class ModelProvider:
                 local = self._registry.resolve(mt)
                 current_ver = local.version if local else None
 
-                # Only report if newer or not installed
-                if current_ver is None or update.available_version > current_ver:
+                # Only report if newer or not installed (semantic version comparison)
+                if current_ver is None or _parse_version(update.available_version) > _parse_version(current_ver):
                     all_updates.append(ModelUpdate(
                         model_type=mt,
                         current_version=current_ver,
@@ -386,8 +457,8 @@ class ModelProvider:
         Returns:
             The registered ModelCard.
         """
-        # Determine target directory
-        safe_id = model_id.replace("/", "_")
+        # Validate and sanitize model_id for safe filesystem use
+        safe_id = _validate_model_id(model_id)
         target_dir = self._registry.models_dir / safe_id
 
         if on_progress:
@@ -398,8 +469,18 @@ class ModelProvider:
                 status="downloading",
             ))
 
-        # Download
-        downloaded_path = self._source.download(model_id, target_dir, on_progress)
+        # Download — clean up on failure
+        try:
+            downloaded_path = self._source.download(model_id, target_dir, on_progress)
+        except Exception:
+            if target_dir.exists():
+                shutil.rmtree(target_dir, ignore_errors=True)
+            raise
+
+        # Compute SHA-256 for file integrity
+        metadata: dict[str, Any] = {}
+        if downloaded_path.is_file():
+            metadata["sha256"] = _sha256_file(downloaded_path)
 
         # Register
         relative_path = str(downloaded_path.relative_to(self._registry.models_dir))
@@ -410,6 +491,7 @@ class ModelProvider:
             version=version,
             source=ModelSource.CLOUD,
             relative_path=relative_path,
+            metadata=metadata,
         )
         self._registry.register(card)
 
@@ -438,6 +520,7 @@ class ModelProvider:
         version: str = "1.0.0",
         model_id: str | None = None,
         set_default: bool = True,
+        force: bool = False,
     ) -> ModelCard:
         """Import a model from a local file/directory into the registry.
 
@@ -450,6 +533,7 @@ class ModelProvider:
             version: Version string.
             model_id: Registry ID (auto-generated from name if not given).
             set_default: Whether to set as default.
+            force: If True, overwrite an existing model at the same destination.
 
         Returns:
             The registered ModelCard.
@@ -457,23 +541,35 @@ class ModelProvider:
         if not path.exists():
             raise FileNotFoundError(f"Model file not found: {path}")
 
-        # Generate ID from name
+        # Generate ID from name and validate
         card_id = model_id or name.lower().replace(" ", "-").replace("/", "-")
+        _validate_model_id(card_id)  # raise on unsafe IDs
 
         # Copy to models directory
         target = self._registry.models_dir / card_id
         target.mkdir(parents=True, exist_ok=True)
 
+        metadata: dict[str, Any] = {}
+
         if path.is_dir():
             dest = target / path.name
             if dest.exists():
+                if not force:
+                    raise ValueError(
+                        f"Model already exists at {dest}. Use force=True to overwrite."
+                    )
                 shutil.rmtree(dest)
             shutil.copytree(path, dest)
             relative_path = str(dest.relative_to(self._registry.models_dir))
         else:
             dest = target / path.name
+            if dest.exists() and not force:
+                raise ValueError(
+                    f"Model already exists at {dest}. Use force=True to overwrite."
+                )
             shutil.copy2(path, dest)
             relative_path = str(dest.relative_to(self._registry.models_dir))
+            metadata["sha256"] = _sha256_file(dest)
 
         card = ModelCard(
             id=card_id,
@@ -482,6 +578,7 @@ class ModelProvider:
             version=version,
             source=ModelSource.IMPORTED,
             relative_path=relative_path,
+            metadata=metadata,
         )
         self._registry.register(card)
 
@@ -502,7 +599,16 @@ class ModelProvider:
 
         Returns:
             True if the model was found and removed.
+
+        Raises:
+            RuntimeError: If the model is currently in use (acquired).
         """
+        if self._registry.is_in_use(model_id):
+            raise RuntimeError(
+                f"Cannot uninstall model '{model_id}': it is currently in use. "
+                "Call registry.release() first."
+            )
+
         card = self._registry.unregister(model_id)
         if card is None:
             return False
@@ -514,20 +620,18 @@ class ModelProvider:
                     shutil.rmtree(model_path)
                 else:
                     model_path.unlink()
+                # Clean up empty parent directory
+                parent = model_path.parent
+                try:
+                    if (
+                        parent != self._registry.models_dir
+                        and parent.exists()
+                        and not any(parent.iterdir())
+                    ):
+                        parent.rmdir()
+                except OSError:
+                    pass
 
         self._registry.save()
         logger.info("Uninstalled model %s", model_id)
         return True
-
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-
-def _extract_version_from_tags(tags: list[str]) -> str | None:
-    """Extract a version string from HuggingFace model tags."""
-    for tag in tags:
-        if tag.startswith("v") and "." in tag:
-            return tag.lstrip("v")
-    return None

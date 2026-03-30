@@ -5,6 +5,7 @@ All tests use LocalFileSource — no real HTTP, no HuggingFace dependency.
 
 from __future__ import annotations
 
+import hashlib
 from pathlib import Path
 
 import pytest
@@ -21,6 +22,7 @@ from echozero.models.provider import (
     LocalFileSource,
     ModelProvider,
     ModelUpdate,
+    _parse_version,
 )
 
 
@@ -55,6 +57,19 @@ class FakeRemoteSource:
         matching = [u for u in self._updates if u.model_type == model_type]
         if matching:
             return max(u.available_version for u in matching)
+        return None
+
+
+class FailingSource:
+    """Source that always raises on download."""
+
+    def check_available(self, org: str, model_type: ModelType) -> list[ModelUpdate]:
+        return []
+
+    def download(self, model_id: str, target_dir: Path, on_progress=None) -> Path:
+        raise RuntimeError("Simulated download failure")
+
+    def get_latest_version(self, org: str, model_type: ModelType) -> str | None:
         return None
 
 
@@ -396,3 +411,235 @@ class TestDownloadProgress:
     def test_fraction_none_when_zero_total(self) -> None:
         p = DownloadProgress("m1", bytes_downloaded=0, bytes_total=0)
         assert p.fraction is None
+
+
+# ---------------------------------------------------------------------------
+# Path traversal tests
+# ---------------------------------------------------------------------------
+
+
+class TestPathTraversal:
+    def test_install_rejects_dotdot_model_id(self, tmp_path: Path) -> None:
+        reg, _ = _setup_registry(tmp_path)
+        provider = ModelProvider(reg, source=FailingSource())
+        with pytest.raises(ValueError):
+            provider.install("..", ModelType.ONSET_DETECTION, "1.0.0")
+
+    def test_install_rejects_traversal(self, tmp_path: Path) -> None:
+        reg, _ = _setup_registry(tmp_path)
+        provider = ModelProvider(reg, source=FailingSource())
+        with pytest.raises(ValueError):
+            provider.install("../../evil", ModelType.ONSET_DETECTION, "1.0.0")
+
+    def test_local_source_rejects_traversal(self, tmp_path: Path) -> None:
+        source_dir = tmp_path / "source"
+        source_dir.mkdir()
+        source = LocalFileSource(source_dir)
+        target_dir = tmp_path / "target"
+        target_dir.mkdir()
+        with pytest.raises(ValueError, match="escapes"):
+            source.download("../../../etc", target_dir)
+
+
+# ---------------------------------------------------------------------------
+# Partial download cleanup
+# ---------------------------------------------------------------------------
+
+
+class TestPartialDownloadCleanup:
+    def test_failed_download_cleans_up(self, tmp_path: Path) -> None:
+        reg, models_dir = _setup_registry(tmp_path)
+        provider = ModelProvider(reg, source=FailingSource())
+
+        with pytest.raises(RuntimeError):
+            provider.install("good-model-id", ModelType.ONSET_DETECTION, "1.0.0")
+
+        # target_dir should have been cleaned up
+        target_dir = models_dir / "good-model-id"
+        assert not target_dir.exists()
+
+
+# ---------------------------------------------------------------------------
+# Version comparison
+# ---------------------------------------------------------------------------
+
+
+class TestVersionComparison:
+    def test_version_9_vs_10(self) -> None:
+        assert _parse_version("9.0.0") < _parse_version("10.0.0")
+
+    def test_version_1_9_vs_1_10(self) -> None:
+        assert _parse_version("1.9.0") < _parse_version("1.10.0")
+
+    def test_no_update_when_version_equal(self, tmp_path: Path) -> None:
+        reg, _ = _setup_registry(tmp_path)
+        reg.register(ModelCard(
+            id="onset-v10",
+            model_type=ModelType.ONSET_DETECTION,
+            name="Onset v10",
+            version="10.0.0",
+            source=ModelSource.BUILTIN,
+            relative_path="onset/model.pt",
+        ))
+        updates = [ModelUpdate(
+            model_type=ModelType.ONSET_DETECTION,
+            current_version=None,
+            available_version="9.0.0",  # older despite string sort being "higher"
+            model_id="echozero/onset-v9",
+        )]
+        source = FakeRemoteSource(tmp_path, updates=updates)
+        provider = ModelProvider(reg, source=source)
+        result = provider.check_updates(ModelType.ONSET_DETECTION)
+        assert len(result) == 0  # 9.0.0 is not newer than 10.0.0
+
+
+# ---------------------------------------------------------------------------
+# Integrity / SHA-256
+# ---------------------------------------------------------------------------
+
+
+class TestIntegrity:
+    def test_check_status_zero_byte_corrupt(self, tmp_path: Path) -> None:
+        models_dir = tmp_path / "models"
+        reg = ModelRegistry(models_dir)
+        reg.load()
+        card = ModelCard(
+            id="zero-model",
+            model_type=ModelType.ONSET_DETECTION,
+            name="Zero",
+            version="1.0.0",
+            source=ModelSource.BUILTIN,
+            relative_path="zero/model.pt",
+        )
+        reg.register(card)
+        (models_dir / "zero").mkdir(parents=True)
+        (models_dir / "zero" / "model.pt").write_bytes(b"")  # zero-byte file
+        assert reg.check_status(card) == ModelStatus.CORRUPT
+
+    def test_check_status_hash_mismatch(self, tmp_path: Path) -> None:
+        models_dir = tmp_path / "models"
+        reg = ModelRegistry(models_dir)
+        reg.load()
+        card = ModelCard(
+            id="hash-model",
+            model_type=ModelType.ONSET_DETECTION,
+            name="Hash",
+            version="1.0.0",
+            source=ModelSource.BUILTIN,
+            relative_path="hash/model.pt",
+            metadata={"sha256": "deadbeef" * 8},  # wrong hash
+        )
+        reg.register(card)
+        (models_dir / "hash").mkdir(parents=True)
+        (models_dir / "hash" / "model.pt").write_bytes(b"real weights")
+        assert reg.check_status(card) == ModelStatus.CORRUPT
+
+    def test_check_status_hash_match(self, tmp_path: Path) -> None:
+        models_dir = tmp_path / "models"
+        reg = ModelRegistry(models_dir)
+        reg.load()
+        content = b"real weights"
+        expected_hash = hashlib.sha256(content).hexdigest()
+        card = ModelCard(
+            id="hash-ok-model",
+            model_type=ModelType.ONSET_DETECTION,
+            name="HashOK",
+            version="1.0.0",
+            source=ModelSource.BUILTIN,
+            relative_path="hashok/model.pt",
+            metadata={"sha256": expected_hash},
+        )
+        reg.register(card)
+        (models_dir / "hashok").mkdir(parents=True)
+        (models_dir / "hashok" / "model.pt").write_bytes(content)
+        assert reg.check_status(card) == ModelStatus.AVAILABLE
+
+
+# ---------------------------------------------------------------------------
+# Import overwrite protection
+# ---------------------------------------------------------------------------
+
+
+class TestImportOverwrite:
+    def test_import_existing_without_force_raises(self, tmp_path: Path) -> None:
+        reg, _ = _setup_registry(tmp_path)
+        provider = ModelProvider(reg)
+
+        model_file = tmp_path / "model.pt"
+        model_file.write_bytes(b"original")
+
+        provider.import_local(model_file, ModelType.ONSET_DETECTION, "Test Model")
+        # Second import without force
+        model_file2 = tmp_path / "model.pt"  # same filename
+        with pytest.raises(ValueError, match="force"):
+            provider.import_local(model_file2, ModelType.ONSET_DETECTION, "Test Model")
+
+    def test_import_existing_with_force_succeeds(self, tmp_path: Path) -> None:
+        reg, _ = _setup_registry(tmp_path)
+        provider = ModelProvider(reg)
+
+        model_file = tmp_path / "model.pt"
+        model_file.write_bytes(b"original")
+        provider.import_local(model_file, ModelType.ONSET_DETECTION, "Test Model")
+
+        model_file.write_bytes(b"updated")
+        card = provider.import_local(
+            model_file, ModelType.ONSET_DETECTION, "Test Model", force=True
+        )
+        assert card is not None
+
+
+# ---------------------------------------------------------------------------
+# Reference counting
+# ---------------------------------------------------------------------------
+
+
+class TestReferenceCount:
+    def test_uninstall_in_use_raises(self, tmp_path: Path) -> None:
+        reg, _ = _setup_registry(tmp_path)
+        provider = ModelProvider(reg)
+
+        model_file = tmp_path / "model.pt"
+        model_file.write_bytes(b"data")
+        provider.import_local(model_file, ModelType.ONSET_DETECTION, "Test")
+
+        reg.acquire("test")
+        with pytest.raises(RuntimeError, match="in use"):
+            provider.uninstall("test")
+
+    def test_uninstall_after_release_succeeds(self, tmp_path: Path) -> None:
+        reg, _ = _setup_registry(tmp_path)
+        provider = ModelProvider(reg)
+
+        model_file = tmp_path / "model.pt"
+        model_file.write_bytes(b"data")
+        provider.import_local(model_file, ModelType.ONSET_DETECTION, "Test")
+
+        reg.acquire("test")
+        reg.release("test")
+        result = provider.uninstall("test")
+        assert result is True
+
+
+# ---------------------------------------------------------------------------
+# Empty parent cleanup
+# ---------------------------------------------------------------------------
+
+
+class TestEmptyParentCleanup:
+    def test_uninstall_removes_empty_parent(self, tmp_path: Path) -> None:
+        reg, models_dir = _setup_registry(tmp_path)
+        provider = ModelProvider(reg)
+
+        model_file = tmp_path / "model.pt"
+        model_file.write_bytes(b"data")
+        card = provider.import_local(model_file, ModelType.ONSET_DETECTION, "Test")
+
+        # The parent of the model file (e.g. models/test/)
+        model_path = reg.model_path(card)
+        parent = model_path.parent
+        assert parent.exists()
+
+        provider.uninstall("test", delete_files=True)
+        # Parent should be cleaned up since it's empty after uninstall
+        assert not parent.exists()

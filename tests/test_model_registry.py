@@ -5,6 +5,7 @@ Model registry tests: Catalog, resolution, persistence, and status checking.
 from __future__ import annotations
 
 import json
+import threading
 from pathlib import Path
 
 import pytest
@@ -280,4 +281,175 @@ class TestStatus:
         reg = ModelRegistry(models_dir)
         card = _card(relative_path="onset/v1/model.pt")
         path = reg.model_path(card)
-        assert path == models_dir / "onset" / "v1" / "model.pt"
+        assert path == (models_dir / "onset" / "v1" / "model.pt").resolve()
+
+
+# ---------------------------------------------------------------------------
+# Security: path traversal
+# ---------------------------------------------------------------------------
+
+
+class TestSecurity:
+    def test_path_traversal_in_model_path(self, tmp_path: Path) -> None:
+        models_dir = tmp_path / "models"
+        models_dir.mkdir(parents=True)
+        reg = ModelRegistry(models_dir)
+        card = _card(relative_path="../../etc/passwd")
+        with pytest.raises(ValueError, match="escapes"):
+            reg.model_path(card)
+
+    def test_path_traversal_dotdot(self, tmp_path: Path) -> None:
+        models_dir = tmp_path / "models"
+        models_dir.mkdir(parents=True)
+        reg = ModelRegistry(models_dir)
+        card = _card(relative_path="..")
+        with pytest.raises(ValueError, match="escapes"):
+            reg.model_path(card)
+
+    def test_safe_relative_path_works(self, tmp_path: Path) -> None:
+        models_dir = tmp_path / "models"
+        models_dir.mkdir(parents=True)
+        reg = ModelRegistry(models_dir)
+        card = _card(relative_path="onset/model.pt")
+        path = reg.model_path(card)
+        assert str(models_dir.resolve()) in str(path)
+
+
+# ---------------------------------------------------------------------------
+# Corrupt manifest recovery
+# ---------------------------------------------------------------------------
+
+
+class TestCorruptManifest:
+    def test_load_corrupt_json_recovers(self, tmp_path: Path) -> None:
+        models_dir = tmp_path / "models"
+        models_dir.mkdir(parents=True)
+        manifest = models_dir / MANIFEST_FILENAME
+        manifest.write_text("THIS IS NOT JSON }{{{", encoding="utf-8")
+
+        reg = ModelRegistry(models_dir)
+        reg.load()  # should not raise
+        assert reg.count == 0
+
+    def test_load_bad_entry_skips_it(self, tmp_path: Path) -> None:
+        models_dir = tmp_path / "models"
+        models_dir.mkdir(parents=True)
+        manifest = models_dir / MANIFEST_FILENAME
+        data = {
+            "version": 1,
+            "models": {
+                "good-model": {
+                    "id": "good-model",
+                    "model_type": "onset_detection",
+                    "name": "Good",
+                    "version": "1.0.0",
+                    "source": "builtin",
+                    "relative_path": "good/model.pt",
+                    "description": "",
+                    "framework": "pytorch",
+                    "metadata": {},
+                },
+                "bad-model": {
+                    "id": "bad-model",
+                    "model_type": "onset_detection",
+                    # missing required fields to trigger error
+                },
+            },
+            "defaults": {},
+        }
+        manifest.write_text(json.dumps(data), encoding="utf-8")
+
+        reg = ModelRegistry(models_dir)
+        reg.load()
+        # good entry loaded, bad entry skipped
+        assert reg.get("good-model") is not None
+        assert reg.get("bad-model") is None
+
+    def test_load_unknown_enum_skips(self, tmp_path: Path) -> None:
+        models_dir = tmp_path / "models"
+        models_dir.mkdir(parents=True)
+        manifest = models_dir / MANIFEST_FILENAME
+        data = {
+            "version": 1,
+            "models": {
+                "future-model": {
+                    "id": "future-model",
+                    "model_type": "future_type",  # unknown enum value
+                    "name": "Future",
+                    "version": "1.0.0",
+                    "source": "builtin",
+                    "relative_path": "future/model.pt",
+                    "description": "",
+                    "framework": "pytorch",
+                    "metadata": {},
+                },
+            },
+            "defaults": {},
+        }
+        manifest.write_text(json.dumps(data), encoding="utf-8")
+
+        reg = ModelRegistry(models_dir)
+        reg.load()  # should not raise, just skip
+        assert reg.count == 0
+
+
+# ---------------------------------------------------------------------------
+# Atomic save
+# ---------------------------------------------------------------------------
+
+
+class TestAtomicSave:
+    def test_save_creates_valid_json(self, tmp_path: Path) -> None:
+        models_dir = tmp_path / "models"
+        reg = ModelRegistry(models_dir)
+        reg.load()
+        reg.register(_card())
+        reg.save()
+
+        manifest = models_dir / MANIFEST_FILENAME
+        data = json.loads(manifest.read_text(encoding="utf-8"))
+        assert "models" in data
+        assert "onset-v1" in data["models"]
+
+    def test_save_no_tmp_file_left(self, tmp_path: Path) -> None:
+        models_dir = tmp_path / "models"
+        reg = ModelRegistry(models_dir)
+        reg.load()
+        reg.register(_card())
+        reg.save()
+
+        tmp_file = models_dir / "models.tmp"
+        assert not tmp_file.exists()
+
+
+# ---------------------------------------------------------------------------
+# Locking / concurrency
+# ---------------------------------------------------------------------------
+
+
+class TestLocking:
+    def test_concurrent_registers(self, tmp_path: Path) -> None:
+        models_dir = tmp_path / "models"
+        reg = ModelRegistry(models_dir)
+        reg.load()
+
+        errors: list[Exception] = []
+
+        def register_many(start: int) -> None:
+            for i in range(start, start + 20):
+                try:
+                    reg.register(_card(
+                        model_id=f"model-{i}",
+                        relative_path=f"models/model-{i}.pt",
+                    ))
+                except Exception as e:
+                    errors.append(e)
+
+        threads = [threading.Thread(target=register_many, args=(i * 20,)) for i in range(5)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+        assert len(errors) == 0
+        assert reg.count == 100
