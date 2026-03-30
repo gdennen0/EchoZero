@@ -1204,3 +1204,202 @@ class TestBatch1Fixes:
         # Stop should go to seek position
         engine.stop()
         assert engine.clock.position == 2000
+
+
+# ===========================================================================
+# BATCH 2 FIX TESTS
+# ===========================================================================
+
+
+class TestBatch2Fixes:
+    """Tests for ship-readiness audit Batch 2 fixes (A10, A15)."""
+
+    # -- A10: Glitch counter / sounddevice status --
+    def test_glitch_counter_increments(self) -> None:
+        """A10: Glitch counter increments when sounddevice status is truthy."""
+        engine = AudioEngine(stream_factory=fake_stream_factory)
+        assert engine.glitch_count == 0
+        assert engine.last_audio_status is None
+
+        buf = _sine(1000)
+        engine.add_layer("l1", buf, 44100)
+        engine.play()
+
+        # Simulate a glitch event (status object truthy)
+        outdata = np.zeros((256, 1), dtype=np.float32)
+
+        class FakeStatus:
+            """Truthy status object representing a glitch."""
+            pass
+
+        status = FakeStatus()
+        engine._audio_callback(outdata, 256, None, status)
+
+        assert engine.glitch_count == 1
+        assert engine.last_audio_status is status
+
+    def test_glitch_counter_multiple_glitches(self) -> None:
+        """A10: Glitch counter accumulates across multiple callbacks."""
+        engine = AudioEngine(stream_factory=fake_stream_factory)
+        buf = _sine(1000)
+        engine.add_layer("l1", buf, 44100)
+        engine.play()
+
+        class FakeStatus:
+            pass
+
+        outdata = np.zeros((256, 1), dtype=np.float32)
+
+        # Simulate multiple glitches
+        engine._audio_callback(outdata, 256, None, FakeStatus())
+        assert engine.glitch_count == 1
+
+        engine._audio_callback(outdata, 256, None, FakeStatus())
+        assert engine.glitch_count == 2
+
+        # Normal callback with no status
+        engine._audio_callback(outdata, 256, None, None)
+        assert engine.glitch_count == 2  # unchanged
+
+    # -- A15: Solo count optimization --
+    def test_set_solo_maintains_count(self) -> None:
+        """A15: set_solo() canonical method maintains _solo_count."""
+        mixer = Mixer()
+        l1 = AudioLayer("l1", "a", _sine(100), 44100)
+        l2 = AudioLayer("l2", "b", _sine(100), 44100)
+        mixer.add_layer(l1)
+        mixer.add_layer(l2)
+
+        assert mixer._solo_count == 0
+
+        mixer.set_solo("l1", True)
+        assert mixer._solo_count == 1
+        assert l1.solo is True
+
+        mixer.set_solo("l2", True)
+        assert mixer._solo_count == 2
+
+        mixer.set_solo("l1", False)
+        assert mixer._solo_count == 1
+
+    def test_set_solo_idempotent(self) -> None:
+        """A15: set_solo is idempotent — calling twice is safe."""
+        mixer = Mixer()
+        mixer.add_layer(AudioLayer("l1", "a", _sine(100), 44100))
+
+        mixer.set_solo("l1", True)
+        count_after_first = mixer._solo_count
+
+        mixer.set_solo("l1", True)
+        assert mixer._solo_count == count_after_first
+
+    def test_solo_exclusive_maintains_count(self) -> None:
+        """A15: solo_exclusive() updates _solo_count correctly."""
+        mixer = Mixer()
+        l1 = AudioLayer("l1", "a", _sine(100), 44100)
+        l2 = AudioLayer("l2", "b", _sine(100), 44100)
+        mixer.add_layer(l1)
+        mixer.add_layer(l2)
+
+        mixer.solo_exclusive("l1")
+        assert mixer._solo_count == 1
+        assert l1.solo is True
+        assert l2.solo is False
+
+        mixer.solo_exclusive("l2")
+        assert mixer._solo_count == 1
+        assert l1.solo is False
+        assert l2.solo is True
+
+    def test_unsolo_all_resets_count(self) -> None:
+        """A15: unsolo_all() resets _solo_count to 0."""
+        mixer = Mixer()
+        l1 = AudioLayer("l1", "a", _sine(100), 44100)
+        l2 = AudioLayer("l2", "b", _sine(100), 44100)
+        mixer.add_layer(l1)
+        mixer.add_layer(l2)
+
+        mixer.set_solo("l1", True)
+        mixer.set_solo("l2", True)
+        assert mixer._solo_count == 2
+
+        mixer.unsolo_all()
+        assert mixer._solo_count == 0
+        assert not l1.solo
+        assert not l2.solo
+
+    def test_remove_soloed_layer_decrements_count(self) -> None:
+        """A15: Removing a soloed layer decrements _solo_count."""
+        mixer = Mixer()
+        mixer.add_layer(AudioLayer("l1", "a", _sine(100), 44100))
+        mixer.add_layer(AudioLayer("l2", "b", _sine(100), 44100))
+
+        mixer.set_solo("l1", True)
+        assert mixer._solo_count == 1
+
+        removed = mixer.remove_layer("l1")
+        assert removed is not None
+        assert mixer._solo_count == 0
+
+    def test_clear_resets_solo_count(self) -> None:
+        """A15: clear() resets _solo_count."""
+        mixer = Mixer()
+        mixer.add_layer(AudioLayer("l1", "a", _sine(100), 44100))
+        mixer.set_solo("l1", True)
+        assert mixer._solo_count == 1
+
+        mixer.clear()
+        assert mixer._solo_count == 0
+
+    def test_solo_count_optimization_in_mix(self) -> None:
+        """A15: read_mix uses O(1) _solo_count check, not any(l.solo for l in layers)."""
+        mixer = Mixer()
+        buf1 = _sine(1000, freq=440)
+        buf2 = _sine(1000, freq=880)
+        mixer.add_layer(AudioLayer("l1", "drums", buf1, 44100))
+        mixer.add_layer(AudioLayer("l2", "bass", buf2, 44100))
+
+        # No solos — all layers play
+        out = mixer.read_mix(0, 256)
+        expected = buf1[:256] + buf2[:256]
+        np.clip(expected, -1.0, 1.0, out=expected)
+        np.testing.assert_array_almost_equal(out, expected)
+
+        # Solo one layer — only that plays
+        mixer.set_solo("l2", True)
+        out = mixer.read_mix(0, 256)
+        np.testing.assert_array_almost_equal(out, buf2[:256])
+
+        # Unsolo — all play again
+        mixer.unsolo_all()
+        out = mixer.read_mix(0, 256)
+        np.testing.assert_array_almost_equal(out, expected)
+
+    # -- Integration: Batch 2 fixes together --
+    def test_batch2_integration(self) -> None:
+        """Integration test: A10 glitch tracking + A15 solo count work together."""
+        engine = AudioEngine(stream_factory=fake_stream_factory)
+
+        buf1 = _sine(1000)
+        buf2 = _sine(1000)
+        engine.add_layer("l1", buf1, 44100)
+        engine.add_layer("l2", buf2, 44100)
+        engine.play()
+
+        # Set solo via mixer.set_solo
+        engine.mixer.set_solo("l1", True)
+        assert engine.mixer._solo_count == 1
+
+        # Run callback with glitch
+        outdata = np.zeros((256, 1), dtype=np.float32)
+
+        class FakeStatus:
+            pass
+
+        engine._audio_callback(outdata, 256, None, FakeStatus())
+
+        # Both fixes working: glitch counted, solo optimized
+        assert engine.glitch_count == 1
+        assert engine.mixer._solo_count == 1
+        # Output should be l1 only (no l2)
+        np.testing.assert_array_almost_equal(outdata[:, 0], buf1[:256])

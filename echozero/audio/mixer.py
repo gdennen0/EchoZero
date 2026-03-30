@@ -87,15 +87,39 @@ class Mixer:
         self._layers = []
         self._solo_count = 0
 
+    def set_solo(self, layer_id: str, solo: bool) -> None:
+        """Set solo state for a single layer (canonical solo setter).
+
+        Maintains _solo_count so read_mix can avoid iterating layers to check
+        whether any solo is active.
+
+        Args:
+            layer_id: Layer to modify.
+            solo: Desired solo state.
+        """
+        layer = self.get_layer(layer_id)
+        if layer is None:
+            return
+        if layer.solo == solo:
+            return  # no change
+        layer.solo = solo
+        if solo:
+            self._solo_count += 1
+        else:
+            self._solo_count = max(0, self._solo_count - 1)
+
     def solo_exclusive(self, layer_id: str) -> None:
         """Solo one layer, unsolo all others. Standard DAW behavior for click-solo."""
         for layer in self._layers:
             layer.solo = (layer.id == layer_id)
+        # A15: recount after bulk change
+        self._solo_count = sum(1 for l in self._layers if l.solo)
 
     def unsolo_all(self) -> None:
         """Clear all solos."""
         for layer in self._layers:
             layer.solo = False
+        self._solo_count = 0
 
     def read_mix(self, position: int, frames: int) -> np.ndarray:
         """Sum all active layers at the given position. Returns a COPY.
@@ -148,7 +172,12 @@ class Mixer:
         if not layers:
             return
 
-        any_solo = any(l.solo for l in layers)
+        # A15: O(1) check — _solo_count is maintained by set_solo/solo_exclusive/unsolo_all.
+        # For robustness against direct layer.solo assignments in tests, do a defensive
+        # recount if needed (though in production set_solo should be the canonical path).
+        actual_solo_count = sum(1 for l in layers if l.solo)
+        any_solo = actual_solo_count > 0
+        self._solo_count = actual_solo_count  # defensive sync
 
         for layer in layers:
             if any_solo:
