@@ -188,6 +188,11 @@ class Project:
     def stale_tracker(self) -> StaleTracker:
         return self._coordinator.stale_tracker
 
+    @property
+    def runtime_bus(self) -> RuntimeBus:
+        """Progress reporting bus — UI subscribes for per-block progress updates."""
+        return self._runtime_bus
+
     # -- Graph mutations (via Pipeline) -------------------------------------
 
     def dispatch(self, command: Any) -> Result[Any]:
@@ -247,13 +252,64 @@ class Project:
 
     # -- Song management (via Storage) --------------------------------------
 
-    def import_song(self, **kwargs) -> tuple[SongRecord, SongVersionRecord]:
-        """Import audio as a new song. Passes through to ProjectStorage."""
-        return self._storage.import_song(**kwargs)
+    def import_song(
+        self,
+        title: str,
+        audio_source: Path,
+        artist: str = "",
+        label: str = "Original",
+        default_templates: list[str] | None = None,
+        scan_fn: Any = None,
+    ) -> tuple[SongRecord, SongVersionRecord]:
+        """Import an audio file as a new song with default pipeline configs.
 
-    def add_song_version(self, **kwargs) -> SongVersionRecord:
-        """Add a new version to an existing song."""
-        return self._storage.add_song_version(**kwargs)
+        Args:
+            title: Song title.
+            audio_source: Path to the audio file.
+            artist: Artist name (optional).
+            label: Version label (default "Original").
+            default_templates: Template IDs to create configs for. None = all registered.
+            scan_fn: Optional injectable for audio scanning (testing).
+
+        Returns:
+            (SongRecord, SongVersionRecord) tuple.
+        """
+        return self._storage.import_song(
+            title=title,
+            audio_source=audio_source,
+            artist=artist,
+            label=label,
+            default_templates=default_templates,
+            scan_fn=scan_fn,
+        )
+
+    def add_song_version(
+        self,
+        song_id: str,
+        audio_source: Path,
+        label: str | None = None,
+        activate: bool = True,
+        scan_fn: Any = None,
+    ) -> SongVersionRecord:
+        """Add a new version of an existing song and copy pipeline configs.
+
+        Args:
+            song_id: The existing song to add a version to.
+            audio_source: Path to the new audio file.
+            label: Human-readable label. Auto-generated if None.
+            activate: If True, set the new version as active.
+            scan_fn: Optional injectable for audio scanning (testing).
+
+        Returns:
+            The newly created SongVersionRecord.
+        """
+        return self._storage.add_song_version(
+            song_id=song_id,
+            audio_source=audio_source,
+            label=label,
+            activate=activate,
+            scan_fn=scan_fn,
+        )
 
     # -- Data access (repo shortcuts) ---------------------------------------
 
