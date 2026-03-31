@@ -1,0 +1,67 @@
+site_name: EchoZero 2
+site_description: Audio analysis workstation for live lighting design
+repo_url: https://github.com/griffin/echozero
+
+theme:
+  name: material
+  palette:
+    - scheme: slate
+      primary: deep purple
+      accent: amber
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+    - scheme: default
+      primary: deep purple
+      accent: amber
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+  features:
+    - navigation.instant
+    - navigation.sections
+    - navigation.expand
+    - navigation.top
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+    - toc.follow
+  icon:
+    repo: fontawesome/brands/github
+
+plugins:
+  - search
+
+markdown_extensions:
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+  - admonition
+  - pymdownx.details
+  - toc:
+      permalink: true
+  - tables
+  - attr_list
+  - md_in_html
+
+nav:
+  - Home: index.md
+  - Getting Started: GETTING-STARTED.md
+  - Architecture: ARCHITECTURE.md
+  - Project Class: PROJECT-CLASS.md
+  - Entity Model: architecture/ENTITY-MODEL.md
+  - LD Workflow: LD-WORKFLOW.md
+  - Decisions:
+    - Architecture Decisions: architecture/DECISIONS.md
+    - Pipeline Config: architecture/PIPELINE-CONFIG-REDESIGN.md
+  - Audits:
+    - UI Readiness: audits/ui-readiness-audit-2026-03-30.md
+    - Architecture Audit: audits/architecture-audit-2026-03-30.md
+    - Codebase Audit: audits/codebase-audit-2026-03-30.md
+    - Codebase Audit Part 2: audits/codebase-audit-2026-03-30-part2.md
+    - Audio Engine: audits/audio-engine-audit.md
+    - Model Registry: audits/model-registry-audit.md
+  - Packaging: packaging/PACKAGING.md
+  - Spec: SPEC.md
