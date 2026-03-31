@@ -1,8 +1,8 @@
 """
-Bootstrap: Creates a fully wired Project with real processor executors.
+main: Creates a fully wired Project with real processor executors.
 
 This is the production entry point. Tests use Project.create() directly
-with mock executors. The UI calls bootstrap functions.
+with mock executors. The UI calls these functions to start the app.
 """
 
 from __future__ import annotations
