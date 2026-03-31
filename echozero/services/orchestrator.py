@@ -24,8 +24,8 @@ logger = logging.getLogger(__name__)
 from echozero.domain.types import AudioData, EventData
 from echozero.errors import ExecutionError, ValidationError
 from echozero.execution import BlockExecutor, ExecutionEngine, GraphPlanner
-from echozero.persistence.entities import LayerRecord, PipelineConfig
-from echozero.persistence.session import ProjectSession
+from echozero.persistence.entities import LayerRecord, PipelineConfigRecord
+from echozero.persistence.session import ProjectStorage
 from echozero.pipelines.pipeline import Pipeline, PipelineOutput
 from echozero.pipelines.registry import PipelineRegistry
 from echozero.progress import RuntimeBus
@@ -78,7 +78,7 @@ class Orchestrator:
 
     Auto-mapping:
         - EventData outputs → Layer + Take (layer_take)
-        - AudioData outputs → SongVersion (song_version)
+        - AudioData outputs → SongVersionRecord (song_version)
         - Other types → skipped with warning
 
     Custom OutputMappings can override labels and target types.
@@ -107,12 +107,12 @@ class Orchestrator:
 
     def create_config(
         self,
-        session: ProjectSession,
+        session: ProjectStorage,
         song_version_id: str,
         template_id: str,
         knob_overrides: dict[str, Any] | None = None,
-    ) -> Result[PipelineConfig]:
-        """Create a new PipelineConfig from a template with default knob values.
+    ) -> Result[PipelineConfigRecord]:
+        """Create a new PipelineConfigRecord from a template with default knob values.
 
         This is how a pipeline gets added to a song. The template factory builds
         the initial pipeline, and we persist the full config to the DB.
@@ -123,7 +123,7 @@ class Orchestrator:
 
         song_version = session.song_versions.get(song_version_id)
         if song_version is None:
-            return err(ValidationError(f"SongVersion not found: {song_version_id}"))
+            return err(ValidationError(f"SongVersionRecord not found: {song_version_id}"))
 
         # Build default knob values + any overrides
         knob_values = {k: v.default for k, v in template.knobs.items()}
@@ -139,7 +139,7 @@ class Orchestrator:
         pipeline = template.build_pipeline(merged)
 
         # Create persistent config
-        config = PipelineConfig.from_pipeline(
+        config = PipelineConfigRecord.from_pipeline(
             pipeline=pipeline,
             template_id=template_id,
             song_version_id=song_version_id,
@@ -160,11 +160,11 @@ class Orchestrator:
 
     def execute(
         self,
-        session: ProjectSession,
+        session: ProjectStorage,
         config_id: str,
         on_progress: Callable[[str, float], None] | None = None,
     ) -> Result[AnalysisResult]:
-        """Run analysis from a persisted PipelineConfig.
+        """Run analysis from a persisted PipelineConfigRecord.
 
         The config already contains the full graph and settings.
         No template rebuild — we deserialize and execute directly.
@@ -177,13 +177,13 @@ class Orchestrator:
         # 1. Load config from DB
         config = session.pipeline_configs.get(config_id)
         if config is None:
-            return err(ValidationError(f"PipelineConfig not found: {config_id}"))
+            return err(ValidationError(f"PipelineConfigRecord not found: {config_id}"))
 
-        # 2. Load SongVersion (for audio path)
+        # 2. Load SongVersionRecord (for audio path)
         song_version = session.song_versions.get(config.song_version_id)
         if song_version is None:
             return err(ValidationError(
-                f"SongVersion not found: {config.song_version_id}"
+                f"SongVersionRecord not found: {config.song_version_id}"
             ))
 
         if on_progress:
@@ -259,7 +259,7 @@ class Orchestrator:
 
     def analyze(
         self,
-        session: ProjectSession,
+        session: ProjectStorage,
         song_version_id: str,
         pipeline_id: str,
         bindings: dict[str, Any] | None = None,
@@ -289,7 +289,7 @@ class Orchestrator:
         self,
         pipeline: Pipeline,
         raw_outputs: dict[str, Any],
-        session: ProjectSession,
+        session: ProjectStorage,
         song_version_id: str,
         pipeline_id: str,
         execution_id: str,
@@ -403,7 +403,7 @@ class Orchestrator:
     def _handle_persist_as_layer_take(
         self,
         event_data: EventData,
-        session: ProjectSession,
+        session: ProjectStorage,
         song_version_id: str,
         pipeline_id: str,
         execution_id: str,
@@ -506,7 +506,7 @@ class Orchestrator:
     def _handle_persist_as_song_version(
         self,
         audio_data: Any,
-        session: ProjectSession,
+        session: ProjectStorage,
         song_version_id: str,
         pipeline_id: str,
         execution_id: str,
@@ -515,13 +515,13 @@ class Orchestrator:
         label: str = "",
         **_,
     ) -> tuple[list[str], list[str]]:
-        """Persist AudioData → SongVersion (stems, filtered audio, etc).
+        """Persist AudioData → SongVersionRecord (stems, filtered audio, etc).
 
         Not yet implemented — stems are cached on disk, not DB entities (V1).
         """
         logger.info(
             "Audio output '%s' from block '%s' — disk cache only (V1), "
-            "no DB SongVersion created.",
+            "no DB SongVersionRecord created.",
             label, block_id,
         )
         return [], []

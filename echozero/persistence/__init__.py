@@ -5,11 +5,11 @@ All SQL is encapsulated here - no other package imports sqlite3.
 
 Modules:
     base          - BaseRepository[T] generic abstract base
-    entities      - Project, Song, SongVersion, LayerRecord, PipelineConfig, ProjectSettings
+    entities      - ProjectRecord, SongRecord, SongVersionRecord, LayerRecord, PipelineConfigRecord, ProjectSettingsRecord
     schema        - DDL, version tracking, migration infrastructure
     repositories/ - CRUD for each entity type
     dirty         - DirtyTracker for change detection and autosave
-    session       - ProjectSession lifecycle manager
+    session       - ProjectStorage lifecycle manager
     archive       - .ez pack/unpack with atomic write
     audio         - Audio import, content-addressing, hash verification
 """
@@ -26,11 +26,11 @@ from echozero.persistence.dirty import DirtyTracker
 from echozero.persistence.entities import (
     LayerRecord,
     LayerType,
-    Project,
-    ProjectSettings,
-    Song,
-    PipelineConfig,
-    SongVersion,
+    ProjectRecord,
+    ProjectSettingsRecord,
+    SongRecord,
+    PipelineConfigRecord,
+    SongVersionRecord,
 )
 from echozero.persistence.repositories import (
     LayerRepository,
@@ -41,19 +41,19 @@ from echozero.persistence.repositories import (
     TakeRepository,
 )
 from echozero.persistence.schema import SCHEMA_VERSION, init_db
-from echozero.persistence.session import ProjectSession
+from echozero.persistence.session import ProjectStorage
 
 __all__ = [
     # Base
     "BaseRepository",
     # Entities
-    "ProjectSettings",
-    "Project",
-    "Song",
-    "SongVersion",
+    "ProjectSettingsRecord",
+    "ProjectRecord",
+    "SongRecord",
+    "SongVersionRecord",
     "LayerRecord",
     "LayerType",
-    "PipelineConfig",
+    "PipelineConfigRecord",
     # Schema
     "SCHEMA_VERSION",
     "init_db",
@@ -66,7 +66,7 @@ __all__ = [
     "PipelineConfigRepository",
     # Session + tracking
     "DirtyTracker",
-    "ProjectSession",
+    "ProjectStorage",
     # Archive
     "pack_ez",
     "unpack_ez",

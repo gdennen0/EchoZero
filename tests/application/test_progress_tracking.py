@@ -125,7 +125,7 @@ class TestProgressModels:
         )
         
         # Add root level
-        level1 = state.add_level("level_1", "song", "Song 1")
+        level1 = state.add_level("level_1", "song", "SongRecord 1")
         assert level1 is not None
         assert "level_1" in state.levels
         assert "level_1" in state.root_level_ids

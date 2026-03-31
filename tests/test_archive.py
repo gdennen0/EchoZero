@@ -22,14 +22,14 @@ from echozero.persistence.archive import (
     unpack_ez,
 )
 from echozero.persistence.entities import (
-    Project,
-    ProjectSettings,
-    Song,
-    SongVersion,
+    ProjectRecord,
+    ProjectSettingsRecord,
+    SongRecord,
+    SongVersionRecord,
 )
 from echozero.persistence.repositories import ProjectRepository, SongRepository, SongVersionRepository
 from echozero.persistence.schema import init_db
-from echozero.persistence.session import ProjectSession
+from echozero.persistence.session import ProjectStorage
 
 
 # ---------------------------------------------------------------------------
@@ -57,10 +57,10 @@ def _setup_working_dir(working_dir: Path) -> sqlite3.Connection:
     return conn
 
 
-def _add_project(conn: sqlite3.Connection, name: str = "Test") -> Project:
+def _add_project(conn: sqlite3.Connection, name: str = "Test") -> ProjectRecord:
     """Add a project to the DB and return it."""
-    project = Project(
-        id=_uid(), name=name, settings=ProjectSettings(),
+    project = ProjectRecord(
+        id=_uid(), name=name, settings=ProjectSettingsRecord(),
         created_at=_now(), updated_at=_now(),
     )
     ProjectRepository(conn).create(project)
@@ -440,21 +440,21 @@ class TestFullSessionRoundTrip:
         ez_path = tmp_path / "project.ez"
 
         # Create and populate
-        session = ProjectSession.create_new(
+        session = ProjectStorage.create_new(
             "Tour 2026",
-            settings=ProjectSettings(sample_rate=48000, bpm=128.0),
+            settings=ProjectSettingsRecord(sample_rate=48000, bpm=128.0),
             working_dir_root=tmp_root,
         )
         pid = session.project.id
 
         # Create a song + version manually (no audio file needed for DB round-trip)
-        song = Song(
+        song = SongRecord(
             id=_uid(), project_id=pid, title="Opening Act",
             artist="The Band", order=0, active_version_id=None,
         )
         session.songs.create(song)
 
-        version = SongVersion(
+        version = SongVersionRecord(
             id=_uid(), song_id=song.id, label="Final Mix",
             audio_file="audio/test.wav", duration_seconds=180.0,
             original_sample_rate=44100, audio_hash="abc123", created_at=_now(),
@@ -474,7 +474,7 @@ class TestFullSessionRoundTrip:
         assert is_valid_ez(ez_path)
 
         # Open from .ez
-        session2 = ProjectSession.open(ez_path, working_dir_root=tmp_root)
+        session2 = ProjectStorage.open(ez_path, working_dir_root=tmp_root)
         try:
             assert session2.project.name == "Tour 2026"
             assert session2.project.settings.bpm == 128.0
@@ -500,7 +500,7 @@ class TestFullSessionRoundTrip:
         ez_path = tmp_path / "project.ez"
 
         # Create project and import a song
-        session = ProjectSession.create_new("Import Test", working_dir_root=tmp_root)
+        session = ProjectStorage.create_new("Import Test", working_dir_root=tmp_root)
         pid = session.project.id
 
         audio_source = tmp_path / "external" / "my_track.wav"
@@ -522,7 +522,7 @@ class TestFullSessionRoundTrip:
         session.close()
 
         # Open and verify
-        session2 = ProjectSession.open(ez_path, working_dir_root=tmp_root)
+        session2 = ProjectStorage.open(ez_path, working_dir_root=tmp_root)
         try:
             songs = session2.songs.list_by_project(pid)
             assert len(songs) == 1

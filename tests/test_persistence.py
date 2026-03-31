@@ -17,11 +17,11 @@ from echozero.errors import PersistenceError
 from echozero.persistence.base import BaseRepository
 from echozero.persistence.entities import (
     LayerRecord,
-    Project,
-    ProjectSettings,
-    Song,
-    PipelineConfig,
-    SongVersion,
+    ProjectRecord,
+    ProjectSettingsRecord,
+    SongRecord,
+    PipelineConfigRecord,
+    SongVersionRecord,
 )
 from echozero.persistence.repositories import (
     LayerRepository,
@@ -52,32 +52,32 @@ def _now() -> datetime:
     return datetime.now(timezone.utc)
 
 
-def _make_project(**kw) -> Project:
+def _make_project(**kw) -> ProjectRecord:
     defaults = dict(
-        id=_uid(), name="Test Project", settings=ProjectSettings(),
+        id=_uid(), name="Test ProjectRecord", settings=ProjectSettingsRecord(),
         created_at=_now(), updated_at=_now(),
     )
     defaults.update(kw)
-    return Project(**defaults)
+    return ProjectRecord(**defaults)
 
 
-def _make_song(project_id: str, **kw) -> Song:
+def _make_song(project_id: str, **kw) -> SongRecord:
     defaults = dict(
-        id=_uid(), project_id=project_id, title="Song A",
+        id=_uid(), project_id=project_id, title="SongRecord A",
         artist="Artist", order=0, active_version_id=None,
     )
     defaults.update(kw)
-    return Song(**defaults)
+    return SongRecord(**defaults)
 
 
-def _make_version(song_id: str, **kw) -> SongVersion:
+def _make_version(song_id: str, **kw) -> SongVersionRecord:
     defaults = dict(
         id=_uid(), song_id=song_id, label="Studio Mix",
         audio_file="audio/song.wav", duration_seconds=180.0,
         original_sample_rate=44100, audio_hash="abc123", created_at=_now(),
     )
     defaults.update(kw)
-    return SongVersion(**defaults)
+    return SongVersionRecord(**defaults)
 
 
 def _make_layer(song_version_id: str, **kw) -> LayerRecord:
@@ -119,7 +119,7 @@ def _make_take(is_main: bool = False, **kw) -> Take:
     return Take(**defaults)
 
 
-def _make_pipeline_config(song_version_id: str, **kw) -> PipelineConfig:
+def _make_pipeline_config(song_version_id: str, **kw) -> PipelineConfigRecord:
     defaults = dict(
         id=_uid(), song_version_id=song_version_id,
         template_id="onset_detection",
@@ -131,7 +131,7 @@ def _make_pipeline_config(song_version_id: str, **kw) -> PipelineConfig:
         updated_at=_now(),
     )
     defaults.update(kw)
-    return PipelineConfig(**defaults)
+    return PipelineConfigRecord(**defaults)
 
 
 # ---------------------------------------------------------------------------
@@ -246,14 +246,14 @@ class TestBaseRepository:
 
 
 # ---------------------------------------------------------------------------
-# Project CRUD
+# ProjectRecord CRUD
 # ---------------------------------------------------------------------------
 
 
 class TestProjectRepository:
     def test_create_and_get(self, conn):
         repo = ProjectRepository(conn)
-        p = _make_project(name="My Show", settings=ProjectSettings(bpm=120.0))
+        p = _make_project(name="My Show", settings=ProjectSettingsRecord(bpm=120.0))
         repo.create(p)
         conn.commit()
         got = repo.get(p.id)
@@ -309,7 +309,7 @@ class TestProjectRepository:
 
     def test_settings_round_trip(self, conn):
         repo = ProjectRepository(conn)
-        s = ProjectSettings(sample_rate=48000, bpm=140.5, bpm_confidence=0.95, timecode_fps=29.97)
+        s = ProjectSettingsRecord(sample_rate=48000, bpm=140.5, bpm_confidence=0.95, timecode_fps=29.97)
         p = _make_project(settings=s)
         repo.create(p)
         conn.commit()
@@ -318,12 +318,12 @@ class TestProjectRepository:
 
 
 # ---------------------------------------------------------------------------
-# Song CRUD
+# SongRecord CRUD
 # ---------------------------------------------------------------------------
 
 
 class TestSongRepository:
-    def _setup(self, conn) -> tuple[ProjectRepository, SongRepository, Project]:
+    def _setup(self, conn) -> tuple[ProjectRepository, SongRepository, ProjectRecord]:
         pr = ProjectRepository(conn)
         sr = SongRepository(conn)
         p = _make_project()
@@ -387,7 +387,7 @@ class TestSongRepository:
 
 
 # ---------------------------------------------------------------------------
-# SongVersion CRUD
+# SongVersionRecord CRUD
 # ---------------------------------------------------------------------------
 
 
@@ -687,7 +687,7 @@ class TestTakeRepository:
 
 
 # ---------------------------------------------------------------------------
-# PipelineConfig CRUD
+# PipelineConfigRecord CRUD
 # ---------------------------------------------------------------------------
 
 
@@ -1079,7 +1079,7 @@ class TestRoundTrip:
         # Create hierarchy
         project = _make_project(
             name="Tour 2026",
-            settings=ProjectSettings(sample_rate=48000, bpm=128.0),
+            settings=ProjectSettingsRecord(sample_rate=48000, bpm=128.0),
         )
         pr.create(project)
 
@@ -1192,7 +1192,7 @@ class TestEdgeCases:
 
     def test_project_with_null_optional_settings(self, conn):
         pr = ProjectRepository(conn)
-        p = _make_project(settings=ProjectSettings())
+        p = _make_project(settings=ProjectSettingsRecord())
         pr.create(p)
         conn.commit()
         got = pr.get(p.id)

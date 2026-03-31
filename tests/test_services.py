@@ -17,8 +17,8 @@ import echozero.pipelines.templates  # noqa: F401 — register templates
 from echozero.domain.types import AudioData, Event, EventData, Layer
 from echozero.errors import ExecutionError, ValidationError
 from echozero.execution import ExecutionContext
-from echozero.persistence.entities import PipelineConfig, Song, SongVersion
-from echozero.persistence.session import ProjectSession
+from echozero.persistence.entities import PipelineConfigRecord, SongRecord, SongVersionRecord
+from echozero.persistence.session import ProjectStorage
 from echozero.pipelines.registry import get_registry
 from echozero.result import Err, Ok, err, ok
 from echozero.services.orchestrator import AnalysisResult, Orchestrator as AnalysisService
@@ -105,21 +105,21 @@ def _default_executors() -> dict[str, Any]:
 def _create_session_with_song(
     tmp_path: Any,
     audio_file: str = "/path/to/test.wav",
-) -> tuple[ProjectSession, Song, SongVersion]:
-    """Create a ProjectSession with one song and one version."""
-    session = ProjectSession.create_new("Test Project", working_dir_root=tmp_path)
+) -> tuple[ProjectStorage, SongRecord, SongVersionRecord]:
+    """Create a ProjectStorage with one song and one version."""
+    session = ProjectStorage.create_new("Test ProjectRecord", working_dir_root=tmp_path)
     now = datetime.now(timezone.utc)
 
-    song = Song(
+    song = SongRecord(
         id=uuid.uuid4().hex,
         project_id=session.project.id,
-        title="Test Song",
+        title="Test SongRecord",
         artist="Test Artist",
         order=0,
     )
     session.songs.create(song)
 
-    version = SongVersion(
+    version = SongVersionRecord(
         id=uuid.uuid4().hex,
         song_id=song.id,
         label="Studio Mix",
@@ -138,25 +138,25 @@ def _create_session_with_song(
 def _create_session_with_songs(
     tmp_path: Any,
     count: int = 3,
-) -> tuple[ProjectSession, list[Song], list[SongVersion]]:
-    """Create a ProjectSession with multiple songs and versions."""
-    session = ProjectSession.create_new("Test Project", working_dir_root=tmp_path)
+) -> tuple[ProjectStorage, list[SongRecord], list[SongVersionRecord]]:
+    """Create a ProjectStorage with multiple songs and versions."""
+    session = ProjectStorage.create_new("Test ProjectRecord", working_dir_root=tmp_path)
     now = datetime.now(timezone.utc)
-    songs: list[Song] = []
-    versions: list[SongVersion] = []
+    songs: list[SongRecord] = []
+    versions: list[SongVersionRecord] = []
 
     for i in range(count):
-        song = Song(
+        song = SongRecord(
             id=uuid.uuid4().hex,
             project_id=session.project.id,
-            title=f"Song {i + 1}",
+            title=f"SongRecord {i + 1}",
             artist="Test Artist",
             order=i,
         )
         session.songs.create(song)
         songs.append(song)
 
-        version = SongVersion(
+        version = SongVersionRecord(
             id=uuid.uuid4().hex,
             song_id=song.id,
             label=f"Mix {i + 1}",
@@ -274,14 +274,14 @@ class TestAnalysisServiceErrors:
     """Verify error handling for invalid inputs."""
 
     def test_nonexistent_song_version(self, tmp_path: Any) -> None:
-        session = ProjectSession.create_new("Test", working_dir_root=tmp_path)
+        session = ProjectStorage.create_new("Test", working_dir_root=tmp_path)
         service = AnalysisService(get_registry(), _default_executors())
 
         result = service.analyze(session, "nonexistent_id", "onset_detection")
 
         assert isinstance(result, Err)
         assert isinstance(result.error, ValidationError)
-        assert "SongVersion not found" in str(result.error)
+        assert "SongVersionRecord not found" in str(result.error)
 
         session.close()
 
@@ -368,7 +368,7 @@ class TestAnalysisServiceBindings:
         session.close()
 
     def test_auto_binding_sets_audio_file(self, tmp_path: Any) -> None:
-        """The service auto-binds audio_file from SongVersion."""
+        """The service auto-binds audio_file from SongVersionRecord."""
         session, song, version = _create_session_with_song(
             tmp_path, audio_file="/my/custom/audio.wav",
         )
@@ -533,7 +533,7 @@ class TestAnalysisServiceRoundTrip:
         session.close()
 
         # Reopen and verify
-        session2 = ProjectSession.open_db(working_dir)
+        session2 = ProjectStorage.open_db(working_dir)
 
         layers = session2.layers.list_by_version(version.id)
         assert len(layers) == 1
@@ -556,7 +556,7 @@ class TestAnalysisServiceRoundTrip:
 
 
 def _create_pipeline_config(session, song_version_id, template_id="onset_detection"):
-    """Helper: create a PipelineConfig via Orchestrator.create_config and return the ID."""
+    """Helper: create a PipelineConfigRecord via Orchestrator.create_config and return the ID."""
     from echozero.result import unwrap
     service = AnalysisService(get_registry(), _default_executors())
     result = service.create_config(session, song_version_id, template_id)
@@ -633,7 +633,7 @@ class TestSetlistProcessorFailure:
         session.close()
 
     def test_all_fail(self, tmp_path: Any) -> None:
-        session = ProjectSession.create_new("Test", working_dir_root=tmp_path)
+        session = ProjectStorage.create_new("Test", working_dir_root=tmp_path)
         service = AnalysisService(get_registry(), _default_executors())
         processor = SetlistProcessor(service)
 
@@ -688,7 +688,7 @@ class TestSetlistProcessorEmpty:
     """Verify empty setlist behavior."""
 
     def test_empty_list_returns_zero_summary(self, tmp_path: Any) -> None:
-        session = ProjectSession.create_new("Test", working_dir_root=tmp_path)
+        session = ProjectStorage.create_new("Test", working_dir_root=tmp_path)
         service = AnalysisService(get_registry(), _default_executors())
         processor = SetlistProcessor(service)
 
@@ -725,7 +725,7 @@ class TestSetlistProcessorRoundTrip:
         session.close()
 
         # Reopen and verify all songs have layers and takes
-        session2 = ProjectSession.open_db(working_dir)
+        session2 = ProjectStorage.open_db(working_dir)
 
         for version in versions:
             layers = session2.layers.list_by_version(version.id)

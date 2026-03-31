@@ -13,7 +13,7 @@ import numpy as np
 import pytest
 
 from echozero.domain.types import WaveformData
-from echozero.persistence.entities import SongVersion
+from echozero.persistence.entities import SongVersionRecord
 from echozero.processors.load_audio import AudioFileInfo
 from echozero.services.waveform import generate_waveform_for_version
 
@@ -23,8 +23,8 @@ from echozero.services.waveform import generate_waveform_for_version
 # ---------------------------------------------------------------------------
 
 
-def _mock_version(audio_file: str = "audio/test.wav") -> SongVersion:
-    return SongVersion(
+def _mock_version(audio_file: str = "audio/test.wav") -> SongVersionRecord:
+    return SongVersionRecord(
         id="v1",
         song_id="s1",
         label="Original",

@@ -34,7 +34,7 @@ from echozero.domain.graph import Graph
 from echozero.domain.types import Block, BlockSettings, Event, Port
 from echozero.errors import ExecutionError
 from echozero.persistence.archive import unpack_ez
-from echozero.persistence.session import ProjectSession
+from echozero.persistence.session import ProjectStorage
 from echozero.result import is_err, unwrap
 from echozero.serialization import deserialize_graph, deserialize_pipeline, serialize_graph
 from echozero.takes import Take, TakeLayer, TakeLayerError
@@ -113,26 +113,26 @@ class TestWI1Lockfile:
 
     def test_double_open_raises(self, tmp_path):
         """Opening same working dir twice raises RuntimeError."""
-        session1 = ProjectSession.create_new("test", working_dir_root=tmp_path)
+        session1 = ProjectStorage.create_new("test", working_dir_root=tmp_path)
         try:
             with pytest.raises(RuntimeError, match="already open"):
-                ProjectSession.open_db(session1.working_dir)
+                ProjectStorage.open_db(session1.working_dir)
         finally:
             session1.close()
 
     def test_after_close_can_reopen(self, tmp_path):
         """After closing, the same project can be reopened."""
-        session1 = ProjectSession.create_new("test", working_dir_root=tmp_path)
+        session1 = ProjectStorage.create_new("test", working_dir_root=tmp_path)
         working_dir = session1.working_dir
         session1.close()
 
-        session2 = ProjectSession.open_db(working_dir)
+        session2 = ProjectStorage.open_db(working_dir)
         assert session2 is not None
         session2.close()
 
     def test_lockfile_created_on_open(self, tmp_path):
         """A project.lock file should exist while session is open."""
-        session = ProjectSession.create_new("test", working_dir_root=tmp_path)
+        session = ProjectStorage.create_new("test", working_dir_root=tmp_path)
         try:
             lock_path = session.working_dir / "project.lock"
             assert lock_path.exists(), "project.lock should exist while session is open"
@@ -141,7 +141,7 @@ class TestWI1Lockfile:
 
     def test_lockfile_removed_on_close(self, tmp_path):
         """project.lock should be removed when session is closed."""
-        session = ProjectSession.create_new("test", working_dir_root=tmp_path)
+        session = ProjectStorage.create_new("test", working_dir_root=tmp_path)
         lock_path = session.working_dir / "project.lock"
         session.close()
         assert not lock_path.exists(), "project.lock should be removed after close"

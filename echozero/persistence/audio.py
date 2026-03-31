@@ -25,7 +25,7 @@ def import_audio(source_path: Path, working_dir: Path) -> tuple[str, str]:
 
     Args:
         source_path: Absolute path to the source audio file
-        working_dir: Project working directory
+        working_dir: ProjectRecord working directory
 
     Returns:
         (project_relative_path, sha256_hash)
@@ -50,8 +50,8 @@ def verify_audio(working_dir: Path, audio_file: str, expected_hash: str) -> bool
     """Verify an audio file's integrity by checking its hash.
 
     Args:
-        working_dir: Project working directory
-        audio_file: Project-relative path (e.g. 'audio/a3f2c8d1e9b04f71.wav')
+        working_dir: ProjectRecord working directory
+        audio_file: ProjectRecord-relative path (e.g. 'audio/a3f2c8d1e9b04f71.wav')
         expected_hash: Expected SHA-256 hash
 
     Returns True if file exists and hash matches, False otherwise.

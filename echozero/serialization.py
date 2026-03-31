@@ -335,7 +335,7 @@ def deserialize_take_layer(data: dict[str, Any]) -> TakeLayer:
 
 
 # ---------------------------------------------------------------------------
-# Project save/load
+# ProjectRecord save/load
 # ---------------------------------------------------------------------------
 
 

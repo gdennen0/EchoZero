@@ -11,8 +11,8 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
-from echozero.persistence.entities import PipelineConfig
-from echozero.persistence.session import ProjectSession
+from echozero.persistence.entities import PipelineConfigRecord
+from echozero.persistence.session import ProjectStorage
 from echozero.result import Result, is_ok
 from echozero.services.orchestrator import AnalysisResult, Orchestrator
 
@@ -36,15 +36,15 @@ class SetlistProcessor:
 
     def process_setlist(
         self,
-        session: ProjectSession,
+        session: ProjectStorage,
         config_ids: list[str],
         on_progress: Callable[[str, int, int], None] | None = None,
     ) -> SetlistResult:
-        """Process all songs sequentially using persisted PipelineConfig IDs.
+        """Process all songs sequentially using persisted PipelineConfigRecord IDs.
 
         Args:
             session: The project session
-            config_ids: List of PipelineConfig IDs to execute
+            config_ids: List of PipelineConfigRecord IDs to execute
             on_progress: Callback(message, current_index, total_count)
 
         Returns SetlistResult with per-song results and summary.

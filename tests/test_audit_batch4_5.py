@@ -259,10 +259,10 @@ def test_analyze_delegates_to_execute():
 
 def test_import_song_rejects_invalid_audio(tmp_path):
     """import_song() should raise ValidationError for invalid audio before copying."""
-    from echozero.persistence.session import ProjectSession
+    from echozero.persistence.session import ProjectStorage
     from echozero.errors import ValidationError
 
-    session = ProjectSession.create_new("Test", working_dir_root=tmp_path)
+    session = ProjectStorage.create_new("Test", working_dir_root=tmp_path)
 
     fake_audio = tmp_path / "bad.wav"
     fake_audio.write_bytes(b"NOT AUDIO DATA")
@@ -271,17 +271,17 @@ def test_import_song_rejects_invalid_audio(tmp_path):
         raise RuntimeError("Not a valid audio file")
 
     with pytest.raises(ValidationError, match="Invalid audio file"):
-        session.import_song("Bad Song", fake_audio, scan_fn=bad_scan)
+        session.import_song("Bad SongRecord", fake_audio, scan_fn=bad_scan)
 
     session.close()
 
 
 def test_import_song_accepts_valid_audio(tmp_path):
     """import_song() should succeed when audio passes validation."""
-    from echozero.persistence.session import ProjectSession
+    from echozero.persistence.session import ProjectStorage
     from echozero.persistence.audio import AudioMetadata
 
-    session = ProjectSession.create_new("Test", working_dir_root=tmp_path)
+    session = ProjectStorage.create_new("Test", working_dir_root=tmp_path)
 
     fake_audio = tmp_path / "good.wav"
     fake_audio.write_bytes(b"fake audio content")
@@ -289,8 +289,8 @@ def test_import_song_accepts_valid_audio(tmp_path):
     def good_scan(path):
         return AudioMetadata(duration_seconds=3.0, sample_rate=44100, channel_count=2)
 
-    song, version = session.import_song("Good Song", fake_audio, scan_fn=good_scan)
-    assert song.title == "Good Song"
+    song, version = session.import_song("Good SongRecord", fake_audio, scan_fn=good_scan)
+    assert song.title == "Good SongRecord"
     assert version.duration_seconds == 3.0
 
     session.close()

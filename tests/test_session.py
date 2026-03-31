@@ -1,5 +1,5 @@
 """
-ProjectSession + DirtyTracker tests: lifecycle, persistence round-trips, autosave, recovery.
+ProjectStorage + DirtyTracker tests: lifecycle, persistence round-trips, autosave, recovery.
 Exercises the session layer against real SQLite working directories in temp folders.
 """
 
@@ -44,13 +44,13 @@ from echozero.event_bus import EventBus
 from echozero.persistence.dirty import DirtyTracker
 from echozero.persistence.entities import (
     LayerRecord,
-    Project,
-    ProjectSettings,
-    Song,
-    SongVersion,
+    ProjectRecord,
+    ProjectSettingsRecord,
+    SongRecord,
+    SongVersionRecord,
 )
 from echozero.persistence.repositories import PipelineConfigRepository
-from echozero.persistence.session import ProjectSession
+from echozero.persistence.session import ProjectStorage
 from echozero.takes import Take, TakeSource
 
 
@@ -114,23 +114,23 @@ def _make_graph() -> Graph:
     return graph
 
 
-def _make_song(project_id: str, **kw) -> Song:
+def _make_song(project_id: str, **kw) -> SongRecord:
     defaults = dict(
-        id=_uid(), project_id=project_id, title="Song A",
+        id=_uid(), project_id=project_id, title="SongRecord A",
         artist="Artist", order=0, active_version_id=None,
     )
     defaults.update(kw)
-    return Song(**defaults)
+    return SongRecord(**defaults)
 
 
-def _make_version(song_id: str, **kw) -> SongVersion:
+def _make_version(song_id: str, **kw) -> SongVersionRecord:
     defaults = dict(
         id=_uid(), song_id=song_id, label="Studio Mix",
         audio_file="audio/song.wav", duration_seconds=180.0,
         original_sample_rate=44100, audio_hash="abc123", created_at=_now(),
     )
     defaults.update(kw)
-    return SongVersion(**defaults)
+    return SongVersionRecord(**defaults)
 
 
 def _make_layer(song_version_id: str, **kw) -> LayerRecord:
@@ -287,13 +287,13 @@ class TestDirtyTracker:
 
 
 # ---------------------------------------------------------------------------
-# ProjectSession — creation and basic lifecycle
+# ProjectStorage — creation and basic lifecycle
 # ---------------------------------------------------------------------------
 
 
 class TestSessionCreate:
     def test_create_new_creates_working_dir(self, tmp_root):
-        session = ProjectSession.create_new("Test", working_dir_root=tmp_root)
+        session = ProjectStorage.create_new("Test", working_dir_root=tmp_root)
         try:
             assert session.working_dir.exists()
             assert (session.working_dir / "project.db").exists()
@@ -301,9 +301,9 @@ class TestSessionCreate:
             session.close()
 
     def test_create_new_project_entity(self, tmp_root):
-        session = ProjectSession.create_new(
+        session = ProjectStorage.create_new(
             "My Show",
-            settings=ProjectSettings(bpm=120.0),
+            settings=ProjectSettingsRecord(bpm=120.0),
             working_dir_root=tmp_root,
         )
         try:
@@ -314,7 +314,7 @@ class TestSessionCreate:
             session.close()
 
     def test_create_new_project_persisted(self, tmp_root):
-        session = ProjectSession.create_new("Persisted", working_dir_root=tmp_root)
+        session = ProjectStorage.create_new("Persisted", working_dir_root=tmp_root)
         try:
             got = session.projects.get(session.project.id)
             assert got is not None
@@ -323,7 +323,7 @@ class TestSessionCreate:
             session.close()
 
     def test_create_new_default_settings(self, tmp_root):
-        session = ProjectSession.create_new("Defaults", working_dir_root=tmp_root)
+        session = ProjectStorage.create_new("Defaults", working_dir_root=tmp_root)
         try:
             assert session.project.settings.sample_rate == 44100
             assert session.project.settings.bpm is None
@@ -331,7 +331,7 @@ class TestSessionCreate:
             session.close()
 
     def test_create_new_starts_clean(self, tmp_root):
-        session = ProjectSession.create_new("Clean", working_dir_root=tmp_root)
+        session = ProjectStorage.create_new("Clean", working_dir_root=tmp_root)
         try:
             assert session.is_dirty() is False
         finally:
@@ -339,7 +339,7 @@ class TestSessionCreate:
 
     def test_wal_mode_enabled(self, tmp_root):
         """Verify WAL mode is set on new sessions."""
-        session = ProjectSession.create_new("WAL", working_dir_root=tmp_root)
+        session = ProjectStorage.create_new("WAL", working_dir_root=tmp_root)
         try:
             mode = session.db.execute("PRAGMA journal_mode").fetchone()[0]
             assert mode == "wal"
@@ -348,7 +348,7 @@ class TestSessionCreate:
 
     def test_row_factory_is_sqlite_row(self, tmp_root):
         """Verify row_factory is set to sqlite3.Row."""
-        session = ProjectSession.create_new("RowFactory", working_dir_root=tmp_root)
+        session = ProjectStorage.create_new("RowFactory", working_dir_root=tmp_root)
         try:
             assert session.db.row_factory is sqlite3.Row
         finally:
@@ -362,12 +362,12 @@ class TestSessionCreate:
 
 class TestSessionOpenDb:
     def test_open_db_loads_project(self, tmp_root):
-        session1 = ProjectSession.create_new("Reopen", working_dir_root=tmp_root)
+        session1 = ProjectStorage.create_new("Reopen", working_dir_root=tmp_root)
         wd = session1.working_dir
         pid = session1.project.id
         session1.close()
 
-        session2 = ProjectSession.open_db(wd)
+        session2 = ProjectStorage.open_db(wd)
         try:
             assert session2.project.id == pid
             assert session2.project.name == "Reopen"
@@ -376,7 +376,7 @@ class TestSessionOpenDb:
 
     def test_open_db_missing_dir_raises(self, tmp_root):
         with pytest.raises(FileNotFoundError):
-            ProjectSession.open_db(tmp_root / "nonexistent")
+            ProjectStorage.open_db(tmp_root / "nonexistent")
 
     def test_open_db_empty_db_raises(self, tmp_root):
         wd = tmp_root / "empty"
@@ -387,15 +387,15 @@ class TestSessionOpenDb:
         conn.close()
 
         with pytest.raises(ValueError, match="No project found"):
-            ProjectSession.open_db(wd)
+            ProjectStorage.open_db(wd)
 
     def test_open_db_has_wal_mode(self, tmp_root):
         """Verify WAL mode is set when reopening an existing DB."""
-        session1 = ProjectSession.create_new("WALReopen", working_dir_root=tmp_root)
+        session1 = ProjectStorage.create_new("WALReopen", working_dir_root=tmp_root)
         wd = session1.working_dir
         session1.close()
 
-        session2 = ProjectSession.open_db(wd)
+        session2 = ProjectStorage.open_db(wd)
         try:
             mode = session2.db.execute("PRAGMA journal_mode").fetchone()[0]
             assert mode == "wal"
@@ -411,9 +411,9 @@ class TestSessionOpenDb:
 
 class TestSessionTransaction:
     def test_transaction_commits_on_success(self, tmp_root):
-        session = ProjectSession.create_new("TxnSuccess", working_dir_root=tmp_root)
+        session = ProjectStorage.create_new("TxnSuccess", working_dir_root=tmp_root)
         try:
-            song = _make_song(session.project.id, title="Atomic Song")
+            song = _make_song(session.project.id, title="Atomic SongRecord")
             version = _make_version(song.id)
 
             with session.transaction():
@@ -424,11 +424,11 @@ class TestSessionTransaction:
             wd = session.working_dir
             session.close()
 
-            session2 = ProjectSession.open_db(wd)
+            session2 = ProjectStorage.open_db(wd)
             try:
                 songs = session2.songs.list_by_project(session2.project.id)
                 assert len(songs) == 1
-                assert songs[0].title == "Atomic Song"
+                assert songs[0].title == "Atomic SongRecord"
                 versions = session2.song_versions.list_by_song(song.id)
                 assert len(versions) == 1
             finally:
@@ -438,7 +438,7 @@ class TestSessionTransaction:
             raise
 
     def test_transaction_rolls_back_on_error(self, tmp_root):
-        session = ProjectSession.create_new("TxnRollback", working_dir_root=tmp_root)
+        session = ProjectStorage.create_new("TxnRollback", working_dir_root=tmp_root)
         try:
             song = _make_song(session.project.id, title="Rolled Back")
 
@@ -447,14 +447,14 @@ class TestSessionTransaction:
                     session.songs.create(song)
                     raise ValueError("boom")
 
-            # Song should NOT be persisted after rollback
+            # SongRecord should NOT be persisted after rollback
             songs = session.songs.list_by_project(session.project.id)
             assert len(songs) == 0
         finally:
             session.close()
 
     def test_commit_explicitly(self, tmp_root):
-        session = ProjectSession.create_new("ExplicitCommit", working_dir_root=tmp_root)
+        session = ProjectStorage.create_new("ExplicitCommit", working_dir_root=tmp_root)
         try:
             song = _make_song(session.project.id, title="Committed")
             session.songs.create(song)
@@ -464,7 +464,7 @@ class TestSessionTransaction:
             wd = session.working_dir
             session.close()
 
-            session2 = ProjectSession.open_db(wd)
+            session2 = ProjectStorage.open_db(wd)
             try:
                 songs = session2.songs.list_by_project(session2.project.id)
                 assert len(songs) == 1
@@ -476,13 +476,13 @@ class TestSessionTransaction:
             raise
 
     def test_commit_after_close_raises(self, tmp_root):
-        session = ProjectSession.create_new("ClosedCommit", working_dir_root=tmp_root)
+        session = ProjectStorage.create_new("ClosedCommit", working_dir_root=tmp_root)
         session.close()
         with pytest.raises(RuntimeError, match="closed"):
             session.commit()
 
     def test_transaction_after_close_raises(self, tmp_root):
-        session = ProjectSession.create_new("ClosedTxn", working_dir_root=tmp_root)
+        session = ProjectStorage.create_new("ClosedTxn", working_dir_root=tmp_root)
         session.close()
         with pytest.raises(RuntimeError, match="closed"):
             with session.transaction():
@@ -496,7 +496,7 @@ class TestSessionTransaction:
 
 class TestSessionSave:
     def test_save_clears_dirty(self, tmp_root):
-        session = ProjectSession.create_new("Dirty", working_dir_root=tmp_root)
+        session = ProjectStorage.create_new("Dirty", working_dir_root=tmp_root)
         try:
             session.dirty_tracker.mark_dirty()
             assert session.is_dirty() is True
@@ -507,7 +507,7 @@ class TestSessionSave:
 
     def test_save_as_creates_ez_file(self, tmp_root, tmp_path):
         """save_as() creates a .ez archive file."""
-        session = ProjectSession.create_new("SaveAs", working_dir_root=tmp_root)
+        session = ProjectStorage.create_new("SaveAs", working_dir_root=tmp_root)
         try:
             ez_path = tmp_path / "output.ez"
             session.save_as(ez_path)
@@ -523,7 +523,7 @@ class TestSessionSave:
 
     def test_save_as_clears_dirty(self, tmp_root, tmp_path):
         """save_as() clears the dirty tracker."""
-        session = ProjectSession.create_new("DirtySaveAs", working_dir_root=tmp_root)
+        session = ProjectStorage.create_new("DirtySaveAs", working_dir_root=tmp_root)
         try:
             session.dirty_tracker.mark_dirty()
             assert session.is_dirty() is True
@@ -535,16 +535,16 @@ class TestSessionSave:
 
     def test_save_as_after_close_raises(self, tmp_root, tmp_path):
         """save_as() raises RuntimeError after close."""
-        session = ProjectSession.create_new("Closed", working_dir_root=tmp_root)
+        session = ProjectStorage.create_new("Closed", working_dir_root=tmp_root)
         session.close()
         with pytest.raises(RuntimeError, match="closed"):
             session.save_as(tmp_path / "output.ez")
 
     def test_full_hierarchy_round_trip(self, tmp_root):
         """Create -> add songs/versions/layers/takes -> save -> reopen -> verify."""
-        session = ProjectSession.create_new(
+        session = ProjectStorage.create_new(
             "Tour 2026",
-            settings=ProjectSettings(sample_rate=48000, bpm=128.0),
+            settings=ProjectSettingsRecord(sample_rate=48000, bpm=128.0),
             working_dir_root=tmp_root,
         )
         pid = session.project.id
@@ -567,7 +567,7 @@ class TestSessionSave:
         session.close()
 
         # Reopen and verify
-        session2 = ProjectSession.open_db(wd)
+        session2 = ProjectStorage.open_db(wd)
         try:
             assert session2.project.name == "Tour 2026"
             assert session2.project.settings.bpm == 128.0
@@ -599,7 +599,7 @@ class TestSessionSave:
 class TestSessionDirtyIntegration:
     def test_event_bus_mutations_dirty_session(self, tmp_root):
         bus = EventBus()
-        session = ProjectSession.create_new(
+        session = ProjectStorage.create_new(
             "Evented", event_bus=bus, working_dir_root=tmp_root,
         )
         try:
@@ -613,7 +613,7 @@ class TestSessionDirtyIntegration:
 
     def test_save_clears_event_bus_dirty(self, tmp_root):
         bus = EventBus()
-        session = ProjectSession.create_new(
+        session = ProjectStorage.create_new(
             "Evented2", event_bus=bus, working_dir_root=tmp_root,
         )
         try:
@@ -627,7 +627,7 @@ class TestSessionDirtyIntegration:
             session.close()
 
     def test_manual_dirty_via_persistence_op(self, tmp_root):
-        session = ProjectSession.create_new("Manual", working_dir_root=tmp_root)
+        session = ProjectStorage.create_new("Manual", working_dir_root=tmp_root)
         try:
             session.dirty_tracker.mark_dirty("song_xyz")
             assert session.is_dirty() is True
@@ -643,7 +643,7 @@ class TestSessionDirtyIntegration:
 
 class TestSessionGraph:
     def test_save_and_load_graph(self, tmp_root):
-        session = ProjectSession.create_new("Graphed", working_dir_root=tmp_root)
+        session = ProjectStorage.create_new("Graphed", working_dir_root=tmp_root)
         try:
             graph = _make_graph()
             session.save_graph(graph)
@@ -658,7 +658,7 @@ class TestSessionGraph:
             session.close()
 
     def test_load_graph_returns_none_when_empty(self, tmp_root):
-        session = ProjectSession.create_new("NoGraph", working_dir_root=tmp_root)
+        session = ProjectStorage.create_new("NoGraph", working_dir_root=tmp_root)
         try:
             assert session.load_graph() is None
         finally:
@@ -666,14 +666,14 @@ class TestSessionGraph:
 
     def test_graph_persists_across_sessions(self, tmp_root):
         """save_graph marks dirty but doesn't auto-commit; save() commits."""
-        session = ProjectSession.create_new("GraphPersist", working_dir_root=tmp_root)
+        session = ProjectStorage.create_new("GraphPersist", working_dir_root=tmp_root)
         wd = session.working_dir
         graph = _make_graph()
         session.save_graph(graph)
         session.save()
         session.close()
 
-        session2 = ProjectSession.open_db(wd)
+        session2 = ProjectStorage.open_db(wd)
         try:
             loaded = session2.load_graph()
             assert loaded is not None
@@ -684,7 +684,7 @@ class TestSessionGraph:
 
     def test_save_graph_marks_dirty(self, tmp_root):
         """save_graph should mark dirty but NOT auto-commit."""
-        session = ProjectSession.create_new("GraphDirty", working_dir_root=tmp_root)
+        session = ProjectStorage.create_new("GraphDirty", working_dir_root=tmp_root)
         try:
             assert session.is_dirty() is False
             graph = _make_graph()
@@ -694,7 +694,7 @@ class TestSessionGraph:
             session.close()
 
     def test_graph_block_settings_round_trip(self, tmp_root):
-        session = ProjectSession.create_new("Settings", working_dir_root=tmp_root)
+        session = ProjectStorage.create_new("Settings", working_dir_root=tmp_root)
         try:
             graph = _make_graph()
             session.save_graph(graph)
@@ -712,7 +712,7 @@ class TestSessionGraph:
 
 class TestSessionAutosave:
     def test_autosave_commits_dirty(self, tmp_root):
-        session = ProjectSession.create_new("Autosave", working_dir_root=tmp_root)
+        session = ProjectStorage.create_new("Autosave", working_dir_root=tmp_root)
         try:
             session.dirty_tracker.mark_dirty()
             assert session.is_dirty() is True
@@ -726,7 +726,7 @@ class TestSessionAutosave:
             session.close()
 
     def test_autosave_does_not_fire_when_clean(self, tmp_root):
-        session = ProjectSession.create_new("Clean", working_dir_root=tmp_root)
+        session = ProjectStorage.create_new("Clean", working_dir_root=tmp_root)
         try:
             assert session.is_dirty() is False
             session.start_autosave(interval_seconds=0.1)
@@ -737,7 +737,7 @@ class TestSessionAutosave:
             session.close()
 
     def test_stop_autosave(self, tmp_root):
-        session = ProjectSession.create_new("Stop", working_dir_root=tmp_root)
+        session = ProjectStorage.create_new("Stop", working_dir_root=tmp_root)
         try:
             session.start_autosave(interval_seconds=0.1)
             session.stop_autosave()
@@ -749,7 +749,7 @@ class TestSessionAutosave:
             session.close()
 
     def test_autosave_stops_on_close(self, tmp_root):
-        session = ProjectSession.create_new("AutoClose", working_dir_root=tmp_root)
+        session = ProjectStorage.create_new("AutoClose", working_dir_root=tmp_root)
         session.start_autosave(interval_seconds=0.1)
         session.close()
         # Should not raise — timer is cancelled
@@ -763,12 +763,12 @@ class TestSessionAutosave:
 
 class TestSessionClose:
     def test_close_sets_closed(self, tmp_root):
-        session = ProjectSession.create_new("Close", working_dir_root=tmp_root)
+        session = ProjectStorage.create_new("Close", working_dir_root=tmp_root)
         session.close()
         assert session._closed is True
 
     def test_operations_after_close_raise(self, tmp_root):
-        session = ProjectSession.create_new("Closed", working_dir_root=tmp_root)
+        session = ProjectStorage.create_new("Closed", working_dir_root=tmp_root)
         session.close()
 
         with pytest.raises(RuntimeError, match="closed"):
@@ -790,24 +790,24 @@ class TestSessionClose:
             session.start_autosave()
 
     def test_double_close_is_safe(self, tmp_root):
-        session = ProjectSession.create_new("DoubleClose", working_dir_root=tmp_root)
+        session = ProjectStorage.create_new("DoubleClose", working_dir_root=tmp_root)
         session.close()
         session.close()  # Should not raise
 
     def test_context_manager(self, tmp_root):
-        with ProjectSession.create_new("Context", working_dir_root=tmp_root) as session:
+        with ProjectStorage.create_new("Context", working_dir_root=tmp_root) as session:
             assert session.project.name == "Context"
             session.dirty_tracker.mark_dirty()
         assert session._closed is True
 
     def test_context_manager_closes_on_exception(self, tmp_root):
         with pytest.raises(ValueError):
-            with ProjectSession.create_new("Error", working_dir_root=tmp_root) as session:
+            with ProjectStorage.create_new("Error", working_dir_root=tmp_root) as session:
                 raise ValueError("boom")
         assert session._closed is True
 
     def test_working_dir_survives_close(self, tmp_root):
-        session = ProjectSession.create_new("Survive", working_dir_root=tmp_root)
+        session = ProjectStorage.create_new("Survive", working_dir_root=tmp_root)
         wd = session.working_dir
         session.close()
         # Working dir is NOT deleted — enables crash recovery
@@ -827,7 +827,7 @@ class TestCrashRecovery:
         ez_path.touch()
 
         # No working dir yet
-        assert ProjectSession.check_recovery(ez_path, working_dir_root=tmp_root) is False
+        assert ProjectStorage.check_recovery(ez_path, working_dir_root=tmp_root) is False
 
         # Simulate: create the working dir with a DB
         import hashlib
@@ -839,14 +839,14 @@ class TestCrashRecovery:
         from echozero.persistence.schema import init_db
         init_db(conn)
         from echozero.persistence.repositories import ProjectRepository
-        ProjectRepository(conn).create(Project(
+        ProjectRepository(conn).create(ProjectRecord(
             id=_uid(), name="Recovered",
-            settings=ProjectSettings(), created_at=_now(), updated_at=_now(),
+            settings=ProjectSettingsRecord(), created_at=_now(), updated_at=_now(),
         ))
         conn.commit()
         conn.close()
 
-        assert ProjectSession.check_recovery(ez_path, working_dir_root=tmp_root) is True
+        assert ProjectStorage.check_recovery(ez_path, working_dir_root=tmp_root) is True
 
     def test_recover_opens_existing_working_dir(self, tmp_path):
         tmp_root = tmp_path / "working"
@@ -862,14 +862,14 @@ class TestCrashRecovery:
         from echozero.persistence.schema import init_db
         init_db(conn)
         from echozero.persistence.repositories import ProjectRepository
-        ProjectRepository(conn).create(Project(
+        ProjectRepository(conn).create(ProjectRecord(
             id="recover_id", name="Recovered",
-            settings=ProjectSettings(), created_at=_now(), updated_at=_now(),
+            settings=ProjectSettingsRecord(), created_at=_now(), updated_at=_now(),
         ))
         conn.commit()
         conn.close()
 
-        session = ProjectSession.recover(ez_path, working_dir_root=tmp_root)
+        session = ProjectStorage.recover(ez_path, working_dir_root=tmp_root)
         try:
             assert session.project.name == "Recovered"
             assert session.project.id == "recover_id"
@@ -888,7 +888,7 @@ class TestCrashRecovery:
         (wd / "project.db").touch()
 
         assert wd.exists()
-        ProjectSession.discard_recovery(ez_path, working_dir_root=tmp_root)
+        ProjectStorage.discard_recovery(ez_path, working_dir_root=tmp_root)
         assert not wd.exists()
 
     def test_discard_recovery_nonexistent_is_safe(self, tmp_path):
@@ -896,7 +896,7 @@ class TestCrashRecovery:
         ez_path = tmp_path / "ghost.ez"
         ez_path.touch()
         # Should not raise
-        ProjectSession.discard_recovery(ez_path, working_dir_root=tmp_root)
+        ProjectStorage.discard_recovery(ez_path, working_dir_root=tmp_root)
 
 
 # ---------------------------------------------------------------------------
@@ -906,8 +906,8 @@ class TestCrashRecovery:
 
 class TestMultipleProjects:
     def test_two_projects_independent(self, tmp_root):
-        s1 = ProjectSession.create_new("Project A", working_dir_root=tmp_root)
-        s2 = ProjectSession.create_new("Project B", working_dir_root=tmp_root)
+        s1 = ProjectStorage.create_new("ProjectRecord A", working_dir_root=tmp_root)
+        s2 = ProjectStorage.create_new("ProjectRecord B", working_dir_root=tmp_root)
         try:
             assert s1.working_dir != s2.working_dir
             assert s1.project.id != s2.project.id
@@ -923,8 +923,8 @@ class TestMultipleProjects:
             s2.close()
 
     def test_two_projects_both_save(self, tmp_root):
-        s1 = ProjectSession.create_new("A", working_dir_root=tmp_root)
-        s2 = ProjectSession.create_new("B", working_dir_root=tmp_root)
+        s1 = ProjectStorage.create_new("A", working_dir_root=tmp_root)
+        s2 = ProjectStorage.create_new("B", working_dir_root=tmp_root)
 
         s1.dirty_tracker.mark_dirty()
         s2.dirty_tracker.mark_dirty()
@@ -945,7 +945,7 @@ class TestMultipleProjects:
 
 class TestEdgeCases:
     def test_close_without_save_does_not_raise(self, tmp_root):
-        session = ProjectSession.create_new("NoSave", working_dir_root=tmp_root)
+        session = ProjectStorage.create_new("NoSave", working_dir_root=tmp_root)
         session.dirty_tracker.mark_dirty()
         session.close()  # Should not raise
 
@@ -958,7 +958,7 @@ class TestEdgeCases:
             SongVersionRepository,
             TakeRepository,
         )
-        session = ProjectSession.create_new("Types", working_dir_root=tmp_root)
+        session = ProjectStorage.create_new("Types", working_dir_root=tmp_root)
         try:
             assert isinstance(session.projects, ProjectRepository)
             assert isinstance(session.songs, SongRepository)
@@ -970,7 +970,7 @@ class TestEdgeCases:
             session.close()
 
     def test_save_graph_then_overwrite(self, tmp_root):
-        session = ProjectSession.create_new("Overwrite", working_dir_root=tmp_root)
+        session = ProjectStorage.create_new("Overwrite", working_dir_root=tmp_root)
         try:
             g1 = _make_graph()
             session.save_graph(g1)
@@ -987,11 +987,11 @@ class TestEdgeCases:
             session.close()
 
     def test_create_new_custom_settings(self, tmp_root):
-        settings = ProjectSettings(
+        settings = ProjectSettingsRecord(
             sample_rate=96000, bpm=160.0,
             bpm_confidence=0.99, timecode_fps=29.97,
         )
-        session = ProjectSession.create_new(
+        session = ProjectStorage.create_new(
             "Custom", settings=settings, working_dir_root=tmp_root,
         )
         try:
@@ -1003,7 +1003,7 @@ class TestEdgeCases:
 
 
 # ---------------------------------------------------------------------------
-# ProjectSession.open() test (item 19)
+# ProjectStorage.open() test (item 19)
 # ---------------------------------------------------------------------------
 
 
@@ -1024,14 +1024,14 @@ class TestSessionOpen:
         from echozero.persistence.schema import init_db
         from echozero.persistence.repositories import ProjectRepository
         init_db(conn)
-        ProjectRepository(conn).create(Project(
+        ProjectRepository(conn).create(ProjectRecord(
             id="open_test_id", name="OpenTest",
-            settings=ProjectSettings(), created_at=_now(), updated_at=_now(),
+            settings=ProjectSettingsRecord(), created_at=_now(), updated_at=_now(),
         ))
         conn.commit()
         conn.close()
 
-        session = ProjectSession.open(ez_path, working_dir_root=tmp_root)
+        session = ProjectStorage.open(ez_path, working_dir_root=tmp_root)
         try:
             assert session.project.id == "open_test_id"
             assert session.project.name == "OpenTest"
@@ -1044,7 +1044,7 @@ class TestSessionOpen:
         ez_path = tmp_path / "nonexistent.ez"
         # File doesn't exist at all
         with pytest.raises(FileNotFoundError):
-            ProjectSession.open(ez_path, working_dir_root=tmp_root)
+            ProjectStorage.open(ez_path, working_dir_root=tmp_root)
 
     def test_open_invalid_ez_file_raises(self, tmp_path):
         """Open with an invalid (non-ZIP) .ez file should raise."""
@@ -1052,7 +1052,7 @@ class TestSessionOpen:
         ez_path = tmp_path / "bad.ez"
         ez_path.write_bytes(b"not a zip file")
         with pytest.raises(Exception):  # BadZipFile or ValueError
-            ProjectSession.open(ez_path, working_dir_root=tmp_root)
+            ProjectStorage.open(ez_path, working_dir_root=tmp_root)
 
 
 # ---------------------------------------------------------------------------
@@ -1092,7 +1092,7 @@ class TestDirtyTrackerLastSavedAt:
         assert second > first
 
     def test_last_saved_at_via_session_save(self, tmp_root):
-        session = ProjectSession.create_new("SavedAt", working_dir_root=tmp_root)
+        session = ProjectStorage.create_new("SavedAt", working_dir_root=tmp_root)
         try:
             assert session.dirty_tracker.last_saved_at is None
             session.dirty_tracker.mark_dirty()
@@ -1112,7 +1112,7 @@ class TestConcurrentThreadSafety:
         """Autosave and manual save running simultaneously must not error."""
         import threading
 
-        session = ProjectSession.create_new("ThreadSafe", working_dir_root=tmp_root)
+        session = ProjectStorage.create_new("ThreadSafe", working_dir_root=tmp_root)
         errors = []
 
         def manual_save_loop():
@@ -1140,7 +1140,7 @@ class TestConcurrentThreadSafety:
         """Multiple threads writing via repos simultaneously must not corrupt."""
         import threading
 
-        session = ProjectSession.create_new("ConcWrite", working_dir_root=tmp_root)
+        session = ProjectStorage.create_new("ConcWrite", working_dir_root=tmp_root)
         errors = []
 
         def write_songs(n):
@@ -1177,7 +1177,7 @@ class TestConcurrentThreadSafety:
 class TestAutosavePolling:
     def test_autosave_commits_dirty_with_polling(self, tmp_root):
         """Use polling instead of fixed sleep for autosave test."""
-        session = ProjectSession.create_new("PollSave", working_dir_root=tmp_root)
+        session = ProjectStorage.create_new("PollSave", working_dir_root=tmp_root)
         try:
             session.dirty_tracker.mark_dirty()
             assert session.is_dirty() is True
@@ -1195,7 +1195,7 @@ class TestAutosavePolling:
 
     def test_autosave_not_fired_when_clean_polling(self, tmp_root):
         """Autosave with clean state - polled variant."""
-        session = ProjectSession.create_new("PollClean", working_dir_root=tmp_root)
+        session = ProjectStorage.create_new("PollClean", working_dir_root=tmp_root)
         try:
             assert session.is_dirty() is False
             session.start_autosave(interval_seconds=0.05)
@@ -1209,7 +1209,7 @@ class TestAutosavePolling:
 
     def test_stop_autosave_preserves_dirty_polling(self, tmp_root):
         """Stopping autosave should keep dirty state."""
-        session = ProjectSession.create_new("PollStop", working_dir_root=tmp_root)
+        session = ProjectStorage.create_new("PollStop", working_dir_root=tmp_root)
         try:
             session.start_autosave(interval_seconds=0.05)
             session.stop_autosave()
@@ -1230,37 +1230,37 @@ class TestAutosavePolling:
 
 class TestOperationsAfterClose:
     def test_song_versions_after_close_raises(self, tmp_root):
-        session = ProjectSession.create_new("Closed", working_dir_root=tmp_root)
+        session = ProjectStorage.create_new("Closed", working_dir_root=tmp_root)
         session.close()
         with pytest.raises(RuntimeError, match="closed"):
             _ = session.song_versions
 
     def test_layers_after_close_raises(self, tmp_root):
-        session = ProjectSession.create_new("Closed", working_dir_root=tmp_root)
+        session = ProjectStorage.create_new("Closed", working_dir_root=tmp_root)
         session.close()
         with pytest.raises(RuntimeError, match="closed"):
             _ = session.layers
 
     def test_takes_after_close_raises(self, tmp_root):
-        session = ProjectSession.create_new("Closed", working_dir_root=tmp_root)
+        session = ProjectStorage.create_new("Closed", working_dir_root=tmp_root)
         session.close()
         with pytest.raises(RuntimeError, match="closed"):
             _ = session.takes
 
     def test_pipeline_configs_after_close_raises(self, tmp_root):
-        session = ProjectSession.create_new("Closed", working_dir_root=tmp_root)
+        session = ProjectStorage.create_new("Closed", working_dir_root=tmp_root)
         session.close()
         with pytest.raises(RuntimeError, match="closed"):
             _ = session.pipeline_configs
 
     def test_commit_after_close_raises(self, tmp_root):
-        session = ProjectSession.create_new("Closed", working_dir_root=tmp_root)
+        session = ProjectStorage.create_new("Closed", working_dir_root=tmp_root)
         session.close()
         with pytest.raises(RuntimeError, match="closed"):
             session.commit()
 
     def test_transaction_after_close_raises(self, tmp_root):
-        session = ProjectSession.create_new("Closed", working_dir_root=tmp_root)
+        session = ProjectStorage.create_new("Closed", working_dir_root=tmp_root)
         session.close()
         with pytest.raises(RuntimeError, match="closed"):
             with session.transaction():

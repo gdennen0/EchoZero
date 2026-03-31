@@ -49,8 +49,8 @@ def test_block_settings_hash_consistency():
 # ---------------------------------------------------------------------------
 
 def test_autosave_skips_during_transaction(tmp_path):
-    from echozero.persistence.session import ProjectSession
-    session = ProjectSession.create_new("test", working_dir_root=tmp_path)
+    from echozero.persistence.session import ProjectStorage
+    session = ProjectStorage.create_new("test", working_dir_root=tmp_path)
     try:
         session._in_transaction = True
         session.dirty_tracker.mark_dirty("test")
@@ -81,8 +81,8 @@ def test_runtime_bus_double_unsubscribe():
 
 def test_list_by_layer_skips_corrupt_takes(tmp_path):
     """A take with NULL data_json should be skipped, not crash the listing."""
-    from echozero.persistence.session import ProjectSession
-    session = ProjectSession.create_new("test", working_dir_root=tmp_path)
+    from echozero.persistence.session import ProjectStorage
+    session = ProjectStorage.create_new("test", working_dir_root=tmp_path)
     try:
         # Disable FK checks so we can insert a layer without a real song_version row.
         session.db.execute("PRAGMA foreign_keys = OFF")

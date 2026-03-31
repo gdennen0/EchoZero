@@ -141,10 +141,10 @@ class TestExceptions:
     
     def test_entity_not_found_error(self):
         """Test EntityNotFoundError message format."""
-        error = EntityNotFoundError("Project", "proj-123")
-        assert "Project" in str(error)
+        error = EntityNotFoundError("ProjectRecord", "proj-123")
+        assert "ProjectRecord" in str(error)
         assert "proj-123" in str(error)
-        assert error.entity_name == "Project"
+        assert error.entity_name == "ProjectRecord"
         assert error.entity_id == "proj-123"
     
     def test_entity_not_found_error_with_context(self):
@@ -155,11 +155,11 @@ class TestExceptions:
     
     def test_duplicate_entity_error(self):
         """Test DuplicateEntityError message format."""
-        error = DuplicateEntityError("Project", "name", "MyProject")
-        assert "Project" in str(error)
+        error = DuplicateEntityError("ProjectRecord", "name", "MyProject")
+        assert "ProjectRecord" in str(error)
         assert "name" in str(error)
         assert "MyProject" in str(error)
-        assert error.entity_name == "Project"
+        assert error.entity_name == "ProjectRecord"
         assert error.field == "name"
         assert error.value == "MyProject"
     

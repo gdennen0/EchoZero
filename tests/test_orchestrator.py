@@ -22,8 +22,8 @@ import echozero.pipelines.templates  # noqa: F401 — register templates
 from echozero.domain.types import AudioData, Event, EventData, Layer
 from echozero.errors import ValidationError
 from echozero.execution import ExecutionContext
-from echozero.persistence.entities import Song, SongVersion
-from echozero.persistence.session import ProjectSession
+from echozero.persistence.entities import SongRecord, SongVersionRecord
+from echozero.persistence.session import ProjectStorage
 from echozero.pipelines.pipeline import Pipeline, PipelineOutput, PortRef
 from echozero.pipelines.registry import get_registry
 from echozero.result import Err, Ok, ok
@@ -111,15 +111,15 @@ def _full_executors():
 
 
 def _create_session(tmp_path, audio_file="/path/to/test.wav"):
-    session = ProjectSession.create_new("Test Project", working_dir_root=tmp_path)
+    session = ProjectStorage.create_new("Test ProjectRecord", working_dir_root=tmp_path)
     now = datetime.now(timezone.utc)
-    song = Song(
+    song = SongRecord(
         id=uuid.uuid4().hex,
         project_id=session.project.id,
-        title="Test Song", artist="Test Artist", order=0,
+        title="Test SongRecord", artist="Test Artist", order=0,
     )
     session.songs.create(song)
-    version = SongVersion(
+    version = SongVersionRecord(
         id=uuid.uuid4().hex, song_id=song.id, label="Studio Mix",
         audio_file=audio_file, duration_seconds=180.0,
         original_sample_rate=44100, audio_hash="abc123", created_at=now,
@@ -323,7 +323,7 @@ class TestRoundTrip:
         working_dir = session.working_dir
         session.close()
 
-        session2 = ProjectSession.open_db(working_dir)
+        session2 = ProjectStorage.open_db(working_dir)
         layers = session2.layers.list_by_version(version.id)
         assert len(layers) == 1
         assert layers[0].id == ar.layer_ids[0]
@@ -340,7 +340,7 @@ class TestRoundTrip:
 
 class TestErrors:
     def test_nonexistent_song_version(self, tmp_path):
-        session = ProjectSession.create_new("Test", working_dir_root=tmp_path)
+        session = ProjectStorage.create_new("Test", working_dir_root=tmp_path)
         orch = Orchestrator(get_registry(), _default_executors())
         result = orch.analyze(session, "nope", "onset_detection")
         assert isinstance(result, Err)

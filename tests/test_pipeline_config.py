@@ -1,5 +1,5 @@
 """
-Tests for the PipelineConfig persistence model.
+Tests for the PipelineConfigRecord persistence model.
 Verifies the full lifecycle: create from template → edit knobs → execute → re-edit.
 """
 
@@ -13,8 +13,8 @@ import pytest
 import echozero.pipelines.templates  # noqa: F401 — register templates
 from echozero.domain.types import AudioData, Event, EventData, Layer
 from echozero.execution import ExecutionContext
-from echozero.persistence.entities import PipelineConfig
-from echozero.persistence.session import ProjectSession
+from echozero.persistence.entities import PipelineConfigRecord
+from echozero.persistence.session import ProjectStorage
 from echozero.pipelines.registry import get_registry
 from echozero.result import Ok, is_ok, unwrap
 from echozero.services.orchestrator import Orchestrator
@@ -65,7 +65,7 @@ def _executors():
 
 @pytest.fixture
 def session(tmp_path):
-    s = ProjectSession.create_new("TestProject", working_dir_root=tmp_path)
+    s = ProjectStorage.create_new("TestProject", working_dir_root=tmp_path)
     yield s
     s.close()
 
@@ -73,16 +73,16 @@ def session(tmp_path):
 @pytest.fixture
 def song_version(session):
     """Create a song with a version and return the version."""
-    from echozero.persistence.entities import Song, SongVersion
+    from echozero.persistence.entities import SongRecord, SongVersionRecord
     from datetime import datetime, timezone
     import uuid
 
     now = datetime.now(timezone.utc)
-    song = Song(
+    song = SongRecord(
         id=uuid.uuid4().hex, project_id=session.project.id,
-        title="Test Song", artist="Test", order=0,
+        title="Test SongRecord", artist="Test", order=0,
     )
-    version = SongVersion(
+    version = SongVersionRecord(
         id=uuid.uuid4().hex, song_id=song.id, label="Original",
         audio_file="test.wav", duration_seconds=5.0,
         original_sample_rate=44100, audio_hash="abc123", created_at=now,
@@ -99,7 +99,7 @@ def song_version(session):
 
 
 class TestCreateConfig:
-    """Creating a PipelineConfig from a template."""
+    """Creating a PipelineConfigRecord from a template."""
 
     def test_create_config_succeeds(self, session, song_version):
         orch = Orchestrator(get_registry(), _executors())
@@ -207,7 +207,7 @@ class TestEditKnobs:
 
 
 class TestExecuteConfig:
-    """Executing analysis from a persisted PipelineConfig."""
+    """Executing analysis from a persisted PipelineConfigRecord."""
 
     def test_execute_succeeds(self, session, song_version):
         orch = Orchestrator(get_registry(), _executors())
@@ -501,7 +501,7 @@ class TestMapsToBlock:
 
 
 class TestConfigToFromPipeline:
-    """Verify PipelineConfig.from_pipeline and to_pipeline round-trips."""
+    """Verify PipelineConfigRecord.from_pipeline and to_pipeline round-trips."""
 
     def test_round_trip(self, session, song_version):
         orch = Orchestrator(get_registry(), _executors())

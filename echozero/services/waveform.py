@@ -1,7 +1,7 @@
 """
 WaveformService: Auto-generates waveform peaks for newly imported audio.
 Exists because waveform generation must happen on every song add/version update
-through the real engine (FP1), but ProjectSession is persistence — it shouldn't
+through the real engine (FP1), but ProjectStorage is persistence — it shouldn't
 hold an engine reference. This service bridges the gap.
 
 Called by the application layer after import_song or add_song_version.
@@ -25,7 +25,7 @@ from echozero.domain.types import (
     WaveformData,
 )
 from echozero.execution import ExecutionContext, ExecutionEngine, GraphPlanner
-from echozero.persistence.entities import SongVersion
+from echozero.persistence.entities import SongVersionRecord
 from echozero.processors.generate_waveform import GenerateWaveformProcessor
 from echozero.processors.load_audio import AudioFileInfo, LoadAudioProcessor
 from echozero.progress import RuntimeBus
@@ -33,7 +33,7 @@ from echozero.result import Ok, is_ok, unwrap
 
 
 def generate_waveform_for_version(
-    version: SongVersion,
+    version: SongVersionRecord,
     audio_dir: Path,
     runtime_bus: RuntimeBus | None = None,
     load_samples_fn: Callable[[str, int], np.ndarray] | None = None,
@@ -45,7 +45,7 @@ def generate_waveform_for_version(
     Returns WaveformData on success, None on failure.
 
     Args:
-        version: The SongVersion to generate waveforms for.
+        version: The SongVersionRecord to generate waveforms for.
         audio_dir: Base directory to resolve version.audio_file against.
         runtime_bus: Optional RuntimeBus for progress reporting.
         load_samples_fn: Injectable sample loader for testing.

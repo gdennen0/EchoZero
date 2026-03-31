@@ -20,12 +20,12 @@ LayerType = Literal["analysis", "structure", "manual"]
 
 
 # ---------------------------------------------------------------------------
-# Project settings
+# ProjectRecord settings
 # ---------------------------------------------------------------------------
 
 
 @dataclass(frozen=True)
-class ProjectSettings:
+class ProjectSettingsRecord:
     """Global project configuration — sample rate, tempo, timecode."""
 
     sample_rate: int = 44100
@@ -35,28 +35,28 @@ class ProjectSettings:
 
 
 # ---------------------------------------------------------------------------
-# Project
+# ProjectRecord
 # ---------------------------------------------------------------------------
 
 
 @dataclass(frozen=True)
-class Project:
+class ProjectRecord:
     """Top-level container for a live-production project file."""
 
     id: str
     name: str
-    settings: ProjectSettings
+    settings: ProjectSettingsRecord
     created_at: datetime
     updated_at: datetime
 
 
 # ---------------------------------------------------------------------------
-# Song
+# SongRecord
 # ---------------------------------------------------------------------------
 
 
 @dataclass(frozen=True)
-class Song:
+class SongRecord:
     """A song in the setlist — owns one or more SongVersions."""
 
     id: str
@@ -68,12 +68,12 @@ class Song:
 
 
 # ---------------------------------------------------------------------------
-# Song version
+# SongRecord version
 # ---------------------------------------------------------------------------
 
 
 @dataclass(frozen=True)
-class SongVersion:
+class SongVersionRecord:
     """A specific mix or arrangement of a song, tied to one audio file."""
 
     id: str
@@ -117,7 +117,7 @@ class LayerRecord:
 
 
 @dataclass(frozen=True)
-class PipelineConfig:
+class PipelineConfigRecord:
     """Persistent pipeline configuration for a song version.
 
     This is the first-class entity for pipeline settings. When a user adds a
@@ -157,7 +157,7 @@ class PipelineConfig:
         key: str,
         value: Any,
         knob_metadata: dict[str, Any] | None = None,
-    ) -> PipelineConfig:
+    ) -> PipelineConfigRecord:
         """Return a new config with an updated knob value.
 
         Updates knob_values and the corresponding BlockSettings in graph_json.
@@ -211,7 +211,7 @@ class PipelineConfig:
         self,
         updates: dict[str, Any],
         knob_metadata: dict[str, Any] | None = None,
-    ) -> PipelineConfig:
+    ) -> PipelineConfigRecord:
         """Return a new config with multiple updated knob values. Batch version."""
         import json
         from echozero.serialization import deserialize_graph, serialize_graph
@@ -255,7 +255,7 @@ class PipelineConfig:
         block_id: str,
         key: str,
         value: Any,
-    ) -> PipelineConfig:
+    ) -> PipelineConfigRecord:
         """Return a new config with a single block's setting updated.
 
         This is the per-block "inspector" level edit. Does NOT update
@@ -299,7 +299,7 @@ class PipelineConfig:
         self,
         block_id: str,
         updates: dict[str, Any],
-    ) -> PipelineConfig:
+    ) -> PipelineConfigRecord:
         """Return a new config with multiple settings updated on a single block."""
         import json
         from echozero.serialization import deserialize_graph, serialize_graph
@@ -335,7 +335,7 @@ class PipelineConfig:
         self,
         block_id: str,
         key: str,
-    ) -> PipelineConfig:
+    ) -> PipelineConfigRecord:
         """Remove a per-block override, re-linking the setting to the global knob.
 
         The setting value is updated to match the current knob value.
@@ -393,8 +393,8 @@ class PipelineConfig:
         knob_values: dict[str, Any],
         config_id: str | None = None,
         name: str | None = None,
-    ) -> PipelineConfig:
-        """Create a PipelineConfig from a freshly-built Pipeline."""
+    ) -> PipelineConfigRecord:
+        """Create a PipelineConfigRecord from a freshly-built Pipeline."""
         import json
         import uuid
         from echozero.serialization import serialize_graph

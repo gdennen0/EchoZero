@@ -1,7 +1,7 @@
 """
 SongRepository and SongVersionRepository: CRUD for songs and their audio versions.
 Exists because songs are the primary organizational unit in a setlist-based project.
-Song ordering and active-version tracking are first-class persistence concerns.
+SongRecord ordering and active-version tracking are first-class persistence concerns.
 """
 
 from __future__ import annotations
@@ -10,15 +10,15 @@ import sqlite3
 from datetime import datetime
 
 from echozero.persistence.base import BaseRepository
-from echozero.persistence.entities import Song, SongVersion
+from echozero.persistence.entities import SongRecord, SongVersionRecord
 
 
-class SongRepository(BaseRepository[Song]):
-    """Read and write Song entities to the songs table."""
+class SongRepository(BaseRepository[SongRecord]):
+    """Read and write SongRecord entities to the songs table."""
 
-    def _from_row(self, row: sqlite3.Row) -> Song:
-        """Convert a database row to a Song entity."""
-        return Song(
+    def _from_row(self, row: sqlite3.Row) -> SongRecord:
+        """Convert a database row to a SongRecord entity."""
+        return SongRecord(
             id=row['id'],
             project_id=row['project_id'],
             title=row['title'],
@@ -27,7 +27,7 @@ class SongRepository(BaseRepository[Song]):
             active_version_id=row['active_version_id'],
         )
 
-    def create(self, song: Song) -> None:
+    def create(self, song: SongRecord) -> None:
         """Insert a new song row."""
         self._execute(
             'INSERT INTO songs (id, project_id, title, artist, "order", active_version_id) '
@@ -42,7 +42,7 @@ class SongRepository(BaseRepository[Song]):
             ),
         )
 
-    def get(self, song_id: str) -> Song | None:
+    def get(self, song_id: str) -> SongRecord | None:
         """Return a song by ID, or None if not found."""
         row = self._fetchone(
             'SELECT id, project_id, title, artist, "order", active_version_id '
@@ -53,7 +53,7 @@ class SongRepository(BaseRepository[Song]):
             return None
         return self._from_row(row)
 
-    def list_by_project(self, project_id: str) -> list[Song]:
+    def list_by_project(self, project_id: str) -> list[SongRecord]:
         """Return all songs for a project, ordered by their position."""
         rows = self._fetchall(
             'SELECT id, project_id, title, artist, "order", active_version_id '
@@ -62,7 +62,7 @@ class SongRepository(BaseRepository[Song]):
         )
         return [self._from_row(r) for r in rows]
 
-    def update(self, song: Song) -> None:
+    def update(self, song: SongRecord) -> None:
         """Overwrite a song row with updated values."""
         self._execute(
             'UPDATE songs SET title = ?, artist = ?, "order" = ?, '
@@ -83,12 +83,12 @@ class SongRepository(BaseRepository[Song]):
             )
 
 
-class SongVersionRepository(BaseRepository[SongVersion]):
-    """Read and write SongVersion entities to the song_versions table."""
+class SongVersionRepository(BaseRepository[SongVersionRecord]):
+    """Read and write SongVersionRecord entities to the song_versions table."""
 
-    def _from_row(self, row: sqlite3.Row) -> SongVersion:
-        """Convert a database row to a SongVersion entity."""
-        return SongVersion(
+    def _from_row(self, row: sqlite3.Row) -> SongVersionRecord:
+        """Convert a database row to a SongVersionRecord entity."""
+        return SongVersionRecord(
             id=row['id'],
             song_id=row['song_id'],
             label=row['label'],
@@ -99,7 +99,7 @@ class SongVersionRepository(BaseRepository[SongVersion]):
             created_at=datetime.fromisoformat(row['created_at']),
         )
 
-    def create(self, version: SongVersion) -> None:
+    def create(self, version: SongVersionRecord) -> None:
         """Insert a new song version row."""
         self._execute(
             "INSERT INTO song_versions "
@@ -118,7 +118,7 @@ class SongVersionRepository(BaseRepository[SongVersion]):
             ),
         )
 
-    def get(self, version_id: str) -> SongVersion | None:
+    def get(self, version_id: str) -> SongVersionRecord | None:
         """Return a song version by ID, or None if not found."""
         row = self._fetchone(
             "SELECT id, song_id, label, audio_file, duration_seconds, "
@@ -130,7 +130,7 @@ class SongVersionRepository(BaseRepository[SongVersion]):
             return None
         return self._from_row(row)
 
-    def list_by_song(self, song_id: str) -> list[SongVersion]:
+    def list_by_song(self, song_id: str) -> list[SongVersionRecord]:
         """Return all versions for a song, ordered by creation time."""
         rows = self._fetchall(
             "SELECT id, song_id, label, audio_file, duration_seconds, "
@@ -140,7 +140,7 @@ class SongVersionRepository(BaseRepository[SongVersion]):
         )
         return [self._from_row(r) for r in rows]
 
-    def update(self, version: SongVersion) -> None:
+    def update(self, version: SongVersionRecord) -> None:
         """Overwrite a song version's mutable fields (label, audio_file, duration, sample_rate, hash)."""
         self._execute(
             "UPDATE song_versions SET label = ?, audio_file = ?, duration_seconds = ?, "

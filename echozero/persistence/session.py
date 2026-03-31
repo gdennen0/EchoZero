@@ -1,5 +1,5 @@
 """
-ProjectSession: Lifecycle manager for an EchoZero project's working directory and SQLite DB.
+ProjectStorage: Lifecycle manager for an EchoZero project's working directory and SQLite DB.
 Exists because projects need a single entry point for open/save/close with autosave, dirty
 tracking, crash recovery, and convenient access to all repositories. The working directory
 pattern enables crash recovery — closing does NOT delete the working dir, so stale dirs
@@ -23,7 +23,7 @@ from pathlib import Path
 from echozero.domain.graph import Graph
 from echozero.event_bus import EventBus
 from echozero.persistence.dirty import DirtyTracker
-from echozero.persistence.entities import Project, ProjectSettings, Song, SongVersion
+from echozero.persistence.entities import ProjectRecord, ProjectSettingsRecord, SongRecord, SongVersionRecord
 from echozero.persistence.repositories import (
     LayerRepository,
     PipelineConfigRepository,
@@ -67,7 +67,7 @@ def _acquire_project_lock(working_dir: Path) -> Path:
             old_pid = int(lock_path.read_text().strip())
             if _is_pid_alive(old_pid):
                 raise RuntimeError(
-                    f"Project is already open by process {old_pid}. "
+                    f"ProjectRecord is already open by process {old_pid}. "
                     f"Close it first, or delete {lock_path} if the process crashed."
                 )
             else:
@@ -108,12 +108,12 @@ def _working_dir_for_id(project_id: str) -> Path:
     return WORKING_DIR_ROOT / project_id
 
 
-class ProjectSession:
+class ProjectStorage:
     """Main project lifecycle manager — owns DB connection, repos, dirty tracker, autosave."""
 
     def __init__(
         self,
-        project: Project,
+        project: ProjectRecord,
         working_dir: Path,
         db: sqlite3.Connection,
         dirty_tracker: DirtyTracker,
@@ -138,10 +138,10 @@ class ProjectSession:
     def create_new(
         cls,
         name: str,
-        settings: ProjectSettings | None = None,
+        settings: ProjectSettingsRecord | None = None,
         event_bus: EventBus | None = None,
         working_dir_root: Path | None = None,
-    ) -> ProjectSession:
+    ) -> ProjectStorage:
         """Create a brand new project. Sets up working dir + DB."""
         project_id = uuid.uuid4().hex
         root = working_dir_root or WORKING_DIR_ROOT
@@ -154,10 +154,10 @@ class ProjectSession:
         init_db(conn)
 
         now = datetime.now(timezone.utc)
-        project = Project(
+        project = ProjectRecord(
             id=project_id,
             name=name,
-            settings=settings or ProjectSettings(),
+            settings=settings or ProjectSettingsRecord(),
             created_at=now,
             updated_at=now,
         )
@@ -177,7 +177,7 @@ class ProjectSession:
         cls,
         working_dir: Path,
         event_bus: EventBus | None = None,
-    ) -> ProjectSession:
+    ) -> ProjectStorage:
         """Open directly from a working directory that already has a project.db."""
         db_path = working_dir / "project.db"
         if not db_path.exists():
@@ -204,7 +204,7 @@ class ProjectSession:
         ez_path: Path,
         event_bus: EventBus | None = None,
         working_dir_root: Path | None = None,
-    ) -> ProjectSession:
+    ) -> ProjectStorage:
         """Open an existing project from an .ez file path.
 
         If the working directory already exists with a project.db (recovery scenario),
@@ -290,7 +290,7 @@ class ProjectSession:
     def _check_closed(self) -> None:
         """Raise if the session has been closed."""
         if self._closed:
-            raise RuntimeError("ProjectSession is closed")
+            raise RuntimeError("ProjectStorage is closed")
 
     def is_dirty(self) -> bool:
         """Whether there are unsaved changes."""
@@ -298,7 +298,7 @@ class ProjectSession:
 
     # -- Context manager ----------------------------------------------------
 
-    def __enter__(self) -> ProjectSession:
+    def __enter__(self) -> ProjectStorage:
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb) -> None:
@@ -375,20 +375,20 @@ class ProjectSession:
         audio_source: Path,
         label: str,
         scan_fn=None,
-    ) -> SongVersion:
-        """Shared version factory: import audio, scan metadata, create SongVersion.
+    ) -> SongVersionRecord:
+        """Shared version factory: import audio, scan metadata, create SongVersionRecord.
 
-        This is the single path for all audio → SongVersion creation.
+        This is the single path for all audio → SongVersionRecord creation.
         Both import_song and add_song_version call this.
 
         Args:
-            song_id: Song this version belongs to.
+            song_id: SongRecord this version belongs to.
             audio_source: Path to the audio file on disk.
             label: Human-readable version label.
             scan_fn: Optional injectable for testing (skips real audio scanning).
 
         Returns:
-            The newly created and persisted SongVersion with real metadata.
+            The newly created and persisted SongVersionRecord with real metadata.
         """
         from echozero.persistence.audio import import_audio, scan_audio_metadata
         from echozero.errors import ValidationError
@@ -407,7 +407,7 @@ class ProjectSession:
         full_audio_path = self.working_dir / audio_rel_path
         metadata = scan_audio_metadata(full_audio_path, scan_fn=scan_fn)
 
-        version = SongVersion(
+        version = SongVersionRecord(
             id=uuid.uuid4().hex,
             song_id=song_id,
             label=label,
@@ -428,13 +428,13 @@ class ProjectSession:
         label: str = "Original",
         default_templates: list[str] | None = None,
         scan_fn=None,
-    ) -> tuple[Song, SongVersion]:
+    ) -> tuple[SongRecord, SongVersionRecord]:
         """Import an audio file as a new song with default pipeline configs.
 
-        Creates Song + SongVersion + default PipelineConfigs from registered templates.
+        Creates SongRecord + SongVersionRecord + default PipelineConfigs from registered templates.
 
         Args:
-            title: Song title.
+            title: SongRecord title.
             audio_source: Path to the audio file.
             artist: Artist name (optional).
             label: Version label (default "Original").
@@ -443,15 +443,15 @@ class ProjectSession:
             scan_fn: Optional injectable for audio scanning (testing).
 
         Returns:
-            (Song, SongVersion) tuple.
+            (SongRecord, SongVersionRecord) tuple.
         """
         self._check_closed()
 
         with self._lock:
             song_id = uuid.uuid4().hex
 
-            # Song must exist before version (FK constraint)
-            song = Song(
+            # SongRecord must exist before version (FK constraint)
+            song = SongRecord(
                 id=song_id,
                 project_id=self.project.id,
                 title=title,
@@ -489,7 +489,7 @@ class ProjectSession:
             template_ids: Specific template IDs. None = all registered. [] = none.
         """
         from echozero.pipelines.registry import get_registry
-        from echozero.persistence.entities import PipelineConfig
+        from echozero.persistence.entities import PipelineConfigRecord
 
         registry = get_registry()
 
@@ -502,7 +502,7 @@ class ProjectSession:
             # Build pipeline with default knob values
             pipeline = template.build_pipeline()
 
-            config = PipelineConfig.from_pipeline(
+            config = PipelineConfigRecord.from_pipeline(
                 pipeline,
                 template_id=template.id,
                 song_version_id=song_version_id,
@@ -518,12 +518,12 @@ class ProjectSession:
         label: str | None = None,
         activate: bool = True,
         scan_fn=None,
-    ) -> SongVersion:
+    ) -> SongVersionRecord:
         """Add a new version of an existing song and copy all pipeline configs.
 
         This is the D278 "Update Track" flow:
         1. Import + scan the new audio file.
-        2. Create a new SongVersion with real metadata.
+        2. Create a new SongVersionRecord with real metadata.
         3. Copy all PipelineConfigs from the current active version → new version
            (same graph, same knobs, same block overrides — but new IDs).
         4. Optionally set the new version as active.
@@ -536,7 +536,7 @@ class ProjectSession:
             scan_fn: Optional injectable for audio scanning (testing).
 
         Returns:
-            The newly created SongVersion.
+            The newly created SongVersionRecord.
 
         Raises:
             ValueError: If song_id not found or song has no active version.
@@ -547,12 +547,12 @@ class ProjectSession:
         with self._lock:
             song = self.songs.get(song_id)
             if song is None:
-                raise ValueError(f"Song not found: {song_id}")
+                raise ValueError(f"SongRecord not found: {song_id}")
 
             source_version_id = song.active_version_id
             if source_version_id is None:
                 raise ValueError(
-                    f"Song '{song_id}' has no active version to copy configs from"
+                    f"SongRecord '{song_id}' has no active version to copy configs from"
                 )
 
             # Auto-generate label
@@ -646,13 +646,13 @@ class ProjectSession:
         ez_path: Path,
         event_bus: EventBus | None = None,
         working_dir_root: Path | None = None,
-    ) -> ProjectSession:
+    ) -> ProjectStorage:
         """Open the existing working dir for recovery instead of unpacking fresh."""
         root = working_dir_root or WORKING_DIR_ROOT
         working_dir = root / hashlib.sha256(
             str(ez_path.resolve()).encode()
         ).hexdigest()[:16]
-        return ProjectSession.open_db(working_dir, event_bus)
+        return ProjectStorage.open_db(working_dir, event_bus)
 
     @staticmethod
     def discard_recovery(

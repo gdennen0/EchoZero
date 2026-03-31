@@ -8,7 +8,7 @@ Modules:
     types    — Port, Connection, Event, Layer, EventData, AudioData, BlockSettings, Block
     graph    — Graph aggregate root with invariant enforcement
     events   — Domain event types for the EventBus (BlockAdded, SettingsChanged, etc.)
-    project  — Project, Song, Setlist entities (added when needed)
+    project  — ProjectRecord, SongRecord, Setlist entities (added when needed)
 """
 
 from echozero.domain.enums import BlockCategory, BlockState, Direction, PortType

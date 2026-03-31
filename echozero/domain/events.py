@@ -89,7 +89,7 @@ class SettingsChangedEvent(DomainEvent):
 
 
 # ---------------------------------------------------------------------------
-# Project lifecycle events
+# ProjectRecord lifecycle events
 # ---------------------------------------------------------------------------
 
 

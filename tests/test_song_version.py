@@ -1,5 +1,5 @@
 """
-SongVersion tests: Verify unified audio import, metadata scanning, config copy (D278),
+SongVersionRecord tests: Verify unified audio import, metadata scanning, config copy (D278),
 and default template application on first song add.
 Exists because song version management is a critical vertical — audio in, metadata out,
 configs copied or created, all through one clean path.
@@ -16,8 +16,8 @@ from typing import Any
 import pytest
 
 from echozero.persistence.audio import AudioMetadata
-from echozero.persistence.entities import PipelineConfig, Song, SongVersion
-from echozero.persistence.session import ProjectSession
+from echozero.persistence.entities import PipelineConfigRecord, SongRecord, SongVersionRecord
+from echozero.persistence.session import ProjectStorage
 
 
 # ---------------------------------------------------------------------------
@@ -35,10 +35,10 @@ def _mock_scan_48k(path) -> AudioMetadata:
     return AudioMetadata(duration_seconds=240.0, sample_rate=48000, channel_count=1)
 
 
-def _create_session(tmp_path: Path) -> ProjectSession:
-    """Create a fresh ProjectSession in a temp directory."""
-    return ProjectSession.create_new(
-        name="Test Project",
+def _create_session(tmp_path: Path) -> ProjectStorage:
+    """Create a fresh ProjectStorage in a temp directory."""
+    return ProjectStorage.create_new(
+        name="Test ProjectRecord",
         working_dir_root=tmp_path / "working",
     )
 
@@ -56,8 +56,8 @@ def _make_pipeline_config(
     name: str = "Onset Detection",
     knob_values: dict[str, Any] | None = None,
     block_overrides: dict[str, list[str]] | None = None,
-) -> PipelineConfig:
-    """Create a PipelineConfig for testing."""
+) -> PipelineConfigRecord:
+    """Create a PipelineConfigRecord for testing."""
     now = datetime.now(timezone.utc)
     graph = {
         "blocks": [
@@ -89,7 +89,7 @@ def _make_pipeline_config(
             }
         ],
     }
-    return PipelineConfig(
+    return PipelineConfigRecord(
         id=uuid.uuid4().hex,
         song_version_id=song_version_id,
         template_id=template_id,
@@ -227,7 +227,7 @@ class TestAddSongVersion:
         audio1 = _create_audio_file(tmp_path, "v1.wav")
         audio2 = _create_audio_file(tmp_path, "v2.wav")
 
-        song, v1 = session.import_song("Test Song", audio1, scan_fn=_mock_scan, default_templates=[])
+        song, v1 = session.import_song("Test SongRecord", audio1, scan_fn=_mock_scan, default_templates=[])
         v2 = session.add_song_version(song.id, audio2, label="Festival Edit", scan_fn=_mock_scan)
 
         assert v2.song_id == song.id
@@ -241,7 +241,7 @@ class TestAddSongVersion:
         audio2 = tmp_path / "v2.wav"
         audio2.write_bytes(b"RIFF" + b"\xff" * 100)
 
-        song, v1 = session.import_song("Test Song", audio1, scan_fn=_mock_scan, default_templates=[])
+        song, v1 = session.import_song("Test SongRecord", audio1, scan_fn=_mock_scan, default_templates=[])
         v2 = session.add_song_version(song.id, audio2, scan_fn=_mock_scan)
 
         assert v2.audio_file != v1.audio_file
@@ -253,7 +253,7 @@ class TestAddSongVersion:
         audio1 = _create_audio_file(tmp_path, "v1.wav")
         audio2 = _create_audio_file(tmp_path, "v2.wav")
 
-        song, v1 = session.import_song("Test Song", audio1, scan_fn=_mock_scan, default_templates=[])
+        song, v1 = session.import_song("Test SongRecord", audio1, scan_fn=_mock_scan, default_templates=[])
         v2 = session.add_song_version(song.id, audio2, scan_fn=_mock_scan)
 
         updated_song = session.songs.get(song.id)
@@ -265,7 +265,7 @@ class TestAddSongVersion:
         audio1 = _create_audio_file(tmp_path, "v1.wav")
         audio2 = _create_audio_file(tmp_path, "v2.wav")
 
-        song, v1 = session.import_song("Test Song", audio1, scan_fn=_mock_scan, default_templates=[])
+        song, v1 = session.import_song("Test SongRecord", audio1, scan_fn=_mock_scan, default_templates=[])
         v2 = session.add_song_version(song.id, audio2, activate=False, scan_fn=_mock_scan)
 
         updated_song = session.songs.get(song.id)
@@ -277,7 +277,7 @@ class TestAddSongVersion:
         audio1 = _create_audio_file(tmp_path, "v1.wav")
         audio2 = _create_audio_file(tmp_path, "v2.wav")
 
-        song, v1 = session.import_song("Test Song", audio1, scan_fn=_mock_scan, default_templates=[])
+        song, v1 = session.import_song("Test SongRecord", audio1, scan_fn=_mock_scan, default_templates=[])
         config1 = _make_pipeline_config(v1.id, "onset", "Onset Detection")
         config2 = _make_pipeline_config(v1.id, "classify", "Classification")
         session.pipeline_configs.create(config1)
@@ -294,7 +294,7 @@ class TestAddSongVersion:
         audio1 = _create_audio_file(tmp_path, "v1.wav")
         audio2 = _create_audio_file(tmp_path, "v2.wav")
 
-        song, v1 = session.import_song("Test Song", audio1, scan_fn=_mock_scan, default_templates=[])
+        song, v1 = session.import_song("Test SongRecord", audio1, scan_fn=_mock_scan, default_templates=[])
         config = _make_pipeline_config(v1.id)
         session.pipeline_configs.create(config)
         session.commit()
@@ -310,7 +310,7 @@ class TestAddSongVersion:
         audio1 = _create_audio_file(tmp_path, "v1.wav")
         audio2 = _create_audio_file(tmp_path, "v2.wav")
 
-        song, v1 = session.import_song("Test Song", audio1, scan_fn=_mock_scan, default_templates=[])
+        song, v1 = session.import_song("Test SongRecord", audio1, scan_fn=_mock_scan, default_templates=[])
         config = _make_pipeline_config(v1.id, knob_values={"threshold": 0.7, "min_gap": 0.02})
         session.pipeline_configs.create(config)
         session.commit()
@@ -326,7 +326,7 @@ class TestAddSongVersion:
         audio1 = _create_audio_file(tmp_path, "v1.wav")
         audio2 = _create_audio_file(tmp_path, "v2.wav")
 
-        song, v1 = session.import_song("Test Song", audio1, scan_fn=_mock_scan, default_templates=[])
+        song, v1 = session.import_song("Test SongRecord", audio1, scan_fn=_mock_scan, default_templates=[])
         config = _make_pipeline_config(v1.id, block_overrides={"detect1": ["threshold"]})
         session.pipeline_configs.create(config)
         session.commit()
@@ -342,7 +342,7 @@ class TestAddSongVersion:
         audio1 = _create_audio_file(tmp_path, "v1.wav")
         audio2 = _create_audio_file(tmp_path, "v2.wav")
 
-        song, v1 = session.import_song("Test Song", audio1, scan_fn=_mock_scan, default_templates=[])
+        song, v1 = session.import_song("Test SongRecord", audio1, scan_fn=_mock_scan, default_templates=[])
         config = _make_pipeline_config(v1.id)
         session.pipeline_configs.create(config)
         session.commit()
@@ -358,7 +358,7 @@ class TestAddSongVersion:
         audio1 = _create_audio_file(tmp_path, "v1.wav")
         audio2 = _create_audio_file(tmp_path, "v2.wav")
 
-        song, v1 = session.import_song("Test Song", audio1, scan_fn=_mock_scan, default_templates=[])
+        song, v1 = session.import_song("Test SongRecord", audio1, scan_fn=_mock_scan, default_templates=[])
         config = _make_pipeline_config(v1.id)
         session.pipeline_configs.create(config)
         session.commit()
@@ -375,7 +375,7 @@ class TestAddSongVersion:
         audio1 = _create_audio_file(tmp_path, "v1.wav")
         audio2 = _create_audio_file(tmp_path, "v2.wav")
 
-        song, v1 = session.import_song("Test Song", audio1, scan_fn=_mock_scan, default_templates=[])
+        song, v1 = session.import_song("Test SongRecord", audio1, scan_fn=_mock_scan, default_templates=[])
         v2 = session.add_song_version(song.id, audio2, scan_fn=_mock_scan)
 
         assert v2.label == "v2"
@@ -386,7 +386,7 @@ class TestAddSongVersion:
         audio1 = _create_audio_file(tmp_path, "v1.wav")
         audio2 = _create_audio_file(tmp_path, "v2.wav")
 
-        song, v1 = session.import_song("Test Song", audio1, scan_fn=_mock_scan, default_templates=[])
+        song, v1 = session.import_song("Test SongRecord", audio1, scan_fn=_mock_scan, default_templates=[])
         v2 = session.add_song_version(song.id, audio2, scan_fn=_mock_scan)
 
         versions = session.song_versions.list_by_song(song.id)
@@ -397,7 +397,7 @@ class TestAddSongVersion:
         session = _create_session(tmp_path)
         audio = _create_audio_file(tmp_path)
 
-        with pytest.raises(ValueError, match="Song not found"):
+        with pytest.raises(ValueError, match="SongRecord not found"):
             session.add_song_version("ghost_id", audio, scan_fn=_mock_scan)
         session.close()
 
@@ -406,7 +406,7 @@ class TestAddSongVersion:
         audio = _create_audio_file(tmp_path)
 
         from dataclasses import replace
-        song, v1 = session.import_song("Test Song", audio, scan_fn=_mock_scan, default_templates=[])
+        song, v1 = session.import_song("Test SongRecord", audio, scan_fn=_mock_scan, default_templates=[])
         session.songs.update(replace(song, active_version_id=None))
         session.commit()
 

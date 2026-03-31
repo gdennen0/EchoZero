@@ -1,10 +1,10 @@
 """
-ProjectRepository: CRUD operations for Project entities in SQLite.
+ProjectRepository: CRUD operations for ProjectRecord entities in SQLite.
 Exists because the domain layer must not know about SQL — repositories translate
 between frozen dataclasses and database rows at the persistence boundary.
 
 Note: The ``graph_json`` column in the projects table is managed by
-``ProjectSession.save_graph()`` / ``load_graph()``, not by this repository.
+``ProjectStorage.save_graph()`` / ``load_graph()``, not by this repository.
 ProjectRepository handles project metadata only (name, settings, timestamps).
 """
 
@@ -14,18 +14,18 @@ import sqlite3
 from datetime import datetime, timezone
 
 from echozero.persistence.base import BaseRepository
-from echozero.persistence.entities import Project, ProjectSettings
+from echozero.persistence.entities import ProjectRecord, ProjectSettingsRecord
 
 
-class ProjectRepository(BaseRepository[Project]):
-    """Read and write Project entities to the projects table."""
+class ProjectRepository(BaseRepository[ProjectRecord]):
+    """Read and write ProjectRecord entities to the projects table."""
 
-    def _from_row(self, row: sqlite3.Row) -> Project:
-        """Convert a database row to a Project entity."""
-        return Project(
+    def _from_row(self, row: sqlite3.Row) -> ProjectRecord:
+        """Convert a database row to a ProjectRecord entity."""
+        return ProjectRecord(
             id=row['id'],
             name=row['name'],
-            settings=ProjectSettings(
+            settings=ProjectSettingsRecord(
                 sample_rate=row['sample_rate'],
                 bpm=row['bpm'],
                 bpm_confidence=row['bpm_confidence'],
@@ -35,7 +35,7 @@ class ProjectRepository(BaseRepository[Project]):
             updated_at=datetime.fromisoformat(row['updated_at']),
         )
 
-    def create(self, project: Project) -> None:
+    def create(self, project: ProjectRecord) -> None:
         """Insert a new project row."""
         self._execute(
             "INSERT INTO projects "
@@ -53,7 +53,7 @@ class ProjectRepository(BaseRepository[Project]):
             ),
         )
 
-    def get(self, project_id: str) -> Project | None:
+    def get(self, project_id: str) -> ProjectRecord | None:
         """Return a project by ID, or None if not found."""
         row = self._fetchone(
             "SELECT id, name, sample_rate, bpm, bpm_confidence, timecode_fps, "
@@ -64,7 +64,7 @@ class ProjectRepository(BaseRepository[Project]):
             return None
         return self._from_row(row)
 
-    def list(self) -> list[Project]:
+    def list(self) -> list[ProjectRecord]:
         """Return all projects ordered by name."""
         rows = self._fetchall(
             "SELECT id, name, sample_rate, bpm, bpm_confidence, timecode_fps, "
@@ -72,7 +72,7 @@ class ProjectRepository(BaseRepository[Project]):
         )
         return [self._from_row(r) for r in rows]
 
-    def update(self, project: Project) -> None:
+    def update(self, project: ProjectRecord) -> None:
         """Overwrite a project row with updated values."""
         self._execute(
             "UPDATE projects SET name = ?, sample_rate = ?, bpm = ?, "
