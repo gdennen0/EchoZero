@@ -1,0 +1,5131 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Audio analysis workstation for live lighting design">
+      
+      
+      
+      
+        <link rel="prev" href="../packaging/PACKAGING/">
+      
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
+    
+    
+      
+        <title>Spec - EchoZero 2</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="slate" data-md-color-primary="deep-purple" data-md-color-accent="amber">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#echozero-behavioral-specification" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="EchoZero 2" class="md-header__button md-logo" aria-label="EchoZero 2" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            EchoZero 2
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Spec
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="slate" data-md-color-primary="deep-purple" data-md-color-accent="amber"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="default" data-md-color-primary="deep-purple" data-md-color-accent="amber"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/griffin/echozero" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    GitHub
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="EchoZero 2" class="md-nav__button md-logo" aria-label="EchoZero 2" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    EchoZero 2
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/griffin/echozero" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    GitHub
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../GETTING-STARTED/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting Started
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../ARCHITECTURE/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../PROJECT-CLASS/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Project Class
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../architecture/ENTITY-MODEL/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Entity Model
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../LD-WORKFLOW/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    LD Workflow
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_7" >
+        
+          
+          <label class="md-nav__link" for="__nav_7" id="__nav_7_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Decisions
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_7_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_7">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Decisions
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../architecture/DECISIONS/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture Decisions
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../architecture/PIPELINE-CONFIG-REDESIGN/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Pipeline Config
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_8" >
+        
+          
+          <label class="md-nav__link" for="__nav_8" id="__nav_8_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Audits
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_8_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_8">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Audits
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../audits/ui-readiness-audit-2026-03-30/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    UI Readiness
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../audits/architecture-audit-2026-03-30/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture Audit
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../audits/codebase-audit-2026-03-30/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Codebase Audit
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../audits/codebase-audit-2026-03-30-part2/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Codebase Audit Part 2
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../audits/audio-engine-audit/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Audio Engine
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../audits/model-registry-audit/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Model Registry
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../packaging/PACKAGING/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Packaging
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Spec
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Spec
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#table-of-contents" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Table of Contents
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#1-domain-model" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. Domain Model
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="1. Domain Model">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#11-block" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1.1 Block
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#12-port" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1.2 Port
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#13-connection" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1.3 Connection
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#14-project" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1.4 Project
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#15-actionset-and-actionitem" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1.5 ActionSet and ActionItem
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#16-setlist-and-setlistsong" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1.6 Setlist and SetlistSong
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#17-layerorder" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1.7 LayerOrder
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#18-synclayerentity-show-manager-domain" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1.8 SyncLayerEntity (Show Manager Domain)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2-data-model" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. Data Model
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="2. Data Model">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#21-dataitem-base" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2.1 DataItem (Base)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#22-audiodataitem" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2.2 AudioDataItem
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#23-eventdataitem" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2.3 EventDataItem
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#24-data-flow-through-block-graph" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2.4 Data Flow Through Block Graph
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#25-datastate" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2.5 DataState
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#26-layer-ordering" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2.6 Layer Ordering
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#3-application-services" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. Application Services
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="3. Application Services">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#31-applicationfacade" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3.1 ApplicationFacade
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="3.1 ApplicationFacade">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#project-management" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Project Management
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#block-management" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Block Management
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#connection-management" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Connection Management
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#execution" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Execution
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#data-items" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Data Items
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ui-state" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        UI State
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#editor-operations-via-editorapi" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Editor Operations (via EditorAPI)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#settings-preferences" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Settings / Preferences
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#setlists" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Setlists
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#action-sets-action-items" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Action Sets / Action Items
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#show-manager-ma3" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Show Manager / MA3
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#32-command-pattern" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3.2 Command Pattern
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#33-event-bus" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3.3 Event Bus
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#34-execution-engine" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3.4 Execution Engine
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#35-editorapi" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3.5 EditorAPI
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#4-block-types" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4. Block Types
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="4. Block Types">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#41-loadaudio" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.1 LoadAudio
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#42-setlistaudioinput" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.2 SetlistAudioInput
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#43-detectonsets" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.3 DetectOnsets
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#44-separator" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.4 Separator
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#45-editor" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.5 Editor
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#46-showmanager" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.6 ShowManager
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#47-audioplayer" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.7 AudioPlayer
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#48-audiofilter" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.8 AudioFilter
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#49-exportaudio" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.9 ExportAudio
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#410-transcribenote-noteextractorbasicpitch" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.10 TranscribeNote / NoteExtractorBasicPitch
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#411-transcribelib-noteextractorlibrosa" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.11 TranscribeLib / NoteExtractorLibrosa
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#412-commandsequencer" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.12 CommandSequencer
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#413-exportma2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.13 ExportMA2
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#414-quick-actions-system" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.14 Quick Actions System
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#5-editor-behaviors" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5. Editor Behaviors
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="5. Editor Behaviors">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#51-timeline-architecture" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.1 Timeline Architecture
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#52-layer-management" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.2 Layer Management
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#53-event-editing" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.3 Event Editing
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#54-grid-and-snap" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.4 Grid and Snap
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#55-zoom-and-scroll" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.5 Zoom and Scroll
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#56-playback" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.6 Playback
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#57-event-inspector" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.7 Event Inspector
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#58-settings-panel" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.8 Settings Panel
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#59-keyboard-shortcuts" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.9 Keyboard Shortcuts
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#510-waveform-display" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.10 Waveform Display
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#511-editorpanel-block-panel" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.11 EditorPanel (Block Panel)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#6-node-editor" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6. Node Editor
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="6. Node Editor">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#61-layout-and-visual-representation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.1 Layout and Visual Representation
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#62-interaction-model" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.2 Interaction Model
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#63-node-editor-scene" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.3 Node Editor Scene
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#7-show-manager-ma3-integration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7. Show Manager / MA3 Integration
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="7. Show Manager / MA3 Integration">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#71-ma3-communication" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7.1 MA3 Communication
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#72-showmanagerlistenerservice" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7.2 ShowManagerListenerService
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#73-syncsystemmanager" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7.3 SyncSystemManager
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#74-bidirectional-sync" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7.4 Bidirectional Sync
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#75-showmanager-settings" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7.5 ShowManager Settings
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#8-project-system" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        8. Project System
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="8. Project System">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#81-file-format-ez" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        8.1 File Format (.ez)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#82-save-process" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        8.2 Save Process
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#83-load-process" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        8.3 Load Process
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#84-recent-projects" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        8.4 Recent Projects
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#85-setlist-processing" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        8.5 Setlist Processing
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#86-snapshots-for-setlist-song-state" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        8.6 Snapshots (for Setlist Song State)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#9-persistence-layer" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        9. Persistence Layer
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="9. Persistence Layer">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#91-database" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        9.1 Database
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#92-tables" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        9.2 Tables
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#93-threading" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        9.3 Threading
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#94-migrations" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        9.4 Migrations
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#95-repository-pattern" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        9.5 Repository Pattern
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#96-preferences" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        9.6 Preferences
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#10-ui-architecture" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        10. UI Architecture
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="10. UI Architecture">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#101-main-window" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        10.1 Main Window
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#102-panel-system" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        10.2 Panel System
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#103-design-system" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        10.3 Design System
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#104-theming" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        10.4 Theming
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#105-settings-preferences-system" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        10.5 Settings / Preferences System
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#106-splash-screen" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        10.6 Splash Screen
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#107-runblockthread" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        10.7 RunBlockThread
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#11-known-issues-todos" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        11. Known Issues / TODOs
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#appendix-a-port-type-color-reference" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Appendix A: Port Type Color Reference
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#appendix-b-block-type-registry-summary" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Appendix B: Block Type Registry Summary
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#appendix-c-snap-interval-seconds-mapping" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Appendix C: Snap Interval Seconds Mapping
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#appendix-d-ma3-timecode-coordinate-parsing" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Appendix D: MA3 Timecode Coordinate Parsing
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#table-of-contents" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Table of Contents
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#1-domain-model" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. Domain Model
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="1. Domain Model">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#11-block" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1.1 Block
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#12-port" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1.2 Port
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#13-connection" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1.3 Connection
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#14-project" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1.4 Project
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#15-actionset-and-actionitem" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1.5 ActionSet and ActionItem
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#16-setlist-and-setlistsong" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1.6 Setlist and SetlistSong
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#17-layerorder" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1.7 LayerOrder
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#18-synclayerentity-show-manager-domain" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1.8 SyncLayerEntity (Show Manager Domain)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2-data-model" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. Data Model
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="2. Data Model">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#21-dataitem-base" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2.1 DataItem (Base)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#22-audiodataitem" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2.2 AudioDataItem
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#23-eventdataitem" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2.3 EventDataItem
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#24-data-flow-through-block-graph" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2.4 Data Flow Through Block Graph
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#25-datastate" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2.5 DataState
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#26-layer-ordering" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2.6 Layer Ordering
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#3-application-services" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. Application Services
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="3. Application Services">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#31-applicationfacade" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3.1 ApplicationFacade
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="3.1 ApplicationFacade">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#project-management" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Project Management
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#block-management" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Block Management
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#connection-management" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Connection Management
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#execution" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Execution
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#data-items" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Data Items
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ui-state" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        UI State
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#editor-operations-via-editorapi" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Editor Operations (via EditorAPI)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#settings-preferences" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Settings / Preferences
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#setlists" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Setlists
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#action-sets-action-items" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Action Sets / Action Items
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#show-manager-ma3" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Show Manager / MA3
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#32-command-pattern" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3.2 Command Pattern
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#33-event-bus" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3.3 Event Bus
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#34-execution-engine" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3.4 Execution Engine
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#35-editorapi" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3.5 EditorAPI
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#4-block-types" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4. Block Types
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="4. Block Types">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#41-loadaudio" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.1 LoadAudio
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#42-setlistaudioinput" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.2 SetlistAudioInput
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#43-detectonsets" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.3 DetectOnsets
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#44-separator" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.4 Separator
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#45-editor" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.5 Editor
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#46-showmanager" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.6 ShowManager
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#47-audioplayer" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.7 AudioPlayer
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#48-audiofilter" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.8 AudioFilter
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#49-exportaudio" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.9 ExportAudio
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#410-transcribenote-noteextractorbasicpitch" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.10 TranscribeNote / NoteExtractorBasicPitch
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#411-transcribelib-noteextractorlibrosa" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.11 TranscribeLib / NoteExtractorLibrosa
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#412-commandsequencer" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.12 CommandSequencer
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#413-exportma2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.13 ExportMA2
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#414-quick-actions-system" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.14 Quick Actions System
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#5-editor-behaviors" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5. Editor Behaviors
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="5. Editor Behaviors">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#51-timeline-architecture" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.1 Timeline Architecture
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#52-layer-management" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.2 Layer Management
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#53-event-editing" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.3 Event Editing
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#54-grid-and-snap" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.4 Grid and Snap
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#55-zoom-and-scroll" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.5 Zoom and Scroll
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#56-playback" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.6 Playback
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#57-event-inspector" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.7 Event Inspector
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#58-settings-panel" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.8 Settings Panel
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#59-keyboard-shortcuts" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.9 Keyboard Shortcuts
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#510-waveform-display" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.10 Waveform Display
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#511-editorpanel-block-panel" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.11 EditorPanel (Block Panel)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#6-node-editor" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6. Node Editor
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="6. Node Editor">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#61-layout-and-visual-representation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.1 Layout and Visual Representation
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#62-interaction-model" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.2 Interaction Model
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#63-node-editor-scene" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.3 Node Editor Scene
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#7-show-manager-ma3-integration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7. Show Manager / MA3 Integration
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="7. Show Manager / MA3 Integration">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#71-ma3-communication" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7.1 MA3 Communication
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#72-showmanagerlistenerservice" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7.2 ShowManagerListenerService
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#73-syncsystemmanager" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7.3 SyncSystemManager
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#74-bidirectional-sync" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7.4 Bidirectional Sync
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#75-showmanager-settings" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7.5 ShowManager Settings
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#8-project-system" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        8. Project System
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="8. Project System">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#81-file-format-ez" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        8.1 File Format (.ez)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#82-save-process" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        8.2 Save Process
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#83-load-process" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        8.3 Load Process
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#84-recent-projects" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        8.4 Recent Projects
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#85-setlist-processing" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        8.5 Setlist Processing
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#86-snapshots-for-setlist-song-state" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        8.6 Snapshots (for Setlist Song State)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#9-persistence-layer" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        9. Persistence Layer
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="9. Persistence Layer">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#91-database" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        9.1 Database
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#92-tables" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        9.2 Tables
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#93-threading" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        9.3 Threading
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#94-migrations" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        9.4 Migrations
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#95-repository-pattern" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        9.5 Repository Pattern
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#96-preferences" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        9.6 Preferences
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#10-ui-architecture" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        10. UI Architecture
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="10. UI Architecture">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#101-main-window" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        10.1 Main Window
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#102-panel-system" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        10.2 Panel System
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#103-design-system" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        10.3 Design System
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#104-theming" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        10.4 Theming
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#105-settings-preferences-system" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        10.5 Settings / Preferences System
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#106-splash-screen" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        10.6 Splash Screen
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#107-runblockthread" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        10.7 RunBlockThread
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#11-known-issues-todos" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        11. Known Issues / TODOs
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#appendix-a-port-type-color-reference" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Appendix A: Port Type Color Reference
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#appendix-b-block-type-registry-summary" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Appendix B: Block Type Registry Summary
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#appendix-c-snap-interval-seconds-mapping" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Appendix C: Snap Interval Seconds Mapping
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#appendix-d-ma3-timecode-coordinate-parsing" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Appendix D: MA3 Timecode Coordinate Parsing
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="echozero-behavioral-specification">EchoZero — Behavioral Specification<a class="headerlink" href="#echozero-behavioral-specification" title="Permanent link">&para;</a></h1>
+<p><strong>Purpose:</strong> Comprehensive behavioral specification for ground-up rewrite.<br />
+<strong>Source:</strong> Derived from full codebase analysis of the Python/PyQt6 implementation.<br />
+<strong>Date:</strong> 2026-02-28  </p>
+<blockquote>
+<p>This document is the single source of truth for expected behavior. Every feature, entity, business rule, edge case, known issue, and design intent captured here is intended to survive the rewrite. Anything not documented here may be lost.</p>
+</blockquote>
+<hr />
+<h2 id="table-of-contents">Table of Contents<a class="headerlink" href="#table-of-contents" title="Permanent link">&para;</a></h2>
+<ol>
+<li><a href="#1-domain-model">Domain Model</a></li>
+<li><a href="#2-data-model">Data Model</a></li>
+<li><a href="#3-application-services">Application Services</a></li>
+<li><a href="#4-block-types">Block Types</a></li>
+<li><a href="#5-editor-behaviors">Editor Behaviors</a></li>
+<li><a href="#6-node-editor">Node Editor</a></li>
+<li><a href="#7-show-manager--ma3-integration">Show Manager / MA3 Integration</a></li>
+<li><a href="#8-project-system">Project System</a></li>
+<li><a href="#9-persistence-layer">Persistence Layer</a></li>
+<li><a href="#10-ui-architecture">UI Architecture</a></li>
+<li><a href="#11-known-issues--todos">Known Issues / TODOs</a></li>
+</ol>
+<hr />
+<h2 id="1-domain-model">1. Domain Model<a class="headerlink" href="#1-domain-model" title="Permanent link">&para;</a></h2>
+<h3 id="11-block">1.1 Block<a class="headerlink" href="#11-block" title="Permanent link">&para;</a></h3>
+<p><strong>Entity:</strong> <code>Block</code></p>
+<p><strong>Fields:</strong>
+- <code>id: str</code> — UUID, globally unique
+- <code>project_id: str</code> — parent project
+- <code>name: str</code> — user-visible display name, unique within a project
+- <code>type: str</code> — block type identifier (e.g., <code>"LoadAudio"</code>, <code>"Editor"</code>)
+- <code>ports: List[Port]</code> — input and output ports, defined by block type
+- <code>metadata: Dict[str, Any]</code> — type-specific configuration (e.g., file paths, filter settings)
+- Status fields managed externally by <code>BlockStatusLevel</code> system</p>
+<p><strong>Invariants:</strong>
+- <code>name</code> must be unique per project (enforced at the DB level with <code>UNIQUE(project_id, name)</code>)
+- <code>type</code> must correspond to a registered block processor
+- <code>ports</code> are immutable from the domain perspective — they are defined by block type, not user
+- <code>metadata</code> is the primary configuration store; contents vary per block type</p>
+<p><strong>Lifecycle:</strong>
+- Created via <code>CreateBlockCommand</code>
+- Renamed via <code>RenameBlockCommand</code>
+- Deleted via <code>DeleteBlockCommand</code> (cascades to connections and data items)
+- Block position in node editor stored separately in UI state (not in Block entity)</p>
+<p><strong>Status System:</strong>
+Each block type defines <code>BlockStatusLevel</code> objects with priority ordering:
+- Priority 0 = highest severity (Error)
+- Priority 1 = warning-level
+- Priority 2 = ready/OK
+- Each level has a list of <code>conditions</code> (callables that check requirements)
+- The UI shows the highest-priority status whose conditions are NOT met
+- Status colors are hex strings: error <code>#ff6b6b</code>, stale/warning <code>#ffa94d</code> or <code>#ffd43b</code>, ready <code>#51cf66</code></p>
+<hr />
+<h3 id="12-port">1.2 Port<a class="headerlink" href="#12-port" title="Permanent link">&para;</a></h3>
+<p><strong>Entity:</strong> <code>Port</code></p>
+<p><strong>Fields:</strong>
+- <code>id: str</code> — UUID
+- <code>block_id: str</code> — owning block
+- <code>name: str</code> — port identifier (e.g., <code>"audio"</code>, <code>"events"</code>, <code>"drums"</code>)
+- <code>direction: PortDirection</code> — <code>INPUT</code> or <code>OUTPUT</code>
+- <code>port_type: PortType</code> — <code>AUDIO</code>, <code>EVENT</code>, <code>MANIPULATOR</code>, or <code>GENERIC</code>
+- <code>display_name: str</code> — optional label shown in node editor</p>
+<p><strong>Port Types:</strong>
+- <code>AUDIO</code> — carries <code>AudioDataItem</code> (audio waveform data)
+- <code>EVENT</code> — carries <code>EventDataItem</code> (time-stamped events)
+- <code>MANIPULATOR</code> — bidirectional command port (shown in orange in node editor); enables ShowManager ↔ Editor communication
+- <code>GENERIC</code> — catch-all for other data</p>
+<p><strong>Invariants:</strong>
+- Multiple outputs can connect to the same input (removed UNIQUE constraint on connections)
+- A <code>MANIPULATOR</code> port can be both source and target simultaneously</p>
+<hr />
+<h3 id="13-connection">1.3 Connection<a class="headerlink" href="#13-connection" title="Permanent link">&para;</a></h3>
+<p><strong>Entity:</strong> <code>Connection</code></p>
+<p><strong>Fields:</strong>
+- <code>id: str</code> — UUID
+- <code>source_block_id: str</code>
+- <code>source_block_name: str</code> — denormalized for display
+- <code>source_output_name: str</code> — output port name on source block
+- <code>target_block_id: str</code>
+- <code>target_block_name: str</code> — denormalized for display
+- <code>target_input_name: str</code> — input port name on target block</p>
+<p><strong>Invariants:</strong>
+- Source and target block must be in the same project (implied, not explicitly enforced)
+- Source port must be an OUTPUT port; target port must be an INPUT port
+- Multiple connections to the same input port are allowed (e.g., Event ports can merge inputs)
+- Self-connections (same block as source and target) are not prevented by code but nonsensical</p>
+<p><strong>Lifecycle:</strong>
+- Created by drawing a connection in node editor
+- Deleted when either block is deleted (cascade) or user disconnects
+- Validation: connection type compatibility is checked before creation</p>
+<hr />
+<h3 id="14-project">1.4 Project<a class="headerlink" href="#14-project" title="Permanent link">&para;</a></h3>
+<p><strong>Entity:</strong> <code>Project</code></p>
+<p><strong>Fields:</strong>
+- <code>id: str</code> — UUID
+- <code>name: str</code> — user-visible, must be unique
+- <code>version: str</code> — project file format version
+- <code>save_directory: str | None</code> — absolute path to the <code>.ez</code> file's directory
+- <code>created_at: datetime</code>
+- <code>modified_at: datetime</code>
+- <code>metadata: Dict[str, Any]</code> — additional project-level properties</p>
+<p><strong>Invariants:</strong>
+- <code>name</code> must be unique (enforced by DB <code>UNIQUE(name)</code>)
+- Projects are the top-level aggregate — blocks, connections, data items all belong to a project
+- One setlist per project (enforced by <code>UNIQUE(project_id)</code> on setlists table)</p>
+<p><strong>Lifecycle:</strong>
+- Created via <code>create_project(name)</code> on facade
+- Loaded via <code>load_project(path)</code> — clears DB, rehydrates from JSON
+- Saved via <code>save_project(project_id)</code> — serializes to <code>.ez</code> (ZIP) file
+- Deleted via <code>delete_project(project_id)</code></p>
+<hr />
+<h3 id="15-actionset-and-actionitem">1.5 ActionSet and ActionItem<a class="headerlink" href="#15-actionset-and-actionitem" title="Permanent link">&para;</a></h3>
+<p><strong>Entity:</strong> <code>ActionSet</code></p>
+<p><strong>Fields:</strong>
+- <code>id: str</code>
+- <code>name: str</code>
+- <code>description: str | None</code>
+- <code>actions: List[ActionItem]</code> — serialized as JSON in DB
+- <code>project_id: str | None</code> — null if global
+- <code>created_at: datetime</code>
+- <code>modified_at: datetime</code>
+- <code>metadata: Dict[str, Any]</code></p>
+<p><strong>Entity:</strong> <code>ActionItem</code></p>
+<p><strong>Fields:</strong>
+- <code>id: str</code>
+- <code>action_set_id: str | None</code>
+- <code>project_id: str</code>
+- <code>action_type: str</code> — <code>"block"</code> (default) or project-level action type
+- <code>block_id: str | None</code> — null for project-level actions
+- <code>block_name: str | None</code> — denormalized
+- <code>action_name: str</code> — name of the quick action to invoke
+- <code>action_description: str | None</code>
+- <code>action_args: Dict | None</code> — optional arguments
+- <code>order_index: int</code> — zero-based position in the set
+- <code>created_at: datetime</code>
+- <code>modified_at: datetime</code>
+- <code>metadata: Dict | None</code></p>
+<p><strong>Business Rules:</strong>
+- Action items are ordered by <code>order_index</code> when executed in a setlist run
+- <code>block_id</code> is nullable to support project-level (non-block-specific) actions — this was a schema migration; older rows had NOT NULL
+- Action sets can be default actions for a setlist or per-song action overrides</p>
+<hr />
+<h3 id="16-setlist-and-setlistsong">1.6 Setlist and SetlistSong<a class="headerlink" href="#16-setlist-and-setlistsong" title="Permanent link">&para;</a></h3>
+<p><strong>Entity:</strong> <code>Setlist</code></p>
+<p><strong>Fields:</strong>
+- <code>id: str</code>
+- <code>audio_folder_path: str</code> — root folder containing audio files
+- <code>project_id: str</code> — one per project (UNIQUE constraint)
+- <code>default_actions: Dict</code> — JSON-encoded default ActionSet to apply to each song
+- <code>created_at: datetime</code>
+- <code>modified_at: datetime</code>
+- <code>metadata: Dict</code></p>
+<p><strong>Entity:</strong> <code>SetlistSong</code></p>
+<p><strong>Fields:</strong>
+- <code>id: str</code>
+- <code>setlist_id: str</code>
+- <code>audio_path: str</code> — absolute path to the audio file for this song
+- <code>order_index: int</code> — position in the setlist (0-based)
+- <code>status: str</code> — <code>"pending"</code>, <code>"processing"</code>, <code>"complete"</code>, <code>"error"</code>
+- <code>processed_at: str | None</code>
+- <code>action_overrides: Dict | None</code> — per-song override of default_actions
+- <code>error_message: str | None</code> — last error if status == "error"
+- <code>metadata: Dict | None</code></p>
+<p><strong>Business Rules:</strong>
+- Exactly one setlist per project
+- Songs are ordered by <code>order_index</code>
+- Each song can override the setlist's <code>default_actions</code> with <code>action_overrides</code>
+- Song status transitions: pending → processing → complete/error</p>
+<hr />
+<h3 id="17-layerorder">1.7 LayerOrder<a class="headerlink" href="#17-layerorder" title="Permanent link">&para;</a></h3>
+<p><strong>Entity:</strong> <code>LayerOrder</code></p>
+<p><strong>Fields:</strong>
+- <code>block_id: str</code> — the Editor block that owns these layers
+- <code>order_json: str</code> — JSON encoding of <code>List[LayerKey]</code></p>
+<p><strong>Value Object:</strong> <code>LayerKey</code></p>
+<p><strong>Fields:</strong>
+- <code>group_name: str</code> — human-readable group (e.g., <code>"TC 1"</code>)
+- <code>layer_name: str</code> — layer name within the group</p>
+<p><strong>Purpose:</strong> Persists the visual ordering of layers in an Editor's timeline widget. Layers are grouped and ordered within groups.</p>
+<hr />
+<h3 id="18-synclayerentity-show-manager-domain">1.8 SyncLayerEntity (Show Manager Domain)<a class="headerlink" href="#18-synclayerentity-show-manager-domain" title="Permanent link">&para;</a></h3>
+<p><strong>Entity:</strong> <code>SyncLayerEntity</code></p>
+<p>Represents the mapping between an Editor layer and an MA3 track.</p>
+<p><strong>Fields:</strong> (inferred from show manager code)
+- <code>editor_layer_id: str | None</code> — the Editor layer name (nullable when disconnected)
+- <code>editor_block_id: str | None</code> — the Editor block
+- <code>editor_data_item_id: str | None</code>
+- <code>ma3_track_coord: str</code> — MA3 coordinate string (e.g., <code>"tc1_tg1_tr1"</code> or <code>"TC1"</code>)
+- <code>show_manager_block_id: str</code> — the ShowManager block that owns this entity
+- <code>sync_status: str</code> — one of <code>"synced"</code>, <code>"out_of_sync"</code>, <code>"conflict"</code>, <code>"unmapped"</code>, <code>"excluded"</code>, <code>"disconnected"</code>
+- <code>sync_type: SyncType</code> — <code>"showmanager_layer"</code> or <code>"ez_layer"</code>
+- <code>sync_direction: SyncDirection</code> — <code>MA3_TO_EZ</code>, <code>EZ_TO_MA3</code>, <code>BIDIRECTIONAL</code>
+- <code>conflict_resolution: ConflictResolution</code> — <code>USE_MA3</code>, <code>USE_EZ</code>, <code>MERGE</code>, <code>SKIP</code>, <code>PROMPT_USER</code></p>
+<p><strong>When an Editor layer is deleted:</strong>
+- The sync entity is NOT removed immediately
+- It is marked <code>sync_status = "disconnected"</code> 
+- The user sees it in the ShowManager Layer Sync tab as disconnected
+- User can reconnect to another Editor layer or remove the entry entirely</p>
+<hr />
+<h2 id="2-data-model">2. Data Model<a class="headerlink" href="#2-data-model" title="Permanent link">&para;</a></h2>
+<h3 id="21-dataitem-base">2.1 DataItem (Base)<a class="headerlink" href="#21-dataitem-base" title="Permanent link">&para;</a></h3>
+<p><strong>Abstract entity</strong> with fields:
+- <code>id: str</code> — UUID, assigned on creation
+- <code>block_id: str</code> — which block produced this item
+- <code>name: str</code> — display name
+- <code>type: str</code> — <code>"Audio"</code> or <code>"Event"</code>
+- <code>created_at: datetime</code>
+- <code>file_path: str | None</code> — filesystem path to stored data
+- <code>metadata: Dict[str, Any]</code> — extensible properties</p>
+<p><strong>Key metadata keys (shared):</strong>
+- <code>output_name: str</code> — semantic name from the output port (e.g., <code>"audio:vocals"</code>, <code>"audio:drums"</code>)
+- <code>_source_block_id: str</code> — which block produced this item (set by engine)
+- <code>_source_audio_id: str</code> — for event items, the AudioDataItem they came from</p>
+<hr />
+<h3 id="22-audiodataitem">2.2 AudioDataItem<a class="headerlink" href="#22-audiodataitem" title="Permanent link">&para;</a></h3>
+<p>Extends DataItem for audio waveform data.</p>
+<p><strong>Additional fields:</strong>
+- <code>sample_rate: int | None</code> — e.g., 44100
+- <code>length_ms: float</code> — duration in milliseconds
+- In-memory <code>_audio_data: np.ndarray | None</code> — loaded lazily from <code>file_path</code></p>
+<p><strong>Methods:</strong>
+- <code>load_audio(path)</code> — loads WAV/MP3/FLAC/etc. via librosa into <code>_audio_data</code>
+- <code>save_audio(path)</code> — writes <code>_audio_data</code> to WAV file
+- <code>get_audio_data() -&gt; np.ndarray | None</code> — returns loaded samples
+- <code>set_audio_data(data, sample_rate)</code> — sets in-memory data</p>
+<p><strong>Waveform service:</strong> After loading, a waveform (amplitude summary) is computed and stored for timeline display. Resolution is configurable (default 50 points). Waveforms are shown in event clips on the timeline only when <code>show_waveforms_in_timeline</code> is True (disabled by default for performance). Min event width for waveform display: 30px (LOD threshold).</p>
+<p><strong>Output name convention for multi-stem:</strong> When a Separator block produces multiple stems, each AudioDataItem's <code>output_name</code> is <code>"audio:&lt;stem_name&gt;"</code> (e.g., <code>"audio:vocals"</code>, <code>"audio:drums"</code>). AudioFilter blocks preserve this <code>output_name</code> from upstream items.</p>
+<hr />
+<h3 id="23-eventdataitem">2.3 EventDataItem<a class="headerlink" href="#23-eventdataitem" title="Permanent link">&para;</a></h3>
+<p>Extends DataItem for time-stamped event data.</p>
+<p><strong>Additional fields:</strong>
+- <code>event_count: int</code> — total events across all layers
+- <code>_layers: List[EventLayer]</code> — organized layers of events</p>
+<p><strong>Methods:</strong>
+- <code>get_events() -&gt; List[Event]</code> — all events across all layers (flattened)
+- <code>get_layers() -&gt; List[EventLayer]</code> — all layers
+- <code>get_layer_by_name(name) -&gt; EventLayer | None</code>
+- <code>add_layer(layer)</code> — adds a new layer; raises if name exists
+- <code>remove_layer(name) -&gt; bool</code>
+- <code>to_dict() / from_dict()</code> — serialization</p>
+<p><strong>EventLayer fields:</strong>
+- <code>id: str</code> — UUID
+- <code>name: str</code> — layer name (used as event classification bucket)
+- <code>events: List[Event]</code> — ordered by time
+- <code>metadata: Dict</code></p>
+<p>Methods: <code>add_event(event)</code>, <code>clear_events()</code>, <code>get_events()</code>, <code>to_dict()</code>, <code>from_dict()</code></p>
+<p><strong>Event fields:</strong>
+- <code>id: str</code> — UUID
+- <code>time: float</code> — position in seconds
+- <code>duration: float</code> — length in seconds (0 for instant/marker events)
+- <code>classification: str</code> — human-readable label (same as layer name for layer-based events)
+- <code>metadata: Dict</code> — arbitrary event properties</p>
+<p><strong>Key metadata keys on Events:</strong>
+- <code>audio_id: str</code> — ID of source AudioDataItem (set by DetectOnsets, etc.)
+- <code>_ma3_idx: int</code> — MA3 event index for sync matching (preserved across snapshots)
+- <code>_synced_from_ma3: bool</code> — event was received from MA3
+- <code>_ma3_track_coord: str</code> — MA3 coordinate
+- <code>_show_manager_block_id: str</code>
+- <code>render_as_marker: bool</code> — display as marker (point) rather than block (rectangle)
+- <code>_source_audio_id: str</code></p>
+<p><strong>Instant vs. Block events:</strong>
+- Events with <code>duration == 0</code> are "marker" events — displayed as a point/diamond/shape
+- Events with <code>duration &gt; 0</code> are "block" events — displayed as a rectangle with width proportional to duration</p>
+<hr />
+<h3 id="24-data-flow-through-block-graph">2.4 Data Flow Through Block Graph<a class="headerlink" href="#24-data-flow-through-block-graph" title="Permanent link">&para;</a></h3>
+<p>Data flows from upstream blocks to downstream blocks via connections:</p>
+<ol>
+<li><strong>Block executes</strong> → produces <code>DataItem</code>s → stored in <code>data_item_repo</code> with <code>block_id</code></li>
+<li><strong>Engine saves</strong> output DataItem IDs into <code>block_local_state</code> for the source block's output ports</li>
+<li><strong>Downstream block executes</strong> → engine reads the upstream block's <code>block_local_state</code> → loads DataItems from <code>data_item_repo</code> → passes as <code>inputs</code> dict to block processor</li>
+<li><strong>Engine handles persistence</strong> — processors return <code>DataItem</code>s (unsaved), engine calls <code>data_item_repo.create()</code> and updates local state</li>
+</ol>
+<p><strong>Inputs dict key format:</strong> <code>{input_port_name}</code> (e.g., <code>"audio"</code>, <code>"events"</code>)</p>
+<p><strong>Multi-item ports:</strong> If multiple connections arrive at the same input port, inputs may be lists. Processors must handle both single item and <code>List[DataItem]</code> inputs.</p>
+<p><strong>Audio resolution from events:</strong> AudioFilter and some other blocks can receive events on their <code>events</code> port instead of audio on <code>audio</code>. They resolve the source audio by looking up <code>audio_id</code> from event metadata in <code>data_item_repo</code>. This is the <code>_lookup_audio_from_events()</code> pattern.</p>
+<hr />
+<h3 id="25-datastate">2.5 DataState<a class="headerlink" href="#25-datastate" title="Permanent link">&para;</a></h3>
+<p>Used to track whether a block's data is fresh or stale.</p>
+<p><strong>Values:</strong> <code>FRESH</code>, <code>STALE</code></p>
+<p><strong>Stale conditions:</strong> A block becomes stale when an upstream block's data changes (e.g., re-execution, configuration change). Status levels check <code>DataState.STALE</code> to show the "stale" indicator.</p>
+<hr />
+<h3 id="26-layer-ordering">2.6 Layer Ordering<a class="headerlink" href="#26-layer-ordering" title="Permanent link">&para;</a></h3>
+<p>Layers in the Editor timeline have a persistent visual ordering stored in <code>layer_orders</code> table.</p>
+<p><strong>Data structure:</strong> <code>LayerOrder(block_id, [LayerKey(group_name, layer_name), ...])</code></p>
+<p><strong>Layer identity (stable across sessions):</strong>
+- For MA3-synced layers: <code>group_id</code> uses <code>tc_N</code> prefix (e.g., <code>tc_1</code>), <code>group_name</code> uses <code>"TC N"</code> (e.g., <code>"TC 1"</code>)
+- For non-synced layers: <code>group_id</code> is <code>"{source_block_id}:{item.name}"</code>, <code>group_name</code> is <code>item.name</code>
+- This identity must survive song switches and re-pulls where EventDataItem UUIDs change</p>
+<p><strong>Layer ordering service:</strong> <code>layer_order_service</code> — exposes <code>add_layer(block_id, group_name, layer_name)</code>, <code>remove_layer(...)</code>, <code>get_order(block_id)</code>.</p>
+<p><strong>Reconciliation:</strong> On panel open, <code>_reconcile_layer_order()</code> merges persisted order with actual layers. New layers are appended. Missing layers are removed from the order. The result is applied with <code>_apply_layer_order(order)</code>.</p>
+<hr />
+<h2 id="3-application-services">3. Application Services<a class="headerlink" href="#3-application-services" title="Permanent link">&para;</a></h2>
+<h3 id="31-applicationfacade">3.1 ApplicationFacade<a class="headerlink" href="#31-applicationfacade" title="Permanent link">&para;</a></h3>
+<p>The single application-level API. All UI and external code interacts with the system exclusively through this facade. It delegates to feature services.</p>
+<p><strong>Feature Areas:</strong></p>
+<h4 id="project-management">Project Management<a class="headerlink" href="#project-management" title="Permanent link">&para;</a></h4>
+<ul>
+<li><code>create_project(name) → Result[Project]</code></li>
+<li><code>load_project(path) → Result[Project]</code> — clears DB, loads from <code>.ez</code> file</li>
+<li><code>save_project(project_id) → Result</code> — saves to <code>.ez</code> ZIP</li>
+<li><code>save_project_as(project_id, path) → Result</code></li>
+<li><code>delete_project(project_id) → Result</code></li>
+<li><code>list_projects() → Result[List[Project]]</code></li>
+<li><code>describe_project(project_id) → Result[Project]</code></li>
+<li><code>get_recent_projects() → List[str]</code> — filesystem paths</li>
+</ul>
+<h4 id="block-management">Block Management<a class="headerlink" href="#block-management" title="Permanent link">&para;</a></h4>
+<ul>
+<li><code>create_block(project_id, name, type, metadata) → Result[Block]</code></li>
+<li><code>describe_block(block_id) → Result[Block]</code></li>
+<li><code>list_blocks(project_id) → Result[List[Block]]</code></li>
+<li><code>update_block_metadata(block_id, metadata) → Result</code></li>
+<li><code>rename_block(block_id, new_name) → Result</code></li>
+<li><code>delete_block(block_id) → Result</code></li>
+<li><code>get_block_status(block_id) → Result[StatusInfo]</code></li>
+</ul>
+<h4 id="connection-management">Connection Management<a class="headerlink" href="#connection-management" title="Permanent link">&para;</a></h4>
+<ul>
+<li><code>create_connection(source_block_id, source_output, target_block_id, target_input) → Result[Connection]</code></li>
+<li><code>delete_connection(connection_id) → Result</code></li>
+<li><code>list_connections(project_id) → Result[List[Connection]]</code></li>
+<li><code>list_connections_by_block(block_id) → Result[List[Connection]]</code></li>
+</ul>
+<h4 id="execution">Execution<a class="headerlink" href="#execution" title="Permanent link">&para;</a></h4>
+<ul>
+<li><code>run_block(block_id, strategy) → Result</code> — executes a single block and all dependencies</li>
+<li><code>run_project(project_id) → Result</code> — executes all blocks in topological order</li>
+<li><code>get_execution_status(block_id) → Result[ExecutionStatus]</code></li>
+</ul>
+<h4 id="data-items">Data Items<a class="headerlink" href="#data-items" title="Permanent link">&para;</a></h4>
+<ul>
+<li><code>list_data_items(block_id) → Result[List[DataItem]]</code></li>
+<li><code>get_data_item(data_item_id) → Result[DataItem]</code></li>
+<li><code>delete_data_item(data_item_id) → Result</code></li>
+<li><code>create_data_item(block_id, name, type, metadata) → Result[DataItem]</code></li>
+</ul>
+<h4 id="ui-state">UI State<a class="headerlink" href="#ui-state" title="Permanent link">&para;</a></h4>
+<ul>
+<li><code>get_ui_state(state_type, entity_id) → Result[Dict]</code></li>
+<li><code>set_ui_state(state_type, entity_id, data) → Result</code></li>
+<li><code>delete_ui_state(state_type, entity_id) → Result</code></li>
+</ul>
+<p><strong>UI state types used:</strong>
+- <code>"editor_layers"</code> — layer list/overrides for Editor blocks (keyed by block_id)
+- <code>"block_position"</code> — x/y position in node editor (keyed by block_id)
+- <code>"node_editor_viewport"</code> — scroll/zoom state of node editor</p>
+<h4 id="editor-operations-via-editorapi">Editor Operations (via EditorAPI)<a class="headerlink" href="#editor-operations-via-editorapi" title="Permanent link">&para;</a></h4>
+<ul>
+<li><code>get_editor_layers(block_id) → List[LayerDict]</code></li>
+<li><code>create_editor_layer(block_id, layer_name, properties) → Result</code></li>
+<li><code>update_editor_layer(block_id, layer_name, properties) → Result</code></li>
+<li><code>delete_editor_layer(block_id, layer_name) → Result</code></li>
+<li><code>get_editor_events(block_id, layer_name?, source?) → List[EventDict]</code></li>
+<li><code>add_editor_events(block_id, events, source) → Result</code></li>
+<li><code>apply_layer_snapshot(data_item_id, layer_name, events) → Result</code></li>
+</ul>
+<h4 id="settings-preferences">Settings / Preferences<a class="headerlink" href="#settings-preferences" title="Permanent link">&para;</a></h4>
+<ul>
+<li><code>get_preference(key) → Any</code></li>
+<li><code>set_preference(key, value) → Result</code></li>
+<li><code>get_app_settings() → AppSettingsManager</code></li>
+</ul>
+<h4 id="setlists">Setlists<a class="headerlink" href="#setlists" title="Permanent link">&para;</a></h4>
+<ul>
+<li><code>create_setlist(project_id, audio_folder_path) → Result[Setlist]</code></li>
+<li><code>get_setlist(project_id) → Result[Setlist]</code></li>
+<li><code>update_setlist(setlist_id, ...) → Result</code></li>
+<li><code>add_setlist_song(setlist_id, audio_path, order_index) → Result[SetlistSong]</code></li>
+<li><code>remove_setlist_song(song_id) → Result</code></li>
+<li><code>reorder_setlist_songs(setlist_id, song_ids_in_order) → Result</code></li>
+<li><code>process_setlist(setlist_id) → Result</code> — runs the block graph for each song</li>
+</ul>
+<h4 id="action-sets-action-items">Action Sets / Action Items<a class="headerlink" href="#action-sets-action-items" title="Permanent link">&para;</a></h4>
+<ul>
+<li><code>create_action_set(name, project_id, ...) → Result[ActionSet]</code></li>
+<li><code>list_action_sets(project_id) → Result[List[ActionSet]]</code></li>
+<li><code>create_action_item(action_set_id, block_id, action_name, ...) → Result[ActionItem]</code></li>
+<li><code>list_action_items(action_set_id) → Result[List[ActionItem]]</code></li>
+<li><code>execute_action_items(items) → Result</code></li>
+</ul>
+<h4 id="show-manager-ma3">Show Manager / MA3<a class="headerlink" href="#show-manager-ma3" title="Permanent link">&para;</a></h4>
+<ul>
+<li><code>start_ma3_listener(block_id) → Result</code></li>
+<li><code>stop_ma3_listener(block_id) → Result</code></li>
+<li><code>get_ma3_connection_status(block_id) → Result[StatusInfo]</code></li>
+<li><code>sync_layer_to_ma3(block_id, layer_name) → Result</code></li>
+<li><code>sync_layer_from_ma3(block_id, ma3_coord) → Result</code></li>
+</ul>
+<hr />
+<h3 id="32-command-pattern">3.2 Command Pattern<a class="headerlink" href="#32-command-pattern" title="Permanent link">&para;</a></h3>
+<p>All mutations go through the command bus. Commands are undoable/redoable.</p>
+<p><strong>Base class:</strong> <code>EchoZeroCommand</code>
+- <code>redo()</code> — executes the command
+- <code>undo()</code> — reverses the command
+- <code>text: str</code> — human-readable description for undo history</p>
+<p><strong>CommandBus:</strong>
+- <code>execute(command)</code> — runs <code>command.redo()</code> and adds to undo history
+- <code>begin_macro(name)</code> — starts a named macro (groups commands into one undo step)
+- <code>end_macro()</code> — ends the macro
+- Undo limit: 50 steps (configurable via <code>max_undo_steps</code> setting)</p>
+<p><strong>Key command groups:</strong></p>
+<table>
+<thead>
+<tr>
+<th>Command</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>CreateBlockCommand</code></td>
+<td>Creates a block entity</td>
+</tr>
+<tr>
+<td><code>RenameBlockCommand</code></td>
+<td>Renames a block</td>
+</tr>
+<tr>
+<td><code>DeleteBlockCommand</code></td>
+<td>Deletes block + connections + data items</td>
+</tr>
+<tr>
+<td><code>CreateConnectionCommand</code></td>
+<td>Creates a connection</td>
+</tr>
+<tr>
+<td><code>DeleteConnectionCommand</code></td>
+<td>Removes a connection</td>
+</tr>
+<tr>
+<td><code>EditorCreateLayerCommand</code></td>
+<td>Creates a layer in Editor UI state; also syncs to open TimelineWidget immediately</td>
+</tr>
+<tr>
+<td><code>EditorAddEventsCommand</code></td>
+<td>Adds events to Editor (creates/finds EventDataItem, adds to layers)</td>
+</tr>
+<tr>
+<td><code>EditorUpdateLayerCommand</code></td>
+<td>Updates layer properties (height, color, visibility, lock)</td>
+</tr>
+<tr>
+<td><code>EditorDeleteLayerCommand</code></td>
+<td>Deletes layer from UI state, EventDataItem, and marks sync entity disconnected</td>
+</tr>
+<tr>
+<td><code>EditorGetLayersCommand</code></td>
+<td>Query (non-undoable): builds layer list from EventDataItems + UI overrides</td>
+</tr>
+<tr>
+<td><code>EditorGetEventsCommand</code></td>
+<td>Query (non-undoable): returns events filtered by layer/source</td>
+</tr>
+<tr>
+<td><code>ApplyLayerSnapshotCommand</code></td>
+<td>Replaces all events in a layer with a snapshot; preserves <code>render_as_marker</code> and user metadata by merging with existing events matched by <code>_ma3_idx</code></td>
+</tr>
+<tr>
+<td><code>CreateEventDataItemCommand</code></td>
+<td>Creates an EventDataItem entity</td>
+</tr>
+<tr>
+<td><code>AddEventToDataItemCommand</code></td>
+<td>Adds a single Event to an EventDataItem layer</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Macro pattern for multi-step operations:</strong> <code>EditorAddEventsCommand.redo()</code> opens a macro, executes sub-commands, then closes it. The macro collapses to one undo step.</p>
+<hr />
+<h3 id="33-event-bus">3.3 Event Bus<a class="headerlink" href="#33-event-bus" title="Permanent link">&para;</a></h3>
+<p>Pub/sub system for decoupled communication between services and UI.</p>
+<p><strong>Key event types:</strong>
+- <code>ProjectCreated(project_id)</code>
+- <code>ProjectUpdated(project_id)</code>
+- <code>ProjectDeleted(project_id)</code>
+- <code>BlockCreated(project_id, data: {id, name, type})</code>
+- <code>BlockUpdated(project_id, data: {id, name, ...})</code> — with optional flags: <code>layers_updated</code>, <code>events_updated</code>, <code>settings_updated</code>, <code>synced_layers_changed</code>
+- <code>BlockDeleted(project_id, block_id)</code>
+- <code>ConnectionCreated(project_id, connection_id)</code>
+- <code>ConnectionDeleted(project_id, connection_id)</code>
+- <code>MA3MessageReceived(data: {object_type, object_name, change_type, timestamp, ma3_data})</code>
+- <code>ExecutionStarted(block_id)</code>
+- <code>ExecutionCompleted(block_id)</code>
+- <code>ExecutionFailed(block_id, error)</code></p>
+<p><strong>Subscriber pattern:</strong> <code>event_bus.subscribe(EventType, handler_fn)</code>. Handlers are called synchronously in the publishing thread.</p>
+<hr />
+<h3 id="34-execution-engine">3.4 Execution Engine<a class="headerlink" href="#34-execution-engine" title="Permanent link">&para;</a></h3>
+<p>Executes the block graph in dependency order.</p>
+<p><strong>Algorithm:</strong>
+1. Build directed acyclic graph from <code>Connection</code> entities
+2. Topological sort (Kahn's algorithm or DFS-based)
+3. Execute each block in sorted order:
+   a. Gather inputs: look up <code>block_local_state</code> for each input port → load <code>DataItem</code>s from repo
+   b. Call <code>BlockProcessor.process(block, inputs, metadata)</code>
+   c. Store returned <code>DataItem</code>s in <code>data_item_repo</code> (create if new, update if exists)
+   d. Update <code>block_local_state</code> with output DataItem IDs
+   e. Emit <code>BlockUpdated</code> event
+4. Progress tracking via <code>ProgressTracker</code> (emits start, update, complete, error)</p>
+<p><strong>Execution strategies:</strong>
+- <code>ExecutionStrategy.BLOCK</code> — run only the target block (assume inputs already exist)
+- <code>ExecutionStrategy.FULL</code> — run target block and all ancestors in dependency order
+- <code>ExecutionStrategy.PROJECT</code> — run all blocks in the project</p>
+<p><strong>Progress tracking:</strong>
+- <code>ProgressTracker.start(message, total)</code> — begins tracking
+- <code>ProgressTracker.update(current, total, message)</code> — incremental
+- <code>ProgressTracker.complete(message)</code> — done
+- UI receives progress via Qt signals (thread-safe): <code>progress_start_signal</code>, <code>progress_update_signal</code>, <code>progress_complete_signal</code>, <code>progress_error_signal</code>
+- <code>track_progress(iterable, tracker, label)</code> — helper that auto-updates tracker per item</p>
+<p><strong>Block execution workers:</strong> The UI runs execution in a background <code>QThread</code> (via <code>RunBlockThread</code>) to avoid freezing. Progress signals are emitted from the worker and connected to the main thread UI.</p>
+<hr />
+<h3 id="35-editorapi">3.5 EditorAPI<a class="headerlink" href="#35-editorapi" title="Permanent link">&para;</a></h3>
+<p>Separate application-layer service for Editor-specific operations. Lives in <code>src/features/blocks/application/editor_api.py</code>.</p>
+<p>Wraps command dispatch and provides the facade's Editor methods. Handles:
+- Layer CRUD with immediate TimelineWidget sync (critical for AddEvents following CreateLayer)
+- Event queries with layer filtering
+- Snapshot application with metadata preservation
+- Group identity resolution for stable cross-session layer matching</p>
+<p><strong>Stable group identity rule:</strong>
+- If <code>metadata.group_id</code> starts with <code>"tc_"</code> → use that ID/name directly (MA3 timecode pool)
+- Otherwise → <code>group_id = "{source_block_id}:{item.name}"</code>, <code>group_name = item.name</code></p>
+<hr />
+<h2 id="4-block-types">4. Block Types<a class="headerlink" href="#4-block-types" title="Permanent link">&para;</a></h2>
+<h3 id="41-loadaudio">4.1 LoadAudio<a class="headerlink" href="#41-loadaudio" title="Permanent link">&para;</a></h3>
+<p><strong>Type:</strong> <code>"LoadAudio"</code><br />
+<strong>Category:</strong> Input (blue)<br />
+<strong>Inputs:</strong> none<br />
+<strong>Outputs:</strong> <code>audio</code> (Audio)</p>
+<p><strong>Configuration (block.metadata):</strong>
+- <code>file_path: str</code> — absolute path to audio file
+- Supported formats: WAV, MP3, FLAC (anything librosa supports)</p>
+<p><strong>Processing:</strong>
+1. Load audio file from <code>file_path</code> via librosa
+2. Create <code>AudioDataItem</code> with sample rate, duration, waveform
+3. Compute and store waveform for timeline display
+4. Return <code>{"audio": audio_item}</code></p>
+<p><strong>Status levels:</strong>
+- Error (0): <code>file_path</code> missing OR file does not exist on disk
+- Ready (1): file exists</p>
+<p><strong>Quick actions:</strong> Set File (opens file dialog), Reset Data</p>
+<hr />
+<h3 id="42-setlistaudioinput">4.2 SetlistAudioInput<a class="headerlink" href="#42-setlistaudioinput" title="Permanent link">&para;</a></h3>
+<p><strong>Type:</strong> <code>"SetlistAudioInput"</code><br />
+<strong>Category:</strong> Input<br />
+<strong>Inputs:</strong> none<br />
+<strong>Outputs:</strong> <code>audio</code> (Audio)</p>
+<p><strong>Configuration:</strong>
+- <code>audio_path: str</code> — set per-song by the setlist processor</p>
+<p><strong>Processing:</strong> Same as LoadAudio but path comes from <code>audio_path</code> metadata key rather than <code>file_path</code>.</p>
+<p><strong>Purpose:</strong> Used exclusively in setlist processing. A SetlistAudioInput block in the graph gets its <code>audio_path</code> set to each song's file path before execution.</p>
+<p><strong>Status levels:</strong>
+- Error (0): <code>audio_path</code> missing or file does not exist
+- Ready (1): file exists</p>
+<hr />
+<h3 id="43-detectonsets">4.3 DetectOnsets<a class="headerlink" href="#43-detectonsets" title="Permanent link">&para;</a></h3>
+<p><strong>Type:</strong> <code>"DetectOnsets"</code><br />
+<strong>Category:</strong> Analysis (orange)<br />
+<strong>Inputs:</strong> <code>audio</code> (Audio)<br />
+<strong>Outputs:</strong> <code>events</code> (Event)</p>
+<p><strong>Configuration (block.metadata):</strong>
+- <code>onset_method: str</code> — <code>"librosa"</code>, <code>"essentia"</code>, etc.
+- <code>hop_length: int</code>
+- <code>backtrack: bool</code>
+- Various threshold parameters depending on method</p>
+<p><strong>Processing:</strong>
+1. Load audio from input <code>AudioDataItem</code>
+2. Run onset detection algorithm
+3. Create <code>EventDataItem</code> with one event per detected onset
+4. Each event: <code>time</code> = onset time in seconds, <code>duration = 0</code> (marker), <code>classification = "onset"</code>
+5. Event <code>metadata["audio_id"] = audio_item.id</code> — allows downstream blocks to resolve source audio
+6. Return <code>{"events": event_data_item}</code></p>
+<p><strong>Status levels:</strong>
+- Error (0): no audio input connected
+- Stale (1): data is STALE
+- Ready (2): all clear</p>
+<hr />
+<h3 id="44-separator">4.4 Separator<a class="headerlink" href="#44-separator" title="Permanent link">&para;</a></h3>
+<p><strong>Type:</strong> <code>"Separator"</code><br />
+<strong>Category:</strong> Transform (orange/purple)<br />
+<strong>Inputs:</strong> <code>audio</code> (Audio)<br />
+<strong>Outputs:</strong> <code>drums</code>, <code>bass</code>, <code>other</code>, <code>vocals</code> (all Audio)</p>
+<p><strong>Configuration:</strong>
+- <code>model: str</code> — Demucs model name (e.g., <code>"htdemucs"</code>, <code>"mdx_extra"</code>)
+- <code>device: str</code> — <code>"cpu"</code> or <code>"cuda"</code></p>
+<p><strong>Processing:</strong>
+1. Run Demucs source separation on input audio
+2. Produce one <code>AudioDataItem</code> per stem
+3. Each item's <code>metadata["output_name"] = "audio:&lt;stem&gt;"</code> (e.g., <code>"audio:vocals"</code>)
+4. Return <code>{"drums": ..., "bass": ..., "other": ..., "vocals": ...}</code></p>
+<p><strong>Edge case:</strong> If model unavailable or audio is corrupt → <code>ProcessingError</code> raised → execution fails with error status.</p>
+<p><strong>Output naming:</strong> When a list of stems is produced on a single port (e.g., <code>"audio"</code> returning all stems as a list), each <code>AudioDataItem</code> carries its <code>output_name</code> in metadata.</p>
+<hr />
+<h3 id="45-editor">4.5 Editor<a class="headerlink" href="#45-editor" title="Permanent link">&para;</a></h3>
+<p><strong>Type:</strong> <code>"Editor"</code><br />
+<strong>Category:</strong> Editing (gray/purple)<br />
+<strong>Inputs:</strong> <code>events</code> (Event) — can have multiple connections<br />
+<strong>Outputs:</strong> <code>events</code> (Event), <code>manipulator</code> (Manipulator — connects to ShowManager)</p>
+<p><strong>Purpose:</strong> The primary interactive editing block. Hosts the Timeline widget. Stores and manages layers of time-stamped events. Receives events from upstream analysis blocks and allows manual editing.</p>
+<p><strong>Processing:</strong> Editor blocks do not process data in the normal sense. They hold and manage EventDataItem state. The "processing" phase copies/merges incoming events into the Editor's own EventDataItems.</p>
+<p><strong>Layers:</strong> Each EventDataItem owned by an Editor block corresponds to one "group" of layers. Each EventLayer within that item is one layer in the timeline.</p>
+<p><strong>Synced layers:</strong> Some layers are marked <code>is_synced=True</code> and linked to a ShowManager block and MA3 track coordinate. These layers have special restrictions (see §5 Editor Behaviors).</p>
+<hr />
+<h3 id="46-showmanager">4.6 ShowManager<a class="headerlink" href="#46-showmanager" title="Permanent link">&para;</a></h3>
+<p><strong>Type:</strong> <code>"ShowManager"</code><br />
+<strong>Category:</strong> Integration<br />
+<strong>Inputs/Outputs:</strong> <code>manipulator</code> port (bidirectional)</p>
+<p><strong>Purpose:</strong> Manages the MA3 synchronization system. Connects to an Editor block via Manipulator port. Maintains the list of synced layer pairs (Editor layer ↔ MA3 track).</p>
+<p><strong>Configuration (block.metadata):</strong>
+- <code>ma3_listen_port: int</code> — default 9000
+- <code>ma3_listen_address: str</code> — default <code>"127.0.0.1"</code>
+- <code>synced_layers: List[Dict]</code> — persisted sync entity list
+- <code>target_timecode: str | None</code> — target TC pool coordinate</p>
+<hr />
+<h3 id="47-audioplayer">4.7 AudioPlayer<a class="headerlink" href="#47-audioplayer" title="Permanent link">&para;</a></h3>
+<p><strong>Type:</strong> <code>"AudioPlayer"</code><br />
+<strong>Category:</strong> Utility/Preview (teal)<br />
+<strong>Inputs:</strong> <code>audio</code> (Audio)<br />
+<strong>Outputs:</strong> none</p>
+<p><strong>Purpose:</strong> Embedded audio playback preview block. Displays a compact waveform and transport controls directly in the node editor (wider block, 350px). Connects to Qt Multimedia for playback.</p>
+<p><strong>Configuration:</strong> No user-configurable metadata.</p>
+<p><strong>UI behavior:</strong> Block item embeds waveform widget + play/pause/stop controls. Playback is local to this block and independent of timeline playback.</p>
+<hr />
+<h3 id="48-audiofilter">4.8 AudioFilter<a class="headerlink" href="#48-audiofilter" title="Permanent link">&para;</a></h3>
+<p><strong>Type:</strong> <code>"AudioFilter"</code><br />
+<strong>Category:</strong> Transform (orange)<br />
+<strong>Inputs:</strong> <code>audio</code> (Audio) OR <code>events</code> (Event — resolves source audio via audio_id)<br />
+<strong>Outputs:</strong> <code>audio</code> (Audio)</p>
+<p><strong>Supported filter types:</strong></p>
+<table>
+<thead>
+<tr>
+<th>Key</th>
+<th>Name</th>
+<th>Parameters</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>lowpass</code></td>
+<td>Low-Pass</td>
+<td>cutoff_freq, order</td>
+</tr>
+<tr>
+<td><code>highpass</code></td>
+<td>High-Pass</td>
+<td>cutoff_freq, order</td>
+</tr>
+<tr>
+<td><code>bandpass</code></td>
+<td>Band-Pass</td>
+<td>cutoff_freq, cutoff_freq_high, order</td>
+</tr>
+<tr>
+<td><code>bandstop</code></td>
+<td>Band-Stop (Notch)</td>
+<td>cutoff_freq, cutoff_freq_high, order</td>
+</tr>
+<tr>
+<td><code>lowshelf</code></td>
+<td>Low-Shelf</td>
+<td>cutoff_freq, gain_db, q_factor</td>
+</tr>
+<tr>
+<td><code>highshelf</code></td>
+<td>High-Shelf</td>
+<td>cutoff_freq, gain_db, q_factor</td>
+</tr>
+<tr>
+<td><code>peak</code></td>
+<td>Peak (Bell)</td>
+<td>cutoff_freq, gain_db, q_factor</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Configuration:</strong>
+- <code>filter_type: str</code> — one of the keys above (default: <code>"lowpass"</code>)
+- <code>cutoff_freq: float</code> — primary cutoff in Hz (default: 1000.0; clamped 20–nyquist)
+- <code>cutoff_freq_high: float</code> — upper cutoff for band filters (default: 8000.0)
+- <code>order: int</code> — Butterworth filter order (default: 4; valid range 1–8)
+- <code>gain_db: float</code> — gain for shelf/peak filters (default: 0.0)
+- <code>q_factor: float</code> — Q factor for shelf/peak filters (default: 0.707)</p>
+<p><strong>Filter implementation:</strong>
+- Butterworth filters use scipy <code>butter(..., output="sos")</code> + <code>sosfilt()</code>
+- Shelf/peak filters use custom biquad SOS design
+- All SOS for numerical stability
+- Multi-channel audio: each channel filtered independently</p>
+<p><strong>Input resolution from events:</strong> When input is <code>events</code>, resolves source <code>AudioDataItem</code>s by reading <code>audio_id</code> from each event's metadata (or <code>_source_audio_id</code> from item metadata), then looks up those audio items in the data item repo.</p>
+<p><strong>Output:</strong> 
+- Single input → single output <code>AudioDataItem</code>
+- List input → list output
+- Each output item preserves <code>upstream output_name</code> in metadata (so downstream blocks see the same semantic name)</p>
+<p><strong>Waveform:</strong> Generated for each output item after filtering.</p>
+<p><strong>Output directory:</strong> <code>&lt;source_file_parent&gt;/&lt;block_name&gt;_filtered/</code> or <code>%TEMP%/echozero_filters/</code></p>
+<p><strong>Status levels:</strong>
+- Error (0): neither <code>audio</code> nor <code>events</code> input connected
+- Stale (1): data STALE
+- Ready (2): OK</p>
+<hr />
+<h3 id="49-exportaudio">4.9 ExportAudio<a class="headerlink" href="#49-exportaudio" title="Permanent link">&para;</a></h3>
+<p><strong>Type:</strong> <code>"ExportAudio"</code><br />
+<strong>Category:</strong> Export (teal)<br />
+<strong>Inputs:</strong> <code>audio</code> (Audio)<br />
+<strong>Outputs:</strong> none</p>
+<p><strong>Configuration:</strong>
+- <code>output_dir: str</code> — destination directory (created if missing)
+- <code>audio_format: str</code> — <code>"wav"</code>, <code>"mp3"</code>, <code>"flac"</code>, <code>"ogg"</code>, <code>"m4a"</code>, <code>"aiff"</code>, <code>"aif"</code> (default: <code>"wav"</code>)</p>
+<p><strong>Processing:</strong>
+1. Create output directory if needed
+2. For each input DataItem (single or list):
+   - Skip items with no <code>file_path</code> or missing source file (warning, not error)
+   - Copy source file to <code>&lt;output_dir&gt;/&lt;item.name&gt;_&lt;item.id&gt;.&lt;format&gt;</code>
+3. Raise <code>ProcessingError</code> if zero files were exported</p>
+<p><strong>Status levels:</strong>
+- Error (0): <code>output_dir</code> not configured or not writable
+- Warning (1): audio input not connected
+- Ready (2): OK</p>
+<hr />
+<h3 id="410-transcribenote-noteextractorbasicpitch">4.10 TranscribeNote / NoteExtractorBasicPitch<a class="headerlink" href="#410-transcribenote-noteextractorbasicpitch" title="Permanent link">&para;</a></h3>
+<p><strong>Type:</strong> <code>"TranscribeNote"</code> or <code>"NoteExtractorBasicPitch"</code><br />
+<strong>Category:</strong> Analysis (green)<br />
+<strong>Inputs:</strong> <code>audio</code> (Audio)<br />
+<strong>Outputs:</strong> <code>events</code> (Event with pitch/note data)</p>
+<p><strong>Processing:</strong> ML-based note transcription using Basic Pitch model. Events carry pitch, onset, offset, velocity in metadata.</p>
+<hr />
+<h3 id="411-transcribelib-noteextractorlibrosa">4.11 TranscribeLib / NoteExtractorLibrosa<a class="headerlink" href="#411-transcribelib-noteextractorlibrosa" title="Permanent link">&para;</a></h3>
+<p><strong>Type:</strong> <code>"TranscribeLib"</code> or <code>"NoteExtractorLibrosa"</code><br />
+<strong>Category:</strong> Analysis (lime green)<br />
+<strong>Inputs:</strong> <code>audio</code> (Audio)<br />
+<strong>Outputs:</strong> <code>events</code> (Event)</p>
+<p><strong>Processing:</strong> Librosa-based note extraction. Faster, lightweight, but less accurate than ML approach.</p>
+<hr />
+<h3 id="412-commandsequencer">4.12 CommandSequencer<a class="headerlink" href="#412-commandsequencer" title="Permanent link">&para;</a></h3>
+<p><strong>Type:</strong> <code>"CommandSequencer"</code><br />
+<strong>Category:</strong> Utility (yellow)</p>
+<p><strong>Purpose:</strong> Executes a sequence of quick actions in order. Used in automation workflows. Actions are configured as an ordered list of block quick action references.</p>
+<hr />
+<h3 id="413-exportma2">4.13 ExportMA2<a class="headerlink" href="#413-exportma2" title="Permanent link">&para;</a></h3>
+<p><strong>Type:</strong> <code>"ExportMA2"</code><br />
+<strong>Category:</strong> Export (teal)</p>
+<p><strong>Purpose:</strong> Exports event data in grandMA2-compatible format. Configuration and format details in metadata.</p>
+<hr />
+<h3 id="414-quick-actions-system">4.14 Quick Actions System<a class="headerlink" href="#414-quick-actions-system" title="Permanent link">&para;</a></h3>
+<p>Every block type registers quick actions via <code>@quick_action("BlockType", "Action Name")</code> decorator.</p>
+<p><strong>QuickAction fields:</strong>
+- <code>name: str</code> — display name (button text)
+- <code>description: str</code> — tooltip
+- <code>handler: Callable[[facade, block_id], Any]</code>
+- <code>category: ActionCategory</code> — <code>EXECUTE</code>, <code>CONFIGURE</code>, <code>FILE</code>, <code>EDIT</code>, <code>VIEW</code>, <code>EXPORT</code>
+- <code>icon: str | None</code>
+- <code>primary: bool</code> — highlighted/prominent in UI
+- <code>dangerous: bool</code> — destructive styling
+- <code>requires_panel: bool</code> — opens block panel instead of direct execution
+- <code>keyboard_shortcut: str | None</code></p>
+<p><strong>Common actions</strong> (available on all blocks): Delete block, Rename block, Open panel, Run block.</p>
+<p><strong>ActionCategory</strong> determines UI grouping in block context menus and quick action panels.</p>
+<hr />
+<h2 id="5-editor-behaviors">5. Editor Behaviors<a class="headerlink" href="#5-editor-behaviors" title="Permanent link">&para;</a></h2>
+<p>The Editor block's timeline widget is the most complex UI component.</p>
+<h3 id="51-timeline-architecture">5.1 Timeline Architecture<a class="headerlink" href="#51-timeline-architecture" title="Permanent link">&para;</a></h3>
+<p><strong>Timeline widget components:</strong>
+- <code>TimelineWidget</code> (main widget) — contains scene, view, layer manager, playback controller, inspector
+- <code>TimelineScene</code> (QGraphicsScene) — contains all event items
+- <code>TimelineView</code> (QGraphicsView) — handles viewport, zoom, scroll
+- <code>LayerManager</code> — manages layer data and ordering
+- <code>PlaybackController</code> — coordinates audio with 60 FPS playhead updates
+- <code>MovementController</code> — manages drag/move state machine
+- <code>SnapCalculator</code> — computes snap positions
+- <code>GridSystem</code> — manages grid settings and intervals
+- <code>EventInspector</code> — side panel showing selected event properties</p>
+<hr />
+<h3 id="52-layer-management">5.2 Layer Management<a class="headerlink" href="#52-layer-management" title="Permanent link">&para;</a></h3>
+<p><strong>Layer properties (per layer):</strong>
+- <code>name: str</code> — unique within the Editor block
+- <code>height: int</code> — in pixels (default 40px; range 20–200px; configurable in settings: <code>default_layer_height</code>)
+- <code>color: str | None</code> — hex color; None = auto-color from palette
+- <code>visible: bool</code> — default True
+- <code>locked: bool</code> — default False; when locked, events cannot be moved/edited
+- <code>group_id: str</code> — stable identity for cross-session matching
+- <code>group_name: str</code> — human-readable group label
+- <code>group_index: int | None</code> — position within group
+- <code>is_synced: bool</code> — linked to MA3 track
+- <code>show_manager_block_id: str | None</code>
+- <code>ma3_track_coord: str | None</code>
+- <code>derived_from_ma3: bool</code> — was created from MA3 sync</p>
+<p><strong>Layer header (left column):</strong>
+- Default width: 120px; min 80px, max 300px — user-draggable
+- Shows: layer name (editable), eye icon (visibility toggle), lock icon, color swatch, delete button
+- Synced layers show MA3 coordinate badge</p>
+<p><strong>Layer column width</strong> persists across sessions via <code>preferences</code> table under <code>timeline.layer_column_width</code>.</p>
+<p><strong>Duplicate names:</strong> <code>EditorCreateLayerCommand</code> automatically suffixes with <code>_N</code> (e.g., <code>"kick_1"</code>) to ensure unique names. Tracks this for undo.</p>
+<p><strong>Layer creation immediacy:</strong> After <code>EditorCreateLayerCommand.redo()</code>, the code immediately tries to restore the layer in any open <code>EditorPanel</code> (via <code>_ensure_layer_restored_in_timeline()</code>). This is critical because <code>EditorAddEventsCommand</code> immediately follows and needs the layer to exist in the <code>LayerManager</code>.</p>
+<p><strong>Layer ordering:</strong> Persisted to <code>layer_orders</code> table. Displayed order is reconciled with actual layers on panel open. New layers are appended. Stale entries are pruned.</p>
+<p><strong>Layer groups:</strong> Layers with the same <code>group_id</code> are visually grouped. A group header row is shown with the <code>group_name</code>. Groups can be collapsed/expanded (implied by group_index ordering).</p>
+<p><strong>Synced layer restrictions:</strong> Synced layers (<code>is_synced=True</code>) cannot be edited freely — edits propagate to MA3. The sync handler intercepts writes.</p>
+<hr />
+<h3 id="53-event-editing">5.3 Event Editing<a class="headerlink" href="#53-event-editing" title="Permanent link">&para;</a></h3>
+<p><strong>Event display modes:</strong>
+- <strong>Block events</strong> (<code>duration &gt; 0</code>): Rendered as colored rectangles. Width = <code>duration × pixels_per_second</code>.
+- <strong>Marker events</strong> (<code>duration == 0</code> OR <code>render_as_marker=True</code> in metadata): Rendered as a configurable shape (diamond default). Width is fixed (default 13px).</p>
+<p><strong>Event item states:</strong> normal, hover, selected, dragging, resize-handle-hover</p>
+<p><strong>Selection:</strong>
+- Click to select single event (deselects others)
+- Click on empty area to deselect all
+- Rubber-band selection: click-drag on empty area selects all events within rectangle
+- Multi-select: Ctrl+Click to add/remove from selection (implied by standard Qt behavior)</p>
+<p><strong>Move operation:</strong>
+- Click-drag on event body
+- Drag threshold: 3 pixels before drag starts (prevents accidental moves)
+- State machine: <code>IDLE → PENDING → DRAGGING → IDLE</code>
+- During drag, all selected events move together maintaining relative offsets
+- Escape key cancels drag and restores original positions
+- On release: emits <code>moves_completed(List[EventMoveResult])</code> → saved to EventDataItem</p>
+<p><strong>Resize operation:</strong>
+- Hover near left or right edge of a block event → resize cursor appears
+- Drag edge to resize
+- Same state machine as move
+- Minimum duration enforced (cannot resize to zero or negative)
+- On release: emits <code>resizes_completed(List[EventResizeResult])</code> → saved</p>
+<p><strong>Layer transfer:</strong> Events can be moved to a different layer by dragging vertically. The movement controller tracks <code>layer_offset</code> during drag.</p>
+<p><strong>Create event:</strong> Double-click on empty area in a layer → creates a new event at that time position. Duration determined by drag length (if drag) or default duration.</p>
+<p><strong>Delete event:</strong> Select event(s) → Delete key → removes selected events.</p>
+<p><strong>Slice event:</strong> (Feature: if implemented) Select a block event, place at time position → split into two events at that point.</p>
+<p><strong>Context menu on event:</strong> Right-click → shows classification, time, duration info, plus actions (delete, properties, render_as_marker toggle, etc.).</p>
+<hr />
+<h3 id="54-grid-and-snap">5.4 Grid and Snap<a class="headerlink" href="#54-grid-and-snap" title="Permanent link">&para;</a></h3>
+<p><strong>Grid system:</strong>
+- <code>GridSystem</code> holds <code>GridSettings</code>
+- Grid intervals are <strong>automatically calculated</strong> from timebase (FPS/seconds) — not user-adjustable for frequency
+- Major grid lines: visually distinct, labeled with time
+- Minor grid lines: subdivision between major lines
+- Grid display color: <code>TIMELINE_GRID_MAJOR (#50505)</code> / <code>TIMELINE_GRID_MINOR (#323237)</code></p>
+<p><strong>Grid display:</strong> Configurable via <code>show_grid_lines: bool</code> (default True).</p>
+<p><strong>Snap modes</strong> (<code>snap_interval_mode</code>):
+- <code>"auto"</code> — snap to base minor grid interval (computed from zoom level and timebase)
+- <code>"1f"</code> — snap to exactly 1 frame at configured FPS
+- <code>"2f"</code> — snap to 2 frames
+- <code>"5f"</code> — snap to 5 frames
+- <code>"10f"</code> — snap to 10 frames
+- <code>"1s"</code> — snap to exactly 1 second</p>
+<p><strong>Snap calculation:</strong>
+- In <code>"auto"</code> mode: <code>snapped_time = round(time / minor_interval) × minor_interval</code> using integer indexing
+- In frame mode: <code>snapped_time = round(time / explicit_interval) × explicit_interval</code>
+- Always <code>max(0, snapped_time)</code> — cannot snap to negative time
+- Snap can be disabled: <code>snap_enabled=False</code> → returns time as-is</p>
+<p><strong>Snap is enabled by default</strong> (<code>snap_enabled: bool = True</code>, <code>snap_to_grid: bool = True</code>).</p>
+<hr />
+<h3 id="55-zoom-and-scroll">5.5 Zoom and Scroll<a class="headerlink" href="#55-zoom-and-scroll" title="Permanent link">&para;</a></h3>
+<p><strong>Zoom:</strong>
+- <code>pixels_per_second</code> (pps): default 100.0; min 10.0; max 1000.0
+- Zoom with Ctrl+Scroll wheel or pinch gesture
+- Zoom center is the cursor position (not left edge)
+- Zoom range enforced on settings set</p>
+<p><strong>Scroll position</strong> persists across sessions via preferences (<code>last_scroll_x</code>, <code>last_scroll_y</code>) when <code>restore_scroll_position=True</code>.</p>
+<p><strong>Playhead follow modes</strong> (<code>playhead_follow_mode</code>):
+- <code>"off"</code> — no automatic scrolling
+- <code>"page"</code> — scrolls by page when playhead reaches edge
+- <code>"smooth"</code> — continuously keeps playhead in view
+- <code>"center"</code> — keeps playhead centered in viewport</p>
+<hr />
+<h3 id="56-playback">5.6 Playback<a class="headerlink" href="#56-playback" title="Permanent link">&para;</a></h3>
+<p><strong>PlaybackController:</strong>
+- 60 FPS update timer (16.67ms interval)
+- Smooth interpolation between audio backend position updates
+- Backend position changes by &gt;1ms → sync immediately (no interpolation for that tick)
+- Backend position unchanged → interpolate using elapsed time</p>
+<p><strong>Transport controls:</strong>
+- Play / Pause / Stop
+- Seek (click on ruler or set position)
+- Toggle: Space bar (implied standard behavior)</p>
+<p><strong>Audio backend:</strong> <code>SimpleAudioPlayer</code> using Qt Multimedia (<code>QMediaPlayer</code>).<br />
+Loading: sets source URL, sets <code>_play_when_ready</code> flag, starts playback when <code>MediaStatus.LoadedMedia</code> fires.</p>
+<p><strong>Cleanup:</strong> Uses <code>deleteLater()</code> for async deletion to prevent blocking. Does NOT call <code>stop()</code> during cleanup (can block). Disconnects all signals first.</p>
+<p><strong>Duration:</strong> Set from audio backend. If no backend, duration set manually via <code>set_duration()</code>.</p>
+<hr />
+<h3 id="57-event-inspector">5.7 Event Inspector<a class="headerlink" href="#57-event-inspector" title="Permanent link">&para;</a></h3>
+<p>Side panel in the timeline. Shows properties of selected events.</p>
+<p><strong>Empty selection:</strong> shows "No events selected" placeholder.</p>
+<p><strong>Single event selected:</strong>
+- Count label: "1 event selected"
+- Hero section: Time (monospace), Duration (monospace), Classification, Confidence (if present)
+- Clip player section: compact waveform (64px height) + play/pause controls for the event's audio clip
+- Details section: Event ID, display mode (block/marker), all remaining metadata key-value pairs</p>
+<p><strong>Multi-event selected:</strong> shows count ("N events selected"), aggregate statistics.</p>
+<p><strong>Clip player in inspector:</strong>
+- Plays the audio segment corresponding to the selected event (from source AudioDataItem, trimmed to event time/duration)
+- Uses librosa for audio slicing (requires <code>HAS_AUDIO_LIBS=True</code>)
+- Fallback if no audio libs: clip player section hidden</p>
+<p><strong>Inspector visibility</strong> persists via <code>inspector_visible: bool</code> (default True). Width persists via <code>inspector_width: int</code> (default 220px; range 150–500px).</p>
+<hr />
+<h3 id="58-settings-panel">5.8 Settings Panel<a class="headerlink" href="#58-settings-panel" title="Permanent link">&para;</a></h3>
+<p>Accessible from a settings button in the timeline widget toolbar.</p>
+<p><strong>Configurable settings (all persist to preferences):</strong></p>
+<table>
+<thead>
+<tr>
+<th>Setting</th>
+<th>Default</th>
+<th>Range/Options</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>layer_column_width</code></td>
+<td>120px</td>
+<td>80–300px</td>
+</tr>
+<tr>
+<td><code>default_layer_height</code></td>
+<td>40px</td>
+<td>20–200px</td>
+</tr>
+<tr>
+<td><code>snap_enabled</code></td>
+<td>True</td>
+<td>bool</td>
+</tr>
+<tr>
+<td><code>snap_to_grid</code></td>
+<td>True</td>
+<td>bool</td>
+</tr>
+<tr>
+<td><code>snap_interval_mode</code></td>
+<td><code>"auto"</code></td>
+<td><code>auto</code>, <code>1f</code>, <code>2f</code>, <code>5f</code>, <code>10f</code>, <code>1s</code></td>
+</tr>
+<tr>
+<td><code>default_pixels_per_second</code></td>
+<td>100.0</td>
+<td>10.0–1000.0</td>
+</tr>
+<tr>
+<td><code>playhead_follow_mode</code></td>
+<td><code>"page"</code></td>
+<td><code>off</code>, <code>page</code>, <code>smooth</code>, <code>center</code></td>
+</tr>
+<tr>
+<td><code>show_grid_lines</code></td>
+<td>True</td>
+<td>bool</td>
+</tr>
+<tr>
+<td><code>show_waveform</code></td>
+<td>True</td>
+<td>bool</td>
+</tr>
+<tr>
+<td><code>waveform_opacity</code></td>
+<td>0.5</td>
+<td>0.0–1.0</td>
+</tr>
+<tr>
+<td><code>show_waveforms_in_timeline</code></td>
+<td>False</td>
+<td>bool</td>
+</tr>
+<tr>
+<td><code>waveform_resolution</code></td>
+<td>50</td>
+<td>5–1000 points</td>
+</tr>
+<tr>
+<td><code>waveform_min_width</code></td>
+<td>30px</td>
+<td>5–200px</td>
+</tr>
+<tr>
+<td><code>show_event_labels</code></td>
+<td>True</td>
+<td>bool</td>
+</tr>
+<tr>
+<td><code>show_event_duration_labels</code></td>
+<td>False</td>
+<td>bool</td>
+</tr>
+<tr>
+<td><code>highlight_current_event</code></td>
+<td>True</td>
+<td>bool</td>
+</tr>
+<tr>
+<td><code>inspector_visible</code></td>
+<td>True</td>
+<td>bool</td>
+</tr>
+<tr>
+<td><code>inspector_width</code></td>
+<td>220px</td>
+<td>150–500px</td>
+</tr>
+<tr>
+<td><code>restore_scroll_position</code></td>
+<td>True</td>
+<td>bool</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Event styling settings (block events):</strong></p>
+<table>
+<thead>
+<tr>
+<th>Setting</th>
+<th>Default</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>block_event_height</code></td>
+<td>32px (16–100)</td>
+</tr>
+<tr>
+<td><code>block_event_border_radius</code></td>
+<td>3px (0–20)</td>
+</tr>
+<tr>
+<td><code>block_event_border_width</code></td>
+<td>1px (0–5)</td>
+</tr>
+<tr>
+<td><code>block_event_label_font_size</code></td>
+<td>10px (6–24)</td>
+</tr>
+<tr>
+<td><code>block_event_border_darken_percent</code></td>
+<td>150 (100–200)</td>
+</tr>
+<tr>
+<td><code>block_event_opacity</code></td>
+<td>1.0 (0–1)</td>
+</tr>
+<tr>
+<td><code>block_event_z_value</code></td>
+<td>0.0 (±1000)</td>
+</tr>
+<tr>
+<td><code>block_event_rotation</code></td>
+<td>0.0° (0–360, normalized)</td>
+</tr>
+<tr>
+<td><code>block_event_scale</code></td>
+<td>1.0 (0.1–5.0)</td>
+</tr>
+<tr>
+<td><code>block_event_drop_shadow_enabled</code></td>
+<td>False</td>
+</tr>
+<tr>
+<td><code>block_event_drop_shadow_blur_radius</code></td>
+<td>5.0px (0–50)</td>
+</tr>
+<tr>
+<td><code>block_event_drop_shadow_offset_x</code></td>
+<td>2.0px (±50)</td>
+</tr>
+<tr>
+<td><code>block_event_drop_shadow_offset_y</code></td>
+<td>2.0px (±50)</td>
+</tr>
+<tr>
+<td><code>block_event_drop_shadow_color</code></td>
+<td><code>"#000000"</code></td>
+</tr>
+<tr>
+<td><code>block_event_drop_shadow_opacity</code></td>
+<td>0.5 (0–1)</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Marker event styling settings:</strong></p>
+<table>
+<thead>
+<tr>
+<th>Setting</th>
+<th>Default</th>
+<th>Options/Range</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>marker_event_shape</code></td>
+<td><code>"diamond"</code></td>
+<td>diamond, circle, square, triangle_up, triangle_down, triangle_left, triangle_right, arrow_up, arrow_down, arrow_left, arrow_right, star, cross, plus</td>
+</tr>
+<tr>
+<td><code>marker_event_width</code></td>
+<td>13px (4–50)</td>
+<td></td>
+</tr>
+<tr>
+<td><code>marker_event_border_width</code></td>
+<td>1px (0–5)</td>
+<td></td>
+</tr>
+<tr>
+<td><code>marker_event_border_darken_percent</code></td>
+<td>150 (100–200)</td>
+<td></td>
+</tr>
+<tr>
+<td><code>marker_event_opacity</code></td>
+<td>1.0 (0–1)</td>
+<td></td>
+</tr>
+<tr>
+<td><code>marker_event_z_value</code></td>
+<td>0.0</td>
+<td></td>
+</tr>
+<tr>
+<td><code>marker_event_rotation</code></td>
+<td>0.0°</td>
+<td></td>
+</tr>
+<tr>
+<td><code>marker_event_scale</code></td>
+<td>1.0 (0.1–5.0)</td>
+<td></td>
+</tr>
+<tr>
+<td>Drop shadow settings</td>
+<td>same as block events</td>
+<td></td>
+</tr>
+</tbody>
+</table>
+<p><strong>Ruler label styling:</strong></p>
+<table>
+<thead>
+<tr>
+<th>Setting</th>
+<th>Default</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>event_time_font_size</code></td>
+<td>10px (6–24)</td>
+</tr>
+<tr>
+<td><code>event_time_font_family</code></td>
+<td><code>"monospace"</code> (monospace, default, small)</td>
+</tr>
+<tr>
+<td><code>event_time_major_color</code></td>
+<td><code>"#F0F0F5"</code></td>
+</tr>
+<tr>
+<td><code>event_time_minor_color</code></td>
+<td><code>"#78787D"</code></td>
+</tr>
+</tbody>
+</table>
+<p><strong>Recent layer colors:</strong> Up to 10 most recently assigned colors stored for quick reuse.</p>
+<hr />
+<h3 id="59-keyboard-shortcuts">5.9 Keyboard Shortcuts<a class="headerlink" href="#59-keyboard-shortcuts" title="Permanent link">&para;</a></h3>
+<p>Default shortcuts (all stored in preferences under <code>timeline.shortcut_*</code>):</p>
+<table>
+<thead>
+<tr>
+<th>Shortcut</th>
+<th>Action</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>Left Arrow</code></td>
+<td>Move selected events left by 1 grid unit</td>
+</tr>
+<tr>
+<td><code>Right Arrow</code></td>
+<td>Move selected events right by 1 grid unit</td>
+</tr>
+<tr>
+<td><code>Ctrl+Up</code></td>
+<td>Move selected events up one layer</td>
+</tr>
+<tr>
+<td><code>Ctrl+Down</code></td>
+<td>Move selected events down one layer</td>
+</tr>
+<tr>
+<td><code>Delete</code> / <code>Backspace</code></td>
+<td>Delete selected events</td>
+</tr>
+<tr>
+<td><code>Escape</code></td>
+<td>Cancel active drag operation</td>
+</tr>
+<tr>
+<td><code>Space</code></td>
+<td>Toggle playback (play/pause)</td>
+</tr>
+</tbody>
+</table>
+<p>All shortcuts are user-configurable via the settings panel. Stored as string representations like <code>"Key_Left"</code>, <code>"Ctrl+Key_Left"</code>.</p>
+<hr />
+<h3 id="510-waveform-display">5.10 Waveform Display<a class="headerlink" href="#510-waveform-display" title="Permanent link">&para;</a></h3>
+<p><strong>In timeline events (clip waveform):</strong>
+- Disabled by default (<code>show_waveforms_in_timeline=False</code>) for performance
+- When enabled: shows amplitude waveform inside event rectangle
+- LOD: only rendered when event width ≥ <code>waveform_min_width</code> (30px default)
+- Resolution: <code>waveform_resolution</code> points (default 50)
+- Opacity: <code>waveform_opacity</code> (default 0.5)</p>
+<p><strong>Waveform service:</strong> <code>get_waveform_service()</code> singleton. <code>compute_and_store(audio_item)</code> computes and caches waveform data in the item.</p>
+<hr />
+<h3 id="511-editorpanel-block-panel">5.11 EditorPanel (Block Panel)<a class="headerlink" href="#511-editorpanel-block-panel" title="Permanent link">&para;</a></h3>
+<p>The EditorPanel is the QWidget that hosts the TimelineWidget and wraps it for the dock system. It is opened per-block.</p>
+<p><strong>Initialization sequence:</strong>
+1. Panel opens for <code>block_id</code>
+2. Loads layers via <code>EditorGetLayersCommand</code>
+3. Reconciles layer order: <code>_reconcile_layer_order()</code> → <code>_apply_layer_order(order)</code>
+4. Restores layer state: <code>_restore_layer_state()</code> — creates layer entries in LayerManager
+5. Loads events for each layer
+6. Renders events on timeline</p>
+<p><strong>Live updates:</strong> Panel subscribes to <code>BlockUpdated</code> events for its block_id. On receive:
+- If <code>layers_updated=True</code>: re-runs <code>_restore_layer_state()</code>
+- If <code>events_updated=True</code>: reloads events
+- If <code>settings_updated=True</code>: refreshes panel controls</p>
+<hr />
+<h2 id="6-node-editor">6. Node Editor<a class="headerlink" href="#6-node-editor" title="Permanent link">&para;</a></h2>
+<h3 id="61-layout-and-visual-representation">6.1 Layout and Visual Representation<a class="headerlink" href="#61-layout-and-visual-representation" title="Permanent link">&para;</a></h3>
+<p><strong>Block visual representation (<code>BlockItem</code> in the scene):</strong>
+- Fixed width: 150px (default); some blocks have custom widths (AudioPlayer: 350px, AudioNegate: 210px)
+- Height: computed from number of ports (min 70px, header 28px, port zone 22px each)
+- Header: block type color, block name, status indicator
+- Body: left column (input ports), right column (output ports)
+- Sharp corners by default (<code>BLOCK_CORNER_RADIUS = 0</code>); toggle via <code>sharp_corners</code> setting</p>
+<p><strong>Block colors by type:</strong></p>
+<table>
+<thead>
+<tr>
+<th>Block Type</th>
+<th>Color</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>LoadAudio</td>
+<td>Blue <code>(65, 125, 210)</code></td>
+</tr>
+<tr>
+<td>DetectOnsets, TranscribeNote, TranscribeLib</td>
+<td>Green <code>(110, 195, 115)</code></td>
+</tr>
+<tr>
+<td>Separator, AudioFilter</td>
+<td>Orange <code>(215, 135, 65)</code></td>
+</tr>
+<tr>
+<td>ExportAudio, ExportMA2</td>
+<td>Cyan <code>(95, 195, 195)</code></td>
+</tr>
+<tr>
+<td>Editor, EditorV2</td>
+<td>Purple <code>(175, 115, 195)</code></td>
+</tr>
+<tr>
+<td>AudioPlayer</td>
+<td>Teal <code>(60, 180, 170)</code></td>
+</tr>
+<tr>
+<td>CommandSequencer</td>
+<td>Gray <code>(135, 135, 140)</code></td>
+</tr>
+</tbody>
+</table>
+<p><strong>Port visual representation:</strong>
+- Input ports: left side of block, filled circles (green)
+- Output ports: right side, filled circles (red)
+- AUDIO ports: blue <code>PORT_AUDIO = (70, 170, 220)</code>
+- EVENT ports: orange <code>PORT_EVENT = (230, 150, 70)</code>
+- MANIPULATOR ports: bright orange <code>PORT_MANIPULATOR = (255, 140, 0)</code> — bidirectional indicator
+- Port label: displayed offset from port circle (10px)</p>
+<p><strong>Grid:</strong>
+- Node editor background grid: <code>GRID_SIZE = 20px</code>, major lines every 5 cells
+- Color: <code>GRID_LINE = (60, 60, 60)</code></p>
+<p><strong>Block positioning:</strong> Stored in UI state as <code>{"x": float, "y": float}</code> under <code>state_type="block_position"</code>, <code>entity_id=block_id</code>. Applied on panel/scene init.</p>
+<hr />
+<h3 id="62-interaction-model">6.2 Interaction Model<a class="headerlink" href="#62-interaction-model" title="Permanent link">&para;</a></h3>
+<p><strong>Block placement:</strong>
+- New blocks appear at default position or at cursor/center of viewport
+- Auto-layout button arranges blocks in topological order (implied by block flow)</p>
+<p><strong>Block selection:</strong>
+- Click to select (shows blue border)
+- Rubber-band drag to multi-select
+- Click empty area to deselect</p>
+<p><strong>Block movement:</strong>
+- Drag selected blocks — moves all selected blocks together
+- Position saved to UI state on drop</p>
+<p><strong>Connecting blocks:</strong>
+- Click and drag from an output port → connection line follows cursor
+- Release on compatible input port → creates <code>Connection</code>
+- Incompatible port types show visual feedback (e.g., red highlight)
+- Existing connection to same input is allowed (no removal of old connection)</p>
+<p><strong>Connection appearance:</strong>
+- Bezier curve from output to input port
+- Color: <code>CONNECTION_NORMAL = (120, 120, 125)</code>
+- Hover: <code>CONNECTION_HOVER = (180, 180, 185)</code>
+- Selected: <code>CONNECTION_SELECTED = (220, 180, 60)</code>
+- Width: 2px normal, 3px selected, 2.5px hover</p>
+<p><strong>Block context menu (right-click):</strong>
+- Open block panel
+- Rename block
+- Delete block
+- Quick actions specific to the block type</p>
+<p><strong>Keyboard shortcuts in node editor:</strong>
+- <code>Delete</code> — delete selected block(s)
+- <code>Ctrl+Z</code> / <code>Ctrl+Y</code> — undo/redo</p>
+<hr />
+<h3 id="63-node-editor-scene">6.3 Node Editor Scene<a class="headerlink" href="#63-node-editor-scene" title="Permanent link">&para;</a></h3>
+<p><strong>NodeScene (QGraphicsScene):</strong>
+- Contains all block items and connection items
+- Manages selection state
+- Handles connection drawing state machine</p>
+<p><strong>NodeEditorWindow:</strong>
+- Contains the scene in a QGraphicsView
+- Toolbar: Add Block, Auto Layout, Zoom controls
+- Block type palette (drag blocks to canvas or use add button)</p>
+<hr />
+<h2 id="7-show-manager-ma3-integration">7. Show Manager / MA3 Integration<a class="headerlink" href="#7-show-manager-ma3-integration" title="Permanent link">&para;</a></h2>
+<h3 id="71-ma3-communication">7.1 MA3 Communication<a class="headerlink" href="#71-ma3-communication" title="Permanent link">&para;</a></h3>
+<p><strong>Protocol:</strong> UDP (primary), OSC (future)</p>
+<p><strong>EchoZeroBridge Lua plugin</strong> runs inside grandMA3:
+- Hooks into Sequence Pool using <code>HookObjectChange()</code>
+- Sends pipe-delimited UDP messages: <code>type=sequence|name=Song1|change=changed|timestamp=1234567890|no=1</code></p>
+<p><strong>MA3CommunicationService:</strong>
+- Listens on configurable UDP port (default: 9000)
+- Address: <code>127.0.0.1</code> (localhost default)
+- Parses messages into <code>MA3Message(object_type, object_name, change_type, timestamp, data: Dict)</code>
+- Publishes <code>MA3MessageReceived</code> event to event bus
+- Supports custom handler registration: <code>register_handler(object_type, change_type, fn)</code></p>
+<p><strong>Settings:</strong>
+- <code>ma3_listen_enabled: bool</code> — default True
+- <code>ma3_listen_port: int</code> — default 9000
+- <code>ma3_listen_address: str</code> — default <code>"127.0.0.1"</code></p>
+<hr />
+<h3 id="72-showmanagerlistenerservice">7.2 ShowManagerListenerService<a class="headerlink" href="#72-showmanagerlistenerservice" title="Permanent link">&para;</a></h3>
+<p>Per-ShowManager-block service. Manages the OSC/UDP listener lifecycle.</p>
+<p><strong>State:</strong> running vs stopped. <code>start()</code> / <code>stop()</code> methods.</p>
+<p><strong>On MA3 message received:</strong> Routes to <code>MA3EventHandler</code> which processes the message and updates Editor layers via EditorCommands.</p>
+<hr />
+<h3 id="73-syncsystemmanager">7.3 SyncSystemManager<a class="headerlink" href="#73-syncsystemmanager" title="Permanent link">&para;</a></h3>
+<p>Main orchestration point for all sync operations.</p>
+<p><strong>Responsibilities:</strong>
+- Maintains list of <code>SyncLayerEntity</code> objects for a ShowManager block
+- Provides <code>add_synced_ma3_track(block_id, ma3_coord, editor_layer_id)</code> — sets up bidirectional link
+- Provides <code>sync_layer(layer_name)</code> — pushes EZ layer events to MA3
+- Provides <code>sync_from_ma3(ma3_coord)</code> — pulls MA3 events into EZ layer
+- Conflict detection and resolution
+- <code>notify_editor_layer_deleted(layer_name)</code> — marks sync entity as disconnected</p>
+<hr />
+<h3 id="74-bidirectional-sync">7.4 Bidirectional Sync<a class="headerlink" href="#74-bidirectional-sync" title="Permanent link">&para;</a></h3>
+<p><strong>MA3 → EchoZero:</strong>
+1. MA3 sends UDP change notification
+2. <code>MA3CommunicationService</code> receives → publishes <code>MA3MessageReceived</code>
+3. <code>MA3EventHandler</code> processes → extracts events with timing from MA3 data
+4. Creates <code>EditorAddEventsCommand</code> with <code>source="ma3_sync"</code> OR <code>ApplyLayerSnapshotCommand</code>
+5. Events land in the corresponding Editor layer</p>
+<p><strong>EchoZero → MA3:</strong>
+1. User edits events in timeline
+2. <code>sync_layer(layer_name)</code> dispatched
+3. <code>SyncLayerCommand</code> reads events from EventDataItem
+4. Sends commands back to MA3 (bidirectional future feature; current focus is MA3→EZ)</p>
+<p><strong>Conflict resolution strategies:</strong>
+- <code>USE_MA3</code> — MA3 version always wins
+- <code>USE_EZ</code> — EchoZero version always wins
+- <code>MERGE</code> — attempt merge (additive)
+- <code>SKIP</code> — leave as-is, no overwrite
+- <code>PROMPT_USER</code> — UI dialog to decide per-conflict</p>
+<p><strong>MA3 track coordinate formats:</strong>
+- <code>"tc1_tg1_tr1"</code> — full coordinate format
+- <code>"TC1"</code> — short pool reference
+- Parsing logic: if starts with <code>"tc"</code> followed by digits → extract number → <code>group_id = "tc_N"</code>, <code>group_name = "TC N"</code>
+- If starts with digit: <code>head = coord.split(".")[0]</code> → if digit → same TC group extraction</p>
+<p><strong>Synced layer identity in EventDataItem metadata:</strong>
+- <code>_synced_from_ma3: bool</code>
+- <code>_show_manager_block_id: str</code>
+- <code>_ma3_track_coord: str</code>
+- <code>group_name: str</code>
+- <code>group_id: str</code> (starts with <code>"tc_"</code> for MA3 pools)
+- <code>source: "ma3"</code> or <code>"ma3_sync"</code></p>
+<p><strong>ApplyLayerSnapshot metadata preservation:</strong>
+- When MA3 sends a full snapshot (replacing all events), existing events are matched by <code>_ma3_idx</code>
+- For matched events: <strong>merge</strong> existing metadata (user fields like <code>render_as_marker</code>) with new metadata (MA3 sync fields). Existing metadata wins on conflict (preserves user choices).
+- Unmatched events: created fresh</p>
+<hr />
+<h3 id="75-showmanager-settings">7.5 ShowManager Settings<a class="headerlink" href="#75-showmanager-settings" title="Permanent link">&para;</a></h3>
+<p><code>ShowManagerSettingsManager</code> reads/writes ShowManager block configuration.</p>
+<p>Key settings:
+- <code>synced_layers: List[Dict]</code> — list of sync entity dicts
+- <code>target_timecode: str | None</code> — TC coordinate for this ShowManager
+- OSC listener config (port, address)</p>
+<p>Settings are stored in <code>block.metadata</code> and persisted via <code>update_block_metadata</code>.</p>
+<hr />
+<h2 id="8-project-system">8. Project System<a class="headerlink" href="#8-project-system" title="Permanent link">&para;</a></h2>
+<h3 id="81-file-format-ez">8.1 File Format (.ez)<a class="headerlink" href="#81-file-format-ez" title="Permanent link">&para;</a></h3>
+<p>Projects are saved as <code>.ez</code> files — <strong>ZIP archives</strong> containing:
+- <code>project.json</code> — main project manifest
+- Blocks, connections, data items, UI state, layer orders
+- Setlists and setlist songs
+- Action sets and action items</p>
+<p><strong>JSON structure of <code>project.json</code> (inferred from ProjectService):</strong>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="p">{</span>
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="w">  </span><span class="nt">&quot;project&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="s2">&quot;id&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;name&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;version&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;created_at&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;modified_at&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;metadata&quot;</span><span class="w"> </span><span class="p">},</span>
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="w">  </span><span class="nt">&quot;blocks&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="s2">&quot;id&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;name&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;type&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;metadata&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;ports&quot;</span><span class="w"> </span><span class="p">},</span><span class="w"> </span><span class="err">...</span><span class="w"> </span><span class="p">],</span>
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="w">  </span><span class="nt">&quot;connections&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="s2">&quot;id&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;source_block_id&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;source_output_name&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;target_block_id&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;target_input_name&quot;</span><span class="p">,</span><span class="w"> </span><span class="err">...</span><span class="w"> </span><span class="p">},</span><span class="w"> </span><span class="err">...</span><span class="w"> </span><span class="p">],</span>
+<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="w">  </span><span class="nt">&quot;data_items&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="s2">&quot;id&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;block_id&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;name&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;type&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;created_at&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;file_path&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;metadata&quot;</span><span class="w"> </span><span class="p">},</span><span class="w"> </span><span class="err">...</span><span class="w"> </span><span class="p">],</span>
+<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="w">  </span><span class="nt">&quot;ui_state&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="s2">&quot;id&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;type&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;entity_id&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;data&quot;</span><span class="w"> </span><span class="p">},</span><span class="w"> </span><span class="err">...</span><span class="w"> </span><span class="p">],</span>
+<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="w">  </span><span class="nt">&quot;layer_orders&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="s2">&quot;block_id&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;order_json&quot;</span><span class="w"> </span><span class="p">},</span><span class="w"> </span><span class="err">...</span><span class="w"> </span><span class="p">],</span>
+<a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a><span class="w">  </span><span class="nt">&quot;block_local_state&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="s2">&quot;block_id&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;inputs_json&quot;</span><span class="w"> </span><span class="p">},</span><span class="w"> </span><span class="err">...</span><span class="w"> </span><span class="p">],</span>
+<a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a><span class="w">  </span><span class="nt">&quot;setlists&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="err">...</span><span class="w"> </span><span class="p">}</span><span class="w"> </span><span class="p">],</span>
+<a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a><span class="w">  </span><span class="nt">&quot;setlist_songs&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="err">...</span><span class="w"> </span><span class="p">}</span><span class="w"> </span><span class="p">],</span>
+<a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a><span class="w">  </span><span class="nt">&quot;action_sets&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="err">...</span><span class="w"> </span><span class="p">}</span><span class="w"> </span><span class="p">],</span>
+<a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a><span class="w">  </span><span class="nt">&quot;action_items&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="err">...</span><span class="w"> </span><span class="p">}</span><span class="w"> </span><span class="p">]</span>
+<a id="__codelineno-0-13" name="__codelineno-0-13" href="#__codelineno-0-13"></a><span class="p">}</span>
+</code></pre></div></p>
+<p><strong>Source of truth:</strong> JSON <code>.ez</code> files are the authoritative source. The SQLite database is a runtime session cache only.</p>
+<hr />
+<h3 id="82-save-process">8.2 Save Process<a class="headerlink" href="#82-save-process" title="Permanent link">&para;</a></h3>
+<ol>
+<li>Serialize all project entities from repositories</li>
+<li>Write JSON to temp file</li>
+<li>ZIP temp file into <code>.ez</code> archive</li>
+<li>Atomic rename to final path</li>
+<li>Update <code>recent_projects</code> list</li>
+<li>Emit <code>ProjectUpdated</code> event</li>
+</ol>
+<p><strong>Save-as:</strong> Same process but to a new path. Updates <code>project.save_directory</code>.</p>
+<p><strong>Auto-save:</strong> Not implemented (implied by TODO/FIXME review — no auto-save mention found).</p>
+<hr />
+<h3 id="83-load-process">8.3 Load Process<a class="headerlink" href="#83-load-process" title="Permanent link">&para;</a></h3>
+<ol>
+<li>Open <code>.ez</code> ZIP file</li>
+<li>Parse <code>project.json</code></li>
+<li><code>database.clear_runtime_tables()</code> — wipe session state</li>
+<li>Rehydrate all entities into repositories (which write to SQLite)</li>
+<li>Set <code>current_project_id</code> on facade</li>
+<li>Emit <code>ProjectCreated</code> event</li>
+<li>UI panels receive event and refresh</li>
+</ol>
+<p><strong>Audio files:</strong> Not embedded in the <code>.ez</code> archive. Referenced by absolute path in <code>file_path</code>. If files moved, blocks show error status.</p>
+<hr />
+<h3 id="84-recent-projects">8.4 Recent Projects<a class="headerlink" href="#84-recent-projects" title="Permanent link">&para;</a></h3>
+<p>Stored in <code>RecentProjectsStore</code> (separate file, not in SQLite). Maintains a list of recently opened <code>.ez</code> file paths.</p>
+<hr />
+<h3 id="85-setlist-processing">8.5 Setlist Processing<a class="headerlink" href="#85-setlist-processing" title="Permanent link">&para;</a></h3>
+<ol>
+<li>User creates a Setlist and adds songs (by audio file path)</li>
+<li>User configures <code>default_actions</code> (which block quick actions to run per song)</li>
+<li><code>process_setlist(setlist_id)</code>:</li>
+<li>For each song (in <code>order_index</code> order):<ul>
+<li>Set <code>SetlistAudioInput</code> block's <code>audio_path</code> to the song's <code>audio_path</code></li>
+<li>Execute action items from <code>action_overrides</code> (or <code>default_actions</code> if no override)</li>
+<li>Update song <code>status</code> → "processing" → "complete"/"error"</li>
+<li>Store <code>processed_at</code> timestamp</li>
+</ul>
+</li>
+</ol>
+<p><strong>Song status flow:</strong> <code>pending</code> → <code>processing</code> → <code>complete</code> or <code>error</code></p>
+<hr />
+<h3 id="86-snapshots-for-setlist-song-state">8.6 Snapshots (for Setlist Song State)<a class="headerlink" href="#86-snapshots-for-setlist-song-state" title="Permanent link">&para;</a></h3>
+<p>ProjectService maintains in-memory snapshots keyed by <code>song_id</code>. These capture the current project state at a given song and can be restored when switching songs in setlist mode.</p>
+<p><strong>Snapshot cache:</strong> Single-entry fast cache <code>(song_id, snapshot_dict)</code> for repeated access to the same snapshot. Dirty snapshots (modified but not yet written to disk) tracked in <code>_dirty_snapshot_ids</code>.</p>
+<hr />
+<h2 id="9-persistence-layer">9. Persistence Layer<a class="headerlink" href="#9-persistence-layer" title="Permanent link">&para;</a></h2>
+<h3 id="91-database">9.1 Database<a class="headerlink" href="#91-database" title="Permanent link">&para;</a></h3>
+<p><strong>File:</strong> File-based SQLite at a configurable path.<br />
+<strong>Mode:</strong> WAL journal mode, foreign keys enabled, <code>check_same_thread=False</code> with explicit <code>RLock</code>.<br />
+<strong>Role:</strong> Runtime session cache only. All tables cleared on init and project load. Source of truth = <code>.ez</code> JSON files.</p>
+<p><strong>Schema version:</strong> 6 (current).</p>
+<hr />
+<h3 id="92-tables">9.2 Tables<a class="headerlink" href="#92-tables" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Table</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>projects</code></td>
+<td>Project entities</td>
+</tr>
+<tr>
+<td><code>blocks</code></td>
+<td>Block entities</td>
+</tr>
+<tr>
+<td><code>connections</code></td>
+<td>Connection entities</td>
+</tr>
+<tr>
+<td><code>data_items</code></td>
+<td>Audio and Event data item records</td>
+</tr>
+<tr>
+<td><code>block_local_state</code></td>
+<td>Per-block input port → data item ID mapping</td>
+</tr>
+<tr>
+<td><code>ui_state</code></td>
+<td>Arbitrary UI state blobs (block positions, editor layers)</td>
+</tr>
+<tr>
+<td><code>layer_orders</code></td>
+<td>Layer ordering per Editor block</td>
+</tr>
+<tr>
+<td><code>preferences</code></td>
+<td>App-wide key-value settings</td>
+</tr>
+<tr>
+<td><code>session_state</code></td>
+<td>Transient session key-value state</td>
+</tr>
+<tr>
+<td><code>setlists</code></td>
+<td>One per project</td>
+</tr>
+<tr>
+<td><code>setlist_songs</code></td>
+<td>Songs within a setlist</td>
+</tr>
+<tr>
+<td><code>action_sets</code></td>
+<td>Named sets of actions</td>
+</tr>
+<tr>
+<td><code>action_items</code></td>
+<td>Individual action entries</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Indexes:</strong>
+- <code>blocks(project_id)</code>
+- <code>connections(source_block_id)</code>, <code>connections(target_block_id)</code>
+- <code>data_items(block_id)</code>
+- <code>block_local_state(block_id)</code>
+- <code>ui_state(type, entity_id)</code>, <code>ui_state(entity_id)</code>
+- <code>layer_orders(block_id)</code>
+- <code>setlist_songs(setlist_id)</code>, <code>setlist_songs(setlist_id, order_index)</code>
+- <code>action_sets(project_id)</code>, <code>action_sets(name)</code>
+- <code>action_items(action_set_id)</code>, <code>action_items(project_id)</code>, <code>action_items(action_set_id, order_index)</code></p>
+<hr />
+<h3 id="93-threading">9.3 Threading<a class="headerlink" href="#93-threading" title="Permanent link">&para;</a></h3>
+<p><strong>Thread safety:</strong> All SQLite writes use <code>TransactionContext</code> which acquires an <code>RLock</code>. Only one writer at a time.<br />
+<strong>Reads:</strong> On the shared connection (no locking; SQLite WAL allows concurrent reads with one writer).</p>
+<p><strong>Transaction pattern:</strong>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="k">with</span> <span class="n">db</span><span class="o">.</span><span class="n">transaction</span><span class="p">()</span> <span class="k">as</span> <span class="n">conn</span><span class="p">:</span>
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>    <span class="n">conn</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="o">...</span><span class="p">)</span>
+<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="c1"># auto-commits on exit, auto-rollbacks on exception</span>
+</code></pre></div></p>
+<hr />
+<h3 id="94-migrations">9.4 Migrations<a class="headerlink" href="#94-migrations" title="Permanent link">&para;</a></h3>
+<p>The database self-migrates on init:</p>
+<ol>
+<li><strong>Connections table:</strong> Removed <code>UNIQUE(target_block_id, target_input_name)</code> constraint to allow multiple inputs to the same port.</li>
+<li><strong>Action items:</strong> Added <code>action_type</code> column (default <code>"block"</code>). Made <code>block_id</code> nullable.</li>
+<li><strong>Setlists:</strong> Migrated to one-setlist-per-project schema with <code>UNIQUE(project_id)</code>.</li>
+<li><strong>Setlist songs:</strong> Added <code>action_overrides</code> and <code>error_message</code> columns.</li>
+<li><strong>Connections:</strong> Added <code>source_block_name</code> and <code>target_block_name</code> denormalized columns.</li>
+<li><strong>Actions table:</strong> Dropped deprecated <code>actions</code> table (replaced by <code>action_sets</code>/<code>action_items</code>).</li>
+</ol>
+<hr />
+<h3 id="95-repository-pattern">9.5 Repository Pattern<a class="headerlink" href="#95-repository-pattern" title="Permanent link">&para;</a></h3>
+<p>Each entity type has a repository:
+- <code>ProjectRepository</code>, <code>BlockRepository</code>, <code>ConnectionRepository</code>
+- <code>DataItemRepository</code> — stores <code>AudioDataItem</code> and <code>EventDataItem</code> records
+- <code>UIStateRepository</code>
+- <code>PreferencesRepository</code> — key-value store for settings
+- <code>SessionStateRepository</code> — transient session data
+- <code>LayerOrderRepository</code>
+- <code>SetlistRepository</code>, <code>SetlistSongRepository</code>
+- <code>ActionSetRepository</code>, <code>ActionItemRepository</code></p>
+<p><strong>Data item repository note:</strong> <code>DataItemRepository.get(id)</code> returns the appropriate subtype (<code>AudioDataItem</code> or <code>EventDataItem</code>) based on the <code>type</code> field. <code>EventDataItem</code> events are stored as JSON in <code>metadata["_layers_json"]</code> or similar embedded structure.</p>
+<hr />
+<h3 id="96-preferences">9.6 Preferences<a class="headerlink" href="#96-preferences" title="Permanent link">&para;</a></h3>
+<p><strong>Namespace pattern:</strong> Settings keys use <code>"{namespace}.{key}"</code> (e.g., <code>"timeline.layer_column_width"</code>).</p>
+<p><strong><code>BaseSettingsManager</code>:</strong> Base class for all settings managers. Auto-saves on property change via <code>_save_setting(key)</code>. Emits <code>settings_changed(key)</code> signal. Emits <code>settings_loaded()</code> on load.</p>
+<p><strong>Timeline settings namespace:</strong> <code>"timeline"</code><br />
+<strong>App settings namespace:</strong> implied <code>"app"</code> or root-level keys.</p>
+<p><strong>Clearing:</strong> <code>preferences</code> and <code>session_state</code> are NOT cleared on project load (they persist across projects). Only <code>ui_state</code> is project-specific and cleared on load.</p>
+<hr />
+<h2 id="10-ui-architecture">10. UI Architecture<a class="headerlink" href="#10-ui-architecture" title="Permanent link">&para;</a></h2>
+<h3 id="101-main-window">10.1 Main Window<a class="headerlink" href="#101-main-window" title="Permanent link">&para;</a></h3>
+<p><strong><code>MainWindow(QMainWindow)</code></strong></p>
+<p><strong>Title:</strong> <code>"EZ"</code> (short name)</p>
+<p><strong>Minimum size:</strong> 800×600px</p>
+<p><strong>Dock system:</strong> PyQt6Ads (<code>CDockManager</code>) — replaces Qt native docking entirely.
+- VSCode-style: drag-to-dock, tab-group, float, auto-hide sidebars
+- All panels are equal-citizen <code>CDockWidget</code> instances
+- Config flags: opaque splitter resize, all tabs have close button, dock areas have close/undock buttons, middle-click closes tab, equal split on insertion, hidden single central widget title bar
+- CDockManager's own stylesheet is cleared (overridden by app stylesheet)</p>
+<p><strong>Undo stack:</strong> <code>QUndoStack</code> with configurable limit (default 50). Connected to Edit menu Undo/Redo actions.</p>
+<p><strong>App mode:</strong> Production vs Developer mode (via <code>AppModeManager</code>).</p>
+<hr />
+<h3 id="102-panel-system">10.2 Panel System<a class="headerlink" href="#102-panel-system" title="Permanent link">&para;</a></h3>
+<p>Panels are <code>CDockWidget</code> instances. The main panels:
+- <strong>Node Editor</strong> — block graph editing
+- <strong>Execution Panel</strong> — execution log, progress
+- <strong>Setlist Panel</strong> — setlist management
+- <strong>Block Panels</strong> — per-block panels (Editor, ShowManager, AudioPlayer, etc.)</p>
+<p>Block panels are opened on demand (click block → open panel). Multiple block panels can be open simultaneously as tabs.</p>
+<p><strong>WorkspaceManager:</strong> Manages panel lifecycle, layout, and persistence of dock state across sessions.</p>
+<hr />
+<h3 id="103-design-system">10.3 Design System<a class="headerlink" href="#103-design-system" title="Permanent link">&para;</a></h3>
+<p><strong>Single source of truth:</strong> <code>ui/qt_gui/design_system.py</code></p>
+<p><strong>Color palette (<code>Colors</code> class):</strong>
+- <code>BG_DARK = (28, 28, 32)</code> — main background
+- <code>BG_MEDIUM = (42, 42, 47)</code> — panels, widgets
+- <code>BG_LIGHT = (56, 56, 62)</code> — highlights
+- <code>BORDER = (75, 75, 80)</code> — borders
+- <code>HOVER = (65, 65, 70)</code> — hover state
+- <code>SELECTED = (85, 85, 90)</code> — selection
+- <code>TEXT_PRIMARY = (240, 240, 245)</code>
+- <code>TEXT_SECONDARY = (180, 180, 185)</code>
+- <code>TEXT_DISABLED = (120, 120, 125)</code>
+- <code>ACCENT_BLUE = (70, 130, 220)</code>, <code>ACCENT_GREEN = (80, 180, 120)</code>, <code>ACCENT_RED = (220, 80, 80)</code>, <code>ACCENT_YELLOW = (220, 180, 60)</code>, <code>ACCENT_ORANGE = (220, 135, 65)</code>, <code>ACCENT_PURPLE = (175, 115, 195)</code>
+- Status: <code>STATUS_SUCCESS = ACCENT_GREEN</code>, <code>STATUS_WARNING = ACCENT_YELLOW</code>, <code>STATUS_ERROR = ACCENT_RED</code>, <code>STATUS_INFO = ACCENT_BLUE</code>, <code>STATUS_INACTIVE = TEXT_DISABLED</code>
+- Danger: <code>DANGER_BG = (58, 32, 32)</code>, <code>DANGER_FG = (255, 107, 107)</code></p>
+<p><strong>Typography:</strong>
+- Default font: <code>"SF Pro Text, Segoe UI, -apple-system, system-ui"</code>, 13px
+- Heading: <code>"SF Pro Display, Segoe UI"</code>, 16px, DemiBold
+- Mono: <code>"SF Mono, Consolas, Monaco, monospace"</code>, 12px
+- Font family and size are configurable via <code>ui_font_family</code> and <code>ui_font_size</code> settings</p>
+<p><strong>Sizes:</strong>
+- Block: 150×100px (min height 70px), header 28px, corner radius 0px (sharp), body padding 6px
+- Port: radius 4px, label offset 10px, vertical spacing 20px, zone height 22px
+- Grid: 20px cell, major every 5 cells
+- Connection line: 2px normal, 3px selected, 2.5px hover</p>
+<p><strong>Spacing constants:</strong> XS=4, SM=8, MD=16, LG=24, XL=32, XXL=48</p>
+<p><strong>Effects:</strong> Shadow blur 8px, offset (0,2), color <code>(0,0,0,60)</code>. Animation: fast=150ms, normal=250ms, slow=350ms.</p>
+<hr />
+<h3 id="104-theming">10.4 Theming<a class="headerlink" href="#104-theming" title="Permanent link">&para;</a></h3>
+<p><strong>Theme system:</strong>
+- <code>ThemeRegistry</code> — stores named themes
+- <code>Colors.apply_theme(name)</code> — applies theme to all <code>Colors.*</code> class attributes
+- <code>on_theme_changed(callback)</code> — subscribe to theme changes (global signal)
+- <code>ThemeAwareMixin</code> — mixin for widgets that auto-clear child stylesheets on theme change, then call <code>_apply_local_styles()</code></p>
+<p><strong>Live preview:</strong> <code>Colors.apply_theme_from_dict(color_dict)</code> applies from a flat dict without requiring a registered theme. Used by settings dialog for instant preview. Does NOT emit <code>theme_changed</code> — caller manages that.</p>
+<p><strong>Sharp corners:</strong> Global toggle <code>set_sharp_corners(enabled)</code>. When True, all <code>border-radius</code> CSS values become <code>"0px"</code>. Use <code>border_radius(px)</code> helper in stylesheet generators.</p>
+<p><strong>Stylesheet:</strong> <code>get_stylesheet()</code> generates a complete global QSS covering all widget types (menus, toolbars, buttons, inputs, combos, checkboxes, tabs, PyQt6Ads docks, scrollbars, progress bars, views, etc.). Applied to <code>QApplication</code>.</p>
+<p><strong>Palette:</strong> <code>get_application_palette()</code> builds QPalette from current Colors. Used by QApplication, MainWindow, and splash screen.</p>
+<p><strong>Font application:</strong> <code>apply_ui_font(app)</code> sets QApplication default font from settings. Called when applying theme.</p>
+<hr />
+<h3 id="105-settings-preferences-system">10.5 Settings / Preferences System<a class="headerlink" href="#105-settings-preferences-system" title="Permanent link">&para;</a></h3>
+<p><strong><code>AppSettingsManager</code>:</strong> Top-level settings manager for application-wide settings.</p>
+<p><strong>Key app settings:</strong>
+- <code>theme_preset: str</code> — active theme name (default: <code>"default dark"</code>)
+- <code>sharp_corners: bool</code> — global corner radius toggle
+- <code>ui_font_family: str</code> — font family override (empty = system default)
+- <code>ui_font_size: int</code> — font size in pixels (0 = use default 13px)
+- <code>ma3_listen_enabled: bool</code>
+- <code>ma3_listen_port: int</code>
+- <code>ma3_listen_address: str</code>
+- <code>max_undo_steps: int</code> — default 50</p>
+<p>Settings persist via <code>PreferencesRepository</code> (SQLite <code>preferences</code> table). Keys use namespace prefix.</p>
+<p><strong>Settings dialog:</strong> Allows editing all settings. Theme changes apply live (with <code>apply_theme_from_dict()</code> + <code>MainWindow._apply_theme()</code>). On save, <code>theme_changed</code> is emitted after stylesheet update to prevent visual flash.</p>
+<hr />
+<h3 id="106-splash-screen">10.6 Splash Screen<a class="headerlink" href="#106-splash-screen" title="Permanent link">&para;</a></h3>
+<p>Shown on startup with a random "welcome phrase" loaded from <code>assets/welcome_phrases.txt</code>. Falls back to <code>"Welcome to EchoZero."</code> if file missing.</p>
+<hr />
+<h3 id="107-runblockthread">10.7 RunBlockThread<a class="headerlink" href="#107-runblockthread" title="Permanent link">&para;</a></h3>
+<p><code>RunBlockThread(QThread)</code> — background thread for block execution.</p>
+<p>Accepts: <code>facade</code>, <code>block_id</code>, <code>execution_strategy</code></p>
+<p>Emits Qt signals (connected to main thread):
+- <code>progress_start_signal(message: str, current: int, total: int)</code>
+- <code>progress_update_signal(message: str, current: int, total: int)</code>
+- <code>progress_complete_signal(result_code: int)</code>
+- <code>progress_error_signal(error_message: str)</code>
+- <code>subprocess_progress_signal(message: str, percent: int)</code> — for sub-process progress (e.g., Demucs)</p>
+<hr />
+<h2 id="11-known-issues-todos">11. Known Issues / TODOs<a class="headerlink" href="#11-known-issues-todos" title="Permanent link">&para;</a></h2>
+<p>Captured from code comments:</p>
+<ol>
+<li>
+<p><strong>Timeline: Multi-select drag</strong> — native snapping mode (<code>native_snapping=False</code> by default) is a "POC-verified infrastructure" that exists but isn't the active path. Multi-select continues to use the proven flow.</p>
+</li>
+<li>
+<p><strong>Block position storage</strong> — block positions in node editor are stored in UI state. If UI state is cleared (project reload), positions may reset.</p>
+</li>
+<li>
+<p><strong>Audio file references</strong> — audio files are referenced by absolute path. If the user moves files, blocks show error status. No path remapping / search-on-load implemented.</p>
+</li>
+<li>
+<p><strong>Auto-save</strong> — not implemented. Users must manually save.</p>
+</li>
+<li>
+<p><strong>Block Processor pattern completeness</strong> — <code>validate_configuration()</code> method exists on all processors but is only called selectively, not as part of standard execution flow.</p>
+</li>
+<li>
+<p><strong>Demucs cleanup</strong> — <code>SimpleAudioPlayer.cleanup()</code> comment: "Don't call stop() - it can block indefinitely. Use pause() instead." Known fragility in QMediaPlayer cleanup.</p>
+</li>
+<li>
+<p><strong>MA3 bidirectional (EZ → MA3)</strong> — marked as future feature in README. Current implementation is primarily MA3 → EZ.</p>
+</li>
+<li>
+<p><strong>Setlist snapshot dirty flushing</strong> — snapshots modified in memory are tracked in <code>_dirty_snapshot_ids</code> but flush timing/mechanism needs explicit management.</p>
+</li>
+<li>
+<p><strong>Layer override cleanup</strong> — <code>EditorGetLayersCommand</code> prunes stale override entries from <code>editor_layers</code> UI state. If it encounters duplicate or invalid entries, it logs and cleans up. This is a defensive mechanism for data integrity.</p>
+</li>
+<li>
+<p><strong>Connections: no type checking</strong> — port type compatibility is described as "checked before creation" but explicit connection type validation code was not found in the examined sources. Rewrite should implement explicit type-gate validation.</p>
+</li>
+<li>
+<p><strong><code>EditorV2</code></strong> — referenced in type map and color map as a variant of Editor, but no <code>editor_v2_block.py</code> was found. Likely same processor as <code>Editor</code>.</p>
+</li>
+<li>
+<p><strong><code>NoteExtractorBasicPitch</code> / <code>NoteExtractorLibrosa</code></strong> — listed as separate types in visual guide but share functionality with <code>TranscribeNote</code> / <code>TranscribeLib</code>. Likely aliases or legacy names.</p>
+</li>
+<li>
+<p><strong>Thread-safe UI updates</strong> — all UI updates from background threads must go through Qt signals. The main window defines typed signals for this. Direct widget manipulation from worker threads is a bug risk.</p>
+</li>
+<li>
+<p><strong>Database cleared on load</strong> — this means all runtime state (including unsaved UI positions) is lost on project load. The JSON file is the canonical state; any UI-only state not serialized to the <code>.ez</code> file is transient.</p>
+</li>
+<li>
+<p><strong><code>EchoZeroBridge.lua</code> future enhancements</strong> listed in MA3 integration docs: OSC protocol, additional object hooks (cues, executors, timecode), message filtering, automatic hook management, sequence/cue sync, timecode sync.</p>
+</li>
+</ol>
+<hr />
+<h2 id="appendix-a-port-type-color-reference">Appendix A: Port Type Color Reference<a class="headerlink" href="#appendix-a-port-type-color-reference" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Port Type</th>
+<th>Color (RGB)</th>
+<th>Hex</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>AUDIO</td>
+<td>(70, 170, 220)</td>
+<td><code>#46AADC</code></td>
+</tr>
+<tr>
+<td>EVENT</td>
+<td>(230, 150, 70)</td>
+<td><code>#E69646</code></td>
+</tr>
+<tr>
+<td>MANIPULATOR</td>
+<td>(255, 140, 0)</td>
+<td><code>#FF8C00</code></td>
+</tr>
+<tr>
+<td>GENERIC</td>
+<td>(150, 150, 155)</td>
+<td><code>#96969B</code></td>
+</tr>
+<tr>
+<td>Input (generic)</td>
+<td>(100, 200, 100)</td>
+<td><code>#64C864</code></td>
+</tr>
+<tr>
+<td>Output (generic)</td>
+<td>(200, 100, 100)</td>
+<td><code>#C86464</code></td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="appendix-b-block-type-registry-summary">Appendix B: Block Type Registry Summary<a class="headerlink" href="#appendix-b-block-type-registry-summary" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Type String</th>
+<th>Processor Class</th>
+<th>Category</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>LoadAudio</code></td>
+<td><code>LoadAudioBlockProcessor</code></td>
+<td>Input</td>
+</tr>
+<tr>
+<td><code>SetlistAudioInput</code></td>
+<td><code>SetlistAudioInputBlockProcessor</code></td>
+<td>Input</td>
+</tr>
+<tr>
+<td><code>DetectOnsets</code></td>
+<td><code>DetectOnsetsBlockProcessor</code></td>
+<td>Analysis</td>
+</tr>
+<tr>
+<td><code>TranscribeNote</code> / <code>NoteExtractorBasicPitch</code></td>
+<td>Note transcription processor</td>
+<td>Analysis</td>
+</tr>
+<tr>
+<td><code>TranscribeLib</code> / <code>NoteExtractorLibrosa</code></td>
+<td>Librosa note processor</td>
+<td>Analysis</td>
+</tr>
+<tr>
+<td><code>Separator</code></td>
+<td><code>SeparatorBlockProcessor</code></td>
+<td>Transform</td>
+</tr>
+<tr>
+<td><code>AudioFilter</code></td>
+<td><code>AudioFilterBlockProcessor</code></td>
+<td>Transform</td>
+</tr>
+<tr>
+<td><code>ExportAudio</code></td>
+<td><code>ExportAudioBlockProcessor</code></td>
+<td>Export</td>
+</tr>
+<tr>
+<td><code>ExportMA2</code></td>
+<td><code>ExportMA2BlockProcessor</code></td>
+<td>Export</td>
+</tr>
+<tr>
+<td><code>Editor</code> / <code>EditorV2</code></td>
+<td>Editor processor</td>
+<td>Editing</td>
+</tr>
+<tr>
+<td><code>AudioPlayer</code></td>
+<td><code>AudioPlayerBlockProcessor</code></td>
+<td>Utility</td>
+</tr>
+<tr>
+<td><code>CommandSequencer</code></td>
+<td><code>CommandSequencerBlockProcessor</code></td>
+<td>Utility</td>
+</tr>
+<tr>
+<td><code>ShowManager</code></td>
+<td><code>ShowManagerBlockProcessor</code></td>
+<td>Integration</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="appendix-c-snap-interval-seconds-mapping">Appendix C: Snap Interval Seconds Mapping<a class="headerlink" href="#appendix-c-snap-interval-seconds-mapping" title="Permanent link">&para;</a></h2>
+<p>For <code>snap_interval_mode</code> to seconds conversion (at standard FPS, e.g., 30fps):
+- <code>"auto"</code> → computed from current zoom level and grid minor interval
+- <code>"1f"</code> → <code>1/fps</code> seconds (e.g., 0.0333s at 30fps)
+- <code>"2f"</code> → <code>2/fps</code> seconds
+- <code>"5f"</code> → <code>5/fps</code> seconds
+- <code>"10f"</code> → <code>10/fps</code> seconds
+- <code>"1s"</code> → <code>1.0</code> second exactly</p>
+<p>FPS is configured in the timebase/grid settings. Default assumed 30fps unless configured otherwise.</p>
+<hr />
+<h2 id="appendix-d-ma3-timecode-coordinate-parsing">Appendix D: MA3 Timecode Coordinate Parsing<a class="headerlink" href="#appendix-d-ma3-timecode-coordinate-parsing" title="Permanent link">&para;</a></h2>
+<p>Given a <code>ma3_coord</code> string, the system extracts a TC group:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>coord_lower = coord.lower()
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>if coord_lower.startswith(&quot;tc&quot;):
+<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a>    # Extract digits immediately after &quot;tc&quot;
+<a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a>    num = digits immediately following &quot;tc&quot; (stop at non-digit)
+<a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a>    if num:
+<a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a>        group_id = f&quot;tc_{num}&quot;    # e.g., &quot;tc_1&quot;
+<a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a>        group_name = f&quot;TC {num}&quot;  # e.g., &quot;TC 1&quot;
+<a id="__codelineno-2-8" name="__codelineno-2-8" href="#__codelineno-2-8"></a>elif coord_lower[0].isdigit():
+<a id="__codelineno-2-9" name="__codelineno-2-9" href="#__codelineno-2-9"></a>    head = coord.split(&quot;.&quot;)[0]
+<a id="__codelineno-2-10" name="__codelineno-2-10" href="#__codelineno-2-10"></a>    if head.isdigit():
+<a id="__codelineno-2-11" name="__codelineno-2-11" href="#__codelineno-2-11"></a>        group_id = f&quot;tc_{head}&quot;
+<a id="__codelineno-2-12" name="__codelineno-2-12" href="#__codelineno-2-12"></a>        group_name = f&quot;TC {head}&quot;
+</code></pre></div>
+<p>Layer identities using <code>tc_N</code> group_id are treated as MA3-synced and persist across session reloads.</p>
+<hr />
+<p><em>End of EchoZero Behavioral Specification</em></p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.instant", "navigation.sections", "navigation.expand", "navigation.top", "search.suggest", "search.highlight", "content.code.copy", "toc.follow"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+    
+  </body>
+</html>

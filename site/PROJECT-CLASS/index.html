@@ -1,0 +1,2276 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Audio analysis workstation for live lighting design">
+      
+      
+      
+      
+        <link rel="prev" href="../ARCHITECTURE/">
+      
+      
+        <link rel="next" href="../architecture/ENTITY-MODEL/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
+    
+    
+      
+        <title>Project Class - EchoZero 2</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="slate" data-md-color-primary="deep-purple" data-md-color-accent="amber">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#echozero-2-project-class-api-reference" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="EchoZero 2" class="md-header__button md-logo" aria-label="EchoZero 2" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            EchoZero 2
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Project Class
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="slate" data-md-color-primary="deep-purple" data-md-color-accent="amber"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="default" data-md-color-primary="deep-purple" data-md-color-accent="amber"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/griffin/echozero" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    GitHub
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="EchoZero 2" class="md-nav__button md-logo" aria-label="EchoZero 2" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    EchoZero 2
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/griffin/echozero" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    GitHub
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../GETTING-STARTED/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting Started
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../ARCHITECTURE/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Project Class
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Project Class
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#overview" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Overview
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#factory-methods" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Factory Methods
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Factory Methods">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#projectcreatename-settingsnone-executorsnone-registrynone-working_dir_rootnone" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Project.create(name, settings=None, executors=None, registry=None, working_dir_root=None)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#projectopenez_path-executorsnone-registrynone-working_dir_rootnone" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Project.open(ez_path, executors=None, registry=None, working_dir_root=None)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#projectopen_dbworking_dir-executorsnone-registrynone" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Project.open_db(working_dir, executors=None, registry=None)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#properties" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Properties
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#graph-mutations" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Graph Mutations
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Graph Mutations">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#dispatchcommand-resultany" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        dispatch(command) → Result[Any]
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#execution" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Execution
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Execution">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#runtargetnone-resultstr" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        run(target=None) → Result[str]
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#run_asynctargetnone-resultexecutionhandle" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        run_async(target=None) → Result[ExecutionHandle]
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#cancel-none" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        cancel() → None
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#analysis" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Analysis
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Analysis">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#analyzesong_version_id-template_id-knob_overridesnone-on_progressnone-resultanalysisresult" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        analyze(song_version_id, template_id, knob_overrides=None, on_progress=None) → Result[AnalysisResult]
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#execute_configconfig_id-on_progressnone-resultanalysisresult" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        execute_config(config_id, on_progress=None) → Result[AnalysisResult]
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#song-management" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Song Management
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Song Management">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#import_songtitle-audio_source-artist-labeloriginal-default_templatesnone-scan_fnnone-tuplesongrecord-songversionrecord" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        import_song(title, audio_source, artist='', label='Original', default_templates=None, scan_fn=None) → tuple[SongRecord, SongVersionRecord]
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#add_song_versionsong_id-audio_source-labelnone-activatetrue-scan_fnnone-songversionrecord" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        add_song_version(song_id, audio_source, label=None, activate=True, scan_fn=None) → SongVersionRecord
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#lifecycle" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Lifecycle
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Lifecycle">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#save-none" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        save() → None
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#save_asez_path-none" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        save_as(ez_path) → None
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#close-none" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        close() → None
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#context-manager" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Context manager
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#thread-safety" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Thread Safety
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#event-subscriptions-for-ui" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Event Subscriptions (for UI)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#result-type" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Result Type
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../architecture/ENTITY-MODEL/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Entity Model
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../LD-WORKFLOW/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    LD Workflow
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_7" >
+        
+          
+          <label class="md-nav__link" for="__nav_7" id="__nav_7_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Decisions
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_7_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_7">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Decisions
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../architecture/DECISIONS/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture Decisions
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../architecture/PIPELINE-CONFIG-REDESIGN/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Pipeline Config
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_8" >
+        
+          
+          <label class="md-nav__link" for="__nav_8" id="__nav_8_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Audits
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_8_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_8">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Audits
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../audits/ui-readiness-audit-2026-03-30/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    UI Readiness
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../audits/architecture-audit-2026-03-30/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture Audit
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../audits/codebase-audit-2026-03-30/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Codebase Audit
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../audits/codebase-audit-2026-03-30-part2/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Codebase Audit Part 2
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../audits/audio-engine-audit/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Audio Engine
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../audits/model-registry-audit/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Model Registry
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../packaging/PACKAGING/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Packaging
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../SPEC/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Spec
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#overview" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Overview
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#factory-methods" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Factory Methods
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Factory Methods">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#projectcreatename-settingsnone-executorsnone-registrynone-working_dir_rootnone" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Project.create(name, settings=None, executors=None, registry=None, working_dir_root=None)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#projectopenez_path-executorsnone-registrynone-working_dir_rootnone" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Project.open(ez_path, executors=None, registry=None, working_dir_root=None)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#projectopen_dbworking_dir-executorsnone-registrynone" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Project.open_db(working_dir, executors=None, registry=None)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#properties" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Properties
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#graph-mutations" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Graph Mutations
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Graph Mutations">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#dispatchcommand-resultany" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        dispatch(command) → Result[Any]
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#execution" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Execution
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Execution">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#runtargetnone-resultstr" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        run(target=None) → Result[str]
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#run_asynctargetnone-resultexecutionhandle" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        run_async(target=None) → Result[ExecutionHandle]
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#cancel-none" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        cancel() → None
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#analysis" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Analysis
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Analysis">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#analyzesong_version_id-template_id-knob_overridesnone-on_progressnone-resultanalysisresult" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        analyze(song_version_id, template_id, knob_overrides=None, on_progress=None) → Result[AnalysisResult]
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#execute_configconfig_id-on_progressnone-resultanalysisresult" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        execute_config(config_id, on_progress=None) → Result[AnalysisResult]
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#song-management" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Song Management
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Song Management">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#import_songtitle-audio_source-artist-labeloriginal-default_templatesnone-scan_fnnone-tuplesongrecord-songversionrecord" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        import_song(title, audio_source, artist='', label='Original', default_templates=None, scan_fn=None) → tuple[SongRecord, SongVersionRecord]
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#add_song_versionsong_id-audio_source-labelnone-activatetrue-scan_fnnone-songversionrecord" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        add_song_version(song_id, audio_source, label=None, activate=True, scan_fn=None) → SongVersionRecord
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#lifecycle" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Lifecycle
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Lifecycle">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#save-none" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        save() → None
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#save_asez_path-none" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        save_as(ez_path) → None
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#close-none" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        close() → None
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#context-manager" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Context manager
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#thread-safety" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Thread Safety
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#event-subscriptions-for-ui" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Event Subscriptions (for UI)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#result-type" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Result Type
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="echozero-2-project-class-api-reference">EchoZero 2 — Project Class API Reference<a class="headerlink" href="#echozero-2-project-class-api-reference" title="Permanent link">&para;</a></h1>
+<p><code>echozero.project.Project</code></p>
+<p>The <code>Project</code> class is the single entry point for all application operations.
+The UI talks to <code>Project</code>. <code>Project</code> talks to everything else.</p>
+<hr />
+<h2 id="overview">Overview<a class="headerlink" href="#overview" title="Permanent link">&para;</a></h2>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>                    ┌─────────────────┐
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>                    │     Project     │  ← UI talks here
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>                    └────────┬────────┘
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>            ┌────────────────┼────────────────┐
+<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>            ▼                ▼                ▼
+<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>      ┌──────────┐   ┌──────────────┐   ┌──────────────┐
+<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>      │  Graph   │   │ProjectStorage│   │ Orchestrator │
+<a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>      └──────────┘   └──────────────┘   └──────────────┘
+<a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a>            │                │
+<a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a>     ┌──────┴──────┐   ┌─────┴──────┐
+<a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a>     │  Pipeline   │   │   Repos    │
+<a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a>     │ Coordinator │   │(song/take/…│
+<a id="__codelineno-0-13" name="__codelineno-0-13" href="#__codelineno-0-13"></a>     └─────────────┘   └────────────┘
+</code></pre></div>
+<hr />
+<h2 id="factory-methods">Factory Methods<a class="headerlink" href="#factory-methods" title="Permanent link">&para;</a></h2>
+<p>These are the <strong>only</strong> ways to create a <code>Project</code>. Never call <code>__init__</code> directly.</p>
+<hr />
+<h3 id="projectcreatename-settingsnone-executorsnone-registrynone-working_dir_rootnone"><code>Project.create(name, settings=None, executors=None, registry=None, working_dir_root=None)</code><a class="headerlink" href="#projectcreatename-settingsnone-executorsnone-registrynone-working_dir_rootnone" title="Permanent link">&para;</a></h3>
+<p>Create a brand new project.</p>
+<p><strong>Parameters:</strong></p>
+<table>
+<thead>
+<tr>
+<th>Parameter</th>
+<th>Type</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>name</code></td>
+<td><code>str</code></td>
+<td>Project name</td>
+</tr>
+<tr>
+<td><code>settings</code></td>
+<td><code>ProjectSettingsRecord \| None</code></td>
+<td>Global settings (sample rate, BPM, etc.)</td>
+</tr>
+<tr>
+<td><code>executors</code></td>
+<td><code>dict[str, BlockExecutor] \| None</code></td>
+<td>Block type → executor map. Use <code>None</code> in tests with mocks.</td>
+</tr>
+<tr>
+<td><code>registry</code></td>
+<td><code>PipelineRegistry \| None</code></td>
+<td>Template registry. Defaults to global singleton.</td>
+</tr>
+<tr>
+<td><code>working_dir_root</code></td>
+<td><code>Path \| None</code></td>
+<td>Override for <code>~/.echozero/working/</code></td>
+</tr>
+</tbody>
+</table>
+<p><strong>Returns:</strong> <code>Project</code></p>
+<p><strong>Example:</strong>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">echozero.main</span><span class="w"> </span><span class="kn">import</span> <span class="n">create_project</span>  <span class="c1"># with real processors</span>
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="n">project</span> <span class="o">=</span> <span class="n">create_project</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="s2">&quot;Summer Tour 2026&quot;</span><span class="p">)</span>
+<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>
+<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="c1"># Or bare (for tests):</span>
+<a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a><span class="kn">from</span><span class="w"> </span><span class="nn">echozero.project</span><span class="w"> </span><span class="kn">import</span> <span class="n">Project</span>
+<a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a><span class="n">project</span> <span class="o">=</span> <span class="n">Project</span><span class="o">.</span><span class="n">create</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="s2">&quot;Test Project&quot;</span><span class="p">)</span>
+</code></pre></div></p>
+<hr />
+<h3 id="projectopenez_path-executorsnone-registrynone-working_dir_rootnone"><code>Project.open(ez_path, executors=None, registry=None, working_dir_root=None)</code><a class="headerlink" href="#projectopenez_path-executorsnone-registrynone-working_dir_rootnone" title="Permanent link">&para;</a></h3>
+<p>Open an existing project from an <code>.ez</code> archive.</p>
+<p>If a stale working directory exists (crash recovery scenario), opens it directly without unpacking.</p>
+<p><strong>Parameters:</strong></p>
+<table>
+<thead>
+<tr>
+<th>Parameter</th>
+<th>Type</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>ez_path</code></td>
+<td><code>Path</code></td>
+<td>Path to the <code>.ez</code> file</td>
+</tr>
+<tr>
+<td><code>executors</code></td>
+<td><code>dict[str, BlockExecutor] \| None</code></td>
+<td>See <code>create()</code></td>
+</tr>
+<tr>
+<td><code>registry</code></td>
+<td><code>PipelineRegistry \| None</code></td>
+<td>See <code>create()</code></td>
+</tr>
+<tr>
+<td><code>working_dir_root</code></td>
+<td><code>Path \| None</code></td>
+<td>Override working dir root</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Returns:</strong> <code>Project</code></p>
+<p><strong>Raises:</strong> <code>FileNotFoundError</code> if <code>.ez</code> file not found.</p>
+<hr />
+<h3 id="projectopen_dbworking_dir-executorsnone-registrynone"><code>Project.open_db(working_dir, executors=None, registry=None)</code><a class="headerlink" href="#projectopen_dbworking_dir-executorsnone-registrynone" title="Permanent link">&para;</a></h3>
+<p>Open directly from a working directory (recovery or dev use).</p>
+<p><strong>Parameters:</strong></p>
+<table>
+<thead>
+<tr>
+<th>Parameter</th>
+<th>Type</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>working_dir</code></td>
+<td><code>Path</code></td>
+<td>Path to directory containing <code>project.db</code></td>
+</tr>
+<tr>
+<td><code>executors</code></td>
+<td><code>dict[str, BlockExecutor] \| None</code></td>
+<td>See <code>create()</code></td>
+</tr>
+<tr>
+<td><code>registry</code></td>
+<td><code>PipelineRegistry \| None</code></td>
+<td>See <code>create()</code></td>
+</tr>
+</tbody>
+</table>
+<p><strong>Returns:</strong> <code>Project</code></p>
+<hr />
+<h2 id="properties">Properties<a class="headerlink" href="#properties" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Property</th>
+<th>Type</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>name</code></td>
+<td><code>str</code></td>
+<td>Project name (from storage)</td>
+</tr>
+<tr>
+<td><code>graph</code></td>
+<td><code>Graph</code></td>
+<td>The live block graph (read-only reference)</td>
+</tr>
+<tr>
+<td><code>event_bus</code></td>
+<td><code>EventBus</code></td>
+<td>Pub/sub bus for domain events</td>
+</tr>
+<tr>
+<td><code>storage</code></td>
+<td><code>ProjectStorage</code></td>
+<td>Direct access to persistence layer</td>
+</tr>
+<tr>
+<td><code>is_executing</code></td>
+<td><code>bool</code></td>
+<td>Whether a pipeline run is in progress</td>
+</tr>
+<tr>
+<td><code>is_dirty</code></td>
+<td><code>bool</code></td>
+<td>Whether there are unsaved changes</td>
+</tr>
+<tr>
+<td><code>stale_tracker</code></td>
+<td><code>StaleTracker</code></td>
+<td>Query WHY blocks are stale (for UI staleness display)</td>
+</tr>
+<tr>
+<td><code>songs</code></td>
+<td><code>SongRepository</code></td>
+<td>Shortcut to <code>storage.songs</code></td>
+</tr>
+<tr>
+<td><code>song_versions</code></td>
+<td><code>SongVersionRepository</code></td>
+<td>Shortcut to <code>storage.song_versions</code></td>
+</tr>
+<tr>
+<td><code>layers</code></td>
+<td><code>LayerRepository</code></td>
+<td>Shortcut to <code>storage.layers</code></td>
+</tr>
+<tr>
+<td><code>takes</code></td>
+<td><code>TakeRepository</code></td>
+<td>Shortcut to <code>storage.takes</code></td>
+</tr>
+<tr>
+<td><code>pipeline_configs</code></td>
+<td><code>PipelineConfigRepository</code></td>
+<td>Shortcut to <code>storage.pipeline_configs</code></td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="graph-mutations">Graph Mutations<a class="headerlink" href="#graph-mutations" title="Permanent link">&para;</a></h2>
+<h3 id="dispatchcommand-resultany"><code>dispatch(command) → Result[Any]</code><a class="headerlink" href="#dispatchcommand-resultany" title="Permanent link">&para;</a></h3>
+<p>Dispatch a command to mutate the graph. This is <strong>the only way</strong> to mutate the graph.</p>
+<p>On success:
+- Applies the command via the Pipeline handler
+- Persists the updated graph to SQLite
+- Publishes domain events (via EventBus)
+- The Coordinator reacts to events and propagates staleness</p>
+<p>On failure:
+- Restores the graph to pre-command state
+- No events published
+- Returns <code>Err</code> with the exception</p>
+<p><strong>Parameters:</strong></p>
+<table>
+<thead>
+<tr>
+<th>Parameter</th>
+<th>Type</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>command</code></td>
+<td><code>Command</code></td>
+<td>Any registered command (see below)</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Returns:</strong> <code>Result[Any]</code> — <code>Ok(value)</code> on success, <code>Err(exception)</code> on failure</p>
+<p><strong>Available commands</strong> (from <code>echozero.editor.commands</code>):</p>
+<table>
+<thead>
+<tr>
+<th>Command</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>AddBlockCommand</code></td>
+<td>Add a block to the graph</td>
+</tr>
+<tr>
+<td><code>RemoveBlockCommand</code></td>
+<td>Remove a block and all its connections</td>
+</tr>
+<tr>
+<td><code>AddConnectionCommand</code></td>
+<td>Wire two block ports together</td>
+</tr>
+<tr>
+<td><code>RemoveConnectionCommand</code></td>
+<td>Remove a connection</td>
+</tr>
+<tr>
+<td><code>ChangeBlockSettingsCommand</code></td>
+<td>Update a single setting on a block</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Example:</strong>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">echozero.editor.commands</span><span class="w"> </span><span class="kn">import</span> <span class="n">ChangeBlockSettingsCommand</span>
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>
+<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="n">result</span> <span class="o">=</span> <span class="n">project</span><span class="o">.</span><span class="n">dispatch</span><span class="p">(</span><span class="n">ChangeBlockSettingsCommand</span><span class="p">(</span>
+<a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a>    <span class="n">block_id</span><span class="o">=</span><span class="s2">&quot;DetectOnsets_1&quot;</span><span class="p">,</span>
+<a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a>    <span class="n">setting_key</span><span class="o">=</span><span class="s2">&quot;threshold&quot;</span><span class="p">,</span>
+<a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a>    <span class="n">new_value</span><span class="o">=</span><span class="mf">0.5</span><span class="p">,</span>
+<a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a><span class="p">))</span>
+<a id="__codelineno-2-8" name="__codelineno-2-8" href="#__codelineno-2-8"></a>
+<a id="__codelineno-2-9" name="__codelineno-2-9" href="#__codelineno-2-9"></a><span class="k">if</span> <span class="n">result</span><span class="o">.</span><span class="n">is_ok</span><span class="p">():</span>
+<a id="__codelineno-2-10" name="__codelineno-2-10" href="#__codelineno-2-10"></a>    <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;Setting updated&quot;</span><span class="p">)</span>
+<a id="__codelineno-2-11" name="__codelineno-2-11" href="#__codelineno-2-11"></a><span class="k">else</span><span class="p">:</span>
+<a id="__codelineno-2-12" name="__codelineno-2-12" href="#__codelineno-2-12"></a>    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Error: </span><span class="si">{</span><span class="n">result</span><span class="o">.</span><span class="n">error</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+</code></pre></div></p>
+<hr />
+<h2 id="execution">Execution<a class="headerlink" href="#execution" title="Permanent link">&para;</a></h2>
+<h3 id="runtargetnone-resultstr"><code>run(target=None) → Result[str]</code><a class="headerlink" href="#runtargetnone-resultstr" title="Permanent link">&para;</a></h3>
+<p>Execute the pipeline synchronously. Blocks until complete.</p>
+<p><strong>Parameters:</strong></p>
+<table>
+<thead>
+<tr>
+<th>Parameter</th>
+<th>Type</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>target</code></td>
+<td><code>str \| None</code></td>
+<td>Block ID to run up to (inclusive). None = run all.</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Returns:</strong> <code>Result[str]</code> — <code>Ok(execution_id)</code> on success, <code>Err</code> on failure.</p>
+<p><strong>Thread safety:</strong> Call from the main thread only. Use <code>run_async()</code> from the UI.</p>
+<hr />
+<h3 id="run_asynctargetnone-resultexecutionhandle"><code>run_async(target=None) → Result[ExecutionHandle]</code><a class="headerlink" href="#run_asynctargetnone-resultexecutionhandle" title="Permanent link">&para;</a></h3>
+<p>Execute the pipeline in a background thread. Returns immediately.</p>
+<p><strong>Parameters:</strong> Same as <code>run()</code>.</p>
+<p><strong>Returns:</strong> <code>Result[ExecutionHandle]</code></p>
+<p><code>ExecutionHandle</code> has:
+- <code>.done</code> — <code>bool</code>, whether execution has finished
+- <code>.cancel()</code> — signal cancellation
+- <code>.result(timeout=None)</code> — block until done, returns <code>Result[str]</code>
+- <code>.execution_id</code> — the execution ID (available immediately)</p>
+<p><strong>Example:</strong>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="n">handle_result</span> <span class="o">=</span> <span class="n">project</span><span class="o">.</span><span class="n">run_async</span><span class="p">()</span>
+<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="k">if</span> <span class="n">handle_result</span><span class="o">.</span><span class="n">is_ok</span><span class="p">():</span>
+<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a>    <span class="n">handle</span> <span class="o">=</span> <span class="n">handle_result</span><span class="o">.</span><span class="n">unwrap</span><span class="p">()</span>
+<a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a>    <span class="c1"># Poll from Qt timer or await in async context</span>
+<a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a>    <span class="k">if</span> <span class="n">handle</span><span class="o">.</span><span class="n">done</span><span class="p">:</span>
+<a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a>        <span class="n">result</span> <span class="o">=</span> <span class="n">handle</span><span class="o">.</span><span class="n">result</span><span class="p">()</span>
+</code></pre></div></p>
+<hr />
+<h3 id="cancel-none"><code>cancel() → None</code><a class="headerlink" href="#cancel-none" title="Permanent link">&para;</a></h3>
+<p>Signal cancellation to any in-flight execution. Non-blocking.
+The running execution will stop at the next cancellation checkpoint.</p>
+<hr />
+<h2 id="analysis">Analysis<a class="headerlink" href="#analysis" title="Permanent link">&para;</a></h2>
+<h3 id="analyzesong_version_id-template_id-knob_overridesnone-on_progressnone-resultanalysisresult"><code>analyze(song_version_id, template_id, knob_overrides=None, on_progress=None) → Result[AnalysisResult]</code><a class="headerlink" href="#analyzesong_version_id-template_id-knob_overridesnone-on_progressnone-resultanalysisresult" title="Permanent link">&para;</a></h3>
+<p>Run a full analysis pipeline against a song version and persist results.</p>
+<p>Creates a <code>PipelineConfigRecord</code> from the template, then executes it.
+Resulting events are persisted as <code>LayerRecord</code> + <code>Take</code> entries.</p>
+<p><strong>Parameters:</strong></p>
+<table>
+<thead>
+<tr>
+<th>Parameter</th>
+<th>Type</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>song_version_id</code></td>
+<td><code>str</code></td>
+<td>ID of the <code>SongVersionRecord</code> to analyze</td>
+</tr>
+<tr>
+<td><code>template_id</code></td>
+<td><code>str</code></td>
+<td>Registered pipeline template ID</td>
+</tr>
+<tr>
+<td><code>knob_overrides</code></td>
+<td><code>dict[str, Any] \| None</code></td>
+<td>Override default knob values</td>
+</tr>
+<tr>
+<td><code>on_progress</code></td>
+<td><code>Callable[[str, float], None] \| None</code></td>
+<td>Progress callback: <code>(message, 0.0–1.0)</code></td>
+</tr>
+</tbody>
+</table>
+<p><strong>Returns:</strong> <code>Result[AnalysisResult]</code></p>
+<p><code>AnalysisResult</code> fields:
+- <code>song_version_id: str</code>
+- <code>pipeline_id: str</code>
+- <code>layer_ids: list[str]</code> — created/updated layer IDs
+- <code>take_ids: list[str]</code> — created take IDs
+- <code>duration_ms: float</code></p>
+<p><strong>Example:</strong>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="k">def</span><span class="w"> </span><span class="nf">on_progress</span><span class="p">(</span><span class="n">msg</span><span class="p">,</span> <span class="n">pct</span><span class="p">):</span>
+<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[</span><span class="si">{</span><span class="n">pct</span><span class="si">:</span><span class="s2">.0%</span><span class="si">}</span><span class="s2">] </span><span class="si">{</span><span class="n">msg</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+<a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a>
+<a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a><span class="n">result</span> <span class="o">=</span> <span class="n">project</span><span class="o">.</span><span class="n">analyze</span><span class="p">(</span>
+<a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a>    <span class="n">song_version_id</span><span class="o">=</span><span class="n">version</span><span class="o">.</span><span class="n">id</span><span class="p">,</span>
+<a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a>    <span class="n">template_id</span><span class="o">=</span><span class="s2">&quot;onset_detection&quot;</span><span class="p">,</span>
+<a id="__codelineno-4-7" name="__codelineno-4-7" href="#__codelineno-4-7"></a>    <span class="n">knob_overrides</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;threshold&quot;</span><span class="p">:</span> <span class="mf">0.3</span><span class="p">},</span>
+<a id="__codelineno-4-8" name="__codelineno-4-8" href="#__codelineno-4-8"></a>    <span class="n">on_progress</span><span class="o">=</span><span class="n">on_progress</span><span class="p">,</span>
+<a id="__codelineno-4-9" name="__codelineno-4-9" href="#__codelineno-4-9"></a><span class="p">)</span>
+</code></pre></div></p>
+<hr />
+<h3 id="execute_configconfig_id-on_progressnone-resultanalysisresult"><code>execute_config(config_id, on_progress=None) → Result[AnalysisResult]</code><a class="headerlink" href="#execute_configconfig_id-on_progressnone-resultanalysisresult" title="Permanent link">&para;</a></h3>
+<p>Execute an existing <code>PipelineConfigRecord</code> directly.</p>
+<p>Useful for re-running after the user has tweaked knobs in the UI.
+The config already contains the full graph — no template rebuild needed.</p>
+<p><strong>Parameters:</strong></p>
+<table>
+<thead>
+<tr>
+<th>Parameter</th>
+<th>Type</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>config_id</code></td>
+<td><code>str</code></td>
+<td>ID of the <code>PipelineConfigRecord</code></td>
+</tr>
+<tr>
+<td><code>on_progress</code></td>
+<td><code>Callable \| None</code></td>
+<td>Progress callback</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Returns:</strong> <code>Result[AnalysisResult]</code></p>
+<hr />
+<h2 id="song-management">Song Management<a class="headerlink" href="#song-management" title="Permanent link">&para;</a></h2>
+<h3 id="import_songtitle-audio_source-artist-labeloriginal-default_templatesnone-scan_fnnone-tuplesongrecord-songversionrecord"><code>import_song(title, audio_source, artist='', label='Original', default_templates=None, scan_fn=None) → tuple[SongRecord, SongVersionRecord]</code><a class="headerlink" href="#import_songtitle-audio_source-artist-labeloriginal-default_templatesnone-scan_fnnone-tuplesongrecord-songversionrecord" title="Permanent link">&para;</a></h3>
+<p>Import an audio file as a new song.</p>
+<p>Creates:
+- <code>SongRecord</code>
+- <code>SongVersionRecord</code> (copies audio, scans metadata, stores hash)
+- Default <code>PipelineConfigRecord</code>s from registered templates</p>
+<p><strong>Parameters:</strong></p>
+<table>
+<thead>
+<tr>
+<th>Parameter</th>
+<th>Type</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>title</code></td>
+<td><code>str</code></td>
+<td>Song title</td>
+</tr>
+<tr>
+<td><code>audio_source</code></td>
+<td><code>Path</code></td>
+<td>Path to audio file (wav, mp3, flac, etc.)</td>
+</tr>
+<tr>
+<td><code>artist</code></td>
+<td><code>str</code></td>
+<td>Artist name (optional)</td>
+</tr>
+<tr>
+<td><code>label</code></td>
+<td><code>str</code></td>
+<td>Version label (default "Original")</td>
+</tr>
+<tr>
+<td><code>default_templates</code></td>
+<td><code>list[str] \| None</code></td>
+<td>Template IDs for auto-config creation. <code>None</code> = all registered. <code>[]</code> = none.</td>
+</tr>
+<tr>
+<td><code>scan_fn</code></td>
+<td><code>callable \| None</code></td>
+<td>Injectable for testing (skips real audio scan)</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Returns:</strong> <code>(SongRecord, SongVersionRecord)</code></p>
+<p><strong>Raises:</strong> <code>ValidationError</code> if audio file is invalid or unreadable.</p>
+<hr />
+<h3 id="add_song_versionsong_id-audio_source-labelnone-activatetrue-scan_fnnone-songversionrecord"><code>add_song_version(song_id, audio_source, label=None, activate=True, scan_fn=None) → SongVersionRecord</code><a class="headerlink" href="#add_song_versionsong_id-audio_source-labelnone-activatetrue-scan_fnnone-songversionrecord" title="Permanent link">&para;</a></h3>
+<p>Add a new version of an existing song (e.g., festival edit, radio edit).</p>
+<p>Copies all <code>PipelineConfigRecord</code>s from the current active version → new version
+(same graph, same knobs, new IDs). Optionally sets new version as active.</p>
+<p><strong>Parameters:</strong></p>
+<table>
+<thead>
+<tr>
+<th>Parameter</th>
+<th>Type</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>song_id</code></td>
+<td><code>str</code></td>
+<td>Existing <code>SongRecord</code> ID</td>
+</tr>
+<tr>
+<td><code>audio_source</code></td>
+<td><code>Path</code></td>
+<td>Path to new audio file</td>
+</tr>
+<tr>
+<td><code>label</code></td>
+<td><code>str \| None</code></td>
+<td>Version label. Auto-generated (<code>"v2"</code>, <code>"v3"</code>, …) if <code>None</code>.</td>
+</tr>
+<tr>
+<td><code>activate</code></td>
+<td><code>bool</code></td>
+<td>Set as active version (default <code>True</code>)</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Returns:</strong> <code>SongVersionRecord</code></p>
+<p><strong>Raises:</strong> <code>ValueError</code> if song not found or has no active version.</p>
+<hr />
+<h2 id="lifecycle">Lifecycle<a class="headerlink" href="#lifecycle" title="Permanent link">&para;</a></h2>
+<h3 id="save-none"><code>save() → None</code><a class="headerlink" href="#save-none" title="Permanent link">&para;</a></h3>
+<p>Flush current graph and all pending DB changes. Clears the dirty flag.
+Autosave already commits every 30 seconds — this is for explicit user saves.</p>
+<hr />
+<h3 id="save_asez_path-none"><code>save_as(ez_path) → None</code><a class="headerlink" href="#save_asez_path-none" title="Permanent link">&para;</a></h3>
+<p>Save the project as a <code>.ez</code> archive. Performs a WAL checkpoint before packing.</p>
+<p><strong>Parameters:</strong></p>
+<table>
+<thead>
+<tr>
+<th>Parameter</th>
+<th>Type</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>ez_path</code></td>
+<td><code>Path</code></td>
+<td>Destination <code>.ez</code> file path</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h3 id="close-none"><code>close() → None</code><a class="headerlink" href="#close-none" title="Permanent link">&para;</a></h3>
+<p>Close the project gracefully:
+- Unsubscribes Coordinator from the EventBus
+- Commits any uncommitted changes
+- Stops autosave timer
+- Releases lockfile
+- Closes SQLite connection</p>
+<p><strong>Does NOT delete the working directory</strong> — crash recovery relies on it persisting.</p>
+<hr />
+<h3 id="context-manager">Context manager<a class="headerlink" href="#context-manager" title="Permanent link">&para;</a></h3>
+<p><code>Project</code> implements <code>__enter__</code>/<code>__exit__</code>, calling <code>close()</code> on exit:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="k">with</span> <span class="n">Project</span><span class="o">.</span><span class="n">open</span><span class="p">(</span><span class="n">Path</span><span class="p">(</span><span class="s2">&quot;show.ez&quot;</span><span class="p">))</span> <span class="k">as</span> <span class="n">project</span><span class="p">:</span>
+<a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a>    <span class="c1"># ... work ...</span>
+<a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="c1"># automatically closed here</span>
+</code></pre></div>
+<hr />
+<h2 id="thread-safety">Thread Safety<a class="headerlink" href="#thread-safety" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Method</th>
+<th>Thread safety</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>dispatch()</code></td>
+<td><strong>Main thread only</strong> — graph mutations are not thread-safe</td>
+</tr>
+<tr>
+<td><code>run()</code></td>
+<td><strong>Main thread only</strong> — blocks until complete</td>
+</tr>
+<tr>
+<td><code>run_async()</code></td>
+<td>Safe to call from main thread; execution runs in background thread</td>
+</tr>
+<tr>
+<td><code>cancel()</code></td>
+<td>Thread-safe — sets a threading.Event</td>
+</tr>
+<tr>
+<td><code>save()</code> / <code>close()</code></td>
+<td>Main thread only</td>
+</tr>
+<tr>
+<td>Repository accessors (<code>songs</code>, <code>takes</code>, …)</td>
+<td>Thread-safe (SQLite with RLock)</td>
+</tr>
+<tr>
+<td><code>is_dirty</code> / <code>is_executing</code></td>
+<td>Thread-safe reads</td>
+</tr>
+</tbody>
+</table>
+<p>For PyQt6 integration, call <code>run_async()</code> and poll <code>handle.done</code> via a <code>QTimer</code>.
+Never call <code>run()</code> from the Qt main thread — it will block the UI.</p>
+<hr />
+<h2 id="event-subscriptions-for-ui">Event Subscriptions (for UI)<a class="headerlink" href="#event-subscriptions-for-ui" title="Permanent link">&para;</a></h2>
+<p>The <code>project.event_bus</code> publishes domain events the UI should wire to:</p>
+<table>
+<thead>
+<tr>
+<th>Event</th>
+<th>When</th>
+<th>Fields</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>BlockAddedEvent</code></td>
+<td>After <code>AddBlockCommand</code> succeeds</td>
+<td><code>block_id</code>, <code>block_type</code></td>
+</tr>
+<tr>
+<td><code>BlockRemovedEvent</code></td>
+<td>After <code>RemoveBlockCommand</code> succeeds</td>
+<td><code>block_id</code></td>
+</tr>
+<tr>
+<td><code>ConnectionAddedEvent</code></td>
+<td>After <code>AddConnectionCommand</code> succeeds</td>
+<td><code>source_block_id</code>, <code>target_block_id</code></td>
+</tr>
+<tr>
+<td><code>ConnectionRemovedEvent</code></td>
+<td>After <code>RemoveConnectionCommand</code> succeeds</td>
+<td><code>source_block_id</code>, <code>target_block_id</code></td>
+</tr>
+<tr>
+<td><code>SettingsChangedEvent</code></td>
+<td>After <code>ChangeBlockSettingsCommand</code> succeeds</td>
+<td><code>block_id</code>, <code>setting_key</code>, <code>old_value</code>, <code>new_value</code></td>
+</tr>
+</tbody>
+</table>
+<p><strong>Subscribe:</strong>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">echozero.domain.events</span><span class="w"> </span><span class="kn">import</span> <span class="n">BlockAddedEvent</span>
+<a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a>
+<a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a><span class="n">project</span><span class="o">.</span><span class="n">event_bus</span><span class="o">.</span><span class="n">subscribe</span><span class="p">(</span><span class="n">BlockAddedEvent</span><span class="p">,</span> <span class="k">lambda</span> <span class="n">evt</span><span class="p">:</span> <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Block added: </span><span class="si">{</span><span class="n">evt</span><span class="o">.</span><span class="n">block_id</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">))</span>
+</code></pre></div></p>
+<p><strong>Unsubscribe:</strong>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="n">project</span><span class="o">.</span><span class="n">event_bus</span><span class="o">.</span><span class="n">unsubscribe</span><span class="p">(</span><span class="n">BlockAddedEvent</span><span class="p">,</span> <span class="n">my_handler</span><span class="p">)</span>
+</code></pre></div></p>
+<p>All subscriptions on <code>project.event_bus</code> are automatically cleaned up when <code>project.close()</code> is called.</p>
+<hr />
+<h2 id="result-type">Result Type<a class="headerlink" href="#result-type" title="Permanent link">&para;</a></h2>
+<p>All mutation and execution methods return <code>Result[T]</code>:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">echozero.result</span><span class="w"> </span><span class="kn">import</span> <span class="n">is_ok</span><span class="p">,</span> <span class="n">unwrap</span>
+<a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a>
+<a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a><span class="n">result</span> <span class="o">=</span> <span class="n">project</span><span class="o">.</span><span class="n">run</span><span class="p">()</span>
+<a id="__codelineno-8-4" name="__codelineno-8-4" href="#__codelineno-8-4"></a><span class="k">if</span> <span class="n">is_ok</span><span class="p">(</span><span class="n">result</span><span class="p">):</span>
+<a id="__codelineno-8-5" name="__codelineno-8-5" href="#__codelineno-8-5"></a>    <span class="n">execution_id</span> <span class="o">=</span> <span class="n">unwrap</span><span class="p">(</span><span class="n">result</span><span class="p">)</span>
+<a id="__codelineno-8-6" name="__codelineno-8-6" href="#__codelineno-8-6"></a><span class="k">else</span><span class="p">:</span>
+<a id="__codelineno-8-7" name="__codelineno-8-7" href="#__codelineno-8-7"></a>    <span class="n">error</span> <span class="o">=</span> <span class="n">result</span><span class="o">.</span><span class="n">error</span>  <span class="c1"># the exception</span>
+</code></pre></div>
+<p>Or using the fluent API:
+<div class="highlight"><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="n">result</span> <span class="o">=</span> <span class="n">project</span><span class="o">.</span><span class="n">run</span><span class="p">()</span>
+<a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a><span class="n">result</span><span class="o">.</span><span class="n">is_ok</span><span class="p">()</span>          <span class="c1"># bool</span>
+<a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a><span class="n">result</span><span class="o">.</span><span class="n">is_err</span><span class="p">()</span>         <span class="c1"># bool</span>
+<a id="__codelineno-9-4" name="__codelineno-9-4" href="#__codelineno-9-4"></a><span class="n">result</span><span class="o">.</span><span class="n">unwrap</span><span class="p">()</span>         <span class="c1"># value or raises</span>
+<a id="__codelineno-9-5" name="__codelineno-9-5" href="#__codelineno-9-5"></a><span class="n">result</span><span class="o">.</span><span class="n">unwrap_or</span><span class="p">(</span><span class="kc">None</span><span class="p">)</span>  <span class="c1"># value or default</span>
+</code></pre></div></p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.instant", "navigation.sections", "navigation.expand", "navigation.top", "search.suggest", "search.highlight", "content.code.copy", "toc.follow"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+    
+  </body>
+</html>

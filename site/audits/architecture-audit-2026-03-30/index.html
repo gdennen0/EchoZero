@@ -1,0 +1,1738 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Audio analysis workstation for live lighting design">
+      
+      
+      
+      
+        <link rel="prev" href="../ui-readiness-audit-2026-03-30/">
+      
+      
+        <link rel="next" href="../codebase-audit-2026-03-30/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
+    
+    
+      
+        <title>Architecture Audit - EchoZero 2</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="slate" data-md-color-primary="deep-purple" data-md-color-accent="amber">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#echozero-architecture-audit-structural-alignment" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="EchoZero 2" class="md-header__button md-logo" aria-label="EchoZero 2" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            EchoZero 2
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Architecture Audit
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="slate" data-md-color-primary="deep-purple" data-md-color-accent="amber"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="default" data-md-color-primary="deep-purple" data-md-color-accent="amber"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/griffin/echozero" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    GitHub
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="EchoZero 2" class="md-nav__button md-logo" aria-label="EchoZero 2" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    EchoZero 2
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/griffin/echozero" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    GitHub
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../GETTING-STARTED/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting Started
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../ARCHITECTURE/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../PROJECT-CLASS/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Project Class
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../architecture/ENTITY-MODEL/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Entity Model
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../LD-WORKFLOW/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    LD Workflow
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_7" >
+        
+          
+          <label class="md-nav__link" for="__nav_7" id="__nav_7_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Decisions
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_7_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_7">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Decisions
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../architecture/DECISIONS/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture Decisions
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../architecture/PIPELINE-CONFIG-REDESIGN/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Pipeline Config
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_8" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_8" id="__nav_8_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Audits
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_8_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_8">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Audits
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../ui-readiness-audit-2026-03-30/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    UI Readiness
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture Audit
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture Audit
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#executive-summary" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Executive Summary
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#s1-two-disconnected-worlds-engine-graph-vs-sqlite" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        S1: Two Disconnected Worlds — Engine Graph vs SQLite
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#s2-no-unit-of-work-commands-bypass-persistence" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        S2: No Unit of Work — Commands Bypass Persistence
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#s3-coordinator-and-editor-pipeline-own-separate-graphs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        S3: Coordinator and Editor Pipeline Own Separate Graphs
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#s4-block-categories-not-enforced-at-execution" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        S4: Block Categories Not Enforced at Execution
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#s5-no-copy-on-pull-mutable-upstream-references" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        S5: No Copy-on-Pull — Mutable Upstream References
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#s6-missing-two-connection-pattern" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        S6: Missing Two-Connection Pattern
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#s7-repositories-are-stateful-not-stateless" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        S7: Repositories Are Stateful, Not Stateless
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#m1-missing-bootstrap-wiring-module" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        M1: Missing — Bootstrap / Wiring Module
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#m2-missing-application-service-layer" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        M2: Missing — Application Service Layer
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#m3-missing-undo-stack" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        M3: Missing — Undo Stack
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#m4-missing-execution-threading" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        M4: Missing — Execution Threading
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#m5-missing-per-song-graph-isolation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        M5: Missing — Per-Song Graph Isolation
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#summary-table" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Summary Table
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#recommended-resolution-order" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Recommended Resolution Order
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Recommended Resolution Order">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#phase-1-structural-foundation-before-any-ui-work" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 1 — Structural Foundation (before any UI work)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#phase-2-execution-correctness" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 2 — Execution Correctness
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#phase-3-editor-infrastructure" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 3 — Editor Infrastructure
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#phase-4-optimization-defer-until-ui-exists" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 4 — Optimization (defer until UI exists)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#whats-working-well" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What's Working Well
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../codebase-audit-2026-03-30/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Codebase Audit
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../codebase-audit-2026-03-30-part2/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Codebase Audit Part 2
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../audio-engine-audit/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Audio Engine
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../model-registry-audit/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Model Registry
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../packaging/PACKAGING/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Packaging
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../SPEC/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Spec
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#executive-summary" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Executive Summary
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#s1-two-disconnected-worlds-engine-graph-vs-sqlite" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        S1: Two Disconnected Worlds — Engine Graph vs SQLite
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#s2-no-unit-of-work-commands-bypass-persistence" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        S2: No Unit of Work — Commands Bypass Persistence
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#s3-coordinator-and-editor-pipeline-own-separate-graphs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        S3: Coordinator and Editor Pipeline Own Separate Graphs
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#s4-block-categories-not-enforced-at-execution" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        S4: Block Categories Not Enforced at Execution
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#s5-no-copy-on-pull-mutable-upstream-references" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        S5: No Copy-on-Pull — Mutable Upstream References
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#s6-missing-two-connection-pattern" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        S6: Missing Two-Connection Pattern
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#s7-repositories-are-stateful-not-stateless" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        S7: Repositories Are Stateful, Not Stateless
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#m1-missing-bootstrap-wiring-module" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        M1: Missing — Bootstrap / Wiring Module
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#m2-missing-application-service-layer" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        M2: Missing — Application Service Layer
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#m3-missing-undo-stack" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        M3: Missing — Undo Stack
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#m4-missing-execution-threading" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        M4: Missing — Execution Threading
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#m5-missing-per-song-graph-isolation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        M5: Missing — Per-Song Graph Isolation
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#summary-table" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Summary Table
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#recommended-resolution-order" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Recommended Resolution Order
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Recommended Resolution Order">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#phase-1-structural-foundation-before-any-ui-work" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 1 — Structural Foundation (before any UI work)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#phase-2-execution-correctness" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 2 — Execution Correctness
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#phase-3-editor-infrastructure" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 3 — Editor Infrastructure
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#phase-4-optimization-defer-until-ui-exists" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 4 — Optimization (defer until UI exists)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#whats-working-well" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What's Working Well
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="echozero-architecture-audit-structural-alignment">EchoZero Architecture Audit — Structural Alignment<a class="headerlink" href="#echozero-architecture-audit-structural-alignment" title="Permanent link">&para;</a></h1>
+<p><strong>Date:</strong> 2026-03-30
+<strong>Auditor:</strong> Chonch
+<strong>Method:</strong> First-principles comparison — Distillation (243 decisions) vs actual codebase
+<strong>Scope:</strong> Does the code fit the architecture? Where do the seams not line up?</p>
+<hr />
+<h2 id="executive-summary">Executive Summary<a class="headerlink" href="#executive-summary" title="Permanent link">&para;</a></h2>
+<p>The engine layer (Graph, Pipeline builder, ExecutionEngine, Processors) is solid. Clean types, good separation, well-tested. The persistence layer (SQLite, repos, session, archive) is also solid.</p>
+<p><strong>The problem is the middle.</strong> The application layer that's supposed to bridge engine and persistence has structural gaps. Two disconnected worlds — an in-memory engine graph and a SQLite persistence store — with no consistent mechanism to keep them in sync. The command dispatch pattern exists but isn't wired to persistence. The UoW pattern from the distillation is absent. And several architectural concepts from the decisions haven't been expressed in code yet.</p>
+<p>This audit identifies <strong>7 structural misalignments</strong> (seams that don't line up) and <strong>5 missing abstractions</strong> (things the distillation specifies that don't exist yet).</p>
+<hr />
+<h2 id="s1-two-disconnected-worlds-engine-graph-vs-sqlite">S1: Two Disconnected Worlds — Engine Graph vs SQLite<a class="headerlink" href="#s1-two-disconnected-worlds-engine-graph-vs-sqlite" title="Permanent link">&para;</a></h2>
+<p><strong>Severity: STRUCTURAL — must resolve before UI work</strong></p>
+<p>The system has two truth stores that don't talk to each other:</p>
+<ol>
+<li><strong>In-memory Graph</strong> — owned by <code>editor.pipeline.Pipeline</code>, mutated by commands (AddBlock, ChangeSettings, etc.), cached in <code>ExecutionCache</code>, serialized to JSON</li>
+<li><strong>SQLite database</strong> — owned by <code>ProjectSession</code>, holds Projects, Songs, SongVersions, Layers, Takes, PipelineConfigs</li>
+</ol>
+<p><strong>What connects them:</strong> Only the <code>Orchestrator</code>. It builds an engine Pipeline from a PipelineConfig, executes it, then persists outputs as Layers+Takes in SQLite. That's it.</p>
+<p><strong>What's missing:</strong>
+- When a user adds a block via <code>editor.Pipeline.dispatch(AddBlockCommand)</code>, it modifies the in-memory Graph. <strong>Nothing writes it to SQLite.</strong> The <code>projects</code> table has a <code>graph_json</code> column, but no code path syncs the editor's live graph to that column.
+- When a project loads from SQLite, <code>graph_json</code> gets deserialized into a Graph. But there's no code path that hydrates the editor Pipeline's internal graph from the loaded data.
+- The DirtyTracker listens to EventBus events (graph mutations) for autosave hints. But autosave calls <code>session.db.commit()</code> — which commits <strong>SQLite rows</strong>, not the in-memory graph. If the graph changed but nobody serialized it to <code>graph_json</code>, autosave commits nothing useful.</p>
+<p><strong>The distillation says:</strong></p>
+<blockquote>
+<p>Save = close connection, zip database + audio into .ez
+Load = extract .ez, open SQLite database</p>
+</blockquote>
+<p>This implies the Graph lives IN the SQLite database (as <code>graph_json</code>). The code has the column. But the write path doesn't exist.</p>
+<p><strong>Fix direction:</strong> The application layer needs a <code>ProjectCoordinator</code> (or similar) that:
+1. On load: deserializes <code>graph_json</code> → hydrates editor Pipeline's graph
+2. On graph mutation (via editor Pipeline events): serializes graph → writes <code>graph_json</code>
+3. On save: ensures graph_json is current, then WAL checkpoint + pack_ez</p>
+<p>This is the central wiring problem. Everything else downstream (autosave, dirty tracking, undo persistence) depends on this being solved.</p>
+<hr />
+<h2 id="s2-no-unit-of-work-commands-bypass-persistence">S2: No Unit of Work — Commands Bypass Persistence<a class="headerlink" href="#s2-no-unit-of-work-commands-bypass-persistence" title="Permanent link">&para;</a></h2>
+<p><strong>Severity: STRUCTURAL — architectural debt</strong></p>
+<p><strong>The distillation says:</strong></p>
+<blockquote>
+<p>Command path: Correlation ID → Validate → UoW (begin → handler → commit → flush events) → Result</p>
+<p>Handlers receive a UoW context (DB connection + event collector). Never call commit/rollback themselves.</p>
+</blockquote>
+<p><strong>What the code does:</strong> <code>editor.Pipeline.dispatch()</code> creates a <code>CommandContext</code> with just the Graph and an event list. Handlers mutate the graph directly. On success, events flush to EventBus immediately. <strong>No UoW, no transaction, no DB involvement.</strong></p>
+<p>This is fine for an in-memory-only engine. But the distillation describes a UoW because commands are supposed to be transactional against the database. The editor's command dispatch is completely disconnected from persistence.</p>
+<p><strong>Consequence:</strong> There's no way to atomically:
+1. Mutate the graph (in-memory)
+2. Persist the mutation (SQLite)
+3. Flush events (to UI)
+...as one atomic operation. If step 2 fails, step 1 already happened and step 3 already fired. The distillation's "events discarded on rollback" guarantee doesn't hold.</p>
+<p><strong>Fix direction:</strong> Either:
+- (A) Wrap <code>Pipeline.dispatch()</code> in a UoW that also serializes the graph to SQLite on success. Events flush after commit. Rollback reverts graph + discards events.
+- (B) Keep the editor purely in-memory and treat SQLite sync as a separate concern (periodic flush). Simpler but loses atomicity guarantee.</p>
+<p>Option (B) is probably the pragmatic V1 choice — the editor operates on the in-memory graph, and persistence is a "save" operation, not per-command. But this should be an explicit decision, not an accident.</p>
+<hr />
+<h2 id="s3-coordinator-and-editor-pipeline-own-separate-graphs">S3: Coordinator and Editor Pipeline Own Separate Graphs<a class="headerlink" href="#s3-coordinator-and-editor-pipeline-own-separate-graphs" title="Permanent link">&para;</a></h2>
+<p><strong>Severity: HIGH — latent wiring bug</strong></p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="c1"># editor/pipeline.py</span>
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="k">class</span><span class="w"> </span><span class="nc">Pipeline</span><span class="p">:</span>
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">event_bus</span><span class="p">):</span>
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>        <span class="bp">self</span><span class="o">.</span><span class="n">_graph</span> <span class="o">=</span> <span class="n">Graph</span><span class="p">()</span>  <span class="c1"># ← creates its own Graph</span>
+<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>
+<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="c1"># editor/coordinator.py</span>
+<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="k">class</span><span class="w"> </span><span class="nc">Coordinator</span><span class="p">:</span>
+<a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">graph</span><span class="p">,</span> <span class="n">pipeline</span><span class="p">,</span> <span class="n">engine</span><span class="p">,</span> <span class="n">cache</span><span class="p">,</span> <span class="o">...</span><span class="p">):</span>
+<a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a>        <span class="bp">self</span><span class="o">.</span><span class="n">_graph</span> <span class="o">=</span> <span class="n">graph</span>  <span class="c1"># ← receives a Graph</span>
+</code></pre></div>
+<p>If the Coordinator is constructed with <code>Coordinator(graph=some_graph, pipeline=Pipeline(bus))</code>, they're operating on <strong>different Graph instances</strong>. Commands dispatched through the Pipeline mutate <code>pipeline._graph</code>. The Coordinator reads <code>self._graph</code>.</p>
+<p>The tests work because they carefully wire the same graph instance. But there's no structural enforcement — it's a constructor wiring convention, not a contract.</p>
+<p><strong>The distillation says:</strong></p>
+<blockquote>
+<p>One <code>Pipeline</code> routes commands/queries to handlers through a middleware chain. Every external interface is a thin adapter.</p>
+</blockquote>
+<p>One Pipeline, one Graph. Not two objects that happen to share a reference.</p>
+<p><strong>Fix direction:</strong> Either:
+- (A) Coordinator takes a Pipeline reference and reads <code>pipeline.graph</code> (single source of truth)
+- (B) Pipeline takes a Graph in its constructor (instead of creating its own), enforcing that both use the same instance
+- (C) Pipeline exposes a <code>graph</code> property that the Coordinator uses exclusively</p>
+<p>Option (B) is cleanest — Pipeline becomes a stateless command router over an externally-owned Graph.</p>
+<hr />
+<h2 id="s4-block-categories-not-enforced-at-execution">S4: Block Categories Not Enforced at Execution<a class="headerlink" href="#s4-block-categories-not-enforced-at-execution" title="Permanent link">&para;</a></h2>
+<p><strong>Severity: MEDIUM — architectural gap</strong></p>
+<p><strong>The distillation says three block categories with different execution semantics:</strong>
+1. <strong>Processor</strong> — pure transforms, executed by engine
+2. <strong>Workspace</strong> — manage own data, manual pull via Take System, engine reads but doesn't execute
+3. <strong>Playback</strong> — ephemeral, no persistence, no execution</p>
+<p><strong>The code:</strong> <code>BlockCategory</code> enum has <code>PROCESSOR</code>, <code>WORKSPACE</code>, <code>ANALYSIS</code>, <code>GENERATOR</code>, <code>EXPORTER</code>. The ExecutionEngine doesn't check category — it tries to execute every block in the plan. A Workspace block (like the Editor or ShowManager) would be executed like a Processor if it appeared in the plan.</p>
+<p>Also: <code>ANALYSIS</code>, <code>GENERATOR</code>, <code>EXPORTER</code> aren't in the distillation. They're EZ1 holdovers.</p>
+<p><strong>Fix direction:</strong>
+1. Align <code>BlockCategory</code> enum to distillation: <code>PROCESSOR</code>, <code>WORKSPACE</code>, <code>PLAYBACK</code>
+2. <code>GraphPlanner.plan()</code> should skip Workspace and Playback blocks (they're terminal/ephemeral)
+3. The Coordinator's <code>ready_nodes()</code> should also skip non-Processor blocks</p>
+<hr />
+<h2 id="s5-no-copy-on-pull-mutable-upstream-references">S5: No Copy-on-Pull — Mutable Upstream References<a class="headerlink" href="#s5-no-copy-on-pull-mutable-upstream-references" title="Permanent link">&para;</a></h2>
+<p><strong>Severity: MEDIUM — violates FP2</strong></p>
+<p><strong>The distillation says:</strong></p>
+<blockquote>
+<p>Copy-on-pull: each block receives a COPY of upstream data, not a reference.
+Deleting or re-running an upstream block does NOT affect downstream blocks' existing data.
+Each block is an island — fully self-contained, portable unit of data.</p>
+</blockquote>
+<p><strong>The code:</strong> <code>ExecutionContext.get_input()</code> returns the raw cached value. No copy. If a downstream processor mutates the <code>EventData</code> object it receives (e.g., appending to a list, modifying event metadata), it modifies the upstream block's cached output.</p>
+<p>This hasn't caused bugs yet because:
+- <code>EventData</code> and <code>AudioData</code> are frozen dataclasses
+- Event tuples are immutable
+- Processors return new objects rather than mutating inputs</p>
+<p>But <code>Event.metadata</code> is <code>dict[str, Any]</code> — mutable. And <code>Event.classifications</code> is <code>dict[str, Any]</code> — mutable. A processor that does <code>event.metadata["foo"] = "bar"</code> would mutate the upstream cache.</p>
+<p><strong>Fix direction:</strong> <code>ExecutionContext.get_input()</code> should <code>copy.deepcopy()</code> the value before returning it. Or: make metadata/classifications use <code>MappingProxyType</code> (read-only dict views).</p>
+<hr />
+<h2 id="s6-missing-two-connection-pattern">S6: Missing Two-Connection Pattern<a class="headerlink" href="#s6-missing-two-connection-pattern" title="Permanent link">&para;</a></h2>
+<p><strong>Severity: LOW — optimization, not correctness</strong></p>
+<p><strong>The distillation says:</strong></p>
+<blockquote>
+<p>Two connections from day one: Write connection (protected by Lock, owned by UoW middleware), Read connection (used by queries, no lock needed)</p>
+</blockquote>
+<p><strong>The code:</strong> <code>ProjectSession</code> has one <code>self.db</code> connection. All reads and writes go through the same connection, protected by <code>self._lock</code>.</p>
+<p>This works for V1. The two-connection pattern is an optimization for concurrent read/write access (UI queries shouldn't block behind write transactions). Can defer until the UI layer exists.</p>
+<hr />
+<h2 id="s7-repositories-are-stateful-not-stateless">S7: Repositories Are Stateful, Not Stateless<a class="headerlink" href="#s7-repositories-are-stateful-not-stateless" title="Permanent link">&para;</a></h2>
+<p><strong>Severity: LOW — style mismatch, not a bug</strong></p>
+<p><strong>The distillation says:</strong></p>
+<blockquote>
+<p>Repositories: Stateless data access helpers. <code>save(conn, entity)</code>, <code>get(conn, id)</code>. Receive connection from UoW.</p>
+</blockquote>
+<p><strong>The code:</strong> <code>BaseRepository.__init__(self, conn)</code> stores <code>self._conn</code>. Repositories are bound to a connection for their lifetime. They're lightweight (no caching, no state beyond the connection ref), but they're not stateless in the distillation's sense.</p>
+<p>This is fine for V1. The stateless pattern matters more when you have the two-connection pattern (S6) and need to pass different connections for reads vs writes.</p>
+<hr />
+<h2 id="m1-missing-bootstrap-wiring-module">M1: Missing — Bootstrap / Wiring Module<a class="headerlink" href="#m1-missing-bootstrap-wiring-module" title="Permanent link">&para;</a></h2>
+<p><strong>The distillation says:</strong></p>
+<blockquote>
+<p>Module-level wiring. Single <code>bootstrap.py</code> constructs entire object graph with explicit constructor calls. Two plain dictionaries: handlers and processors. No container, no locator, no decorators.</p>
+</blockquote>
+<p><strong>The code:</strong> No <code>bootstrap.py</code>. Each test and the Orchestrator wire things manually. The editor's Pipeline auto-registers default handlers in <code>_register_default_handlers()</code>.</p>
+<p><strong>Why it matters:</strong> Without a canonical wiring point, there's no single place to see how the system fits together. New code has to reverse-engineer the wiring from tests or the Orchestrator.</p>
+<p><strong>Fix:</strong> Create <code>echozero/bootstrap.py</code> that constructs the full object graph. Tests can use it or wire manually. The future UI's <code>main()</code> calls bootstrap.</p>
+<hr />
+<h2 id="m2-missing-application-service-layer">M2: Missing — Application Service Layer<a class="headerlink" href="#m2-missing-application-service-layer" title="Permanent link">&para;</a></h2>
+<p><strong>The distillation describes:</strong>
+- Orchestrator (runs pipelines, persists results) ✅ exists
+- SetlistProcessor (batch processing) ✅ exists
+- But also: project lifecycle (create, open, save, close) and the bridge between editor commands and persistence</p>
+<p><strong>What's missing:</strong> A service that coordinates:
+1. Opening a project → loading graph from DB → hydrating editor
+2. User edits (graph mutations) → persisting to DB
+3. Saving → serializing graph → WAL checkpoint → pack_ez
+4. The "load audio → set up pipeline → execute → persist results → update UI" flow as a coherent orchestration</p>
+<p>The <code>ProjectSession</code> handles DB lifecycle but doesn't know about the editor. The Orchestrator handles execution→persistence but doesn't know about the editor. Nobody owns the full loop.</p>
+<p><strong>Fix:</strong> This is the same problem as S1. The solution is a <code>ProjectCoordinator</code> or <code>AppSession</code> that owns: the ProjectSession, the editor Pipeline, the Coordinator, and the Orchestrator — and wires them together.</p>
+<hr />
+<h2 id="m3-missing-undo-stack">M3: Missing — Undo Stack<a class="headerlink" href="#m3-missing-undo-stack" title="Permanent link">&para;</a></h2>
+<p><strong>The distillation says:</strong></p>
+<blockquote>
+<p>Global undo stack per project. Only editable commands pushed. Pure Python.</p>
+<p>Commands declare whether they're undoable and a reverse factory.</p>
+</blockquote>
+<p><strong>The code:</strong> Commands have <code>is_undoable</code> property. But there's no undo stack. No reverse factory on any command. <code>Pipeline.dispatch()</code> doesn't record commands for undo.</p>
+<p>This is expected for V1 engine work — undo is an editor concern. But the command infrastructure should be designed to support it. Currently, commands don't carry enough information to reverse themselves (e.g., <code>RemoveBlockCommand</code> only has <code>block_id</code> — to undo it, you'd need the full block definition that was removed).</p>
+<p><strong>Fix direction:</strong> Add <code>_snapshot</code> support to commands: before executing a destructive command, the handler snapshots the affected state. The undo stack stores (command, snapshot) pairs. Undo = restore from snapshot. This is simpler than reverse factories and more reliable.</p>
+<hr />
+<h2 id="m4-missing-execution-threading">M4: Missing — Execution Threading<a class="headerlink" href="#m4-missing-execution-threading" title="Permanent link">&para;</a></h2>
+<p><strong>The distillation says:</strong></p>
+<blockquote>
+<p>Background execution uses stdlib ThreadPoolExecutor with bounded workers.
+Per-block threading.Lock keyed by block ID for execution locks.</p>
+</blockquote>
+<p><strong>The code:</strong> <code>ExecutionEngine.run()</code> is synchronous. It runs all blocks sequentially on the calling thread. <code>Coordinator.request_run()</code> is also synchronous — it blocks until execution completes.</p>
+<p>The audit (Part 1, ED2) flagged this as "request_run blocks calling thread (UI freeze)." The fix is straightforward (ThreadPoolExecutor + Future), but it's not just a bug fix — it's a missing architectural piece.</p>
+<p><strong>Fix direction:</strong> 
+1. <code>ExecutionEngine.run()</code> stays synchronous (it's the inner loop)
+2. <code>Coordinator.request_run()</code> submits to a <code>ThreadPoolExecutor</code> and returns a Future/callback
+3. Completion fires a domain event that the UI can observe</p>
+<hr />
+<h2 id="m5-missing-per-song-graph-isolation">M5: Missing — Per-Song Graph Isolation<a class="headerlink" href="#m5-missing-per-song-graph-isolation" title="Permanent link">&para;</a></h2>
+<p><strong>The distillation says:</strong></p>
+<blockquote>
+<p>For each song: get active version audio → set audio_path on LoadAudio → execute actions → store results tagged with song_id + version_id</p>
+</blockquote>
+<p>But the Project entity has ONE <code>graph_json</code>. The Orchestrator's <code>execute()</code> mutates the LoadAudio block's <code>file_path</code> in the pipeline's graph to point to the song's audio. This means:
+- The persisted graph has one audio path (the last song processed)
+- Processing a setlist of 20 songs overwrites the graph's LoadAudio path 20 times</p>
+<p><strong>The distillation's intent:</strong> The graph is a template. Each song execution creates a runtime copy with the song's audio injected. The template graph doesn't change.</p>
+<p><strong>The code almost does this</strong> — the Orchestrator deserializes a fresh Pipeline from PipelineConfig, injects the audio path, executes, and persists results. The PipelineConfig per song version stores the template. But the <code>graph_json</code> on the Project entity is ambiguous — is it the template? The last-used state?</p>
+<p><strong>Fix direction:</strong> Clarify that <code>Project.graph_json</code> is the <strong>developer's graph template</strong> (the Pipeline Workbench state). PipelineConfigs are per-song-version copies derived from templates. Execution always uses PipelineConfig, never Project.graph_json directly.</p>
+<hr />
+<h2 id="summary-table">Summary Table<a class="headerlink" href="#summary-table" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>Type</th>
+<th>Severity</th>
+<th>Issue</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>S1</td>
+<td>Structural</td>
+<td><strong>CRITICAL</strong></td>
+<td>Engine graph and SQLite DB are disconnected — no sync mechanism</td>
+</tr>
+<tr>
+<td>S2</td>
+<td>Structural</td>
+<td>HIGH</td>
+<td>No UoW — commands don't participate in transactions</td>
+</tr>
+<tr>
+<td>S3</td>
+<td>Structural</td>
+<td>HIGH</td>
+<td>Coordinator and Pipeline own separate Graph instances</td>
+</tr>
+<tr>
+<td>S4</td>
+<td>Structural</td>
+<td>MEDIUM</td>
+<td>Block categories not enforced at execution</td>
+</tr>
+<tr>
+<td>S5</td>
+<td>Structural</td>
+<td>MEDIUM</td>
+<td>No copy-on-pull — upstream references are mutable</td>
+</tr>
+<tr>
+<td>S6</td>
+<td>Structural</td>
+<td>LOW</td>
+<td>Single DB connection instead of read/write pair</td>
+</tr>
+<tr>
+<td>S7</td>
+<td>Structural</td>
+<td>LOW</td>
+<td>Repositories are stateful (hold conn ref)</td>
+</tr>
+<tr>
+<td>M1</td>
+<td>Missing</td>
+<td>HIGH</td>
+<td>No bootstrap.py — no canonical wiring point</td>
+</tr>
+<tr>
+<td>M2</td>
+<td>Missing</td>
+<td><strong>CRITICAL</strong></td>
+<td>No application service layer bridging editor ↔ persistence</td>
+</tr>
+<tr>
+<td>M3</td>
+<td>Missing</td>
+<td>MEDIUM</td>
+<td>No undo stack (commands support it, infrastructure doesn't)</td>
+</tr>
+<tr>
+<td>M4</td>
+<td>Missing</td>
+<td>MEDIUM</td>
+<td>No threaded execution (everything synchronous)</td>
+</tr>
+<tr>
+<td>M5</td>
+<td>Missing</td>
+<td>MEDIUM</td>
+<td>Per-song graph isolation unclear (template vs instance)</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="recommended-resolution-order">Recommended Resolution Order<a class="headerlink" href="#recommended-resolution-order" title="Permanent link">&para;</a></h2>
+<h3 id="phase-1-structural-foundation-before-any-ui-work">Phase 1 — Structural Foundation (before any UI work)<a class="headerlink" href="#phase-1-structural-foundation-before-any-ui-work" title="Permanent link">&para;</a></h3>
+<ol>
+<li><strong>S3</strong> — Pipeline takes Graph externally, doesn't create its own</li>
+<li><strong>S1 + S2 + M2</strong> — Build the <code>ProjectCoordinator</code> (or <code>AppSession</code>) that:</li>
+<li>Owns ProjectSession + editor Pipeline + Coordinator + Orchestrator</li>
+<li>On graph mutation: serializes to <code>graph_json</code> (can be debounced)</li>
+<li>On project save: ensures graph_json is fresh, WAL checkpoint, pack_ez</li>
+<li>On project load: deserializes graph_json → populates editor Pipeline</li>
+<li><strong>M1</strong> — Create <code>bootstrap.py</code> that wires the full object graph</li>
+</ol>
+<h3 id="phase-2-execution-correctness">Phase 2 — Execution Correctness<a class="headerlink" href="#phase-2-execution-correctness" title="Permanent link">&para;</a></h3>
+<ol>
+<li><strong>S4</strong> — Align BlockCategory enum, skip non-Processor blocks in planner</li>
+<li><strong>S5</strong> — Copy-on-pull in ExecutionContext.get_input()</li>
+<li><strong>M4</strong> — ThreadPoolExecutor in Coordinator.request_run()</li>
+</ol>
+<h3 id="phase-3-editor-infrastructure">Phase 3 — Editor Infrastructure<a class="headerlink" href="#phase-3-editor-infrastructure" title="Permanent link">&para;</a></h3>
+<ol>
+<li><strong>M3</strong> — Undo stack with snapshot-based reversal</li>
+<li><strong>M5</strong> — Clarify Project.graph_json as template, PipelineConfig as per-song instance</li>
+</ol>
+<h3 id="phase-4-optimization-defer-until-ui-exists">Phase 4 — Optimization (defer until UI exists)<a class="headerlink" href="#phase-4-optimization-defer-until-ui-exists" title="Permanent link">&para;</a></h3>
+<ol>
+<li><strong>S6</strong> — Two-connection pattern (read/write split)</li>
+<li><strong>S7</strong> — Stateless repositories (receives conn per call)</li>
+</ol>
+<hr />
+<h2 id="whats-working-well">What's Working Well<a class="headerlink" href="#whats-working-well" title="Permanent link">&para;</a></h2>
+<p>To be clear — a lot is right:</p>
+<ul>
+<li><strong>Domain types are clean.</strong> Frozen dataclasses, typed ports, clear invariants. FP2 is expressed well at the type level.</li>
+<li><strong>Graph aggregate is solid.</strong> Validation, topological sort, connection rules — all correct.</li>
+<li><strong>Engine Pipeline builder</strong> (<code>pipelines/pipeline.py</code>) is elegant. The <code>add()</code> / <code>output()</code> API is exactly what the distillation describes.</li>
+<li><strong>Processor DI pattern</strong> works. Injectable functions, testable without real ML models.</li>
+<li><strong>Result type</strong> is used consistently at boundaries.</li>
+<li><strong>Persistence layer</strong> is well-structured. Repos, schema, migrations, archive — all clean.</li>
+<li><strong>Take system</strong> is a faithful implementation of the distillation's design.</li>
+<li><strong>Staleness tracking</strong> with human-readable reasons (D280) is exactly right.</li>
+<li><strong>Event system</strong> (EventBus + RuntimeBus separation) matches the distillation's domain-events-vs-progress-side-channel design.</li>
+</ul>
+<p>The engine works. The persistence works. The gap is the application layer that binds them.</p>
+<hr />
+<p><em>Generated 2026-03-30. This audit should be revisited after the Phase 1 structural fixes land.</em></p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.instant", "navigation.sections", "navigation.expand", "navigation.top", "search.suggest", "search.highlight", "content.code.copy", "toc.follow"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+    
+  </body>
+</html>

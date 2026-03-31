@@ -1,0 +1,2279 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Audio analysis workstation for live lighting design">
+      
+      
+      
+      
+        <link rel="prev" href="../../architecture/PIPELINE-CONFIG-REDESIGN/">
+      
+      
+        <link rel="next" href="../architecture-audit-2026-03-30/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
+    
+    
+      
+        <title>UI Readiness - EchoZero 2</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="slate" data-md-color-primary="deep-purple" data-md-color-accent="amber">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#ui-integration-readiness-audit" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="EchoZero 2" class="md-header__button md-logo" aria-label="EchoZero 2" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            EchoZero 2
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              UI Readiness
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="slate" data-md-color-primary="deep-purple" data-md-color-accent="amber"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="default" data-md-color-primary="deep-purple" data-md-color-accent="amber"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/griffin/echozero" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    GitHub
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="EchoZero 2" class="md-nav__button md-logo" aria-label="EchoZero 2" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    EchoZero 2
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/griffin/echozero" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    GitHub
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../GETTING-STARTED/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting Started
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../ARCHITECTURE/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../PROJECT-CLASS/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Project Class
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../architecture/ENTITY-MODEL/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Entity Model
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../LD-WORKFLOW/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    LD Workflow
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_7" >
+        
+          
+          <label class="md-nav__link" for="__nav_7" id="__nav_7_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Decisions
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_7_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_7">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Decisions
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../architecture/DECISIONS/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture Decisions
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../architecture/PIPELINE-CONFIG-REDESIGN/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Pipeline Config
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_8" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_8" id="__nav_8_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Audits
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_8_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_8">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Audits
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    UI Readiness
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    UI Readiness
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#summary" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Summary
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#ui-contract-project-class" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        UI Contract: Project Class
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#domain-events-ui-should-subscribe" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Domain Events (UI Should Subscribe)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#progress-callback-patterns" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Progress / Callback Patterns
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Progress / Callback Patterns">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#runtimebus-execution-progress-per-block-sub-pipeline-granularity" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        RuntimeBus (execution progress — per block, sub-pipeline granularity)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#on_progress-analysis-progress-per-phase-higher-level" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        on_progress (analysis progress — per-phase, higher level)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#knob-metadata-for-auto-generating-inspector-widgets" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Knob metadata (for auto-generating inspector widgets)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#staletracker-tooltip-stale-reason-ui" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        StaleTracker (tooltip / stale reason UI)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#executionhandle-async-execution" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ExecutionHandle (async execution)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#issues-found" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Issues Found
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Issues Found">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#critical-blocks-ui-work" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Critical (blocks UI work)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#moderate-should-fix-soon" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Moderate (should fix soon)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#minor-nice-to-have" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Minor (nice to have)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#missing-documentation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Missing Documentation
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#recommendations-prioritized" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Recommendations (Prioritized)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Recommendations (Prioritized)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#p0-do-before-writing-any-ui-code" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        P0 — Do Before Writing Any UI Code
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#p1-before-first-ui-milestone" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        P1 — Before First UI Milestone
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#p2-before-beta" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        P2 — Before Beta
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#p3-polish" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        P3 — Polish
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#architecture-notes-for-ui-developer" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Architecture Notes for UI Developer
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Architecture Notes for UI Developer">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#the-golden-rule-project-is-the-uis-only-door" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The Golden Rule: Project is the UI's Only Door
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#event-flow" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Event Flow
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#thread-model-for-qt" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Thread Model for Qt
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#knob-widget-mapping" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Knob → Widget Mapping
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#updating-pipeline-config-from-ui" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Updating Pipeline Config from UI
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#feelpy-where-all-ui-constants-live" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        FEEL.py — Where All UI Constants Live
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../architecture-audit-2026-03-30/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture Audit
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../codebase-audit-2026-03-30/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Codebase Audit
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../codebase-audit-2026-03-30-part2/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Codebase Audit Part 2
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../audio-engine-audit/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Audio Engine
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../model-registry-audit/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Model Registry
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../packaging/PACKAGING/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Packaging
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../SPEC/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Spec
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#summary" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Summary
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#ui-contract-project-class" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        UI Contract: Project Class
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#domain-events-ui-should-subscribe" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Domain Events (UI Should Subscribe)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#progress-callback-patterns" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Progress / Callback Patterns
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Progress / Callback Patterns">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#runtimebus-execution-progress-per-block-sub-pipeline-granularity" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        RuntimeBus (execution progress — per block, sub-pipeline granularity)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#on_progress-analysis-progress-per-phase-higher-level" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        on_progress (analysis progress — per-phase, higher level)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#knob-metadata-for-auto-generating-inspector-widgets" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Knob metadata (for auto-generating inspector widgets)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#staletracker-tooltip-stale-reason-ui" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        StaleTracker (tooltip / stale reason UI)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#executionhandle-async-execution" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ExecutionHandle (async execution)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#issues-found" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Issues Found
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Issues Found">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#critical-blocks-ui-work" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Critical (blocks UI work)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#moderate-should-fix-soon" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Moderate (should fix soon)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#minor-nice-to-have" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Minor (nice to have)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#missing-documentation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Missing Documentation
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#recommendations-prioritized" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Recommendations (Prioritized)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Recommendations (Prioritized)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#p0-do-before-writing-any-ui-code" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        P0 — Do Before Writing Any UI Code
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#p1-before-first-ui-milestone" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        P1 — Before First UI Milestone
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#p2-before-beta" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        P2 — Before Beta
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#p3-polish" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        P3 — Polish
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#architecture-notes-for-ui-developer" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Architecture Notes for UI Developer
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Architecture Notes for UI Developer">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#the-golden-rule-project-is-the-uis-only-door" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The Golden Rule: Project is the UI's Only Door
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#event-flow" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Event Flow
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#thread-model-for-qt" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Thread Model for Qt
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#knob-widget-mapping" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Knob → Widget Mapping
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#updating-pipeline-config-from-ui" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Updating Pipeline Config from UI
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#feelpy-where-all-ui-constants-live" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        FEEL.py — Where All UI Constants Live
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="ui-integration-readiness-audit">UI Integration Readiness Audit<a class="headerlink" href="#ui-integration-readiness-audit" title="Permanent link">&para;</a></h1>
+<p><strong>Date:</strong> 2026-03-30<br />
+<strong>Auditor:</strong> Subagent (code-audit)<br />
+<strong>Scope:</strong> All 74 Python files in <code>echozero/</code><br />
+<strong>Purpose:</strong> Assess readiness for building the PyQt6 Stage Zero Editor  </p>
+<hr />
+<h2 id="summary">Summary<a class="headerlink" href="#summary" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Category</th>
+<th>Status</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Import health</td>
+<td>🟢 GREEN</td>
+<td><code>from echozero.project import Project</code> → OK. No circular imports detected.</td>
+</tr>
+<tr>
+<td>Project class API</td>
+<td>🟢 GREEN</td>
+<td>Clean, complete, well-documented. Single entry point for all UI interactions.</td>
+</tr>
+<tr>
+<td>Domain events</td>
+<td>🟢 GREEN</td>
+<td>8 typed events, all docstrung, all exported from <code>echozero.domain</code>.</td>
+</tr>
+<tr>
+<td>Progress/runtime</td>
+<td>🟢 GREEN</td>
+<td><code>RuntimeBus</code> + <code>ProgressReport</code> are clean, typed, subscriber-safe.</td>
+</tr>
+<tr>
+<td>Type hints</td>
+<td>🟡 YELLOW</td>
+<td><code>Project.import_song</code> uses <code>**kwargs</code> — signature opaque to UI. <code>on_progress: Any</code> vs typed <code>Callable</code>.</td>
+</tr>
+<tr>
+<td>Documentation</td>
+<td>🟢 GREEN</td>
+<td>Every public class and most methods have docstrings. Minor gaps noted below.</td>
+</tr>
+<tr>
+<td>Thread safety</td>
+<td>🟡 YELLOW</td>
+<td><code>run()</code> is synchronous (blocks Qt main thread). <code>run_async()</code> exists but returns handle not a Qt-friendly signal. <code>analyze()</code>/<code>execute_config()</code> are blocking — must use <code>run_in_executor</code> or QThread.</td>
+</tr>
+<tr>
+<td>Editor package</td>
+<td>🟢 GREEN</td>
+<td><code>echozero.editor</code> is purpose-built for the Stage Zero Editor. Coordinator + Pipeline + StaleTracker are all ready.</td>
+</tr>
+<tr>
+<td>Audio engine</td>
+<td>🟢 GREEN</td>
+<td>Lock-free, zero-alloc audio callback. <code>AudioEngine</code> is process-agnostic — ideal for UI process.</td>
+</tr>
+<tr>
+<td>FEEL.py</td>
+<td>🟢 GREEN</td>
+<td>All UI constants pre-defined. Nothing hardcoded elsewhere.</td>
+</tr>
+<tr>
+<td>Knob metadata</td>
+<td>🟢 GREEN</td>
+<td><code>KnobWidget</code> enum + <code>Knob</code> dataclass give the UI everything needed to auto-generate inspector widgets.</td>
+</tr>
+<tr>
+<td>Persistence</td>
+<td>🟢 GREEN</td>
+<td>Full repository layer, typed entities, crash recovery, autosave.</td>
+</tr>
+<tr>
+<td>Missing <code>__all__</code> exports</td>
+<td>🟡 YELLOW</td>
+<td><code>pipelines/__init__.py</code> has no <code>__all__</code>. <code>editor/__init__.py</code> is well-documented but doesn't export classes.</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="ui-contract-project-class">UI Contract: Project Class<a class="headerlink" href="#ui-contract-project-class" title="Permanent link">&para;</a></h2>
+<p><strong>Factory methods</strong> (call from main thread — I/O bound, consider <code>run_in_executor</code>):</p>
+<table>
+<thead>
+<tr>
+<th>Method</th>
+<th>Signature</th>
+<th>Purpose</th>
+<th>Thread Safety</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>Project.create</code></td>
+<td><code>(name: str, settings?, executors?, registry?, working_dir_root?) → Project</code></td>
+<td>Create new project</td>
+<td>⚠️ Creates DB + dirs on disk. Use QThread or executor.</td>
+</tr>
+<tr>
+<td><code>Project.open</code></td>
+<td><code>(ez_path: Path, executors?, registry?, working_dir_root?) → Project</code></td>
+<td>Open .ez archive</td>
+<td>⚠️ Unpacks archive + opens DB. Use QThread or executor.</td>
+</tr>
+<tr>
+<td><code>Project.open_db</code></td>
+<td><code>(working_dir: Path, executors?, registry?) → Project</code></td>
+<td>Open from working dir (recovery)</td>
+<td>⚠️ Opens DB. Use executor.</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Properties</strong> (safe from Qt main thread — no I/O):</p>
+<table>
+<thead>
+<tr>
+<th>Property</th>
+<th>Type</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>project.name</code></td>
+<td><code>str</code></td>
+<td>Project name for title bar</td>
+</tr>
+<tr>
+<td><code>project.graph</code></td>
+<td><code>Graph</code></td>
+<td>DAG of blocks and connections (read-only via <code>blocks: MappingProxyType</code>)</td>
+</tr>
+<tr>
+<td><code>project.event_bus</code></td>
+<td><code>EventBus</code></td>
+<td>Subscribe to domain events for reactive UI</td>
+</tr>
+<tr>
+<td><code>project.storage</code></td>
+<td><code>ProjectStorage</code></td>
+<td>Direct access to repos if needed</td>
+</tr>
+<tr>
+<td><code>project.is_executing</code></td>
+<td><code>bool</code></td>
+<td>Whether a pipeline run is in progress</td>
+</tr>
+<tr>
+<td><code>project.is_dirty</code></td>
+<td><code>bool</code></td>
+<td>Whether there are unsaved changes</td>
+</tr>
+<tr>
+<td><code>project.stale_tracker</code></td>
+<td><code>StaleTracker</code></td>
+<td>Get stale reasons per block for UI tooltips</td>
+</tr>
+<tr>
+<td><code>project.songs</code></td>
+<td><code>SongRepository</code></td>
+<td>CRUD for songs (the setlist)</td>
+</tr>
+<tr>
+<td><code>project.song_versions</code></td>
+<td><code>SongVersionRepository</code></td>
+<td>CRUD for song versions</td>
+</tr>
+<tr>
+<td><code>project.layers</code></td>
+<td><code>LayerRepository</code></td>
+<td>CRUD for timeline layers</td>
+</tr>
+<tr>
+<td><code>project.takes</code></td>
+<td><code>TakeRepository</code></td>
+<td>CRUD for takes (pipeline result snapshots)</td>
+</tr>
+<tr>
+<td><code>project.pipeline_configs</code></td>
+<td><code>PipelineConfigRepository</code></td>
+<td>CRUD for per-song pipeline configs</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Mutation methods</strong> (safe from main thread — in-memory only, fast):</p>
+<table>
+<thead>
+<tr>
+<th>Method</th>
+<th>Signature</th>
+<th>Purpose</th>
+<th>Thread Safety</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>dispatch</code></td>
+<td><code>(command: Command) → Result[Any]</code></td>
+<td>Mutate the graph (add/remove/connect blocks, change settings)</td>
+<td>✅ Main thread safe. Synchronous, in-memory. Also saves graph to DB.</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Execution methods</strong> (⚠️ must NOT block Qt main thread):</p>
+<table>
+<thead>
+<tr>
+<th>Method</th>
+<th>Signature</th>
+<th>Purpose</th>
+<th>Thread Safety</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>run</code></td>
+<td><code>(target?: str) → Result[str]</code></td>
+<td>Run pipeline synchronously. Returns execution_id.</td>
+<td>❌ <strong>BLOCKS</strong> — use <code>run_async()</code> or <code>run_in_executor</code></td>
+</tr>
+<tr>
+<td><code>run_async</code></td>
+<td><code>(target?: str) → Result[ExecutionHandle]</code></td>
+<td>Run in background thread. Returns handle immediately.</td>
+<td>✅ Non-blocking. Poll <code>handle.done</code> or <code>handle.result()</code> in worker.</td>
+</tr>
+<tr>
+<td><code>cancel</code></td>
+<td><code>() → None</code></td>
+<td>Cancel in-flight execution</td>
+<td>✅ Main thread safe (sets threading.Event)</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Analysis methods</strong> (⚠️ must NOT block Qt main thread — CPU/disk intensive):</p>
+<table>
+<thead>
+<tr>
+<th>Method</th>
+<th>Signature</th>
+<th>Purpose</th>
+<th>Thread Safety</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>analyze</code></td>
+<td><code>(song_version_id: str, template_id: str, knob_overrides?, on_progress?) → Result[AnalysisResult]</code></td>
+<td>Run pipeline from template + persist results</td>
+<td>❌ <strong>BLOCKS</strong> — always wrap in QThread or executor</td>
+</tr>
+<tr>
+<td><code>execute_config</code></td>
+<td><code>(config_id: str, on_progress?) → Result[AnalysisResult]</code></td>
+<td>Run pipeline from persisted config + persist results</td>
+<td>❌ <strong>BLOCKS</strong> — always wrap in QThread or executor</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Song management</strong> (⚠️ I/O — use executor):</p>
+<table>
+<thead>
+<tr>
+<th>Method</th>
+<th>Signature</th>
+<th>Purpose</th>
+<th>Thread Safety</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>import_song</code></td>
+<td><code>(**kwargs) → tuple[SongRecord, SongVersionRecord]</code></td>
+<td>Import audio as new song</td>
+<td>⚠️ I/O — use executor. <strong>Signature uses <code>**kwargs</code> — see issues.</strong></td>
+</tr>
+<tr>
+<td><code>add_song_version</code></td>
+<td><code>(**kwargs) → SongVersionRecord</code></td>
+<td>Add audio version to existing song</td>
+<td>⚠️ I/O — use executor. Same <code>**kwargs</code> issue.</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Lifecycle</strong> (use executor for open/close):</p>
+<table>
+<thead>
+<tr>
+<th>Method</th>
+<th>Signature</th>
+<th>Purpose</th>
+<th>Thread Safety</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>save</code></td>
+<td><code>() → None</code></td>
+<td>Flush and commit graph + all pending changes</td>
+<td>⚠️ DB write — prefer non-blocking via autosave</td>
+</tr>
+<tr>
+<td><code>save_as</code></td>
+<td><code>(ez_path: Path) → None</code></td>
+<td>Save to .ez archive</td>
+<td>⚠️ I/O — use executor</td>
+</tr>
+<tr>
+<td><code>close</code></td>
+<td><code>() → None</code></td>
+<td>Flush, stop autosave, release DB</td>
+<td>⚠️ Use executor on app exit</td>
+</tr>
+<tr>
+<td><code>__enter__</code> / <code>__exit__</code></td>
+<td>context manager</td>
+<td>Use in <code>with</code> blocks</td>
+<td>✅ Convenience wrapper for close()</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="domain-events-ui-should-subscribe">Domain Events (UI Should Subscribe)<a class="headerlink" href="#domain-events-ui-should-subscribe" title="Permanent link">&para;</a></h2>
+<p>Subscribe via <code>project.event_bus.subscribe(EventType, handler)</code>.</p>
+<p><strong>All events are published on the thread that called <code>dispatch()</code></strong> — typically main thread for graph mutations. Be aware: if you dispatch from a worker thread (e.g., a background loader), events will fire on that thread. In Qt, use a signal/slot bridge.</p>
+<table>
+<thead>
+<tr>
+<th>Event</th>
+<th>Fields</th>
+<th>When Fired</th>
+<th>UI Action</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>BlockAddedEvent</code></td>
+<td><code>block_id, block_type</code></td>
+<td>After <code>AddBlockCommand</code> succeeds</td>
+<td>Add block node to canvas</td>
+</tr>
+<tr>
+<td><code>BlockRemovedEvent</code></td>
+<td><code>block_id</code></td>
+<td>After <code>RemoveBlockCommand</code> succeeds</td>
+<td>Remove block node from canvas</td>
+</tr>
+<tr>
+<td><code>ConnectionAddedEvent</code></td>
+<td><code>source_block_id, target_block_id</code></td>
+<td>After <code>AddConnectionCommand</code> succeeds</td>
+<td>Draw connection wire</td>
+</tr>
+<tr>
+<td><code>ConnectionRemovedEvent</code></td>
+<td><code>source_block_id, target_block_id</code></td>
+<td>After <code>RemoveConnectionCommand</code> succeeds</td>
+<td>Remove connection wire</td>
+</tr>
+<tr>
+<td><code>BlockStateChangedEvent</code></td>
+<td><code>block_id, old_state, new_state</code></td>
+<td>When block execution state changes (FRESH/STALE/ERROR)</td>
+<td>Update block status badge</td>
+</tr>
+<tr>
+<td><code>SettingsChangedEvent</code></td>
+<td><code>block_id, setting_key, old_value, new_value</code></td>
+<td>After <code>ChangeBlockSettingsCommand</code> succeeds</td>
+<td>Update inspector panel</td>
+</tr>
+<tr>
+<td><code>ProjectLoadedEvent</code></td>
+<td><code>project_id</code></td>
+<td>After project is loaded from disk</td>
+<td>(Optional) refresh entire UI</td>
+</tr>
+<tr>
+<td><code>ProjectSavedEvent</code></td>
+<td><code>project_id</code></td>
+<td>After project is saved</td>
+<td>Clear dirty indicator</td>
+</tr>
+</tbody>
+</table>
+<p><strong>BlockState enum values</strong> (for status badges):
+- <code>BlockState.FRESH</code> — outputs are current
+- <code>BlockState.STALE</code> — needs re-run (upstream changed)
+- <code>BlockState.UPSTREAM_ERROR</code> — upstream block failed
+- <code>BlockState.ERROR</code> — this block failed</p>
+<hr />
+<h2 id="progress-callback-patterns">Progress / Callback Patterns<a class="headerlink" href="#progress-callback-patterns" title="Permanent link">&para;</a></h2>
+<h3 id="runtimebus-execution-progress-per-block-sub-pipeline-granularity">RuntimeBus (execution progress — per block, sub-pipeline granularity)<a class="headerlink" href="#runtimebus-execution-progress-per-block-sub-pipeline-granularity" title="Permanent link">&para;</a></h3>
+<p>Subscribe via <code>project._runtime_bus.subscribe(callback)</code> (or expose via <code>project.runtime_bus</code> — see recommendations). The RuntimeBus is separate from the EventBus.</p>
+<p><strong>Report types:</strong></p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">echozero.progress</span><span class="w"> </span><span class="kn">import</span> <span class="n">ProgressReport</span><span class="p">,</span> <span class="n">ExecutionStartedReport</span><span class="p">,</span> <span class="n">ExecutionCompletedReport</span>
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="k">def</span><span class="w"> </span><span class="nf">on_report</span><span class="p">(</span><span class="n">report</span><span class="p">):</span>
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">report</span><span class="p">,</span> <span class="n">ExecutionStartedReport</span><span class="p">):</span>
+<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>        <span class="c1"># report.block_id, report.execution_id</span>
+<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>        <span class="c1"># Show &quot;running&quot; state on block</span>
+<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>        <span class="k">pass</span>
+<a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>    <span class="k">elif</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">report</span><span class="p">,</span> <span class="n">ProgressReport</span><span class="p">):</span>
+<a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a>        <span class="c1"># report.block_id, report.phase, report.percent (0.0–1.0), report.message</span>
+<a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a>        <span class="c1"># Update progress bar for block</span>
+<a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a>        <span class="k">pass</span>
+<a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a>    <span class="k">elif</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">report</span><span class="p">,</span> <span class="n">ExecutionCompletedReport</span><span class="p">):</span>
+<a id="__codelineno-0-13" name="__codelineno-0-13" href="#__codelineno-0-13"></a>        <span class="c1"># report.block_id, report.execution_id, report.success, report.error</span>
+<a id="__codelineno-0-14" name="__codelineno-0-14" href="#__codelineno-0-14"></a>        <span class="c1"># Show success/error state on block</span>
+<a id="__codelineno-0-15" name="__codelineno-0-15" href="#__codelineno-0-15"></a>        <span class="k">pass</span>
+<a id="__codelineno-0-16" name="__codelineno-0-16" href="#__codelineno-0-16"></a>
+<a id="__codelineno-0-17" name="__codelineno-0-17" href="#__codelineno-0-17"></a><span class="n">project</span><span class="o">.</span><span class="n">_runtime_bus</span><span class="o">.</span><span class="n">subscribe</span><span class="p">(</span><span class="n">on_report</span><span class="p">)</span>
+</code></pre></div>
+<p>⚠️ <strong>RuntimeBus callbacks fire on the executor thread</strong> (background thread). In Qt, <strong>do not update widgets directly</strong> — emit a Qt signal from the callback and let the signal handler update the UI on the main thread.</p>
+<h3 id="on_progress-analysis-progress-per-phase-higher-level">on_progress (analysis progress — per-phase, higher level)<a class="headerlink" href="#on_progress-analysis-progress-per-phase-higher-level" title="Permanent link">&para;</a></h3>
+<p>The <code>analyze()</code> and <code>execute_config()</code> methods accept an <code>on_progress</code> callback:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="k">def</span><span class="w"> </span><span class="nf">on_progress</span><span class="p">(</span><span class="n">message</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">fraction</span><span class="p">:</span> <span class="nb">float</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>    <span class="c1"># message: human-readable phase description</span>
+<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>    <span class="c1"># fraction: 0.0–1.0</span>
+<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a>    <span class="k">pass</span>
+<a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a>
+<a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a><span class="n">project</span><span class="o">.</span><span class="n">analyze</span><span class="p">(</span><span class="n">song_version_id</span><span class="p">,</span> <span class="n">template_id</span><span class="p">,</span> <span class="n">on_progress</span><span class="o">=</span><span class="n">on_progress</span><span class="p">)</span>
+</code></pre></div>
+<p>This callback fires on the same thread that called <code>analyze()</code>. If you wrap <code>analyze()</code> in a <code>QThread</code>, the callback fires on that thread — bridge to Qt signals as with RuntimeBus.</p>
+<h3 id="knob-metadata-for-auto-generating-inspector-widgets">Knob metadata (for auto-generating inspector widgets)<a class="headerlink" href="#knob-metadata-for-auto-generating-inspector-widgets" title="Permanent link">&para;</a></h3>
+<p>Templates expose fully typed <code>Knob</code> definitions. The UI can introspect these without needing to hard-code any UI:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">echozero.pipelines.registry</span><span class="w"> </span><span class="kn">import</span> <span class="n">get_registry</span>
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="n">registry</span> <span class="o">=</span> <span class="n">get_registry</span><span class="p">()</span>
+<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="n">template</span> <span class="o">=</span> <span class="n">registry</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;full_analysis&quot;</span><span class="p">)</span>
+<a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a>
+<a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a><span class="k">for</span> <span class="n">key</span><span class="p">,</span> <span class="n">knob</span> <span class="ow">in</span> <span class="n">template</span><span class="o">.</span><span class="n">knobs</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
+<a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a>    <span class="c1"># knob.widget: KnobWidget (SLIDER, DROPDOWN, TOGGLE, FILE_PICKER, etc.)</span>
+<a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a>    <span class="c1"># knob.label, knob.description, knob.min_value, knob.max_value</span>
+<a id="__codelineno-2-8" name="__codelineno-2-8" href="#__codelineno-2-8"></a>    <span class="c1"># knob.options (for DROPDOWN), knob.units, knob.log_scale</span>
+<a id="__codelineno-2-9" name="__codelineno-2-9" href="#__codelineno-2-9"></a>    <span class="c1"># knob.advanced (hide in basic mode), knob.hidden, knob.group</span>
+<a id="__codelineno-2-10" name="__codelineno-2-10" href="#__codelineno-2-10"></a>    <span class="k">pass</span>
+</code></pre></div>
+<h3 id="staletracker-tooltip-stale-reason-ui">StaleTracker (tooltip / stale reason UI)<a class="headerlink" href="#staletracker-tooltip-stale-reason-ui" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="n">tracker</span> <span class="o">=</span> <span class="n">project</span><span class="o">.</span><span class="n">stale_tracker</span>
+<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="c1"># For a specific block:</span>
+<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="n">reasons</span> <span class="o">=</span> <span class="n">tracker</span><span class="o">.</span><span class="n">get_reasons</span><span class="p">(</span><span class="n">block_id</span><span class="p">)</span>  <span class="c1"># tuple[StaleReason, ...]</span>
+<a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a><span class="n">tooltip</span> <span class="o">=</span> <span class="n">tracker</span><span class="o">.</span><span class="n">summary</span><span class="p">(</span><span class="n">block_id</span><span class="p">)</span>      <span class="c1"># &quot;3 changes: ...&quot; or None</span>
+<a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a>
+<a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a><span class="c1"># For global stale badge:</span>
+<a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a><span class="n">count</span> <span class="o">=</span> <span class="n">tracker</span><span class="o">.</span><span class="n">stale_count</span><span class="p">()</span>            <span class="c1"># int</span>
+<a id="__codelineno-3-8" name="__codelineno-3-8" href="#__codelineno-3-8"></a><span class="n">all_stale</span> <span class="o">=</span> <span class="n">tracker</span><span class="o">.</span><span class="n">get_all_stale</span><span class="p">()</span>     <span class="c1"># dict[block_id, tuple[StaleReason, ...]]</span>
+</code></pre></div>
+<h3 id="executionhandle-async-execution">ExecutionHandle (async execution)<a class="headerlink" href="#executionhandle-async-execution" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="n">result</span> <span class="o">=</span> <span class="n">project</span><span class="o">.</span><span class="n">run_async</span><span class="p">()</span>
+<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">result</span><span class="p">,</span> <span class="n">Ok</span><span class="p">):</span>
+<a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a>    <span class="n">handle</span> <span class="o">=</span> <span class="n">result</span><span class="o">.</span><span class="n">value</span>
+<a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a>    <span class="c1"># handle.done: bool</span>
+<a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a>    <span class="c1"># handle.execution_id: str</span>
+<a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a>    <span class="c1"># handle.cancel(): signal cancellation</span>
+<a id="__codelineno-4-7" name="__codelineno-4-7" href="#__codelineno-4-7"></a>    <span class="c1"># handle.result(timeout?): Result[str] — block until done or timeout</span>
+</code></pre></div>
+<hr />
+<h2 id="issues-found">Issues Found<a class="headerlink" href="#issues-found" title="Permanent link">&para;</a></h2>
+<h3 id="critical-blocks-ui-work">Critical (blocks UI work)<a class="headerlink" href="#critical-blocks-ui-work" title="Permanent link">&para;</a></h3>
+<p><strong>C1: <code>Project.import_song</code> and <code>Project.add_song_version</code> use <code>**kwargs</code> — opaque to UI</strong></p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="c1"># Current (in project.py):</span>
+<a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="k">def</span><span class="w"> </span><span class="nf">import_song</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">[</span><span class="n">SongRecord</span><span class="p">,</span> <span class="n">SongVersionRecord</span><span class="p">]:</span>
+<a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="k">def</span><span class="w"> </span><span class="nf">add_song_version</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">SongVersionRecord</span><span class="p">:</span>
+</code></pre></div>
+<p>The UI developer cannot know the parameter names without digging into <code>ProjectStorage</code>. Both methods should have explicit, typed signatures matching <code>ProjectStorage.import_song</code>/<code>add_song_version</code>.</p>
+<p><strong>C2: <code>project._runtime_bus</code> is private — no public accessor</strong></p>
+<p>The UI needs to subscribe to <code>RuntimeBus</code> for per-block execution progress. Currently <code>_runtime_bus</code> is a private attribute. There is no public <code>runtime_bus</code> property on <code>Project</code>. UI developers will either access <code>project._runtime_bus</code> (fragile) or miss progress entirely.</p>
+<p><strong>Fix:</strong> Add <code>@property def runtime_bus(self) -&gt; RuntimeBus</code> to <code>Project</code>.</p>
+<hr />
+<h3 id="moderate-should-fix-soon">Moderate (should fix soon)<a class="headerlink" href="#moderate-should-fix-soon" title="Permanent link">&para;</a></h3>
+<p><strong>M1: <code>on_progress</code> typed as <code>Any</code> instead of <code>Callable[[str, float], None]</code></strong></p>
+<p>In <code>Project.analyze()</code> and <code>Project.execute_config()</code>, <code>on_progress: Any = None</code> should be:
+<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="n">on_progress</span><span class="p">:</span> <span class="n">Callable</span><span class="p">[[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">float</span><span class="p">],</span> <span class="kc">None</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+</code></pre></div>
+This matters for IDE autocomplete when wiring up a progress signal.</p>
+<p><strong>M2: <code>Project.run()</code> (synchronous) is the first method listed — discoverability risk</strong></p>
+<p>New UI developers will naturally call <code>project.run()</code> first. It blocks the main thread and will freeze the UI. The docstring should warn explicitly. Consider renaming to <code>run_sync</code> and making <code>run_async</code> the default <code>run</code>.</p>
+<p><strong>M3: <code>executor</code> thread pool has <code>max_workers=1</code> — only one async execution at a time</strong></p>
+<p><code>Coordinator</code> uses <code>ThreadPoolExecutor(max_workers=1)</code>. Calling <code>run_async()</code> while one is running returns <code>Err(ExecutionError("Execution already in progress"))</code>. The UI must handle this case gracefully (disable Run button when <code>project.is_executing</code> is True).</p>
+<p><strong>M4: EventBus handlers fire synchronously — Qt widget updates from non-main thread</strong></p>
+<p>If the UI subscribes event handlers that update widgets, and dispatch is called from a non-main thread (e.g., during <code>import_song</code> in a worker), the handler fires on the worker thread. This will cause Qt thread violations. The UI needs a Qt signal/slot bridge for all EventBus handlers.</p>
+<p><strong>M5: <code>PipelineConfigRecord.to_pipeline()</code> and <code>with_knob_value()</code> do JSON round-trips — not cached</strong></p>
+<p>Every call to <code>with_knob_value()</code> / <code>with_block_setting()</code> does <code>json.loads + deserialize_graph + serialize_graph + json.dumps</code>. For a UI with a live "knob scrubber" (drag to update value), this will create lag. Consider debouncing or batching knob updates via <code>with_knob_values(updates={...})</code>.</p>
+<p><strong>M6: No <code>AnalysisResult</code> progress signal for UI</strong></p>
+<p><code>execute_config()</code> returns <code>Result[AnalysisResult]</code> after completion. There is no async variant that yields intermediate results to the UI (layer IDs as they're created, for example). The UI must wait for full completion or use the <code>on_progress</code> string callback — no structured intermediate results.</p>
+<hr />
+<h3 id="minor-nice-to-have">Minor (nice to have)<a class="headerlink" href="#minor-nice-to-have" title="Permanent link">&para;</a></h3>
+<p><strong>m1: <code>pipelines/__init__.py</code> has no <code>__all__</code> and no public exports</strong></p>
+<p>The <code>echozero/pipelines/__init__.py</code> file has only a blank docstring. The UI will need <code>Pipeline</code>, <code>PipelineTemplate</code>, <code>PipelineRegistry</code>, <code>Knob</code>, <code>KnobWidget</code> — none are importable from <code>echozero.pipelines</code> directly.</p>
+<p><strong>m2: <code>editor/__init__.py</code> documents classes but doesn't export them</strong></p>
+<p><code>from echozero.editor import Coordinator</code> fails. Developers must <code>from echozero.editor.coordinator import Coordinator</code>. Not blocking, but inconsistent.</p>
+<p><strong>m3: <code>PyTorchAudioClassifyProcessor</code> uses a dummy classifier (<code>_predict_event_class</code> returns hardcoded "kick"/"snare"/"hihat")</strong></p>
+<p>The classification logic is a placeholder. Not a UI issue per se, but the UI should not show confidence scores as real data until this is replaced.</p>
+<p><strong>m4: <code>ExportAudioDatasetProcessor._default_export_fn</code> raises <code>NotImplementedError</code></strong></p>
+<p>The default export implementation raises immediately. The UI must always provide a custom <code>export_fn</code> or catch <code>ExecutionError</code>. Consider adding a soundfile-based default.</p>
+<p><strong>m5: <code>TranscribeNotesProcessor._default_transcribe</code> raises <code>NotImplementedError</code></strong></p>
+<p>Same as m4 — requires <code>basic-pitch</code> which is not bundled. UI should show a "not available" state for this block type.</p>
+<p><strong>m6: <code>Graph.blocks</code> returns <code>MappingProxyType</code> but <code>Graph.connections</code> returns a plain <code>list[Connection]</code> (copy)</strong></p>
+<p>Inconsistent — blocks is a proxy (reflects live state), connections is a snapshot (stale). UI code iterating connections right after a mutation may see the old state if it cached the list. Document this clearly.</p>
+<p><strong>m7: <code>BlockStateChangedEvent</code> is intentionally excluded from <code>DirtyTracker</code></strong></p>
+<p>This is correct behavior, but the comment is only in <code>dirty.py</code>. UI devs implementing their own dirty tracking might miss this.</p>
+<hr />
+<h2 id="missing-documentation">Missing Documentation<a class="headerlink" href="#missing-documentation" title="Permanent link">&para;</a></h2>
+<p>Files/classes with missing or thin docstrings:</p>
+<table>
+<thead>
+<tr>
+<th>File</th>
+<th>Missing</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>echozero/pipelines/__init__.py</code></td>
+<td>No module docstring, no exports</td>
+</tr>
+<tr>
+<td><code>echozero/pipelines/templates/onset_detection.py</code></td>
+<td>Module docstring present, but <code>build_onset_detection</code> function docstring is thin (1 line)</td>
+</tr>
+<tr>
+<td><code>echozero/models/provider.py</code></td>
+<td><code>LocalFileSource.check_available</code> method docstring missing</td>
+</tr>
+<tr>
+<td><code>echozero/models/provider.py</code></td>
+<td><code>import_os_sep</code> module-level helper has no docstring</td>
+</tr>
+<tr>
+<td><code>echozero/processors/pytorch_audio_classify.py</code></td>
+<td><code>_create_model_from_config</code>, <code>_predict_event_class</code> are private but shape the public API surface — should document expected model format</td>
+</tr>
+<tr>
+<td><code>echozero/services/waveform.py</code></td>
+<td>Module-level function <code>generate_waveform_for_version</code> has a docstring but no return type annotation for the <code>None</code> case</td>
+</tr>
+</tbody>
+</table>
+<p><strong>All public classes are well-documented</strong> — no class-level docstring gaps found.</p>
+<hr />
+<h2 id="recommendations-prioritized">Recommendations (Prioritized)<a class="headerlink" href="#recommendations-prioritized" title="Permanent link">&para;</a></h2>
+<h3 id="p0-do-before-writing-any-ui-code">P0 — Do Before Writing Any UI Code<a class="headerlink" href="#p0-do-before-writing-any-ui-code" title="Permanent link">&para;</a></h3>
+<ol>
+<li>
+<p><strong>Add <code>runtime_bus</code> property to <code>Project</code></strong> (fix C2)<br />
+   <div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="nd">@property</span>
+<a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a><span class="k">def</span><span class="w"> </span><span class="nf">runtime_bus</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">RuntimeBus</span><span class="p">:</span>
+<a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Access the runtime bus for per-block execution progress.&quot;&quot;&quot;</span>
+<a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a>    <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_runtime_bus</span>
+</code></pre></div></p>
+</li>
+<li>
+<p><strong>Expand <code>Project.import_song</code> and <code>Project.add_song_version</code> signatures</strong> (fix C1)<br />
+   Replace <code>**kwargs</code> with explicit typed parameters matching <code>ProjectStorage</code>.</p>
+</li>
+</ol>
+<h3 id="p1-before-first-ui-milestone">P1 — Before First UI Milestone<a class="headerlink" href="#p1-before-first-ui-milestone" title="Permanent link">&para;</a></h3>
+<ol>
+<li>
+<p><strong>Fix <code>on_progress: Any</code> → <code>Callable[[str, float], None] | None</code></strong> (fix M1)</p>
+</li>
+<li>
+<p><strong>Add Qt signal bridge pattern to architecture notes</strong><br />
+   Document the pattern for connecting <code>EventBus</code> handlers and <code>RuntimeBus</code> subscribers to Qt signals without causing cross-thread widget updates. Suggest a <code>QObject</code> bridge class approach.</p>
+</li>
+<li>
+<p><strong>Add exports to <code>echozero/pipelines/__init__.py</code></strong> (fix m1)<br />
+   At minimum: <code>Pipeline</code>, <code>PipelineTemplate</code>, <code>PipelineRegistry</code>, <code>Knob</code>, <code>KnobWidget</code>, <code>knob</code>, <code>get_registry</code>.</p>
+</li>
+<li>
+<p><strong>Rename <code>run()</code> → <code>run_sync()</code> and make <code>run_async</code> the default <code>run</code></strong> (fix M2)<br />
+   Or add a prominent <code># BLOCKING</code> comment in the docstring: "This blocks the calling thread. Use <code>run_async()</code> from Qt."</p>
+</li>
+</ol>
+<h3 id="p2-before-beta">P2 — Before Beta<a class="headerlink" href="#p2-before-beta" title="Permanent link">&para;</a></h3>
+<ol>
+<li>
+<p><strong>Implement <code>soundfile</code>-based default for <code>ExportAudioDatasetProcessor</code></strong> (fix m4)</p>
+</li>
+<li>
+<p><strong>Add a <code>Project.analyze_async()</code> variant</strong> that returns a handle (like <code>run_async</code>) for cancellable analysis with progress.</p>
+</li>
+<li>
+<p><strong>Document <code>Graph.connections</code> snapshot behavior</strong> (fix m6) — add a note that <code>.connections</code> returns a copy, not a live view.</p>
+</li>
+<li>
+<p><strong>Add <code>auto_evaluate</code> setter exposure on <code>Project</code></strong><br />
+<code>Coordinator.auto_evaluate</code> is already implemented but not exposed on <code>Project</code>. The Stage Zero Editor may want to toggle this.</p>
+</li>
+</ol>
+<h3 id="p3-polish">P3 — Polish<a class="headerlink" href="#p3-polish" title="Permanent link">&para;</a></h3>
+<ol>
+<li>
+<p><strong>Real PyTorch classification implementation</strong> (fix m3)<br />
+    The dummy <code>_predict_event_class</code> should be replaced before any demo.</p>
+</li>
+<li>
+<p><strong>Add <code>__all__</code> to <code>echozero/editor/__init__.py</code></strong> (fix m2)</p>
+</li>
+</ol>
+<hr />
+<h2 id="architecture-notes-for-ui-developer">Architecture Notes for UI Developer<a class="headerlink" href="#architecture-notes-for-ui-developer" title="Permanent link">&para;</a></h2>
+<h3 id="the-golden-rule-project-is-the-uis-only-door">The Golden Rule: Project is the UI's Only Door<a class="headerlink" href="#the-golden-rule-project-is-the-uis-only-door" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a>UI
+<a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a> └─ Project
+<a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a>     ├─ project.dispatch(command)           # mutate graph
+<a id="__codelineno-8-4" name="__codelineno-8-4" href="#__codelineno-8-4"></a>     ├─ project.run_async()                 # execute pipeline
+<a id="__codelineno-8-5" name="__codelineno-8-5" href="#__codelineno-8-5"></a>     ├─ project.analyze() / execute_config() # analyze song
+<a id="__codelineno-8-6" name="__codelineno-8-6" href="#__codelineno-8-6"></a>     ├─ project.event_bus.subscribe(...)    # react to mutations
+<a id="__codelineno-8-7" name="__codelineno-8-7" href="#__codelineno-8-7"></a>     ├─ project.runtime_bus.subscribe(...)  # react to execution progress
+<a id="__codelineno-8-8" name="__codelineno-8-8" href="#__codelineno-8-8"></a>     ├─ project.songs / layers / takes      # data access
+<a id="__codelineno-8-9" name="__codelineno-8-9" href="#__codelineno-8-9"></a>     └─ project.stale_tracker              # why is this block stale?
+</code></pre></div>
+<p>Never import <code>Graph</code>, <code>Pipeline</code>, <code>Coordinator</code>, or <code>Orchestrator</code> directly in UI code. Use <code>Project</code>.</p>
+<h3 id="event-flow">Event Flow<a class="headerlink" href="#event-flow" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a>User Action → dispatch(command) → Pipeline handler → Graph mutation
+<a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a>    → EventBus.publish(event)
+<a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a>        → DirtyTracker marks dirty (autosave ticks)
+<a id="__codelineno-9-4" name="__codelineno-9-4" href="#__codelineno-9-4"></a>        → Coordinator.propagate_stale (marks downstream STALE)
+<a id="__codelineno-9-5" name="__codelineno-9-5" href="#__codelineno-9-5"></a>        → UI handlers (update canvas)
+</code></pre></div>
+<h3 id="thread-model-for-qt">Thread Model for Qt<a class="headerlink" href="#thread-model-for-qt" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a>Qt Main Thread:
+<a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a>  - All widget updates
+<a id="__codelineno-10-3" name="__codelineno-10-3" href="#__codelineno-10-3"></a>  - EventBus subscriptions (if dispatched from main thread)
+<a id="__codelineno-10-4" name="__codelineno-10-4" href="#__codelineno-10-4"></a>  - project.dispatch(), project.cancel()
+<a id="__codelineno-10-5" name="__codelineno-10-5" href="#__codelineno-10-5"></a>  - Read project.is_executing, project.is_dirty
+<a id="__codelineno-10-6" name="__codelineno-10-6" href="#__codelineno-10-6"></a>
+<a id="__codelineno-10-7" name="__codelineno-10-7" href="#__codelineno-10-7"></a>QThread / run_in_executor:
+<a id="__codelineno-10-8" name="__codelineno-10-8" href="#__codelineno-10-8"></a>  - project.run()         → use run_async() instead
+<a id="__codelineno-10-9" name="__codelineno-10-9" href="#__codelineno-10-9"></a>  - project.analyze()
+<a id="__codelineno-10-10" name="__codelineno-10-10" href="#__codelineno-10-10"></a>  - project.execute_config()
+<a id="__codelineno-10-11" name="__codelineno-10-11" href="#__codelineno-10-11"></a>  - project.import_song()
+<a id="__codelineno-10-12" name="__codelineno-10-12" href="#__codelineno-10-12"></a>  - project.save_as()
+<a id="__codelineno-10-13" name="__codelineno-10-13" href="#__codelineno-10-13"></a>  - Project.open() / Project.create()
+<a id="__codelineno-10-14" name="__codelineno-10-14" href="#__codelineno-10-14"></a>
+<a id="__codelineno-10-15" name="__codelineno-10-15" href="#__codelineno-10-15"></a>RuntimeBus callbacks:
+<a id="__codelineno-10-16" name="__codelineno-10-16" href="#__codelineno-10-16"></a>  - Fire on executor thread
+<a id="__codelineno-10-17" name="__codelineno-10-17" href="#__codelineno-10-17"></a>  - Bridge to Qt: emit a signal from callback, connect to slot on main thread
+<a id="__codelineno-10-18" name="__codelineno-10-18" href="#__codelineno-10-18"></a>
+<a id="__codelineno-10-19" name="__codelineno-10-19" href="#__codelineno-10-19"></a>EventBus callbacks (if dispatch happens on worker thread):
+<a id="__codelineno-10-20" name="__codelineno-10-20" href="#__codelineno-10-20"></a>  - Fire on that worker thread
+<a id="__codelineno-10-21" name="__codelineno-10-21" href="#__codelineno-10-21"></a>  - Same bridge pattern needed
+</code></pre></div>
+<h3 id="knob-widget-mapping">Knob → Widget Mapping<a class="headerlink" href="#knob-widget-mapping" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a><span class="n">KnobWidget</span><span class="o">.</span><span class="n">SLIDER</span>      <span class="err">→</span> <span class="n">QSlider</span> <span class="p">(</span><span class="nb">min</span><span class="p">,</span> <span class="nb">max</span><span class="p">,</span> <span class="n">step</span><span class="p">,</span> <span class="n">units</span><span class="p">)</span>
+<a id="__codelineno-11-2" name="__codelineno-11-2" href="#__codelineno-11-2"></a><span class="n">KnobWidget</span><span class="o">.</span><span class="n">DROPDOWN</span>    <span class="err">→</span> <span class="n">QComboBox</span> <span class="p">(</span><span class="n">options</span><span class="p">)</span>
+<a id="__codelineno-11-3" name="__codelineno-11-3" href="#__codelineno-11-3"></a><span class="n">KnobWidget</span><span class="o">.</span><span class="n">TOGGLE</span>      <span class="err">→</span> <span class="n">QCheckBox</span>
+<a id="__codelineno-11-4" name="__codelineno-11-4" href="#__codelineno-11-4"></a><span class="n">KnobWidget</span><span class="o">.</span><span class="n">TEXT</span>        <span class="err">→</span> <span class="n">QLineEdit</span>
+<a id="__codelineno-11-5" name="__codelineno-11-5" href="#__codelineno-11-5"></a><span class="n">KnobWidget</span><span class="o">.</span><span class="n">FILE_PICKER</span> <span class="err">→</span> <span class="n">QLineEdit</span> <span class="o">+</span> <span class="n">QPushButton</span> <span class="p">(</span><span class="n">browse</span><span class="p">)</span>
+<a id="__codelineno-11-6" name="__codelineno-11-6" href="#__codelineno-11-6"></a><span class="n">KnobWidget</span><span class="o">.</span><span class="n">NUMBER</span>      <span class="err">→</span> <span class="n">QSpinBox</span> <span class="o">/</span> <span class="n">QDoubleSpinBox</span>
+<a id="__codelineno-11-7" name="__codelineno-11-7" href="#__codelineno-11-7"></a><span class="n">KnobWidget</span><span class="o">.</span><span class="n">FREQUENCY</span>   <span class="err">→</span> <span class="n">Log</span><span class="o">-</span><span class="n">scale</span> <span class="n">QSlider</span> <span class="p">(</span><span class="mi">20</span><span class="err">–</span><span class="mi">20000</span> <span class="n">Hz</span><span class="p">)</span>
+<a id="__codelineno-11-8" name="__codelineno-11-8" href="#__codelineno-11-8"></a><span class="n">KnobWidget</span><span class="o">.</span><span class="n">GAIN</span>        <span class="err">→</span> <span class="n">QSlider</span> <span class="p">(</span><span class="o">-</span><span class="mi">48</span> <span class="n">to</span> <span class="o">+</span><span class="mi">48</span> <span class="n">dB</span><span class="p">)</span>
+<a id="__codelineno-11-9" name="__codelineno-11-9" href="#__codelineno-11-9"></a><span class="n">KnobWidget</span><span class="o">.</span><span class="n">MODEL_PICKER</span> <span class="err">→</span> <span class="n">Custom</span> <span class="n">model</span> <span class="n">browser</span> <span class="n">widget</span>
+</code></pre></div>
+<h3 id="updating-pipeline-config-from-ui">Updating Pipeline Config from UI<a class="headerlink" href="#updating-pipeline-config-from-ui" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a><span class="c1"># Knob-level update (global — affects all blocks with this setting key)</span>
+<a id="__codelineno-12-2" name="__codelineno-12-2" href="#__codelineno-12-2"></a><span class="n">config</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">with_knob_value</span><span class="p">(</span><span class="s2">&quot;threshold&quot;</span><span class="p">,</span> <span class="mf">0.4</span><span class="p">,</span> <span class="n">knob_metadata</span><span class="o">=</span><span class="n">template</span><span class="o">.</span><span class="n">knobs</span><span class="p">)</span>
+<a id="__codelineno-12-3" name="__codelineno-12-3" href="#__codelineno-12-3"></a>
+<a id="__codelineno-12-4" name="__codelineno-12-4" href="#__codelineno-12-4"></a><span class="c1"># Block-level override (independent of knob — won&#39;t be overwritten by knob changes)</span>
+<a id="__codelineno-12-5" name="__codelineno-12-5" href="#__codelineno-12-5"></a><span class="n">config</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">with_block_setting</span><span class="p">(</span><span class="s2">&quot;detect_onsets_1&quot;</span><span class="p">,</span> <span class="s2">&quot;threshold&quot;</span><span class="p">,</span> <span class="mf">0.6</span><span class="p">)</span>
+<a id="__codelineno-12-6" name="__codelineno-12-6" href="#__codelineno-12-6"></a>
+<a id="__codelineno-12-7" name="__codelineno-12-7" href="#__codelineno-12-7"></a><span class="c1"># Clear per-block override → re-link to global knob</span>
+<a id="__codelineno-12-8" name="__codelineno-12-8" href="#__codelineno-12-8"></a><span class="n">config</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">clear_block_override</span><span class="p">(</span><span class="s2">&quot;detect_onsets_1&quot;</span><span class="p">,</span> <span class="s2">&quot;threshold&quot;</span><span class="p">)</span>
+<a id="__codelineno-12-9" name="__codelineno-12-9" href="#__codelineno-12-9"></a>
+<a id="__codelineno-12-10" name="__codelineno-12-10" href="#__codelineno-12-10"></a><span class="c1"># Save updated config back to DB</span>
+<a id="__codelineno-12-11" name="__codelineno-12-11" href="#__codelineno-12-11"></a><span class="n">project</span><span class="o">.</span><span class="n">pipeline_configs</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="n">config</span><span class="p">)</span>
+<a id="__codelineno-12-12" name="__codelineno-12-12" href="#__codelineno-12-12"></a><span class="n">project</span><span class="o">.</span><span class="n">storage</span><span class="o">.</span><span class="n">commit</span><span class="p">()</span>
+</code></pre></div>
+<h3 id="feelpy-where-all-ui-constants-live">FEEL.py — Where All UI Constants Live<a class="headerlink" href="#feelpy-where-all-ui-constants-live" title="Permanent link">&para;</a></h3>
+<p>All pixel sizes, colors, thresholds, animation timings, and port/category colors are in <code>echozero/ui/FEEL.py</code>. Do not use magic numbers in UI code. Import from FEEL:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">echozero.ui.FEEL</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
+<a id="__codelineno-13-2" name="__codelineno-13-2" href="#__codelineno-13-2"></a>    <span class="n">BLOCK_WIDTH_PX</span><span class="p">,</span> <span class="n">BLOCK_HEIGHT_PX</span><span class="p">,</span>
+<a id="__codelineno-13-3" name="__codelineno-13-3" href="#__codelineno-13-3"></a>    <span class="n">PORT_COLOR_AUDIO</span><span class="p">,</span> <span class="n">PORT_COLOR_EVENT</span><span class="p">,</span>
+<a id="__codelineno-13-4" name="__codelineno-13-4" href="#__codelineno-13-4"></a>    <span class="n">BLOCK_COLOR_PROCESSOR</span><span class="p">,</span>
+<a id="__codelineno-13-5" name="__codelineno-13-5" href="#__codelineno-13-5"></a>    <span class="n">CLASSIFICATION_COLORS</span><span class="p">,</span>
+<a id="__codelineno-13-6" name="__codelineno-13-6" href="#__codelineno-13-6"></a>    <span class="n">FEEL_SNAP_MAGNETISM_RADIUS_PX</span><span class="p">,</span>
+<a id="__codelineno-13-7" name="__codelineno-13-7" href="#__codelineno-13-7"></a>    <span class="o">...</span>
+<a id="__codelineno-13-8" name="__codelineno-13-8" href="#__codelineno-13-8"></a><span class="p">)</span>
+</code></pre></div>
+<hr />
+<p><em>Import test result: <code>from echozero.project import Project</code> → </em><em>Import OK</em><em> (no circular imports, all dependencies resolve)</em></p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.instant", "navigation.sections", "navigation.expand", "navigation.top", "search.suggest", "search.highlight", "content.code.copy", "toc.follow"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+    
+  </body>
+</html>

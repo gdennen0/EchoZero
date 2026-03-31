@@ -1,0 +1,2502 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Audio analysis workstation for live lighting design">
+      
+      
+      
+      
+        <link rel="prev" href="../codebase-audit-2026-03-30-part2/">
+      
+      
+        <link rel="next" href="../model-registry-audit/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
+    
+    
+      
+        <title>Audio Engine - EchoZero 2</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="slate" data-md-color-primary="deep-purple" data-md-color-accent="amber">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#echozero-audio-engine-ship-readiness-audit" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="EchoZero 2" class="md-header__button md-logo" aria-label="EchoZero 2" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            EchoZero 2
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Audio Engine
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="slate" data-md-color-primary="deep-purple" data-md-color-accent="amber"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="default" data-md-color-primary="deep-purple" data-md-color-accent="amber"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/griffin/echozero" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    GitHub
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="EchoZero 2" class="md-nav__button md-logo" aria-label="EchoZero 2" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    EchoZero 2
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/griffin/echozero" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    GitHub
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../GETTING-STARTED/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting Started
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../ARCHITECTURE/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../PROJECT-CLASS/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Project Class
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../architecture/ENTITY-MODEL/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Entity Model
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../LD-WORKFLOW/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    LD Workflow
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_7" >
+        
+          
+          <label class="md-nav__link" for="__nav_7" id="__nav_7_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Decisions
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_7_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_7">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Decisions
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../architecture/DECISIONS/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture Decisions
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../architecture/PIPELINE-CONFIG-REDESIGN/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Pipeline Config
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_8" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_8" id="__nav_8_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Audits
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_8_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_8">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Audits
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../ui-readiness-audit-2026-03-30/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    UI Readiness
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../architecture-audit-2026-03-30/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture Audit
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../codebase-audit-2026-03-30/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Codebase Audit
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../codebase-audit-2026-03-30-part2/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Codebase Audit Part 2
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Audio Engine
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Audio Engine
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#rating-key" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Rating Key
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#1-correctness-issues" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. Correctness Issues
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="1. Correctness Issues">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#mixerread_mix-scratch-buffer-overflow-overlap-corruption" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        🔴 Mixer.read_mix() — Scratch Buffer Overflow / Overlap Corruption
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#engine_audio_callback-third-read_mix-call-corrupts-split-read-data" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        🔴 engine._audio_callback() — Third read_mix() Call Corrupts Split-Read Data
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#engine_audio_callback-crossfade-applied-after-hard-clip" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        🔴 engine._audio_callback() — Crossfade Applied AFTER Hard Clip
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#clockadvance-loop-multiple-wraps-position-corruption" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        🔴 Clock.advance() — Loop Multiple Wraps: Position Corruption
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#clockadvance-last_wrap_offset-0-not-handled" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        🟡 Clock.advance() — last_wrap_offset = 0 Not Handled
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#transportseek-stop-position-updated-only-when-stopped" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        🟡 Transport.seek() — Stop Position Updated Only When Stopped
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#audiolayerread_into-no-guard-against-frames-lenout" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        🟡 AudioLayer.read_into() — No Guard Against frames &gt; len(out)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#resample_buffer-empty-buffer-crashes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        🟡 resample_buffer() — Empty Buffer Crashes
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2-what-if-scenarios" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. What-If Scenarios
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="2. What-If Scenarios">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#what-if-the-user-seeks-during-a-crossfade" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        🔴 What if the user seeks during a crossfade?
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#what-if-buffer-size-loop-length" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        🔴 What if buffer size &gt; loop length?
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#what-if-a-layers-sample-rate-doesnt-match-after-resample" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        🟡 What if a layer's sample rate doesn't match after resample?
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#what-if-all-layers-are-removed-while-playing" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        🔴 What if all layers are removed while playing?
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#what-if-the-crossfade-length-half-the-loop-region" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        🟡 What if the crossfade length &gt; half the loop region?
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#what-if-two-seeks-happen-in-rapid-succession" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        🟡 What if two seeks happen in rapid succession?
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#what-if-sounddevice-reports-a-status-error-in-the-callback" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        🟡 What if sounddevice reports a status error in the callback?
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#what-if-a-subscriber-throws-an-exception" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        🔴 What if a subscriber throws an exception?
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#3-performance-concerns" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. Performance Concerns
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="3. Performance Concerns">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#engine_audio_callback-three-read_mix-calls-on-loop-wrap-path" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        🔴 engine._audio_callback() — Three read_mix() Calls on Loop Wrap Path
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#mixerread_mix-anylsolo-for-l-in-layers-every-callback" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        🟡 Mixer.read_mix() — any(l.solo for l in layers) Every Callback
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#clockadvance-subscriber-notification-allocates-on-exception-path" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        🟡 Clock.advance() — Subscriber Notification Allocates on Exception Path
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#mixerread_mix-hard-clip-uses-temporary-view" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        🟢 Mixer.read_mix() — Hard Clip Uses Temporary View
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#resample_buffer-linear-interpolation-quality" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        🟢 resample_buffer() — Linear Interpolation Quality
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#4-missing-test-coverage" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4. Missing Test Coverage
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="4. Missing Test Coverage">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#no-test-buffer-size-loop-length-multiple-wraps" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        🔴 No Test: Buffer Size &gt; Loop Length (Multiple Wraps)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#no-test-subscriber-exception-isolation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        🔴 No Test: Subscriber Exception Isolation
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#no-test-seek-during-active-playback-stop-returns-wrong-position" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        🔴 No Test: seek() During Active Playback + Stop Returns Wrong Position
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#no-test-crossfade-clipping" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        🟡 No Test: Crossfade Clipping
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#no-test-add_layer-with-multichannel-2d-buffer" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        🟡 No Test: add_layer() With Multichannel (2D) Buffer
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#no-test-empty-mixer-auto-stop-behavior" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        🟡 No Test: Empty Mixer Auto-Stop Behavior
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#no-test-wrap_offset-0-edge-case" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        🟡 No Test: wrap_offset == 0 Edge Case
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#no-test-sounddevice-status-error-handling" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        🟡 No Test: sounddevice Status Error Handling
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#no-test-mixer_scratch-overflow" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        🟡 No Test: Mixer._scratch Overflow
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#no-test-layer-volume00-silence" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        🟢 No Test: Layer volume=0.0 (Silence)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#no-test-non-standard-sample-rate-resample-eg-3200044100" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        🟢 No Test: Non-Standard Sample Rate Resample (e.g. 32000→44100)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#5-api-design-issues" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5. API Design Issues
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="5. API Design Issues">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#mixerread_mix-returns-a-view-into-internal-scratch-buffer" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        🔴 Mixer.read_mix() Returns a View Into Internal Scratch Buffer
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#audioengine-exposes-clock-transport-mixer-directly" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        🟡 AudioEngine Exposes clock, transport, mixer Directly
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#crossfadebufferapply-signature-is-confusing" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        🟡 CrossfadeBuffer.apply() Signature Is Confusing
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#transportreturn_to_start-has-inconsistent-state-semantics" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        🟡 Transport.return_to_start() Has Inconsistent State Semantics
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#clocksample_rate-is-mutable-after-init" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        🟡 Clock.sample_rate Is Mutable After Init
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#loopregion-has-no-minimum-length-check" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        🟢 LoopRegion Has No Minimum Length Check
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#no-__repr__-on-audiolayer" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        🟢 No __repr__ on AudioLayer
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#summary-table" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Summary Table
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#recommended-fix-priority" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Recommended Fix Priority
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../model-registry-audit/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Model Registry
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../packaging/PACKAGING/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Packaging
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../SPEC/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Spec
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#rating-key" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Rating Key
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#1-correctness-issues" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. Correctness Issues
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="1. Correctness Issues">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#mixerread_mix-scratch-buffer-overflow-overlap-corruption" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        🔴 Mixer.read_mix() — Scratch Buffer Overflow / Overlap Corruption
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#engine_audio_callback-third-read_mix-call-corrupts-split-read-data" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        🔴 engine._audio_callback() — Third read_mix() Call Corrupts Split-Read Data
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#engine_audio_callback-crossfade-applied-after-hard-clip" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        🔴 engine._audio_callback() — Crossfade Applied AFTER Hard Clip
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#clockadvance-loop-multiple-wraps-position-corruption" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        🔴 Clock.advance() — Loop Multiple Wraps: Position Corruption
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#clockadvance-last_wrap_offset-0-not-handled" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        🟡 Clock.advance() — last_wrap_offset = 0 Not Handled
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#transportseek-stop-position-updated-only-when-stopped" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        🟡 Transport.seek() — Stop Position Updated Only When Stopped
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#audiolayerread_into-no-guard-against-frames-lenout" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        🟡 AudioLayer.read_into() — No Guard Against frames &gt; len(out)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#resample_buffer-empty-buffer-crashes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        🟡 resample_buffer() — Empty Buffer Crashes
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2-what-if-scenarios" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. What-If Scenarios
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="2. What-If Scenarios">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#what-if-the-user-seeks-during-a-crossfade" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        🔴 What if the user seeks during a crossfade?
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#what-if-buffer-size-loop-length" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        🔴 What if buffer size &gt; loop length?
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#what-if-a-layers-sample-rate-doesnt-match-after-resample" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        🟡 What if a layer's sample rate doesn't match after resample?
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#what-if-all-layers-are-removed-while-playing" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        🔴 What if all layers are removed while playing?
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#what-if-the-crossfade-length-half-the-loop-region" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        🟡 What if the crossfade length &gt; half the loop region?
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#what-if-two-seeks-happen-in-rapid-succession" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        🟡 What if two seeks happen in rapid succession?
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#what-if-sounddevice-reports-a-status-error-in-the-callback" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        🟡 What if sounddevice reports a status error in the callback?
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#what-if-a-subscriber-throws-an-exception" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        🔴 What if a subscriber throws an exception?
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#3-performance-concerns" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. Performance Concerns
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="3. Performance Concerns">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#engine_audio_callback-three-read_mix-calls-on-loop-wrap-path" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        🔴 engine._audio_callback() — Three read_mix() Calls on Loop Wrap Path
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#mixerread_mix-anylsolo-for-l-in-layers-every-callback" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        🟡 Mixer.read_mix() — any(l.solo for l in layers) Every Callback
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#clockadvance-subscriber-notification-allocates-on-exception-path" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        🟡 Clock.advance() — Subscriber Notification Allocates on Exception Path
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#mixerread_mix-hard-clip-uses-temporary-view" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        🟢 Mixer.read_mix() — Hard Clip Uses Temporary View
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#resample_buffer-linear-interpolation-quality" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        🟢 resample_buffer() — Linear Interpolation Quality
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#4-missing-test-coverage" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4. Missing Test Coverage
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="4. Missing Test Coverage">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#no-test-buffer-size-loop-length-multiple-wraps" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        🔴 No Test: Buffer Size &gt; Loop Length (Multiple Wraps)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#no-test-subscriber-exception-isolation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        🔴 No Test: Subscriber Exception Isolation
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#no-test-seek-during-active-playback-stop-returns-wrong-position" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        🔴 No Test: seek() During Active Playback + Stop Returns Wrong Position
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#no-test-crossfade-clipping" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        🟡 No Test: Crossfade Clipping
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#no-test-add_layer-with-multichannel-2d-buffer" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        🟡 No Test: add_layer() With Multichannel (2D) Buffer
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#no-test-empty-mixer-auto-stop-behavior" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        🟡 No Test: Empty Mixer Auto-Stop Behavior
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#no-test-wrap_offset-0-edge-case" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        🟡 No Test: wrap_offset == 0 Edge Case
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#no-test-sounddevice-status-error-handling" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        🟡 No Test: sounddevice Status Error Handling
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#no-test-mixer_scratch-overflow" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        🟡 No Test: Mixer._scratch Overflow
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#no-test-layer-volume00-silence" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        🟢 No Test: Layer volume=0.0 (Silence)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#no-test-non-standard-sample-rate-resample-eg-3200044100" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        🟢 No Test: Non-Standard Sample Rate Resample (e.g. 32000→44100)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#5-api-design-issues" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5. API Design Issues
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="5. API Design Issues">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#mixerread_mix-returns-a-view-into-internal-scratch-buffer" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        🔴 Mixer.read_mix() Returns a View Into Internal Scratch Buffer
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#audioengine-exposes-clock-transport-mixer-directly" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        🟡 AudioEngine Exposes clock, transport, mixer Directly
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#crossfadebufferapply-signature-is-confusing" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        🟡 CrossfadeBuffer.apply() Signature Is Confusing
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#transportreturn_to_start-has-inconsistent-state-semantics" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        🟡 Transport.return_to_start() Has Inconsistent State Semantics
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#clocksample_rate-is-mutable-after-init" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        🟡 Clock.sample_rate Is Mutable After Init
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#loopregion-has-no-minimum-length-check" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        🟢 LoopRegion Has No Minimum Length Check
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#no-__repr__-on-audiolayer" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        🟢 No __repr__ on AudioLayer
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#summary-table" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Summary Table
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#recommended-fix-priority" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Recommended Fix Priority
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="echozero-audio-engine-ship-readiness-audit">EchoZero Audio Engine — Ship-Readiness Audit<a class="headerlink" href="#echozero-audio-engine-ship-readiness-audit" title="Permanent link">&para;</a></h1>
+<p><strong>Date:</strong> 2026-03-29<br />
+<strong>Auditor:</strong> Chonch (AI Technical Audit)<br />
+<strong>Scope:</strong> <code>echozero/audio/</code> (clock.py, transport.py, layer.py, mixer.py, engine.py, crossfade.py) + <code>tests/test_audio_engine.py</code><br />
+<strong>Verdict:</strong> ❌ <strong>Not ship-ready.</strong> Several 🔴 issues must be fixed before release.</p>
+<hr />
+<h2 id="rating-key">Rating Key<a class="headerlink" href="#rating-key" title="Permanent link">&para;</a></h2>
+<ul>
+<li>🔴 <strong>Must fix before ship</strong> — correctness bug, data corruption, or crash risk</li>
+<li>🟡 <strong>Should fix</strong> — reliability, correctness at edge cases, or likely to surface in production</li>
+<li>🟢 <strong>Nice to have</strong> — quality-of-life, polish, future-proofing</li>
+</ul>
+<hr />
+<h2 id="1-correctness-issues">1. Correctness Issues<a class="headerlink" href="#1-correctness-issues" title="Permanent link">&para;</a></h2>
+<h3 id="mixerread_mix-scratch-buffer-overflow-overlap-corruption">🔴 <code>Mixer.read_mix()</code> — Scratch Buffer Overflow / Overlap Corruption<a class="headerlink" href="#mixerread_mix-scratch-buffer-overflow-overlap-corruption" title="Permanent link">&para;</a></h3>
+<p><strong>File:</strong> <code>mixer.py:97–101</code></p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="n">layer_buf</span> <span class="o">=</span> <span class="n">scratch</span><span class="p">[</span><span class="n">frames</span><span class="p">:</span><span class="n">frames</span> <span class="o">+</span> <span class="n">frames</span><span class="p">]</span>
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="n">layer</span><span class="o">.</span><span class="n">read_into</span><span class="p">(</span><span class="n">layer_buf</span><span class="p">,</span> <span class="n">position</span><span class="p">,</span> <span class="n">frames</span><span class="p">)</span>
+</code></pre></div>
+<p>The scratch buffer is allocated as <code>_MAX_SCRATCH_FRAMES = 8192</code>. The output occupies <code>scratch[0:frames]</code> and the per-layer temp region is carved from <code>scratch[frames:frames * 2]</code>. If <code>frames &gt; 4096</code>, this writes out of bounds of the pre-allocated scratch (8192 samples total = 4096 + 4096). At <code>frames=4096</code> it just barely fits. At <code>frames=4097+</code> it silently corrupts memory or raises <code>IndexError</code>.</p>
+<p>Worse: if <code>frames &gt; _MAX_SCRATCH_FRAMES / 2</code>, the layer buffer region overlaps the output accumulator region in scratch, causing a write-while-read corruption.</p>
+<p><strong>Fix:</strong> Either assert <code>frames &lt;= _MAX_SCRATCH_FRAMES // 2</code> at engine init, or use a second pre-allocated scratch buffer of fixed size <code>_MAX_SCRATCH_FRAMES</code>.</p>
+<hr />
+<h3 id="engine_audio_callback-third-read_mix-call-corrupts-split-read-data">🔴 <code>engine._audio_callback()</code> — Third <code>read_mix()</code> Call Corrupts Split-Read Data<a class="headerlink" href="#engine_audio_callback-third-read_mix-call-corrupts-split-read-data" title="Permanent link">&para;</a></h3>
+<p><strong>File:</strong> <code>engine.py:183–185</code></p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="n">mixed</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_mixer</span><span class="o">.</span><span class="n">read_mix</span><span class="p">(</span><span class="n">position</span><span class="p">,</span> <span class="n">frames</span><span class="p">)</span>  <span class="c1"># just to get the scratch view</span>
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="n">mixed</span><span class="p">[:</span><span class="n">wrap_offset</span><span class="p">]</span> <span class="o">=</span> <span class="n">pre_audio</span>
+<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="n">mixed</span><span class="p">[</span><span class="n">wrap_offset</span><span class="p">:]</span> <span class="o">=</span> <span class="n">post_audio</span><span class="p">[:</span><span class="n">remaining</span><span class="p">]</span>
+</code></pre></div>
+<p>The comment says "just to get the scratch view," but <code>read_mix()</code> fully re-runs the mixer on the audio thread, overwriting the scratch buffer. Immediately after, <code>pre_audio</code> and <code>post_audio</code> are written back into that same scratch view. This works <em>only because</em> <code>pre_audio</code> and <code>post_audio</code> were <code>.copy()</code>-ed earlier (lines 174–179). However, it is a third full mixer pass (CPU waste), and it reads at <code>position</code> which has already wrapped — meaning this third pass reads the <strong>wrong position</strong> (the post-wrap position, not the original pre-wrap start). This third call is entirely unnecessary and semantically wrong.</p>
+<p><strong>Fix:</strong> Allocate a small fixed-size output buffer (same size as scratch) that is NOT the mixer's internal scratch. Write <code>pre_audio</code>/<code>post_audio</code> directly into it. Never make a third <code>read_mix()</code> call for this purpose.</p>
+<hr />
+<h3 id="engine_audio_callback-crossfade-applied-after-hard-clip">🔴 <code>engine._audio_callback()</code> — Crossfade Applied AFTER Hard Clip<a class="headerlink" href="#engine_audio_callback-crossfade-applied-after-hard-clip" title="Permanent link">&para;</a></h3>
+<p><strong>File:</strong> <code>engine.py</code> (crossfade path)</p>
+<p>The flow is:
+1. <code>pre_mix = self._mixer.read_mix(...)</code> → result is already hard-clipped to [-1, 1] by <code>np.clip()</code> inside <code>read_mix()</code>
+2. <code>.copy()</code> into <code>pre_audio</code>
+3. Same for <code>post_audio</code>
+4. Crossfade blend: <code>tail * fade_out + head * fade_in</code></p>
+<p>The crossfade blends two signals that have each been independently hard-clipped. The blended result can produce values up to <code>1.0 * fade_out + 1.0 * fade_in</code>. At the equal-power midpoint: <code>cos(π/4) + sin(π/4) = √2 ≈ 1.414</code>. The crossfade output goes to <code>outdata[]</code> <strong>without a final clip</strong>, so the DAC receives values outside [-1, 1].</p>
+<p><strong>Fix:</strong> Apply <code>np.clip()</code> to the final assembled <code>mixed</code> buffer after the crossfade on the split-read path, mirroring the clip that already exists in the normal path via <code>read_mix()</code>.</p>
+<hr />
+<h3 id="clockadvance-loop-multiple-wraps-position-corruption">🔴 <code>Clock.advance()</code> — Loop Multiple Wraps: Position Corruption<a class="headerlink" href="#clockadvance-loop-multiple-wraps-position-corruption" title="Permanent link">&para;</a></h3>
+<p><strong>File:</strong> <code>clock.py:95–100</code></p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="k">if</span> <span class="n">new_pos</span> <span class="o">&gt;=</span> <span class="n">snap</span><span class="o">.</span><span class="n">region</span><span class="o">.</span><span class="n">end</span><span class="p">:</span>
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">_last_wrap_offset</span> <span class="o">=</span> <span class="n">snap</span><span class="o">.</span><span class="n">region</span><span class="o">.</span><span class="n">end</span> <span class="o">-</span> <span class="n">read_pos</span>
+<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a>    <span class="n">overshoot</span> <span class="o">=</span> <span class="n">new_pos</span> <span class="o">-</span> <span class="n">snap</span><span class="o">.</span><span class="n">region</span><span class="o">.</span><span class="n">end</span>
+<a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a>    <span class="n">loop_len</span> <span class="o">=</span> <span class="n">snap</span><span class="o">.</span><span class="n">region</span><span class="o">.</span><span class="n">end</span> <span class="o">-</span> <span class="n">snap</span><span class="o">.</span><span class="n">region</span><span class="o">.</span><span class="n">start</span>
+<a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a>    <span class="n">new_pos</span> <span class="o">=</span> <span class="n">snap</span><span class="o">.</span><span class="n">region</span><span class="o">.</span><span class="n">start</span> <span class="o">+</span> <span class="p">(</span><span class="n">overshoot</span> <span class="o">%</span> <span class="n">loop_len</span><span class="p">)</span>
+</code></pre></div>
+<p><code>last_wrap_offset</code> is set only to the <strong>first</strong> wrap point, which is correct. However, the engine's split-read logic in <code>_audio_callback</code> uses <code>last_wrap_offset</code> to assume the wrap happened at a single point within the buffer and reads <code>remaining = frames - wrap_offset</code> samples from <code>loop_start</code>. If the loop is shorter than <code>frames</code> (e.g. loop_len=100, frames=256), <code>overshoot % loop_len</code> correctly wraps the clock position, but <code>post_audio</code> is read as a contiguous block of <code>remaining=156</code> samples from <code>loop_start</code> — which crosses the loop end point again. The post-wrap audio is silently wrong (reads past loop end into undefined content), and there's no second split+crossfade.</p>
+<p><strong>The test <code>test_loop_wraps_multiple_times</code> only checks the clock position, not the audio content.</strong></p>
+<p><strong>Fix:</strong> Engine must handle the case where <code>remaining &gt; loop_len</code> by either (a) clamping <code>remaining</code> to <code>loop_len</code> and filling the rest with another read, or (b) asserting <code>buffer_size &lt;= loop_length_samples</code> and documenting it as a hard constraint.</p>
+<hr />
+<h3 id="clockadvance-last_wrap_offset-0-not-handled">🟡 <code>Clock.advance()</code> — <code>last_wrap_offset = 0</code> Not Handled<a class="headerlink" href="#clockadvance-last_wrap_offset-0-not-handled" title="Permanent link">&para;</a></h3>
+<p><strong>File:</strong> <code>engine.py:164</code></p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="k">if</span> <span class="n">wrap_offset</span> <span class="o">&gt;</span> <span class="mi">0</span> <span class="ow">and</span> <span class="n">loop_region</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+</code></pre></div>
+<p>The condition checks <code>wrap_offset &gt; 0</code>. But <code>wrap_offset == 0</code> means the wrap happens at the very first sample of the buffer — i.e. <code>read_pos == snap.region.end</code>. In this case <code>wrap_offset</code> is 0, the condition is false, and the normal path runs. The normal path reads from <code>position</code> (which after <code>advance()</code> is <code>loop_start + overshoot</code>) — which is correct for content, but no crossfade is applied. A click is possible.</p>
+<p><strong>Fix:</strong> Change condition to <code>wrap_offset &gt;= 0</code> and handle <code>wrap_offset == 0</code> as a degenerate crossfade (just use head audio from position 0, no tail).</p>
+<hr />
+<h3 id="transportseek-stop-position-updated-only-when-stopped">🟡 <code>Transport.seek()</code> — Stop Position Updated Only When Stopped<a class="headerlink" href="#transportseek-stop-position-updated-only-when-stopped" title="Permanent link">&para;</a></h3>
+<p><strong>File:</strong> <code>transport.py:55–58</code></p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="k">def</span><span class="w"> </span><span class="nf">seek</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">position_samples</span><span class="p">:</span> <span class="nb">int</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">_clock</span><span class="o">.</span><span class="n">seek</span><span class="p">(</span><span class="n">position_samples</span><span class="p">)</span>
+<a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a>    <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_state</span> <span class="o">==</span> <span class="n">TransportState</span><span class="o">.</span><span class="n">STOPPED</span><span class="p">:</span>
+<a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a>        <span class="bp">self</span><span class="o">.</span><span class="n">_stop_position</span> <span class="o">=</span> <span class="nb">max</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="n">position_samples</span><span class="p">)</span>
+</code></pre></div>
+<p>If the user seeks while playing (e.g. scrubs to a new position), <code>_stop_position</code> is NOT updated. When stop() is later called, the transport returns to the <em>pre-seek</em> position, not the seek position. This is a surprising and almost certainly wrong behavior — the user scrubbed to a new location and then stopped; they expect stop to return to where they last seeked, not some prior location.</p>
+<p><strong>Fix:</strong> Update <code>_stop_position</code> regardless of state, or at minimum document this as a deliberate design choice with a rationale.</p>
+<hr />
+<h3 id="audiolayerread_into-no-guard-against-frames-lenout">🟡 <code>AudioLayer.read_into()</code> — No Guard Against <code>frames &gt; len(out)</code><a class="headerlink" href="#audiolayerread_into-no-guard-against-frames-lenout" title="Permanent link">&para;</a></h3>
+<p><strong>File:</strong> <code>layer.py:80</code></p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="n">out</span><span class="p">[:</span><span class="n">frames</span><span class="p">]</span> <span class="o">=</span> <span class="mf">0.0</span>
+</code></pre></div>
+<p>If <code>frames &gt; len(out)</code>, this silently writes nothing (numpy slice beyond array end is a no-op on zeros, but assignment works up to the array length). The <code>out_end</code> calculation is also unchecked against <code>len(out)</code>. If the caller accidentally passes a <code>frames</code> larger than the pre-allocated buffer, the write is silently truncated. For DAW infrastructure, a silent data loss bug is unacceptable.</p>
+<p><strong>Fix:</strong> Add <code>assert len(out) &gt;= frames</code> at the top of <code>read_into()</code>, or raise <code>ValueError</code>.</p>
+<hr />
+<h3 id="resample_buffer-empty-buffer-crashes">🟡 <code>resample_buffer()</code> — Empty Buffer Crashes<a class="headerlink" href="#resample_buffer-empty-buffer-crashes" title="Permanent link">&para;</a></h3>
+<p><strong>File:</strong> <code>layer.py:30–40</code></p>
+<p>If <code>buffer</code> has length 0: <code>new_len = 0</code>, <code>indices</code> is empty, but <code>idx_floor</code> and <code>idx_ceil</code> are also empty, and <code>idx_ceil = np.minimum(idx_floor + 1, len(buffer) - 1)</code> computes <code>np.minimum(..., -1)</code>, which is valid but semantically wrong. If <code>source_sr != target_sr</code> and <code>len(buffer) == 0</code>, you'll get an empty float32 array — probably fine, but untested.</p>
+<p><strong>Fix:</strong> Add early return for empty buffer: <code>if len(buffer) == 0: return buffer</code>.</p>
+<hr />
+<h2 id="2-what-if-scenarios">2. What-If Scenarios<a class="headerlink" href="#2-what-if-scenarios" title="Permanent link">&para;</a></h2>
+<h3 id="what-if-the-user-seeks-during-a-crossfade">🔴 What if the user seeks during a crossfade?<a class="headerlink" href="#what-if-the-user-seeks-during-a-crossfade" title="Permanent link">&para;</a></h3>
+<p>The crossfade state (<code>CrossfadeBuffer</code>) is purely functional — <code>apply()</code> takes its inputs explicitly, and there's no persistent "currently crossfading" state. A seek mid-callback can't corrupt the crossfade object itself.</p>
+<p><strong>However:</strong> <code>seek()</code> writes to <code>_clock._position</code> from the main thread while the audio callback reads <code>_clock._position</code> (via <code>advance()</code>) on the RT thread. Python's GIL makes individual int reads/writes atomic, which is the stated assumption. The real problem is that a seek during the split-read path (between the first and second <code>read_mix()</code> calls in the loop-wrap branch) cannot be atomically detected — the position changes mid-buffer assembly. The split-read will use the pre-seek <code>position</code> for <code>pre_audio</code> but the crossfade placement is now wrong because <code>last_wrap_offset</code> was set based on the pre-seek position. Result: a partial-buffer glitch click. Not catastrophic, but audible.</p>
+<p><strong>Additionally:</strong> A seek while <code>_transport.is_playing</code> is True but before <code>advance()</code> runs causes <code>advance()</code> to use the new seek position as <code>read_pos</code> — correct behavior. A seek <em>after</em> <code>advance()</code> but before <code>outdata[:] =</code> assignment means we advance with the right position but then seek was wasted — also fine. The window is narrow enough that the GIL protects it in CPython, but this is a correctness assumption that must be documented.</p>
+<p><strong>Fix:</strong> Document the GIL dependency explicitly. Consider adding a <code>volatile_seek</code> flag that the callback checks and skips the current buffer (outputs silence) on a seek, preventing the torn-read scenario.</p>
+<hr />
+<h3 id="what-if-buffer-size-loop-length">🔴 What if buffer size &gt; loop length?<a class="headerlink" href="#what-if-buffer-size-loop-length" title="Permanent link">&para;</a></h3>
+<p>As documented in Issue #4 above (multiple-wrap corruption), this is a hard crash/corruption scenario. The engine makes no assertion and no documentation states this is prohibited.</p>
+<p><strong>Fix:</strong> In <code>_open_stream()</code> or <code>play()</code>, assert <code>buffer_size &lt;= min(loop_length_samples)</code> when loop is enabled. Or handle multi-wrap within a single buffer in <code>_audio_callback</code>.</p>
+<hr />
+<h3 id="what-if-a-layers-sample-rate-doesnt-match-after-resample">🟡 What if a layer's sample rate doesn't match after resample?<a class="headerlink" href="#what-if-a-layers-sample-rate-doesnt-match-after-resample" title="Permanent link">&para;</a></h3>
+<p><code>AudioLayer.__init__</code> calls <code>resample_buffer()</code> which uses linear interpolation. After resampling, <code>self.sample_rate</code> is set to <code>target_sr</code>. If the caller checks <code>layer.sample_rate</code> and it equals <code>engine.sample_rate</code>, that's correct. But:</p>
+<ul>
+<li>
+<p><code>resample_buffer()</code> uses <code>int(len(buffer) * ratio)</code> which truncates. A 48000-sample buffer at 48kHz resampled to 44100 Hz gives <code>int(48000 * 44100/48000) = int(44100.0) = 44100</code>. This is correct here, but for non-integer ratios (e.g. 22050→44100: exact; 44100→48000: <code>int(44100 * 48000/44100) = int(48000.0) = 48000</code> — also exact). For arbitrary rates like 32000→44100: <code>int(32000 * 44100/32000) = int(44100.0) = 44100</code>. The <code>abs(len(result) - 44100) &lt;= 1</code> tolerance in tests covers off-by-ones, but the buffer could be 1 sample short — meaning <code>duration_seconds</code> is very slightly wrong. Not a crash, but can cause subtle off-by-one in loop end detection.</p>
+</li>
+<li>
+<p>There is no post-resample validation that <code>len(buffer) &gt; 0</code>. A zero-length buffer gets through silently.</p>
+</li>
+</ul>
+<p><strong>Fix:</strong> After resample, verify <code>len(buffer) &gt; 0</code>. Log a warning if off-by-more-than-1. Add a test for a non-standard sample rate like 32000→44100.</p>
+<hr />
+<h3 id="what-if-all-layers-are-removed-while-playing">🔴 What if all layers are removed while playing?<a class="headerlink" href="#what-if-all-layers-are-removed-while-playing" title="Permanent link">&para;</a></h3>
+<p><code>Mixer.read_mix()</code> snapshots <code>layers = self._layers</code> at the top. If <code>clear()</code> or <code>remove_layer()</code> is called from the main thread between callback invocations, the next callback sees an empty list and returns silence immediately. <strong>This is safe.</strong></p>
+<p>However: <code>_audio_callback</code> checks <code>duration = self._mixer.duration_samples</code> after advancing the clock. <code>duration_samples</code> on an empty mixer returns <code>0</code>. The condition is:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="k">if</span> <span class="n">duration</span> <span class="o">&gt;</span> <span class="mi">0</span> <span class="ow">and</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">_clock</span><span class="o">.</span><span class="n">loop_enabled</span><span class="p">:</span>
+<a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a>    <span class="k">if</span> <span class="n">position</span> <span class="o">&gt;=</span> <span class="n">duration</span><span class="p">:</span>
+<a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a>        <span class="o">...</span>
+</code></pre></div>
+<p>With <code>duration == 0</code>, the condition <code>duration &gt; 0</code> is False — so the auto-stop check is skipped. The engine will keep playing (advancing the clock, outputting silence) indefinitely. It will never auto-stop. If the user removed all layers expecting the track to stop, it won't. Clock keeps running.</p>
+<p><strong>Fix:</strong> When <code>duration == 0</code> and not looping and there are no layers, either auto-pause or document that removing all layers does not auto-stop.</p>
+<hr />
+<h3 id="what-if-the-crossfade-length-half-the-loop-region">🟡 What if the crossfade length &gt; half the loop region?<a class="headerlink" href="#what-if-the-crossfade-length-half-the-loop-region" title="Permanent link">&para;</a></h3>
+<p><code>xfade_len = min(xfade.length, wrap_offset, remaining)</code> in the engine clamps the crossfade to fit in the buffer. But if <code>xfade.length &gt; loop_length / 2</code>, consecutive crossfades will overlap in the audio content — the fade-in from wrap N will still be playing when the fade-out for wrap N+1 begins. This produces a flanger/chorus artifact rather than a click, but the perceived loudness and timbre will be wrong.</p>
+<p>At the default 4ms crossfade and 44100 Hz, the crossfade is 176 samples. Any loop shorter than 352 samples (~8ms) will exhibit this artifact. Users can set arbitrary loop regions including very short ones (the <code>LoopRegion</code> only validates <code>end &gt; start</code> with no minimum).</p>
+<p><strong>Fix:</strong> Enforce a minimum loop length of <code>2 * crossfade_samples</code> in <code>set_loop()</code>. Document the constraint. Or dynamically reduce crossfade length when loop region is short.</p>
+<hr />
+<h3 id="what-if-two-seeks-happen-in-rapid-succession">🟡 What if two seeks happen in rapid succession?<a class="headerlink" href="#what-if-two-seeks-happen-in-rapid-succession" title="Permanent link">&para;</a></h3>
+<p>Under the GIL, each <code>self._position = max(0, position_samples)</code> in <code>Clock.seek()</code> is atomic. Two seeks from the main thread in the same Python thread execute sequentially — the second wins. From two Python threads, the GIL serializes them; second wins. From a thread + callback: the callback calls <code>advance()</code> which reads <code>_position</code>, then seeks happen, then callback writes <code>new_pos</code> back. If a seek happens after <code>read_pos = self._position</code> but before <code>self._position = new_pos</code>, the advance will overwrite the seek's value with <code>new_pos = seek_value + frames</code> — effectively a seek-then-advance, which is correct behavior.</p>
+<p>The real problem is <code>_stop_position</code> in Transport. Two seeks in STOPPED state both update <code>_stop_position</code>; whichever runs second wins. That's fine. Two seeks in PLAYING state — <code>_stop_position</code> is never updated (per Issue #5), so both seeks are equally "ignored" for stop-return-position. Consistent but wrong.</p>
+<p><strong>No crash, but correctness degrades.</strong> Document as a known limitation or fix Issue #5.</p>
+<hr />
+<h3 id="what-if-sounddevice-reports-a-status-error-in-the-callback">🟡 What if sounddevice reports a status error in the callback?<a class="headerlink" href="#what-if-sounddevice-reports-a-status-error-in-the-callback" title="Permanent link">&para;</a></h3>
+<p><strong>File:</strong> <code>engine.py:152</code></p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="k">def</span><span class="w"> </span><span class="nf">_audio_callback</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">outdata</span><span class="p">,</span> <span class="n">frames</span><span class="p">,</span> <span class="n">time_info</span><span class="p">,</span> <span class="n">status</span><span class="p">):</span>
+</code></pre></div>
+<p><code>status</code> is a <code>sounddevice.CallbackFlags</code> object. The engine completely ignores it. A non-zero status indicates buffer underrun (<code>output_underflow</code>), buffer overflow, or other device errors. These are the most actionable signals for detecting audio glitches.</p>
+<p>The comment "No exceptions" in the docstring refers to not <em>raising</em> exceptions in the callback, which is correct. But silently discarding status means:
+- UI team gets no feedback on glitches
+- Debug builds can't detect underruns
+- Production gets silent audio artifacts with no log entry</p>
+<p><strong>Fix:</strong> At minimum, log <code>status</code> to a lock-free ring buffer readable by the main thread (not <code>logging.warning()</code> — that allocates). Consider exposing a <code>glitch_count</code> counter (atomic int increment is GIL-safe) so the UI can display a glitch indicator.</p>
+<hr />
+<h3 id="what-if-a-subscriber-throws-an-exception">🔴 What if a subscriber throws an exception?<a class="headerlink" href="#what-if-a-subscriber-throws-an-exception" title="Permanent link">&para;</a></h3>
+<p><strong>File:</strong> <code>clock.py:104–106</code></p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="n">subs</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_subscribers</span>
+<a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a><span class="k">for</span> <span class="n">sub</span> <span class="ow">in</span> <span class="n">subs</span><span class="p">:</span>
+<a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a>    <span class="n">sub</span><span class="o">.</span><span class="n">on_clock_tick</span><span class="p">(</span><span class="n">read_pos</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_sample_rate</span><span class="p">)</span>
+</code></pre></div>
+<p>No try/except. If any subscriber raises, the exception propagates out of <code>advance()</code>, back into <code>_audio_callback()</code>, and out of the callback. <code>sounddevice</code> will catch it (to prevent RT thread crash), silently abort the callback, and the stream may stop. This is essentially: <strong>one bad UI subscriber kills audio for all subscribers and potentially the entire stream.</strong></p>
+<p><strong>Fix:</strong> Wrap each <code>sub.on_clock_tick()</code> call in a try/except. On exception, remove the offending subscriber from the list (copy-on-write), increment an error counter. Never let a subscriber crash the audio thread.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="n">bad_subs</span> <span class="o">=</span> <span class="p">[]</span>
+<a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a><span class="k">for</span> <span class="n">sub</span> <span class="ow">in</span> <span class="n">subs</span><span class="p">:</span>
+<a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a>    <span class="k">try</span><span class="p">:</span>
+<a id="__codelineno-9-4" name="__codelineno-9-4" href="#__codelineno-9-4"></a>        <span class="n">sub</span><span class="o">.</span><span class="n">on_clock_tick</span><span class="p">(</span><span class="n">read_pos</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_sample_rate</span><span class="p">)</span>
+<a id="__codelineno-9-5" name="__codelineno-9-5" href="#__codelineno-9-5"></a>    <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>
+<a id="__codelineno-9-6" name="__codelineno-9-6" href="#__codelineno-9-6"></a>        <span class="n">bad_subs</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">sub</span><span class="p">)</span>
+<a id="__codelineno-9-7" name="__codelineno-9-7" href="#__codelineno-9-7"></a><span class="k">if</span> <span class="n">bad_subs</span><span class="p">:</span>
+<a id="__codelineno-9-8" name="__codelineno-9-8" href="#__codelineno-9-8"></a>    <span class="c1"># schedule removal — can&#39;t acquire lock here</span>
+<a id="__codelineno-9-9" name="__codelineno-9-9" href="#__codelineno-9-9"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">_pending_remove</span><span class="o">.</span><span class="n">extend</span><span class="p">(</span><span class="n">bad_subs</span><span class="p">)</span>
+</code></pre></div>
+<p>Or simpler: bare <code>except Exception: pass</code> with an atomic error counter.</p>
+<hr />
+<h2 id="3-performance-concerns">3. Performance Concerns<a class="headerlink" href="#3-performance-concerns" title="Permanent link">&para;</a></h2>
+<h3 id="engine_audio_callback-three-read_mix-calls-on-loop-wrap-path">🔴 <code>engine._audio_callback()</code> — Three <code>read_mix()</code> Calls on Loop Wrap Path<a class="headerlink" href="#engine_audio_callback-three-read_mix-calls-on-loop-wrap-path" title="Permanent link">&para;</a></h3>
+<p><strong>File:</strong> <code>engine.py:171–185</code></p>
+<p>On every buffer that contains a loop wrap, the engine calls <code>read_mix()</code> three times:
+1. <code>pre_mix = self._mixer.read_mix(position, wrap_offset)</code> — correct
+2. <code>post_mix = self._mixer.read_mix(loop_region.start, remaining)</code> — correct
+3. <code>mixed = self._mixer.read_mix(position, frames)</code> — <strong>wrong and wasteful</strong></p>
+<p>Each <code>read_mix()</code> iterates all layers, calls <code>read_into()</code> on each, accumulates, clips. At 8 layers, that's 24 layer reads per wrap event instead of 16. At 44100 Hz with a 256-sample buffer and a short loop, wraps happen every ~6ms = every callback. This is a constant 50% CPU overhead on the mix step for looping content.</p>
+<p><strong>Fix:</strong> Eliminate the third call as described in Issue #2.</p>
+<hr />
+<h3 id="mixerread_mix-anylsolo-for-l-in-layers-every-callback">🟡 <code>Mixer.read_mix()</code> — <code>any(l.solo for l in layers)</code> Every Callback<a class="headerlink" href="#mixerread_mix-anylsolo-for-l-in-layers-every-callback" title="Permanent link">&para;</a></h3>
+<p><strong>File:</strong> <code>mixer.py:104</code></p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a><span class="n">any_solo</span> <span class="o">=</span> <span class="nb">any</span><span class="p">(</span><span class="n">l</span><span class="o">.</span><span class="n">solo</span> <span class="k">for</span> <span class="n">l</span> <span class="ow">in</span> <span class="n">layers</span><span class="p">)</span>
+</code></pre></div>
+<p>This iterates all layers on every callback to check solo state. With 20 layers this is 20 attribute reads per ~5ms. For a simple flag, maintain a <code>_solo_count</code> integer that's incremented/decremented on <code>solo_exclusive()</code> / <code>unsolo_all()</code> and whenever <code>layer.solo</code> is mutated. This makes the hot-path check O(1) instead of O(n).</p>
+<p>However, since <code>layer.solo</code> is a plain attribute that can be set directly on the <code>AudioLayer</code> object (bypassing Mixer entirely), <code>_solo_count</code> would be stale. Either make <code>solo</code> a property with a callback or document that solo must be set through Mixer methods.</p>
+<hr />
+<h3 id="clockadvance-subscriber-notification-allocates-on-exception-path">🟡 <code>Clock.advance()</code> — Subscriber Notification Allocates on Exception Path<a class="headerlink" href="#clockadvance-subscriber-notification-allocates-on-exception-path" title="Permanent link">&para;</a></h3>
+<p>The subscriber loop itself is allocation-free when everything succeeds. But the Python interpreter's internal exception tracking machinery (if any subscriber raises) allocates. This is minor and only happens on error paths, but combine with Issue (subscriber exception) above.</p>
+<hr />
+<h3 id="mixerread_mix-hard-clip-uses-temporary-view">🟢 <code>Mixer.read_mix()</code> — Hard Clip Uses Temporary View<a class="headerlink" href="#mixerread_mix-hard-clip-uses-temporary-view" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a><span class="n">np</span><span class="o">.</span><span class="n">clip</span><span class="p">(</span><span class="n">out</span><span class="p">,</span> <span class="o">-</span><span class="mf">1.0</span><span class="p">,</span> <span class="mf">1.0</span><span class="p">,</span> <span class="n">out</span><span class="o">=</span><span class="n">out</span><span class="p">)</span>
+</code></pre></div>
+<p>This is in-place and allocation-free. ✅ But it runs even when the summed signal is well within [-1, 1] (e.g. a single quiet layer). Consider a fast-path check: <code>if np.any((out &gt; 1.0) | (out &lt; -1.0))</code> before calling <code>np.clip</code>. However, <code>np.any</code> itself iterates the array, so this is only a win if clipping is rare. Leave as-is for now.</p>
+<hr />
+<h3 id="resample_buffer-linear-interpolation-quality">🟢 <code>resample_buffer()</code> — Linear Interpolation Quality<a class="headerlink" href="#resample_buffer-linear-interpolation-quality" title="Permanent link">&para;</a></h3>
+<p>As noted in the source comment, linear interpolation introduces aliasing artifacts at high frequencies during downsampling. For a production DAW this will be audible on content above Nyquist/2. The comment acknowledges this and defers to libsamplerate. Fine for v1 preview builds, but must be replaced before final ship.</p>
+<hr />
+<h2 id="4-missing-test-coverage">4. Missing Test Coverage<a class="headerlink" href="#4-missing-test-coverage" title="Permanent link">&para;</a></h2>
+<h3 id="no-test-buffer-size-loop-length-multiple-wraps">🔴 No Test: Buffer Size &gt; Loop Length (Multiple Wraps)<a class="headerlink" href="#no-test-buffer-size-loop-length-multiple-wraps" title="Permanent link">&para;</a></h3>
+<p>The case where <code>frames &gt; loop_length_samples</code> is never tested. This is the scenario that produces silent data corruption (see Issue #4). A test like:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a><span class="k">def</span><span class="w"> </span><span class="nf">test_callback_buffer_larger_than_loop</span><span class="p">():</span>
+<a id="__codelineno-12-2" name="__codelineno-12-2" href="#__codelineno-12-2"></a>    <span class="n">engine</span> <span class="o">=</span> <span class="n">AudioEngine</span><span class="p">(</span><span class="n">buffer_size</span><span class="o">=</span><span class="mi">512</span><span class="p">,</span> <span class="o">...</span><span class="p">)</span>
+<a id="__codelineno-12-3" name="__codelineno-12-3" href="#__codelineno-12-3"></a>    <span class="n">engine</span><span class="o">.</span><span class="n">add_layer</span><span class="p">(</span><span class="o">...</span><span class="p">)</span>
+<a id="__codelineno-12-4" name="__codelineno-12-4" href="#__codelineno-12-4"></a>    <span class="n">engine</span><span class="o">.</span><span class="n">clock</span><span class="o">.</span><span class="n">set_loop</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">100</span><span class="p">)</span>  <span class="c1"># 100 samples, buffer is 512</span>
+<a id="__codelineno-12-5" name="__codelineno-12-5" href="#__codelineno-12-5"></a>    <span class="n">engine</span><span class="o">.</span><span class="n">clock</span><span class="o">.</span><span class="n">loop_enabled</span> <span class="o">=</span> <span class="kc">True</span>
+<a id="__codelineno-12-6" name="__codelineno-12-6" href="#__codelineno-12-6"></a>    <span class="n">engine</span><span class="o">.</span><span class="n">play</span><span class="p">()</span>
+<a id="__codelineno-12-7" name="__codelineno-12-7" href="#__codelineno-12-7"></a>    <span class="c1"># This should either work correctly or raise a clear error</span>
+<a id="__codelineno-12-8" name="__codelineno-12-8" href="#__codelineno-12-8"></a>    <span class="n">outdata</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">zeros</span><span class="p">((</span><span class="mi">512</span><span class="p">,</span> <span class="mi">1</span><span class="p">),</span> <span class="n">dtype</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">float32</span><span class="p">)</span>
+<a id="__codelineno-12-9" name="__codelineno-12-9" href="#__codelineno-12-9"></a>    <span class="n">engine</span><span class="o">.</span><span class="n">_audio_callback</span><span class="p">(</span><span class="n">outdata</span><span class="p">,</span> <span class="mi">512</span><span class="p">,</span> <span class="kc">None</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span>
+<a id="__codelineno-12-10" name="__codelineno-12-10" href="#__codelineno-12-10"></a>    <span class="c1"># Verify output is valid (no NaN, no values outside [-1, 1])</span>
+<a id="__codelineno-12-11" name="__codelineno-12-11" href="#__codelineno-12-11"></a>    <span class="k">assert</span> <span class="ow">not</span> <span class="n">np</span><span class="o">.</span><span class="n">any</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">isnan</span><span class="p">(</span><span class="n">outdata</span><span class="p">))</span>
+<a id="__codelineno-12-12" name="__codelineno-12-12" href="#__codelineno-12-12"></a>    <span class="k">assert</span> <span class="n">np</span><span class="o">.</span><span class="n">max</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">abs</span><span class="p">(</span><span class="n">outdata</span><span class="p">))</span> <span class="o">&lt;=</span> <span class="mf">1.0</span>
+</code></pre></div>
+<hr />
+<h3 id="no-test-subscriber-exception-isolation">🔴 No Test: Subscriber Exception Isolation<a class="headerlink" href="#no-test-subscriber-exception-isolation" title="Permanent link">&para;</a></h3>
+<p>No test verifies that a throwing subscriber doesn't kill the audio thread or stop other subscribers from receiving ticks.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a><span class="k">def</span><span class="w"> </span><span class="nf">test_subscriber_exception_does_not_kill_audio</span><span class="p">():</span>
+<a id="__codelineno-13-2" name="__codelineno-13-2" href="#__codelineno-13-2"></a>    <span class="n">clock</span> <span class="o">=</span> <span class="n">Clock</span><span class="p">(</span><span class="mi">44100</span><span class="p">)</span>
+<a id="__codelineno-13-3" name="__codelineno-13-3" href="#__codelineno-13-3"></a>    <span class="n">bad_sub</span> <span class="o">=</span> <span class="n">BadSubscriber</span><span class="p">()</span>  <span class="c1"># raises on every tick</span>
+<a id="__codelineno-13-4" name="__codelineno-13-4" href="#__codelineno-13-4"></a>    <span class="n">good_sub</span> <span class="o">=</span> <span class="n">RecordingSubscriber</span><span class="p">()</span>
+<a id="__codelineno-13-5" name="__codelineno-13-5" href="#__codelineno-13-5"></a>    <span class="n">clock</span><span class="o">.</span><span class="n">add_subscriber</span><span class="p">(</span><span class="n">bad_sub</span><span class="p">)</span>
+<a id="__codelineno-13-6" name="__codelineno-13-6" href="#__codelineno-13-6"></a>    <span class="n">clock</span><span class="o">.</span><span class="n">add_subscriber</span><span class="p">(</span><span class="n">good_sub</span><span class="p">)</span>
+<a id="__codelineno-13-7" name="__codelineno-13-7" href="#__codelineno-13-7"></a>    <span class="n">clock</span><span class="o">.</span><span class="n">advance</span><span class="p">(</span><span class="mi">256</span><span class="p">)</span>
+<a id="__codelineno-13-8" name="__codelineno-13-8" href="#__codelineno-13-8"></a>    <span class="k">assert</span> <span class="nb">len</span><span class="p">(</span><span class="n">good_sub</span><span class="o">.</span><span class="n">ticks</span><span class="p">)</span> <span class="o">==</span> <span class="mi">1</span>  <span class="c1"># good sub still fires</span>
+</code></pre></div>
+<hr />
+<h3 id="no-test-seek-during-active-playback-stop-returns-wrong-position">🔴 No Test: seek() During Active Playback + Stop Returns Wrong Position<a class="headerlink" href="#no-test-seek-during-active-playback-stop-returns-wrong-position" title="Permanent link">&para;</a></h3>
+<p>The Transport.seek()-while-playing / stop-returns-wrong-position bug (Issue #5) has no test. Adding one would immediately expose the bug.</p>
+<hr />
+<h3 id="no-test-crossfade-clipping">🟡 No Test: Crossfade Clipping<a class="headerlink" href="#no-test-crossfade-clipping" title="Permanent link">&para;</a></h3>
+<p>No test verifies that the crossfade output stays within [-1, 1] when tail and head are both at full scale (1.0). Given the equal-power issue identified in Issue #3, this test would fail:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a><span class="k">def</span><span class="w"> </span><span class="nf">test_crossfade_does_not_exceed_unity</span><span class="p">():</span>
+<a id="__codelineno-14-2" name="__codelineno-14-2" href="#__codelineno-14-2"></a>    <span class="n">xfade</span> <span class="o">=</span> <span class="n">CrossfadeBuffer</span><span class="p">(</span><span class="mi">64</span><span class="p">)</span>
+<a id="__codelineno-14-3" name="__codelineno-14-3" href="#__codelineno-14-3"></a>    <span class="n">output</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span><span class="mi">128</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">float32</span><span class="p">)</span>
+<a id="__codelineno-14-4" name="__codelineno-14-4" href="#__codelineno-14-4"></a>    <span class="n">tail</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">ones</span><span class="p">(</span><span class="mi">64</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">float32</span><span class="p">)</span>
+<a id="__codelineno-14-5" name="__codelineno-14-5" href="#__codelineno-14-5"></a>    <span class="n">head</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">ones</span><span class="p">(</span><span class="mi">64</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">float32</span><span class="p">)</span>
+<a id="__codelineno-14-6" name="__codelineno-14-6" href="#__codelineno-14-6"></a>    <span class="n">xfade</span><span class="o">.</span><span class="n">apply</span><span class="p">(</span><span class="n">output</span><span class="p">,</span> <span class="n">tail</span><span class="p">,</span> <span class="n">head</span><span class="p">,</span> <span class="mi">32</span><span class="p">,</span> <span class="mi">64</span><span class="p">)</span>
+<a id="__codelineno-14-7" name="__codelineno-14-7" href="#__codelineno-14-7"></a>    <span class="k">assert</span> <span class="n">np</span><span class="o">.</span><span class="n">max</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">abs</span><span class="p">(</span><span class="n">output</span><span class="p">[</span><span class="mi">32</span><span class="p">:</span><span class="mi">96</span><span class="p">]))</span> <span class="o">&lt;=</span> <span class="mf">1.0</span>  <span class="c1"># FAILS: peaks at √2 ≈ 1.414</span>
+</code></pre></div>
+<hr />
+<h3 id="no-test-add_layer-with-multichannel-2d-buffer">🟡 No Test: add_layer() With Multichannel (2D) Buffer<a class="headerlink" href="#no-test-add_layer-with-multichannel-2d-buffer" title="Permanent link">&para;</a></h3>
+<p>The mixer and layer assume 1D float32 buffers. What happens if someone passes a stereo (N×2) array? <code>read_into()</code> does <code>out[:frames] = self.buffer[buf_start:buf_end]</code> where both sides are 2D/1D mismatched — numpy will broadcast or raise. There's no validation and no test.</p>
+<hr />
+<h3 id="no-test-empty-mixer-auto-stop-behavior">🟡 No Test: Empty Mixer Auto-Stop Behavior<a class="headerlink" href="#no-test-empty-mixer-auto-stop-behavior" title="Permanent link">&para;</a></h3>
+<p>No test verifies what happens when all layers are removed during playback (see Issue #6). Expected behavior is ambiguous and untested.</p>
+<hr />
+<h3 id="no-test-wrap_offset-0-edge-case">🟡 No Test: <code>wrap_offset == 0</code> Edge Case<a class="headerlink" href="#no-test-wrap_offset-0-edge-case" title="Permanent link">&para;</a></h3>
+<p>No test for a loop wrap occurring at exactly the first sample of the buffer. The condition <code>if wrap_offset &gt; 0</code> silently mishandles this case.</p>
+<hr />
+<h3 id="no-test-sounddevice-status-error-handling">🟡 No Test: <code>sounddevice</code> Status Error Handling<a class="headerlink" href="#no-test-sounddevice-status-error-handling" title="Permanent link">&para;</a></h3>
+<p>No test passes a non-None <code>status</code> to <code>_audio_callback</code> to verify it doesn't crash or corrupt state.</p>
+<hr />
+<h3 id="no-test-mixer_scratch-overflow">🟡 No Test: <code>Mixer._scratch</code> Overflow<a class="headerlink" href="#no-test-mixer_scratch-overflow" title="Permanent link">&para;</a></h3>
+<p>No test exercises <code>read_mix()</code> with <code>frames &gt; _MAX_SCRATCH_FRAMES // 2</code>. This would catch the buffer overlap corruption silently failing or raising.</p>
+<hr />
+<h3 id="no-test-layer-volume00-silence">🟢 No Test: Layer <code>volume=0.0</code> (Silence)<a class="headerlink" href="#no-test-layer-volume00-silence" title="Permanent link">&para;</a></h3>
+<p>Edge case: a layer with volume=0.0 should produce silence without NaN/inf.</p>
+<hr />
+<h3 id="no-test-non-standard-sample-rate-resample-eg-3200044100">🟢 No Test: Non-Standard Sample Rate Resample (e.g. 32000→44100)<a class="headerlink" href="#no-test-non-standard-sample-rate-resample-eg-3200044100" title="Permanent link">&para;</a></h3>
+<p>Only 22050↔44100 and 48000→44100 are tested. A 32000 Hz source has a non-integer ratio.</p>
+<hr />
+<h2 id="5-api-design-issues">5. API Design Issues<a class="headerlink" href="#5-api-design-issues" title="Permanent link">&para;</a></h2>
+<h3 id="mixerread_mix-returns-a-view-into-internal-scratch-buffer">🔴 <code>Mixer.read_mix()</code> Returns a View Into Internal Scratch Buffer<a class="headerlink" href="#mixerread_mix-returns-a-view-into-internal-scratch-buffer" title="Permanent link">&para;</a></h3>
+<p><strong>File:</strong> <code>mixer.py:131</code></p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a><span class="k">return</span> <span class="n">out</span>  <span class="c1"># view into self._scratch</span>
+</code></pre></div>
+<p>The docstring says: <em>"Note: we return a view, so caller must consume before next read_mix call."</em> This is a ticking time bomb. The UI team will store this array, pass it around, and eventually read stale data or see it mutated. Python has no <code>const</code> reference mechanism.</p>
+<p>The engine partially handles this with <code>.copy()</code> on the loop-wrap path, but on the <strong>normal path</strong> (no wrap), <code>outdata[:, 0] = mixed</code> is fine only because the assignment happens in the same callback. But <code>mixed</code> is returned to any caller of <code>read_mix()</code> — if a test or future code stores it, it's a silent bug.</p>
+<p><strong>Fix:</strong> Either document this extremely loudly (the current docstring buries it), return a copy always (costs one allocation per callback), or rename to <code>read_mix_into(output_buffer)</code> where the caller provides the destination.</p>
+<hr />
+<h3 id="audioengine-exposes-clock-transport-mixer-directly">🟡 <code>AudioEngine</code> Exposes <code>clock</code>, <code>transport</code>, <code>mixer</code> Directly<a class="headerlink" href="#audioengine-exposes-clock-transport-mixer-directly" title="Permanent link">&para;</a></h3>
+<p>The engine properties <code>clock</code>, <code>transport</code>, and <code>mixer</code> return the raw internal objects. The UI team can call <code>engine.clock.advance()</code> or <code>engine.mixer._scratch</code> directly, bypassing all the engine's coordination logic. This has already caused one design issue: the test accesses <code>engine._end_of_content</code> directly.</p>
+<p><strong>Fix:</strong> For v1 this is acceptable — internal access is needed for testing. But document clearly which methods are "public API" vs "internal/test-only". Consider a <code>__all__</code> or explicit private naming.</p>
+<hr />
+<h3 id="crossfadebufferapply-signature-is-confusing">🟡 <code>CrossfadeBuffer.apply()</code> Signature Is Confusing<a class="headerlink" href="#crossfadebufferapply-signature-is-confusing" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-16-1" name="__codelineno-16-1" href="#__codelineno-16-1"></a><span class="k">def</span><span class="w"> </span><span class="nf">apply</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">output</span><span class="p">,</span> <span class="n">tail_audio</span><span class="p">,</span> <span class="n">head_audio</span><span class="p">,</span> <span class="n">xfade_start</span><span class="p">,</span> <span class="n">xfade_len</span><span class="p">):</span>
+</code></pre></div>
+<ul>
+<li><code>tail_audio</code> and <code>head_audio</code> must already be sliced to <code>xfade_len</code> or at least that long. The function silently truncates via <code>[:xfade_len]</code> slicing. If the caller passes shorter arrays, numpy silently produces a smaller crossfade region without error.</li>
+<li><code>xfade_start</code> is an index into <code>output</code>, not into <code>tail_audio</code> or <code>head_audio</code>. This is non-obvious.</li>
+<li>The internal <code>_tail_buf</code> and <code>_head_buf</code> scratch buffers are allocated but never used in <code>apply()</code>. They appear to be vestigial from an earlier design where <code>apply()</code> did its own mixer reads.</li>
+</ul>
+<p><strong>Fix:</strong> Remove unused <code>_tail_buf</code>/<code>_head_buf</code> from <code>CrossfadeBuffer</code> (saves memory, reduces confusion). Add parameter validation. Add a docstring example showing exactly how to call it.</p>
+<hr />
+<h3 id="transportreturn_to_start-has-inconsistent-state-semantics">🟡 <code>Transport.return_to_start()</code> Has Inconsistent State Semantics<a class="headerlink" href="#transportreturn_to_start-has-inconsistent-state-semantics" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-17-1" name="__codelineno-17-1" href="#__codelineno-17-1"></a><span class="k">def</span><span class="w"> </span><span class="nf">return_to_start</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<a id="__codelineno-17-2" name="__codelineno-17-2" href="#__codelineno-17-2"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">_stop_position</span> <span class="o">=</span> <span class="mi">0</span>
+<a id="__codelineno-17-3" name="__codelineno-17-3" href="#__codelineno-17-3"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">_clock</span><span class="o">.</span><span class="n">seek</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
+<a id="__codelineno-17-4" name="__codelineno-17-4" href="#__codelineno-17-4"></a>    <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_state</span> <span class="o">!=</span> <span class="n">TransportState</span><span class="o">.</span><span class="n">PLAYING</span><span class="p">:</span>
+<a id="__codelineno-17-5" name="__codelineno-17-5" href="#__codelineno-17-5"></a>        <span class="bp">self</span><span class="o">.</span><span class="n">_state</span> <span class="o">=</span> <span class="n">TransportState</span><span class="o">.</span><span class="n">STOPPED</span>
+</code></pre></div>
+<p>If called while PAUSED, this moves to position 0 AND transitions to STOPPED (kills the paused state). If called while PLAYING, it only seeks — transport stays PLAYING. This asymmetry is surprising: "return to start while paused" behaves differently than "seek to 0 while paused." There's also no test for <code>return_to_start()</code> while paused.</p>
+<hr />
+<h3 id="clocksample_rate-is-mutable-after-init">🟡 <code>Clock.sample_rate</code> Is Mutable After Init<a class="headerlink" href="#clocksample_rate-is-mutable-after-init" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-18-1" name="__codelineno-18-1" href="#__codelineno-18-1"></a><span class="nd">@sample_rate</span><span class="o">.</span><span class="n">setter</span>
+<a id="__codelineno-18-2" name="__codelineno-18-2" href="#__codelineno-18-2"></a><span class="k">def</span><span class="w"> </span><span class="nf">sample_rate</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">value</span><span class="p">:</span> <span class="nb">int</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<a id="__codelineno-18-3" name="__codelineno-18-3" href="#__codelineno-18-3"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">_sample_rate</span> <span class="o">=</span> <span class="n">value</span>
+</code></pre></div>
+<p>Changing <code>sample_rate</code> after layers have been added invalidates all sample-position calculations without any warning. Layers store <code>original_sample_rate</code> and are already resampled; the clock's sample rate change does not trigger re-resampling. Any loop region set in samples is now measured in the wrong unit.</p>
+<p><strong>Fix:</strong> Remove the setter or add validation that no layers are loaded when sample rate is changed. At minimum, raise <code>RuntimeError</code> if the stream is active.</p>
+<hr />
+<h3 id="loopregion-has-no-minimum-length-check">🟢 <code>LoopRegion</code> Has No Minimum Length Check<a class="headerlink" href="#loopregion-has-no-minimum-length-check" title="Permanent link">&para;</a></h3>
+<p><code>LoopRegion(start=0, end=1)</code> is valid — a 1-sample loop at 44100 Hz. The crossfade is 176 samples long. Every callback will be a wrap event. Every wrap will have <code>xfade_len = min(176, 1, buffer_size-1)</code> → 1 sample. This is valid code but useless audio. A minimum loop length equal to <code>2 * crossfade_samples</code> would prevent obviously broken configurations.</p>
+<hr />
+<h3 id="no-__repr__-on-audiolayer">🟢 No <code>__repr__</code> on <code>AudioLayer</code><a class="headerlink" href="#no-__repr__-on-audiolayer" title="Permanent link">&para;</a></h3>
+<p>For debugging in the REPL or logs, <code>print(layer)</code> gives <code>&lt;echozero.audio.layer.AudioLayer object at 0x...&gt;</code>. Add a <code>__repr__</code> showing id, name, duration, and sample rate.</p>
+<hr />
+<h2 id="summary-table">Summary Table<a class="headerlink" href="#summary-table" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>Severity</th>
+<th>Component</th>
+<th>Issue</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1</td>
+<td>🔴</td>
+<td>Mixer</td>
+<td>Scratch buffer overflow/overlap when <code>frames &gt; 4096</code></td>
+</tr>
+<tr>
+<td>2</td>
+<td>🔴</td>
+<td>Engine</td>
+<td>Third <code>read_mix()</code> call on loop-wrap path reads wrong position and corrupts output</td>
+</tr>
+<tr>
+<td>3</td>
+<td>🔴</td>
+<td>Engine</td>
+<td>Crossfade output can exceed [-1, 1] — no final clip</td>
+</tr>
+<tr>
+<td>4</td>
+<td>🔴</td>
+<td>Clock/Engine</td>
+<td>Buffer size &gt; loop length causes multi-wrap audio corruption</td>
+</tr>
+<tr>
+<td>5</td>
+<td>🟡</td>
+<td>Transport</td>
+<td><code>seek()</code> while playing doesn't update <code>_stop_position</code> → stop returns to wrong position</td>
+</tr>
+<tr>
+<td>6</td>
+<td>🟡</td>
+<td>Layer</td>
+<td>No bounds check in <code>read_into()</code> — silent data loss if <code>frames &gt; len(out)</code></td>
+</tr>
+<tr>
+<td>7</td>
+<td>🟡</td>
+<td>Layer</td>
+<td><code>resample_buffer()</code> crashes on empty buffer</td>
+</tr>
+<tr>
+<td>8</td>
+<td>🔴</td>
+<td>Clock</td>
+<td>Subscriber exception kills audio thread</td>
+</tr>
+<tr>
+<td>9</td>
+<td>🟡</td>
+<td>Engine</td>
+<td><code>sounddevice</code> status errors silently ignored</td>
+</tr>
+<tr>
+<td>10</td>
+<td>🟡</td>
+<td>Engine</td>
+<td><code>wrap_offset == 0</code> silently skips crossfade</td>
+</tr>
+<tr>
+<td>11</td>
+<td>🟡</td>
+<td>Clock</td>
+<td><code>last_wrap_offset</code> only set for first wrap — misleads engine on short loops</td>
+</tr>
+<tr>
+<td>12</td>
+<td>🔴</td>
+<td>Mixer</td>
+<td>Returns scratch buffer view — aliasing hazard for callers</td>
+</tr>
+<tr>
+<td>13</td>
+<td>🟡</td>
+<td>Mixer</td>
+<td><code>any_solo</code> O(n) scan every callback</td>
+</tr>
+<tr>
+<td>14</td>
+<td>🟡</td>
+<td>Transport</td>
+<td><code>return_to_start()</code> inconsistent state behavior while paused</td>
+</tr>
+<tr>
+<td>15</td>
+<td>🟡</td>
+<td>Clock</td>
+<td><code>sample_rate</code> mutable post-init without invalidating layer data</td>
+</tr>
+<tr>
+<td>16</td>
+<td>🟢</td>
+<td>Engine</td>
+<td>Loop wrap CPU: 3 mixer passes instead of 2</td>
+</tr>
+<tr>
+<td>17</td>
+<td>🟢</td>
+<td>Layer</td>
+<td>Linear interpolation resampling — aliasing on downsample</td>
+</tr>
+<tr>
+<td>18</td>
+<td>🟢</td>
+<td>Loop</td>
+<td>No minimum loop length enforcement vs crossfade duration</td>
+</tr>
+<tr>
+<td>19</td>
+<td>🟢</td>
+<td>CrossfadeBuffer</td>
+<td>Vestigial <code>_tail_buf</code>/<code>_head_buf</code> never used</td>
+</tr>
+</tbody>
+</table>
+<p><strong>🔴 Must-fix count: 6</strong><br />
+<strong>🟡 Should-fix count: 9</strong><br />
+<strong>🟢 Nice-to-have count: 4</strong></p>
+<hr />
+<h2 id="recommended-fix-priority">Recommended Fix Priority<a class="headerlink" href="#recommended-fix-priority" title="Permanent link">&para;</a></h2>
+<ol>
+<li><strong>Fix Issue #8 first</strong> (subscriber exception) — this is a guaranteed crash in production the moment any UI code throws in a clock callback.</li>
+<li><strong>Fix Issue #2 + #3 together</strong> (wrong third <code>read_mix()</code> + missing final clip) — same code path, fix simultaneously.</li>
+<li><strong>Fix Issue #1</strong> (scratch buffer overflow) — add assertion or second scratch buffer.</li>
+<li><strong>Fix Issue #4</strong> (buffer &gt; loop length) — add engine assertion and document hard constraint.</li>
+<li><strong>Fix Issue #12</strong> (scratch view aliasing) — add <code>.copy()</code> to <code>read_mix()</code> return, or redesign to take an output buffer.</li>
+<li>Then address 🟡 items in order of user-visibility (seek/stop position, status handling).</li>
+</ol>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.instant", "navigation.sections", "navigation.expand", "navigation.top", "search.suggest", "search.highlight", "content.code.copy", "toc.follow"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+    
+  </body>
+</html>
