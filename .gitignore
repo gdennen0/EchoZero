@@ -128,3 +128,5 @@ pip-delete-this-directory.txt
 # Uncomment if docs are generated and shouldn't be committed
 # docs/docs.json
 # docs/index.html.wrangler/
+
+site/
