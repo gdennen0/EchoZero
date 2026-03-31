@@ -30,7 +30,7 @@ from echozero.domain.events import (
     SettingsChangedEvent,
     create_event_id,
 )
-from echozero.domain.graph import Graph
+from echozero.domain.graph import Graph, GraphSnapshot
 from echozero.domain.types import Block, BlockSettings, Connection, Port
 from echozero.errors import DomainError
 from echozero.event_bus import EventBus
@@ -57,6 +57,21 @@ class CommandContext:
 
 
 # ---------------------------------------------------------------------------
+# CommandEnvelope
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class CommandEnvelope:
+    """Wraps a command execution with pre/post state for undo."""
+
+    command: Command
+    prior_snapshot: GraphSnapshot
+    post_snapshot: GraphSnapshot
+    sequence_number: int
+
+
+# ---------------------------------------------------------------------------
 # Pipeline
 # ---------------------------------------------------------------------------
 
@@ -64,10 +79,11 @@ class CommandContext:
 class Pipeline:
     """Routes commands to registered handlers, manages event collect/flush lifecycle."""
 
-    def __init__(self, event_bus: EventBus) -> None:
+    def __init__(self, event_bus: EventBus, graph: Graph | None = None) -> None:
         self._event_bus = event_bus
-        self._graph = Graph()
+        self._graph = graph or Graph()
         self._handlers: dict[type[Command], Callable[..., Any]] = {}
+        self._sequence: int = 0
         _register_default_handlers(self)
 
     @property
@@ -82,23 +98,38 @@ class Pipeline:
     def dispatch(self, command: Command) -> Result[Any]:
         """Execute a command through its registered handler.
 
-        On success: flushes collected events to EventBus, returns Ok.
-        On failure: discards collected events, returns Err.
+        On success: takes pre/post snapshots, creates CommandEnvelope, flushes
+        collected events to EventBus, returns Ok.
+        On failure: restores graph to prior state, discards collected events, returns Err.
         """
         handler = self._handlers.get(type(command))
         if handler is None:
             return err(DomainError(f"No handler registered for {type(command).__name__}"))
 
+        # Snapshot before execution
+        prior = self._graph.snapshot()
         context = CommandContext(graph=self._graph)
 
         try:
             result_value = handler(command, context)
         except Exception as exc:
-            # Discard collected events on failure
+            # Restore on failure — no events, no side effects
+            self._graph.restore(prior)
             logger.warning("Handler for %s failed: %s", type(command).__name__, exc)
             return err(exc)
 
-        # Success: flush events to bus
+        # Success: take post-snapshot, create envelope
+        post = self._graph.snapshot()
+        self._sequence += 1
+        envelope = CommandEnvelope(
+            command=command,
+            prior_snapshot=prior,
+            post_snapshot=post,
+            sequence_number=self._sequence,
+        )
+        # TODO: push to undo stack when it exists
+
+        # Flush events only after success
         for event in context.collected_events:
             self._event_bus.publish(event)
 

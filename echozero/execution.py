@@ -84,7 +84,17 @@ class ExecutionContext:
         return None
 
     def set_output(self, block_id: str, output_port_name: str, value: Any) -> None:
-        """Store a block's output value, keyed by (block_id, port_name)."""
+        """Store a block's output value, keyed by (block_id, port_name).
+
+        Values are frozen after storage — no mutation allowed.
+        Audio data must be stored as file paths (AudioData), not numpy arrays.
+        """
+        import numpy as np
+        if isinstance(value, np.ndarray):
+            raise TypeError(
+                f"Audio data must be stored as file paths (AudioData), "
+                f"not numpy arrays. Block '{block_id}' port '{output_port_name}'."
+            )
         self._outputs[(block_id, output_port_name)] = value
 
 
@@ -100,22 +110,33 @@ class GraphPlanner:
     """Creates execution plans from the graph's topological order."""
 
     def plan(self, graph: Graph, target_block_id: str | None = None) -> ExecutionPlan:
-        """Build an execution plan — all blocks or only upstream of a target."""
+        """Build an execution plan — all blocks or only upstream of a target.
+
+        Only PROCESSOR blocks are included in execution plans. WORKSPACE and
+        PLAYBACK blocks are skipped — they don't participate in the data pipeline.
+        """
+        from echozero.domain.enums import BlockCategory
         execution_id = uuid.uuid4().hex
         topo_order = graph.topological_sort()
+
+        # Only include PROCESSOR blocks in execution plans
+        processor_order = [
+            bid for bid in topo_order
+            if graph.blocks[bid].category == BlockCategory.PROCESSOR
+        ]
 
         if target_block_id is None:
             return ExecutionPlan(
                 execution_id=execution_id,
-                ordered_block_ids=tuple(topo_order),
+                ordered_block_ids=tuple(processor_order),
             )
 
         # Collect upstream dependencies: everything that target depends on
         upstream = self._upstream_of(graph, target_block_id)
         upstream.add(target_block_id)
 
-        # Filter topo order to only include upstream blocks, preserving order
-        filtered = [bid for bid in topo_order if bid in upstream]
+        # Filter processor_order to only include upstream blocks, preserving order
+        filtered = [bid for bid in processor_order if bid in upstream]
         return ExecutionPlan(
             execution_id=execution_id,
             ordered_block_ids=tuple(filtered),

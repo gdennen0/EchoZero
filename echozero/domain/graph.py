@@ -7,13 +7,21 @@ Owns blocks and connections — all validation happens here, not on individual e
 from __future__ import annotations
 
 from collections import deque
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from types import MappingProxyType
 from typing import Any
 
 from echozero.domain.enums import BlockState, Direction, PortType
 from echozero.domain.types import Block, Connection, Port
 from echozero.errors import ValidationError
+
+
+@dataclass(frozen=True)
+class GraphSnapshot:
+    """Frozen snapshot of a graph's state for undo/rollback."""
+
+    blocks: dict[str, Block]
+    connections: tuple[Connection, ...]
 
 
 class Graph:
@@ -172,6 +180,21 @@ class Graph:
                 return True
 
         return False
+
+    # -- Snapshot / Restore -------------------------------------------------
+
+    def snapshot(self) -> GraphSnapshot:
+        """Take a frozen snapshot of current graph state."""
+        return GraphSnapshot(
+            blocks=dict(self._blocks),  # shallow copy of dict; Block is frozen
+            connections=tuple(self._connections),
+        )
+
+    def restore(self, snapshot: GraphSnapshot) -> None:
+        """Restore graph state from a snapshot. Replaces all blocks and connections."""
+        self._blocks.clear()
+        self._blocks.update(snapshot.blocks)
+        self._connections = list(snapshot.connections)
 
     # -- Internal -----------------------------------------------------------
 

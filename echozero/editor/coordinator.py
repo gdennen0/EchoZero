@@ -6,7 +6,9 @@ Used by the application layer to request runs, propagate staleness, and cancel i
 
 from __future__ import annotations
 
+import concurrent.futures
 import threading
+from dataclasses import dataclass
 from typing import Any
 
 from echozero.editor.cache import ExecutionCache
@@ -78,6 +80,30 @@ def ready_nodes(
 
 
 # ---------------------------------------------------------------------------
+# ExecutionHandle
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class ExecutionHandle:
+    """Handle for a background execution — check status, cancel, get result."""
+
+    future: concurrent.futures.Future
+    cancel_event: threading.Event
+    execution_id: str
+
+    @property
+    def done(self) -> bool:
+        return self.future.done()
+
+    def cancel(self) -> None:
+        self.cancel_event.set()
+
+    def result(self, timeout: float | None = None) -> Result[str]:
+        return self.future.result(timeout=timeout)
+
+
+# ---------------------------------------------------------------------------
 # Coordinator
 # ---------------------------------------------------------------------------
 
@@ -103,6 +129,9 @@ class Coordinator:
         self._cancel_event: threading.Event = threading.Event()
         self._executing: bool = False
         self._auto_evaluate: bool = False
+        self._executor = concurrent.futures.ThreadPoolExecutor(
+            max_workers=1, thread_name_prefix="ez-exec"
+        )
 
     @property
     def stale_tracker(self) -> StaleTracker:
@@ -160,6 +189,46 @@ class Coordinator:
 
         assert isinstance(result, Err)
         return err(result.error)
+
+    def request_run_async(self, target: str | None = None) -> Result[ExecutionHandle]:
+        """Submit execution to background thread. Returns handle immediately."""
+        if self._executing:
+            from echozero.errors import ExecutionError
+            return err(ExecutionError("Execution already in progress. Cancel first."))
+
+        self._cancel_event.clear()
+        planner = GraphPlanner()
+        plan = planner.plan(self._graph, target_block_id=target)
+
+        def _run() -> Result[str]:
+            self._executing = True
+            try:
+                result = self._engine.run(plan, cancel_event=self._cancel_event)
+                if is_ok(result):
+                    outputs = unwrap(result)
+                    for block_id, value in outputs.items():
+                        if isinstance(value, dict):
+                            for port_name, port_value in value.items():
+                                self._cache.store(block_id, port_name, port_value, plan.execution_id)
+                        else:
+                            block = self._graph.blocks[block_id]
+                            port_name = block.output_ports[0].name if block.output_ports else "out"
+                            self._cache.store(block_id, port_name, value, plan.execution_id)
+                        self._graph.set_block_state(block_id, BlockState.FRESH)
+                        self._stale_tracker.clear(block_id)
+                    return ok(plan.execution_id)
+                assert isinstance(result, Err)
+                return err(result.error)
+            finally:
+                self._executing = False
+
+        future = self._executor.submit(_run)
+        handle = ExecutionHandle(
+            future=future,
+            cancel_event=self._cancel_event,
+            execution_id=plan.execution_id,
+        )
+        return ok(handle)
 
     def cancel(self) -> None:
         """Signal cancellation to in-flight execution."""

@@ -223,8 +223,7 @@ class TestCoordinatorStaleness:
         engine = ExecutionEngine(graph, runtime_bus)
         cache = ExecutionCache()
         event_bus = EventBus()
-        pipeline = Pipeline(event_bus)
-        pipeline._graph = graph
+        pipeline = Pipeline(event_bus, graph=graph)
         tracker = StaleTracker()
 
         coord = Coordinator(graph, pipeline, engine, cache, runtime_bus, stale_tracker=tracker)

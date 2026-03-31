@@ -50,7 +50,14 @@ def _run(graph, scan_fn=_fake_scan):
     bus = RuntimeBus()
     engine = ExecutionEngine(graph, bus)
     engine.register_executor("DatasetViewer", DatasetViewerProcessor(scan_fn))
-    plan = GraphPlanner().plan(graph)
+    # DatasetViewer is WORKSPACE — excluded from GraphPlanner. Build the plan manually
+    # so these tests exercise the executor directly, bypassing category filtering.
+    from echozero.execution import ExecutionPlan
+    import uuid
+    plan = ExecutionPlan(
+        execution_id=uuid.uuid4().hex,
+        ordered_block_ids=tuple(graph.topological_sort()),
+    )
     return engine.run(plan)
 
 

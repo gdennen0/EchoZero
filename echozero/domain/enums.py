@@ -34,9 +34,9 @@ class BlockState(Enum):
     ERROR = auto()
 
 
-class BlockCategory(Enum):
+class BlockCategory(str, Enum):
     """Classifies a block's execution semantics: pure transform, manual, or ephemeral."""
 
-    PROCESSOR = auto()
-    WORKSPACE = auto()
-    PLAYBACK = auto()
+    PROCESSOR = "processor"
+    WORKSPACE = "workspace"
+    PLAYBACK = "playback"
