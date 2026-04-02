@@ -1,0 +1,13 @@
+"""Minimal playback backend protocol placeholder for infrastructure wiring.
+
+Concrete device/runtime integration comes later.
+"""
+
+from typing import Protocol
+
+
+class AudioBackend(Protocol):
+    def prepare(self) -> None: ...
+    def start(self) -> None: ...
+    def stop(self) -> None: ...
+    def seek(self, position: float) -> None: ...
