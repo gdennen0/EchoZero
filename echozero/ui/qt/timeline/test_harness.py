@@ -1,4 +1,4 @@
-"""Reusable test harness for the new read-only timeline shell.
+"""Reusable test harness for the Stage Zero timeline shell.
 
 Provides:
 - demo presentation construction
@@ -13,23 +13,35 @@ from dataclasses import replace
 
 from PyQt6.QtWidgets import QApplication
 
-from echozero.application.timeline.assembler import TimelineAssembler
 from echozero.application.presentation.models import TimelinePresentation
-from echozero.ui.qt.timeline.demo_app import build_demo_timeline
+from echozero.application.timeline.intents import Pause, Seek, ToggleTakeSelector
+from echozero.ui.qt.timeline.demo_app import build_demo_app
 from echozero.ui.qt.timeline.widget import TimelineWidget
 
 
 def build_demo_presentation() -> TimelinePresentation:
-    timeline, session = build_demo_timeline()
-    return TimelineAssembler().assemble(timeline, session)
+    demo = build_demo_app()
+    return demo.presentation()
 
 
 def build_variant_presentations() -> dict[str, TimelinePresentation]:
-    base = build_demo_presentation()
+    demo = build_demo_app()
+    default = demo.presentation()
+    stopped = demo.dispatch(Pause())
+    scrolled = replace(stopped, scroll_x=120.0, playhead=2.25)
+
+    demo_dropdown = build_demo_app()
+    take_menu_open = demo_dropdown.dispatch(ToggleTakeSelector(demo_dropdown.timeline.layers[0].id))
+
+    demo_seek = build_demo_app()
+    sought = demo_seek.dispatch(Seek(3.4))
+
     return {
-        "default": base,
-        "stopped": replace(base, is_playing=False, playhead=0.25),
-        "scrolled": replace(base, scroll_x=120.0, playhead=2.25),
+        "default": default,
+        "stopped": stopped,
+        "scrolled": scrolled,
+        "take_menu_open": take_menu_open,
+        "seeked": sought,
     }
 
 
