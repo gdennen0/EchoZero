@@ -1,13 +1,15 @@
 """Timeline orchestration for the new EchoZero application layer."""
 
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 from echozero.application.mixer.service import MixerService
 from echozero.application.playback.service import PlaybackService
 from echozero.application.presentation.models import TimelinePresentation
 from echozero.application.session.service import SessionService
 from echozero.application.sync.service import SyncService
-from echozero.application.timeline.assembler import TimelineAssembler
+if TYPE_CHECKING:
+    from echozero.application.timeline.assembler import TimelineAssembler
 from echozero.application.timeline.intents import (
     TimelineIntent,
     SelectEvent,
@@ -15,6 +17,7 @@ from echozero.application.timeline.intents import (
     SelectTake,
     ToggleLayerExpanded,
     ToggleTakeSelector,
+    TriggerTakeAction,
     Play,
     Pause,
     Seek,
@@ -24,7 +27,7 @@ from echozero.application.timeline.intents import (
     EnableSync,
     DisableSync,
 )
-from echozero.application.timeline.models import Timeline
+from echozero.application.timeline.models import Timeline, Layer, Take, Event
 from echozero.application.transport.service import TransportService
 
 
@@ -37,7 +40,7 @@ class TimelineOrchestrator:
     mixer_service: MixerService
     playback_service: PlaybackService
     sync_service: SyncService
-    assembler: TimelineAssembler
+    assembler: 'TimelineAssembler'
 
     def handle(self, timeline: Timeline, intent: TimelineIntent) -> TimelinePresentation:
         if isinstance(intent, SelectLayer):
@@ -61,6 +64,14 @@ class TimelineOrchestrator:
             layer = self._find_layer(timeline, intent.layer_id)
             layer.presentation_hints.take_selector_expanded = (
                 not layer.presentation_hints.take_selector_expanded
+            )
+
+        elif isinstance(intent, TriggerTakeAction):
+            self._handle_trigger_take_action(
+                timeline,
+                layer_id=intent.layer_id,
+                take_id=intent.take_id,
+                action_id=intent.action_id,
             )
 
         elif isinstance(intent, Play):
@@ -113,6 +124,63 @@ class TimelineOrchestrator:
         timeline.selection.selected_layer_id = layer_id
         timeline.selection.selected_take_id = take_id
         timeline.selection.selected_event_ids = []
+
+    def _handle_trigger_take_action(self, timeline: Timeline, layer_id, take_id, action_id: str) -> None:
+        layer = self._find_layer(timeline, layer_id)
+        source_take = self._find_take(layer, take_id)
+        main_take = self._main_take(layer)
+        if source_take is None or main_take is None:
+            return
+
+        normalized = (action_id or "").strip().lower()
+        if normalized in {"overwrite_main", "promote_take"}:
+            if source_take.id == main_take.id:
+                return
+            main_take.events = self._clone_events_for_target(source_take.events, main_take)
+        elif normalized == "merge_main":
+            if source_take.id == main_take.id:
+                return
+            merged = list(main_take.events)
+            merged.extend(self._clone_events_for_target(source_take.events, main_take))
+            main_take.events = sorted(merged, key=lambda event: (event.start, event.end, str(event.id)))
+        else:
+            return
+
+        layer.active_take_id = main_take.id
+        timeline.selection.selected_layer_id = layer.id
+        timeline.selection.selected_take_id = main_take.id
+        timeline.selection.selected_event_ids = []
+
+    @staticmethod
+    def _clone_events_for_target(events: list[Event], target_take: Take) -> list[Event]:
+        clones: list[Event] = []
+        for idx, event in enumerate(events, start=1):
+            clones.append(
+                Event(
+                    id=f"{target_take.id}:from:{event.id}:{idx}",
+                    take_id=target_take.id,
+                    start=event.start,
+                    end=event.end,
+                    payload_ref=event.payload_ref,
+                    label=event.label,
+                    color=event.color,
+                    muted=event.muted,
+                )
+            )
+        return clones
+
+    @staticmethod
+    def _main_take(layer: Layer) -> Take | None:
+        if layer.takes:
+            return layer.takes[0]
+        return None
+
+    @staticmethod
+    def _find_take(layer: Layer, take_id) -> Take | None:
+        for take in layer.takes:
+            if take.id == take_id:
+                return take
+        return None
 
     def _find_layer(self, timeline: Timeline, layer_id):
         for layer in timeline.layers:
