@@ -121,7 +121,7 @@ class TimelineCanvas(QWidget):
         super().__init__(parent)
         self.presentation = presentation
         self._header_width = 320
-        self._ruler_height = 28
+        self._top_padding = 8
         self._main_row_height = 72
         self._take_row_height = 44
         self._event_height = 22
@@ -131,7 +131,6 @@ class TimelineCanvas(QWidget):
         self._open_take_options: set[tuple[object, object]] = set()
         self._toggle_rects: list[tuple[QRectF, object]] = []
         self._event_rects: list[tuple[QRectF, object, object]] = []
-        self._ruler_block = RulerBlock()
         self._header_block = LayerHeaderBlock()
         self._waveform_block = WaveformLaneBlock()
         self._event_lane_block = EventLaneBlock()
@@ -140,7 +139,7 @@ class TimelineCanvas(QWidget):
         self._recompute_height()
 
     def _recompute_height(self) -> None:
-        height = self._ruler_height + 8
+        height = self._top_padding
         for layer in self.presentation.layers:
             height += self._main_row_height
             if layer.is_expanded:
@@ -171,7 +170,6 @@ class TimelineCanvas(QWidget):
         self._take_action_rects.clear()
         self._toggle_rects.clear()
         self._event_rects.clear()
-        self._ruler_block.paint(painter, RulerLayout(QRectF(0, 0, self.width(), self._ruler_height), self._header_width), self.presentation)
         self._draw_layers(painter)
         self._draw_playhead(painter)
 
@@ -219,7 +217,7 @@ class TimelineCanvas(QWidget):
         self.seek_requested.emit(seek_time)
 
     def _draw_layers(self, painter: QPainter) -> None:
-        y = self._ruler_height + 8
+        y = self._top_padding
         for layer in self.presentation.layers:
             self._draw_main_row(painter, layer, y)
             y += self._main_row_height
@@ -366,6 +364,29 @@ class TransportBar(QWidget):
         self._block.paint(painter, TransportLayout.create(width=self.width(), height=self.height()), self.presentation)
 
 
+class TimelineRuler(QWidget):
+    def __init__(self, presentation: TimelinePresentation, *, header_width: float = 320.0, parent=None):
+        super().__init__(parent)
+        self.presentation = presentation
+        self._header_width = header_width
+        self._block = RulerBlock()
+        self.setMinimumHeight(28)
+        self.setMaximumHeight(28)
+
+    def set_presentation(self, presentation: TimelinePresentation) -> None:
+        self.presentation = presentation
+        self.update()
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        self._block.paint(
+            painter,
+            RulerLayout(QRectF(0, 0, self.width(), self.height()), self._header_width),
+            self.presentation,
+        )
+
+
 class TimelineWidget(QWidget):
     def __init__(self, presentation: TimelinePresentation, on_intent: Callable[[object], TimelinePresentation] | None = None, parent=None):
         super().__init__(parent)
@@ -380,11 +401,14 @@ class TimelineWidget(QWidget):
         self._transport = TransportBar(self.presentation, on_intent=self._on_intent)
         layout.addWidget(self._transport)
 
+        self._canvas = TimelineCanvas(self.presentation)
+        self._ruler = TimelineRuler(self.presentation, header_width=self._canvas._header_width)
+        layout.addWidget(self._ruler)
+
         self._scroll = QScrollArea()
         self._scroll.setWidgetResizable(True)
         self._scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self._scroll.setStyleSheet('background: #12151b; border: none;')
-        self._canvas = TimelineCanvas(self.presentation)
         self._canvas.layer_clicked.connect(self._select_layer)
         self._canvas.take_toggle_clicked.connect(self._toggle_take_selector)
         self._canvas.take_selected.connect(self._select_take)
@@ -413,6 +437,7 @@ class TimelineWidget(QWidget):
         self.presentation = replace(presentation, scroll_x=followed)
         self._update_horizontal_scroll_bounds(sync_bar_value=True)
         self._transport.set_presentation(self.presentation)
+        self._ruler.set_presentation(self.presentation)
         self._canvas.set_presentation(self.presentation)
 
     def resizeEvent(self, event) -> None:
@@ -441,6 +466,7 @@ class TimelineWidget(QWidget):
         if abs(next_scroll - self.presentation.scroll_x) < 0.5:
             return
         self.presentation = replace(self.presentation, scroll_x=next_scroll)
+        self._ruler.set_presentation(self.presentation)
         self._canvas.set_presentation(self.presentation)
 
     def _scroll_horizontally_by_steps(self, delta: int) -> None:
