@@ -18,8 +18,9 @@ def main() -> int:
     widget.resize(1400, 420)
     widget.show()
 
-    layer = demo.timeline.layers[0]
-    alt_take = layer.takes[1]
+    presentation = demo.presentation()
+    layer = next((candidate for candidate in presentation.layers if candidate.takes), presentation.layers[0])
+    alt_take = layer.takes[1] if len(layer.takes) > 1 else layer.takes[0]
 
     actions: list[tuple[int, callable]] = [
         (600, lambda: widget.set_presentation(demo.dispatch(ToggleTakeSelector(layer.id)))),
