@@ -8,13 +8,29 @@ from echozero.application.shared.ranges import TimeRange
 
 
 @dataclass(slots=True)
-class TakeSummaryPresentation:
-    total_take_count: int = 0
-    active_take_id: TakeId | None = None
-    active_take_name: str | None = None
-    available_take_names: list[str] = field(default_factory=list)
-    compact_label: str = ""
-    can_expand: bool = False
+class TakeActionPresentation:
+    action_id: str
+    label: str
+
+
+@dataclass(slots=True)
+class TakeLanePresentation:
+    take_id: TakeId
+    name: str
+    is_main: bool = False
+    kind: LayerKind = LayerKind.EVENT
+    events: list['EventPresentation'] = field(default_factory=list)
+    source_ref: str | None = None
+    waveform_key: str | None = None
+    actions: list[TakeActionPresentation] = field(default_factory=list)
+
+
+@dataclass(slots=True)
+class LayerStatusPresentation:
+    stale: bool = False
+    manually_modified: bool = False
+    source_label: str = ""
+    sync_label: str = ""
 
 
 @dataclass(slots=True)
@@ -41,9 +57,8 @@ class LayerPresentation:
     kind: LayerKind = LayerKind.EVENT
     is_selected: bool = False
     is_expanded: bool = False
-    active_take_id: TakeId | None = None
-    take_summary: TakeSummaryPresentation = field(default_factory=TakeSummaryPresentation)
     events: list[EventPresentation] = field(default_factory=list)
+    takes: list[TakeLanePresentation] = field(default_factory=list)
     visible: bool = True
     locked: bool = False
     muted: bool = False
@@ -56,6 +71,8 @@ class LayerPresentation:
     sync_connected: bool = False
     color: str | None = None
     badges: list[str] = field(default_factory=list)
+    waveform_key: str | None = None
+    status: LayerStatusPresentation = field(default_factory=LayerStatusPresentation)
 
 
 @dataclass(slots=True)
@@ -73,3 +90,5 @@ class TimelinePresentation:
     pixels_per_second: float = 100.0
     scroll_x: float = 0.0
     scroll_y: float = 0.0
+    current_time_label: str = "00:00.00"
+    end_time_label: str = "00:00.00"

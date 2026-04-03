@@ -23,6 +23,12 @@ class SelectTake(TimelineIntent):
 
 
 @dataclass(slots=True)
+class SelectEvent(TimelineIntent):
+    layer_id: LayerId
+    event_id: EventId | None
+
+
+@dataclass(slots=True)
 class ToggleLayerExpanded(TimelineIntent):
     layer_id: LayerId
 

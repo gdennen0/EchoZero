@@ -565,7 +565,9 @@ class ProjectStorage:
 
             # Copy all pipeline configs from source version
             now = datetime.now(timezone.utc)
-            for config in self.pipeline_configs.list_by_version(source_version_id):
+            source_configs = self.pipeline_configs.list_by_version(source_version_id)
+            new_config_ids: list[str] = []
+            for config in source_configs:
                 new_config = _replace(
                     config,
                     id=uuid.uuid4().hex,
@@ -574,6 +576,16 @@ class ProjectStorage:
                     updated_at=now,
                 )
                 self.pipeline_configs.create(new_config)
+                new_config_ids.append(new_config.id)
+
+            from echozero.services.provenance import build_song_version_rebuild_plan
+
+            rebuild_plan = build_song_version_rebuild_plan(
+                previous_version_id=source_version_id,
+                new_version_id=version.id,
+                pipeline_config_ids=new_config_ids,
+            )
+            version = _replace(version, rebuild_plan=rebuild_plan)
 
             if activate:
                 self.songs.update(_replace(song, active_version_id=version.id))

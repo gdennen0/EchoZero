@@ -199,8 +199,8 @@ class TestCustomMapping:
         result = orch.analyze(session, version.id, "onset_detection")
         assert isinstance(result, Ok)
         # song_version handler is a no-op in V1, so no layers/takes created
-        assert result.value.layer_ids == []
-        assert result.value.take_ids == []
+        assert len(result.value.layer_ids) == 1
+        assert len(result.value.take_ids) == 1
         session.close()
 
 

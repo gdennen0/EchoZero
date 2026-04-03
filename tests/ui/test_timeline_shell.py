@@ -1,12 +1,13 @@
-from echozero.application.timeline.intents import Pause, Play, Seek, SelectTake, ToggleTakeSelector
+from echozero.application.timeline.intents import Pause, Play, Seek, ToggleTakeSelector
 from echozero.ui.qt.timeline.demo_app import build_demo_app
 from echozero.ui.qt.timeline.test_harness import build_variant_presentations
 
 
-def test_demo_variants_include_take_menu_open():
+def test_demo_variants_include_take_lanes_open_and_zoom_states():
     variants = build_variant_presentations()
-    assert "take_menu_open" in variants
-    assert variants["take_menu_open"].layers[0].is_expanded is True
+    assert 'take_lanes_open' in variants
+    assert 'zoomed_in' in variants
+    assert 'zoomed_out' in variants
 
 
 def test_play_pause_seek_intents_update_presentation():
@@ -22,24 +23,41 @@ def test_play_pause_seek_intents_update_presentation():
     assert playing.is_playing is True
 
 
-def test_select_take_changes_active_take_and_selection():
+def test_realistic_fixture_contains_song_stems_and_drum_classifiers():
     demo = build_demo_app()
-    layer = demo.timeline.layers[0]
-    alt_take = layer.takes[1]
+    presentation = demo.presentation()
+    titles = {layer.title for layer in presentation.layers}
 
-    presentation = demo.dispatch(SelectTake(layer.id, alt_take.id))
+    assert {'Song', 'Drums', 'Bass', 'Vocals', 'Other', 'Kick', 'Snare', 'HiHat', 'Clap'} <= titles
 
-    assert layer.active_take_id == alt_take.id
-    assert presentation.selected_take_id == alt_take.id
-    assert presentation.layers[0].subtitle == alt_take.name
+
+def test_take_lanes_exist_without_inline_action_requirements():
+    demo = build_demo_app()
+    presentation = demo.presentation()
+    drums = next(layer for layer in presentation.layers if layer.title == 'Drums')
+    kick = next(layer for layer in presentation.layers if layer.title == 'Kick')
+
+    assert len(drums.takes) >= 1
+    assert drums.takes[0].kind.name == 'AUDIO'
+    assert len(kick.takes) >= 1
+    assert kick.takes[0].kind.name == 'EVENT'
 
 
 def test_toggle_take_selector_round_trips():
     demo = build_demo_app()
-    layer = demo.timeline.layers[0]
+    song = next(layer for layer in demo.presentation().layers if layer.title == 'Song')
 
-    expanded = demo.dispatch(ToggleTakeSelector(layer.id))
-    assert expanded.layers[0].is_expanded is True
+    expanded = demo.dispatch(ToggleTakeSelector(song.layer_id))
+    expanded_song = next(layer for layer in expanded.layers if layer.title == 'Song')
+    assert expanded_song.is_expanded is True
 
-    collapsed = demo.dispatch(ToggleTakeSelector(layer.id))
-    assert collapsed.layers[0].is_expanded is False
+    collapsed = demo.dispatch(ToggleTakeSelector(song.layer_id))
+    collapsed_song = next(layer for layer in collapsed.layers if layer.title == 'Song')
+    assert collapsed_song.is_expanded is False
+
+
+def test_fixture_has_muted_and_soloed_layers_for_daw_state_rendering():
+    demo = build_demo_app()
+    presentation = demo.presentation()
+    assert any(layer.muted for layer in presentation.layers)
+    assert any(layer.soloed for layer in presentation.layers)

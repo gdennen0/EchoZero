@@ -5,12 +5,12 @@ from dataclasses import dataclass
 from echozero.application.mixer.service import MixerService
 from echozero.application.playback.service import PlaybackService
 from echozero.application.presentation.models import TimelinePresentation
-from echozero.application.session.models import Session
 from echozero.application.session.service import SessionService
 from echozero.application.sync.service import SyncService
 from echozero.application.timeline.assembler import TimelineAssembler
 from echozero.application.timeline.intents import (
     TimelineIntent,
+    SelectEvent,
     SelectLayer,
     SelectTake,
     ToggleLayerExpanded,
@@ -42,9 +42,16 @@ class TimelineOrchestrator:
     def handle(self, timeline: Timeline, intent: TimelineIntent) -> TimelinePresentation:
         if isinstance(intent, SelectLayer):
             timeline.selection.selected_layer_id = intent.layer_id
+            if intent.layer_id is None:
+                timeline.selection.selected_take_id = None
+                timeline.selection.selected_event_ids = []
 
         elif isinstance(intent, SelectTake):
             self._handle_select_take(timeline, intent.layer_id, intent.take_id)
+
+        elif isinstance(intent, SelectEvent):
+            timeline.selection.selected_layer_id = intent.layer_id
+            timeline.selection.selected_event_ids = [intent.event_id] if intent.event_id is not None else []
 
         elif isinstance(intent, ToggleLayerExpanded):
             layer = self._find_layer(timeline, intent.layer_id)
@@ -105,6 +112,7 @@ class TimelineOrchestrator:
         layer.active_take_id = take_id
         timeline.selection.selected_layer_id = layer_id
         timeline.selection.selected_take_id = take_id
+        timeline.selection.selected_event_ids = []
 
     def _find_layer(self, timeline: Timeline, layer_id):
         for layer in timeline.layers:

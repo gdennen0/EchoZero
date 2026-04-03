@@ -7,6 +7,7 @@ from echozero.application.presentation.models import (
     LayerPresentation,
     EventPresentation,
     TakeSummaryPresentation,
+    TakeOptionPresentation,
 )
 from echozero.application.timeline.models import Timeline, Layer, Take, Event
 from echozero.application.session.models import Session
@@ -88,7 +89,15 @@ class TimelineAssembler:
         )
 
     def _assemble_take_summary(self, layer: Layer, active_take: Take | None) -> TakeSummaryPresentation:
-        take_names = [take.name for take in layer.takes if take.available]
+        available_takes = [
+            TakeOptionPresentation(
+                take_id=take.id,
+                name=take.name,
+                is_active=take.id == layer.active_take_id,
+            )
+            for take in layer.takes
+            if take.available
+        ]
         active_name = active_take.name if active_take else None
         compact_label = active_name or "No active take"
 
@@ -96,7 +105,7 @@ class TimelineAssembler:
             total_take_count=len(layer.takes),
             active_take_id=layer.active_take_id,
             active_take_name=active_name,
-            available_take_names=take_names,
+            available_takes=available_takes,
             compact_label=compact_label,
             can_expand=len(layer.takes) > 1,
         )

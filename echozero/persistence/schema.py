@@ -9,11 +9,7 @@ from __future__ import annotations
 import sqlite3
 from collections.abc import Callable
 
-SCHEMA_VERSION = 2
-
-# ---------------------------------------------------------------------------
-# DDL — all tables for schema version 1
-# ---------------------------------------------------------------------------
+SCHEMA_VERSION = 3
 
 _DDL = """\
 CREATE TABLE IF NOT EXISTS _meta (
@@ -65,6 +61,8 @@ CREATE TABLE IF NOT EXISTS layers (
     locked INTEGER NOT NULL DEFAULT 0,
     parent_layer_id TEXT REFERENCES layers(id),
     source_pipeline TEXT,
+    state_flags_json TEXT NOT NULL DEFAULT '{}',
+    provenance_json TEXT NOT NULL DEFAULT '{}',
     created_at TEXT NOT NULL
 );
 
@@ -103,13 +101,7 @@ CREATE INDEX IF NOT EXISTS idx_configs_template ON pipeline_configs(template_id)
 """
 
 
-# ---------------------------------------------------------------------------
-# Schema version helpers
-# ---------------------------------------------------------------------------
-
-
 def get_schema_version(conn: sqlite3.Connection) -> int:
-    """Read the current schema version from _meta. Returns 0 if unset."""
     row = conn.execute(
         "SELECT value FROM _meta WHERE key = 'schema_version'"
     ).fetchone()
@@ -119,32 +111,17 @@ def get_schema_version(conn: sqlite3.Connection) -> int:
 
 
 def set_schema_version(conn: sqlite3.Connection, version: int) -> None:
-    """Write the schema version to _meta (insert or update)."""
     conn.execute(
         "INSERT OR REPLACE INTO _meta (key, value) VALUES ('schema_version', ?)",
         (str(version),),
     )
 
 
-# ---------------------------------------------------------------------------
-# Migrations
-# ---------------------------------------------------------------------------
-
-# Numbered migration functions: key = target version, value = upgrade function.
-# Each function upgrades from (key - 1) to key.
-# Empty for V1 — this is just the infrastructure.
 def _migrate_v1_to_v2(conn: sqlite3.Connection) -> None:
-    """Replace song_pipeline_configs with pipeline_configs.
-
-    V1 had a flat bindings blob. V2 stores the full graph + outputs + knob values.
-    Existing configs are migrated with empty graph/outputs (user must re-configure).
-    """
-    # Check if old table exists (may not if DB was created at V2+)
     old_table = conn.execute(
         "SELECT name FROM sqlite_master WHERE type='table' AND name='song_pipeline_configs'"
     ).fetchone()
 
-    # Create new table
     conn.executescript("""\
         CREATE TABLE IF NOT EXISTS pipeline_configs (
             id TEXT PRIMARY KEY,
@@ -163,9 +140,8 @@ def _migrate_v1_to_v2(conn: sqlite3.Connection) -> None:
     """)
 
     if old_table is None:
-        return  # DB was created at V2+ — nothing to migrate
+        return
 
-    # Migrate existing data (best-effort — graph must be rebuilt from template)
     rows = conn.execute(
         "SELECT id, song_version_id, pipeline_id, bindings, created_at "
         "FROM song_pipeline_configs"
@@ -180,23 +156,33 @@ def _migrate_v1_to_v2(conn: sqlite3.Connection) -> None:
                 row['id'],
                 row['song_version_id'],
                 row['pipeline_id'],
-                row['pipeline_id'],  # name = template_id as placeholder
-                row['bindings'],     # preserve old bindings as knob_values
+                row['pipeline_id'],
+                row['bindings'],
                 row['created_at'],
-                row['created_at'],   # updated_at = created_at
+                row['created_at'],
             ),
         )
 
     conn.execute("DROP TABLE IF EXISTS song_pipeline_configs")
 
 
+def _migrate_v2_to_v3(conn: sqlite3.Connection) -> None:
+    columns = {
+        row['name'] for row in conn.execute("PRAGMA table_info(layers)").fetchall()
+    }
+    if 'state_flags_json' not in columns:
+        conn.execute("ALTER TABLE layers ADD COLUMN state_flags_json TEXT NOT NULL DEFAULT '{}' ")
+    if 'provenance_json' not in columns:
+        conn.execute("ALTER TABLE layers ADD COLUMN provenance_json TEXT NOT NULL DEFAULT '{}' ")
+
+
 _MIGRATIONS: dict[int, Callable[[sqlite3.Connection], None]] = {
     2: _migrate_v1_to_v2,
+    3: _migrate_v2_to_v3,
 }
 
 
 def apply_migrations(conn: sqlite3.Connection) -> None:
-    """Apply any pending migrations to bring the schema up to SCHEMA_VERSION."""
     current = get_schema_version(conn)
     for target in range(current + 1, SCHEMA_VERSION + 1):
         migrate_fn = _MIGRATIONS.get(target)
@@ -206,13 +192,7 @@ def apply_migrations(conn: sqlite3.Connection) -> None:
     conn.commit()
 
 
-# ---------------------------------------------------------------------------
-# Initialization
-# ---------------------------------------------------------------------------
-
-
 def init_db(conn: sqlite3.Connection) -> None:
-    """Create all tables and set the schema version. Safe to call on an existing DB."""
     conn.execute("PRAGMA foreign_keys = ON")
     conn.executescript(_DDL)
     current = get_schema_version(conn)

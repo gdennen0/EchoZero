@@ -84,6 +84,7 @@ class SongVersionRecord:
     original_sample_rate: int
     audio_hash: str
     created_at: datetime
+    rebuild_plan: dict[str, Any] = field(default_factory=dict)
 
 
 # ---------------------------------------------------------------------------
@@ -96,6 +97,13 @@ class LayerRecord:
     """
     Persistence-layer entity for a timeline layer. NOT the domain Layer.
     Carries UI state (color, order, visible, locked) that the pipeline engine ignores.
+
+    Provenance/freshness notes:
+    - source_pipeline stores generation provenance (pipeline_id, output_name, block_id, data_type)
+    - state_flags stores editor/application state that is not engine concern
+      Examples: stale, manually_modified, source_main_changed, derived
+    - provenance stores richer source identity hooks for future UI inspection/remap work
+      Examples: source_layer_id, source_song_version_id, source_run_id, source_output_name
     """
 
     id: str
@@ -109,6 +117,8 @@ class LayerRecord:
     parent_layer_id: str | None
     source_pipeline: dict[str, Any] | None
     created_at: datetime
+    state_flags: dict[str, Any] = field(default_factory=dict)
+    provenance: dict[str, Any] = field(default_factory=dict)
 
 
 # ---------------------------------------------------------------------------
