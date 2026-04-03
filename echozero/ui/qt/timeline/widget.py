@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from dataclasses import replace
 
-from PyQt6.QtCore import QRectF, pyqtSignal
-from PyQt6.QtGui import QColor, QPainter, QPen
-from PyQt6.QtWidgets import QWidget, QVBoxLayout, QScrollArea
+from PyQt6.QtCore import QRectF, Qt, pyqtSignal
+from PyQt6.QtGui import QColor, QPainter, QPen, QWheelEvent
+from PyQt6.QtWidgets import QWidget, QVBoxLayout, QScrollArea, QScrollBar
 
 from echozero.application.presentation.models import TimelinePresentation, LayerPresentation, TakeLanePresentation
 from echozero.application.timeline.intents import Pause, Play, Seek, SelectEvent, SelectLayer, SelectTake, ToggleTakeSelector
@@ -20,12 +21,58 @@ from echozero.ui.qt.timeline.blocks.transport_bar_block import TransportBarBlock
 from echozero.ui.qt.timeline.blocks.waveform_lane import WaveformLaneBlock, WaveformLanePresentation
 
 
+def estimate_timeline_span_seconds(presentation: TimelinePresentation) -> float:
+    """Best-effort duration estimate for viewport/scroll math."""
+    span = max(0.0, presentation.playhead)
+
+    for layer in presentation.layers:
+        for event in layer.events:
+            span = max(span, event.end)
+        for take in layer.takes:
+            for event in take.events:
+                span = max(span, event.end)
+
+    span = max(span, _parse_time_label_seconds(presentation.end_time_label))
+    return max(0.0, span)
+
+
+def compute_scroll_bounds(
+    presentation: TimelinePresentation,
+    viewport_width: int,
+    *,
+    header_width: int = 320,
+    right_padding_px: int = 240,
+) -> tuple[int, int]:
+    """Return (content_width, max_scroll_x) for horizontal timeline navigation."""
+    viewport = max(1, int(viewport_width))
+    span = estimate_timeline_span_seconds(presentation)
+    content_width = max(viewport, int(header_width + (span * presentation.pixels_per_second) + right_padding_px))
+    max_scroll = max(0, content_width - viewport)
+    return content_width, max_scroll
+
+
+def _parse_time_label_seconds(label: str | None) -> float:
+    if not label:
+        return 0.0
+    text = label.strip()
+    if not text:
+        return 0.0
+    try:
+        if ':' in text:
+            mins_txt, secs_txt = text.split(':', 1)
+            return max(0.0, int(mins_txt) * 60 + float(secs_txt))
+        return max(0.0, float(text))
+    except (TypeError, ValueError):
+        return 0.0
+
+
 class TimelineCanvas(QWidget):
     layer_clicked = pyqtSignal(object)
     take_toggle_clicked = pyqtSignal(object)
     take_selected = pyqtSignal(object, object)
     event_selected = pyqtSignal(object, object)
     seek_requested = pyqtSignal(float)
+    horizontal_scroll_requested = pyqtSignal(int)
 
     def __init__(self, presentation: TimelinePresentation, parent=None):
         super().__init__(parent)
@@ -95,6 +142,15 @@ class TimelineCanvas(QWidget):
                 self.take_toggle_clicked.emit(layer_id)
                 return
         self._emit_seek(pos.x())
+
+    def wheelEvent(self, event: QWheelEvent) -> None:
+        if event.modifiers() & Qt.KeyboardModifier.ShiftModifier:
+            delta = event.angleDelta().y() or event.angleDelta().x()
+            if delta:
+                self.horizontal_scroll_requested.emit(-delta)
+                event.accept()
+                return
+        super().wheelEvent(event)
 
     def _emit_seek(self, x: float) -> None:
         pps = max(1.0, self.presentation.pixels_per_second)
@@ -251,6 +307,7 @@ class TimelineWidget(QWidget):
 
         self._scroll = QScrollArea()
         self._scroll.setWidgetResizable(True)
+        self._scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self._scroll.setStyleSheet('background: #12151b; border: none;')
         self._canvas = TimelineCanvas(self.presentation)
         self._canvas.layer_clicked.connect(self._select_layer)
@@ -258,15 +315,58 @@ class TimelineWidget(QWidget):
         self._canvas.take_selected.connect(self._select_take)
         self._canvas.event_selected.connect(self._select_event)
         self._canvas.seek_requested.connect(self._seek)
+        self._canvas.horizontal_scroll_requested.connect(self._scroll_horizontally_by_steps)
         self._scroll.setWidget(self._canvas)
         layout.addWidget(self._scroll)
+
+        self._hscroll = QScrollBar(Qt.Orientation.Horizontal)
+        self._hscroll.setSingleStep(24)
+        self._hscroll.setPageStep(200)
+        self._hscroll.valueChanged.connect(self._on_horizontal_scroll_changed)
+        layout.addWidget(self._hscroll)
 
         self.set_presentation(self.presentation)
 
     def set_presentation(self, presentation: TimelinePresentation) -> None:
         self.presentation = presentation
+        self._update_horizontal_scroll_bounds(sync_bar_value=True)
         self._transport.set_presentation(presentation)
         self._canvas.set_presentation(presentation)
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        self._update_horizontal_scroll_bounds(sync_bar_value=False)
+
+    def _update_horizontal_scroll_bounds(self, *, sync_bar_value: bool) -> None:
+        viewport = max(1, self._scroll.viewport().width())
+        _, max_scroll = compute_scroll_bounds(self.presentation, viewport)
+
+        current = int(round(self.presentation.scroll_x))
+        clamped = max(0, min(current, max_scroll))
+
+        self._hscroll.blockSignals(True)
+        self._hscroll.setRange(0, max_scroll)
+        self._hscroll.setPageStep(viewport)
+        if sync_bar_value or self._hscroll.value() != clamped:
+            self._hscroll.setValue(clamped)
+        self._hscroll.blockSignals(False)
+
+        if clamped != current:
+            self.presentation = replace(self.presentation, scroll_x=float(clamped))
+
+    def _on_horizontal_scroll_changed(self, value: int) -> None:
+        next_scroll = float(max(0, value))
+        if abs(next_scroll - self.presentation.scroll_x) < 0.5:
+            return
+        self.presentation = replace(self.presentation, scroll_x=next_scroll)
+        self._canvas.set_presentation(self.presentation)
+
+    def _scroll_horizontally_by_steps(self, delta: int) -> None:
+        if delta == 0:
+            return
+        notches = max(-6, min(6, int(delta / 120) if abs(delta) >= 120 else (1 if delta > 0 else -1)))
+        next_value = self._hscroll.value() + (notches * self._hscroll.singleStep())
+        self._hscroll.setValue(max(self._hscroll.minimum(), min(self._hscroll.maximum(), next_value)))
 
     def _dispatch(self, intent: object) -> None:
         if self._on_intent is None:

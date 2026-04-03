@@ -1,6 +1,9 @@
+from dataclasses import replace
+
 from echozero.application.timeline.intents import Pause, Play, Seek, ToggleTakeSelector
 from echozero.ui.qt.timeline.demo_app import build_demo_app
 from echozero.ui.qt.timeline.test_harness import build_variant_presentations
+from echozero.ui.qt.timeline.widget import compute_scroll_bounds, estimate_timeline_span_seconds
 
 
 def test_demo_variants_include_take_lanes_open_and_zoom_states():
@@ -61,3 +64,24 @@ def test_fixture_has_muted_and_soloed_layers_for_daw_state_rendering():
     presentation = demo.presentation()
     assert any(layer.muted for layer in presentation.layers)
     assert any(layer.soloed for layer in presentation.layers)
+
+
+def test_timeline_span_estimate_uses_events_and_end_label():
+    demo = build_demo_app()
+    presentation = demo.presentation()
+
+    span = estimate_timeline_span_seconds(presentation)
+
+    assert span >= 8.0
+
+
+def test_scroll_bounds_grow_with_zoom_level():
+    demo = build_demo_app()
+    base = demo.presentation()
+
+    _, base_max = compute_scroll_bounds(base, viewport_width=900)
+    zoomed_in = replace(base, pixels_per_second=320.0)
+    _, zoomed_max = compute_scroll_bounds(zoomed_in, viewport_width=900)
+
+    assert base_max > 0
+    assert zoomed_max > base_max
