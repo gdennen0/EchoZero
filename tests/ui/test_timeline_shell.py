@@ -2,7 +2,7 @@ from dataclasses import replace
 
 from echozero.application.timeline.intents import Pause, Play, Seek, ToggleTakeSelector
 from echozero.ui.qt.timeline.demo_app import build_demo_app
-from echozero.ui.qt.timeline.test_harness import build_variant_presentations
+from echozero.ui.qt.timeline.test_harness import build_variant_presentations, estimate_full_window_height
 from echozero.ui.qt.timeline.widget import compute_scroll_bounds, estimate_timeline_span_seconds
 
 
@@ -107,3 +107,8 @@ def test_fixture_keeps_unique_event_ids_across_main_and_takes():
             for event in take.events:
                 assert str(event.event_id) not in ids
                 ids.add(str(event.event_id))
+
+
+def test_estimate_full_window_height_expanded_fixture_exceeds_default_capture_height():
+    presentation = build_demo_app().presentation()
+    assert estimate_full_window_height(presentation) > 720

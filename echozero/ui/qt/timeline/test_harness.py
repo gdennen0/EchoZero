@@ -44,16 +44,33 @@ def build_variant_presentations() -> dict[str, TimelinePresentation]:
     }
 
 
+def estimate_full_window_height(presentation: TimelinePresentation, *, minimum: int = 720) -> int:
+    """Estimate a screenshot window height that avoids vertical clipping."""
+    ruler_height = 28
+    ruler_gap = 8
+    main_row_height = 72
+    take_row_height = 44
+    canvas_bottom_padding = 12
+    transport_height = 44
+    hscroll_height = 20
+
+    take_rows = sum(len(layer.takes) for layer in presentation.layers if layer.is_expanded)
+    canvas_height = ruler_height + ruler_gap + (len(presentation.layers) * main_row_height) + (take_rows * take_row_height) + canvas_bottom_padding
+    full_height = transport_height + hscroll_height + canvas_height
+    return max(minimum, int(full_height + 8))
+
+
 def capture_presentation_screenshot(
     presentation: TimelinePresentation,
     output_path: str | Path,
     *,
     width: int = 1440,
-    height: int = 720,
+    height: int | None = None,
 ) -> Path:
     app = QApplication.instance() or QApplication([])
     widget = TimelineWidget(presentation)
-    widget.resize(width, height)
+    target_height = estimate_full_window_height(presentation) if height is None else height
+    widget.resize(width, target_height)
     widget.show()
     app.processEvents()
     pixmap = widget.grab()
