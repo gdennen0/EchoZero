@@ -85,3 +85,25 @@ def test_scroll_bounds_grow_with_zoom_level():
 
     assert base_max > 0
     assert zoomed_max > base_max
+
+
+def test_fixture_exposes_stale_manual_and_sync_signals():
+    presentation = build_demo_app().presentation()
+
+    assert any(layer.status.stale for layer in presentation.layers)
+    assert any(layer.status.manually_modified for layer in presentation.layers)
+    assert any("sync" in layer.title.lower() or layer.status.sync_label for layer in presentation.layers)
+
+
+def test_fixture_keeps_unique_event_ids_across_main_and_takes():
+    presentation = build_demo_app().presentation()
+
+    ids: set[str] = set()
+    for layer in presentation.layers:
+        for event in layer.events:
+            assert str(event.event_id) not in ids
+            ids.add(str(event.event_id))
+        for take in layer.takes:
+            for event in take.events:
+                assert str(event.event_id) not in ids
+                ids.add(str(event.event_id))
