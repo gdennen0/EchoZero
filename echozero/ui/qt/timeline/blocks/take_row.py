@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from PyQt6.QtCore import QRectF, Qt
-from PyQt6.QtGui import QColor, QPainter
+from PyQt6.QtGui import QColor, QPainter, QFont
 
 from echozero.application.presentation.models import LayerPresentation, TakeActionPresentation, TakeLanePresentation
 from echozero.ui.qt.timeline.blocks.layouts import TakeRowLayout
@@ -40,7 +40,17 @@ class TakeRowBlock:
         painter.fillRect(layout.options_button_rect, button_bg)
         painter.setPen(QColor('#9fcbff' if options_open else '#8ea4bf'))
         button_text = 'Options ▾' if options_open else 'Options ▸'
-        painter.drawText(layout.options_button_rect, Qt.AlignmentFlag.AlignCenter, button_text)
+        prior_font = painter.font()
+        button_font = QFont(prior_font)
+        button_font.setPointSize(8)
+        button_font.setBold(True)
+        painter.setFont(button_font)
+        painter.drawText(
+            layout.options_button_rect.adjusted(0, -1, 0, -1),
+            Qt.AlignmentFlag.AlignCenter | Qt.TextFlag.TextSingleLine,
+            button_text,
+        )
+        painter.setFont(prior_font)
 
         actions = self._actions_for_take(take)
         action_rects: list[tuple[QRectF, object, object, str]] = []
@@ -56,7 +66,16 @@ class TakeRowBlock:
                     break
                 painter.fillRect(rect, QColor('#22364f'))
                 painter.setPen(QColor('#d0e4ff'))
-                painter.drawText(rect, Qt.AlignmentFlag.AlignCenter, action.label)
+                prior_chip_font = painter.font()
+                chip_font = QFont(prior_chip_font)
+                chip_font.setPointSize(8)
+                painter.setFont(chip_font)
+                painter.drawText(
+                    rect.adjusted(0, -1, 0, -1),
+                    Qt.AlignmentFlag.AlignCenter | Qt.TextFlag.TextSingleLine,
+                    action.label,
+                )
+                painter.setFont(prior_chip_font)
                 action_rects.append((rect, layer.layer_id, take.take_id, action.action_id))
                 x += chip_w + 6
 

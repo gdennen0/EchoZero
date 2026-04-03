@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QColor, QPainter, QBrush, QPen
+from PyQt6.QtGui import QColor, QPainter, QBrush, QPen, QFont
 
 from echozero.application.presentation.models import TimelinePresentation
 from echozero.ui.qt.timeline.blocks.transport_bar import TransportLayout
@@ -35,4 +35,10 @@ class TransportBarBlock:
         painter.setBrush(QBrush(QColor('#1b2330')))
         painter.drawRoundedRect(rect, 6, 6)
         painter.setPen(QColor('white'))
-        painter.drawText(rect, Qt.AlignmentFlag.AlignCenter, label)
+        prior_font = painter.font()
+        button_font = QFont(prior_font)
+        button_font.setPointSize(9)
+        button_font.setBold(True)
+        painter.setFont(button_font)
+        painter.drawText(rect.adjusted(0, -1, 0, -1), Qt.AlignmentFlag.AlignCenter | Qt.TextFlag.TextSingleLine, label)
+        painter.setFont(prior_font)

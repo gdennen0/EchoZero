@@ -47,7 +47,17 @@ class LayerHeaderBlock:
         painter.setBrush(QBrush(QColor('#141922')))
         painter.drawRoundedRect(slots.toggle_rect, 6, 6)
         painter.setPen(QColor('#d7dce4'))
-        painter.drawText(slots.toggle_rect, Qt.AlignmentFlag.AlignCenter, 'v' if layer.is_expanded else '>')
+        prior_font = painter.font()
+        toggle_font = QFont(prior_font)
+        toggle_font.setPointSize(9)
+        toggle_font.setBold(True)
+        painter.setFont(toggle_font)
+        painter.drawText(
+            slots.toggle_rect.adjusted(0, -1, 0, -1),
+            Qt.AlignmentFlag.AlignCenter | Qt.TextFlag.TextSingleLine,
+            'v' if layer.is_expanded else '>',
+        )
+        painter.setFont(prior_font)
 
     def _draw_badges(self, painter: QPainter, layer: LayerPresentation, slots: HeaderSlots, dimmed: bool) -> None:
         mx = slots.badges_origin_x
@@ -83,4 +93,10 @@ class LayerHeaderBlock:
         painter.setBrush(QBrush(fill))
         painter.drawRoundedRect(rect, 5, 5)
         painter.setPen(QColor('#ffffff' if active else '#b8c0cc'))
-        painter.drawText(rect, Qt.AlignmentFlag.AlignCenter, label)
+        prior_font = painter.font()
+        button_font = QFont(prior_font)
+        button_font.setPointSize(8)
+        button_font.setBold(True)
+        painter.setFont(button_font)
+        painter.drawText(rect.adjusted(0, -1, 0, -1), Qt.AlignmentFlag.AlignCenter | Qt.TextFlag.TextSingleLine, label)
+        painter.setFont(prior_font)
