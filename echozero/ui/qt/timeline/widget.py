@@ -69,7 +69,7 @@ def compute_follow_scroll_x(
     content_padding_px: int = 24,
 ) -> float:
     """Compute follow-mode adjusted scroll target for the current playhead."""
-    if presentation.follow_mode == FollowMode.OFF:
+    if presentation.follow_mode == FollowMode.OFF or not presentation.is_playing:
         return presentation.scroll_x
 
     viewport = max(1, int(viewport_width))

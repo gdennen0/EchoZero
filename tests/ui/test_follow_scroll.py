@@ -14,6 +14,7 @@ def test_follow_page_moves_when_playhead_offscreen_right():
     p = replace(
         build_demo_app().presentation(),
         follow_mode=FollowMode.PAGE,
+        is_playing=True,
         playhead=28.0,
         pixels_per_second=180.0,
         scroll_x=0.0,
@@ -21,10 +22,23 @@ def test_follow_page_moves_when_playhead_offscreen_right():
     assert compute_follow_scroll_x(p, viewport_width=1200) > 0.0
 
 
+def test_follow_does_not_auto_scroll_when_not_playing():
+    p = replace(
+        build_demo_app().presentation(),
+        follow_mode=FollowMode.PAGE,
+        is_playing=False,
+        playhead=28.0,
+        pixels_per_second=180.0,
+        scroll_x=123.0,
+    )
+    assert compute_follow_scroll_x(p, viewport_width=1200) == 123.0
+
+
 def test_follow_center_targets_midpoint_and_clamps():
     p = replace(
         build_demo_app().presentation(),
         follow_mode=FollowMode.CENTER,
+        is_playing=True,
         playhead=20.0,
         pixels_per_second=200.0,
         scroll_x=0.0,
