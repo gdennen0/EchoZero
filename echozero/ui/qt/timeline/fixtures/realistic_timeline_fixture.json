@@ -64,7 +64,8 @@
           "source_ref": "separator:v2",
           "waveform_key": "drums-take-2",
           "actions": [
-            { "action_id": "promote_take", "label": "Promote to main" }
+            { "action_id": "overwrite_main", "label": "Overwrite Main" },
+            { "action_id": "merge_main", "label": "Merge Main" }
           ],
           "events": []
         },
@@ -76,7 +77,8 @@
           "source_ref": "separator:v3",
           "waveform_key": "drums-take-3",
           "actions": [
-            { "action_id": "promote_take", "label": "Promote to main" }
+            { "action_id": "overwrite_main", "label": "Overwrite Main" },
+            { "action_id": "merge_main", "label": "Merge Main" }
           ],
           "events": []
         }
@@ -175,6 +177,10 @@
           "is_main": false,
           "kind": "event",
           "source_ref": "classifier:v2",
+          "actions": [
+            { "action_id": "overwrite_main", "label": "Overwrite Main" },
+            { "action_id": "merge_main", "label": "Merge Main" }
+          ],
           "events": [
             { "id": "evt_kick_t2_01", "start": 0.48, "end": 0.74, "label": "Kick v2", "color": "#66a3ff" },
             { "id": "evt_kick_t2_02", "start": 4.08, "end": 4.32, "label": "Kick v2", "color": "#66a3ff" },
@@ -187,6 +193,10 @@
           "is_main": false,
           "kind": "event",
           "source_ref": "classifier:v3",
+          "actions": [
+            { "action_id": "overwrite_main", "label": "Overwrite Main" },
+            { "action_id": "merge_main", "label": "Merge Main" }
+          ],
           "events": [
             { "id": "evt_kick_t3_01", "start": 0.51, "end": 0.77, "label": "Kick v3", "color": "#66a3ff" },
             { "id": "evt_kick_t3_02", "start": 4.11, "end": 4.37, "label": "Kick v3", "color": "#66a3ff" },
@@ -277,6 +287,10 @@
           "is_main": false,
           "kind": "event",
           "source_ref": "classifier:v2",
+          "actions": [
+            { "action_id": "overwrite_main", "label": "Overwrite Main" },
+            { "action_id": "merge_main", "label": "Merge Main" }
+          ],
           "events": [
             { "id": "evt_clap_t2_01", "start": 2.48, "end": 2.60, "label": "Clap v2", "color": "#ff8c78" },
             { "id": "evt_clap_t2_02", "start": 6.48, "end": 6.60, "label": "Clap v2", "color": "#ff8c78" },

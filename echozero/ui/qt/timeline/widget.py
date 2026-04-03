@@ -10,7 +10,16 @@ from PyQt6.QtGui import QColor, QPainter, QPen, QWheelEvent
 from PyQt6.QtWidgets import QWidget, QVBoxLayout, QScrollArea, QScrollBar
 
 from echozero.application.presentation.models import TimelinePresentation, LayerPresentation, TakeLanePresentation
-from echozero.application.timeline.intents import Pause, Play, Seek, SelectEvent, SelectLayer, SelectTake, ToggleTakeSelector
+from echozero.application.timeline.intents import (
+    Pause,
+    Play,
+    Seek,
+    SelectEvent,
+    SelectLayer,
+    SelectTake,
+    ToggleTakeSelector,
+    TriggerTakeAction,
+)
 from echozero.ui.qt.timeline.blocks.event_lane import EventLaneBlock, EventLanePresentation
 from echozero.ui.qt.timeline.blocks.layer_header import HeaderSlots, LayerHeaderBlock
 from echozero.ui.qt.timeline.blocks.layouts import MainRowLayout, TakeRowLayout
@@ -71,6 +80,7 @@ class TimelineCanvas(QWidget):
     take_toggle_clicked = pyqtSignal(object)
     take_selected = pyqtSignal(object, object)
     event_selected = pyqtSignal(object, object)
+    take_action_selected = pyqtSignal(object, object, str)
     seek_requested = pyqtSignal(float)
     horizontal_scroll_requested = pyqtSignal(int)
 
@@ -83,6 +93,9 @@ class TimelineCanvas(QWidget):
         self._take_row_height = 44
         self._event_height = 22
         self._take_rects: list[tuple[QRectF, object, object]] = []
+        self._take_option_rects: list[tuple[QRectF, object, object]] = []
+        self._take_action_rects: list[tuple[QRectF, object, object, str]] = []
+        self._open_take_options: set[tuple[object, object]] = set()
         self._toggle_rects: list[tuple[QRectF, object]] = []
         self._event_rects: list[tuple[QRectF, object, object]] = []
         self._ruler_block = RulerBlock()
@@ -121,6 +134,8 @@ class TimelineCanvas(QWidget):
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         painter.fillRect(self.rect(), QColor('#12151b'))
         self._take_rects.clear()
+        self._take_option_rects.clear()
+        self._take_action_rects.clear()
         self._toggle_rects.clear()
         self._event_rects.clear()
         self._ruler_block.paint(painter, RulerLayout(QRectF(0, 0, self.width(), self._ruler_height), self._header_width), self.presentation)
@@ -129,6 +144,19 @@ class TimelineCanvas(QWidget):
 
     def mousePressEvent(self, event):
         pos = event.position()
+        for rect, layer_id, take_id, action_id in self._take_action_rects:
+            if rect.contains(pos):
+                self.take_action_selected.emit(layer_id, take_id, action_id)
+                return
+        for rect, layer_id, take_id in self._take_option_rects:
+            if rect.contains(pos):
+                key = (layer_id, take_id)
+                if key in self._open_take_options:
+                    self._open_take_options.remove(key)
+                else:
+                    self._open_take_options.add(key)
+                self.update()
+                return
         for rect, layer_id, take_id in self._take_rects:
             if rect.contains(pos):
                 self.take_selected.emit(layer_id, take_id)
@@ -225,11 +253,25 @@ class TimelineCanvas(QWidget):
         finally:
             painter.restore()
 
+    def _is_take_options_open(self, layer_id: object, take_id: object) -> bool:
+        return (layer_id, take_id) in self._open_take_options
+
     def _draw_take_row(self, painter: QPainter, layer: LayerPresentation, take: TakeLanePresentation, top: int) -> None:
         dimmed = self._layer_dimmed(layer)
         layout = TakeRowLayout.create(top=top, width=self.width(), header_width=self._header_width, row_height=self._take_row_height)
-        hit_targets = self._take_row_block.paint_header(painter, layout, layer, take, dimmed=dimmed)
+        options_open = self._is_take_options_open(layer.layer_id, take.take_id)
+        hit_targets = self._take_row_block.paint_header(
+            painter,
+            layout,
+            layer,
+            take,
+            options_open=options_open,
+            dimmed=dimmed,
+        )
         self._take_rects.append(hit_targets.take_rect)
+        if hit_targets.options_toggle_rect is not None:
+            self._take_option_rects.append(hit_targets.options_toggle_rect)
+        self._take_action_rects.extend(hit_targets.action_rects)
 
         painter.save()
         painter.setClipRect(layout.content_rect)
@@ -314,6 +356,7 @@ class TimelineWidget(QWidget):
         self._canvas.take_toggle_clicked.connect(self._toggle_take_selector)
         self._canvas.take_selected.connect(self._select_take)
         self._canvas.event_selected.connect(self._select_event)
+        self._canvas.take_action_selected.connect(self._trigger_take_action)
         self._canvas.seek_requested.connect(self._seek)
         self._canvas.horizontal_scroll_requested.connect(self._scroll_horizontally_by_steps)
         self._scroll.setWidget(self._canvas)
@@ -393,3 +436,8 @@ class TimelineWidget(QWidget):
         if event_id is None:
             return
         self._dispatch(SelectEvent(layer_id, event_id))
+
+    def _trigger_take_action(self, layer_id, take_id, action_id: str) -> None:
+        if take_id is None or not action_id:
+            return
+        self._dispatch(TriggerTakeAction(layer_id, take_id, action_id))

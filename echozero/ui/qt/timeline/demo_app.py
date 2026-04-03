@@ -11,14 +11,14 @@ from echozero.application.mixer.models import AudibilityState, MixerState, Layer
 from echozero.application.mixer.service import MixerService
 from echozero.application.playback.models import PlaybackState
 from echozero.application.playback.service import PlaybackService
-from echozero.application.presentation.models import TimelinePresentation
+from echozero.application.presentation.models import EventPresentation, LayerPresentation, LayerStatusPresentation, TimelinePresentation
 from echozero.application.session.models import Session
 from echozero.application.session.service import SessionService
 from echozero.application.shared.enums import FollowMode, PlaybackStatus, SyncMode
-from echozero.application.shared.ids import ProjectId, SessionId, SongId, SongVersionId
+from echozero.application.shared.ids import EventId, ProjectId, SessionId, SongId, SongVersionId
 from echozero.application.sync.models import SyncState
 from echozero.application.sync.service import SyncService
-from echozero.application.timeline.intents import Pause, Play, Seek, TimelineIntent, ToggleTakeSelector
+from echozero.application.timeline.intents import Pause, Play, Seek, TimelineIntent, ToggleTakeSelector, TriggerTakeAction
 from echozero.application.transport.models import TransportState
 from echozero.application.transport.service import TransportService
 from echozero.ui.qt.timeline.fixture_loader import load_realistic_timeline_fixture
@@ -178,6 +178,11 @@ class DemoTimelineApp:
                 else:
                     layers.append(layer)
             self.presentation_state = replace(self.presentation_state, layers=layers)
+        elif isinstance(intent, TriggerTakeAction):
+            self.presentation_state = replace(
+                self.presentation_state,
+                layers=_apply_take_action(self.presentation_state.layers, intent.layer_id, intent.take_id, intent.action_id),
+            )
         self.presentation_state = replace(
             self.presentation_state,
             is_playing=self.session.transport_state.is_playing,
@@ -191,6 +196,49 @@ def _fmt_time(seconds: float) -> str:
     mins = int(seconds // 60)
     secs = seconds - mins * 60
     return f"{mins:02d}:{secs:05.2f}"
+
+
+def _apply_take_action(
+    layers: list[LayerPresentation],
+    layer_id,
+    take_id,
+    action_id: str,
+) -> list[LayerPresentation]:
+    updated: list[LayerPresentation] = []
+    for layer in layers:
+        if layer.layer_id != layer_id:
+            updated.append(layer)
+            continue
+
+        take = next((candidate for candidate in layer.takes if candidate.take_id == take_id), None)
+        if take is None:
+            updated.append(layer)
+            continue
+
+        next_events = list(layer.events)
+        if action_id in {'overwrite_main', 'promote_take'}:
+            next_events = _clone_events_for_main(take.events, suffix='ow')
+        elif action_id == 'merge_main':
+            merged = list(layer.events)
+            merged.extend(_clone_events_for_main(take.events, suffix='mg'))
+            next_events = sorted(merged, key=lambda e: (e.start, e.end))
+
+        next_status = replace(layer.status, stale=False, manually_modified=True)
+        updated.append(replace(layer, events=next_events, status=next_status))
+    return updated
+
+
+def _clone_events_for_main(events: list[EventPresentation], *, suffix: str) -> list[EventPresentation]:
+    clones: list[EventPresentation] = []
+    for idx, event in enumerate(events, start=1):
+        clones.append(
+            replace(
+                event,
+                event_id=EventId(f'{event.event_id}_{suffix}_{idx}'),
+                is_selected=False,
+            )
+        )
+    return clones
 
 
 def build_demo_presentation() -> TimelinePresentation:

@@ -39,6 +39,13 @@ class ToggleTakeSelector(TimelineIntent):
 
 
 @dataclass(slots=True)
+class TriggerTakeAction(TimelineIntent):
+    layer_id: LayerId
+    take_id: TakeId
+    action_id: str
+
+
+@dataclass(slots=True)
 class MoveEvent(TimelineIntent):
     event_id: EventId
     new_start: float

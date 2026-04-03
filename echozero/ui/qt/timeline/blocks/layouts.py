@@ -43,15 +43,21 @@ class TakeRowLayout:
     header_rect: QRectF
     content_rect: QRectF
     label_rect: QRectF
+    options_button_rect: QRectF
+    options_area_rect: QRectF
 
     @staticmethod
     def create(*, top: float, width: float, header_width: float, row_height: float) -> 'TakeRowLayout':
         row_rect = QRectF(0, top, width, row_height - 1)
         header_rect = QRectF(0, top, header_width, row_height - 1)
         content_rect = QRectF(header_width, top, width - header_width, row_height - 1)
+        options_button_rect = QRectF(header_width - 98, top + 4, 84, 16)
+        options_area_rect = QRectF(26, top + 24, header_width - 52, 16)
         return TakeRowLayout(
             row_rect=row_rect,
             header_rect=header_rect,
             content_rect=content_rect,
-            label_rect=QRectF(26, top + 6, header_width - 40, 18),
+            label_rect=QRectF(26, top + 4, header_width - 132, 16),
+            options_button_rect=options_button_rect,
+            options_area_rect=options_area_rect,
         )

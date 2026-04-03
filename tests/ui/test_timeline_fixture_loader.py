@@ -16,6 +16,17 @@ def test_realistic_fixture_contains_core_layers_and_takes():
     assert len(by_title["Kick"].takes) >= 2
 
 
+def test_realistic_fixture_take_actions_include_overwrite_and_merge():
+    presentation = load_realistic_timeline_fixture()
+
+    takes_with_actions = [take for layer in presentation.layers for take in layer.takes if take.actions]
+    assert takes_with_actions
+
+    for take in takes_with_actions:
+        action_ids = {action.action_id for action in take.actions}
+        assert {"overwrite_main", "merge_main"} <= action_ids
+
+
 def test_realistic_fixture_event_ids_are_unique():
     presentation = load_realistic_timeline_fixture()
 
