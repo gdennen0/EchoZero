@@ -11,23 +11,17 @@ from echozero.application.mixer.models import AudibilityState, MixerState, Layer
 from echozero.application.mixer.service import MixerService
 from echozero.application.playback.models import PlaybackState
 from echozero.application.playback.service import PlaybackService
-from echozero.application.presentation.models import (
-    EventPresentation,
-    LayerPresentation,
-    LayerStatusPresentation,
-    TakeActionPresentation,
-    TakeLanePresentation,
-    TimelinePresentation,
-)
+from echozero.application.presentation.models import TimelinePresentation
 from echozero.application.session.models import Session
 from echozero.application.session.service import SessionService
-from echozero.application.shared.enums import FollowMode, LayerKind, PlaybackStatus, SyncMode
-from echozero.application.shared.ids import EventId, LayerId, ProjectId, SessionId, SongId, SongVersionId, TakeId, TimelineId
+from echozero.application.shared.enums import FollowMode, PlaybackStatus, SyncMode
+from echozero.application.shared.ids import ProjectId, SessionId, SongId, SongVersionId
 from echozero.application.sync.models import SyncState
 from echozero.application.sync.service import SyncService
 from echozero.application.timeline.intents import Pause, Play, Seek, TimelineIntent, ToggleTakeSelector
 from echozero.application.transport.models import TransportState
 from echozero.application.transport.service import TransportService
+from echozero.ui.qt.timeline.fixture_loader import load_realistic_timeline_fixture
 from echozero.ui.qt.timeline.widget import TimelineWidget
 
 
@@ -199,193 +193,31 @@ def _fmt_time(seconds: float) -> str:
     return f"{mins:02d}:{secs:05.2f}"
 
 
-def _event(event_id: str, start: float, end: float, label: str, color: str, selected: bool = False) -> EventPresentation:
-    return EventPresentation(event_id=EventId(event_id), start=start, end=end, label=label, color=color, is_selected=selected)
-
-
 def build_demo_presentation() -> TimelinePresentation:
-    kick_main = [_event('e1', 0.50, 0.80, 'Kick', '#66a3ff'), _event('e2', 4.20, 4.45, 'Kick', '#66a3ff')]
-    snare_main = [_event('e3', 1.20, 1.45, 'Snare', '#7fd1ae', selected=True), _event('e4', 4.90, 5.15, 'Snare', '#7fd1ae')]
-    hihat_main = [_event('e5', 0.90, 1.00, 'Hat', '#f8c555'), _event('e6', 1.90, 2.00, 'Hat', '#f8c555')]
-    clap_take = [_event('e7', 2.40, 2.55, 'Clap', '#ff8c78'), _event('e8', 6.20, 6.35, 'Clap', '#ff8c78')]
-
-    layers = [
-        LayerPresentation(
-            layer_id=LayerId('layer_song'),
-            title='Song',
-            subtitle='Main song layer · imported audio',
-            kind=LayerKind.AUDIO,
-            is_selected=False,
-            is_expanded=False,
-            muted=False,
-            soloed=False,
-            color='#4da3ff',
-            waveform_key='song-main',
-            badges=['main', 'audio'],
-            status=LayerStatusPresentation(source_label='Imported source', sync_label='No sync'),
-        ),
-        LayerPresentation(
-            layer_id=LayerId('layer_drums'),
-            title='Drums',
-            subtitle='Stem main from separator',
-            kind=LayerKind.AUDIO,
-            is_selected=True,
-            is_expanded=True,
-            muted=False,
-            soloed=True,
-            color='#9b87f5',
-            waveform_key='drums-main',
-            badges=['main', 'audio'],
-            status=LayerStatusPresentation(source_label='Derived from Song via stem_separation', sync_label='Main only'),
-            takes=[TakeLanePresentation(take_id=TakeId('take_drums_rerun1'), name='Take 2 · separator rerun', kind=LayerKind.AUDIO, waveform_key='drums-take-2')],
-        ),
-        LayerPresentation(
-            layer_id=LayerId('layer_bass'),
-            title='Bass',
-            subtitle='Stem main from separator',
-            kind=LayerKind.AUDIO,
-            is_selected=False,
-            is_expanded=False,
-            muted=False,
-            soloed=False,
-            color='#d68cff',
-            waveform_key='bass-main',
-            badges=['main', 'audio'],
-            status=LayerStatusPresentation(source_label='Derived from Song via stem_separation', sync_label='No sync'),
-        ),
-        LayerPresentation(
-            layer_id=LayerId('layer_vocals'),
-            title='Vocals',
-            subtitle='Stem main from separator',
-            kind=LayerKind.AUDIO,
-            is_selected=False,
-            is_expanded=False,
-            muted=False,
-            soloed=False,
-            color='#7dd3fc',
-            waveform_key='vocals-main',
-            badges=['main', 'audio'],
-            status=LayerStatusPresentation(source_label='Derived from Song via stem_separation', sync_label='No sync'),
-        ),
-        LayerPresentation(
-            layer_id=LayerId('layer_other'),
-            title='Other',
-            subtitle='Stem main from separator',
-            kind=LayerKind.AUDIO,
-            is_selected=False,
-            is_expanded=False,
-            muted=False,
-            soloed=False,
-            color='#94a3b8',
-            waveform_key='other-main',
-            badges=['main', 'audio'],
-            status=LayerStatusPresentation(source_label='Derived from Song via stem_separation', sync_label='No sync'),
-        ),
-        LayerPresentation(
-            layer_id=LayerId('layer_kick'),
-            title='Kick',
-            subtitle='Main classified events from Drums main',
-            kind=LayerKind.EVENT,
-            is_selected=False,
-            is_expanded=True,
-            muted=False,
-            soloed=False,
-            color='#66a3ff',
-            events=kick_main,
-            badges=['main', 'event'],
-            status=LayerStatusPresentation(stale=True, manually_modified=True, source_label='Derived from Drums main', sync_label='Not synced'),
-            takes=[TakeLanePresentation(take_id=TakeId('take_kick_rerun1'), name='Take 2 · classifier rerun', kind=LayerKind.EVENT, events=[_event('e9', 0.48, 0.76, 'Kick v2', '#66a3ff'), _event('e10', 4.18, 4.40, 'Kick v2', '#66a3ff')])],
-        ),
-        LayerPresentation(
-            layer_id=LayerId('layer_snare'),
-            title='Snare',
-            subtitle='Main classified events from Drums main',
-            kind=LayerKind.EVENT,
-            is_selected=False,
-            is_expanded=False,
-            muted=False,
-            soloed=False,
-            color='#7fd1ae',
-            events=snare_main,
-            badges=['main', 'event'],
-            status=LayerStatusPresentation(source_label='Derived from Drums main', sync_label='Not synced'),
-        ),
-        LayerPresentation(
-            layer_id=LayerId('layer_hihat'),
-            title='HiHat',
-            subtitle='Main classified events from Drums main',
-            kind=LayerKind.EVENT,
-            is_selected=False,
-            is_expanded=False,
-            muted=False,
-            soloed=False,
-            color='#f8c555',
-            events=hihat_main,
-            badges=['main', 'event'],
-            status=LayerStatusPresentation(source_label='Derived from Drums main', sync_label='Not synced'),
-        ),
-        LayerPresentation(
-            layer_id=LayerId('layer_clap'),
-            title='Clap',
-            subtitle='Main classified events from Drums main',
-            kind=LayerKind.EVENT,
-            is_selected=False,
-            is_expanded=True,
-            muted=False,
-            soloed=False,
-            color='#ff8c78',
-            events=[_event('e11', 2.50, 2.62, 'Clap', '#ff8c78')],
-            badges=['main', 'event'],
-            status=LayerStatusPresentation(source_label='Derived from Drums main', sync_label='Not synced'),
-            takes=[TakeLanePresentation(take_id=TakeId('take_clap_rerun1'), name='Take 2 · threshold tweak', kind=LayerKind.EVENT, events=clap_take)],
-        ),
-        LayerPresentation(
-            layer_id=LayerId('layer_sync'),
-            title='MA3 Sync',
-            subtitle='Main truth only',
-            kind=LayerKind.SYNC,
-            is_selected=False,
-            is_expanded=False,
-            muted=True,
-            soloed=False,
-            color='#ff8c78',
-            events=[_event('e12', 0.75, 1.05, 'Cue 101', '#ff8c78'), _event('e13', 6.10, 6.35, 'Cue 102', '#ff8c78')],
-            badges=['sync'],
-            status=LayerStatusPresentation(source_label='Read/write main only', sync_label='Connected tc101'),
-        ),
-    ]
-
-    return TimelinePresentation(
-        timeline_id=TimelineId('timeline_demo'),
-        title='Stage Zero Timeline',
-        layers=layers,
-        playhead=1.35,
-        is_playing=True,
-        follow_mode=FollowMode.PAGE,
-        selected_layer_id=LayerId('layer_drums'),
-        selected_take_id=None,
-        selected_event_ids=[EventId('e3')],
-        pixels_per_second=180.0,
-        scroll_x=0.0,
-        scroll_y=0.0,
-        current_time_label=_fmt_time(1.35),
-        end_time_label=_fmt_time(8.0),
-    )
+    return load_realistic_timeline_fixture()
 
 
 def build_demo_app() -> DemoTimelineApp:
+    presentation = build_demo_presentation()
     session = Session(
         id=SessionId('session_demo'),
         project_id=ProjectId('project_demo'),
         active_song_id=SongId('song_demo'),
         active_song_version_id=SongVersionId('song_version_demo'),
-        active_timeline_id=TimelineId('timeline_demo'),
-        transport_state=TransportState(is_playing=True, playhead=1.35, follow_mode=FollowMode.PAGE),
+        active_timeline_id=presentation.timeline_id,
+        transport_state=TransportState(
+            is_playing=presentation.is_playing,
+            playhead=presentation.playhead,
+            follow_mode=presentation.follow_mode,
+        ),
         mixer_state=MixerState(),
-        playback_state=PlaybackState(status=PlaybackStatus.PLAYING, backend_name='demo'),
+        playback_state=PlaybackState(
+            status=PlaybackStatus.PLAYING if presentation.is_playing else PlaybackStatus.STOPPED,
+            backend_name='demo',
+        ),
         sync_state=SyncState(mode=SyncMode.MA3, connected=True, target_ref='show_manager'),
     )
-    return DemoTimelineApp(presentation_state=build_demo_presentation(), session=session)
+    return DemoTimelineApp(presentation_state=presentation, session=session)
 
 
 def main() -> int:

@@ -1,0 +1,314 @@
+{
+  "timeline": {
+    "id": "timeline_demo",
+    "title": "Stage Zero Timeline",
+    "playhead": 9.42,
+    "is_playing": true,
+    "follow_mode": "page",
+    "selected_layer_id": "layer_drums",
+    "selected_take_id": null,
+    "selected_event_ids": ["evt_snare_02"],
+    "pixels_per_second": 180.0,
+    "scroll_x": 0.0,
+    "scroll_y": 0.0,
+    "current_time_label": "00:09.42",
+    "end_time_label": "00:32.00"
+  },
+  "layers": [
+    {
+      "id": "layer_song",
+      "title": "Song",
+      "subtitle": "Main song layer · imported audio",
+      "kind": "audio",
+      "is_selected": false,
+      "is_expanded": false,
+      "muted": false,
+      "soloed": false,
+      "color": "#4da3ff",
+      "waveform_key": "song-main",
+      "badges": ["main", "audio"],
+      "status": {
+        "stale": false,
+        "manually_modified": false,
+        "source_label": "Imported source",
+        "sync_label": "No sync"
+      },
+      "events": [],
+      "takes": []
+    },
+    {
+      "id": "layer_drums",
+      "title": "Drums",
+      "subtitle": "Stem main from separator",
+      "kind": "audio",
+      "is_selected": true,
+      "is_expanded": true,
+      "muted": false,
+      "soloed": true,
+      "color": "#9b87f5",
+      "waveform_key": "drums-main",
+      "badges": ["main", "audio"],
+      "status": {
+        "stale": false,
+        "manually_modified": false,
+        "source_label": "Derived from Song via stem_separation",
+        "sync_label": "Main only"
+      },
+      "events": [],
+      "takes": [
+        {
+          "id": "take_drums_rerun1",
+          "name": "Take 2 · separator rerun",
+          "is_main": false,
+          "kind": "audio",
+          "source_ref": "separator:v2",
+          "waveform_key": "drums-take-2",
+          "actions": [
+            { "action_id": "promote_take", "label": "Promote to main" }
+          ],
+          "events": []
+        },
+        {
+          "id": "take_drums_rerun2",
+          "name": "Take 3 · noise floor tweak",
+          "is_main": false,
+          "kind": "audio",
+          "source_ref": "separator:v3",
+          "waveform_key": "drums-take-3",
+          "actions": [
+            { "action_id": "promote_take", "label": "Promote to main" }
+          ],
+          "events": []
+        }
+      ]
+    },
+    {
+      "id": "layer_bass",
+      "title": "Bass",
+      "subtitle": "Stem main from separator",
+      "kind": "audio",
+      "is_selected": false,
+      "is_expanded": false,
+      "muted": false,
+      "soloed": false,
+      "color": "#d68cff",
+      "waveform_key": "bass-main",
+      "badges": ["main", "audio"],
+      "status": {
+        "stale": false,
+        "manually_modified": false,
+        "source_label": "Derived from Song via stem_separation",
+        "sync_label": "No sync"
+      },
+      "events": [],
+      "takes": []
+    },
+    {
+      "id": "layer_vocals",
+      "title": "Vocals",
+      "subtitle": "Stem main from separator",
+      "kind": "audio",
+      "is_selected": false,
+      "is_expanded": false,
+      "muted": false,
+      "soloed": false,
+      "color": "#7dd3fc",
+      "waveform_key": "vocals-main",
+      "badges": ["main", "audio"],
+      "status": {
+        "stale": false,
+        "manually_modified": false,
+        "source_label": "Derived from Song via stem_separation",
+        "sync_label": "No sync"
+      },
+      "events": [],
+      "takes": []
+    },
+    {
+      "id": "layer_other",
+      "title": "Other",
+      "subtitle": "Stem main from separator",
+      "kind": "audio",
+      "is_selected": false,
+      "is_expanded": false,
+      "muted": false,
+      "soloed": false,
+      "color": "#94a3b8",
+      "waveform_key": "other-main",
+      "badges": ["main", "audio"],
+      "status": {
+        "stale": false,
+        "manually_modified": false,
+        "source_label": "Derived from Song via stem_separation",
+        "sync_label": "No sync"
+      },
+      "events": [],
+      "takes": []
+    },
+    {
+      "id": "layer_kick",
+      "title": "Kick",
+      "subtitle": "Main classified events from Drums main",
+      "kind": "event",
+      "is_selected": false,
+      "is_expanded": true,
+      "muted": false,
+      "soloed": false,
+      "color": "#66a3ff",
+      "badges": ["main", "event"],
+      "status": {
+        "stale": true,
+        "manually_modified": true,
+        "source_label": "Derived from Drums main",
+        "sync_label": "Not synced"
+      },
+      "events": [
+        { "id": "evt_kick_01", "start": 0.52, "end": 0.78, "label": "Kick", "color": "#66a3ff" },
+        { "id": "evt_kick_02", "start": 4.12, "end": 4.38, "label": "Kick", "color": "#66a3ff" },
+        { "id": "evt_kick_03", "start": 8.14, "end": 8.40, "label": "Kick", "color": "#66a3ff" },
+        { "id": "evt_kick_04", "start": 12.14, "end": 12.40, "label": "Kick", "color": "#66a3ff" }
+      ],
+      "takes": [
+        {
+          "id": "take_kick_rerun1",
+          "name": "Take 2 · classifier rerun",
+          "is_main": false,
+          "kind": "event",
+          "source_ref": "classifier:v2",
+          "events": [
+            { "id": "evt_kick_t2_01", "start": 0.48, "end": 0.74, "label": "Kick v2", "color": "#66a3ff" },
+            { "id": "evt_kick_t2_02", "start": 4.08, "end": 4.32, "label": "Kick v2", "color": "#66a3ff" },
+            { "id": "evt_kick_t2_03", "start": 8.10, "end": 8.34, "label": "Kick v2", "color": "#66a3ff" }
+          ]
+        },
+        {
+          "id": "take_kick_rerun2",
+          "name": "Take 3 · sensitivity 0.37",
+          "is_main": false,
+          "kind": "event",
+          "source_ref": "classifier:v3",
+          "events": [
+            { "id": "evt_kick_t3_01", "start": 0.51, "end": 0.77, "label": "Kick v3", "color": "#66a3ff" },
+            { "id": "evt_kick_t3_02", "start": 4.11, "end": 4.37, "label": "Kick v3", "color": "#66a3ff" },
+            { "id": "evt_kick_t3_03", "start": 8.12, "end": 8.38, "label": "Kick v3", "color": "#66a3ff" },
+            { "id": "evt_kick_t3_04", "start": 12.12, "end": 12.38, "label": "Kick v3", "color": "#66a3ff" }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "layer_snare",
+      "title": "Snare",
+      "subtitle": "Main classified events from Drums main",
+      "kind": "event",
+      "is_selected": false,
+      "is_expanded": false,
+      "muted": false,
+      "soloed": false,
+      "color": "#7fd1ae",
+      "badges": ["main", "event"],
+      "status": {
+        "stale": false,
+        "manually_modified": false,
+        "source_label": "Derived from Drums main",
+        "sync_label": "Not synced"
+      },
+      "events": [
+        { "id": "evt_snare_01", "start": 1.16, "end": 1.42, "label": "Snare", "color": "#7fd1ae" },
+        { "id": "evt_snare_02", "start": 5.16, "end": 5.42, "label": "Snare", "color": "#7fd1ae", "is_selected": true },
+        { "id": "evt_snare_03", "start": 9.16, "end": 9.42, "label": "Snare", "color": "#7fd1ae" },
+        { "id": "evt_snare_04", "start": 13.16, "end": 13.42, "label": "Snare", "color": "#7fd1ae" }
+      ],
+      "takes": []
+    },
+    {
+      "id": "layer_hihat",
+      "title": "HiHat",
+      "subtitle": "Main classified events from Drums main",
+      "kind": "event",
+      "is_selected": false,
+      "is_expanded": false,
+      "muted": false,
+      "soloed": false,
+      "color": "#f8c555",
+      "badges": ["main", "event"],
+      "status": {
+        "stale": false,
+        "manually_modified": false,
+        "source_label": "Derived from Drums main",
+        "sync_label": "Not synced"
+      },
+      "events": [
+        { "id": "evt_hat_01", "start": 0.90, "end": 1.01, "label": "Hat", "color": "#f8c555" },
+        { "id": "evt_hat_02", "start": 1.88, "end": 1.99, "label": "Hat", "color": "#f8c555" },
+        { "id": "evt_hat_03", "start": 2.90, "end": 3.01, "label": "Hat", "color": "#f8c555" },
+        { "id": "evt_hat_04", "start": 3.88, "end": 3.99, "label": "Hat", "color": "#f8c555" },
+        { "id": "evt_hat_05", "start": 4.90, "end": 5.01, "label": "Hat", "color": "#f8c555" },
+        { "id": "evt_hat_06", "start": 5.88, "end": 5.99, "label": "Hat", "color": "#f8c555" }
+      ],
+      "takes": []
+    },
+    {
+      "id": "layer_clap",
+      "title": "Clap",
+      "subtitle": "Main classified events from Drums main",
+      "kind": "event",
+      "is_selected": false,
+      "is_expanded": true,
+      "muted": false,
+      "soloed": false,
+      "color": "#ff8c78",
+      "badges": ["main", "event"],
+      "status": {
+        "stale": false,
+        "manually_modified": false,
+        "source_label": "Derived from Drums main",
+        "sync_label": "Not synced"
+      },
+      "events": [
+        { "id": "evt_clap_01", "start": 2.52, "end": 2.66, "label": "Clap", "color": "#ff8c78" },
+        { "id": "evt_clap_02", "start": 6.52, "end": 6.66, "label": "Clap", "color": "#ff8c78" },
+        { "id": "evt_clap_03", "start": 10.52, "end": 10.66, "label": "Clap", "color": "#ff8c78" }
+      ],
+      "takes": [
+        {
+          "id": "take_clap_rerun1",
+          "name": "Take 2 · threshold tweak",
+          "is_main": false,
+          "kind": "event",
+          "source_ref": "classifier:v2",
+          "events": [
+            { "id": "evt_clap_t2_01", "start": 2.48, "end": 2.60, "label": "Clap v2", "color": "#ff8c78" },
+            { "id": "evt_clap_t2_02", "start": 6.48, "end": 6.60, "label": "Clap v2", "color": "#ff8c78" },
+            { "id": "evt_clap_t2_03", "start": 10.48, "end": 10.60, "label": "Clap v2", "color": "#ff8c78" },
+            { "id": "evt_clap_t2_04", "start": 14.48, "end": 14.60, "label": "Clap v2", "color": "#ff8c78" }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "layer_sync",
+      "title": "MA3 Sync",
+      "subtitle": "Main truth only",
+      "kind": "sync",
+      "is_selected": false,
+      "is_expanded": false,
+      "muted": true,
+      "soloed": false,
+      "color": "#ff8c78",
+      "badges": ["sync"],
+      "status": {
+        "stale": false,
+        "manually_modified": false,
+        "source_label": "Read/write main only",
+        "sync_label": "Connected tc101"
+      },
+      "events": [
+        { "id": "evt_sync_01", "start": 0.74, "end": 1.05, "label": "Cue 101", "color": "#ff8c78" },
+        { "id": "evt_sync_02", "start": 8.74, "end": 9.05, "label": "Cue 102", "color": "#ff8c78" },
+        { "id": "evt_sync_03", "start": 16.74, "end": 17.05, "label": "Cue 103", "color": "#ff8c78" }
+      ],
+      "takes": []
+    }
+  ]
+}
