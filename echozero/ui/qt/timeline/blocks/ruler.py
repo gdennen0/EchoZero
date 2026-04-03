@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from math import ceil, floor
 
 from PyQt6.QtCore import QRectF
 from PyQt6.QtGui import QColor, QPainter, QPen
@@ -24,13 +25,35 @@ class RulerBlock:
         painter.drawText(14, int(rect.top()) + 18, 'Timeline')
 
         pps = max(1.0, presentation.pixels_per_second)
-        seconds = int(max(10, (rect.width() - layout.header_width) / pps))
-        for second in range(seconds + 2):
-            x = layout.header_width + int(second * pps) - int(presentation.scroll_x)
-            if x < layout.header_width:
-                continue
+        content_width = max(1.0, rect.width() - layout.header_width)
+        for second, x in visible_ruler_seconds(
+            scroll_x=presentation.scroll_x,
+            pixels_per_second=pps,
+            content_width=content_width,
+            content_start_x=layout.header_width,
+        ):
             painter.setPen(QPen(QColor('#3b4352'), 1))
-            painter.drawLine(x, int(rect.bottom()) - 10, x, int(rect.bottom()))
+            painter.drawLine(int(x), int(rect.bottom()) - 10, int(x), int(rect.bottom()))
             painter.setPen(QColor('#b8c0cc'))
-            painter.drawLine(x, int(rect.top()), x, int(rect.bottom()) - 1)
-            painter.drawText(x + 4, int(rect.top()) + 12, f'{second}')
+            painter.drawLine(int(x), int(rect.top()), int(x), int(rect.bottom()) - 1)
+            painter.drawText(int(x) + 4, int(rect.top()) + 12, f'{second}')
+
+
+def visible_ruler_seconds(
+    *,
+    scroll_x: float,
+    pixels_per_second: float,
+    content_width: float,
+    content_start_x: float,
+) -> list[tuple[int, float]]:
+    """Compute visible (second, screen_x) marks for the current horizontal viewport."""
+    pps = max(1.0, pixels_per_second)
+    start_second = max(0, int(floor(scroll_x / pps)) - 1)
+    end_second = int(ceil((scroll_x + content_width) / pps)) + 1
+
+    marks: list[tuple[int, float]] = []
+    for second in range(start_second, max(start_second, end_second) + 1):
+        x = content_start_x + (second * pps) - scroll_x
+        if (content_start_x - pps) <= x <= (content_start_x + content_width + pps):
+            marks.append((second, x))
+    return marks
