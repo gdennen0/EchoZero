@@ -67,7 +67,17 @@ class LayerHeaderBlock:
             painter.setBrush(QBrush(QColor('#314056' if dimmed else '#2b6bf0')))
             painter.drawRoundedRect(badge_rect, 5, 5)
             painter.setPen(QColor('#dce3eb'))
-            painter.drawText(badge_rect, Qt.AlignmentFlag.AlignCenter, badge)
+            prior_font = painter.font()
+            badge_font = QFont(prior_font)
+            badge_font.setPointSize(8)
+            badge_font.setBold(True)
+            painter.setFont(badge_font)
+            painter.drawText(
+                badge_rect.adjusted(0, -1, 0, -1),
+                Qt.AlignmentFlag.AlignCenter | Qt.TextFlag.TextSingleLine,
+                badge,
+            )
+            painter.setFont(prior_font)
             mx += badge_rect.width() + 4
 
     def _draw_status_chips(self, painter: QPainter, rect: QRectF, layer: LayerPresentation) -> None:
@@ -82,7 +92,13 @@ class LayerHeaderBlock:
         painter.setBrush(QBrush(QColor(fill)))
         painter.drawRoundedRect(rect, 5, 5)
         painter.setPen(QColor(fg))
-        painter.drawText(rect, Qt.AlignmentFlag.AlignCenter, text)
+        prior_font = painter.font()
+        chip_font = QFont(prior_font)
+        chip_font.setPointSize(8)
+        chip_font.setBold(True)
+        painter.setFont(chip_font)
+        painter.drawText(rect.adjusted(0, -1, 0, -1), Qt.AlignmentFlag.AlignCenter | Qt.TextFlag.TextSingleLine, text)
+        painter.setFont(prior_font)
         return rect.right()
 
     def _draw_ms_button(self, painter: QPainter, rect: QRectF, label: str, *, active: bool, dimmed: bool) -> None:

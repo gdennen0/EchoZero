@@ -10,6 +10,7 @@ from PyQt6.QtGui import QColor, QPainter, QPen, QWheelEvent
 from PyQt6.QtWidgets import QWidget, QVBoxLayout, QScrollArea, QScrollBar
 
 from echozero.application.presentation.models import TimelinePresentation, LayerPresentation, TakeLanePresentation
+from echozero.application.shared.enums import FollowMode
 from echozero.application.timeline.intents import (
     Pause,
     Play,
@@ -58,6 +59,38 @@ def compute_scroll_bounds(
     content_width = max(viewport, int(header_width + (span * presentation.pixels_per_second) + right_padding_px))
     max_scroll = max(0, content_width - viewport)
     return content_width, max_scroll
+
+
+def compute_follow_scroll_x(
+    presentation: TimelinePresentation,
+    viewport_width: int,
+    *,
+    header_width: int = 320,
+    content_padding_px: int = 24,
+) -> float:
+    """Compute follow-mode adjusted scroll target for the current playhead."""
+    if presentation.follow_mode == FollowMode.OFF:
+        return presentation.scroll_x
+
+    viewport = max(1, int(viewport_width))
+    content_width = max(1.0, viewport - header_width)
+    pps = max(1.0, presentation.pixels_per_second)
+    timeline_x = presentation.playhead * pps
+    current = presentation.scroll_x
+    left_bound = current + content_padding_px
+    right_bound = current + max(content_padding_px + 1.0, content_width - content_padding_px)
+
+    target = current
+    if presentation.follow_mode == FollowMode.PAGE:
+        if timeline_x < left_bound:
+            target = max(0.0, timeline_x - content_padding_px)
+        elif timeline_x > right_bound:
+            target = max(0.0, timeline_x - content_padding_px)
+    elif presentation.follow_mode in {FollowMode.CENTER, FollowMode.SMOOTH}:
+        target = max(0.0, timeline_x - (content_width * 0.5))
+
+    _, max_scroll = compute_scroll_bounds(presentation, viewport, header_width=header_width)
+    return float(max(0.0, min(target, max_scroll)))
 
 
 def _parse_time_label_seconds(label: str | None) -> float:
@@ -371,10 +404,16 @@ class TimelineWidget(QWidget):
         self.set_presentation(self.presentation)
 
     def set_presentation(self, presentation: TimelinePresentation) -> None:
-        self.presentation = presentation
+        viewport = max(1, self._scroll.viewport().width())
+        followed = compute_follow_scroll_x(
+            presentation,
+            viewport,
+            header_width=self._canvas._header_width,
+        )
+        self.presentation = replace(presentation, scroll_x=followed)
         self._update_horizontal_scroll_bounds(sync_bar_value=True)
-        self._transport.set_presentation(presentation)
-        self._canvas.set_presentation(presentation)
+        self._transport.set_presentation(self.presentation)
+        self._canvas.set_presentation(self.presentation)
 
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
