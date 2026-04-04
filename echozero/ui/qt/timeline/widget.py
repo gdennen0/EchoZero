@@ -9,7 +9,6 @@ from PyQt6.QtCore import QRectF, Qt, pyqtSignal
 from PyQt6.QtGui import QColor, QPainter, QPen, QWheelEvent
 from PyQt6.QtWidgets import QWidget, QVBoxLayout, QScrollArea, QScrollBar
 
-from echozero.application.presentation.foundry_viewmodel import FoundryActivityItem, FoundryActivityViewModel
 from echozero.application.presentation.models import TimelinePresentation, LayerPresentation, TakeLanePresentation
 from echozero.application.shared.enums import FollowMode
 from echozero.application.timeline.intents import (
@@ -389,50 +388,11 @@ class TimelineRuler(QWidget):
         )
 
 
-class FoundryStatusStrip(QWidget):
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self._message = "Foundry idle"
-        self._kind = "idle"
-        self.setMinimumHeight(24)
-        self.setMaximumHeight(24)
-
-    def set_activity(self, item: FoundryActivityItem) -> None:
-        self._message = item.message
-        self._kind = item.kind
-        self.update()
-
-    def paintEvent(self, event):
-        painter = QPainter(self)
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-
-        if self._kind == "artifact_validated" and "failed" in self._message:
-            bg = QColor('#3a1b1f')
-            fg = QColor('#ffb4bc')
-        elif self._kind == "artifact_validated":
-            bg = QColor('#173223')
-            fg = QColor('#9ff0c3')
-        else:
-            bg = QColor('#161b22')
-            fg = QColor('#c9d1d9')
-
-        painter.fillRect(self.rect(), bg)
-        painter.setPen(fg)
-        painter.drawText(self.rect().adjusted(10, 0, -10, 0), Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft, f"Foundry: {self._message}")
-
-
 class TimelineWidget(QWidget):
-    def __init__(
-        self,
-        presentation: TimelinePresentation,
-        on_intent: Callable[[object], TimelinePresentation] | None = None,
-        foundry_activity: FoundryActivityViewModel | None = None,
-        parent=None,
-    ):
+    def __init__(self, presentation: TimelinePresentation, on_intent: Callable[[object], TimelinePresentation] | None = None, parent=None):
         super().__init__(parent)
         self.presentation = presentation
         self._on_intent = on_intent
-        self._foundry_activity = foundry_activity
         self.setWindowTitle('EchoZero Timeline Preview')
 
         layout = QVBoxLayout(self)
@@ -465,12 +425,6 @@ class TimelineWidget(QWidget):
         self._hscroll.setPageStep(200)
         self._hscroll.valueChanged.connect(self._on_horizontal_scroll_changed)
         layout.addWidget(self._hscroll)
-
-        self._foundry_strip = FoundryStatusStrip(self)
-        layout.addWidget(self._foundry_strip)
-
-        if self._foundry_activity is not None:
-            self._foundry_activity.set_listener(self._on_foundry_activity)
 
         self.set_presentation(self.presentation)
 
@@ -523,9 +477,6 @@ class TimelineWidget(QWidget):
         next_value = self._hscroll.value() + (notches * self._hscroll.singleStep())
         self._hscroll.setValue(max(self._hscroll.minimum(), min(self._hscroll.maximum(), next_value)))
 
-    def _on_foundry_activity(self, item: FoundryActivityItem) -> None:
-        self._foundry_strip.set_activity(item)
-
     def _dispatch(self, intent: object) -> None:
         if self._on_intent is None:
             return
@@ -556,8 +507,3 @@ class TimelineWidget(QWidget):
         if take_id is None or not action_id:
             return
         self._dispatch(TriggerTakeAction(layer_id, take_id, action_id))
-
-    def closeEvent(self, event) -> None:
-        if self._foundry_activity is not None:
-            self._foundry_activity.set_listener(None)
-        super().closeEvent(event)

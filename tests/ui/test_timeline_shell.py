@@ -2,10 +2,7 @@ from dataclasses import replace
 
 from PyQt6.QtWidgets import QApplication
 
-from echozero.application.presentation.foundry_viewmodel import FoundryActivityViewModel
 from echozero.application.timeline.intents import Pause, Play, Seek, ToggleTakeSelector
-from echozero.domain.events import FoundryRunCreatedEvent, create_event_id
-from echozero.event_bus import EventBus
 from echozero.ui.qt.timeline.demo_app import build_demo_app
 from echozero.ui.qt.timeline.test_harness import build_variant_presentations, estimate_full_window_height
 from echozero.ui.qt.timeline.widget import TimelineWidget, compute_scroll_bounds, estimate_timeline_span_seconds
@@ -117,28 +114,6 @@ def test_fixture_keeps_unique_event_ids_across_main_and_takes():
 def test_estimate_full_window_height_expanded_fixture_exceeds_default_capture_height():
     presentation = build_demo_app().presentation()
     assert estimate_full_window_height(presentation) > 720
-
-
-def test_foundry_status_strip_updates_from_activity_events():
-    app = QApplication.instance() or QApplication([])
-    bus = EventBus()
-    vm = FoundryActivityViewModel(bus)
-    widget = TimelineWidget(build_demo_app().presentation(), foundry_activity=vm)
-    try:
-        bus.publish(
-            FoundryRunCreatedEvent(
-                event_id=create_event_id(),
-                timestamp=1.0,
-                correlation_id='run_demo',
-                run_id='run_demo',
-                dataset_version_id='dsv_demo',
-                status='queued',
-            )
-        )
-        assert 'Run created: run_demo' in widget._foundry_strip._message
-    finally:
-        widget.close()
-        vm.dispose()
 
 
 def test_ruler_is_separate_widget_from_scroll_canvas():
