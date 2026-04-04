@@ -7,7 +7,7 @@ from dataclasses import replace
 
 from PyQt6.QtCore import QRectF, Qt, pyqtSignal
 from PyQt6.QtGui import QColor, QPainter, QPen, QWheelEvent
-from PyQt6.QtWidgets import QWidget, QVBoxLayout, QScrollArea, QScrollBar
+from PyQt6.QtWidgets import QWidget, QVBoxLayout, QScrollArea, QScrollBar, QToolTip
 
 from echozero.application.presentation.models import TimelinePresentation, LayerPresentation, TakeLanePresentation
 from echozero.application.shared.enums import FollowMode
@@ -93,6 +93,24 @@ def compute_follow_scroll_x(
     return float(max(0.0, min(target, max_scroll)))
 
 
+def badge_tooltip_labels(badges: list[str]) -> list[str]:
+    mapping = {
+        "main": "Main take",
+        "stem": "Stem output",
+        "audio": "Audio lane",
+        "event": "Event lane",
+        "classifier-preview": "Classifier preview",
+        "real-data": "Real data",
+    }
+    labels: list[str] = []
+    for badge in badges:
+        key = str(badge).strip().lower()
+        if not key:
+            continue
+        labels.append(mapping.get(key, key.replace("-", " ").title()))
+    return labels
+
+
 def _parse_time_label_seconds(label: str | None) -> float:
     if not label:
         return 0.0
@@ -131,11 +149,14 @@ class TimelineCanvas(QWidget):
         self._open_take_options: set[tuple[object, object]] = set()
         self._toggle_rects: list[tuple[QRectF, object]] = []
         self._event_rects: list[tuple[QRectF, object, object]] = []
+        self._header_hover_rects: list[tuple[QRectF, LayerPresentation]] = []
+        self._hovered_layer_id: object | None = None
         self._header_block = LayerHeaderBlock()
         self._waveform_block = WaveformLaneBlock()
         self._event_lane_block = EventLaneBlock()
         self._take_row_block = TakeRowBlock()
         self.setMinimumWidth(1440)
+        self.setMouseTracking(True)
         self._recompute_height()
 
     def _recompute_height(self) -> None:
@@ -170,8 +191,41 @@ class TimelineCanvas(QWidget):
         self._take_action_rects.clear()
         self._toggle_rects.clear()
         self._event_rects.clear()
+        self._header_hover_rects.clear()
         self._draw_layers(painter)
         self._draw_playhead(painter)
+
+    def mouseMoveEvent(self, event) -> None:
+        pos = event.position()
+        hovered: LayerPresentation | None = None
+        hovered_rect: QRectF | None = None
+        for rect, layer in self._header_hover_rects:
+            if rect.contains(pos):
+                hovered = layer
+                hovered_rect = rect
+                break
+
+        next_id = hovered.layer_id if hovered is not None else None
+        if next_id != self._hovered_layer_id:
+            self._hovered_layer_id = next_id
+            if hovered is not None and hovered_rect is not None:
+                tip = self._header_tooltip_text(hovered)
+                if tip:
+                    QToolTip.showText(
+                        self.mapToGlobal(pos.toPoint()),
+                        tip,
+                        self,
+                        hovered_rect.toRect(),
+                        6000,
+                    )
+            else:
+                QToolTip.hideText()
+        super().mouseMoveEvent(event)
+
+    def leaveEvent(self, event) -> None:
+        self._hovered_layer_id = None
+        QToolTip.hideText()
+        super().leaveEvent(event)
 
     def mousePressEvent(self, event):
         pos = event.position()
@@ -226,6 +280,18 @@ class TimelineCanvas(QWidget):
                     self._draw_take_row(painter, layer, take, y)
                     y += self._take_row_height
 
+    @staticmethod
+    def _header_tooltip_text(layer: LayerPresentation) -> str:
+        labels = badge_tooltip_labels(layer.badges)
+        parts: list[str] = []
+        if labels:
+            parts.append(" • ".join(labels))
+        if layer.status.source_label:
+            parts.append(layer.status.source_label)
+        if layer.status.sync_label and layer.status.sync_label.lower() != "no sync":
+            parts.append(f"Sync: {layer.status.sync_label}")
+        return "\n".join(parts)
+
     def _draw_main_row(self, painter: QPainter, layer: LayerPresentation, top: int) -> None:
         dimmed = self._layer_dimmed(layer)
         layout = MainRowLayout.create(top=top, width=self.width(), header_width=self._header_width, row_height=self._main_row_height)
@@ -245,6 +311,7 @@ class TimelineCanvas(QWidget):
             metadata_rect=layout.metadata_rect,
         )
         self._toggle_rects.append((slots.toggle_rect, layer.layer_id))
+        self._header_hover_rects.append((layout.header_rect, layer))
         self._header_block.paint(painter, slots, layer, dimmed=dimmed)
 
         painter.save()
