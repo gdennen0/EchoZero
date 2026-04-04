@@ -23,6 +23,7 @@ from echozero.persistence.session import ProjectStorage
 from echozero.pipelines.registry import PipelineRegistry, get_registry
 from echozero.progress import RuntimeBus
 from echozero.result import Result, is_ok
+from echozero.services.foundry_orchestrator import FoundryOrchestrator
 from echozero.services.orchestrator import AnalysisResult, Orchestrator
 
 logger = logging.getLogger(__name__)
@@ -44,6 +45,7 @@ class Project:
         coordinator: Coordinator,
         orchestrator: Orchestrator,
         runtime_bus: RuntimeBus,
+        foundry: FoundryOrchestrator,
     ) -> None:
         self._storage = storage
         self._graph = graph
@@ -52,6 +54,7 @@ class Project:
         self._coordinator = coordinator
         self._orchestrator = orchestrator
         self._runtime_bus = runtime_bus
+        self._foundry = foundry
 
     # -- Factory methods (the ONLY way to create a Project) -----------------
 
@@ -145,6 +148,8 @@ class Project:
             executors=executors or {},
         )
 
+        foundry = FoundryOrchestrator(storage.working_dir)
+
         project = cls(
             storage=storage,
             graph=graph,
@@ -153,6 +158,7 @@ class Project:
             coordinator=coordinator,
             orchestrator=orchestrator,
             runtime_bus=runtime_bus,
+            foundry=foundry,
         )
 
         storage.start_autosave(interval_seconds=30.0)
@@ -248,6 +254,53 @@ class Project:
             session=self._storage,
             config_id=config_id,
             on_progress=on_progress,
+        )
+
+    # -- Foundry (training lane) --------------------------------------------
+
+    def foundry_create_run(
+        self,
+        dataset_version_id: str,
+        run_spec: dict[str, Any],
+        *,
+        backend: str = "pytorch",
+        device: str = "cpu",
+    ):
+        return self._foundry.create_run(
+            dataset_version_id=dataset_version_id,
+            run_spec=run_spec,
+            backend=backend,
+            device=device,
+        )
+
+    def foundry_start_run(self, run_id: str):
+        return self._foundry.start_run(run_id)
+
+    def foundry_get_run(self, run_id: str):
+        return self._foundry.get_run(run_id)
+
+    def foundry_finalize_artifact(self, run_id: str, manifest: dict[str, Any]):
+        return self._foundry.finalize_artifact(run_id, manifest)
+
+    def foundry_validate_artifact(
+        self,
+        artifact_id: str,
+        *,
+        consumer: str = "PyTorchAudioClassify",
+    ):
+        return self._foundry.validate_artifact(artifact_id, consumer=consumer)
+
+    def foundry_finalize_artifact_checked(
+        self,
+        run_id: str,
+        manifest: dict[str, Any],
+        *,
+        consumer: str = "PyTorchAudioClassify",
+    ):
+        return self._foundry.finalize_artifact_checked(
+            run_id=run_id,
+            manifest=manifest,
+            consumer=consumer,
         )
 
     # -- Song management (via Storage) --------------------------------------

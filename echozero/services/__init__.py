@@ -3,6 +3,7 @@ Services layer: Application-level orchestration between engine and persistence.
 Exists because the engine computes and persistence stores — services bridge both.
 """
 
+from echozero.services.foundry_orchestrator import FoundryOrchestrator
 from echozero.services.orchestrator import AnalysisResult, Orchestrator
 from echozero.services.setlist import SetlistProcessor, SetlistResult
 
@@ -15,4 +16,5 @@ __all__ = [
     "AnalysisResult",
     "SetlistProcessor",
     "SetlistResult",
+    "FoundryOrchestrator",
 ]

@@ -448,6 +448,94 @@ class TestSaveLoadRoundtrip:
 # ---------------------------------------------------------------------------
 
 
+class TestFoundryIntegration:
+    def test_foundry_run_and_artifact_checked_gate_passes(self, tmp_path):
+        with _create_project(tmp_path) as p:
+            run_spec = {
+                "schema": "foundry.train_run_spec.v1",
+                "classificationMode": "multiclass",
+                "data": {
+                    "datasetVersionId": "dsv_proj",
+                    "sampleRate": 22050,
+                    "maxLength": 22050,
+                    "nFft": 2048,
+                    "hopLength": 512,
+                    "nMels": 128,
+                    "fmax": 8000,
+                },
+                "training": {
+                    "epochs": 1,
+                    "batchSize": 2,
+                    "learningRate": 0.001,
+                },
+            }
+
+            run_result = p.foundry_create_run("dsv_proj", run_spec)
+            assert is_ok(run_result)
+            run = unwrap(run_result)
+
+            assert is_ok(p.foundry_start_run(run.id))
+
+            artifact_result = p.foundry_finalize_artifact_checked(
+                run.id,
+                {
+                    "weightsPath": "exports/model.pth",
+                    "classes": ["kick", "snare"],
+                    "classificationMode": "multiclass",
+                    "inferencePreprocessing": {
+                        "sampleRate": 22050,
+                        "maxLength": 22050,
+                        "nFft": 2048,
+                        "hopLength": 512,
+                        "nMels": 128,
+                        "fmax": 8000,
+                    },
+                },
+            )
+            assert is_ok(artifact_result)
+
+    def test_foundry_artifact_checked_gate_fails_on_missing_weights(self, tmp_path):
+        with _create_project(tmp_path) as p:
+            run_spec = {
+                "schema": "foundry.train_run_spec.v1",
+                "classificationMode": "multiclass",
+                "data": {
+                    "datasetVersionId": "dsv_proj",
+                    "sampleRate": 22050,
+                    "maxLength": 22050,
+                    "nFft": 2048,
+                    "hopLength": 512,
+                    "nMels": 128,
+                    "fmax": 8000,
+                },
+                "training": {
+                    "epochs": 1,
+                    "batchSize": 2,
+                    "learningRate": 0.001,
+                },
+            }
+
+            run = unwrap(p.foundry_create_run("dsv_proj", run_spec))
+            unwrap(p.foundry_start_run(run.id))
+
+            artifact_result = p.foundry_finalize_artifact_checked(
+                run.id,
+                {
+                    "classes": ["kick", "snare"],
+                    "classificationMode": "multiclass",
+                    "inferencePreprocessing": {
+                        "sampleRate": 22050,
+                        "maxLength": 22050,
+                        "nFft": 2048,
+                        "hopLength": 512,
+                        "nMels": 128,
+                        "fmax": 8000,
+                    },
+                },
+            )
+            assert is_err(artifact_result)
+
+
 class TestNamingIdentity:
     def test_project_name(self, tmp_path):
         """project.name returns the project name."""
