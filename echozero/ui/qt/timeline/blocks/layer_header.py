@@ -31,13 +31,7 @@ class LayerHeaderBlock:
         painter.setPen(QColor('#cbd3df' if dimmed else '#f0f3f8'))
         painter.drawText(slots.title_rect, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, layer.title)
 
-        sub_font = QFont()
-        sub_font.setPointSize(8)
-        painter.setFont(sub_font)
-        painter.setPen(QColor('#6f7a88' if dimmed else '#98a3b3'))
-        painter.drawText(slots.subtitle_rect, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, layer.subtitle)
-
-        self._draw_metadata_badge(painter, layer, slots, dimmed)
+        self._draw_metadata_symbols(painter, layer, slots, dimmed)
         self._draw_status_chips(painter, slots.status_rect, layer)
         self._draw_ms_button(painter, QRectF(slots.controls_rect.left(), slots.controls_rect.top(), 24, 18), 'M', active=layer.muted, dimmed=dimmed)
         self._draw_ms_button(painter, QRectF(slots.controls_rect.left() + 28, slots.controls_rect.top(), 24, 18), 'S', active=layer.soloed, dimmed=dimmed)
@@ -58,9 +52,9 @@ class LayerHeaderBlock:
         )
         painter.setFont(prior_font)
 
-    def _draw_metadata_badge(self, painter: QPainter, layer: LayerPresentation, slots: HeaderSlots, dimmed: bool) -> None:
-        text = self._metadata_text(layer.badges)
-        if not text:
+    def _draw_metadata_symbols(self, painter: QPainter, layer: LayerPresentation, slots: HeaderSlots, dimmed: bool) -> None:
+        tokens = self._metadata_tokens(layer.badges)
+        if not tokens:
             return
 
         rect = slots.metadata_rect
@@ -68,36 +62,49 @@ class LayerHeaderBlock:
         try:
             painter.setClipRect(rect)
             painter.setPen(Qt.PenStyle.NoPen)
-            painter.setBrush(QBrush(QColor('#2a3443' if dimmed else '#25364d')))
+            painter.setBrush(QBrush(QColor('#1f2b3a' if dimmed else '#1d2e45')))
             painter.drawRoundedRect(rect, 5, 5)
-            painter.setPen(QColor('#b7d2f3' if not dimmed else '#8ea3bc'))
+
             prior_font = painter.font()
             meta_font = QFont(prior_font)
             meta_font.setPointSize(7)
             meta_font.setBold(True)
             painter.setFont(meta_font)
-            painter.drawText(
-                rect.adjusted(6, -1, -6, -1),
-                Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter | Qt.TextFlag.TextSingleLine,
-                text,
-            )
+
+            x = rect.left() + 6
+            for token in tokens:
+                chip_w = 13
+                chip = QRectF(x, rect.top() + 1, chip_w, rect.height() - 2)
+                painter.setBrush(QBrush(QColor('#2b4260' if not dimmed else '#253447')))
+                painter.setPen(Qt.PenStyle.NoPen)
+                painter.drawRoundedRect(chip, 4, 4)
+                painter.setPen(QColor('#c5dcf5' if not dimmed else '#9db3cb'))
+                painter.drawText(
+                    chip.adjusted(0, -1, 0, -1),
+                    Qt.AlignmentFlag.AlignCenter | Qt.TextFlag.TextSingleLine,
+                    token,
+                )
+                x += chip_w + 4
+                if x > rect.right() - 12:
+                    break
+
             painter.setFont(prior_font)
         finally:
             painter.restore()
 
     @staticmethod
-    def _metadata_text(badges: list[str]) -> str:
+    def _metadata_tokens(badges: list[str]) -> list[str]:
         if not badges:
-            return ""
+            return []
 
         priority = ["main", "stem", "audio", "event", "classifier-preview", "real-data"]
-        display_map = {
-            "main": "MAIN",
-            "stem": "STEM",
-            "audio": "AUD",
-            "event": "EVT",
-            "classifier-preview": "CLASS",
-            "real-data": "REAL",
+        symbol_map = {
+            "main": "M",
+            "stem": "S",
+            "audio": "A",
+            "event": "E",
+            "classifier-preview": "C",
+            "real-data": "R",
         }
 
         normalized = [str(b).strip().lower() for b in badges if str(b).strip()]
@@ -109,12 +116,12 @@ class LayerHeaderBlock:
             if key not in ordered:
                 ordered.append(key)
 
-        visible = ordered[:3]
-        parts = [display_map.get(v, v.upper()[:4]) for v in visible]
+        visible = ordered[:4]
+        tokens = [symbol_map.get(v, v[:1].upper()) for v in visible]
         remaining = max(0, len(ordered) - len(visible))
         if remaining:
-            parts.append(f"+{remaining}")
-        return " · ".join(parts)
+            tokens.append(f"+{remaining}")
+        return tokens
 
     def _draw_status_chips(self, painter: QPainter, rect: QRectF, layer: LayerPresentation) -> None:
         x = rect.left()
