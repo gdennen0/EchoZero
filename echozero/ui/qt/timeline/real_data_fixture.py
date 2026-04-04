@@ -19,6 +19,7 @@ from echozero.application.shared.enums import FollowMode, LayerKind
 from echozero.application.shared.ids import EventId, LayerId, TakeId, TimelineId
 from echozero.domain.types import AudioData, Event as DomainEvent, EventData
 from echozero.main import create_project
+from echozero.ui.qt.timeline.drum_classifier_preview import classify_drum_hits
 from echozero.ui.qt.timeline.waveform_cache import register_waveform_from_audio_file
 
 
@@ -83,6 +84,7 @@ def build_real_data_presentation(
 
         total_takes = 0
         total_main_events = 0
+        drums_audio_path: Path | None = None
 
         for order, layer_record in enumerate(layers, start=1):
             takes = project.storage.takes.list_by_layer(layer_record.id)
@@ -136,6 +138,8 @@ def build_real_data_presentation(
             if main_kind == LayerKind.AUDIO and isinstance(main_take.data, AudioData):
                 main_waveform_key = f"real-{layer_record.name}-main"
                 register_waveform_from_audio_file(main_waveform_key, main_take.data.file_path)
+                if layer_record.name.lower() == "drums":
+                    drums_audio_path = Path(main_take.data.file_path)
 
             presentation_layers.append(
                 LayerPresentation(
@@ -153,6 +157,13 @@ def build_real_data_presentation(
                     status=status,
                 )
             )
+
+        # Preview classifier lanes from drums stem (stems-first progression).
+        if drums_audio_path is not None and drums_audio_path.exists():
+            preview_hits = classify_drum_hits(drums_audio_path, onset_threshold=0.025, min_gap=0.04)
+            preview_layers = _classifier_layers_from_hits(preview_hits)
+            presentation_layers.extend(preview_layers)
+            total_main_events += sum(len(layer.events) for layer in preview_layers)
 
         timeline = TimelinePresentation(
             timeline_id=TimelineId("timeline_real_data"),
@@ -243,6 +254,51 @@ def _source_ref(source: Any) -> str | None:
     if run_id:
         return str(run_id)
     return None
+
+
+def _classifier_layers_from_hits(hits: dict[str, list]) -> list[LayerPresentation]:
+    order = [
+        ("kick", "Kick", "#66a3ff"),
+        ("snare", "Snare", "#7fd1ae"),
+        ("hihat", "HiHat", "#f8c555"),
+        ("clap", "Clap", "#ff8c78"),
+    ]
+    layers: list[LayerPresentation] = []
+
+    for key, title, color in order:
+        values = sorted(hits.get(key, []), key=lambda hit: hit.time)
+        events = [
+            EventPresentation(
+                event_id=EventId(f"classifier_{key}_{i+1}"),
+                start=float(hit.time),
+                end=float(hit.time + 0.08),
+                label=title,
+                color=color,
+            )
+            for i, hit in enumerate(values)
+        ]
+        layers.append(
+            LayerPresentation(
+                layer_id=LayerId(f"classifier_{key}"),
+                title=title,
+                subtitle="Classifier preview from drums stem",
+                kind=LayerKind.EVENT,
+                is_selected=False,
+                is_expanded=False,
+                events=events,
+                takes=[],
+                color=color,
+                badges=["main", "event", "classifier-preview", "real-data"],
+                status=LayerStatusPresentation(
+                    stale=False,
+                    manually_modified=False,
+                    source_label="Drums stem classifier preview",
+                    sync_label="No sync",
+                ),
+            )
+        )
+
+    return layers
 
 
 def _fmt_time(seconds: float) -> str:
