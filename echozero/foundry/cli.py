@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 
 from echozero.foundry import FoundryApp
+from echozero.foundry.ui import run_foundry_ui
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -44,6 +45,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     val = sub.add_parser("validate-artifact")
     val.add_argument("artifact_id")
+
+    sub.add_parser("ui", help="Launch standalone Foundry UI")
 
     return parser
 
@@ -98,6 +101,9 @@ def main(argv: list[str] | None = None) -> int:
         report = app.validate_artifact(args.artifact_id)
         print(json.dumps({"ok": report.ok, "errors": report.errors, "warnings": report.warnings}, indent=2))
         return 0
+
+    if args.command == "ui":
+        return run_foundry_ui(args.root)
 
     parser.error("Unknown command")
     return 2
