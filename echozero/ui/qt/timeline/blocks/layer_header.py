@@ -31,7 +31,6 @@ class LayerHeaderBlock:
         painter.setPen(QColor('#cbd3df' if dimmed else '#f0f3f8'))
         painter.drawText(slots.title_rect, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, layer.title)
 
-        self._draw_metadata_symbols(painter, layer, slots, dimmed)
         self._draw_status_chips(painter, slots.status_rect, layer)
         self._draw_ms_button(painter, QRectF(slots.controls_rect.left(), slots.controls_rect.top(), 24, 18), 'M', active=layer.muted, dimmed=dimmed)
         self._draw_ms_button(painter, QRectF(slots.controls_rect.left() + 28, slots.controls_rect.top(), 24, 18), 'S', active=layer.soloed, dimmed=dimmed)
@@ -52,76 +51,6 @@ class LayerHeaderBlock:
         )
         painter.setFont(prior_font)
 
-    def _draw_metadata_symbols(self, painter: QPainter, layer: LayerPresentation, slots: HeaderSlots, dimmed: bool) -> None:
-        tokens = self._metadata_tokens(layer.badges)
-        if not tokens:
-            return
-
-        rect = slots.metadata_rect
-        painter.save()
-        try:
-            painter.setClipRect(rect)
-            painter.setPen(Qt.PenStyle.NoPen)
-            painter.setBrush(QBrush(QColor('#1f2b3a' if dimmed else '#1d2e45')))
-            painter.drawRoundedRect(rect, 5, 5)
-
-            prior_font = painter.font()
-            meta_font = QFont(prior_font)
-            meta_font.setPointSize(7)
-            meta_font.setBold(True)
-            painter.setFont(meta_font)
-
-            x = rect.left() + 6
-            for token in tokens:
-                chip_w = 13
-                chip = QRectF(x, rect.top() + 1, chip_w, rect.height() - 2)
-                painter.setBrush(QBrush(QColor('#2b4260' if not dimmed else '#253447')))
-                painter.setPen(Qt.PenStyle.NoPen)
-                painter.drawRoundedRect(chip, 4, 4)
-                painter.setPen(QColor('#c5dcf5' if not dimmed else '#9db3cb'))
-                painter.drawText(
-                    chip.adjusted(0, -1, 0, -1),
-                    Qt.AlignmentFlag.AlignCenter | Qt.TextFlag.TextSingleLine,
-                    token,
-                )
-                x += chip_w + 4
-                if x > rect.right() - 12:
-                    break
-
-            painter.setFont(prior_font)
-        finally:
-            painter.restore()
-
-    @staticmethod
-    def _metadata_tokens(badges: list[str]) -> list[str]:
-        if not badges:
-            return []
-
-        priority = ["main", "stem", "audio", "event", "classifier-preview", "real-data"]
-        symbol_map = {
-            "main": "M",
-            "stem": "S",
-            "audio": "A",
-            "event": "E",
-            "classifier-preview": "C",
-            "real-data": "R",
-        }
-
-        normalized = [str(b).strip().lower() for b in badges if str(b).strip()]
-        ordered: list[str] = []
-        for key in priority:
-            if key in normalized:
-                ordered.append(key)
-        for key in normalized:
-            if key not in ordered:
-                ordered.append(key)
-
-        visible = ordered[:4]
-        tokens = [symbol_map.get(v, v[:1].upper()) for v in visible]
-        remaining = max(0, len(ordered) - len(visible))
-        if remaining:
-            tokens.append(f"+{remaining}")
-        return tokens
 
     def _draw_status_chips(self, painter: QPainter, rect: QRectF, layer: LayerPresentation) -> None:
         x = rect.left()
