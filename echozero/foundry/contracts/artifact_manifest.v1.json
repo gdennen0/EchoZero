@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "foundry.artifact_manifest.v1",
+  "type": "object",
+  "required": [
+    "schema",
+    "artifactId",
+    "runId",
+    "weightsPath",
+    "classes",
+    "classificationMode",
+    "inferencePreprocessing"
+  ],
+  "properties": {
+    "schema": { "const": "foundry.artifact_manifest.v1" },
+    "artifactId": { "type": "string" },
+    "runId": { "type": "string" },
+    "weightsPath": { "type": "string" },
+    "classes": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
+    "classificationMode": { "enum": ["multiclass", "binary", "positive_vs_other"] },
+    "inferencePreprocessing": {
+      "type": "object",
+      "required": ["sampleRate", "maxLength", "nFft", "hopLength", "nMels", "fmax"]
+    }
+  }
+}

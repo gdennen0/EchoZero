@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "foundry.train_run_spec.v1",
+  "type": "object",
+  "required": ["schema", "classificationMode", "data", "training"],
+  "properties": {
+    "schema": { "const": "foundry.train_run_spec.v1" },
+    "classificationMode": { "enum": ["multiclass", "binary", "positive_vs_other"] },
+    "data": {
+      "type": "object",
+      "required": ["datasetVersionId", "sampleRate", "maxLength", "nFft", "hopLength", "nMels", "fmax"]
+    },
+    "training": {
+      "type": "object",
+      "required": ["epochs", "batchSize", "learningRate"]
+    }
+  }
+}

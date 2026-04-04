@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "foundry.compatibility_report.v1",
+  "type": "object",
+  "required": ["schema", "artifactId", "consumer", "ok", "errors", "warnings", "checkedAt"],
+  "properties": {
+    "schema": { "const": "foundry.compatibility_report.v1" },
+    "artifactId": { "type": "string" },
+    "consumer": { "type": "string" },
+    "ok": { "type": "boolean" },
+    "errors": { "type": "array", "items": { "type": "string" } },
+    "warnings": { "type": "array", "items": { "type": "string" } },
+    "checkedAt": { "type": "string" }
+  }
+}
