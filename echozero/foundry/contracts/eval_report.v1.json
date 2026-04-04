@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "foundry.eval_report.v1",
+  "type": "object",
+  "required": ["id", "run_id", "classification_mode", "metrics", "created_at"],
+  "properties": {
+    "id": { "type": "string" },
+    "run_id": { "type": "string" },
+    "classification_mode": { "type": "string" },
+    "metrics": { "type": "object" },
+    "threshold_policy": { "type": ["object", "null"] },
+    "confusion": { "type": ["object", "null"] },
+    "created_at": { "type": "string" }
+  }
+}

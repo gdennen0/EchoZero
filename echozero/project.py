@@ -258,6 +258,29 @@ class Project:
 
     # -- Foundry (training lane) --------------------------------------------
 
+    def foundry_create_dataset(self, name: str, source_kind: str = "folder_import"):
+        return self._foundry.create_dataset(name=name, source_kind=source_kind)
+
+    def foundry_ingest_dataset_folder(self, dataset_id: str, folder_path: str | Path):
+        return self._foundry.ingest_dataset_folder(dataset_id=dataset_id, folder_path=folder_path)
+
+    def foundry_plan_dataset_version(
+        self,
+        version_id: str,
+        *,
+        validation_split: float = 0.15,
+        test_split: float = 0.10,
+        seed: int = 42,
+        balance_strategy: str = "none",
+    ):
+        return self._foundry.plan_dataset_version(
+            version_id=version_id,
+            validation_split=validation_split,
+            test_split=test_split,
+            seed=seed,
+            balance_strategy=balance_strategy,
+        )
+
     def foundry_create_run(
         self,
         dataset_version_id: str,
@@ -276,8 +299,40 @@ class Project:
     def foundry_start_run(self, run_id: str):
         return self._foundry.start_run(run_id)
 
+    def foundry_cancel_run(self, run_id: str, reason: str = "user"):
+        return self._foundry.cancel_run(run_id, reason=reason)
+
+    def foundry_resume_run(self, run_id: str):
+        return self._foundry.resume_run(run_id)
+
+    def foundry_complete_run(self, run_id: str, metrics: dict[str, Any] | None = None):
+        return self._foundry.complete_run(run_id, metrics=metrics)
+
+    def foundry_fail_run(self, run_id: str, error: str):
+        return self._foundry.fail_run(run_id, error=error)
+
+    def foundry_save_checkpoint(self, run_id: str, epoch: int, metric_snapshot: dict[str, Any] | None = None):
+        return self._foundry.save_checkpoint(run_id, epoch=epoch, metric_snapshot=metric_snapshot)
+
     def foundry_get_run(self, run_id: str):
         return self._foundry.get_run(run_id)
+
+    def foundry_record_eval(
+        self,
+        run_id: str,
+        *,
+        classification_mode: str,
+        metrics: dict[str, Any],
+        threshold_policy: dict[str, Any] | None = None,
+        confusion: dict[str, Any] | None = None,
+    ):
+        return self._foundry.record_eval(
+            run_id=run_id,
+            classification_mode=classification_mode,
+            metrics=metrics,
+            threshold_policy=threshold_policy,
+            confusion=confusion,
+        )
 
     def foundry_finalize_artifact(self, run_id: str, manifest: dict[str, Any]):
         return self._foundry.finalize_artifact(run_id, manifest)

@@ -455,6 +455,73 @@ class TestSaveLoadRoundtrip:
 
 
 class TestFoundryIntegration:
+    def test_foundry_dataset_to_run_v1_flow(self, tmp_path):
+        with _create_project(tmp_path) as p:
+            dataset_root = tmp_path / "foundry_dataset"
+            (dataset_root / "kick").mkdir(parents=True, exist_ok=True)
+            (dataset_root / "snare").mkdir(parents=True, exist_ok=True)
+            (dataset_root / "kick" / "k1.wav").write_bytes(b"RIFF" + b"\x00" * 32)
+            (dataset_root / "snare" / "s1.wav").write_bytes(b"RIFF" + b"\x00" * 32)
+
+            ds_result = p.foundry_create_dataset("Drums")
+            assert is_ok(ds_result)
+            dataset = unwrap(ds_result)
+
+            version_result = p.foundry_ingest_dataset_folder(dataset.id, dataset_root)
+            assert is_ok(version_result)
+            version = unwrap(version_result)
+
+            planned_result = p.foundry_plan_dataset_version(version.id, balance_strategy="undersample_min")
+            assert is_ok(planned_result)
+
+            run_spec = {
+                "schema": "foundry.train_run_spec.v1",
+                "classificationMode": "multiclass",
+                "data": {
+                    "datasetVersionId": version.id,
+                    "sampleRate": 22050,
+                    "maxLength": 22050,
+                    "nFft": 2048,
+                    "hopLength": 512,
+                    "nMels": 128,
+                    "fmax": 8000,
+                },
+                "training": {
+                    "epochs": 1,
+                    "batchSize": 2,
+                    "learningRate": 0.001,
+                },
+            }
+            run = unwrap(p.foundry_create_run(version.id, run_spec))
+            unwrap(p.foundry_start_run(run.id))
+            unwrap(p.foundry_save_checkpoint(run.id, epoch=1, metric_snapshot={"loss": 0.1}))
+            unwrap(p.foundry_complete_run(run.id, metrics={"f1": 0.9}))
+
+            eval_result = p.foundry_record_eval(
+                run.id,
+                classification_mode="multiclass",
+                metrics={"accuracy": 0.9},
+            )
+            assert is_ok(eval_result)
+
+            artifact_result = p.foundry_finalize_artifact_checked(
+                run.id,
+                {
+                    "weightsPath": "exports/model.pth",
+                    "classes": ["kick", "snare"],
+                    "classificationMode": "multiclass",
+                    "inferencePreprocessing": {
+                        "sampleRate": 22050,
+                        "maxLength": 22050,
+                        "nFft": 2048,
+                        "hopLength": 512,
+                        "nMels": 128,
+                        "fmax": 8000,
+                    },
+                },
+            )
+            assert is_ok(artifact_result)
+
     def test_foundry_publishes_lifecycle_events(self, tmp_path):
         with _create_project(tmp_path) as p:
             seen: list[type] = []

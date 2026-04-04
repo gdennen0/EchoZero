@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "foundry.dataset_version.v1",
+  "type": "object",
+  "required": [
+    "id",
+    "dataset_id",
+    "version",
+    "manifest_hash",
+    "sample_rate",
+    "audio_standard",
+    "class_map",
+    "samples"
+  ],
+  "properties": {
+    "id": { "type": "string" },
+    "dataset_id": { "type": "string" },
+    "version": { "type": "integer", "minimum": 1 },
+    "manifest_hash": { "type": "string" },
+    "sample_rate": { "type": "integer" },
+    "audio_standard": { "type": "string" },
+    "class_map": { "type": "array", "items": { "type": "string" } },
+    "samples": { "type": "array", "items": { "type": "object" } },
+    "split_plan": { "type": "object" },
+    "balance_plan": { "type": "object" },
+    "stats": { "type": "object" }
+  }
+}

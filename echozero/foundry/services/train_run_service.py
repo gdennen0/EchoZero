@@ -10,6 +10,24 @@ from echozero.foundry.domain import TrainRun, TrainRunStatus
 from echozero.foundry.persistence import TrainRunRepository
 
 
+_ALLOWED_TRANSITIONS: dict[TrainRunStatus, set[TrainRunStatus]] = {
+    TrainRunStatus.QUEUED: {TrainRunStatus.PREPARING, TrainRunStatus.RUNNING, TrainRunStatus.CANCELED},
+    TrainRunStatus.PREPARING: {TrainRunStatus.RUNNING, TrainRunStatus.FAILED, TrainRunStatus.CANCELED},
+    TrainRunStatus.RUNNING: {
+        TrainRunStatus.EVALUATING,
+        TrainRunStatus.EXPORTING,
+        TrainRunStatus.COMPLETED,
+        TrainRunStatus.FAILED,
+        TrainRunStatus.CANCELED,
+    },
+    TrainRunStatus.EVALUATING: {TrainRunStatus.EXPORTING, TrainRunStatus.COMPLETED, TrainRunStatus.FAILED},
+    TrainRunStatus.EXPORTING: {TrainRunStatus.COMPLETED, TrainRunStatus.FAILED},
+    TrainRunStatus.COMPLETED: set(),
+    TrainRunStatus.FAILED: {TrainRunStatus.QUEUED},
+    TrainRunStatus.CANCELED: {TrainRunStatus.QUEUED},
+}
+
+
 class TrainRunService:
     def __init__(self, root: Path, repository: TrainRunRepository | None = None):
         self._root = root
@@ -36,11 +54,46 @@ class TrainRunService:
         return self._repo.save(run)
 
     def start_run(self, run_id: str) -> TrainRun:
+        return self._transition(run_id, TrainRunStatus.RUNNING, "RUN_STARTED")
+
+    def cancel_run(self, run_id: str, reason: str = "user") -> TrainRun:
+        return self._transition(run_id, TrainRunStatus.CANCELED, "RUN_CANCELED", {"reason": reason})
+
+    def complete_run(self, run_id: str, metrics: dict | None = None) -> TrainRun:
+        return self._transition(
+            run_id,
+            TrainRunStatus.COMPLETED,
+            "RUN_COMPLETED",
+            {"metrics": metrics or {}},
+        )
+
+    def fail_run(self, run_id: str, error: str) -> TrainRun:
+        return self._transition(run_id, TrainRunStatus.FAILED, "RUN_FAILED", {"error": error})
+
+    def resume_run(self, run_id: str) -> TrainRun:
+        return self._transition(run_id, TrainRunStatus.QUEUED, "RUN_RESUMED")
+
+    def set_stage(self, run_id: str, stage: TrainRunStatus) -> TrainRun:
+        if stage not in {TrainRunStatus.PREPARING, TrainRunStatus.EVALUATING, TrainRunStatus.EXPORTING}:
+            raise ValueError(f"Unsupported stage transition: {stage.value}")
+        return self._transition(run_id, stage, f"RUN_{stage.value.upper()}")
+
+    def save_checkpoint(self, run_id: str, epoch: int, metric_snapshot: dict | None = None) -> Path:
         run = self._require(run_id)
-        run.status = TrainRunStatus.RUNNING
-        run.updated_at = datetime.now(UTC)
-        self._append_event(run, "RUN_STARTED", {"status": run.status.value})
-        return self._repo.save(run)
+        ckpt_path = run.run_dir(self._root) / "checkpoints" / f"epoch_{epoch:04d}.json"
+        payload = {
+            "run_id": run.id,
+            "epoch": epoch,
+            "metric_snapshot": metric_snapshot or {},
+            "at": datetime.now(UTC).isoformat(),
+        }
+        ckpt_path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
+        self._append_event(
+            run,
+            "CHECKPOINT_SAVED",
+            {"epoch": epoch, "path": str(ckpt_path), "metric_snapshot": metric_snapshot or {}},
+        )
+        return ckpt_path
 
     def get_run(self, run_id: str) -> TrainRun | None:
         return self._repo.get(run_id)
@@ -53,6 +106,26 @@ class TrainRunService:
         if not run:
             raise ValueError(f"TrainRun not found: {run_id}")
         return run
+
+    def _transition(
+        self,
+        run_id: str,
+        new_status: TrainRunStatus,
+        event_type: str,
+        extra_payload: dict | None = None,
+    ) -> TrainRun:
+        run = self._require(run_id)
+        allowed = _ALLOWED_TRANSITIONS.get(run.status, set())
+        if new_status not in allowed:
+            raise ValueError(f"Invalid run transition: {run.status.value} -> {new_status.value}")
+
+        run.status = new_status
+        run.updated_at = datetime.now(UTC)
+        payload = {"status": run.status.value}
+        if extra_payload:
+            payload.update(extra_payload)
+        self._append_event(run, event_type, payload)
+        return self._repo.save(run)
 
     def _append_event(self, run: TrainRun, event_type: str, payload: dict) -> None:
         event = {

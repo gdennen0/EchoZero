@@ -1,3 +1,15 @@
-from .repositories import ModelArtifactRepository, TrainRunRepository
+from .repositories import (
+    DatasetRepository,
+    DatasetVersionRepository,
+    EvalReportRepository,
+    ModelArtifactRepository,
+    TrainRunRepository,
+)
 
-__all__ = ["ModelArtifactRepository", "TrainRunRepository"]
+__all__ = [
+    "DatasetRepository",
+    "DatasetVersionRepository",
+    "EvalReportRepository",
+    "ModelArtifactRepository",
+    "TrainRunRepository",
+]
