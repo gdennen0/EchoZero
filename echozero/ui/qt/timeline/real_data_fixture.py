@@ -54,8 +54,9 @@ def build_real_data_presentation(
         register_waveform_from_audio_file("song-real", source)
 
         # Two passes produce main + alternate take from real data.
-        project.analyze(version.id, "onset_detection", {"threshold": 0.28, "method": "default"})
-        project.analyze(version.id, "onset_detection", {"threshold": 0.42, "method": "hfc"})
+        # Main is intentionally extra-sensitive so transient detail is visible.
+        project.analyze(version.id, "onset_detection", {"threshold": 0.03, "method": "hfc"})
+        project.analyze(version.id, "onset_detection", {"threshold": 0.08, "method": "hfc"})
 
         layers = project.storage.layers.list_by_version(version.id)
         presentation_layers: list[LayerPresentation] = [
