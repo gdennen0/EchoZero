@@ -14,6 +14,7 @@ from __future__ import annotations
 import logging
 import time
 import uuid
+from pathlib import Path
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -141,13 +142,14 @@ class Orchestrator:
 
         from echozero.domain.types import BlockSettings
         from dataclasses import replace as _replace
+        resolved_audio_path = self._resolve_audio_path(session, song_version.audio_file)
         load_audio_ids = [
             bid for bid, b in pipeline.graph.blocks.items()
             if b.block_type == "LoadAudio"
         ]
         for block_id in load_audio_ids:
             block = pipeline.graph.blocks[block_id]
-            new_settings = {**dict(block.settings), "file_path": song_version.audio_file}
+            new_settings = {**dict(block.settings), "file_path": resolved_audio_path}
             updated = _replace(block, settings=BlockSettings(new_settings))
             pipeline.graph.replace_block(updated)
 
@@ -279,6 +281,13 @@ class Orchestrator:
             all_take_ids.extend(take_ids)
 
         return all_layer_ids, all_take_ids
+
+    @staticmethod
+    def _resolve_audio_path(session: ProjectStorage, audio_file: str) -> str:
+        raw = Path(audio_file)
+        if raw.is_absolute():
+            return str(raw)
+        return str((session.working_dir / raw).resolve())
 
     @staticmethod
     def _resolve_output(port_ref: Any, raw_outputs: dict[str, Any]) -> Any:

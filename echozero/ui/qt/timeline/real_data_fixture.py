@@ -1,0 +1,235 @@
+"""Build a timeline presentation from real audio analysis runs."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, replace
+from pathlib import Path
+from typing import Any
+
+import echozero.pipelines.templates  # noqa: F401 - registers templates via decorators
+from echozero.application.presentation.models import (
+    EventPresentation,
+    LayerPresentation,
+    LayerStatusPresentation,
+    TakeActionPresentation,
+    TakeLanePresentation,
+    TimelinePresentation,
+)
+from echozero.application.shared.enums import FollowMode, LayerKind
+from echozero.application.shared.ids import EventId, LayerId, TakeId, TimelineId
+from echozero.domain.types import AudioData, Event as DomainEvent, EventData
+from echozero.main import create_project
+
+
+@dataclass(slots=True)
+class RealDataRunSummary:
+    audio_path: Path
+    working_dir: Path
+    song_version_id: str
+    layer_count: int
+    take_count: int
+    event_count_main: int
+
+
+def build_real_data_presentation(
+    audio_path: str | Path,
+    *,
+    working_root: str | Path,
+    song_title: str = "Doechii Nissan Altima",
+) -> tuple[TimelinePresentation, RealDataRunSummary]:
+    source = Path(audio_path)
+    root = Path(working_root)
+    root.mkdir(parents=True, exist_ok=True)
+
+    project = create_project("Timeline Real Data", working_dir_root=root)
+    try:
+        _, version = project.import_song(
+            title=song_title,
+            audio_source=source,
+            artist="Doechii",
+            default_templates=[],
+        )
+
+        # Two passes produce main + alternate take from real data.
+        project.analyze(version.id, "onset_detection", {"threshold": 0.28, "method": "default"})
+        project.analyze(version.id, "onset_detection", {"threshold": 0.42, "method": "hfc"})
+
+        layers = project.storage.layers.list_by_version(version.id)
+        presentation_layers: list[LayerPresentation] = [
+            LayerPresentation(
+                layer_id=LayerId("source_audio"),
+                title="Song",
+                subtitle=f"Real import · {source.name}",
+                kind=LayerKind.AUDIO,
+                is_selected=False,
+                is_expanded=False,
+                color="#4da3ff",
+                waveform_key="song-real",
+                badges=["main", "audio", "real-data"],
+                status=LayerStatusPresentation(
+                    stale=False,
+                    manually_modified=False,
+                    source_label="Imported track",
+                    sync_label="No sync",
+                ),
+            )
+        ]
+
+        total_takes = 0
+        total_main_events = 0
+
+        for order, layer_record in enumerate(layers, start=1):
+            takes = project.storage.takes.list_by_layer(layer_record.id)
+            if not takes:
+                continue
+            total_takes += len(takes)
+
+            main_take = next((take for take in takes if take.is_main), takes[0])
+            main_kind = LayerKind.EVENT if isinstance(main_take.data, EventData) else LayerKind.AUDIO
+
+            main_events = (
+                _event_presentations_from_take(main_take)
+                if isinstance(main_take.data, EventData)
+                else []
+            )
+            total_main_events += len(main_events)
+
+            take_rows: list[TakeLanePresentation] = []
+            for take in takes:
+                if take.is_main:
+                    continue
+                take_kind = LayerKind.EVENT if isinstance(take.data, EventData) else LayerKind.AUDIO
+                take_rows.append(
+                    TakeLanePresentation(
+                        take_id=TakeId(str(take.id)),
+                        name=take.label,
+                        is_main=False,
+                        kind=take_kind,
+                        events=_event_presentations_from_take(take) if isinstance(take.data, EventData) else [],
+                        source_ref=_source_ref(take.source),
+                        waveform_key=f"real-{layer_record.name}-{take.id}" if take_kind == LayerKind.AUDIO else None,
+                        actions=[
+                            TakeActionPresentation(action_id="overwrite_main", label="Overwrite Main"),
+                            TakeActionPresentation(action_id="merge_main", label="Merge Main"),
+                        ],
+                    )
+                )
+
+            status = LayerStatusPresentation(
+                stale=bool(layer_record.state_flags.get("stale", False)),
+                manually_modified=bool(layer_record.state_flags.get("manually_modified", False)),
+                source_label=_source_label(layer_record),
+                sync_label="No sync",
+            )
+            presentation_layers.append(
+                LayerPresentation(
+                    layer_id=LayerId(str(layer_record.id)),
+                    title=layer_record.name,
+                    subtitle=f"Real analysis output · layer {order}",
+                    kind=main_kind,
+                    is_selected=(order == 1),
+                    is_expanded=bool(take_rows),
+                    events=main_events,
+                    takes=take_rows,
+                    color=layer_record.color or "#66a3ff",
+                    badges=["main", main_kind.value, "real-data"],
+                    waveform_key=f"real-{layer_record.name}-main" if main_kind == LayerKind.AUDIO else None,
+                    status=status,
+                )
+            )
+
+        timeline = TimelinePresentation(
+            timeline_id=TimelineId("timeline_real_data"),
+            title="Stage Zero Timeline · Real Data",
+            layers=presentation_layers,
+            playhead=8.0,
+            is_playing=False,
+            follow_mode=FollowMode.PAGE,
+            selected_layer_id=presentation_layers[1].layer_id if len(presentation_layers) > 1 else presentation_layers[0].layer_id,
+            selected_take_id=None,
+            selected_event_ids=[],
+            pixels_per_second=180.0,
+            scroll_x=0.0,
+            scroll_y=0.0,
+            current_time_label=_fmt_time(8.0),
+            end_time_label=_fmt_time(version.duration_seconds),
+        )
+
+        summary = RealDataRunSummary(
+            audio_path=source,
+            working_dir=project.storage.working_dir,
+            song_version_id=version.id,
+            layer_count=max(0, len(presentation_layers) - 1),
+            take_count=total_takes,
+            event_count_main=total_main_events,
+        )
+        return timeline, summary
+    finally:
+        project.close()
+
+
+def build_real_data_variants(presentation: TimelinePresentation) -> dict[str, TimelinePresentation]:
+    return {
+        "real_default": presentation,
+        "real_scrolled": replace(presentation, scroll_x=680.0, playhead=31.5, current_time_label=_fmt_time(31.5)),
+        "real_zoomed_in": replace(presentation, pixels_per_second=300.0),
+        "real_zoomed_out": replace(presentation, pixels_per_second=90.0),
+    }
+
+
+def _event_presentations_from_take(take) -> list[EventPresentation]:
+    if not isinstance(take.data, EventData):
+        return []
+
+    events: list[DomainEvent] = []
+    for layer in take.data.layers:
+        events.extend(layer.events)
+
+    events.sort(key=lambda event: (event.time, event.duration, str(event.id)))
+
+    return [
+        EventPresentation(
+            event_id=EventId(str(event.id)),
+            start=float(event.time),
+            end=float(event.time + max(event.duration, 0.08)),
+            label=_event_label(event),
+            color="#7fd1ae",
+        )
+        for event in events
+    ]
+
+
+def _event_label(event: DomainEvent) -> str:
+    if isinstance(event.classifications, dict) and event.classifications:
+        first_key = next(iter(event.classifications.keys()))
+        value = event.classifications.get(first_key)
+        if isinstance(value, str) and value.strip():
+            return value.strip().title()
+        if isinstance(first_key, str) and first_key.strip():
+            return first_key.strip().replace("_", " ").title()
+    return "Onset"
+
+
+def _source_label(layer_record) -> str:
+    source = layer_record.source_pipeline or {}
+    pipeline = source.get("pipeline_id", "pipeline")
+    output_name = source.get("output_name", layer_record.name)
+    return f"{pipeline} · {output_name}"
+
+
+def _source_ref(source: Any) -> str | None:
+    if source is None:
+        return None
+    run_id = getattr(source, "run_id", "")
+    block_type = getattr(source, "block_type", "")
+    if run_id and block_type:
+        return f"{block_type}:{run_id[:8]}"
+    if run_id:
+        return str(run_id)
+    return None
+
+
+def _fmt_time(seconds: float) -> str:
+    mins = int(seconds // 60)
+    secs = seconds - (mins * 60)
+    return f"{mins:02d}:{secs:05.2f}"

@@ -46,6 +46,28 @@ class MockLoadAudio:
         ))
 
 
+class CaptureLoadAudioPath:
+    def __init__(self):
+        self.paths: list[str] = []
+
+    def execute(self, block_id, context):
+        path = context.graph.blocks[block_id].settings.get("file_path", "")
+        self.paths.append(path)
+        return ok(AudioData(
+            sample_rate=44100,
+            duration=180.0,
+            file_path=path,
+            channel_count=2,
+        ))
+
+
+class EmptyDetectOnsets:
+    def execute(self, block_id, context):
+        return ok(EventData(layers=(
+            Layer(id="onsets_layer", name="onsets", events=()),
+        )))
+
+
 class MockDetectOnsets:
     """Returns 3 onset events."""
     def execute(self, block_id, context):
@@ -360,6 +382,27 @@ class TestErrors:
         result = orch.analyze(session, version.id, "onset_detection",
                               bindings={"threshold": "bad"})
         assert isinstance(result, Err)
+        session.close()
+
+
+# ---------------------------------------------------------------------------
+# Audio path resolution
+# ---------------------------------------------------------------------------
+
+class TestAudioPathResolution:
+    def test_relative_song_audio_path_is_resolved_against_working_dir(self, tmp_path):
+        session, _, version = _create_session(tmp_path, audio_file="audio/clip.wav")
+        load_exec = CaptureLoadAudioPath()
+        orch = Orchestrator(get_registry(), {
+            "LoadAudio": load_exec,
+            "DetectOnsets": EmptyDetectOnsets(),
+        })
+
+        result = orch.analyze(session, version.id, "onset_detection")
+
+        assert isinstance(result, Ok)
+        assert load_exec.paths
+        assert load_exec.paths[0] == str((session.working_dir / "audio/clip.wav").resolve())
         session.close()
 
 
