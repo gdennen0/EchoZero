@@ -16,8 +16,7 @@ class HeaderSlots:
     status_rect: QRectF
     controls_rect: QRectF
     toggle_rect: QRectF
-    badges_origin_x: float
-    badges_y: float
+    metadata_rect: QRectF
 
 
 class LayerHeaderBlock:
@@ -38,7 +37,7 @@ class LayerHeaderBlock:
         painter.setPen(QColor('#6f7a88' if dimmed else '#98a3b3'))
         painter.drawText(slots.subtitle_rect, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, layer.subtitle)
 
-        self._draw_badges(painter, layer, slots, dimmed)
+        self._draw_metadata_badge(painter, layer, slots, dimmed)
         self._draw_status_chips(painter, slots.status_rect, layer)
         self._draw_ms_button(painter, QRectF(slots.controls_rect.left(), slots.controls_rect.top(), 24, 18), 'M', active=layer.muted, dimmed=dimmed)
         self._draw_ms_button(painter, QRectF(slots.controls_rect.left() + 28, slots.controls_rect.top(), 24, 18), 'S', active=layer.soloed, dimmed=dimmed)
@@ -59,26 +58,63 @@ class LayerHeaderBlock:
         )
         painter.setFont(prior_font)
 
-    def _draw_badges(self, painter: QPainter, layer: LayerPresentation, slots: HeaderSlots, dimmed: bool) -> None:
-        mx = slots.badges_origin_x
-        for badge in layer.badges:
-            badge_rect = QRectF(mx, slots.badges_y, max(44, 12 + len(badge) * 6), 14)
+    def _draw_metadata_badge(self, painter: QPainter, layer: LayerPresentation, slots: HeaderSlots, dimmed: bool) -> None:
+        text = self._metadata_text(layer.badges)
+        if not text:
+            return
+
+        rect = slots.metadata_rect
+        painter.save()
+        try:
+            painter.setClipRect(rect)
             painter.setPen(Qt.PenStyle.NoPen)
-            painter.setBrush(QBrush(QColor('#314056' if dimmed else '#2b6bf0')))
-            painter.drawRoundedRect(badge_rect, 5, 5)
-            painter.setPen(QColor('#dce3eb'))
+            painter.setBrush(QBrush(QColor('#2a3443' if dimmed else '#25364d')))
+            painter.drawRoundedRect(rect, 5, 5)
+            painter.setPen(QColor('#b7d2f3' if not dimmed else '#8ea3bc'))
             prior_font = painter.font()
-            badge_font = QFont(prior_font)
-            badge_font.setPointSize(8)
-            badge_font.setBold(True)
-            painter.setFont(badge_font)
+            meta_font = QFont(prior_font)
+            meta_font.setPointSize(7)
+            meta_font.setBold(True)
+            painter.setFont(meta_font)
             painter.drawText(
-                badge_rect.adjusted(0, -1, 0, -1),
-                Qt.AlignmentFlag.AlignCenter | Qt.TextFlag.TextSingleLine,
-                badge,
+                rect.adjusted(6, -1, -6, -1),
+                Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter | Qt.TextFlag.TextSingleLine,
+                text,
             )
             painter.setFont(prior_font)
-            mx += badge_rect.width() + 4
+        finally:
+            painter.restore()
+
+    @staticmethod
+    def _metadata_text(badges: list[str]) -> str:
+        if not badges:
+            return ""
+
+        priority = ["main", "stem", "audio", "event", "classifier-preview", "real-data"]
+        display_map = {
+            "main": "MAIN",
+            "stem": "STEM",
+            "audio": "AUD",
+            "event": "EVT",
+            "classifier-preview": "CLASS",
+            "real-data": "REAL",
+        }
+
+        normalized = [str(b).strip().lower() for b in badges if str(b).strip()]
+        ordered: list[str] = []
+        for key in priority:
+            if key in normalized:
+                ordered.append(key)
+        for key in normalized:
+            if key not in ordered:
+                ordered.append(key)
+
+        visible = ordered[:3]
+        parts = [display_map.get(v, v.upper()[:4]) for v in visible]
+        remaining = max(0, len(ordered) - len(visible))
+        if remaining:
+            parts.append(f"+{remaining}")
+        return " · ".join(parts)
 
     def _draw_status_chips(self, painter: QPainter, rect: QRectF, layer: LayerPresentation) -> None:
         x = rect.left()

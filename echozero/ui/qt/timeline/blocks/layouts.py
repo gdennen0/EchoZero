@@ -15,8 +15,7 @@ class MainRowLayout:
     status_rect: QRectF
     controls_rect: QRectF
     toggle_rect: QRectF
-    badges_origin_x: float
-    badges_y: float
+    metadata_rect: QRectF
 
     @staticmethod
     def create(*, top: float, width: float, header_width: float, row_height: float) -> 'MainRowLayout':
@@ -28,12 +27,11 @@ class MainRowLayout:
             header_rect=header_rect,
             content_rect=content_rect,
             title_rect=QRectF(14, top + 6, 140, 18),
-            subtitle_rect=QRectF(14, top + 24, 180, 16),
-            status_rect=QRectF(14, top + 42, 120, 18),
+            subtitle_rect=QRectF(14, top + 24, 126, 16),
+            status_rect=QRectF(14, top + 44, 164, 16),
             controls_rect=QRectF(198, top + 14, 56, 18),
             toggle_rect=QRectF(278, top + 12, 28, 18),
-            badges_origin_x=146,
-            badges_y=top + 46,
+            metadata_rect=QRectF(146, top + 24, 122, 16),
         )
 
 

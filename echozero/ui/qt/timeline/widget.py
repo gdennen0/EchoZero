@@ -243,8 +243,7 @@ class TimelineCanvas(QWidget):
             status_rect=layout.status_rect,
             controls_rect=layout.controls_rect,
             toggle_rect=layout.toggle_rect,
-            badges_origin_x=layout.badges_origin_x,
-            badges_y=layout.badges_y,
+            metadata_rect=layout.metadata_rect,
         )
         self._toggle_rects.append((slots.toggle_rect, layer.layer_id))
         self._header_block.paint(painter, slots, layer, dimmed=dimmed)
