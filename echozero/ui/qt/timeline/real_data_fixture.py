@@ -53,10 +53,12 @@ def build_real_data_presentation(
 
         register_waveform_from_audio_file("song-real", source)
 
-        # Two passes produce main + alternate take from real data.
-        # Main is intentionally extra-sensitive so transient detail is visible.
-        project.analyze(version.id, "onset_detection", {"threshold": 0.03, "method": "hfc"})
-        project.analyze(version.id, "onset_detection", {"threshold": 0.08, "method": "hfc"})
+        # Stems-first flow: separate track into drums/bass/vocals/other before classifier work.
+        project.analyze(
+            version.id,
+            "stem_separation",
+            {"model": "htdemucs", "device": "cpu", "shifts": 0},
+        )
 
         layers = project.storage.layers.list_by_version(version.id)
         presentation_layers: list[LayerPresentation] = [
@@ -138,15 +140,15 @@ def build_real_data_presentation(
             presentation_layers.append(
                 LayerPresentation(
                     layer_id=LayerId(str(layer_record.id)),
-                    title=layer_record.name,
-                    subtitle=f"Real analysis output · layer {order}",
+                    title=layer_record.name.title(),
+                    subtitle=f"Stem output · layer {order}",
                     kind=main_kind,
                     is_selected=(order == 1),
                     is_expanded=bool(take_rows),
                     events=main_events,
                     takes=take_rows,
                     color=layer_record.color or "#66a3ff",
-                    badges=["main", main_kind.value, "real-data"],
+                    badges=["main", "stem", main_kind.value, "real-data"],
                     waveform_key=main_waveform_key,
                     status=status,
                 )

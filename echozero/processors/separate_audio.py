@@ -138,69 +138,63 @@ def _default_separate(
     output_format: str,
     mp3_bitrate: int,
 ) -> list[StemResult]:
-    """Run Demucs separation via the Python API. Requires demucs + torch installed."""
+    """Run Demucs separation (API when available, CLI fallback for Demucs v4)."""
     try:
-        import demucs.api
-    except ImportError:
-        raise ExecutionError(
-            "Demucs is not installed. Install with: pip install demucs"
+        import demucs.api  # type: ignore[attr-defined]
+    except ModuleNotFoundError:
+        return _separate_via_native_demucs(
+            input_file=input_file,
+            model_name=model_name,
+            device=device,
+            shifts=shifts,
+            two_stems=two_stems,
+            output_dir=output_dir,
+            output_format=output_format,
+            mp3_bitrate=mp3_bitrate,
         )
+    except ImportError:
+        raise ExecutionError("Demucs is not installed. Install with: pip install demucs")
 
-    # Configure the separator
+    # Legacy API path (for builds exposing demucs.api.Separator)
     separator = demucs.api.Separator(
         model=model_name,
         device=device,
         shifts=shifts,
-        segment=None,  # use model default
+        segment=None,
     )
+    _, separated = separator.separate_audio_file(Path(input_file))
 
-    # Run separation
-    origin, separated = separator.separate_audio_file(Path(input_file))
-
-    # Get model info for stem names
     model_info = DEMUCS_MODELS.get(model_name, DEMUCS_MODELS["htdemucs"])
-    expected_stems = model_info["stems"]
+    output_stems = [two_stems] if two_stems else list(model_info["stems"])
 
-    # Determine which stems to output
-    if two_stems:
-        # 2-stem mode: output the selected stem and "no_{stem}" (everything else)
-        output_stems = [two_stems]
-        # Demucs API returns all stems regardless; we combine non-selected into "other"
-        # Actually, the separated dict has named stems; we take the one we want
-        # and sum the rest
-    else:
-        output_stems = list(expected_stems)
-
-    # Write stems to output directory
     out_path = Path(output_dir)
     out_path.mkdir(parents=True, exist_ok=True)
 
-    # V1: always WAV. MP3 requires additional dependencies.
     if output_format == "mp3":
         import logging
         logging.getLogger(__name__).warning(
-            "MP3 output format requested but not yet supported. Writing WAV instead."
+            "MP3 output format requested but not yet supported in API path. Writing WAV instead."
         )
-    ext = "wav"  # Always WAV for V1
+    ext = "wav"
     sample_rate = separator.samplerate
     results: list[StemResult] = []
 
     if two_stems:
-        # Write the selected stem
         if two_stems in separated:
             stem_tensor = separated[two_stems]
             stem_file = out_path / f"{two_stems}.{ext}"
             _write_audio(stem_tensor, sample_rate, str(stem_file), output_format, mp3_bitrate)
             duration = stem_tensor.shape[-1] / sample_rate
-            results.append(StemResult(
-                name=two_stems,
-                file_path=str(stem_file),
-                sample_rate=sample_rate,
-                duration=duration,
-                channel_count=stem_tensor.shape[0],
-            ))
+            results.append(
+                StemResult(
+                    name=two_stems,
+                    file_path=str(stem_file),
+                    sample_rate=sample_rate,
+                    duration=duration,
+                    channel_count=stem_tensor.shape[0],
+                )
+            )
 
-        # Combine everything else into "other"
         import torch
         other_tensor = torch.zeros_like(next(iter(separated.values())))
         for name, tensor in separated.items():
@@ -209,15 +203,16 @@ def _default_separate(
         other_file = out_path / f"no_{two_stems}.{ext}"
         _write_audio(other_tensor, sample_rate, str(other_file), output_format, mp3_bitrate)
         duration = other_tensor.shape[-1] / sample_rate
-        results.append(StemResult(
-            name=f"no_{two_stems}",
-            file_path=str(other_file),
-            sample_rate=sample_rate,
-            duration=duration,
-            channel_count=other_tensor.shape[0],
-        ))
+        results.append(
+            StemResult(
+                name=f"no_{two_stems}",
+                file_path=str(other_file),
+                sample_rate=sample_rate,
+                duration=duration,
+                channel_count=other_tensor.shape[0],
+            )
+        )
     else:
-        # Write all stems
         for stem_name in output_stems:
             if stem_name not in separated:
                 continue
@@ -225,15 +220,119 @@ def _default_separate(
             stem_file = out_path / f"{stem_name}.{ext}"
             _write_audio(stem_tensor, sample_rate, str(stem_file), output_format, mp3_bitrate)
             duration = stem_tensor.shape[-1] / sample_rate
-            results.append(StemResult(
-                name=stem_name,
-                file_path=str(stem_file),
-                sample_rate=sample_rate,
-                duration=duration,
-                channel_count=stem_tensor.shape[0],
-            ))
+            results.append(
+                StemResult(
+                    name=stem_name,
+                    file_path=str(stem_file),
+                    sample_rate=sample_rate,
+                    duration=duration,
+                    channel_count=stem_tensor.shape[0],
+                )
+            )
 
     return results
+
+
+def _separate_via_native_demucs(
+    input_file: str,
+    model_name: str,
+    device: str,
+    shifts: int,
+    two_stems: str | None,
+    output_dir: str,
+    output_format: str,
+    mp3_bitrate: int,
+) -> list[StemResult]:
+    """Demucs v4 fallback path without relying on torchaudio save/TorchCodec."""
+    try:
+        import torch as th
+        from demucs.apply import apply_model
+        from demucs.pretrained import get_model
+        from demucs.separate import load_track
+        import soundfile as sf
+    except ImportError as exc:
+        raise ExecutionError(f"Demucs native fallback unavailable: {exc}")
+
+    model = get_model(model_name)
+    model.cpu()
+    model.eval()
+
+    wav = load_track(Path(input_file), model.audio_channels, model.samplerate)
+    ref = wav.mean(0)
+    wav = wav - ref.mean()
+    wav = wav / ref.std()
+
+    sources = apply_model(
+        model,
+        wav[None],
+        device=device,
+        shifts=shifts,
+        split=True,
+        overlap=0.25,
+        progress=False,
+        num_workers=0,
+        segment=None,
+    )[0]
+    sources = (sources * ref.std()) + ref.mean()
+
+    out = Path(output_dir)
+    out.mkdir(parents=True, exist_ok=True)
+
+    if output_format == "mp3":
+        import logging
+        logging.getLogger(__name__).warning(
+            "MP3 output requested; fallback path writes WAV to avoid TorchCodec dependency."
+        )
+
+    names = list(model.sources)
+    tensors = list(sources)
+
+    if two_stems:
+        if two_stems not in names:
+            raise ExecutionError(f"Requested two_stems '{two_stems}' not in model sources: {names}")
+        selected = tensors[names.index(two_stems)]
+        remainder = th.zeros_like(selected)
+        for name, tensor in zip(names, tensors):
+            if name != two_stems:
+                remainder += tensor
+        names = [two_stems, f"no_{two_stems}"]
+        tensors = [selected, remainder]
+
+    results: list[StemResult] = []
+    for stem_name, tensor in zip(names, tensors):
+        stem_file = out / f"{stem_name}.wav"
+        audio_np = tensor.cpu().numpy().T
+        sf.write(str(stem_file), audio_np, model.samplerate)
+        duration = float(audio_np.shape[0]) / float(model.samplerate)
+        channels = int(audio_np.shape[1]) if audio_np.ndim > 1 else 1
+        results.append(
+            StemResult(
+                name=stem_name,
+                file_path=str(stem_file),
+                sample_rate=int(model.samplerate),
+                duration=duration,
+                channel_count=channels,
+            )
+        )
+
+    return results
+
+
+def _audio_file_info(path: Path) -> tuple[int, float, int]:
+    try:
+        import torchaudio
+
+        info = torchaudio.info(str(path))
+        duration = float(info.num_frames) / float(info.sample_rate) if info.sample_rate else 0.0
+        return int(info.sample_rate), duration, int(info.num_channels)
+    except Exception:
+        import wave
+
+        with wave.open(str(path), "rb") as wf:
+            sr = int(wf.getframerate())
+            n = int(wf.getnframes())
+            ch = int(wf.getnchannels())
+        return sr, (float(n) / float(sr) if sr else 0.0), ch
 
 
 def _write_audio(
