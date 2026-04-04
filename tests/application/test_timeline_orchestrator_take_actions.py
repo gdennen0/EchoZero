@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from dataclasses import replace
-
 from echozero.application.mixer.models import AudibilityState, MixerState
 from echozero.application.mixer.service import MixerService
 from echozero.application.playback.models import PlaybackState
@@ -21,7 +19,7 @@ from echozero.application.shared.ids import (
 )
 from echozero.application.sync.models import SyncState
 from echozero.application.sync.service import SyncService
-from echozero.application.timeline.intents import TriggerTakeAction
+from echozero.application.timeline.intents import SelectTake, TriggerTakeAction
 from echozero.application.timeline.models import Event, Layer, Take, Timeline
 from echozero.application.timeline.orchestrator import TimelineOrchestrator
 from echozero.application.transport.models import TransportState
@@ -180,7 +178,6 @@ def _build_orchestrator_and_timeline() -> tuple[TimelineOrchestrator, Timeline, 
         kind=LayerKind.EVENT,
         order_index=0,
         takes=[main_take, alt_take],
-        active_take_id=TakeId("take_main"),
     )
     timeline = Timeline(
         id=TimelineId("timeline_1"),
@@ -204,6 +201,19 @@ def _build_orchestrator_and_timeline() -> tuple[TimelineOrchestrator, Timeline, 
         assembler=_Assembler(),
     )
     return orchestrator, timeline, layer, main_take, alt_take
+
+
+def test_select_take_is_selection_only_and_does_not_change_main_truth():
+    orchestrator, timeline, layer, main_take, alt_take = _build_orchestrator_and_timeline()
+
+    original_main_event_ids = [event.id for event in main_take.events]
+    orchestrator.handle(
+        timeline,
+        SelectTake(layer_id=layer.id, take_id=alt_take.id),
+    )
+
+    assert timeline.selection.selected_take_id == alt_take.id
+    assert [event.id for event in main_take.events] == original_main_event_ids
 
 
 def test_trigger_take_action_overwrite_main_replaces_events_from_source_take():

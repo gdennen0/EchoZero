@@ -119,8 +119,8 @@ class TimelineOrchestrator:
         return self.assembler.assemble(timeline=timeline, session=session)
 
     def _handle_select_take(self, timeline: Timeline, layer_id, take_id) -> None:
-        layer = self._find_layer(timeline, layer_id)
-        layer.active_take_id = take_id
+        # Selection only. Selecting a take must never change timeline truth.
+        self._find_layer(timeline, layer_id)
         timeline.selection.selected_layer_id = layer_id
         timeline.selection.selected_take_id = take_id
         timeline.selection.selected_event_ids = []
@@ -146,7 +146,6 @@ class TimelineOrchestrator:
         else:
             return
 
-        layer.active_take_id = main_take.id
         timeline.selection.selected_layer_id = layer.id
         timeline.selection.selected_take_id = main_take.id
         timeline.selection.selected_event_ids = []

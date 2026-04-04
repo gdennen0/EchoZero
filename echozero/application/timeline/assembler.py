@@ -3,19 +3,24 @@
 from dataclasses import dataclass
 
 from echozero.application.presentation.models import (
-    TimelinePresentation,
-    LayerPresentation,
     EventPresentation,
-    TakeSummaryPresentation,
-    TakeOptionPresentation,
+    LayerPresentation,
+    LayerStatusPresentation,
+    TakeActionPresentation,
+    TakeLanePresentation,
+    TimelinePresentation,
 )
-from echozero.application.timeline.models import Timeline, Layer, Take, Event
 from echozero.application.session.models import Session
+from echozero.application.shared.enums import SyncMode
+from echozero.application.timeline.models import Event, Layer, Take, Timeline
 
 
 @dataclass(slots=True)
 class TimelineAssembler:
-    """Builds a simple UI-facing timeline presentation from application state."""
+    """Builds a UI-facing timeline presentation from application state.
+
+    Contract: main take (index 0) is truth. Non-main takes render as subordinate lanes.
+    """
 
     def assemble(self, timeline: Timeline, session: Session) -> TimelinePresentation:
         selected_layer_id = timeline.selection.selected_layer_id
@@ -24,7 +29,7 @@ class TimelineAssembler:
 
         layers = [
             self._assemble_layer(layer, selected_layer_id, selected_take_id, selected_event_ids)
-            for layer in sorted(timeline.layers, key=lambda layer: layer.order_index)
+            for layer in sorted(timeline.layers, key=lambda value: value.order_index)
         ]
 
         return TimelinePresentation(
@@ -50,30 +55,52 @@ class TimelineAssembler:
         selected_take_id,
         selected_event_ids: set,
     ) -> LayerPresentation:
-        active_take = self._get_active_take(layer)
-        take_summary = self._assemble_take_summary(layer, active_take)
-        events = self._assemble_events(active_take, selected_event_ids)
+        main_take = self._main_take(layer)
+        main_events = self._assemble_events(main_take.events if main_take else [], selected_event_ids)
 
-        badges: list[str] = []
+        take_rows: list[TakeLanePresentation] = []
+        for take in layer.takes[1:]:
+            take_rows.append(
+                TakeLanePresentation(
+                    take_id=take.id,
+                    name=take.name,
+                    is_main=False,
+                    kind=layer.kind,
+                    events=self._assemble_events(take.events, selected_event_ids),
+                    source_ref=take.source_ref,
+                    actions=[
+                        TakeActionPresentation(action_id="overwrite_main", label="Overwrite Main"),
+                        TakeActionPresentation(action_id="merge_main", label="Merge Main"),
+                    ],
+                )
+            )
+
+        badges: list[str] = ["main", layer.kind.value]
         if layer.sync.connected:
             badges.append("sync")
-        if layer.presentation_hints.locked:
-            badges.append("locked")
         if layer.mixer.mute:
             badges.append("muted")
         if layer.mixer.solo:
             badges.append("solo")
 
+        sync_mode = layer.sync.mode if isinstance(layer.sync.mode, SyncMode) else SyncMode(str(layer.sync.mode)) if str(layer.sync.mode) in {m.value for m in SyncMode} else SyncMode.NONE
+
+        status = LayerStatusPresentation(
+            stale=False,
+            manually_modified=False,
+            source_label=main_take.source_ref if main_take and main_take.source_ref else "",
+            sync_label="Connected" if layer.sync.connected else "No sync",
+        )
+
         return LayerPresentation(
             layer_id=layer.id,
             title=layer.name,
-            subtitle=active_take.name if active_take else "",
+            subtitle="",
             kind=layer.kind,
             is_selected=layer.id == selected_layer_id,
             is_expanded=layer.presentation_hints.take_selector_expanded,
-            active_take_id=layer.active_take_id,
-            take_summary=take_summary,
-            events=events,
+            events=main_events,
+            takes=take_rows,
             visible=layer.presentation_hints.visible,
             locked=layer.presentation_hints.locked,
             muted=layer.mixer.mute,
@@ -82,66 +109,31 @@ class TimelineAssembler:
             pan=layer.mixer.pan,
             playback_mode=layer.playback.mode,
             playback_enabled=layer.playback.enabled,
-            sync_mode=layer.sync.mode,
+            sync_mode=sync_mode,
             sync_connected=layer.sync.connected,
             color=layer.presentation_hints.color,
             badges=badges,
+            status=status,
         )
 
-    def _assemble_take_summary(self, layer: Layer, active_take: Take | None) -> TakeSummaryPresentation:
-        available_takes = [
-            TakeOptionPresentation(
-                take_id=take.id,
-                name=take.name,
-                is_active=take.id == layer.active_take_id,
-            )
-            for take in layer.takes
-            if take.available
-        ]
-        active_name = active_take.name if active_take else None
-        compact_label = active_name or "No active take"
-
-        return TakeSummaryPresentation(
-            total_take_count=len(layer.takes),
-            active_take_id=layer.active_take_id,
-            active_take_name=active_name,
-            available_takes=available_takes,
-            compact_label=compact_label,
-            can_expand=len(layer.takes) > 1,
-        )
-
-    def _assemble_events(self, active_take: Take | None, selected_event_ids: set) -> list[EventPresentation]:
-        if active_take is None:
-            return []
-
+    @staticmethod
+    def _assemble_events(events: list[Event], selected_event_ids: set) -> list[EventPresentation]:
         return [
-            self._assemble_event(event, selected_event_ids)
-            for event in sorted(active_take.events, key=lambda event: (event.start, event.end, event.id))
+            EventPresentation(
+                event_id=event.id,
+                start=event.start,
+                end=event.end,
+                label=event.label,
+                color=event.color,
+                muted=event.muted,
+                is_selected=event.id in selected_event_ids,
+                badges=["muted"] if event.muted else [],
+            )
+            for event in sorted(events, key=lambda value: (value.start, value.end, str(value.id)))
         ]
 
-    def _assemble_event(self, event: Event, selected_event_ids: set) -> EventPresentation:
-        badges: list[str] = []
-        if event.muted:
-            badges.append("muted")
-
-        return EventPresentation(
-            event_id=event.id,
-            start=event.start,
-            end=event.end,
-            label=event.label,
-            color=event.color,
-            muted=event.muted,
-            is_selected=event.id in selected_event_ids,
-            badges=badges,
-        )
-
-    def _get_active_take(self, layer: Layer) -> Take | None:
-        if layer.active_take_id is not None:
-            for take in layer.takes:
-                if take.id == layer.active_take_id:
-                    return take
-
-        if layer.takes:
-            return layer.takes[0]
-
-        return None
+    @staticmethod
+    def _main_take(layer: Layer) -> Take | None:
+        if not layer.takes:
+            return None
+        return layer.takes[0]

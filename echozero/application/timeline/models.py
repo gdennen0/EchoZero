@@ -79,7 +79,6 @@ class Layer:
     kind: LayerKind
     order_index: int
     takes: list[Take] = field(default_factory=list)
-    active_take_id: TakeId | None = None
     mixer: LayerMixerState = field(default_factory=LayerMixerState)
     playback: LayerPlaybackState = field(default_factory=LayerPlaybackState)
     sync: LayerSyncState = field(default_factory=LayerSyncState)

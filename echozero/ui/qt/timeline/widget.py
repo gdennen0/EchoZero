@@ -21,6 +21,15 @@ from echozero.application.timeline.intents import (
     ToggleTakeSelector,
     TriggerTakeAction,
 )
+from echozero.ui.FEEL import (
+    EVENT_BAR_HEIGHT_PX,
+    LAYER_HEADER_TOP_PADDING_PX,
+    LAYER_HEADER_WIDTH_PX,
+    LAYER_ROW_HEIGHT_PX,
+    RULER_HEIGHT_PX,
+    TAKE_ROW_HEIGHT_PX,
+    TIMELINE_RIGHT_PADDING_PX,
+)
 from echozero.ui.qt.timeline.blocks.event_lane import EventLaneBlock, EventLanePresentation
 from echozero.ui.qt.timeline.blocks.layer_header import HeaderSlots, LayerHeaderBlock
 from echozero.ui.qt.timeline.blocks.layouts import MainRowLayout, TakeRowLayout
@@ -50,8 +59,8 @@ def compute_scroll_bounds(
     presentation: TimelinePresentation,
     viewport_width: int,
     *,
-    header_width: int = 320,
-    right_padding_px: int = 240,
+    header_width: int = LAYER_HEADER_WIDTH_PX,
+    right_padding_px: int = TIMELINE_RIGHT_PADDING_PX,
 ) -> tuple[int, int]:
     """Return (content_width, max_scroll_x) for horizontal timeline navigation."""
     viewport = max(1, int(viewport_width))
@@ -65,7 +74,7 @@ def compute_follow_scroll_x(
     presentation: TimelinePresentation,
     viewport_width: int,
     *,
-    header_width: int = 320,
+    header_width: int = LAYER_HEADER_WIDTH_PX,
     content_padding_px: int = 24,
 ) -> float:
     """Compute follow-mode adjusted scroll target for the current playhead."""
@@ -138,11 +147,11 @@ class TimelineCanvas(QWidget):
     def __init__(self, presentation: TimelinePresentation, parent=None):
         super().__init__(parent)
         self.presentation = presentation
-        self._header_width = 320
-        self._top_padding = 8
-        self._main_row_height = 72
-        self._take_row_height = 44
-        self._event_height = 22
+        self._header_width = LAYER_HEADER_WIDTH_PX
+        self._top_padding = LAYER_HEADER_TOP_PADDING_PX
+        self._main_row_height = LAYER_ROW_HEIGHT_PX
+        self._take_row_height = TAKE_ROW_HEIGHT_PX
+        self._event_height = EVENT_BAR_HEIGHT_PX
         self._take_rects: list[tuple[QRectF, object, object]] = []
         self._take_option_rects: list[tuple[QRectF, object, object]] = []
         self._take_action_rects: list[tuple[QRectF, object, object, str]] = []
@@ -433,13 +442,13 @@ class TransportBar(QWidget):
 
 
 class TimelineRuler(QWidget):
-    def __init__(self, presentation: TimelinePresentation, *, header_width: float = 320.0, parent=None):
+    def __init__(self, presentation: TimelinePresentation, *, header_width: float = float(LAYER_HEADER_WIDTH_PX), parent=None):
         super().__init__(parent)
         self.presentation = presentation
         self._header_width = header_width
         self._block = RulerBlock()
-        self.setMinimumHeight(28)
-        self.setMaximumHeight(28)
+        self.setMinimumHeight(RULER_HEIGHT_PX)
+        self.setMaximumHeight(RULER_HEIGHT_PX)
 
     def set_presentation(self, presentation: TimelinePresentation) -> None:
         self.presentation = presentation

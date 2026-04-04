@@ -48,7 +48,7 @@ WAVEFORM_ANTIALIAS_FILL = False  # Don't anti-alias fill (performance)
 # EVENTS (Timeline)
 # =============================================================================
 
-EVENT_DEFAULT_COLOR = "#888888"  # Unclassified event color
+EVENT_DEFAULT_COLOR = "#FF6B6B"  # Unclassified event color (bright coral red - visible on dark bg)
 EVENT_HOVER_ALPHA = 30  # Overlay alpha on hover (0-255)
 EVENT_SELECTION_COLOR = "#0066FF"  # Selected event highlight
 EVENT_SELECTION_BORDER_PX = 2  # Selection border width
@@ -79,8 +79,12 @@ RULER_TICK_COLOR = "#666666"  # Tick mark color
 # LAYERS
 # =============================================================================
 
-LAYER_HEADER_WIDTH_PX = 160  # Width of layer name sidebar
-LAYER_ROW_HEIGHT_PX = 60  # Default height per layer row
+LAYER_HEADER_WIDTH_PX = 320  # Width of layer name sidebar
+LAYER_ROW_HEIGHT_PX = 72  # Default height per main layer row
+TAKE_ROW_HEIGHT_PX = 44  # Height of subordinate take rows
+LAYER_HEADER_TOP_PADDING_PX = 8  # Top offset before first lane row
+EVENT_BAR_HEIGHT_PX = 22  # Event pill/bar height inside rows
+TIMELINE_RIGHT_PADDING_PX = 240  # Extra right scroll padding beyond content span
 LAYER_ROW_MIN_HEIGHT_PX = 24  # Minimum when collapsed
 LAYER_SEPARATOR_PX = 1  # Divider line between layers
 LAYER_ACTIVE_HIGHLIGHT_ALPHA = 15  # Subtle highlight on focused layer
