@@ -19,6 +19,7 @@ from echozero.application.shared.enums import FollowMode, LayerKind
 from echozero.application.shared.ids import EventId, LayerId, TakeId, TimelineId
 from echozero.domain.types import AudioData, Event as DomainEvent, EventData
 from echozero.main import create_project
+from echozero.ui.qt.timeline.waveform_cache import register_waveform_from_audio_file
 
 
 @dataclass(slots=True)
@@ -49,6 +50,8 @@ def build_real_data_presentation(
             artist="Doechii",
             default_templates=[],
         )
+
+        register_waveform_from_audio_file("song-real", source)
 
         # Two passes produce main + alternate take from real data.
         project.analyze(version.id, "onset_detection", {"threshold": 0.28, "method": "default"})
@@ -99,6 +102,11 @@ def build_real_data_presentation(
                 if take.is_main:
                     continue
                 take_kind = LayerKind.EVENT if isinstance(take.data, EventData) else LayerKind.AUDIO
+                take_waveform_key = None
+                if take_kind == LayerKind.AUDIO and isinstance(take.data, AudioData):
+                    take_waveform_key = f"real-{layer_record.name}-{take.id}"
+                    register_waveform_from_audio_file(take_waveform_key, take.data.file_path)
+
                 take_rows.append(
                     TakeLanePresentation(
                         take_id=TakeId(str(take.id)),
@@ -107,7 +115,7 @@ def build_real_data_presentation(
                         kind=take_kind,
                         events=_event_presentations_from_take(take) if isinstance(take.data, EventData) else [],
                         source_ref=_source_ref(take.source),
-                        waveform_key=f"real-{layer_record.name}-{take.id}" if take_kind == LayerKind.AUDIO else None,
+                        waveform_key=take_waveform_key,
                         actions=[
                             TakeActionPresentation(action_id="overwrite_main", label="Overwrite Main"),
                             TakeActionPresentation(action_id="merge_main", label="Merge Main"),
@@ -121,6 +129,11 @@ def build_real_data_presentation(
                 source_label=_source_label(layer_record),
                 sync_label="No sync",
             )
+            main_waveform_key = None
+            if main_kind == LayerKind.AUDIO and isinstance(main_take.data, AudioData):
+                main_waveform_key = f"real-{layer_record.name}-main"
+                register_waveform_from_audio_file(main_waveform_key, main_take.data.file_path)
+
             presentation_layers.append(
                 LayerPresentation(
                     layer_id=LayerId(str(layer_record.id)),
@@ -133,7 +146,7 @@ def build_real_data_presentation(
                     takes=take_rows,
                     color=layer_record.color or "#66a3ff",
                     badges=["main", main_kind.value, "real-data"],
-                    waveform_key=f"real-{layer_record.name}-main" if main_kind == LayerKind.AUDIO else None,
+                    waveform_key=main_waveform_key,
                     status=status,
                 )
             )

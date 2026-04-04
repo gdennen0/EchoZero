@@ -263,6 +263,7 @@ class TimelineCanvas(QWidget):
                         header_width=self._header_width,
                         width=self.width(),
                         dimmed=dimmed,
+                        waveform_key=layer.waveform_key,
                     ),
                 )
             else:
@@ -319,6 +320,7 @@ class TimelineCanvas(QWidget):
                         header_width=self._header_width,
                         width=self.width(),
                         dimmed=True or dimmed,
+                        waveform_key=take.waveform_key,
                     ),
                 )
             else:
