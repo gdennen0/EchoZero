@@ -105,3 +105,44 @@ class ProjectSavedEvent(DomainEvent):
     """A project was saved to disk."""
 
     project_id: str
+
+
+# ---------------------------------------------------------------------------
+# Foundry lifecycle events
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class FoundryRunCreatedEvent(DomainEvent):
+    """A Foundry train run was created."""
+
+    run_id: str
+    dataset_version_id: str
+    status: str
+
+
+@dataclass(frozen=True)
+class FoundryRunStartedEvent(DomainEvent):
+    """A Foundry train run transitioned to running."""
+
+    run_id: str
+    status: str
+
+
+@dataclass(frozen=True)
+class FoundryArtifactFinalizedEvent(DomainEvent):
+    """A Foundry artifact manifest was finalized."""
+
+    artifact_id: str
+    run_id: str
+
+
+@dataclass(frozen=True)
+class FoundryArtifactValidatedEvent(DomainEvent):
+    """A Foundry artifact was validated for a consumer contract."""
+
+    artifact_id: str
+    consumer: str
+    ok: bool
+    error_count: int
+    warning_count: int

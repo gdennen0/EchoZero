@@ -148,7 +148,7 @@ class Project:
             executors=executors or {},
         )
 
-        foundry = FoundryOrchestrator(storage.working_dir)
+        foundry = FoundryOrchestrator(storage.working_dir, event_bus=event_bus)
 
         project = cls(
             storage=storage,

@@ -17,6 +17,12 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from echozero.domain.enums import BlockCategory, Direction, PortType
+from echozero.domain.events import (
+    FoundryArtifactFinalizedEvent,
+    FoundryArtifactValidatedEvent,
+    FoundryRunCreatedEvent,
+    FoundryRunStartedEvent,
+)
 from echozero.editor.commands import AddBlockCommand, ChangeBlockSettingsCommand
 from echozero.persistence.audio import AudioMetadata
 from echozero.persistence.session import ProjectStorage
@@ -449,6 +455,60 @@ class TestSaveLoadRoundtrip:
 
 
 class TestFoundryIntegration:
+    def test_foundry_publishes_lifecycle_events(self, tmp_path):
+        with _create_project(tmp_path) as p:
+            seen: list[type] = []
+
+            p.event_bus.subscribe(FoundryRunCreatedEvent, lambda e: seen.append(type(e)))
+            p.event_bus.subscribe(FoundryRunStartedEvent, lambda e: seen.append(type(e)))
+            p.event_bus.subscribe(FoundryArtifactFinalizedEvent, lambda e: seen.append(type(e)))
+            p.event_bus.subscribe(FoundryArtifactValidatedEvent, lambda e: seen.append(type(e)))
+
+            run_spec = {
+                "schema": "foundry.train_run_spec.v1",
+                "classificationMode": "multiclass",
+                "data": {
+                    "datasetVersionId": "dsv_proj",
+                    "sampleRate": 22050,
+                    "maxLength": 22050,
+                    "nFft": 2048,
+                    "hopLength": 512,
+                    "nMels": 128,
+                    "fmax": 8000,
+                },
+                "training": {
+                    "epochs": 1,
+                    "batchSize": 2,
+                    "learningRate": 0.001,
+                },
+            }
+
+            run = unwrap(p.foundry_create_run("dsv_proj", run_spec))
+            unwrap(p.foundry_start_run(run.id))
+            unwrap(
+                p.foundry_finalize_artifact_checked(
+                    run.id,
+                    {
+                        "weightsPath": "exports/model.pth",
+                        "classes": ["kick", "snare"],
+                        "classificationMode": "multiclass",
+                        "inferencePreprocessing": {
+                            "sampleRate": 22050,
+                            "maxLength": 22050,
+                            "nFft": 2048,
+                            "hopLength": 512,
+                            "nMels": 128,
+                            "fmax": 8000,
+                        },
+                    },
+                )
+            )
+
+            assert FoundryRunCreatedEvent in seen
+            assert FoundryRunStartedEvent in seen
+            assert FoundryArtifactFinalizedEvent in seen
+            assert FoundryArtifactValidatedEvent in seen
+
     def test_foundry_run_and_artifact_checked_gate_passes(self, tmp_path):
         with _create_project(tmp_path) as p:
             run_spec = {
