@@ -25,6 +25,34 @@ jobs:
       - name: Run tests with coverage
         run: pytest --cov=echozero --cov-report=term-missing --cov-fail-under=85
 
+  perf-guardrails:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -e ".[dev]"
+          pip install numpy
+
+      - name: Run timeline perf guardrails (strict)
+        env:
+          QT_QPA_PLATFORM: offscreen
+          PYTHONPATH: ${{ github.workspace }}
+        run: |
+          python tests/benchmarks/benchmark_timeline_phase3.py --strict --json-out artifacts/perf/timeline_phase3.json
+
+      - name: Upload perf artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: timeline-phase3-perf
+          path: artifacts/perf/timeline_phase3.json
+
   lint:
     runs-on: ubuntu-latest
     steps:

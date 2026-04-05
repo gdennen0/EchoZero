@@ -1,0 +1,6 @@
+{
+  "assemble_cached_p95_ms": 2.5,
+  "assemble_cached_max_ms": 6.0,
+  "event_lane_p95_ms": 8.0,
+  "event_lane_max_ms": 16.0
+}
