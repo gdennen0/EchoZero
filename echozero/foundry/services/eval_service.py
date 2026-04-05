@@ -18,6 +18,7 @@ class EvalService:
         metrics: dict,
         threshold_policy: dict | None = None,
         confusion: dict | None = None,
+        summary: dict | None = None,
     ) -> EvalReport:
         report = EvalReport(
             id=f"evr_{uuid4().hex[:12]}",
@@ -26,6 +27,7 @@ class EvalService:
             metrics=metrics,
             threshold_policy=threshold_policy,
             confusion=confusion,
+            summary=summary or {},
         )
         return self._repo.save(report)
 

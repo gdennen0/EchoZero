@@ -1,0 +1,22 @@
+Foundry functional v1 build notes
+
+Changed in this run:
+- Completed the Foundry domain/persistence shape for v1 starter coverage by enriching Dataset, DatasetVersion, TrainRun, EvalReport, and ModelArtifact with persisted metadata used by lifecycle and compatibility flows.
+- Added explicit TrainRun path helpers for checkpoints, exports, logs, and event log access; kept the existing engine boundary unchanged.
+- Tightened artifact compatibility validation for the PyTorch classifier consumer so it now checks:
+  - manifest schema and required preprocessing keys
+  - runId and classificationMode consistency with the originating run
+  - inference preprocessing consistency with the train run spec
+  - classes consistency with the persisted dataset version class map
+  - weightsPath presence and `.pth` compatibility for `PyTorchAudioClassify`
+- Added persistence coverage for TrainRun and ModelArtifact round-trip reload/list behavior.
+- Upgraded the smoke path to use a tiny ingested dataset through run creation/start/completion, artifact finalization, persistence reload, and compatibility success.
+- Added `tests/foundry/conftest.py` to override pytest temp handling inside the Foundry test slice so the required `.venv\\Scripts\\python -m pytest -q tests/foundry` command runs cleanly in this Windows environment.
+
+Verification:
+- `.venv\\Scripts\\python -m pytest -q tests/foundry` -> 10 passed
+
+Remaining non-v1 items:
+- No real training backend execution loop was added; run lifecycle remains a service/domain scaffold with event logging and persistence.
+- No JSON-schema enforcement layer was added for contracts beyond service-level validation already in place.
+- No broader timeline/UI changes were made.

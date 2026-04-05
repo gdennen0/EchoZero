@@ -1,4 +1,5 @@
 from .entities import (
+    Artifact,
     CompatibilityReport,
     CurationState,
     Dataset,
@@ -11,6 +12,7 @@ from .entities import (
 )
 
 __all__ = [
+    "Artifact",
     "CompatibilityReport",
     "CurationState",
     "Dataset",

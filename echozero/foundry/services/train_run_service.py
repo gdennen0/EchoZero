@@ -46,9 +46,9 @@ class TrainRunService:
             device=device,
         )
         run_dir = run.run_dir(self._root)
-        (run_dir / "checkpoints").mkdir(parents=True, exist_ok=True)
-        (run_dir / "exports").mkdir(parents=True, exist_ok=True)
-        (run_dir / "logs").mkdir(parents=True, exist_ok=True)
+        run.checkpoints_dir(self._root).mkdir(parents=True, exist_ok=True)
+        run.exports_dir(self._root).mkdir(parents=True, exist_ok=True)
+        run.logs_dir(self._root).mkdir(parents=True, exist_ok=True)
         (run_dir / "spec.json").write_text(json.dumps(run_spec, indent=2), encoding="utf-8")
         self._append_event(run, "RUN_CREATED", {"status": run.status.value})
         return self._repo.save(run)
@@ -80,7 +80,7 @@ class TrainRunService:
 
     def save_checkpoint(self, run_id: str, epoch: int, metric_snapshot: dict | None = None) -> Path:
         run = self._require(run_id)
-        ckpt_path = run.run_dir(self._root) / "checkpoints" / f"epoch_{epoch:04d}.json"
+        ckpt_path = run.checkpoints_dir(self._root) / f"epoch_{epoch:04d}.json"
         payload = {
             "run_id": run.id,
             "epoch": epoch,
@@ -133,6 +133,6 @@ class TrainRunService:
             "type": event_type,
             "payload": payload,
         }
-        path = run.run_dir(self._root) / "events.jsonl"
+        path = run.event_log_path(self._root)
         with path.open("a", encoding="utf-8") as fh:
             fh.write(json.dumps(event, sort_keys=True) + "\n")

@@ -82,6 +82,8 @@ class DatasetRepository:
             "id": dataset.id,
             "name": dataset.name,
             "source_kind": dataset.source_kind,
+            "source_ref": dataset.source_ref,
+            "metadata": dataset.metadata,
             "created_at": dataset.created_at.isoformat(),
         }
         _write_json(self._path, rows)
@@ -95,6 +97,8 @@ class DatasetRepository:
             id=row["id"],
             name=row["name"],
             source_kind=row["source_kind"],
+            source_ref=row.get("source_ref"),
+            metadata=row.get("metadata", {}),
             created_at=datetime.fromisoformat(row["created_at"]),
         )
 
@@ -136,6 +140,7 @@ class DatasetVersionRepository:
             "split_plan": version.split_plan,
             "balance_plan": version.balance_plan,
             "stats": version.stats,
+            "lineage": version.lineage,
             "created_at": version.created_at.isoformat(),
         }
         _write_json(self._path, rows)
@@ -168,6 +173,7 @@ class DatasetVersionRepository:
             split_plan=row.get("split_plan", {}),
             balance_plan=row.get("balance_plan", {}),
             stats=row.get("stats", {}),
+            lineage=row.get("lineage", {}),
             created_at=datetime.fromisoformat(row["created_at"]),
         )
 
@@ -196,6 +202,7 @@ class EvalReportRepository:
             "metrics": report.metrics,
             "threshold_policy": report.threshold_policy,
             "confusion": report.confusion,
+            "summary": report.summary,
             "created_at": report.created_at.isoformat(),
         }
         _write_json(self._path, rows)
@@ -212,6 +219,7 @@ class EvalReportRepository:
             metrics=row.get("metrics", {}),
             threshold_policy=row.get("threshold_policy"),
             confusion=row.get("confusion"),
+            summary=row.get("summary", {}),
             created_at=datetime.fromisoformat(row["created_at"]),
         )
 
@@ -229,6 +237,7 @@ class ModelArtifactRepository:
             "path": str(artifact.path),
             "sha256": artifact.sha256,
             "manifest": artifact.manifest,
+            "consumer_hints": artifact.consumer_hints,
             "created_at": artifact.created_at.isoformat(),
         }
         _write_json(self._path, rows)
@@ -245,5 +254,14 @@ class ModelArtifactRepository:
             path=Path(row["path"]),
             sha256=row["sha256"],
             manifest=row["manifest"],
+            consumer_hints=row.get("consumer_hints", {}),
             created_at=datetime.fromisoformat(row["created_at"]),
         )
+
+    def list(self) -> list[ModelArtifact]:
+        artifacts: list[ModelArtifact] = []
+        for artifact_id in _read_json(self._path).keys():
+            artifact = self.get(artifact_id)
+            if artifact is not None:
+                artifacts.append(artifact)
+        return artifacts

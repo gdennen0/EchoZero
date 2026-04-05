@@ -30,6 +30,9 @@ def test_run_lifecycle_and_checkpoint(tmp_path: Path):
     svc = TrainRunService(tmp_path)
     run = svc.create_run("dsv_life", _run_spec())
     assert run.status == TrainRunStatus.QUEUED
+    assert run.checkpoints_dir(tmp_path).exists()
+    assert run.exports_dir(tmp_path).exists()
+    assert run.logs_dir(tmp_path).exists()
 
     run = svc.start_run(run.id)
     assert run.status == TrainRunStatus.RUNNING
@@ -43,7 +46,11 @@ def test_run_lifecycle_and_checkpoint(tmp_path: Path):
     run = svc.complete_run(run.id, metrics={"f1": 0.91})
     assert run.status == TrainRunStatus.COMPLETED
 
-    events_path = run.run_dir(tmp_path) / "events.jsonl"
+    reloaded = TrainRunService(tmp_path).get_run(run.id)
+    assert reloaded is not None
+    assert reloaded.status == TrainRunStatus.COMPLETED
+
+    events_path = run.event_log_path(tmp_path)
     lines = [json.loads(line) for line in events_path.read_text(encoding="utf-8").splitlines()]
     event_types = [line["type"] for line in lines]
     assert "RUN_CREATED" in event_types

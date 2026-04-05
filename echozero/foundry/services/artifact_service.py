@@ -7,7 +7,7 @@ from pathlib import Path
 from uuid import uuid4
 
 from echozero.foundry.domain import CompatibilityReport, ModelArtifact
-from echozero.foundry.persistence import ModelArtifactRepository, TrainRunRepository
+from echozero.foundry.persistence import DatasetVersionRepository, ModelArtifactRepository, TrainRunRepository
 
 
 _REQUIRED_PREPROCESSING_KEYS = {
@@ -25,10 +25,12 @@ class ArtifactService:
         self,
         root: Path,
         train_run_repository: TrainRunRepository | None = None,
+        dataset_version_repository: DatasetVersionRepository | None = None,
         artifact_repository: ModelArtifactRepository | None = None,
     ):
         self._root = root
         self._run_repo = train_run_repository or TrainRunRepository(root)
+        self._dataset_version_repo = dataset_version_repository or DatasetVersionRepository(root)
         self._artifact_repo = artifact_repository or ModelArtifactRepository(root)
 
     def finalize_artifact(self, run_id: str, manifest: dict) -> ModelArtifact:
@@ -57,6 +59,7 @@ class ArtifactService:
             path=manifest_path,
             sha256=digest,
             manifest=manifest,
+            consumer_hints={"consumer": "PyTorchAudioClassify"},
         )
         return self._artifact_repo.save(artifact)
 
@@ -68,6 +71,16 @@ class ArtifactService:
         errors: list[str] = []
         warnings: list[str] = []
         m = artifact.manifest
+        run = self._run_repo.get(artifact.run_id)
+        dataset_version = None
+        run_data = {}
+        if run is None:
+            errors.append(f"originating run not found: {artifact.run_id}")
+        else:
+            run_data = run.spec.get("data", {})
+            dataset_version = self._dataset_version_repo.get(run.dataset_version_id)
+            if dataset_version is None:
+                errors.append(f"dataset version not found: {run.dataset_version_id}")
 
         if m.get("schema") != "foundry.artifact_manifest.v1":
             errors.append("manifest.schema must be foundry.artifact_manifest.v1")
@@ -81,8 +94,32 @@ class ArtifactService:
         if missing:
             errors.append(f"manifest.inferencePreprocessing missing keys: {', '.join(missing)}")
 
-        if consumer == "PyTorchAudioClassify" and not m.get("weightsPath"):
-            errors.append("manifest.weightsPath is required for PyTorchAudioClassify")
+        if run is not None:
+            if m.get("runId") != run.id:
+                errors.append("manifest.runId must match the originating run id")
+
+            if m.get("classificationMode") != run.spec.get("classificationMode"):
+                errors.append("manifest.classificationMode must match run spec classificationMode")
+
+            for key in sorted(_REQUIRED_PREPROCESSING_KEYS):
+                expected = run_data.get(key)
+                actual = preprocessing.get(key)
+                if expected is None or actual is None:
+                    continue
+                if actual != expected:
+                    errors.append(f"manifest.inferencePreprocessing.{key} must match run spec")
+
+        if dataset_version is not None and classes:
+            expected_classes = list(dataset_version.class_map)
+            if classes != expected_classes:
+                errors.append("manifest.classes must match dataset version class_map order")
+
+        if consumer == "PyTorchAudioClassify":
+            weights_path = m.get("weightsPath")
+            if not weights_path:
+                errors.append("manifest.weightsPath is required for PyTorchAudioClassify")
+            elif not str(weights_path).endswith(".pth"):
+                errors.append("manifest.weightsPath must point to a .pth file for PyTorchAudioClassify")
 
         if m.get("classificationMode") == "binary" and "thresholdPolicy" not in m:
             warnings.append("binary classifier missing thresholdPolicy")

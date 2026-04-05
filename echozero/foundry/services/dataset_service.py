@@ -20,11 +20,20 @@ class DatasetService:
         self._datasets = dataset_repo or DatasetRepository(root)
         self._versions = version_repo or DatasetVersionRepository(root)
 
-    def create_dataset(self, name: str, source_kind: str = "folder_import") -> Dataset:
+    def create_dataset(
+        self,
+        name: str,
+        source_kind: str = "folder_import",
+        *,
+        source_ref: str | None = None,
+        metadata: dict | None = None,
+    ) -> Dataset:
         dataset = Dataset(
             id=f"ds_{uuid4().hex[:12]}",
             name=name,
             source_kind=source_kind,
+            source_ref=source_ref,
+            metadata=metadata or {},
         )
         return self._datasets.save(dataset)
 
@@ -175,5 +184,6 @@ class DatasetService:
                 },
                 "curated_from": version.id,
             },
+            lineage={"source_version_id": version.id, "kind": "curation"},
         )
         return self._versions.save(next_version)
