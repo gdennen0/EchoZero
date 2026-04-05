@@ -1914,8 +1914,29 @@ class SyncSystemManager(QObject):
     # Private: Data Operations
     # =========================================================================
     
-    # Constant for MA3->Editor coalesce window
-    _COALESCE_DELAY_MS = 300  # Wait 300ms after last change before pushing
+    # Adaptive MA3->Editor coalesce policy
+    _COALESCE_BASE_DELAY_MS = 300
+    _COALESCE_MIN_DELAY_MS = 80
+    _COALESCE_MAX_DELAY_MS = 300
+
+    @classmethod
+    def _compute_coalesce_delay_ms(cls, *, pending_count: int, inter_arrival_ms: float) -> int:
+        """Adaptive quiet window: lower delay as burst size/intensity increases."""
+        delay = cls._COALESCE_BASE_DELAY_MS
+
+        if pending_count >= 8:
+            delay = 80
+        elif pending_count >= 4:
+            delay = 110
+        elif pending_count >= 2:
+            delay = 150
+
+        if inter_arrival_ms <= 60:
+            delay = min(delay, 120)
+        elif inter_arrival_ms <= 120:
+            delay = min(delay, 180)
+
+        return int(max(cls._COALESCE_MIN_DELAY_MS, min(cls._COALESCE_MAX_DELAY_MS, delay)))
     
     def _schedule_push_ma3_to_editor(self, entity: SyncLayerEntity) -> None:
         """
@@ -1950,22 +1971,40 @@ class SyncSystemManager(QObject):
         if not hasattr(self, "_global_coalesce_last_arrival"):
             self._global_coalesce_last_arrival: float = 0.0
         
+        now_ts = time.time()
+        previous_arrival = self._global_coalesce_last_arrival
+
         # Add this coord to the pending set and record arrival time
         self._global_coalesce_pending[coord] = entity
-        self._global_coalesce_last_arrival = time.time()
-        
-        Log.info(f"[MULTITRACK-DIAG] _schedule_push_ma3_to_editor: coord={coord}, timer_start={time.time():.4f}, pending_coords_count={len(self._global_coalesce_pending)}, pending_coords={list(self._global_coalesce_pending.keys())}")
-        
+        self._global_coalesce_last_arrival = now_ts
+
+        inter_arrival_ms = ((now_ts - previous_arrival) * 1000.0) if previous_arrival else float(self._COALESCE_MAX_DELAY_MS)
+        target_delay_ms = self._compute_coalesce_delay_ms(
+            pending_count=len(self._global_coalesce_pending),
+            inter_arrival_ms=inter_arrival_ms,
+        )
+        self._global_coalesce_target_delay_ms = target_delay_ms
+
+        Log.info(
+            f"[MULTITRACK-DIAG] _schedule_push_ma3_to_editor: coord={coord}, "
+            f"pending_coords_count={len(self._global_coalesce_pending)}, "
+            f"inter_arrival_ms={inter_arrival_ms:.1f}, delay_ms={target_delay_ms}, "
+            f"pending_coords={list(self._global_coalesce_pending.keys())}"
+        )
+
         # Create the global timer if it doesn't exist
         if self._global_coalesce_timer is None:
             self._global_coalesce_timer = QTimer()
             self._global_coalesce_timer.setSingleShot(True)
             self._global_coalesce_timer.timeout.connect(self._do_global_coalesce_push)
-        
+
         # (Re)start the global timer -- each new coord arrival resets the window
-        self._global_coalesce_timer.start(self._COALESCE_DELAY_MS)
-        
-        Log.debug(f"SyncSystemManager: Global coalesce timer (re)started for {self._COALESCE_DELAY_MS}ms (pending: {list(self._global_coalesce_pending.keys())})")
+        self._global_coalesce_timer.start(target_delay_ms)
+
+        Log.debug(
+            f"SyncSystemManager: Global coalesce timer (re)started for {target_delay_ms}ms "
+            f"(pending: {list(self._global_coalesce_pending.keys())})"
+        )
     
     def _do_global_coalesce_push(self) -> None:
         """
@@ -1979,10 +2018,11 @@ class SyncSystemManager(QObject):
         
         now = time.time()
         elapsed_ms = (now - self._global_coalesce_last_arrival) * 1000
-        
-        if elapsed_ms < self._COALESCE_DELAY_MS - 10:  # 10ms tolerance
+        target_delay_ms = int(getattr(self, "_global_coalesce_target_delay_ms", self._COALESCE_BASE_DELAY_MS))
+
+        if elapsed_ms < target_delay_ms - 10:  # 10ms tolerance
             # A new coord arrived during the window, reschedule
-            remaining = int(self._COALESCE_DELAY_MS - elapsed_ms)
+            remaining = int(target_delay_ms - elapsed_ms)
             Log.debug(f"SyncSystemManager: Global coalesce rescheduled, waiting {remaining}ms more")
             if self._global_coalesce_timer:
                 self._global_coalesce_timer.start(remaining)

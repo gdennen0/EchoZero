@@ -1,6 +1,6 @@
 """Timeline presentation assembly for the new EchoZero application layer."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from echozero.application.presentation.models import (
     EventPresentation,
@@ -18,6 +18,8 @@ from echozero.perf import timed
 
 @dataclass(slots=True)
 class TimelineAssembler:
+    _last_signature: tuple | None = field(default=None, init=False, repr=False)
+    _last_layers: list[LayerPresentation] | None = field(default=None, init=False, repr=False)
     """Builds a UI-facing timeline presentation from application state.
 
     Contract: main take (index 0) is truth. Non-main takes render as subordinate lanes.
@@ -29,10 +31,24 @@ class TimelineAssembler:
             selected_take_id = timeline.selection.selected_take_id
             selected_event_ids = set(timeline.selection.selected_event_ids)
 
-            layers = [
-                self._assemble_layer(layer, selected_layer_id, selected_take_id, selected_event_ids)
-                for layer in sorted(timeline.layers, key=lambda value: value.order_index)
-            ]
+            ordered_layers = sorted(timeline.layers, key=lambda value: value.order_index)
+            signature = self._layer_signature(
+                timeline,
+                ordered_layers,
+                selected_layer_id,
+                selected_take_id,
+                selected_event_ids,
+            )
+
+            if signature == self._last_signature and self._last_layers is not None:
+                layers = self._last_layers
+            else:
+                layers = [
+                    self._assemble_layer(layer, selected_layer_id, selected_take_id, selected_event_ids)
+                    for layer in ordered_layers
+                ]
+                self._last_signature = signature
+                self._last_layers = layers
 
             return TimelinePresentation(
                 timeline_id=timeline.id,
@@ -116,6 +132,66 @@ class TimelineAssembler:
             color=layer.presentation_hints.color,
             badges=badges,
             status=status,
+        )
+
+    @staticmethod
+    def _layer_signature(
+        timeline: Timeline,
+        ordered_layers: list[Layer],
+        selected_layer_id,
+        selected_take_id,
+        selected_event_ids: set,
+    ) -> tuple:
+        def _events_sig(events: list[Event]) -> tuple:
+            if not events:
+                return (id(events), 0, None, None, None, None)
+            first = events[0]
+            last = events[-1]
+            return (
+                id(events),
+                len(events),
+                str(first.id),
+                float(first.start),
+                str(last.id),
+                float(last.end),
+            )
+
+        layer_sigs: list[tuple] = []
+        for layer in ordered_layers:
+            take_sigs = tuple(
+                (
+                    str(take.id),
+                    idx == 0,
+                    take.name,
+                    take.source_ref,
+                    _events_sig(take.events),
+                )
+                for idx, take in enumerate(layer.takes)
+            )
+            layer_sigs.append(
+                (
+                    str(layer.id),
+                    int(layer.order_index),
+                    bool(layer.presentation_hints.take_selector_expanded),
+                    bool(layer.presentation_hints.visible),
+                    bool(layer.presentation_hints.locked),
+                    layer.presentation_hints.color,
+                    bool(layer.mixer.mute),
+                    bool(layer.mixer.solo),
+                    float(layer.mixer.gain_db),
+                    float(layer.mixer.pan),
+                    str(layer.sync.mode),
+                    bool(layer.sync.connected),
+                    take_sigs,
+                )
+            )
+
+        return (
+            str(timeline.id),
+            tuple(layer_sigs),
+            str(selected_layer_id) if selected_layer_id is not None else None,
+            str(selected_take_id) if selected_take_id is not None else None,
+            tuple(sorted(str(event_id) for event_id in selected_event_ids)),
         )
 
     @staticmethod
