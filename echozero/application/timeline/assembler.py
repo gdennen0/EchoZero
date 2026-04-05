@@ -13,6 +13,7 @@ from echozero.application.presentation.models import (
 from echozero.application.session.models import Session
 from echozero.application.shared.enums import SyncMode
 from echozero.application.timeline.models import Event, Layer, Take, Timeline
+from echozero.perf import timed
 
 
 @dataclass(slots=True)
@@ -23,30 +24,31 @@ class TimelineAssembler:
     """
 
     def assemble(self, timeline: Timeline, session: Session) -> TimelinePresentation:
-        selected_layer_id = timeline.selection.selected_layer_id
-        selected_take_id = timeline.selection.selected_take_id
-        selected_event_ids = set(timeline.selection.selected_event_ids)
+        with timed("timeline.assemble"):
+            selected_layer_id = timeline.selection.selected_layer_id
+            selected_take_id = timeline.selection.selected_take_id
+            selected_event_ids = set(timeline.selection.selected_event_ids)
 
-        layers = [
-            self._assemble_layer(layer, selected_layer_id, selected_take_id, selected_event_ids)
-            for layer in sorted(timeline.layers, key=lambda value: value.order_index)
-        ]
+            layers = [
+                self._assemble_layer(layer, selected_layer_id, selected_take_id, selected_event_ids)
+                for layer in sorted(timeline.layers, key=lambda value: value.order_index)
+            ]
 
-        return TimelinePresentation(
-            timeline_id=timeline.id,
-            title=f"Timeline {timeline.id}",
-            layers=layers,
-            playhead=session.transport_state.playhead,
-            is_playing=session.transport_state.is_playing,
-            loop_region=timeline.loop_region,
-            follow_mode=session.transport_state.follow_mode,
-            selected_layer_id=selected_layer_id,
-            selected_take_id=selected_take_id,
-            selected_event_ids=list(timeline.selection.selected_event_ids),
-            pixels_per_second=timeline.viewport.pixels_per_second,
-            scroll_x=timeline.viewport.scroll_x,
-            scroll_y=timeline.viewport.scroll_y,
-        )
+            return TimelinePresentation(
+                timeline_id=timeline.id,
+                title=f"Timeline {timeline.id}",
+                layers=layers,
+                playhead=session.transport_state.playhead,
+                is_playing=session.transport_state.is_playing,
+                loop_region=timeline.loop_region,
+                follow_mode=session.transport_state.follow_mode,
+                selected_layer_id=selected_layer_id,
+                selected_take_id=selected_take_id,
+                selected_event_ids=list(timeline.selection.selected_event_ids),
+                pixels_per_second=timeline.viewport.pixels_per_second,
+                scroll_x=timeline.viewport.scroll_x,
+                scroll_y=timeline.viewport.scroll_y,
+            )
 
     def _assemble_layer(
         self,
@@ -118,6 +120,15 @@ class TimelineAssembler:
 
     @staticmethod
     def _assemble_events(events: list[Event], selected_event_ids: set) -> list[EventPresentation]:
+        ordered = events
+        if len(events) > 1:
+            for i in range(1, len(events)):
+                prev = events[i - 1]
+                cur = events[i]
+                if (prev.start, prev.end, str(prev.id)) > (cur.start, cur.end, str(cur.id)):
+                    ordered = sorted(events, key=lambda value: (value.start, value.end, str(value.id)))
+                    break
+
         return [
             EventPresentation(
                 event_id=event.id,
@@ -129,7 +140,7 @@ class TimelineAssembler:
                 is_selected=event.id in selected_event_ids,
                 badges=["muted"] if event.muted else [],
             )
-            for event in sorted(events, key=lambda value: (value.start, value.end, str(value.id)))
+            for event in ordered
         ]
 
     @staticmethod

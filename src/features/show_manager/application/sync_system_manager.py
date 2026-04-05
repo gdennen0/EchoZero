@@ -1996,20 +1996,25 @@ class SyncSystemManager(QObject):
             return
         
         Log.info(f"[MULTITRACK-DIAG] Global coalesce batch push: {len(pending)} coords: {list(pending.keys())}")
-        
-        
+
+        _batch_start = time.perf_counter()
+
         # Push all pending coords in sequence
         for push_coord, push_entity in pending.items():
+            _track_start = time.perf_counter()
             try:
                 self._push_ma3_to_editor(push_entity)
                 push_entity.mark_synced()
                 self.entity_updated.emit(push_entity.id)
-                Log.info(f"SyncSystemManager: Batch push complete for {push_coord}")
+                _track_ms = (time.perf_counter() - _track_start) * 1000.0
+                Log.info(f"SyncSystemManager: Batch push complete for {push_coord} ({_track_ms:.1f}ms)")
             except Exception as e:
                 Log.error(f"SyncSystemManager: Batch push failed for {push_coord}: {e}")
-        
+
         # Save settings once after all pushes
         self._save_to_settings()
+        _batch_ms = (time.perf_counter() - _batch_start) * 1000.0
+        Log.info(f"SyncSystemManager: Global batch apply {len(pending)} tracks in {_batch_ms:.1f}ms")
         
         
         # Reset diagnostic batch tracker
@@ -2138,6 +2143,8 @@ class SyncSystemManager(QObject):
                                 entity.editor_data_item_id = item.id
                             break
         
+        _apply_start = time.perf_counter()
+
         events_to_add: List[Dict[str, Any]] = []
         for event in ma3_events:
             try:
@@ -2176,6 +2183,8 @@ class SyncSystemManager(QObject):
             f"SyncSystemManager: EditorAPI applied MA3 events for '{layer_name}' "
             f"(added={added}, source={source})"
         )
+        _apply_ms = (time.perf_counter() - _apply_start) * 1000.0
+        Log.debug(f"SyncSystemManager: apply_ma3_events took {_apply_ms:.1f}ms for {coord} ({len(ma3_events)} events)")
 
     def _get_or_create_ma3_timecode_data_item(
         self,

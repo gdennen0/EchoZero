@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+from collections import OrderedDict
 from dataclasses import dataclass
 from pathlib import Path
+import os
 
 import numpy as np
 
@@ -19,13 +21,19 @@ class CachedWaveform:
         return float(self.window_size) / float(self.sample_rate)
 
 
-_CACHE: dict[str, CachedWaveform] = {}
+_CACHE: OrderedDict[str, CachedWaveform] = OrderedDict()
+_CACHE_BYTES = 0
+_CACHE_MAX_BYTES = int(float(os.environ.get("ECHOZERO_WAVEFORM_CACHE_MB", "256")) * 1024 * 1024)
 
 
 def get_cached_waveform(key: str | None) -> CachedWaveform | None:
     if not key:
         return None
-    return _CACHE.get(key)
+    cached = _CACHE.get(key)
+    if cached is None:
+        return None
+    _CACHE.move_to_end(key)
+    return cached
 
 
 def register_waveform_from_audio_file(
@@ -39,8 +47,51 @@ def register_waveform_from_audio_file(
     mono = _to_mono_float32(samples)
     peaks = _compute_min_max_peaks(mono, window_size=window_size)
     cached = CachedWaveform(sample_rate=sr, window_size=window_size, peaks=peaks)
-    _CACHE[key] = cached
+    _put_cached_waveform(key, cached)
     return cached
+
+
+def clear_waveform_cache() -> None:
+    global _CACHE_BYTES
+    _CACHE.clear()
+    _CACHE_BYTES = 0
+
+
+def set_waveform_cache_limit_bytes(limit_bytes: int) -> None:
+    global _CACHE_MAX_BYTES
+    _CACHE_MAX_BYTES = max(1024, int(limit_bytes))
+    _evict_if_needed()
+
+
+def waveform_cache_stats() -> dict[str, int]:
+    return {
+        "entries": len(_CACHE),
+        "bytes": int(_CACHE_BYTES),
+        "max_bytes": int(_CACHE_MAX_BYTES),
+    }
+
+
+def _estimate_bytes(cached: CachedWaveform) -> int:
+    return int(cached.peaks.nbytes + 96)
+
+
+def _put_cached_waveform(key: str, cached: CachedWaveform) -> None:
+    global _CACHE_BYTES
+    existing = _CACHE.pop(key, None)
+    if existing is not None:
+        _CACHE_BYTES -= _estimate_bytes(existing)
+
+    _CACHE[key] = cached
+    _CACHE_BYTES += _estimate_bytes(cached)
+    _CACHE.move_to_end(key)
+    _evict_if_needed()
+
+
+def _evict_if_needed() -> None:
+    global _CACHE_BYTES
+    while _CACHE and _CACHE_BYTES > _CACHE_MAX_BYTES:
+        _, evicted = _CACHE.popitem(last=False)
+        _CACHE_BYTES -= _estimate_bytes(evicted)
 
 
 def _load_audio(path: Path) -> tuple[int, np.ndarray]:

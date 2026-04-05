@@ -21,6 +21,7 @@ from echozero.application.timeline.intents import (
     ToggleTakeSelector,
     TriggerTakeAction,
 )
+from echozero.perf import timed
 from echozero.ui.FEEL import (
     EVENT_BAR_HEIGHT_PX,
     LAYER_HEADER_TOP_PADDING_PX,
@@ -40,10 +41,26 @@ from echozero.ui.qt.timeline.blocks.transport_bar_block import TransportBarBlock
 from echozero.ui.qt.timeline.blocks.waveform_lane import WaveformLaneBlock, WaveformLanePresentation
 
 
-def estimate_timeline_span_seconds(presentation: TimelinePresentation) -> float:
-    """Best-effort duration estimate for viewport/scroll math."""
-    span = max(0.0, presentation.playhead)
+_SPAN_CACHE: dict[tuple, float] = {}
+_MAX_SPAN_CACHE_ENTRIES = 24
 
+
+def _span_signature(presentation: TimelinePresentation) -> tuple:
+    layer_sig: list[tuple[int, tuple[int, ...]]] = []
+    for layer in presentation.layers:
+        take_sig = tuple(id(take.events) for take in layer.takes)
+        layer_sig.append((id(layer.events), take_sig))
+    return (id(presentation.layers), tuple(layer_sig), presentation.end_time_label)
+
+
+def estimate_timeline_span_seconds(presentation: TimelinePresentation) -> float:
+    """Best-effort duration estimate for viewport/scroll math (memoized by lane identity)."""
+    key = _span_signature(presentation)
+    cached = _SPAN_CACHE.get(key)
+    if cached is not None:
+        return cached
+
+    span = max(0.0, presentation.playhead)
     for layer in presentation.layers:
         for event in layer.events:
             span = max(span, event.end)
@@ -52,7 +69,13 @@ def estimate_timeline_span_seconds(presentation: TimelinePresentation) -> float:
                 span = max(span, event.end)
 
     span = max(span, _parse_time_label_seconds(presentation.end_time_label))
-    return max(0.0, span)
+    resolved = max(0.0, span)
+
+    _SPAN_CACHE[key] = resolved
+    if len(_SPAN_CACHE) > _MAX_SPAN_CACHE_ENTRIES:
+        oldest = next(iter(_SPAN_CACHE.keys()))
+        _SPAN_CACHE.pop(oldest, None)
+    return resolved
 
 
 def compute_scroll_bounds(
@@ -201,8 +224,10 @@ class TimelineCanvas(QWidget):
         self._toggle_rects.clear()
         self._event_rects.clear()
         self._header_hover_rects.clear()
-        self._draw_layers(painter)
-        self._draw_playhead(painter)
+        with timed("timeline.paint.layers"):
+            self._draw_layers(painter)
+        with timed("timeline.paint.playhead"):
+            self._draw_playhead(painter)
 
     def mouseMoveEvent(self, event) -> None:
         pos = event.position()
@@ -354,6 +379,7 @@ class TimelineCanvas(QWidget):
                             header_width=self._header_width,
                             event_height=self._event_height,
                             dimmed=dimmed,
+                            viewport_width=self.width(),
                         ),
                     )
                 )
@@ -411,6 +437,7 @@ class TimelineCanvas(QWidget):
                             header_width=self._header_width,
                             event_height=self._event_height,
                             dimmed=True or dimmed,
+                            viewport_width=self.width(),
                         ),
                     )
                 )
