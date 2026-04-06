@@ -13,7 +13,9 @@ from echozero.application.presentation.models import TimelinePresentation, Layer
 from echozero.application.shared.enums import FollowMode
 from echozero.application.timeline.intents import (
     ClearSelection,
+    DuplicateSelectedEvents,
     MoveSelectedEvents,
+    NudgeSelectedEvents,
     Pause,
     Play,
     Seek,
@@ -183,6 +185,8 @@ class TimelineCanvas(QWidget):
     playhead_drag_requested = pyqtSignal(float)
     clear_selection_requested = pyqtSignal()
     select_all_requested = pyqtSignal()
+    nudge_requested = pyqtSignal(int, int)
+    duplicate_requested = pyqtSignal(int)
 
     def __init__(self, presentation: TimelinePresentation, parent=None):
         super().__init__(parent)
@@ -405,12 +409,25 @@ class TimelineCanvas(QWidget):
             modifiers & Qt.KeyboardModifier.ControlModifier
             or modifiers & Qt.KeyboardModifier.MetaModifier
         )
+        steps = 10 if modifiers & Qt.KeyboardModifier.ShiftModifier else 1
         if event.key() == Qt.Key.Key_Escape:
             self.clear_selection_requested.emit()
             event.accept()
             return
         if event.key() == Qt.Key.Key_A and has_primary:
             self.select_all_requested.emit()
+            event.accept()
+            return
+        if event.key() == Qt.Key.Key_D and has_primary:
+            self.duplicate_requested.emit(steps)
+            event.accept()
+            return
+        if event.key() == Qt.Key.Key_Left:
+            self.nudge_requested.emit(-1, steps)
+            event.accept()
+            return
+        if event.key() == Qt.Key.Key_Right:
+            self.nudge_requested.emit(1, steps)
             event.accept()
             return
         super().keyPressEvent(event)
@@ -772,6 +789,8 @@ class TimelineWidget(QWidget):
         self._canvas.horizontal_scroll_requested.connect(self._scroll_horizontally_by_steps)
         self._canvas.clear_selection_requested.connect(self._clear_selection)
         self._canvas.select_all_requested.connect(self._select_all_events)
+        self._canvas.nudge_requested.connect(self._nudge_selected_events)
+        self._canvas.duplicate_requested.connect(self._duplicate_selected_events)
         self._ruler.seek_requested.connect(self._seek)
         self._scroll.setWidget(self._canvas)
         self.setFocusProxy(self._canvas)
@@ -865,6 +884,12 @@ class TimelineWidget(QWidget):
 
     def _select_all_events(self) -> None:
         self._dispatch(SelectAllEvents())
+
+    def _nudge_selected_events(self, direction: int, steps: int) -> None:
+        self._dispatch(NudgeSelectedEvents(direction=direction, steps=steps))
+
+    def _duplicate_selected_events(self, steps: int) -> None:
+        self._dispatch(DuplicateSelectedEvents(steps=steps))
 
     def _trigger_take_action(self, layer_id, take_id, action_id: str) -> None:
         if take_id is None or not action_id:

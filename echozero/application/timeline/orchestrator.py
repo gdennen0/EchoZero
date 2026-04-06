@@ -13,7 +13,9 @@ if TYPE_CHECKING:
 from echozero.application.timeline.intents import (
     TimelineIntent,
     ClearSelection,
+    DuplicateSelectedEvents,
     MoveSelectedEvents,
+    NudgeSelectedEvents,
     SelectEvent,
     SelectAllEvents,
     SelectLayer,
@@ -32,6 +34,8 @@ from echozero.application.timeline.intents import (
 )
 from echozero.application.timeline.models import Timeline, Layer, Take, Event
 from echozero.application.transport.service import TransportService
+
+_KEYBOARD_STEP_SECONDS = 1.0 / 30.0
 
 
 @dataclass(slots=True)
@@ -88,6 +92,16 @@ class TimelineOrchestrator:
                 take_id=intent.take_id,
                 action_id=intent.action_id,
             )
+
+        elif isinstance(intent, NudgeSelectedEvents):
+            self._handle_nudge_selected_events(
+                timeline,
+                direction=intent.direction,
+                steps=intent.steps,
+            )
+
+        elif isinstance(intent, DuplicateSelectedEvents):
+            self._handle_duplicate_selected_events(timeline, steps=intent.steps)
 
         elif isinstance(intent, Play):
             self.transport_service.play()
@@ -315,6 +329,58 @@ class TimelineOrchestrator:
         for take in takes:
             take.events = sorted(take.events, key=lambda event: (event.start, event.end, str(event.id)))
 
+    def _handle_nudge_selected_events(self, timeline: Timeline, direction: int, steps: int) -> None:
+        if direction == 0 or steps <= 0:
+            return
+
+        selected = self._selected_events(timeline)
+        if not selected:
+            return
+
+        delta = float(direction) * float(steps) * _KEYBOARD_STEP_SECONDS
+        for _layer, take, event in selected:
+            duration = event.duration
+            next_start = max(0.0, event.start + delta)
+            event.start = next_start
+            event.end = next_start + duration
+            take.events = self._sorted_events(take.events)
+
+    def _handle_duplicate_selected_events(self, timeline: Timeline, steps: int) -> None:
+        if steps <= 0:
+            return
+
+        selected = self._selected_events(timeline)
+        if not selected:
+            return
+
+        delta = float(steps) * _KEYBOARD_STEP_SECONDS
+        existing_ids = self._all_event_ids(timeline)
+        duplicated_ids: list = []
+        selected_layer_id = timeline.selection.selected_layer_id
+        selected_take_id = timeline.selection.selected_take_id
+
+        for layer, take, event in selected:
+            duplicate_id = self._next_duplicate_event_id(take, event, existing_ids)
+            duplicate = Event(
+                id=duplicate_id,
+                take_id=take.id,
+                start=event.start + delta,
+                end=event.end + delta,
+                payload_ref=event.payload_ref,
+                label=event.label,
+                color=event.color,
+                muted=event.muted,
+            )
+            take.events = self._sorted_events([*take.events, duplicate])
+            existing_ids.add(str(duplicate.id))
+            duplicated_ids.append(duplicate.id)
+            selected_layer_id = layer.id
+            selected_take_id = take.id
+
+        timeline.selection.selected_layer_id = selected_layer_id
+        timeline.selection.selected_take_id = selected_take_id
+        timeline.selection.selected_event_ids = duplicated_ids
+
     @staticmethod
     def _clone_events_for_target(events: list[Event], target_take: Take) -> list[Event]:
         clones: list[Event] = []
@@ -345,6 +411,46 @@ class TimelineOrchestrator:
             if take.id == take_id:
                 return take
         return None
+
+    @staticmethod
+    def _sorted_events(events: list[Event]) -> list[Event]:
+        return sorted(events, key=lambda event: (event.start, event.end, str(event.id)))
+
+    @staticmethod
+    def _all_event_ids(timeline: Timeline) -> set[str]:
+        return {
+            str(event.id)
+            for layer in timeline.layers
+            for take in layer.takes
+            for event in take.events
+        }
+
+    @staticmethod
+    def _next_duplicate_event_id(take: Take, event: Event, existing_ids: set[str]):
+        index = 1
+        while True:
+            candidate = f"{take.id}:dup:{event.id}:{index}"
+            if candidate not in existing_ids:
+                return candidate
+            index += 1
+
+    def _selected_events(self, timeline: Timeline) -> list[tuple[Layer, Take, Event]]:
+        selected_ids = set(timeline.selection.selected_event_ids)
+        if not selected_ids:
+            return []
+
+        selected_order = {
+            str(event_id): index for index, event_id in enumerate(timeline.selection.selected_event_ids)
+        }
+        selected: list[tuple[Layer, Take, Event]] = []
+        for layer in timeline.layers:
+            for take in layer.takes:
+                for event in take.events:
+                    if event.id in selected_ids:
+                        selected.append((layer, take, event))
+
+        selected.sort(key=lambda item: selected_order[str(item[2].id)])
+        return selected
 
     def _find_layer(self, timeline: Timeline, layer_id):
         for layer in timeline.layers:

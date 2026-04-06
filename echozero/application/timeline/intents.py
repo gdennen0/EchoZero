@@ -71,6 +71,17 @@ class TrimEvent(TimelineIntent):
 
 
 @dataclass(slots=True)
+class NudgeSelectedEvents(TimelineIntent):
+    direction: int
+    steps: int = 1
+
+
+@dataclass(slots=True)
+class DuplicateSelectedEvents(TimelineIntent):
+    steps: int = 1
+
+
+@dataclass(slots=True)
 class Play(TimelineIntent):
     pass
 

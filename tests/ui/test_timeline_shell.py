@@ -17,7 +17,9 @@ from echozero.application.shared.enums import LayerKind
 from echozero.application.shared.ids import EventId, LayerId, TakeId, TimelineId
 from echozero.application.timeline.intents import (
     ClearSelection,
+    DuplicateSelectedEvents,
     MoveSelectedEvents,
+    NudgeSelectedEvents,
     Pause,
     Play,
     Seek,
@@ -596,6 +598,52 @@ def test_ctrl_a_dispatches_select_all_events():
         QApplication.processEvents()
 
         assert intents == [SelectAllEvents()]
+    finally:
+        widget.close()
+        app.processEvents()
+
+
+def test_arrow_keys_dispatch_nudge_selected_events():
+    app = QApplication.instance() or QApplication([])
+    intents: list[object] = []
+    presentation = _selection_test_presentation()
+    widget = TimelineWidget(presentation, on_intent=lambda intent: intents.append(intent) or presentation)
+    try:
+        _render_for_hit_testing(widget)
+
+        QTest.keyClick(widget._canvas, Qt.Key.Key_Left)
+        QTest.keyClick(widget._canvas, Qt.Key.Key_Right, Qt.KeyboardModifier.ShiftModifier)
+        QApplication.processEvents()
+
+        assert intents == [
+            NudgeSelectedEvents(direction=-1, steps=1),
+            NudgeSelectedEvents(direction=1, steps=10),
+        ]
+    finally:
+        widget.close()
+        app.processEvents()
+
+
+def test_ctrl_d_dispatches_duplicate_selected_events():
+    app = QApplication.instance() or QApplication([])
+    intents: list[object] = []
+    presentation = _selection_test_presentation()
+    widget = TimelineWidget(presentation, on_intent=lambda intent: intents.append(intent) or presentation)
+    try:
+        _render_for_hit_testing(widget)
+
+        QTest.keyClick(widget._canvas, Qt.Key.Key_D, Qt.KeyboardModifier.ControlModifier)
+        QTest.keyClick(
+            widget._canvas,
+            Qt.Key.Key_D,
+            Qt.KeyboardModifier.ControlModifier | Qt.KeyboardModifier.ShiftModifier,
+        )
+        QApplication.processEvents()
+
+        assert intents == [
+            DuplicateSelectedEvents(steps=1),
+            DuplicateSelectedEvents(steps=10),
+        ]
     finally:
         widget.close()
         app.processEvents()

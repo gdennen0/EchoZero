@@ -24,7 +24,9 @@ from echozero.application.sync.models import SyncState
 from echozero.application.sync.service import SyncService
 from echozero.application.timeline.intents import (
     ClearSelection,
+    DuplicateSelectedEvents,
     MoveSelectedEvents,
+    NudgeSelectedEvents,
     SelectEvent,
     SelectAllEvents,
     SelectTake,
@@ -568,3 +570,73 @@ def test_move_selected_events_rejects_locked_or_hidden_transfer_targets():
     assert [event.id for event in alt_take.events] == original_take_ids
     assert alt_take.events[0].start == original_start
     assert target_take.events == []
+
+
+def test_nudge_selected_events_moves_selection_by_one_frame_and_preserves_identity():
+    orchestrator, timeline, layer, main_take, _alt_take = _build_orchestrator_and_timeline()
+    event = main_take.events[0]
+    original_end = event.end
+    timeline.selection.selected_layer_id = layer.id
+    timeline.selection.selected_take_id = main_take.id
+    timeline.selection.selected_event_ids = [event.id]
+
+    orchestrator.handle(timeline, NudgeSelectedEvents(direction=1))
+
+    assert event.id == EventId("main_1")
+    assert event.start == pytest.approx(1.0 + (1.0 / 30.0))
+    assert event.end == pytest.approx(original_end + (1.0 / 30.0))
+    assert timeline.selection.selected_layer_id == layer.id
+    assert timeline.selection.selected_take_id == main_take.id
+    assert timeline.selection.selected_event_ids == [event.id]
+
+
+def test_nudge_selected_events_clamps_at_zero():
+    orchestrator, timeline, layer, main_take, _alt_take = _build_orchestrator_and_timeline()
+    event = main_take.events[0]
+    event.start = 0.01
+    event.end = 0.21
+    timeline.selection.selected_layer_id = layer.id
+    timeline.selection.selected_take_id = main_take.id
+    timeline.selection.selected_event_ids = [event.id]
+
+    orchestrator.handle(timeline, NudgeSelectedEvents(direction=-1))
+
+    assert event.start == pytest.approx(0.0)
+    assert event.end == pytest.approx(0.2)
+
+
+def test_duplicate_selected_events_creates_deterministic_ids_and_selects_new_copies():
+    orchestrator, timeline, layer, main_take, alt_take = _build_orchestrator_and_timeline()
+    selected_ids = [main_take.events[0].id, alt_take.events[0].id]
+    timeline.selection.selected_layer_id = layer.id
+    timeline.selection.selected_take_id = main_take.id
+    timeline.selection.selected_event_ids = selected_ids
+
+    orchestrator.handle(timeline, DuplicateSelectedEvents())
+
+    assert timeline.selection.selected_event_ids == [
+        EventId("take_main:dup:main_1:1"),
+        EventId("take_alt:dup:alt_1:1"),
+    ]
+    assert timeline.selection.selected_layer_id == layer.id
+    assert timeline.selection.selected_take_id == alt_take.id
+    assert any(event.id == EventId("take_main:dup:main_1:1") for event in main_take.events)
+    assert any(event.id == EventId("take_alt:dup:alt_1:1") for event in alt_take.events)
+
+
+def test_duplicate_selected_events_offsets_copies_and_is_repeatable():
+    orchestrator, timeline, layer, main_take, _alt_take = _build_orchestrator_and_timeline()
+    event = main_take.events[0]
+    timeline.selection.selected_layer_id = layer.id
+    timeline.selection.selected_take_id = main_take.id
+    timeline.selection.selected_event_ids = [event.id]
+
+    orchestrator.handle(timeline, DuplicateSelectedEvents())
+    first_duplicate = next(candidate for candidate in main_take.events if str(candidate.id) == "take_main:dup:main_1:1")
+
+    timeline.selection.selected_event_ids = [event.id]
+    orchestrator.handle(timeline, DuplicateSelectedEvents())
+    second_duplicate = next(candidate for candidate in main_take.events if str(candidate.id) == "take_main:dup:main_1:2")
+
+    assert first_duplicate.start == pytest.approx(event.start + (1.0 / 30.0))
+    assert second_duplicate.start == pytest.approx(event.start + (1.0 / 30.0))
