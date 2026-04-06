@@ -19,6 +19,13 @@ _SUPPORTED_CLASSIFICATION_MODES = {"multiclass", "binary", "positive_vs_other"}
 _SYNTHETIC_MIX_KEYS = {"enabled", "ratio", "cap"}
 _SUPPORTED_TRAINER_PROFILES = {"baseline_v1", "stronger_v1"}
 _SUPPORTED_OPTIMIZERS = {"sgd_constant", "sgd_optimal"}
+_PROMOTION_KEYS = {"gate_policy", "reference_run_id", "reference_artifact_id"}
+_GATE_POLICY_KEYS = {
+    "macro_f1_floor",
+    "max_regression_vs_reference",
+    "max_real_vs_synth_gap",
+    "per_class_recall_floors",
+}
 
 
 _ALLOWED_TRANSITIONS: dict[TrainRunStatus, set[TrainRunStatus]] = {
@@ -299,6 +306,56 @@ class TrainRunService:
                 raise ValueError("run_spec.training.syntheticMix.cap must be >= 0")
             if enabled and ratio <= 0 and int(cap or 0) <= 0:
                 raise ValueError("enabled syntheticMix requires a positive ratio or cap")
+
+        promotion = run_spec.get("promotion")
+        if promotion is not None:
+            if not isinstance(promotion, dict):
+                raise ValueError("run_spec.promotion must be an object")
+            unknown_keys = sorted(set(promotion.keys()) - _PROMOTION_KEYS)
+            if unknown_keys:
+                raise ValueError(f"run_spec.promotion contains unsupported keys: {', '.join(unknown_keys)}")
+
+            reference_run_id = promotion.get("reference_run_id")
+            reference_artifact_id = promotion.get("reference_artifact_id")
+            if reference_run_id and reference_artifact_id:
+                raise ValueError("run_spec.promotion cannot specify both reference_run_id and reference_artifact_id")
+
+            gate_policy = promotion.get("gate_policy")
+            if gate_policy is not None:
+                if not isinstance(gate_policy, dict):
+                    raise ValueError("run_spec.promotion.gate_policy must be an object")
+                unknown_gate_keys = sorted(set(gate_policy.keys()) - _GATE_POLICY_KEYS)
+                if unknown_gate_keys:
+                    raise ValueError(
+                        "run_spec.promotion.gate_policy contains unsupported keys: "
+                        + ", ".join(unknown_gate_keys)
+                    )
+                for key in ("macro_f1_floor", "max_regression_vs_reference", "max_real_vs_synth_gap"):
+                    value = gate_policy.get(key)
+                    if value is None:
+                        continue
+                    value = float(value)
+                    if value < 0:
+                        raise ValueError(f"run_spec.promotion.gate_policy.{key} must be >= 0")
+                recall_floors = gate_policy.get("per_class_recall_floors")
+                if recall_floors is not None:
+                    if not isinstance(recall_floors, dict):
+                        raise ValueError(
+                            "run_spec.promotion.gate_policy.per_class_recall_floors must be an object"
+                        )
+                    unknown_labels = sorted(set(recall_floors.keys()) - set(dataset_version.class_map))
+                    if unknown_labels:
+                        raise ValueError(
+                            "run_spec.promotion.gate_policy.per_class_recall_floors contains unknown classes: "
+                            + ", ".join(unknown_labels)
+                        )
+                    for label, floor in recall_floors.items():
+                        value = float(floor)
+                        if value < 0 or value > 1:
+                            raise ValueError(
+                                "run_spec.promotion.gate_policy.per_class_recall_floors."
+                                f"{label} must be between 0 and 1"
+                            )
 
         if int(data["maxLength"]) < int(data["sampleRate"]) // 10:
             raise ValueError("run_spec.data.maxLength is too small for one-shot training")

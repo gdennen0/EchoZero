@@ -7,7 +7,7 @@ import pytest
 
 from echozero.foundry.app import FoundryApp
 from echozero.foundry.domain import DatasetSample, TrainRunStatus
-from echozero.foundry.persistence import DatasetVersionRepository, ModelArtifactRepository
+from echozero.foundry.persistence import DatasetVersionRepository, ModelArtifactRepository, TrainRunRepository
 from echozero.foundry.services import TrainRunService
 from tests.foundry.audio_fixtures import write_percussion_dataset
 
@@ -91,6 +91,101 @@ def _mark_train_samples_synthetic(root: Path, version_id: str) -> tuple[object, 
         "real_sample_ids": [sample.sample_id for sample in version.samples if not sample.is_synthetic],
     }
     return repo.save(version), synthetic_ids
+
+
+def _write_export_payloads(
+    root: Path,
+    run_id: str,
+    *,
+    macro_f1: float,
+    accuracy: float,
+    per_class_recall: dict[str, float],
+    synthetic_mix_enabled: bool = False,
+    synthetic_macro_f1: float | None = None,
+) -> None:
+    exports_dir = root / "foundry" / "runs" / run_id / "exports"
+    exports_dir.mkdir(parents=True, exist_ok=True)
+    (exports_dir / "model.pth").write_bytes(b"fixture-model")
+    metrics_payload = {
+        "schema": "foundry.training_metrics.v1",
+        "runId": run_id,
+        "finalEval": {
+            "metrics": {
+                "macro_f1": macro_f1,
+                "accuracy": accuracy,
+                "sample_count": 4,
+            },
+            "per_class_metrics": {
+                label: {
+                    "precision": recall,
+                    "recall": recall,
+                    "f1": recall,
+                    "support": 2,
+                }
+                for label, recall in per_class_recall.items()
+            },
+        },
+        "trainerOptions": {
+            "syntheticMix": {
+                "enabled": synthetic_mix_enabled,
+                "ratio": 0.5 if synthetic_mix_enabled else 0.0,
+                "cap": None,
+                "availableSyntheticCount": 2 if synthetic_mix_enabled else 0,
+                "actualSyntheticCount": 1 if synthetic_mix_enabled else 0,
+                "realTrainCount": 2,
+                "totalTrainCount": 3 if synthetic_mix_enabled else 2,
+            }
+        },
+    }
+    if synthetic_macro_f1 is not None:
+        metrics_payload["syntheticEval"] = {
+            "metrics": {
+                "macro_f1": synthetic_macro_f1,
+                "accuracy": synthetic_macro_f1,
+                "sample_count": 2,
+            }
+        }
+    (exports_dir / "metrics.json").write_text(json.dumps(metrics_payload, indent=2), encoding="utf-8")
+    (exports_dir / "run_summary.json").write_text(
+        json.dumps(
+            {
+                "runId": run_id,
+                "status": "completed",
+                "modelPath": "model.pth",
+                "metricsPath": "metrics.json",
+                "primaryMetric": macro_f1,
+                "accuracy": accuracy,
+            },
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+
+
+def _artifact_manifest_payload() -> dict:
+    return {
+        "weightsPath": "model.pth",
+        "classes": ["kick", "snare"],
+        "classificationMode": "multiclass",
+        "inferencePreprocessing": {
+            "sampleRate": 22050,
+            "maxLength": 22050,
+            "nFft": 2048,
+            "hopLength": 512,
+            "nMels": 128,
+            "fmax": 8000,
+        },
+        "evalSummary": {
+            "splitName": "test",
+            "accuracy": 0.0,
+            "macroF1": 0.0,
+        },
+        "trainingSummary": {
+            "trainer": "baseline_sgd_melspec_v1_5",
+            "metricsPath": "metrics.json",
+            "runSummaryPath": "run_summary.json",
+        },
+    }
 
 
 def test_run_lifecycle_executes_training_and_writes_artifacts(tmp_path: Path):
@@ -282,3 +377,87 @@ def test_create_run_rejects_invalid_stronger_profile_controls(tmp_path: Path):
     bad_min_epochs["training"]["minEpochs"] = 3
     with pytest.raises(ValueError, match="minEpochs"):
         svc.create_run(version.id, bad_min_epochs)
+
+
+def test_promotion_gate_failure_persists_reasons_in_exports_and_manifest(tmp_path: Path):
+    version = _prepared_version(tmp_path)
+    assert version is not None
+    app = FoundryApp(tmp_path)
+    spec = _run_spec(version.id)
+    spec["training"]["syntheticMix"] = {"enabled": True, "ratio": 0.5}
+    spec["promotion"] = {
+        "gate_policy": {
+            "macro_f1_floor": 0.9,
+            "max_real_vs_synth_gap": 0.05,
+            "per_class_recall_floors": {"kick": 0.8},
+        }
+    }
+
+    run = app.runs.create_run(version.id, spec)
+    run.status = TrainRunStatus.EXPORTING
+    TrainRunRepository(tmp_path).save(run)
+    _write_export_payloads(
+        tmp_path,
+        run.id,
+        macro_f1=0.7,
+        accuracy=0.75,
+        per_class_recall={"kick": 0.6, "snare": 0.8},
+        synthetic_mix_enabled=True,
+        synthetic_macro_f1=0.5,
+    )
+
+    artifact = app.artifacts.finalize_artifact(run.id, _artifact_manifest_payload())
+    metrics_payload = json.loads((run.exports_dir(tmp_path) / "metrics.json").read_text(encoding="utf-8"))
+    run_summary = json.loads((run.exports_dir(tmp_path) / "run_summary.json").read_text(encoding="utf-8"))
+
+    assert artifact.manifest["promotionGate"]["passed"] is False
+    assert len(artifact.manifest["promotionGate"]["reasons"]) == 3
+    assert metrics_payload["promotionGate"] == artifact.manifest["promotionGate"]
+    assert run_summary["promotionGate"] == artifact.manifest["promotionGate"]
+
+
+def test_reference_comparison_summary_persists_in_exports_and_manifest(tmp_path: Path):
+    version = _prepared_version(tmp_path)
+    assert version is not None
+    app = FoundryApp(tmp_path)
+
+    reference_run = app.runs.create_run(version.id, _run_spec(version.id))
+    reference_run.status = TrainRunStatus.EXPORTING
+    TrainRunRepository(tmp_path).save(reference_run)
+    _write_export_payloads(
+        tmp_path,
+        reference_run.id,
+        macro_f1=0.82,
+        accuracy=0.81,
+        per_class_recall={"kick": 0.8, "snare": 0.78},
+    )
+    reference_artifact = app.artifacts.finalize_artifact(reference_run.id, _artifact_manifest_payload())
+
+    current_spec = _run_spec(version.id)
+    current_spec["promotion"] = {
+        "reference_artifact_id": reference_artifact.id,
+        "gate_policy": {
+            "macro_f1_floor": 0.8,
+            "max_regression_vs_reference": 0.05,
+        },
+    }
+    current_run = app.runs.create_run(version.id, current_spec)
+    current_run.status = TrainRunStatus.EXPORTING
+    TrainRunRepository(tmp_path).save(current_run)
+    _write_export_payloads(
+        tmp_path,
+        current_run.id,
+        macro_f1=0.8,
+        accuracy=0.79,
+        per_class_recall={"kick": 0.79, "snare": 0.77},
+    )
+
+    artifact = app.artifacts.finalize_artifact(current_run.id, _artifact_manifest_payload())
+    metrics_payload = json.loads((current_run.exports_dir(tmp_path) / "metrics.json").read_text(encoding="utf-8"))
+    run_summary = json.loads((current_run.exports_dir(tmp_path) / "run_summary.json").read_text(encoding="utf-8"))
+
+    assert artifact.manifest["promotionGate"]["passed"] is True
+    assert artifact.manifest["referenceComparison"]["referenceArtifactId"] == reference_artifact.id
+    assert artifact.manifest["referenceComparison"]["delta"]["macroF1"] == pytest.approx(-0.02, abs=1e-6)
+    assert metrics_payload["referenceComparison"] == artifact.manifest["referenceComparison"]
+    assert run_summary["referenceComparison"] == artifact.manifest["referenceComparison"]

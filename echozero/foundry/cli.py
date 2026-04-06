@@ -71,6 +71,18 @@ def build_parser() -> argparse.ArgumentParser:
     train_folder.add_argument("--synthetic-mix-enabled", action="store_true")
     train_folder.add_argument("--synthetic-mix-ratio", type=float, default=0.0)
     train_folder.add_argument("--synthetic-mix-cap", type=int)
+    train_folder.add_argument("--gate-macro-f1-floor", type=float)
+    train_folder.add_argument("--gate-max-regression-vs-reference", type=float)
+    train_folder.add_argument("--gate-max-real-vs-synth-gap", type=float)
+    train_folder.add_argument(
+        "--gate-per-class-recall-floor",
+        action="append",
+        default=[],
+        metavar="LABEL=VALUE",
+        help="Repeatable per-class recall floor gate entry.",
+    )
+    train_folder.add_argument("--reference-run-id")
+    train_folder.add_argument("--reference-artifact-id")
 
     run = sub.add_parser("create-run")
     run.add_argument("dataset_version_id")
@@ -177,6 +189,12 @@ def main(argv: list[str] | None = None) -> int:
                 synthetic_mix_enabled=args.synthetic_mix_enabled,
                 synthetic_mix_ratio=args.synthetic_mix_ratio,
                 synthetic_mix_cap=args.synthetic_mix_cap,
+                gate_macro_f1_floor=args.gate_macro_f1_floor,
+                gate_max_regression_vs_reference=args.gate_max_regression_vs_reference,
+                gate_max_real_vs_synth_gap=args.gate_max_real_vs_synth_gap,
+                gate_per_class_recall_floors=_parse_per_class_recall_floors(args.gate_per_class_recall_floor),
+                reference_run_id=args.reference_run_id,
+                reference_artifact_id=args.reference_artifact_id,
             ),
         )
         run = app.start_run(run.id)
@@ -267,6 +285,12 @@ def _default_run_spec(
     synthetic_mix_enabled: bool = False,
     synthetic_mix_ratio: float = 0.0,
     synthetic_mix_cap: int | None = None,
+    gate_macro_f1_floor: float | None = None,
+    gate_max_regression_vs_reference: float | None = None,
+    gate_max_real_vs_synth_gap: float | None = None,
+    gate_per_class_recall_floors: dict[str, float] | None = None,
+    reference_run_id: str | None = None,
+    reference_artifact_id: str | None = None,
 ) -> dict:
     training = {
         "epochs": epochs,
@@ -295,7 +319,24 @@ def _default_run_spec(
             "cap": synthetic_mix_cap,
         }
 
-    return {
+    promotion: dict[str, object] = {}
+    gate_policy: dict[str, object] = {}
+    if gate_macro_f1_floor is not None:
+        gate_policy["macro_f1_floor"] = gate_macro_f1_floor
+    if gate_max_regression_vs_reference is not None:
+        gate_policy["max_regression_vs_reference"] = gate_max_regression_vs_reference
+    if gate_max_real_vs_synth_gap is not None:
+        gate_policy["max_real_vs_synth_gap"] = gate_max_real_vs_synth_gap
+    if gate_per_class_recall_floors:
+        gate_policy["per_class_recall_floors"] = gate_per_class_recall_floors
+    if gate_policy:
+        promotion["gate_policy"] = gate_policy
+    if reference_run_id:
+        promotion["reference_run_id"] = reference_run_id
+    if reference_artifact_id:
+        promotion["reference_artifact_id"] = reference_artifact_id
+
+    payload = {
         "schema": "foundry.train_run_spec.v1",
         "classificationMode": "multiclass",
         "data": {
@@ -309,6 +350,19 @@ def _default_run_spec(
         },
         "training": training,
     }
+    if promotion:
+        payload["promotion"] = promotion
+    return payload
+
+
+def _parse_per_class_recall_floors(entries: list[str]) -> dict[str, float]:
+    floors: dict[str, float] = {}
+    for entry in entries:
+        label, separator, raw_value = entry.partition("=")
+        if not separator or not label.strip() or not raw_value.strip():
+            raise ValueError(f"Invalid --gate-per-class-recall-floor value: {entry}")
+        floors[label.strip()] = float(raw_value)
+    return floors
 
 
 if __name__ == "__main__":

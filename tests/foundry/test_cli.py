@@ -136,3 +136,36 @@ def test_cli_train_folder_stronger_profile_and_synthetic_mix(tmp_path: Path, cap
     assert run.spec["training"]["trainerProfile"] == "stronger_v1"
     assert run.spec["training"]["syntheticMix"]["enabled"] is True
     assert run.spec["training"]["syntheticMix"]["ratio"] == 0.25
+
+
+def test_cli_train_folder_promotion_flags_persist_into_run_spec(tmp_path: Path, capsys):
+    samples = tmp_path / "samples"
+    write_percussion_dataset(samples)
+
+    assert main(
+        [
+            "--root",
+            str(tmp_path),
+            "train-folder",
+            "Promotion Drums",
+            str(samples),
+            "--val",
+            "0.25",
+            "--test",
+            "0.25",
+            "--epochs",
+            "2",
+            "--gate-macro-f1-floor",
+            "0.8",
+            "--gate-max-regression-vs-reference",
+            "0.05",
+            "--gate-per-class-recall-floor",
+            "kick=0.7",
+        ]
+    ) == 0
+    payload = json.loads(capsys.readouterr().out)
+    run = TrainRunRepository(tmp_path).get(payload["run_id"])
+    assert run is not None
+    assert run.spec["promotion"]["gate_policy"]["macro_f1_floor"] == 0.8
+    assert run.spec["promotion"]["gate_policy"]["max_regression_vs_reference"] == 0.05
+    assert run.spec["promotion"]["gate_policy"]["per_class_recall_floors"] == {"kick": 0.7}

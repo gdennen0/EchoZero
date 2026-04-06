@@ -28,6 +28,8 @@
     "taxonomy": { "type": "object" },
     "labelPolicy": { "type": "object" },
     "syntheticProvenance": { "type": "object" },
+    "promotionGate": { "type": "object" },
+    "referenceComparison": { "type": "object" },
     "runtime": {
       "type": "object",
       "required": ["consumer", "backend", "device"]

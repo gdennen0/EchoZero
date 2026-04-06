@@ -30,6 +30,7 @@ class BaselineTrainingResult:
     metrics_path: Path
     run_summary_path: Path
     eval_split_name: str
+    synthetic_eval: dict[str, object] | None = None
 
 
 class BaselineTrainer:
@@ -61,6 +62,11 @@ class BaselineTrainer:
         train_samples, synthetic_mix = self._resolve_train_samples(train_samples, options["synthetic_mix"], rng=rng)
         val_samples = [sample for sample in val_samples if not sample.is_synthetic]
         test_samples = [sample for sample in test_samples if not sample.is_synthetic]
+        synthetic_eval_samples = [sample_by_id[sample_id] for sample_id in split_plan.get("val_ids", []) if sample_id in sample_by_id]
+        synthetic_eval_samples.extend(
+            [sample_by_id[sample_id] for sample_id in split_plan.get("test_ids", []) if sample_id in sample_by_id]
+        )
+        synthetic_eval_samples = [sample for sample in synthetic_eval_samples if sample.is_synthetic]
 
         if len(train_samples) < 2:
             raise ValueError("baseline trainer requires at least two training samples")
@@ -96,6 +102,16 @@ class BaselineTrainer:
         eval_split_name = "test" if test_samples else "val"
         eval_x, eval_y = self._build_features(
             eval_samples,
+            sample_rate=sample_rate,
+            max_length=max_length,
+            n_fft=n_fft,
+            hop_length=hop_length,
+            n_mels=n_mels,
+            fmax=fmax,
+            label_to_index=label_to_index,
+        )
+        synthetic_eval_x, synthetic_eval_y = self._build_features(
+            synthetic_eval_samples,
             sample_rate=sample_rate,
             max_length=max_length,
             n_fft=n_fft,
@@ -193,6 +209,16 @@ class BaselineTrainer:
         final_eval = self._evaluate_split(classifier, eval_x_scaled, eval_y, class_names)
         if not final_eval:
             raise ValueError("baseline trainer requires validation or test samples for evaluation")
+        synthetic_eval_x_scaled = (
+            scaler.transform(synthetic_eval_x)
+            if len(synthetic_eval_y)
+            else np.empty((0, train_x_scaled.shape[1]), dtype=np.float32)
+        )
+        synthetic_eval = (
+            self._evaluate_split(classifier, synthetic_eval_x_scaled, synthetic_eval_y, class_names)
+            if len(synthetic_eval_y)
+            else None
+        )
 
         run.exports_dir(self._root).mkdir(parents=True, exist_ok=True)
         model_path = run.exports_dir(self._root) / "model.pth"
@@ -263,6 +289,8 @@ class BaselineTrainer:
                 "syntheticMix": synthetic_mix,
             },
         }
+        if synthetic_eval is not None:
+            metrics_payload["syntheticEval"] = synthetic_eval
         metrics_path = run.exports_dir(self._root) / "metrics.json"
         metrics_path.write_text(json.dumps(metrics_payload, indent=2, sort_keys=True), encoding="utf-8")
 
@@ -289,6 +317,12 @@ class BaselineTrainer:
             "bestCheckpointSplit": best_split_name if best_epoch else None,
             "syntheticMix": synthetic_mix,
         }
+        if synthetic_eval is not None:
+            run_summary_payload["syntheticEval"] = {
+                "sampleCount": synthetic_eval["metrics"]["sample_count"],
+                "accuracy": synthetic_eval["metrics"]["accuracy"],
+                "macroF1": synthetic_eval["metrics"]["macro_f1"],
+            }
         run_summary_path = run.exports_dir(self._root) / "run_summary.json"
         run_summary_path.write_text(json.dumps(run_summary_payload, indent=2, sort_keys=True), encoding="utf-8")
 
@@ -358,6 +392,7 @@ class BaselineTrainer:
             metrics_path=metrics_path,
             run_summary_path=run_summary_path,
             eval_split_name=eval_split_name,
+            synthetic_eval=synthetic_eval,
         )
 
     @staticmethod

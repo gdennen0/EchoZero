@@ -32,6 +32,12 @@ Synthetic mix options:
 python -m echozero.foundry.cli --root . train-folder "Drum OneShots" ".\data\drum-oneshots" --epochs 8 --trainer-profile stronger_v1 --synthetic-mix-enabled --synthetic-mix-ratio 0.25 --synthetic-mix-cap 200
 ```
 
+Promotion gates with reference comparison:
+
+```powershell
+python -m echozero.foundry.cli --root . train-folder "Drum OneShots" ".\data\drum-oneshots" --epochs 8 --trainer-profile stronger_v1 --synthetic-mix-enabled --synthetic-mix-ratio 0.25 --gate-macro-f1-floor 0.80 --gate-max-regression-vs-reference 0.03 --gate-max-real-vs-synth-gap 0.05 --gate-per-class-recall-floor kick=0.75 --gate-per-class-recall-floor snare=0.75 --reference-run-id RUN_ID
+```
+
 The command prints JSON containing:
 
 - `dataset_id`
@@ -39,6 +45,8 @@ The command prints JSON containing:
 - `run_id`
 - `artifact_ids`
 - `exports_dir`
+
+When promotion settings are present, Foundry also writes the gate result and any reference comparison summary into `metrics.json`, `run_summary.json`, and the artifact manifest.
 
 ## Windows convenience script
 

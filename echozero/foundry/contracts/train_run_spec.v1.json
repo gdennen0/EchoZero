@@ -48,6 +48,25 @@
           }
         }
       }
+    },
+    "promotion": {
+      "type": "object",
+      "properties": {
+        "reference_run_id": { "type": "string" },
+        "reference_artifact_id": { "type": "string" },
+        "gate_policy": {
+          "type": "object",
+          "properties": {
+            "macro_f1_floor": { "type": "number", "minimum": 0 },
+            "max_regression_vs_reference": { "type": "number", "minimum": 0 },
+            "max_real_vs_synth_gap": { "type": "number", "minimum": 0 },
+            "per_class_recall_floors": {
+              "type": "object",
+              "additionalProperties": { "type": "number", "minimum": 0, "maximum": 1 }
+            }
+          }
+        }
+      }
     }
   }
 }
