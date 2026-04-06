@@ -27,6 +27,17 @@ class SelectEvent(TimelineIntent):
     layer_id: LayerId
     take_id: TakeId | None
     event_id: EventId | None
+    mode: str = "replace"
+
+
+@dataclass(slots=True)
+class ClearSelection(TimelineIntent):
+    pass
+
+
+@dataclass(slots=True)
+class SelectAllEvents(TimelineIntent):
+    pass
 
 
 @dataclass(slots=True)

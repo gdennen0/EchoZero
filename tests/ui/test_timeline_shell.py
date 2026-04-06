@@ -16,9 +16,11 @@ from echozero.application.presentation.models import (
 from echozero.application.shared.enums import LayerKind
 from echozero.application.shared.ids import EventId, LayerId, TakeId, TimelineId
 from echozero.application.timeline.intents import (
+    ClearSelection,
     Pause,
     Play,
     Seek,
+    SelectAllEvents,
     SelectEvent,
     SelectLayer,
     Stop,
@@ -202,17 +204,19 @@ def _selection_test_presentation() -> TimelinePresentation:
 def _render_for_hit_testing(widget: TimelineWidget) -> None:
     widget.resize(1200, 320)
     widget.show()
+    widget.activateWindow()
+    widget.setFocus()
     widget.repaint()
     QApplication.processEvents()
     widget._canvas.repaint()
     QApplication.processEvents()
 
 
-def _click_event_rect(widget: TimelineWidget, event_id: str) -> None:
+def _click_event_rect(widget: TimelineWidget, event_id: str, modifiers: Qt.KeyboardModifier = Qt.KeyboardModifier.NoModifier) -> None:
     for rect, _, _, candidate_event_id in widget._canvas._event_rects:
         if str(candidate_event_id) == event_id:
             center = rect.center().toPoint()
-            QTest.mouseClick(widget._canvas, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier, QPoint(center.x(), center.y()))
+            QTest.mouseClick(widget._canvas, Qt.MouseButton.LeftButton, modifiers, QPoint(center.x(), center.y()))
             QApplication.processEvents()
             return
     raise AssertionError(f"Missing event rect for {event_id}")
@@ -299,6 +303,7 @@ def test_main_row_event_click_dispatches_main_take_identity():
             layer_id=LayerId("layer_kick"),
             take_id=TakeId("take_main"),
             event_id=EventId("main_evt"),
+            mode="replace",
         )
     finally:
         widget.close()
@@ -319,7 +324,52 @@ def test_take_lane_event_click_dispatches_take_identity():
             layer_id=LayerId("layer_kick"),
             take_id=TakeId("take_alt"),
             event_id=EventId("take_evt"),
+            mode="replace",
         )
+    finally:
+        widget.close()
+        app.processEvents()
+
+
+def test_shift_click_event_dispatches_additive_selection_mode():
+    app = QApplication.instance() or QApplication([])
+    intents: list[SelectEvent] = []
+    presentation = _selection_test_presentation()
+    widget = TimelineWidget(presentation, on_intent=lambda intent: intents.append(intent) or presentation)
+    try:
+        _render_for_hit_testing(widget)
+        _click_event_rect(widget, "take_evt", Qt.KeyboardModifier.ShiftModifier)
+
+        assert intents == [
+            SelectEvent(
+                layer_id=LayerId("layer_kick"),
+                take_id=TakeId("take_alt"),
+                event_id=EventId("take_evt"),
+                mode="additive",
+            )
+        ]
+    finally:
+        widget.close()
+        app.processEvents()
+
+
+def test_ctrl_click_event_dispatches_toggle_selection_mode():
+    app = QApplication.instance() or QApplication([])
+    intents: list[SelectEvent] = []
+    presentation = _selection_test_presentation()
+    widget = TimelineWidget(presentation, on_intent=lambda intent: intents.append(intent) or presentation)
+    try:
+        _render_for_hit_testing(widget)
+        _click_event_rect(widget, "main_evt", Qt.KeyboardModifier.ControlModifier)
+
+        assert intents == [
+            SelectEvent(
+                layer_id=LayerId("layer_kick"),
+                take_id=TakeId("take_main"),
+                event_id=EventId("main_evt"),
+                mode="toggle",
+            )
+        ]
     finally:
         widget.close()
         app.processEvents()
@@ -476,6 +526,40 @@ def test_canvas_empty_non_selection_space_no_longer_dispatches_seek():
         QApplication.processEvents()
 
         assert intents == []
+    finally:
+        widget.close()
+        app.processEvents()
+
+
+def test_escape_dispatches_clear_selection():
+    app = QApplication.instance() or QApplication([])
+    intents: list[object] = []
+    presentation = _selection_test_presentation()
+    widget = TimelineWidget(presentation, on_intent=lambda intent: intents.append(intent) or presentation)
+    try:
+        _render_for_hit_testing(widget)
+
+        QTest.keyClick(widget._canvas, Qt.Key.Key_Escape)
+        QApplication.processEvents()
+
+        assert intents == [ClearSelection()]
+    finally:
+        widget.close()
+        app.processEvents()
+
+
+def test_ctrl_a_dispatches_select_all_events():
+    app = QApplication.instance() or QApplication([])
+    intents: list[object] = []
+    presentation = _selection_test_presentation()
+    widget = TimelineWidget(presentation, on_intent=lambda intent: intents.append(intent) or presentation)
+    try:
+        _render_for_hit_testing(widget)
+
+        QTest.keyClick(widget._canvas, Qt.Key.Key_A, Qt.KeyboardModifier.ControlModifier)
+        QApplication.processEvents()
+
+        assert intents == [SelectAllEvents()]
     finally:
         widget.close()
         app.processEvents()

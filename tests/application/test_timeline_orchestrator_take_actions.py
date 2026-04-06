@@ -21,7 +21,9 @@ from echozero.application.shared.ids import (
 from echozero.application.sync.models import SyncState
 from echozero.application.sync.service import SyncService
 from echozero.application.timeline.intents import (
+    ClearSelection,
     SelectEvent,
+    SelectAllEvents,
     SelectTake,
     Stop,
     ToggleLayerExpanded,
@@ -264,6 +266,133 @@ def test_select_event_updates_selected_take_for_main_and_take_events():
     assert timeline.selection.selected_layer_id == layer.id
     assert timeline.selection.selected_take_id == alt_take.id
     assert timeline.selection.selected_event_ids == [alt_take.events[0].id]
+
+
+def test_select_event_additive_and_toggle_preserve_deterministic_take_context():
+    orchestrator, timeline, layer, main_take, alt_take = _build_orchestrator_and_timeline()
+
+    orchestrator.handle(
+        timeline,
+        SelectEvent(layer_id=layer.id, take_id=main_take.id, event_id=main_take.events[0].id, mode="replace"),
+    )
+    orchestrator.handle(
+        timeline,
+        SelectEvent(layer_id=layer.id, take_id=alt_take.id, event_id=alt_take.events[0].id, mode="additive"),
+    )
+
+    assert timeline.selection.selected_event_ids == [main_take.events[0].id, alt_take.events[0].id]
+    assert timeline.selection.selected_take_id == alt_take.id
+
+    orchestrator.handle(
+        timeline,
+        SelectEvent(layer_id=layer.id, take_id=alt_take.id, event_id=alt_take.events[0].id, mode="toggle"),
+    )
+
+    assert timeline.selection.selected_event_ids == [main_take.events[0].id]
+    assert timeline.selection.selected_take_id == alt_take.id
+
+    orchestrator.handle(
+        timeline,
+        SelectEvent(layer_id=layer.id, take_id=alt_take.id, event_id=main_take.events[0].id, mode="toggle"),
+    )
+
+    assert timeline.selection.selected_event_ids == []
+    assert timeline.selection.selected_take_id is None
+
+
+def test_clear_selection_clears_events_and_take_without_dropping_selected_layer():
+    orchestrator, timeline, layer, _main_take, alt_take = _build_orchestrator_and_timeline()
+    timeline.selection.selected_layer_id = layer.id
+    timeline.selection.selected_take_id = alt_take.id
+    timeline.selection.selected_event_ids = [EventId("alt_1")]
+
+    orchestrator.handle(timeline, ClearSelection())
+
+    assert timeline.selection.selected_layer_id == layer.id
+    assert timeline.selection.selected_take_id is None
+    assert timeline.selection.selected_event_ids == []
+
+
+def test_select_all_events_uses_selected_layer_when_present_and_skips_locked_layers():
+    orchestrator, timeline, layer, main_take, alt_take = _build_orchestrator_and_timeline()
+    layer.presentation_hints.visible = True
+    layer.presentation_hints.locked = False
+    other_take = Take(
+        id=TakeId("take_snare_main"),
+        layer_id=LayerId("layer_snare"),
+        name="Main",
+        events=[_event("snare_1", "take_snare_main", 3.0)],
+    )
+    other_layer = Layer(
+        id=LayerId("layer_snare"),
+        timeline_id=timeline.id,
+        name="Snare",
+        kind=LayerKind.EVENT,
+        order_index=1,
+        takes=[other_take],
+    )
+    other_layer.presentation_hints.locked = True
+    timeline.layers.append(other_layer)
+    timeline.selection.selected_layer_id = layer.id
+
+    orchestrator.handle(timeline, SelectAllEvents())
+
+    assert timeline.selection.selected_event_ids == [
+        main_take.events[0].id,
+        main_take.events[1].id,
+        alt_take.events[0].id,
+        alt_take.events[1].id,
+    ]
+    assert timeline.selection.selected_take_id == main_take.id
+
+
+def test_select_all_events_without_selected_layer_uses_visible_unlocked_layers_only():
+    orchestrator, timeline, layer, main_take, alt_take = _build_orchestrator_and_timeline()
+    layer.presentation_hints.visible = True
+    layer.presentation_hints.locked = False
+
+    visible_take = Take(
+        id=TakeId("take_snare_main"),
+        layer_id=LayerId("layer_snare"),
+        name="Main",
+        events=[_event("snare_1", "take_snare_main", 3.0)],
+    )
+    visible_layer = Layer(
+        id=LayerId("layer_snare"),
+        timeline_id=timeline.id,
+        name="Snare",
+        kind=LayerKind.EVENT,
+        order_index=1,
+        takes=[visible_take],
+    )
+    hidden_take = Take(
+        id=TakeId("take_hat_main"),
+        layer_id=LayerId("layer_hat"),
+        name="Main",
+        events=[_event("hat_1", "take_hat_main", 4.0)],
+    )
+    hidden_layer = Layer(
+        id=LayerId("layer_hat"),
+        timeline_id=timeline.id,
+        name="Hat",
+        kind=LayerKind.EVENT,
+        order_index=2,
+        takes=[hidden_take],
+    )
+    hidden_layer.presentation_hints.visible = False
+    timeline.layers.extend([visible_layer, hidden_layer])
+    timeline.selection.selected_layer_id = None
+
+    orchestrator.handle(timeline, SelectAllEvents())
+
+    assert timeline.selection.selected_event_ids == [
+        main_take.events[0].id,
+        main_take.events[1].id,
+        alt_take.events[0].id,
+        alt_take.events[1].id,
+        visible_take.events[0].id,
+    ]
+    assert timeline.selection.selected_take_id == main_take.id
 
 
 def test_stop_resets_transport_playhead_and_playing_state():

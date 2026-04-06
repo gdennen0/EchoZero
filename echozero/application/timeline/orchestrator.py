@@ -12,7 +12,9 @@ if TYPE_CHECKING:
     from echozero.application.timeline.assembler import TimelineAssembler
 from echozero.application.timeline.intents import (
     TimelineIntent,
+    ClearSelection,
     SelectEvent,
+    SelectAllEvents,
     SelectLayer,
     SelectTake,
     ToggleLayerExpanded,
@@ -45,17 +47,27 @@ class TimelineOrchestrator:
     def handle(self, timeline: Timeline, intent: TimelineIntent) -> TimelinePresentation:
         if isinstance(intent, SelectLayer):
             timeline.selection.selected_layer_id = intent.layer_id
-            if intent.layer_id is None:
-                timeline.selection.selected_take_id = None
-                timeline.selection.selected_event_ids = []
+            timeline.selection.selected_take_id = None
+            timeline.selection.selected_event_ids = []
 
         elif isinstance(intent, SelectTake):
             self._handle_select_take(timeline, intent.layer_id, intent.take_id)
 
         elif isinstance(intent, SelectEvent):
-            timeline.selection.selected_layer_id = intent.layer_id
-            timeline.selection.selected_take_id = intent.take_id
-            timeline.selection.selected_event_ids = [intent.event_id] if intent.event_id is not None else []
+            self._handle_select_event(
+                timeline,
+                layer_id=intent.layer_id,
+                take_id=intent.take_id,
+                event_id=intent.event_id,
+                mode=intent.mode,
+            )
+
+        elif isinstance(intent, ClearSelection):
+            timeline.selection.selected_take_id = None
+            timeline.selection.selected_event_ids = []
+
+        elif isinstance(intent, SelectAllEvents):
+            self._handle_select_all_events(timeline)
 
         elif isinstance(intent, ToggleLayerExpanded):
             layer = self._find_layer(timeline, intent.layer_id)
@@ -122,6 +134,56 @@ class TimelineOrchestrator:
         timeline.selection.selected_layer_id = layer_id
         timeline.selection.selected_take_id = take_id
         timeline.selection.selected_event_ids = []
+
+    def _handle_select_event(self, timeline: Timeline, layer_id, take_id, event_id, mode: str) -> None:
+        layer = self._find_layer(timeline, layer_id)
+        if event_id is None:
+            timeline.selection.selected_layer_id = layer.id
+            timeline.selection.selected_take_id = take_id
+            timeline.selection.selected_event_ids = []
+            return
+
+        mode_normalized = (mode or "replace").strip().lower()
+        selected_ids = list(timeline.selection.selected_event_ids)
+
+        if mode_normalized == "replace":
+            selected_ids = [event_id]
+        elif mode_normalized == "additive":
+            if event_id not in selected_ids:
+                selected_ids.append(event_id)
+        elif mode_normalized == "toggle":
+            if event_id in selected_ids:
+                selected_ids = [selected_id for selected_id in selected_ids if selected_id != event_id]
+            else:
+                selected_ids.append(event_id)
+        else:
+            raise ValueError(f"Unsupported selection mode: {mode}")
+
+        timeline.selection.selected_layer_id = layer.id
+        timeline.selection.selected_event_ids = selected_ids
+        timeline.selection.selected_take_id = take_id if selected_ids else None
+
+    def _handle_select_all_events(self, timeline: Timeline) -> None:
+        selected_layer_id = timeline.selection.selected_layer_id
+        target_layers: list[Layer]
+        if selected_layer_id is not None:
+            layer = self._find_layer(timeline, selected_layer_id)
+            target_layers = [layer]
+        else:
+            target_layers = [layer for layer in timeline.layers if layer.presentation_hints.visible and not layer.presentation_hints.locked]
+
+        selected_event_ids: list = []
+        selected_take_id = None
+        for layer in target_layers:
+            if not layer.presentation_hints.visible or layer.presentation_hints.locked:
+                continue
+            for take in layer.takes:
+                if take.events and selected_take_id is None:
+                    selected_take_id = take.id
+                selected_event_ids.extend(event.id for event in take.events)
+
+        timeline.selection.selected_event_ids = selected_event_ids
+        timeline.selection.selected_take_id = selected_take_id
 
     def _handle_trigger_take_action(self, timeline: Timeline, layer_id, take_id, action_id: str) -> None:
         layer = self._find_layer(timeline, layer_id)

@@ -12,9 +12,11 @@ from PyQt6.QtWidgets import QWidget, QVBoxLayout, QScrollArea, QScrollBar, QTool
 from echozero.application.presentation.models import TimelinePresentation, LayerPresentation, TakeLanePresentation
 from echozero.application.shared.enums import FollowMode
 from echozero.application.timeline.intents import (
+    ClearSelection,
     Pause,
     Play,
     Seek,
+    SelectAllEvents,
     SelectEvent,
     SelectLayer,
     SelectTake,
@@ -173,10 +175,12 @@ class TimelineCanvas(QWidget):
     solo_clicked = pyqtSignal(object)
     take_toggle_clicked = pyqtSignal(object)
     take_selected = pyqtSignal(object, object)
-    event_selected = pyqtSignal(object, object, object)
+    event_selected = pyqtSignal(object, object, object, str)
     take_action_selected = pyqtSignal(object, object, str)
     horizontal_scroll_requested = pyqtSignal(int)
     playhead_drag_requested = pyqtSignal(float)
+    clear_selection_requested = pyqtSignal()
+    select_all_requested = pyqtSignal()
 
     def __init__(self, presentation: TimelinePresentation, parent=None):
         super().__init__(parent)
@@ -203,6 +207,7 @@ class TimelineCanvas(QWidget):
         self._waveform_block = WaveformLaneBlock()
         self._event_lane_block = EventLaneBlock()
         self._take_row_block = TakeRowBlock()
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.setMinimumWidth(1440)
         self.setMouseTracking(True)
         self._recompute_height()
@@ -288,6 +293,7 @@ class TimelineCanvas(QWidget):
         super().leaveEvent(event)
 
     def mousePressEvent(self, event):
+        self.setFocus(Qt.FocusReason.MouseFocusReason)
         pos = event.position()
         if event.button() == Qt.MouseButton.LeftButton and self._playhead_head_contains(pos):
             self._dragging_playhead = True
@@ -321,7 +327,7 @@ class TimelineCanvas(QWidget):
                 return
         for rect, layer_id, take_id, event_id in self._event_rects:
             if rect.contains(pos):
-                self.event_selected.emit(layer_id, take_id, event_id)
+                self.event_selected.emit(layer_id, take_id, event_id, self._selection_mode_for_modifiers(event.modifiers()))
                 return
         for rect, layer_id in self._toggle_rects:
             if rect.contains(pos):
@@ -335,6 +341,7 @@ class TimelineCanvas(QWidget):
             if rect.contains(pos):
                 self.layer_clicked.emit(layer_id)
                 return
+        super().mousePressEvent(event)
 
     def mouseReleaseEvent(self, event) -> None:
         if event.button() == Qt.MouseButton.LeftButton:
@@ -349,6 +356,30 @@ class TimelineCanvas(QWidget):
                 event.accept()
                 return
         super().wheelEvent(event)
+
+    def keyPressEvent(self, event) -> None:
+        modifiers = event.modifiers()
+        has_primary = bool(
+            modifiers & Qt.KeyboardModifier.ControlModifier
+            or modifiers & Qt.KeyboardModifier.MetaModifier
+        )
+        if event.key() == Qt.Key.Key_Escape:
+            self.clear_selection_requested.emit()
+            event.accept()
+            return
+        if event.key() == Qt.Key.Key_A and has_primary:
+            self.select_all_requested.emit()
+            event.accept()
+            return
+        super().keyPressEvent(event)
+
+    @staticmethod
+    def _selection_mode_for_modifiers(modifiers: Qt.KeyboardModifier) -> str:
+        if modifiers & Qt.KeyboardModifier.ShiftModifier:
+            return "additive"
+        if modifiers & Qt.KeyboardModifier.ControlModifier or modifiers & Qt.KeyboardModifier.MetaModifier:
+            return "toggle"
+        return "replace"
 
     def _draw_layers(self, painter: QPainter) -> None:
         y = self._top_padding
@@ -650,6 +681,7 @@ class TimelineWidget(QWidget):
         super().__init__(parent)
         self.presentation = presentation
         self._on_intent = on_intent
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.setWindowTitle('EchoZero Timeline Preview')
 
         layout = QVBoxLayout(self)
@@ -676,8 +708,11 @@ class TimelineWidget(QWidget):
         self._canvas.take_action_selected.connect(self._trigger_take_action)
         self._canvas.playhead_drag_requested.connect(self._seek)
         self._canvas.horizontal_scroll_requested.connect(self._scroll_horizontally_by_steps)
+        self._canvas.clear_selection_requested.connect(self._clear_selection)
+        self._canvas.select_all_requested.connect(self._select_all_events)
         self._ruler.seek_requested.connect(self._seek)
         self._scroll.setWidget(self._canvas)
+        self.setFocusProxy(self._canvas)
         layout.addWidget(self._scroll)
 
         self._hscroll = QScrollBar(Qt.Orientation.Horizontal)
@@ -758,10 +793,16 @@ class TimelineWidget(QWidget):
             return
         self._dispatch(SelectTake(layer_id, take_id))
 
-    def _select_event(self, layer_id, take_id, event_id) -> None:
+    def _select_event(self, layer_id, take_id, event_id, mode: str) -> None:
         if event_id is None:
             return
-        self._dispatch(SelectEvent(layer_id, take_id, event_id))
+        self._dispatch(SelectEvent(layer_id, take_id, event_id, mode=mode))
+
+    def _clear_selection(self) -> None:
+        self._dispatch(ClearSelection())
+
+    def _select_all_events(self) -> None:
+        self._dispatch(SelectAllEvents())
 
     def _trigger_take_action(self, layer_id, take_id, action_id: str) -> None:
         if take_id is None or not action_id:
