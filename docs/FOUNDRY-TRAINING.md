@@ -27,6 +27,8 @@ What Griff should expect in the desktop UI:
 - `Run` tab: use the new open actions to jump straight to the selected run's exports folder, `metrics.json`, and `run_summary.json`.
 - `Artifacts` tab and right-side workspace panel: inspect the latest run, eval report, artifact manifest, and validation status. Use `Open Artifact Manifest` to open the selected manifest directly, or `Open Latest Artifact Package` to jump to the most recent persisted export package in one click.
 - Right-side `Background Queue`: shows queued, active, and recent runs with created/updated timestamps. The current active run is marked `ACTIVE`.
+- Right-side `Background Queue`: select a run and use `Cancel Run` to cancel queued or in-flight work. The current background worker exits cooperatively and the UI stays responsive while status updates stream back.
+- Right-side `Background Queue`: use `Retry / Requeue` on `failed` or `canceled` runs to move the same run id back to `queued` for a minimal safe retry.
 - `Refresh` queues a non-blocking state reload from `foundry\state\` and `foundry\runs\`.
 - If an export or manifest file is missing, the UI keeps the window responsive and reports the missing path in the status/error area instead of crashing.
 

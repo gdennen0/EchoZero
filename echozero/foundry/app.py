@@ -48,8 +48,8 @@ class FoundryApp:
         )
         return run
 
-    def start_run(self, run_id: str):
-        run = self.runs.start_run(run_id)
+    def start_run(self, run_id: str, *, cancel_event=None):
+        run = self.runs.start_run(run_id, cancel_event=cancel_event)
         self.event_bus.publish(
             FoundryRunStartedEvent(
                 event_id=create_event_id(),

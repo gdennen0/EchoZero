@@ -4,9 +4,12 @@ import os
 import time
 from pathlib import Path
 
+from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import QApplication
 
 from echozero.foundry.app import FoundryApp
+from echozero.foundry.domain import TrainRunStatus
+from echozero.foundry.services.baseline_trainer import RunCanceledError
 from echozero.foundry.ui.main_window import FoundryWindow
 from tests.foundry.audio_fixtures import write_percussion_dataset
 
@@ -25,6 +28,15 @@ def _wait_until(app: QApplication, predicate, *, timeout: float = 10.0) -> bool:
         time.sleep(0.01)
     app.processEvents()
     return predicate()
+
+
+def _select_queue_run(window: FoundryWindow, run_id: str) -> None:
+    for index in range(window.queue_list.count()):
+        item = window.queue_list.item(index)
+        if item.data(Qt.ItemDataRole.UserRole) == run_id:
+            window.queue_list.setCurrentRow(index)
+            return
+    raise AssertionError(f"Queue run not found: {run_id}")
 
 
 def _prepare_dataset(app: FoundryApp, samples: Path, *, name: str = "Desktop Drums") -> tuple[object, object]:
@@ -75,9 +87,9 @@ def test_foundry_window_create_and_start_runs_in_background_with_live_updates(tm
 
     original_train = window._app.runs._trainer.train
 
-    def delayed_train(run, dataset_version):
+    def delayed_train(run, dataset_version, cancel_event=None):
         time.sleep(0.35)
-        return original_train(run, dataset_version)
+        return original_train(run, dataset_version, cancel_event=cancel_event)
 
     monkeypatch.setattr(window._app.runs._trainer, "train", delayed_train)
 
@@ -108,7 +120,7 @@ def test_foundry_window_background_start_handles_failed_run_gracefully(tmp_path:
     window._plan_version()
     window._create_run()
 
-    def failing_train(run, dataset_version):
+    def failing_train(run, dataset_version, cancel_event=None):
         time.sleep(0.2)
         raise RuntimeError("fixture training failure")
 
@@ -330,9 +342,9 @@ def test_foundry_window_queue_panel_updates_active_run_status_during_background_
 
     original_train = window._app.runs._trainer.train
 
-    def delayed_train(run, dataset_version):
+    def delayed_train(run, dataset_version, cancel_event=None):
         time.sleep(0.35)
-        return original_train(run, dataset_version)
+        return original_train(run, dataset_version, cancel_event=cancel_event)
 
     monkeypatch.setattr(window._app.runs._trainer, "train", delayed_train)
 
@@ -351,6 +363,132 @@ def test_foundry_window_queue_panel_updates_active_run_status_during_background_
         window._run_id in window.queue_list.item(index).text() and "[completed]" in window.queue_list.item(index).text()
         for index in range(window.queue_list.count())
     )
+
+    window.close()
+    qt_app.processEvents()
+
+
+def test_foundry_window_queue_cancel_marks_selected_run_canceled_with_feedback(tmp_path: Path):
+    samples = tmp_path / "samples"
+    write_percussion_dataset(samples)
+
+    foundry = FoundryApp(tmp_path)
+    _, version = _prepare_dataset(foundry, samples, name="Cancel Queue")
+    queued_run = foundry.create_run(version.id, {
+        "schema": "foundry.train_run_spec.v1",
+        "classificationMode": "multiclass",
+        "data": {
+            "datasetVersionId": version.id,
+            "sampleRate": 22050,
+            "maxLength": 22050,
+            "nFft": 2048,
+            "hopLength": 512,
+            "nMels": 128,
+            "fmax": 8000,
+        },
+        "training": {"epochs": 1, "batchSize": 2, "learningRate": 0.01, "seed": 19},
+    })
+
+    qt_app = _qt_app()
+    window = FoundryWindow(tmp_path)
+    _select_queue_run(window, queued_run.id)
+
+    window._cancel_selected_queue_run()
+
+    reloaded = window._app.runs.get_run(queued_run.id)
+    assert reloaded is not None
+    assert reloaded.status == TrainRunStatus.CANCELED
+    assert window.cancel_queue_run_btn.isEnabled() is False
+    assert "Canceled run" in window.status_line.text()
+    assert "RUN_CANCELED" in (tmp_path / "foundry" / "runs" / queued_run.id / "events.jsonl").read_text(encoding="utf-8")
+
+    window.close()
+    qt_app.processEvents()
+
+
+def test_foundry_window_queue_requeue_moves_canceled_run_back_to_queued_with_feedback(tmp_path: Path):
+    samples = tmp_path / "samples"
+    write_percussion_dataset(samples)
+
+    foundry = FoundryApp(tmp_path)
+    _, version = _prepare_dataset(foundry, samples, name="Retry Queue")
+    run = foundry.create_run(version.id, {
+        "schema": "foundry.train_run_spec.v1",
+        "classificationMode": "multiclass",
+        "data": {
+            "datasetVersionId": version.id,
+            "sampleRate": 22050,
+            "maxLength": 22050,
+            "nFft": 2048,
+            "hopLength": 512,
+            "nMels": 128,
+            "fmax": 8000,
+        },
+        "training": {"epochs": 1, "batchSize": 2, "learningRate": 0.01, "seed": 23},
+    })
+    foundry.runs.cancel_run(run.id, reason="fixture")
+
+    qt_app = _qt_app()
+    window = FoundryWindow(tmp_path)
+    _select_queue_run(window, run.id)
+
+    window._retry_selected_queue_run()
+
+    reloaded = window._app.runs.get_run(run.id)
+    assert reloaded is not None
+    assert reloaded.status == TrainRunStatus.QUEUED
+    assert window.retry_queue_run_btn.isEnabled() is False
+    assert "Requeued run" in window.status_line.text()
+    assert "RUN_RESUMED" in (tmp_path / "foundry" / "runs" / run.id / "events.jsonl").read_text(encoding="utf-8")
+
+    window.close()
+    qt_app.processEvents()
+
+
+def test_foundry_window_queue_cancel_stops_active_background_run_with_feedback(tmp_path: Path, monkeypatch):
+    samples = tmp_path / "samples"
+    write_percussion_dataset(samples)
+
+    qt_app = _qt_app()
+    window = FoundryWindow(tmp_path)
+    window.dataset_name.setText("Cancelable Queue")
+    window.dataset_folder.setText(str(samples))
+    window._create_and_ingest_dataset()
+    window._plan_version()
+
+    original_train = window._app.runs._trainer.train
+
+    def cancelable_train(run, dataset_version, cancel_event=None):
+        for _ in range(40):
+            if cancel_event is not None and cancel_event.is_set():
+                raise RunCanceledError("run canceled")
+            time.sleep(0.02)
+        return original_train(run, dataset_version, cancel_event=cancel_event)
+
+    monkeypatch.setattr(window._app.runs._trainer, "train", cancelable_train)
+
+    window._create_and_start_run()
+
+    assert _wait_until(
+        qt_app,
+        lambda: window._run_id is not None
+        and any(
+            window.queue_list.item(index).data(Qt.ItemDataRole.UserRole) == window._run_id
+            for index in range(window.queue_list.count())
+        ),
+        timeout=5.0,
+    )
+    _select_queue_run(window, window._run_id)
+
+    window._cancel_selected_queue_run()
+
+    assert _wait_until(qt_app, lambda: window._run_thread is None, timeout=15.0)
+    assert "Canceled run" in window.activity.toPlainText()
+    assert "Status: canceled" in window.run_summary.toPlainText()
+
+    reloaded = window._app.runs.get_run(window._run_id)
+    assert reloaded is not None
+    assert reloaded.status == TrainRunStatus.CANCELED
 
     window.close()
     qt_app.processEvents()

@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
+from threading import Event
 
 from PyQt6.QtCore import QObject, QThread, QTimer, Qt, QUrl, pyqtSignal
 from PyQt6.QtGui import QDesktopServices
@@ -81,6 +82,7 @@ class FoundryWindow(QMainWindow):
         self._run_poll_timer.timeout.connect(self._poll_active_run)
         self._last_event_count_by_run: dict[str, int] = {}
         self._running_action_label: str | None = None
+        self._run_cancel_event: Event | None = None
 
         container = QWidget()
         self.setCentralWidget(container)
@@ -331,8 +333,17 @@ class FoundryWindow(QMainWindow):
         queue_box = QGroupBox("Background Queue")
         queue_layout = QVBoxLayout(queue_box)
         self.queue_list = QListWidget()
+        self.queue_list.currentTextChanged.connect(self._select_run_from_queue)
         self.queue_list.setMinimumHeight(120)
         queue_layout.addWidget(self.queue_list)
+        queue_actions = QHBoxLayout()
+        self.cancel_queue_run_btn = QPushButton("Cancel Run")
+        self.cancel_queue_run_btn.clicked.connect(self._cancel_selected_queue_run)
+        self.retry_queue_run_btn = QPushButton("Retry / Requeue")
+        self.retry_queue_run_btn.clicked.connect(self._retry_selected_queue_run)
+        queue_actions.addWidget(self.cancel_queue_run_btn)
+        queue_actions.addWidget(self.retry_queue_run_btn)
+        queue_layout.addLayout(queue_actions)
 
         artifacts_box = QGroupBox("Artifacts")
         artifacts_layout = QVBoxLayout(artifacts_box)
@@ -427,7 +438,7 @@ class FoundryWindow(QMainWindow):
         def action() -> str:
             run = self._app.create_run(version_id, run_spec)
             self._run_id = run.id
-            return self._app.start_run(run.id).id
+            return self._app.start_run(run.id, cancel_event=self._run_cancel_event).id
 
         self._start_background_run(action, action_label="Create + Start")
 
@@ -442,7 +453,10 @@ class FoundryWindow(QMainWindow):
             self._set_status("A run is already active.")
             return
 
-        self._start_background_run(lambda: self._app.start_run(run_id).id, action_label="Start Run")
+        self._start_background_run(
+            lambda: self._app.start_run(run_id, cancel_event=self._run_cancel_event).id,
+            action_label="Start Run",
+        )
 
     def _checkpoint_run(self) -> None:
         try:
@@ -464,6 +478,30 @@ class FoundryWindow(QMainWindow):
         try:
             run = self._app.runs.fail_run(self._require_run_id(), error="manual-failure")
             self._set_status(f"Run marked failed: {run.id}")
+            self._refresh_workspace_state(select_run_id=run.id)
+        except Exception as exc:
+            self._error(exc)
+
+    def _cancel_selected_queue_run(self) -> None:
+        try:
+            run = self._require_selected_queue_run()
+            if str(run.status.value).lower() not in self._ACTIVE_RUN_STATUSES:
+                raise ValueError("Only queued or active runs can be canceled")
+            if self._run_thread is not None and self._run_id == run.id and self._run_cancel_event is not None:
+                self._run_cancel_event.set()
+            run = self._app.runs.cancel_run(run.id, reason="user")
+            self._set_status(f"Canceled run: {run.id}")
+            self._refresh_workspace_state(select_run_id=run.id)
+        except Exception as exc:
+            self._error(exc)
+
+    def _retry_selected_queue_run(self) -> None:
+        try:
+            run = self._require_selected_queue_run()
+            if run.status.value not in {"failed", "canceled"}:
+                raise ValueError("Only failed or canceled runs can be requeued")
+            run = self._app.runs.resume_run(run.id)
+            self._set_status(f"Requeued run: {run.id}")
             self._refresh_workspace_state(select_run_id=run.id)
         except Exception as exc:
             self._error(exc)
@@ -574,6 +612,7 @@ class FoundryWindow(QMainWindow):
         self._populate_run_list(runs, select_run_id=select_run_id)
         self._populate_queue_list(runs)
         self._update_selection_details(select_run_id=select_run_id, select_artifact_id=select_artifact_id)
+        self._update_queue_action_buttons()
 
     def _populate_run_list(self, runs: list[object], *, select_run_id: str | None = None) -> None:
         current_run_id = select_run_id or self._run_id
@@ -608,6 +647,19 @@ class FoundryWindow(QMainWindow):
         run_id = item.data(Qt.ItemDataRole.UserRole)
         self._run_id = str(run_id) if run_id else None
         self._update_selection_details(select_run_id=self._run_id)
+        self._sync_queue_selection(self._run_id)
+        self._update_queue_action_buttons()
+
+    def _select_run_from_queue(self, _: str) -> None:
+        item = self.queue_list.currentItem()
+        if item is None:
+            self._update_queue_action_buttons()
+            return
+        run_id = item.data(Qt.ItemDataRole.UserRole)
+        self._run_id = str(run_id) if run_id else None
+        self._sync_run_selection(self._run_id)
+        self._update_selection_details(select_run_id=self._run_id)
+        self._update_queue_action_buttons()
 
     def _select_artifact_from_list(self, _: str) -> None:
         item = self.artifact_list.currentItem()
@@ -684,9 +736,12 @@ class FoundryWindow(QMainWindow):
         self.eval_summary.setPlainText(self._format_eval_summary(evals[-1]))
 
     def _populate_queue_list(self, runs: list[object]) -> None:
+        selected_run_id = self._selected_queue_run_id()
+        self.queue_list.blockSignals(True)
         self.queue_list.clear()
         if not runs:
             self.queue_list.addItem("No queued or recent runs yet.")
+            self.queue_list.blockSignals(False)
             return
 
         active_runs = [
@@ -705,9 +760,17 @@ class FoundryWindow(QMainWindow):
         active_run_id = self._resolve_active_run_id(active_runs)
         if not visible_runs:
             self.queue_list.addItem("No queued or recent runs yet.")
+            self.queue_list.blockSignals(False)
             return
-        for run in visible_runs:
+        selected_row = -1
+        for index, run in enumerate(visible_runs):
             self.queue_list.addItem(self._format_queue_entry(run, is_active=run.id == active_run_id))
+            self.queue_list.item(index).setData(Qt.ItemDataRole.UserRole, run.id)
+            if run.id == selected_run_id or (selected_run_id is None and run.id == self._run_id):
+                selected_row = index
+        self.queue_list.blockSignals(False)
+        if selected_row >= 0:
+            self.queue_list.setCurrentRow(selected_row)
 
     # ------------------------------------------------------------------
     # Helpers
@@ -858,6 +921,7 @@ class FoundryWindow(QMainWindow):
 
     def _start_background_run(self, action, *, action_label: str) -> None:
         self._running_action_label = action_label
+        self._run_cancel_event = Event()
         self._set_run_controls_enabled(False)
         self._set_status(f"{action_label} running in background...")
         self._run_thread = QThread(self)
@@ -929,6 +993,7 @@ class FoundryWindow(QMainWindow):
 
     def _cleanup_run_worker(self) -> None:
         self._set_run_controls_enabled(True)
+        self._run_cancel_event = None
         if self._run_worker is not None:
             self._run_worker.deleteLater()
             self._run_worker = None
@@ -940,6 +1005,61 @@ class FoundryWindow(QMainWindow):
     def _set_run_controls_enabled(self, enabled: bool) -> None:
         for button in self._run_action_buttons:
             button.setEnabled(enabled)
+        self._update_queue_action_buttons()
+
+    def _selected_queue_run_id(self) -> str | None:
+        item = self.queue_list.currentItem()
+        if item is None:
+            return None
+        run_id = item.data(Qt.ItemDataRole.UserRole)
+        return str(run_id) if run_id else None
+
+    def _require_selected_queue_run(self):
+        run_id = self._selected_queue_run_id() or self._run_id
+        if not run_id:
+            raise ValueError("Select a queue run first")
+        run = self._app.runs.get_run(run_id)
+        if run is None:
+            raise ValueError(f"Run not found: {run_id}")
+        return run
+
+    def _update_queue_action_buttons(self) -> None:
+        run_id = self._selected_queue_run_id() or self._run_id
+        run = self._app.runs.get_run(run_id) if run_id else None
+        can_cancel = False
+        can_retry = False
+        if run is not None:
+            status = str(run.status.value).lower()
+            can_cancel = status in self._ACTIVE_RUN_STATUSES
+            can_retry = status in {"failed", "canceled"}
+        self.cancel_queue_run_btn.setEnabled(can_cancel)
+        self.retry_queue_run_btn.setEnabled(can_retry)
+
+    def _sync_run_selection(self, run_id: str | None) -> None:
+        if not run_id:
+            return
+        for row in range(self.run_list.count()):
+            item = self.run_list.item(row)
+            if item.data(Qt.ItemDataRole.UserRole) != run_id:
+                continue
+            if self.run_list.currentRow() != row:
+                self.run_list.blockSignals(True)
+                self.run_list.setCurrentRow(row)
+                self.run_list.blockSignals(False)
+            return
+
+    def _sync_queue_selection(self, run_id: str | None) -> None:
+        if not run_id:
+            return
+        for row in range(self.queue_list.count()):
+            item = self.queue_list.item(row)
+            if item.data(Qt.ItemDataRole.UserRole) != run_id:
+                continue
+            if self.queue_list.currentRow() != row:
+                self.queue_list.blockSignals(True)
+                self.queue_list.setCurrentRow(row)
+                self.queue_list.blockSignals(False)
+            return
 
     def _open_existing_path(self, path: Path, *, label: str) -> None:
         if not path.exists():

@@ -4,12 +4,13 @@ import hashlib
 import json
 from datetime import UTC, datetime
 from pathlib import Path
+from threading import Event
 from uuid import uuid4
 
 from echozero.foundry.domain import TrainRun, TrainRunStatus
 from echozero.foundry.persistence import DatasetVersionRepository, EvalReportRepository, TrainRunRepository
 from echozero.foundry.services.artifact_service import ArtifactService
-from echozero.foundry.services.baseline_trainer import BaselineTrainer
+from echozero.foundry.services.baseline_trainer import BaselineTrainer, RunCanceledError
 from echozero.foundry.services.eval_service import EvalService
 
 
@@ -38,8 +39,8 @@ _ALLOWED_TRANSITIONS: dict[TrainRunStatus, set[TrainRunStatus]] = {
         TrainRunStatus.FAILED,
         TrainRunStatus.CANCELED,
     },
-    TrainRunStatus.EVALUATING: {TrainRunStatus.EXPORTING, TrainRunStatus.COMPLETED, TrainRunStatus.FAILED},
-    TrainRunStatus.EXPORTING: {TrainRunStatus.COMPLETED, TrainRunStatus.FAILED},
+    TrainRunStatus.EVALUATING: {TrainRunStatus.EXPORTING, TrainRunStatus.COMPLETED, TrainRunStatus.FAILED, TrainRunStatus.CANCELED},
+    TrainRunStatus.EXPORTING: {TrainRunStatus.COMPLETED, TrainRunStatus.FAILED, TrainRunStatus.CANCELED},
     TrainRunStatus.COMPLETED: set(),
     TrainRunStatus.FAILED: {TrainRunStatus.QUEUED},
     TrainRunStatus.CANCELED: {TrainRunStatus.QUEUED},
@@ -84,17 +85,19 @@ class TrainRunService:
         self._append_event(run, "RUN_CREATED", {"status": run.status.value})
         return self._repo.save(run)
 
-    def start_run(self, run_id: str) -> TrainRun:
+    def start_run(self, run_id: str, cancel_event: Event | None = None) -> TrainRun:
         run = self._transition(run_id, TrainRunStatus.PREPARING, "RUN_PREPARING")
         try:
+            self._raise_if_canceled(cancel_event)
             dataset_version = self._dataset_versions.get(run.dataset_version_id)
             if dataset_version is None:
                 raise ValueError(f"DatasetVersion not found: {run.dataset_version_id}")
 
             run = self._transition(run.id, TrainRunStatus.RUNNING, "RUN_STARTED")
-            result = self._trainer.train(run, dataset_version)
+            result = self._trainer.train(run, dataset_version, cancel_event=cancel_event)
 
             for checkpoint in result.checkpoint_metrics:
+                self._raise_if_canceled(cancel_event)
                 self.save_checkpoint(
                     run.id,
                     epoch=int(checkpoint["epoch"]),
@@ -102,6 +105,7 @@ class TrainRunService:
                 )
 
             run = self._transition(run.id, TrainRunStatus.EVALUATING, "RUN_EVALUATING")
+            self._raise_if_canceled(cancel_event)
             self._eval.record_eval(
                 run.id,
                 classification_mode=run.spec["classificationMode"],
@@ -116,9 +120,15 @@ class TrainRunService:
             )
 
             run = self._transition(run.id, TrainRunStatus.EXPORTING, "RUN_EXPORTING")
+            self._raise_if_canceled(cancel_event)
             self._artifacts.finalize_artifact(run.id, result.artifact_manifest)
 
             return self.complete_run(run.id, metrics=result.final_metrics)
+        except RunCanceledError:
+            current = self.get_run(run.id)
+            if current is not None and current.status == TrainRunStatus.CANCELED:
+                return current
+            return self.cancel_run(run.id, "user")
         except Exception as exc:
             return self.fail_run(run.id, str(exc))
 
@@ -166,6 +176,11 @@ class TrainRunService:
 
     def list_runs(self) -> list[TrainRun]:
         return self._repo.list()
+
+    @staticmethod
+    def _raise_if_canceled(cancel_event: Event | None) -> None:
+        if cancel_event is not None and cancel_event.is_set():
+            raise RunCanceledError("run canceled")
 
     def _require(self, run_id: str) -> TrainRun:
         run = self._repo.get(run_id)

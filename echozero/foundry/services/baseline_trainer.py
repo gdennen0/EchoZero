@@ -4,6 +4,7 @@ import copy
 import json
 from dataclasses import dataclass
 from pathlib import Path
+from threading import Event
 
 import librosa
 import numpy as np
@@ -14,6 +15,10 @@ from sklearn.metrics import accuracy_score, confusion_matrix, log_loss, precisio
 from sklearn.preprocessing import StandardScaler
 
 from echozero.foundry.domain import DatasetSample, DatasetVersion, TrainRun
+
+
+class RunCanceledError(RuntimeError):
+    pass
 
 
 @dataclass(slots=True)
@@ -37,7 +42,12 @@ class BaselineTrainer:
     def __init__(self, root: Path):
         self._root = root
 
-    def train(self, run: TrainRun, dataset_version: DatasetVersion) -> BaselineTrainingResult:
+    def train(
+        self,
+        run: TrainRun,
+        dataset_version: DatasetVersion,
+        cancel_event: Event | None = None,
+    ) -> BaselineTrainingResult:
         data_spec = run.spec["data"]
         training_spec = run.spec["training"]
         sample_rate = int(data_spec["sampleRate"])
@@ -87,6 +97,7 @@ class BaselineTrainer:
             n_mels=n_mels,
             fmax=fmax,
             label_to_index=label_to_index,
+            cancel_event=cancel_event,
         )
         val_x, val_y = self._build_features(
             val_samples,
@@ -97,6 +108,7 @@ class BaselineTrainer:
             n_mels=n_mels,
             fmax=fmax,
             label_to_index=label_to_index,
+            cancel_event=cancel_event,
         )
         eval_samples = test_samples or val_samples
         eval_split_name = "test" if test_samples else "val"
@@ -109,6 +121,7 @@ class BaselineTrainer:
             n_mels=n_mels,
             fmax=fmax,
             label_to_index=label_to_index,
+            cancel_event=cancel_event,
         )
         synthetic_eval_x, synthetic_eval_y = self._build_features(
             synthetic_eval_samples,
@@ -119,6 +132,7 @@ class BaselineTrainer:
             n_mels=n_mels,
             fmax=fmax,
             label_to_index=label_to_index,
+            cancel_event=cancel_event,
         )
 
         train_x, train_y = self._rebalance_training_set(
@@ -154,6 +168,7 @@ class BaselineTrainer:
         best_split_name = "val" if len(val_y) else "train"
         epochs_without_improvement = 0
         for epoch in range(1, epochs + 1):
+            self._ensure_not_canceled(cancel_event)
             epoch_x, epoch_y = self._augment_features(
                 train_x_scaled,
                 train_y,
@@ -206,6 +221,7 @@ class BaselineTrainer:
         if best_classifier is not None:
             classifier = best_classifier
 
+        self._ensure_not_canceled(cancel_event)
         final_eval = self._evaluate_split(classifier, eval_x_scaled, eval_y, class_names)
         if not final_eval:
             raise ValueError("baseline trainer requires validation or test samples for evaluation")
@@ -292,6 +308,7 @@ class BaselineTrainer:
         if synthetic_eval is not None:
             metrics_payload["syntheticEval"] = synthetic_eval
         metrics_path = run.exports_dir(self._root) / "metrics.json"
+        self._ensure_not_canceled(cancel_event)
         metrics_path.write_text(json.dumps(metrics_payload, indent=2, sort_keys=True), encoding="utf-8")
 
         run_summary_payload = {
@@ -324,6 +341,7 @@ class BaselineTrainer:
                 "macroF1": synthetic_eval["metrics"]["macro_f1"],
             }
         run_summary_path = run.exports_dir(self._root) / "run_summary.json"
+        self._ensure_not_canceled(cancel_event)
         run_summary_path.write_text(json.dumps(run_summary_payload, indent=2, sort_keys=True), encoding="utf-8")
 
         return BaselineTrainingResult(
@@ -597,6 +615,7 @@ class BaselineTrainer:
         n_mels: int,
         fmax: int,
         label_to_index: dict[str, int],
+        cancel_event: Event | None = None,
     ) -> tuple[np.ndarray, np.ndarray]:
         if not samples:
             feature_size = n_mels * 3
@@ -605,6 +624,7 @@ class BaselineTrainer:
         features: list[np.ndarray] = []
         labels: list[int] = []
         for sample in samples:
+            self._ensure_not_canceled(cancel_event)
             audio = self._load_audio(Path(sample.audio_ref), sample_rate=sample_rate, max_length=max_length)
             mel = librosa.feature.melspectrogram(
                 y=audio,
@@ -627,6 +647,11 @@ class BaselineTrainer:
             labels.append(label_to_index[sample.label])
 
         return np.vstack(features), np.asarray(labels, dtype=np.int64)
+
+    @staticmethod
+    def _ensure_not_canceled(cancel_event: Event | None) -> None:
+        if cancel_event is not None and cancel_event.is_set():
+            raise RunCanceledError("run canceled")
 
     @staticmethod
     def _load_audio(path: Path, *, sample_rate: int, max_length: int) -> np.ndarray:
