@@ -24,12 +24,12 @@ def main() -> int:
     alt_take = layer.takes[1] if len(layer.takes) > 1 else layer.takes[0]
 
     actions: list[tuple[int, callable]] = [
-        (600, lambda: widget.set_presentation(demo.dispatch(ToggleTakeSelector(layer.id)))),
-        (1600, lambda: widget.set_presentation(demo.dispatch(SelectTake(layer.id, alt_take.id)))),
+        (600, lambda: widget.set_presentation(demo.dispatch(ToggleTakeSelector(layer.layer_id)))),
+        (1600, lambda: widget.set_presentation(demo.dispatch(SelectTake(layer.layer_id, alt_take.take_id)))),
         (2600, lambda: widget.set_presentation(demo.dispatch(Seek(3.4)))),
         (3600, lambda: widget.set_presentation(demo.dispatch(Play()))),
         (5200, lambda: widget.set_presentation(demo.dispatch(Pause()))),
-        (6500, lambda: widget.set_presentation(demo.dispatch(ToggleTakeSelector(layer.id)))),
+        (6500, lambda: widget.set_presentation(demo.dispatch(ToggleTakeSelector(layer.layer_id)))),
         (7600, app.quit),
     ]
 
