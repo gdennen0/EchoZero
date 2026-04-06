@@ -8,7 +8,7 @@ from dataclasses import replace
 from PyQt6.QtWidgets import QApplication
 
 from echozero.application.presentation.models import TimelinePresentation
-from echozero.application.timeline.intents import Pause, Seek, ToggleTakeSelector
+from echozero.application.timeline.intents import Pause, Seek, ToggleLayerExpanded
 from echozero.ui.qt.timeline.demo_app import build_demo_app
 from echozero.ui.qt.timeline.widget import TimelineWidget
 
@@ -25,7 +25,7 @@ def build_variant_presentations() -> dict[str, TimelinePresentation]:
     scrolled = replace(stopped, scroll_x=220.0, playhead=2.25, current_time_label='00:02.25')
 
     demo_take_lanes = build_demo_app()
-    take_lanes_open = demo_take_lanes.dispatch(ToggleTakeSelector(demo_take_lanes.presentation().layers[0].layer_id))
+    take_lanes_open = demo_take_lanes.dispatch(ToggleLayerExpanded(demo_take_lanes.presentation().layers[0].layer_id))
 
     demo_seek = build_demo_app()
     sought = demo_seek.dispatch(Seek(3.4))

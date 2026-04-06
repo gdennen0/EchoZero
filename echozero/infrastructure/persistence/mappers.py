@@ -196,14 +196,16 @@ def _to_layer(record: LayerRecord) -> Layer:
         presentation_hints=LayerPresentationHints(
             visible=hints_data.get("visible", True),
             locked=hints_data.get("locked", False),
-            collapsed=hints_data.get("collapsed", False),
+            expanded=hints_data.get(
+                "expanded",
+                hints_data.get("take_selector_expanded", not hints_data.get("collapsed", False)),
+            ),
             height=hints_data.get("height", 40.0),
             color=hints_data.get("color"),
             group_id=hints_data.get("group_id"),
             group_name=hints_data.get("group_name"),
             group_index=hints_data.get("group_index"),
             show_take_selector=hints_data.get("show_take_selector", True),
-            take_selector_expanded=hints_data.get("take_selector_expanded", False),
             show_take_lane=hints_data.get("show_take_lane", False),
         ),
     )
@@ -245,14 +247,13 @@ def _to_layer_record(layer: Layer) -> LayerRecord:
         presentation_hints={
             "visible": layer.presentation_hints.visible,
             "locked": layer.presentation_hints.locked,
-            "collapsed": layer.presentation_hints.collapsed,
+            "expanded": layer.presentation_hints.expanded,
             "height": layer.presentation_hints.height,
             "color": layer.presentation_hints.color,
             "group_id": layer.presentation_hints.group_id,
             "group_name": layer.presentation_hints.group_name,
             "group_index": layer.presentation_hints.group_index,
             "show_take_selector": layer.presentation_hints.show_take_selector,
-            "take_selector_expanded": layer.presentation_hints.take_selector_expanded,
             "show_take_lane": layer.presentation_hints.show_take_lane,
         },
     )

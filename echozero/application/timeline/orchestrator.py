@@ -16,7 +16,6 @@ from echozero.application.timeline.intents import (
     SelectLayer,
     SelectTake,
     ToggleLayerExpanded,
-    ToggleTakeSelector,
     TriggerTakeAction,
     Play,
     Pause,
@@ -54,17 +53,12 @@ class TimelineOrchestrator:
 
         elif isinstance(intent, SelectEvent):
             timeline.selection.selected_layer_id = intent.layer_id
+            timeline.selection.selected_take_id = intent.take_id
             timeline.selection.selected_event_ids = [intent.event_id] if intent.event_id is not None else []
 
         elif isinstance(intent, ToggleLayerExpanded):
             layer = self._find_layer(timeline, intent.layer_id)
-            layer.presentation_hints.collapsed = not layer.presentation_hints.collapsed
-
-        elif isinstance(intent, ToggleTakeSelector):
-            layer = self._find_layer(timeline, intent.layer_id)
-            layer.presentation_hints.take_selector_expanded = (
-                not layer.presentation_hints.take_selector_expanded
-            )
+            layer.presentation_hints.expanded = not layer.presentation_hints.expanded
 
         elif isinstance(intent, TriggerTakeAction):
             self._handle_trigger_take_action(

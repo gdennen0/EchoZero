@@ -104,19 +104,26 @@ class TimelineAssembler:
         sync_mode = layer.sync.mode if isinstance(layer.sync.mode, SyncMode) else SyncMode(str(layer.sync.mode)) if str(layer.sync.mode) in {m.value for m in SyncMode} else SyncMode.NONE
 
         status = LayerStatusPresentation(
-            stale=False,
-            manually_modified=False,
-            source_label=main_take.source_ref if main_take and main_take.source_ref else "",
+            stale=layer.status.stale,
+            manually_modified=layer.status.manually_modified,
+            source_label=self._source_label(layer, main_take),
             sync_label="Connected" if layer.sync.connected else "No sync",
+            stale_reason=layer.status.stale_reason or "",
+            source_layer_id=str(layer.provenance.source_layer_id or ""),
+            source_song_version_id=str(layer.provenance.source_song_version_id or ""),
+            pipeline_id=layer.provenance.pipeline_id or "",
+            output_name=layer.provenance.output_name or "",
+            source_run_id=layer.provenance.source_run_id or "",
         )
 
         return LayerPresentation(
             layer_id=layer.id,
+            main_take_id=main_take.id if main_take is not None else None,
             title=layer.name,
             subtitle="",
             kind=layer.kind,
             is_selected=layer.id == selected_layer_id,
-            is_expanded=layer.presentation_hints.take_selector_expanded,
+            is_expanded=layer.presentation_hints.expanded,
             events=main_events,
             takes=take_rows,
             visible=layer.presentation_hints.visible,
@@ -172,10 +179,18 @@ class TimelineAssembler:
                 (
                     str(layer.id),
                     int(layer.order_index),
-                    bool(layer.presentation_hints.take_selector_expanded),
+                    bool(layer.presentation_hints.expanded),
                     bool(layer.presentation_hints.visible),
                     bool(layer.presentation_hints.locked),
                     layer.presentation_hints.color,
+                    bool(layer.status.stale),
+                    bool(layer.status.manually_modified),
+                    layer.status.stale_reason,
+                    str(layer.provenance.source_layer_id) if layer.provenance.source_layer_id is not None else None,
+                    str(layer.provenance.source_song_version_id) if layer.provenance.source_song_version_id is not None else None,
+                    layer.provenance.source_run_id,
+                    layer.provenance.pipeline_id,
+                    layer.provenance.output_name,
                     bool(layer.mixer.mute),
                     bool(layer.mixer.solo),
                     float(layer.mixer.gain_db),
@@ -224,3 +239,11 @@ class TimelineAssembler:
         if not layer.takes:
             return None
         return layer.takes[0]
+
+    @staticmethod
+    def _source_label(layer: Layer, main_take: Take | None) -> str:
+        if layer.provenance.pipeline_id and layer.provenance.output_name:
+            return f"{layer.provenance.pipeline_id} · {layer.provenance.output_name}"
+        if main_take and main_take.source_ref:
+            return main_take.source_ref
+        return ""

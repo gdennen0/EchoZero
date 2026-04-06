@@ -1,8 +1,20 @@
 from dataclasses import replace
 
+from PyQt6.QtCore import QPoint
+from PyQt6.QtTest import QTest
+from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import QApplication
 
-from echozero.application.timeline.intents import Pause, Play, Seek, ToggleTakeSelector
+from echozero.application.presentation.models import (
+    EventPresentation,
+    LayerPresentation,
+    LayerStatusPresentation,
+    TakeLanePresentation,
+    TimelinePresentation,
+)
+from echozero.application.shared.enums import LayerKind
+from echozero.application.shared.ids import EventId, LayerId, TakeId, TimelineId
+from echozero.application.timeline.intents import Pause, Play, Seek, SelectEvent, SelectLayer, ToggleLayerExpanded
 from echozero.ui.qt.timeline.demo_app import build_demo_app
 from echozero.ui.qt.timeline.test_harness import build_variant_presentations, estimate_full_window_height
 from echozero.ui.qt.timeline.widget import TimelineWidget, compute_scroll_bounds, estimate_timeline_span_seconds
@@ -48,15 +60,15 @@ def test_take_lanes_exist_without_inline_action_requirements():
     assert kick.takes[0].kind.name == 'EVENT'
 
 
-def test_toggle_take_selector_round_trips():
+def test_toggle_layer_expansion_round_trips():
     demo = build_demo_app()
     song = next(layer for layer in demo.presentation().layers if layer.title == 'Song')
 
-    expanded = demo.dispatch(ToggleTakeSelector(song.layer_id))
+    expanded = demo.dispatch(ToggleLayerExpanded(song.layer_id))
     expanded_song = next(layer for layer in expanded.layers if layer.title == 'Song')
     assert expanded_song.is_expanded is True
 
-    collapsed = demo.dispatch(ToggleTakeSelector(song.layer_id))
+    collapsed = demo.dispatch(ToggleLayerExpanded(song.layer_id))
     collapsed_song = next(layer for layer in collapsed.layers if layer.title == 'Song')
     assert collapsed_song.is_expanded is False
 
@@ -124,3 +136,151 @@ def test_ruler_is_separate_widget_from_scroll_canvas():
         assert widget._ruler.parent() is widget
     finally:
         widget.close()
+
+
+def _selection_test_presentation() -> TimelinePresentation:
+    layer_id = LayerId("layer_kick")
+    main_take_id = TakeId("take_main")
+    alt_take_id = TakeId("take_alt")
+    return TimelinePresentation(
+        timeline_id=TimelineId("timeline_selection"),
+        title="Selection",
+        layers=[
+            LayerPresentation(
+                layer_id=layer_id,
+                title="Kick",
+                main_take_id=main_take_id,
+                kind=LayerKind.EVENT,
+                is_expanded=True,
+                events=[
+                    EventPresentation(
+                        event_id=EventId("main_evt"),
+                        start=1.0,
+                        end=1.5,
+                        label="Main",
+                    )
+                ],
+                takes=[
+                    TakeLanePresentation(
+                        take_id=alt_take_id,
+                        name="Take 2",
+                        kind=LayerKind.EVENT,
+                        events=[
+                            EventPresentation(
+                                event_id=EventId("take_evt"),
+                                start=2.0,
+                                end=2.5,
+                                label="Take",
+                            )
+                        ],
+                    )
+                ],
+                status=LayerStatusPresentation(),
+            )
+        ],
+        pixels_per_second=100.0,
+        end_time_label="00:05.00",
+    )
+
+
+def _render_for_hit_testing(widget: TimelineWidget) -> None:
+    widget.resize(1200, 320)
+    widget.show()
+    widget.repaint()
+    QApplication.processEvents()
+    widget._canvas.repaint()
+    QApplication.processEvents()
+
+
+def _click_event_rect(widget: TimelineWidget, event_id: str) -> None:
+    for rect, _, _, candidate_event_id in widget._canvas._event_rects:
+        if str(candidate_event_id) == event_id:
+            center = rect.center().toPoint()
+            QTest.mouseClick(widget._canvas, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier, QPoint(center.x(), center.y()))
+            QApplication.processEvents()
+            return
+    raise AssertionError(f"Missing event rect for {event_id}")
+
+
+def _click_rect(widget: TimelineWidget, rect) -> None:
+    center = rect.center().toPoint()
+    QTest.mouseClick(widget._canvas, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier, QPoint(center.x(), center.y()))
+    QApplication.processEvents()
+
+
+def test_main_row_event_click_dispatches_main_take_identity():
+    app = QApplication.instance() or QApplication([])
+    intents: list[SelectEvent] = []
+    presentation = _selection_test_presentation()
+    widget = TimelineWidget(presentation, on_intent=lambda intent: intents.append(intent) or presentation)
+    try:
+        _render_for_hit_testing(widget)
+        _click_event_rect(widget, "main_evt")
+
+        assert len(intents) == 1
+        assert intents[0] == SelectEvent(
+            layer_id=LayerId("layer_kick"),
+            take_id=TakeId("take_main"),
+            event_id=EventId("main_evt"),
+        )
+    finally:
+        widget.close()
+        app.processEvents()
+
+
+def test_take_lane_event_click_dispatches_take_identity():
+    app = QApplication.instance() or QApplication([])
+    intents: list[SelectEvent] = []
+    presentation = _selection_test_presentation()
+    widget = TimelineWidget(presentation, on_intent=lambda intent: intents.append(intent) or presentation)
+    try:
+        _render_for_hit_testing(widget)
+        _click_event_rect(widget, "take_evt")
+
+        assert len(intents) == 1
+        assert intents[0] == SelectEvent(
+            layer_id=LayerId("layer_kick"),
+            take_id=TakeId("take_alt"),
+            event_id=EventId("take_evt"),
+        )
+    finally:
+        widget.close()
+        app.processEvents()
+
+
+def test_layer_header_click_dispatches_layer_selection_not_seek():
+    app = QApplication.instance() or QApplication([])
+    intents: list[object] = []
+    presentation = _selection_test_presentation()
+    widget = TimelineWidget(presentation, on_intent=lambda intent: intents.append(intent) or presentation)
+    try:
+        _render_for_hit_testing(widget)
+
+        rect, layer_id = widget._canvas._header_select_rects[0]
+        assert layer_id == LayerId("layer_kick")
+
+        _click_rect(widget, rect)
+
+        assert intents == [SelectLayer(LayerId("layer_kick"))]
+    finally:
+        widget.close()
+        app.processEvents()
+
+
+def test_row_empty_space_click_dispatches_layer_selection_not_seek():
+    app = QApplication.instance() or QApplication([])
+    intents: list[object] = []
+    presentation = _selection_test_presentation()
+    widget = TimelineWidget(presentation, on_intent=lambda intent: intents.append(intent) or presentation)
+    try:
+        _render_for_hit_testing(widget)
+
+        rect, layer_id = widget._canvas._row_body_select_rects[0]
+        assert layer_id == LayerId("layer_kick")
+
+        _click_rect(widget, rect)
+
+        assert intents == [SelectLayer(LayerId("layer_kick"))]
+    finally:
+        widget.close()
+        app.processEvents()

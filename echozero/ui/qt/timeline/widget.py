@@ -18,7 +18,7 @@ from echozero.application.timeline.intents import (
     SelectEvent,
     SelectLayer,
     SelectTake,
-    ToggleTakeSelector,
+    ToggleLayerExpanded,
     TriggerTakeAction,
 )
 from echozero.perf import timed
@@ -162,7 +162,7 @@ class TimelineCanvas(QWidget):
     layer_clicked = pyqtSignal(object)
     take_toggle_clicked = pyqtSignal(object)
     take_selected = pyqtSignal(object, object)
-    event_selected = pyqtSignal(object, object)
+    event_selected = pyqtSignal(object, object, object)
     take_action_selected = pyqtSignal(object, object, str)
     seek_requested = pyqtSignal(float)
     horizontal_scroll_requested = pyqtSignal(int)
@@ -180,7 +180,9 @@ class TimelineCanvas(QWidget):
         self._take_action_rects: list[tuple[QRectF, object, object, str]] = []
         self._open_take_options: set[tuple[object, object]] = set()
         self._toggle_rects: list[tuple[QRectF, object]] = []
-        self._event_rects: list[tuple[QRectF, object, object]] = []
+        self._event_rects: list[tuple[QRectF, object, object | None, object]] = []
+        self._header_select_rects: list[tuple[QRectF, object]] = []
+        self._row_body_select_rects: list[tuple[QRectF, object]] = []
         self._header_hover_rects: list[tuple[QRectF, LayerPresentation]] = []
         self._hovered_layer_id: object | None = None
         self._header_block = LayerHeaderBlock()
@@ -223,6 +225,8 @@ class TimelineCanvas(QWidget):
         self._take_action_rects.clear()
         self._toggle_rects.clear()
         self._event_rects.clear()
+        self._header_select_rects.clear()
+        self._row_body_select_rects.clear()
         self._header_hover_rects.clear()
         with timed("timeline.paint.layers"):
             self._draw_layers(painter)
@@ -280,13 +284,21 @@ class TimelineCanvas(QWidget):
             if rect.contains(pos):
                 self.take_selected.emit(layer_id, take_id)
                 return
-        for rect, layer_id, event_id in self._event_rects:
+        for rect, layer_id, take_id, event_id in self._event_rects:
             if rect.contains(pos):
-                self.event_selected.emit(layer_id, event_id)
+                self.event_selected.emit(layer_id, take_id, event_id)
                 return
         for rect, layer_id in self._toggle_rects:
             if rect.contains(pos):
                 self.take_toggle_clicked.emit(layer_id)
+                return
+        for rect, layer_id in self._header_select_rects:
+            if rect.contains(pos):
+                self.layer_clicked.emit(layer_id)
+                return
+        for rect, layer_id in self._row_body_select_rects:
+            if rect.contains(pos):
+                self.layer_clicked.emit(layer_id)
                 return
         self._emit_seek(pos.x())
 
@@ -313,15 +325,37 @@ class TimelineCanvas(QWidget):
                 for take in layer.takes:
                     self._draw_take_row(painter, layer, take, y)
                     y += self._take_row_height
-
     @staticmethod
     def _header_tooltip_text(layer: LayerPresentation) -> str:
         labels = badge_tooltip_labels(layer.badges)
         parts: list[str] = []
         if labels:
-            parts.append(" • ".join(labels))
+            parts.append(" | ".join(labels))
+        if layer.status.stale:
+            stale_text = "Status: Stale"
+            stale_reason = getattr(layer.status, "stale_reason", "")
+            if stale_reason:
+                stale_text = f"{stale_text} ({stale_reason})"
+            parts.append(stale_text)
+        if layer.status.manually_modified:
+            parts.append("Status: Manually modified")
         if layer.status.source_label:
             parts.append(layer.status.source_label)
+        source_layer_id = getattr(layer.status, "source_layer_id", "")
+        if source_layer_id:
+            parts.append(f"Source layer: {source_layer_id}")
+        source_song_version_id = getattr(layer.status, "source_song_version_id", "")
+        if source_song_version_id:
+            parts.append(f"Source song version: {source_song_version_id}")
+        pipeline_id = getattr(layer.status, "pipeline_id", "")
+        if pipeline_id:
+            parts.append(f"Pipeline: {pipeline_id}")
+        output_name = getattr(layer.status, "output_name", "")
+        if output_name:
+            parts.append(f"Output: {output_name}")
+        source_run_id = getattr(layer.status, "source_run_id", "")
+        if source_run_id:
+            parts.append(f"Run: {source_run_id}")
         if layer.status.sync_label and layer.status.sync_label.lower() != "no sync":
             parts.append(f"Sync: {layer.status.sync_label}")
         return "\n".join(parts)
@@ -345,6 +379,8 @@ class TimelineCanvas(QWidget):
             metadata_rect=layout.metadata_rect,
         )
         self._toggle_rects.append((slots.toggle_rect, layer.layer_id))
+        self._header_select_rects.append((layout.header_rect, layer.layer_id))
+        self._row_body_select_rects.append((layout.content_rect, layer.layer_id))
         self._header_hover_rects.append((layout.header_rect, layer))
         self._header_block.paint(painter, slots, layer, dimmed=dimmed)
 
@@ -373,6 +409,7 @@ class TimelineCanvas(QWidget):
                         top + 24,
                         EventLanePresentation(
                             layer_id=layer.layer_id,
+                            take_id=layer.main_take_id,
                             events=layer.events,
                             pixels_per_second=self.presentation.pixels_per_second,
                             scroll_x=self.presentation.scroll_x,
@@ -402,6 +439,7 @@ class TimelineCanvas(QWidget):
             dimmed=dimmed,
         )
         self._take_rects.append(hit_targets.take_rect)
+        self._row_body_select_rects.append((layout.content_rect, layer.layer_id))
         if hit_targets.options_toggle_rect is not None:
             self._take_option_rects.append(hit_targets.options_toggle_rect)
         self._take_action_rects.extend(hit_targets.action_rects)
@@ -431,6 +469,7 @@ class TimelineCanvas(QWidget):
                         top + 10,
                         EventLanePresentation(
                             layer_id=layer.layer_id,
+                            take_id=take.take_id,
                             events=take.events,
                             pixels_per_second=self.presentation.pixels_per_second,
                             scroll_x=self.presentation.scroll_x,
@@ -594,19 +633,21 @@ class TimelineWidget(QWidget):
         self._dispatch(SelectLayer(layer_id))
 
     def _toggle_take_selector(self, layer_id) -> None:
-        self._dispatch(ToggleTakeSelector(layer_id))
+        self._dispatch(ToggleLayerExpanded(layer_id))
 
     def _select_take(self, layer_id, take_id) -> None:
         if take_id is None:
             return
         self._dispatch(SelectTake(layer_id, take_id))
 
-    def _select_event(self, layer_id, event_id) -> None:
+    def _select_event(self, layer_id, take_id, event_id) -> None:
         if event_id is None:
             return
-        self._dispatch(SelectEvent(layer_id, event_id))
+        self._dispatch(SelectEvent(layer_id, take_id, event_id))
 
     def _trigger_take_action(self, layer_id, take_id, action_id: str) -> None:
         if take_id is None or not action_id:
             return
         self._dispatch(TriggerTakeAction(layer_id, take_id, action_id))
+
+

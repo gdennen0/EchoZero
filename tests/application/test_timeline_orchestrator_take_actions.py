@@ -4,6 +4,7 @@ from echozero.application.mixer.models import AudibilityState, MixerState
 from echozero.application.mixer.service import MixerService
 from echozero.application.playback.models import PlaybackState
 from echozero.application.playback.service import PlaybackService
+from echozero.application.timeline.assembler import TimelineAssembler
 from echozero.application.session.models import Session
 from echozero.application.session.service import SessionService
 from echozero.application.shared.enums import LayerKind
@@ -19,7 +20,7 @@ from echozero.application.shared.ids import (
 )
 from echozero.application.sync.models import SyncState
 from echozero.application.sync.service import SyncService
-from echozero.application.timeline.intents import SelectTake, TriggerTakeAction
+from echozero.application.timeline.intents import SelectEvent, SelectTake, ToggleLayerExpanded, TriggerTakeAction
 from echozero.application.timeline.models import Event, Layer, Take, Timeline
 from echozero.application.timeline.orchestrator import TimelineOrchestrator
 from echozero.application.transport.models import TransportState
@@ -214,6 +215,47 @@ def test_select_take_is_selection_only_and_does_not_change_main_truth():
 
     assert timeline.selection.selected_take_id == alt_take.id
     assert [event.id for event in main_take.events] == original_main_event_ids
+
+
+def test_toggle_layer_expanded_round_trips_through_assembled_presentation():
+    orchestrator, timeline, layer, _main_take, _alt_take = _build_orchestrator_and_timeline()
+    orchestrator.assembler = TimelineAssembler()
+
+    expanded = orchestrator.handle(
+        timeline,
+        ToggleLayerExpanded(layer_id=layer.id),
+    )
+
+    assert timeline.layers[0].presentation_hints.expanded is True
+    assert expanded.layers[0].is_expanded is True
+
+    collapsed = orchestrator.handle(
+        timeline,
+        ToggleLayerExpanded(layer_id=layer.id),
+    )
+
+    assert timeline.layers[0].presentation_hints.expanded is False
+    assert collapsed.layers[0].is_expanded is False
+
+
+def test_select_event_updates_selected_take_for_main_and_take_events():
+    orchestrator, timeline, layer, main_take, alt_take = _build_orchestrator_and_timeline()
+
+    orchestrator.handle(
+        timeline,
+        SelectEvent(layer_id=layer.id, take_id=main_take.id, event_id=main_take.events[0].id),
+    )
+    assert timeline.selection.selected_layer_id == layer.id
+    assert timeline.selection.selected_take_id == main_take.id
+    assert timeline.selection.selected_event_ids == [main_take.events[0].id]
+
+    orchestrator.handle(
+        timeline,
+        SelectEvent(layer_id=layer.id, take_id=alt_take.id, event_id=alt_take.events[0].id),
+    )
+    assert timeline.selection.selected_layer_id == layer.id
+    assert timeline.selection.selected_take_id == alt_take.id
+    assert timeline.selection.selected_event_ids == [alt_take.events[0].id]
 
 
 def test_trigger_take_action_overwrite_main_replaces_events_from_source_take():

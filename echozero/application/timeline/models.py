@@ -24,15 +24,30 @@ class LayerSyncState:
 class LayerPresentationHints:
     visible: bool = True
     locked: bool = False
-    collapsed: bool = False
+    expanded: bool = False
     height: float = 40.0
     color: str | None = None
     group_id: str | None = None
     group_name: str | None = None
     group_index: int | None = None
     show_take_selector: bool = True
-    take_selector_expanded: bool = False
     show_take_lane: bool = False
+
+
+@dataclass(slots=True)
+class LayerStatus:
+    stale: bool = False
+    manually_modified: bool = False
+    stale_reason: str | None = None
+
+
+@dataclass(slots=True)
+class LayerProvenance:
+    source_layer_id: LayerId | None = None
+    source_song_version_id: SongVersionId | None = None
+    source_run_id: str | None = None
+    pipeline_id: str | None = None
+    output_name: str | None = None
 
 
 @dataclass(slots=True)
@@ -82,6 +97,8 @@ class Layer:
     mixer: LayerMixerState = field(default_factory=LayerMixerState)
     playback: LayerPlaybackState = field(default_factory=LayerPlaybackState)
     sync: LayerSyncState = field(default_factory=LayerSyncState)
+    status: LayerStatus = field(default_factory=LayerStatus)
+    provenance: LayerProvenance = field(default_factory=LayerProvenance)
     presentation_hints: LayerPresentationHints = field(default_factory=LayerPresentationHints)
 
 
