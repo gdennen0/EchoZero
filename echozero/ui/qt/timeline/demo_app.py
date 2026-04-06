@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import sys
 from dataclasses import dataclass, replace
+from pathlib import Path
 
 from PyQt6.QtWidgets import QApplication
 
@@ -36,6 +37,7 @@ from echozero.application.timeline.intents import (
 from echozero.application.transport.models import TransportState
 from echozero.application.transport.service import TransportService
 from echozero.ui.qt.timeline.fixture_loader import load_realistic_timeline_fixture
+from echozero.ui.qt.timeline.runtime_audio import TimelineRuntimeAudioController
 from echozero.ui.qt.timeline.widget import TimelineWidget
 
 
@@ -173,6 +175,7 @@ class DemoSyncService(SyncService):
 class DemoTimelineApp:
     presentation_state: TimelinePresentation
     session: Session
+    runtime_audio: TimelineRuntimeAudioController | None = None
 
     def presentation(self) -> TimelinePresentation:
         return self.presentation_state
@@ -180,12 +183,21 @@ class DemoTimelineApp:
     def dispatch(self, intent: TimelineIntent) -> TimelinePresentation:
         if isinstance(intent, Pause):
             self.session.transport_state.is_playing = False
+            if self.runtime_audio is not None:
+                self.runtime_audio.pause()
         elif isinstance(intent, Play):
+            if self.runtime_audio is not None:
+                self.runtime_audio.build_for_presentation(self.presentation_state)
+                self.runtime_audio.play()
             self.session.transport_state.is_playing = True
         elif isinstance(intent, Stop):
+            if self.runtime_audio is not None:
+                self.runtime_audio.stop()
             self.session.transport_state.is_playing = False
             self.session.transport_state.playhead = 0.0
         elif isinstance(intent, Seek):
+            if self.runtime_audio is not None:
+                self.runtime_audio.seek(intent.position)
             self.session.transport_state.playhead = max(0.0, intent.position)
         elif isinstance(intent, ToggleMute):
             layers = []
@@ -195,6 +207,8 @@ class DemoTimelineApp:
                 else:
                     layers.append(layer)
             self.presentation_state = replace(self.presentation_state, layers=layers)
+            if self.runtime_audio is not None:
+                self.runtime_audio.apply_mix_state(self.presentation_state)
         elif isinstance(intent, ToggleSolo):
             layers = []
             for layer in self.presentation_state.layers:
@@ -203,6 +217,8 @@ class DemoTimelineApp:
                 else:
                     layers.append(layer)
             self.presentation_state = replace(self.presentation_state, layers=layers)
+            if self.runtime_audio is not None:
+                self.runtime_audio.apply_mix_state(self.presentation_state)
         elif isinstance(intent, ToggleLayerExpanded):
             layers = []
             for layer in self.presentation_state.layers:
@@ -398,13 +414,45 @@ def build_demo_app() -> DemoTimelineApp:
     return DemoTimelineApp(presentation_state=presentation, session=session)
 
 
+def build_real_data_demo_app(
+    audio_path: str | Path,
+    *,
+    working_root: str | Path,
+    song_title: str = "Doechii Nissan Altima",
+    runtime_audio: TimelineRuntimeAudioController | None = None,
+) -> tuple[DemoTimelineApp, object]:
+    from echozero.ui.qt.timeline.real_data_fixture import build_real_data_presentation
+
+    presentation, summary = build_real_data_presentation(
+        audio_path=audio_path,
+        working_root=working_root,
+        song_title=song_title,
+    )
+    app = build_demo_app()
+    app.presentation_state = presentation
+    app.session.active_timeline_id = presentation.timeline_id
+    app.session.transport_state.is_playing = presentation.is_playing
+    app.session.transport_state.playhead = presentation.playhead
+    app.runtime_audio = runtime_audio or TimelineRuntimeAudioController()
+    app.runtime_audio.build_for_presentation(presentation)
+    return app, summary
+
+
 def main() -> int:
     app = QApplication(sys.argv)
     demo = build_demo_app()
-    widget = TimelineWidget(demo.presentation(), on_intent=demo.dispatch)
+    widget = TimelineWidget(
+        demo.presentation(),
+        on_intent=demo.dispatch,
+        runtime_audio=demo.runtime_audio,
+    )
     widget.resize(1440, 720)
     widget.show()
-    return app.exec()
+    try:
+        return app.exec()
+    finally:
+        if demo.runtime_audio is not None:
+            demo.runtime_audio.shutdown()
 
 
 if __name__ == '__main__':

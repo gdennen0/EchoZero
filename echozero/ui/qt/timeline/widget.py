@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import replace
 
-from PyQt6.QtCore import QPointF, QRectF, Qt, pyqtSignal
+from PyQt6.QtCore import QPointF, QRectF, Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QColor, QPainter, QPen, QWheelEvent
 from PyQt6.QtWidgets import QWidget, QVBoxLayout, QScrollArea, QScrollBar, QToolTip
 
@@ -52,6 +52,7 @@ from echozero.ui.qt.timeline.blocks.ruler import (
 from echozero.ui.qt.timeline.blocks.take_row import TakeRowBlock
 from echozero.ui.qt.timeline.blocks.transport_bar import TransportLayout
 from echozero.ui.qt.timeline.blocks.transport_bar_block import TransportBarBlock
+from echozero.ui.qt.timeline.runtime_audio import TimelineRuntimeAudioController
 from echozero.ui.qt.timeline.blocks.waveform_lane import WaveformLaneBlock, WaveformLanePresentation
 
 
@@ -239,9 +240,10 @@ class TimelineCanvas(QWidget):
             return True
         return False
 
-    def set_presentation(self, presentation: TimelinePresentation) -> None:
+    def set_presentation(self, presentation: TimelinePresentation, *, recompute_layout: bool = True) -> None:
         self.presentation = presentation
-        self._recompute_height()
+        if recompute_layout:
+            self._recompute_height()
         self.update()
 
     def paintEvent(self, event):
@@ -755,10 +757,18 @@ class TimelineRuler(QWidget):
 
 
 class TimelineWidget(QWidget):
-    def __init__(self, presentation: TimelinePresentation, on_intent: Callable[[object], TimelinePresentation] | None = None, parent=None):
+    def __init__(
+        self,
+        presentation: TimelinePresentation,
+        on_intent: Callable[[object], TimelinePresentation] | None = None,
+        *,
+        runtime_audio: TimelineRuntimeAudioController | None = None,
+        parent=None,
+    ):
         super().__init__(parent)
         self.presentation = presentation
         self._on_intent = on_intent
+        self._runtime_audio = runtime_audio
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.setWindowTitle('EchoZero Timeline Preview')
 
@@ -802,6 +812,11 @@ class TimelineWidget(QWidget):
         self._hscroll.valueChanged.connect(self._on_horizontal_scroll_changed)
         layout.addWidget(self._hscroll)
 
+        self._runtime_timer = QTimer(self)
+        self._runtime_timer.setInterval(16)
+        self._runtime_timer.timeout.connect(self._on_runtime_tick)
+        self._runtime_timer.start()
+
         self.set_presentation(self.presentation)
 
     def set_presentation(self, presentation: TimelinePresentation) -> None:
@@ -816,6 +831,9 @@ class TimelineWidget(QWidget):
         self._transport.set_presentation(self.presentation)
         self._ruler.set_presentation(self.presentation)
         self._canvas.set_presentation(self.presentation)
+        if self._runtime_audio is not None:
+            self._runtime_audio.build_for_presentation(self.presentation)
+            self._runtime_audio.apply_mix_state(self.presentation)
 
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
@@ -844,7 +862,7 @@ class TimelineWidget(QWidget):
             return
         self.presentation = replace(self.presentation, scroll_x=next_scroll)
         self._ruler.set_presentation(self.presentation)
-        self._canvas.set_presentation(self.presentation)
+        self._canvas.set_presentation(self.presentation, recompute_layout=False)
 
     def _scroll_horizontally_by_steps(self, delta: int) -> None:
         if delta == 0:
@@ -859,6 +877,37 @@ class TimelineWidget(QWidget):
         updated = self._on_intent(intent)
         if updated is not None:
             self.set_presentation(updated)
+
+    def _on_runtime_tick(self) -> None:
+        if self._runtime_audio is None:
+            return
+
+        playing = self._runtime_audio.is_playing()
+        current_time = self._runtime_audio.current_time_seconds()
+        current_label = _format_time_label(current_time)
+        if (
+            abs(current_time - self.presentation.playhead) < 0.001
+            and playing == self.presentation.is_playing
+            and current_label == self.presentation.current_time_label
+        ):
+            return
+
+        next_presentation = replace(
+            self.presentation,
+            playhead=current_time,
+            is_playing=playing,
+            current_time_label=current_label,
+        )
+        followed = compute_follow_scroll_x(
+            next_presentation,
+            max(1, self._scroll.viewport().width()),
+            header_width=self._canvas._header_width,
+        )
+        self.presentation = replace(next_presentation, scroll_x=followed)
+        self._update_horizontal_scroll_bounds(sync_bar_value=True)
+        self._transport.set_presentation(self.presentation)
+        self._ruler.set_presentation(self.presentation)
+        self._canvas.set_presentation(self.presentation, recompute_layout=False)
 
     def _seek(self, position: float) -> None:
         self._dispatch(Seek(position))
@@ -904,5 +953,11 @@ class TimelineWidget(QWidget):
 
     def _toggle_solo(self, layer_id) -> None:
         self._dispatch(ToggleSolo(layer_id))
+
+
+def _format_time_label(seconds: float) -> str:
+    mins = int(seconds // 60)
+    secs = seconds - mins * 60
+    return f"{mins:02d}:{secs:05.2f}"
 
 

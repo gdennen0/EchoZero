@@ -18,7 +18,6 @@ from echozero.application.presentation.models import (
 from echozero.application.shared.enums import FollowMode, LayerKind
 from echozero.application.shared.ids import EventId, LayerId, TakeId, TimelineId
 from echozero.domain.types import AudioData, Event as DomainEvent, EventData
-from echozero.main import create_project
 from echozero.ui.qt.timeline.drum_classifier_preview import classify_drum_hits
 from echozero.ui.qt.timeline.waveform_cache import register_waveform_from_audio_file
 
@@ -39,6 +38,8 @@ def build_real_data_presentation(
     working_root: str | Path,
     song_title: str = "Doechii Nissan Altima",
 ) -> tuple[TimelinePresentation, RealDataRunSummary]:
+    from echozero.main import create_project
+
     source = Path(audio_path)
     root = Path(working_root)
     root.mkdir(parents=True, exist_ok=True)
@@ -121,6 +122,7 @@ def build_real_data_presentation(
                         events=_event_presentations_from_take(take) if isinstance(take.data, EventData) else [],
                         source_ref=_source_ref(take.source),
                         waveform_key=take_waveform_key,
+                        source_audio_path=str(take.data.file_path) if isinstance(take.data, AudioData) else None,
                         actions=[
                             TakeActionPresentation(action_id="overwrite_main", label="Overwrite Main"),
                             TakeActionPresentation(action_id="merge_main", label="Merge Main"),
@@ -154,6 +156,7 @@ def build_real_data_presentation(
                     color=layer_record.color or "#66a3ff",
                     badges=["main", "stem", main_kind.value, "real-data"],
                     waveform_key=main_waveform_key,
+                    source_audio_path=str(main_take.data.file_path) if isinstance(main_take.data, AudioData) else None,
                     status=status,
                 )
             )

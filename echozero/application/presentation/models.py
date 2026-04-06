@@ -22,6 +22,7 @@ class TakeLanePresentation:
     events: list['EventPresentation'] = field(default_factory=list)
     source_ref: str | None = None
     waveform_key: str | None = None
+    source_audio_path: str | None = None
     actions: list[TakeActionPresentation] = field(default_factory=list)
 
 
@@ -79,6 +80,7 @@ class LayerPresentation:
     color: str | None = None
     badges: list[str] = field(default_factory=list)
     waveform_key: str | None = None
+    source_audio_path: str | None = None
     status: LayerStatusPresentation = field(default_factory=LayerStatusPresentation)
 
 

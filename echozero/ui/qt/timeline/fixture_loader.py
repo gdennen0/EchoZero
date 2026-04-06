@@ -70,6 +70,7 @@ def _parse_layer(data: dict) -> LayerPresentation:
         color=data.get("color"),
         badges=list(data.get("badges", [])),
         waveform_key=data.get("waveform_key"),
+        source_audio_path=data.get("source_audio_path"),
         status=LayerStatusPresentation(
             stale=bool(status_data.get("stale", False)),
             manually_modified=bool(status_data.get("manually_modified", False)),
@@ -88,6 +89,7 @@ def _parse_take(data: dict) -> TakeLanePresentation:
         events=[_parse_event(event) for event in data.get("events", [])],
         source_ref=data.get("source_ref"),
         waveform_key=data.get("waveform_key"),
+        source_audio_path=data.get("source_audio_path"),
         actions=[
             TakeActionPresentation(action_id=action["action_id"], label=action["label"])
             for action in data.get("actions", [])
