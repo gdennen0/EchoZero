@@ -47,6 +47,10 @@ class BaselineTrainer:
         epochs = int(training_spec["epochs"])
         learning_rate = float(training_spec["learningRate"])
         random_seed = int(training_spec.get("seed", 17))
+        batch_size = int(training_spec.get("batchSize", 16))
+
+        options = self._resolve_training_options(training_spec)
+        rng = np.random.default_rng(random_seed)
 
         sample_by_id = {sample.sample_id: sample for sample in dataset_version.samples}
         split_plan = dataset_version.split_plan or {}
@@ -64,7 +68,7 @@ class BaselineTrainer:
             missing = sorted(set(class_names) - train_label_ids)
             raise ValueError(f"training split is missing classes required for baseline training: {', '.join(missing)}")
 
-        train_x, train_y = self._build_features(
+        train_x_raw, train_y_raw = self._build_features(
             train_samples,
             sample_rate=sample_rate,
             max_length=max_length,
@@ -97,11 +101,21 @@ class BaselineTrainer:
             label_to_index=label_to_index,
         )
 
+        train_x, train_y = self._rebalance_training_set(
+            train_x_raw,
+            train_y_raw,
+            class_count=len(class_names),
+            strategy=options["rebalance_strategy"],
+            rng=rng,
+        )
+
         scaler = StandardScaler()
         train_x_scaled = scaler.fit_transform(train_x)
         val_x_scaled = scaler.transform(val_x) if len(val_x) else np.empty((0, train_x_scaled.shape[1]), dtype=np.float32)
         eval_x_scaled = scaler.transform(eval_x) if len(eval_x) else np.empty((0, train_x_scaled.shape[1]), dtype=np.float32)
 
+        classes = np.arange(len(class_names), dtype=np.int64)
+        class_weight = self._compute_class_weight(train_y_raw, classes=classes, mode=options["class_weighting"])
         classifier = SGDClassifier(
             loss="log_loss",
             learning_rate="constant",
@@ -109,12 +123,21 @@ class BaselineTrainer:
             alpha=0.0001,
             random_state=random_seed,
             shuffle=False,
+            class_weight=class_weight,
         )
-        classes = np.arange(len(class_names), dtype=np.int64)
 
         checkpoint_metrics: list[dict[str, float | int | None]] = []
         for epoch in range(1, epochs + 1):
-            classifier.partial_fit(train_x_scaled, train_y, classes=classes)
+            epoch_x, epoch_y = self._augment_features(
+                train_x_scaled,
+                train_y,
+                copies=options["augment_copies"],
+                noise_std=options["augment_noise_std"],
+                gain_jitter=options["augment_gain_jitter"],
+                enabled=options["augment_train"],
+                rng=rng,
+            )
+            classifier.partial_fit(epoch_x, epoch_y, classes=classes)
             train_epoch = self._evaluate_split(classifier, train_x_scaled, train_y, class_names)
             val_epoch = self._evaluate_split(classifier, val_x_scaled, val_y, class_names) if len(val_y) else {}
             checkpoint_metrics.append(
@@ -137,7 +160,7 @@ class BaselineTrainer:
         torch.save(
             {
                 "schema": "foundry.baseline_model.v1",
-                "trainer": "baseline_sgd_melspec_v1",
+                "trainer": "baseline_sgd_melspec_v1_5",
                 "classes": class_names,
                 "classification_mode": run.spec["classificationMode"],
                 "coef": classifier.coef_.astype(np.float32),
@@ -156,8 +179,14 @@ class BaselineTrainer:
                 "training": {
                     "epochs": epochs,
                     "learningRate": learning_rate,
-                    "batchSize": int(training_spec["batchSize"]),
+                    "batchSize": batch_size,
                     "seed": random_seed,
+                    "classWeighting": options["class_weighting"],
+                    "rebalanceStrategy": options["rebalance_strategy"],
+                    "augmentTrain": options["augment_train"],
+                    "augmentCopies": options["augment_copies"],
+                    "augmentNoiseStd": options["augment_noise_std"],
+                    "augmentGainJitter": options["augment_gain_jitter"],
                 },
                 "metrics": final_eval["metrics"],
             },
@@ -171,6 +200,14 @@ class BaselineTrainer:
             "classificationMode": run.spec["classificationMode"],
             "checkpoints": checkpoint_metrics,
             "finalEval": final_eval,
+            "trainerOptions": {
+                "classWeighting": options["class_weighting"],
+                "rebalanceStrategy": options["rebalance_strategy"],
+                "augmentTrain": options["augment_train"],
+                "augmentCopies": options["augment_copies"],
+                "augmentNoiseStd": options["augment_noise_std"],
+                "augmentGainJitter": options["augment_gain_jitter"],
+            },
         }
         metrics_path = run.exports_dir(self._root) / "metrics.json"
         metrics_path.write_text(json.dumps(metrics_payload, indent=2, sort_keys=True), encoding="utf-8")
@@ -183,6 +220,14 @@ class BaselineTrainer:
             "metricsPath": metrics_path.name,
             "primaryMetric": final_eval["metrics"]["macro_f1"],
             "accuracy": final_eval["metrics"]["accuracy"],
+            "trainerProfile": "next_level_v1_5" if any(
+                [
+                    options["augment_train"],
+                    options["rebalance_strategy"] != "none",
+                    options["class_weighting"] != "none",
+                ]
+            )
+            else "baseline_v1",
         }
         run_summary_path = run.exports_dir(self._root) / "run_summary.json"
         run_summary_path.write_text(json.dumps(run_summary_payload, indent=2, sort_keys=True), encoding="utf-8")
@@ -200,11 +245,17 @@ class BaselineTrainer:
                 "supports_threshold_tuning": False,
             },
             baseline={
-                "family": "baseline_sgd_melspec_v1",
+                "family": "baseline_sgd_melspec_v1_5",
                 "optimizer": "sgd_log_loss",
                 "epochs": epochs,
                 "checkpoint_epoch": epochs,
                 "feature_pooling": ["mean", "std", "max"],
+                "class_weighting": options["class_weighting"],
+                "rebalance_strategy": options["rebalance_strategy"],
+                "augment_train": options["augment_train"],
+                "augment_copies": options["augment_copies"],
+                "augment_noise_std": options["augment_noise_std"],
+                "augment_gain_jitter": options["augment_gain_jitter"],
             },
             artifact_manifest={
                 "weightsPath": model_path.name,
@@ -224,9 +275,12 @@ class BaselineTrainer:
                     "macroF1": float(final_eval["metrics"]["macro_f1"]),
                 },
                 "trainingSummary": {
-                    "trainer": "baseline_sgd_melspec_v1",
+                    "trainer": "baseline_sgd_melspec_v1_5",
                     "metricsPath": metrics_path.name,
                     "runSummaryPath": run_summary_path.name,
+                    "classWeighting": options["class_weighting"],
+                    "rebalanceStrategy": options["rebalance_strategy"],
+                    "augmentTrain": options["augment_train"],
                 },
             },
             model_path=model_path,
@@ -234,6 +288,108 @@ class BaselineTrainer:
             run_summary_path=run_summary_path,
             eval_split_name=eval_split_name,
         )
+
+    @staticmethod
+    def _resolve_training_options(training_spec: dict) -> dict[str, object]:
+        class_weighting = str(training_spec.get("classWeighting", "none")).lower()
+        if class_weighting not in {"none", "balanced"}:
+            raise ValueError("run_spec.training.classWeighting must be one of: none, balanced")
+
+        rebalance_strategy = str(training_spec.get("rebalanceStrategy", "none")).lower()
+        if rebalance_strategy not in {"none", "oversample"}:
+            raise ValueError("run_spec.training.rebalanceStrategy must be one of: none, oversample")
+
+        augment_train = bool(training_spec.get("augmentTrain", False))
+        augment_noise_std = float(training_spec.get("augmentNoiseStd", 0.02))
+        augment_gain_jitter = float(training_spec.get("augmentGainJitter", 0.10))
+        augment_copies = int(training_spec.get("augmentCopies", 1))
+        if augment_noise_std < 0:
+            raise ValueError("run_spec.training.augmentNoiseStd must be >= 0")
+        if augment_gain_jitter < 0:
+            raise ValueError("run_spec.training.augmentGainJitter must be >= 0")
+        if augment_copies < 0:
+            raise ValueError("run_spec.training.augmentCopies must be >= 0")
+
+        return {
+            "class_weighting": class_weighting,
+            "rebalance_strategy": rebalance_strategy,
+            "augment_train": augment_train,
+            "augment_noise_std": augment_noise_std,
+            "augment_gain_jitter": augment_gain_jitter,
+            "augment_copies": augment_copies,
+        }
+
+    @staticmethod
+    def _compute_class_weight(y: np.ndarray, *, classes: np.ndarray, mode: str) -> dict[int, float] | None:
+        if mode != "balanced" or len(y) == 0:
+            return None
+        total = float(len(y))
+        num_classes = float(len(classes))
+        weights: dict[int, float] = {}
+        for cls in classes:
+            count = float(np.sum(y == cls))
+            if count <= 0:
+                continue
+            weights[int(cls)] = total / (num_classes * count)
+        return weights or None
+
+    @staticmethod
+    def _rebalance_training_set(
+        x: np.ndarray,
+        y: np.ndarray,
+        *,
+        class_count: int,
+        strategy: str,
+        rng: np.random.Generator,
+    ) -> tuple[np.ndarray, np.ndarray]:
+        if strategy != "oversample" or len(y) == 0:
+            return x, y
+
+        class_indices: list[np.ndarray] = [np.where(y == cls)[0] for cls in range(class_count)]
+        non_empty = [idx for idx in class_indices if len(idx) > 0]
+        if not non_empty:
+            return x, y
+
+        target = max(len(idx) for idx in non_empty)
+        selected: list[int] = []
+        for idx in class_indices:
+            if len(idx) == 0:
+                continue
+            if len(idx) < target:
+                extra = rng.choice(idx, size=target - len(idx), replace=True)
+                merged = np.concatenate([idx, extra])
+            else:
+                merged = idx
+            selected.extend(merged.tolist())
+
+        selected_arr = np.asarray(selected, dtype=np.int64)
+        rng.shuffle(selected_arr)
+        return x[selected_arr], y[selected_arr]
+
+    @staticmethod
+    def _augment_features(
+        x: np.ndarray,
+        y: np.ndarray,
+        *,
+        copies: int,
+        noise_std: float,
+        gain_jitter: float,
+        enabled: bool,
+        rng: np.random.Generator,
+    ) -> tuple[np.ndarray, np.ndarray]:
+        if not enabled or copies <= 0 or len(y) == 0:
+            return x, y
+
+        feature_batches = [x]
+        label_batches = [y]
+        for _ in range(copies):
+            gain = rng.uniform(1.0 - gain_jitter, 1.0 + gain_jitter, size=(x.shape[0], 1)).astype(np.float32)
+            noise = rng.normal(loc=0.0, scale=noise_std, size=x.shape).astype(np.float32)
+            aug = (x.astype(np.float32) * gain) + noise
+            feature_batches.append(aug)
+            label_batches.append(y)
+
+        return np.vstack(feature_batches), np.concatenate(label_batches)
 
     def _build_features(
         self,

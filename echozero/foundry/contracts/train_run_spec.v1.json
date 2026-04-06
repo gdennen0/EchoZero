@@ -25,7 +25,14 @@
       "properties": {
         "epochs": { "type": "integer", "minimum": 1 },
         "batchSize": { "type": "integer", "minimum": 1 },
-        "learningRate": { "type": "number", "exclusiveMinimum": 0 }
+        "learningRate": { "type": "number", "exclusiveMinimum": 0 },
+        "seed": { "type": "integer" },
+        "classWeighting": { "enum": ["none", "balanced"] },
+        "rebalanceStrategy": { "enum": ["none", "oversample"] },
+        "augmentTrain": { "type": "boolean" },
+        "augmentNoiseStd": { "type": "number", "minimum": 0 },
+        "augmentGainJitter": { "type": "number", "minimum": 0 },
+        "augmentCopies": { "type": "integer", "minimum": 0 }
       }
     }
   }

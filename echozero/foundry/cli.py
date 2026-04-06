@@ -45,6 +45,13 @@ def build_parser() -> argparse.ArgumentParser:
     train_folder.add_argument("--hop-length", type=int, default=512)
     train_folder.add_argument("--n-mels", type=int, default=128)
     train_folder.add_argument("--fmax", type=int, default=8000)
+    train_folder.add_argument("--class-weighting", choices=["none", "balanced"], default="none")
+    train_folder.add_argument("--rebalance", choices=["none", "oversample"], default="none")
+    train_folder.add_argument("--augment-train", action="store_true")
+    train_folder.add_argument("--augment-noise-std", type=float, default=0.02)
+    train_folder.add_argument("--augment-gain-jitter", type=float, default=0.10)
+    train_folder.add_argument("--augment-copies", type=int, default=1)
+    train_folder.add_argument("--next-level", action="store_true", help="Enable v1.5 imbalance+augmentation defaults")
 
     run = sub.add_parser("create-run")
     run.add_argument("dataset_version_id")
@@ -105,6 +112,23 @@ def main(argv: list[str] | None = None) -> int:
             seed=args.seed,
             balance_strategy=args.balance,
         )
+        class_weighting = args.class_weighting
+        rebalance = args.rebalance
+        augment_train = args.augment_train
+        augment_noise_std = args.augment_noise_std
+        augment_gain_jitter = args.augment_gain_jitter
+        augment_copies = args.augment_copies
+        if args.next_level:
+            class_weighting = "balanced"
+            rebalance = "oversample"
+            augment_train = True
+            if args.augment_noise_std == 0.02:
+                augment_noise_std = 0.03
+            if args.augment_gain_jitter == 0.10:
+                augment_gain_jitter = 0.15
+            if args.augment_copies == 1:
+                augment_copies = 2
+
         run = app.create_run(
             version.id,
             _default_run_spec(
@@ -119,6 +143,12 @@ def main(argv: list[str] | None = None) -> int:
                 batch_size=args.batch_size,
                 learning_rate=args.learning_rate,
                 seed=args.seed,
+                class_weighting=class_weighting,
+                rebalance_strategy=rebalance,
+                augment_train=augment_train,
+                augment_noise_std=augment_noise_std,
+                augment_gain_jitter=augment_gain_jitter,
+                augment_copies=augment_copies,
             ),
         )
         run = app.start_run(run.id)
@@ -194,6 +224,12 @@ def _default_run_spec(
     batch_size: int,
     learning_rate: float,
     seed: int,
+    class_weighting: str = "none",
+    rebalance_strategy: str = "none",
+    augment_train: bool = False,
+    augment_noise_std: float = 0.02,
+    augment_gain_jitter: float = 0.10,
+    augment_copies: int = 1,
 ) -> dict:
     return {
         "schema": "foundry.train_run_spec.v1",
@@ -212,6 +248,12 @@ def _default_run_spec(
             "batchSize": batch_size,
             "learningRate": learning_rate,
             "seed": seed,
+            "classWeighting": class_weighting,
+            "rebalanceStrategy": rebalance_strategy,
+            "augmentTrain": augment_train,
+            "augmentNoiseStd": augment_noise_std,
+            "augmentGainJitter": augment_gain_jitter,
+            "augmentCopies": augment_copies,
         },
     }
 

@@ -72,3 +72,29 @@ def test_cli_train_folder_happy_path(tmp_path: Path, capsys):
     assert payload["status"] == "completed"
     assert payload["eval_report_ids"]
     assert payload["artifact_ids"]
+
+
+def test_cli_train_folder_next_level_profile(tmp_path: Path, capsys):
+    samples = tmp_path / "samples"
+    write_percussion_dataset(samples)
+
+    assert main(
+        [
+            "--root",
+            str(tmp_path),
+            "train-folder",
+            "Next Level Drums",
+            str(samples),
+            "--val",
+            "0.25",
+            "--test",
+            "0.25",
+            "--epochs",
+            "2",
+            "--next-level",
+        ]
+    ) == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["status"] == "completed"
+    assert payload["eval_report_ids"]
+    assert payload["artifact_ids"]

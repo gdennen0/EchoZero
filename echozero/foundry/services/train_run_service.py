@@ -249,6 +249,19 @@ class TrainRunService:
         if float(training["learningRate"]) <= 0:
             raise ValueError("run_spec.training.learningRate must be > 0")
 
+        class_weighting = str(training.get("classWeighting", "none")).lower()
+        if class_weighting not in {"none", "balanced"}:
+            raise ValueError("run_spec.training.classWeighting must be one of: none, balanced")
+        rebalance_strategy = str(training.get("rebalanceStrategy", "none")).lower()
+        if rebalance_strategy not in {"none", "oversample"}:
+            raise ValueError("run_spec.training.rebalanceStrategy must be one of: none, oversample")
+        if float(training.get("augmentNoiseStd", 0.02)) < 0:
+            raise ValueError("run_spec.training.augmentNoiseStd must be >= 0")
+        if float(training.get("augmentGainJitter", 0.10)) < 0:
+            raise ValueError("run_spec.training.augmentGainJitter must be >= 0")
+        if int(training.get("augmentCopies", 1)) < 0:
+            raise ValueError("run_spec.training.augmentCopies must be >= 0")
+
         if int(data["maxLength"]) < int(data["sampleRate"]) // 10:
             raise ValueError("run_spec.data.maxLength is too small for one-shot training")
         if int(data["hopLength"]) >= int(data["nFft"]):

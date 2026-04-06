@@ -1,0 +1,43 @@
+EchoZero Foundry Next-Level Training v1.5
+
+What changed in v1.5
+- Trainer family upgraded to `baseline_sgd_melspec_v1_5`.
+- Added imbalance-focused controls:
+  - `classWeighting`: `none|balanced`
+  - `rebalanceStrategy`: `none|oversample`
+- Added deterministic feature augmentation controls:
+  - `augmentTrain`: bool
+  - `augmentCopies`: int
+  - `augmentNoiseStd`: float
+  - `augmentGainJitter`: float
+
+When to use v1.5
+- Class support is very uneven (large head classes + tiny tail classes).
+- Minority classes are being predicted as majority classes.
+- You need a stronger CPU baseline before moving to a heavier trainer.
+
+Recommended command (operator default)
+`.venv\Scripts\python -m echozero.foundry.cli --root <workspace> train-folder "Next Level Drums" <dataset-folder> --val 0.15 --test 0.10 --epochs 10 --batch-size 64 --learning-rate 0.01 --next-level`
+
+Equivalent explicit knobs
+`.venv\Scripts\python -m echozero.foundry.cli --root <workspace> train-folder "Next Level Drums" <dataset-folder> --val 0.15 --test 0.10 --epochs 10 --batch-size 64 --learning-rate 0.01 --class-weighting balanced --rebalance oversample --augment-train --augment-copies 2 --augment-noise-std 0.03 --augment-gain-jitter 0.15`
+
+What to verify after run
+1) CLI returns `status: completed`
+2) At least one `eval_report_id` and `artifact_id`
+3) Exports directory contains:
+   - `model.pth`
+   - `metrics.json`
+   - `run_summary.json`
+   - `<artifact-id>.manifest.json`
+4) `validate-artifact <artifact-id>` returns `ok=true`
+
+How to interpret
+- Prioritize macro-F1 + minority class recall/F1.
+- If macro-F1 improves while top-line accuracy drops slightly, that can still be a net win for percussion coverage.
+- If minority classes remain near zero recall, inspect label quality and class overlap before adding model complexity.
+
+Current boundaries
+- Still CPU-first and synchronous.
+- Still one-shot multiclass lane (`percussion.one_shot`).
+- Keeps same lifecycle outputs/compatibility contracts as baseline v1.

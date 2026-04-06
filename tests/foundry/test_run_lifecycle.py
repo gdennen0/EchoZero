@@ -100,3 +100,33 @@ def test_create_run_requires_dataset_planning_and_matching_spec(tmp_path: Path):
     app.plan_version(version.id, validation_split=0.2, test_split=0.2, seed=3, balance_strategy="none")
     with pytest.raises(ValueError, match="datasetVersionId"):
         svc.create_run(version.id, _run_spec("dsv_other"))
+
+
+def test_next_level_training_options_persist_into_eval_baseline(tmp_path: Path):
+    version = _prepared_version(tmp_path)
+    assert version is not None
+    app = FoundryApp(tmp_path)
+
+    spec = _run_spec(version.id)
+    spec["training"].update(
+        {
+            "classWeighting": "balanced",
+            "rebalanceStrategy": "oversample",
+            "augmentTrain": True,
+            "augmentCopies": 2,
+            "augmentNoiseStd": 0.03,
+            "augmentGainJitter": 0.15,
+        }
+    )
+
+    run = app.runs.create_run(version.id, spec)
+    run = app.runs.start_run(run.id)
+    assert run.status == TrainRunStatus.COMPLETED
+
+    reports = app.eval._repo.list_for_run(run.id)
+    assert reports
+    baseline = reports[0].baseline
+    assert baseline["family"] == "baseline_sgd_melspec_v1_5"
+    assert baseline["class_weighting"] == "balanced"
+    assert baseline["rebalance_strategy"] == "oversample"
+    assert baseline["augment_train"] is True
