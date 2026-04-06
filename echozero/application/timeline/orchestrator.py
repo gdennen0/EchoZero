@@ -19,6 +19,7 @@ from echozero.application.timeline.intents import (
     TriggerTakeAction,
     Play,
     Pause,
+    Stop,
     Seek,
     ToggleMute,
     ToggleSolo,
@@ -73,6 +74,9 @@ class TimelineOrchestrator:
 
         elif isinstance(intent, Pause):
             self.transport_service.pause()
+
+        elif isinstance(intent, Stop):
+            self.transport_service.stop()
 
         elif isinstance(intent, Seek):
             self.transport_service.seek(intent.position)

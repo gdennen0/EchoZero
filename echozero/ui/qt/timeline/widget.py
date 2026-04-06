@@ -18,6 +18,9 @@ from echozero.application.timeline.intents import (
     SelectEvent,
     SelectLayer,
     SelectTake,
+    Stop,
+    ToggleMute,
+    ToggleSolo,
     ToggleLayerExpanded,
     TriggerTakeAction,
 )
@@ -160,6 +163,8 @@ def _parse_time_label_seconds(label: str | None) -> float:
 
 class TimelineCanvas(QWidget):
     layer_clicked = pyqtSignal(object)
+    mute_clicked = pyqtSignal(object)
+    solo_clicked = pyqtSignal(object)
     take_toggle_clicked = pyqtSignal(object)
     take_selected = pyqtSignal(object, object)
     event_selected = pyqtSignal(object, object, object)
@@ -180,6 +185,8 @@ class TimelineCanvas(QWidget):
         self._take_action_rects: list[tuple[QRectF, object, object, str]] = []
         self._open_take_options: set[tuple[object, object]] = set()
         self._toggle_rects: list[tuple[QRectF, object]] = []
+        self._mute_rects: list[tuple[QRectF, object]] = []
+        self._solo_rects: list[tuple[QRectF, object]] = []
         self._event_rects: list[tuple[QRectF, object, object | None, object]] = []
         self._header_select_rects: list[tuple[QRectF, object]] = []
         self._row_body_select_rects: list[tuple[QRectF, object]] = []
@@ -224,6 +231,8 @@ class TimelineCanvas(QWidget):
         self._take_option_rects.clear()
         self._take_action_rects.clear()
         self._toggle_rects.clear()
+        self._mute_rects.clear()
+        self._solo_rects.clear()
         self._event_rects.clear()
         self._header_select_rects.clear()
         self._row_body_select_rects.clear()
@@ -267,6 +276,14 @@ class TimelineCanvas(QWidget):
 
     def mousePressEvent(self, event):
         pos = event.position()
+        for rect, layer_id in self._mute_rects:
+            if rect.contains(pos):
+                self.mute_clicked.emit(layer_id)
+                return
+        for rect, layer_id in self._solo_rects:
+            if rect.contains(pos):
+                self.solo_clicked.emit(layer_id)
+                return
         for rect, layer_id, take_id, action_id in self._take_action_rects:
             if rect.contains(pos):
                 self.take_action_selected.emit(layer_id, take_id, action_id)
@@ -382,7 +399,9 @@ class TimelineCanvas(QWidget):
         self._header_select_rects.append((layout.header_rect, layer.layer_id))
         self._row_body_select_rects.append((layout.content_rect, layer.layer_id))
         self._header_hover_rects.append((layout.header_rect, layer))
-        self._header_block.paint(painter, slots, layer, dimmed=dimmed)
+        hit_targets = self._header_block.paint(painter, slots, layer, dimmed=dimmed)
+        self._mute_rects.append((hit_targets.mute_rect, layer.layer_id))
+        self._solo_rects.append((hit_targets.solo_rect, layer.layer_id))
 
         painter.save()
         painter.setClipRect(layout.content_rect)
@@ -490,11 +509,12 @@ class TimelineCanvas(QWidget):
 
 
 class TransportBar(QWidget):
-    def __init__(self, presentation: TimelinePresentation, on_intent: Callable[[object], TimelinePresentation] | None = None, parent=None):
+    def __init__(self, presentation: TimelinePresentation, on_intent: Callable[[object], object | None] | None = None, parent=None):
         super().__init__(parent)
         self.presentation = presentation
         self._on_intent = on_intent
         self._block = TransportBarBlock()
+        self._control_rects: dict[str, QRectF] = {}
         self.setMinimumHeight(44)
 
     def set_presentation(self, presentation: TimelinePresentation) -> None:
@@ -504,7 +524,28 @@ class TransportBar(QWidget):
     def paintEvent(self, event):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        self._block.paint(painter, TransportLayout.create(width=self.width(), height=self.height()), self.presentation)
+        self._control_rects = self._block.paint(
+            painter,
+            TransportLayout.create(width=self.width(), height=self.height()),
+            self.presentation,
+        )
+
+    def mousePressEvent(self, event) -> None:
+        pos = event.position()
+        if (play_rect := self._control_rects.get('play')) is not None and play_rect.contains(pos):
+            self._dispatch(Pause() if self.presentation.is_playing else Play())
+            return
+        if (stop_rect := self._control_rects.get('stop')) is not None and stop_rect.contains(pos):
+            self._dispatch(Stop())
+            return
+        super().mousePressEvent(event)
+
+    def _dispatch(self, intent: object) -> None:
+        if self._on_intent is None:
+            return
+        updated = self._on_intent(intent)
+        if updated is not None:
+            self.set_presentation(updated)
 
 
 class TimelineRuler(QWidget):
@@ -541,7 +582,7 @@ class TimelineWidget(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
 
-        self._transport = TransportBar(self.presentation, on_intent=self._on_intent)
+        self._transport = TransportBar(self.presentation, on_intent=self._dispatch)
         layout.addWidget(self._transport)
 
         self._canvas = TimelineCanvas(self.presentation)
@@ -553,6 +594,8 @@ class TimelineWidget(QWidget):
         self._scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self._scroll.setStyleSheet('background: #12151b; border: none;')
         self._canvas.layer_clicked.connect(self._select_layer)
+        self._canvas.mute_clicked.connect(self._toggle_mute)
+        self._canvas.solo_clicked.connect(self._toggle_solo)
         self._canvas.take_toggle_clicked.connect(self._toggle_take_selector)
         self._canvas.take_selected.connect(self._select_take)
         self._canvas.event_selected.connect(self._select_event)
@@ -649,5 +692,11 @@ class TimelineWidget(QWidget):
         if take_id is None or not action_id:
             return
         self._dispatch(TriggerTakeAction(layer_id, take_id, action_id))
+
+    def _toggle_mute(self, layer_id) -> None:
+        self._dispatch(ToggleMute(layer_id))
+
+    def _toggle_solo(self, layer_id) -> None:
+        self._dispatch(ToggleSolo(layer_id))
 
 

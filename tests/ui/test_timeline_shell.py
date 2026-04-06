@@ -14,7 +14,17 @@ from echozero.application.presentation.models import (
 )
 from echozero.application.shared.enums import LayerKind
 from echozero.application.shared.ids import EventId, LayerId, TakeId, TimelineId
-from echozero.application.timeline.intents import Pause, Play, Seek, SelectEvent, SelectLayer, ToggleLayerExpanded
+from echozero.application.timeline.intents import (
+    Pause,
+    Play,
+    Seek,
+    SelectEvent,
+    SelectLayer,
+    Stop,
+    ToggleLayerExpanded,
+    ToggleMute,
+    ToggleSolo,
+)
 from echozero.ui.qt.timeline.demo_app import build_demo_app
 from echozero.ui.qt.timeline.test_harness import build_variant_presentations, estimate_full_window_height
 from echozero.ui.qt.timeline.widget import TimelineWidget, compute_scroll_bounds, estimate_timeline_span_seconds
@@ -38,6 +48,10 @@ def test_play_pause_seek_intents_update_presentation():
 
     playing = demo.dispatch(Play())
     assert playing.is_playing is True
+
+    stopped = demo.dispatch(Stop())
+    assert stopped.is_playing is False
+    assert stopped.playhead == 0.0
 
 
 def test_realistic_fixture_contains_song_stems_and_drum_classifiers():
@@ -208,6 +222,13 @@ def _click_rect(widget: TimelineWidget, rect) -> None:
     QApplication.processEvents()
 
 
+def _click_transport_rect(widget: TimelineWidget, key: str) -> None:
+    rect = widget._transport._control_rects[key]
+    center = rect.center().toPoint()
+    QTest.mouseClick(widget._transport, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier, QPoint(center.x(), center.y()))
+    QApplication.processEvents()
+
+
 def test_main_row_event_click_dispatches_main_take_identity():
     app = QApplication.instance() or QApplication([])
     intents: list[SelectEvent] = []
@@ -281,6 +302,71 @@ def test_row_empty_space_click_dispatches_layer_selection_not_seek():
         _click_rect(widget, rect)
 
         assert intents == [SelectLayer(LayerId("layer_kick"))]
+    finally:
+        widget.close()
+        app.processEvents()
+
+
+def test_main_rows_expose_mute_solo_hit_targets_without_take_row_duplicates():
+    app = QApplication.instance() or QApplication([])
+    presentation = _selection_test_presentation()
+    widget = TimelineWidget(presentation, on_intent=lambda intent: presentation)
+    try:
+        _render_for_hit_testing(widget)
+
+        assert len(widget._canvas._mute_rects) == len(presentation.layers)
+        assert len(widget._canvas._solo_rects) == len(presentation.layers)
+    finally:
+        widget.close()
+        app.processEvents()
+
+
+def test_main_row_mute_and_solo_clicks_dispatch_toggle_intents():
+    app = QApplication.instance() or QApplication([])
+    intents: list[object] = []
+    presentation = _selection_test_presentation()
+    widget = TimelineWidget(presentation, on_intent=lambda intent: intents.append(intent) or presentation)
+    try:
+        _render_for_hit_testing(widget)
+
+        mute_rect, mute_layer_id = widget._canvas._mute_rects[0]
+        solo_rect, solo_layer_id = widget._canvas._solo_rects[0]
+
+        _click_rect(widget, mute_rect)
+        _click_rect(widget, solo_rect)
+
+        assert intents == [
+            ToggleMute(mute_layer_id),
+            ToggleSolo(solo_layer_id),
+        ]
+    finally:
+        widget.close()
+        app.processEvents()
+
+
+def test_transport_bar_clicks_dispatch_play_pause_and_stop():
+    app = QApplication.instance() or QApplication([])
+    demo = build_demo_app()
+    widget = TimelineWidget(demo.presentation(), on_intent=demo.dispatch)
+    try:
+        _render_for_hit_testing(widget)
+        widget._transport.repaint()
+        QApplication.processEvents()
+
+        _click_transport_rect(widget, "play")
+        assert widget.presentation.is_playing is False
+
+        _click_transport_rect(widget, "play")
+        assert widget.presentation.is_playing is True
+
+        demo.dispatch(Seek(4.25))
+        widget.set_presentation(demo.presentation())
+        widget._transport.repaint()
+        QApplication.processEvents()
+
+        _click_transport_rect(widget, "stop")
+        assert widget.presentation.is_playing is False
+        assert widget.presentation.playhead == 0.0
     finally:
         widget.close()
         app.processEvents()

@@ -18,7 +18,17 @@ from echozero.application.shared.enums import FollowMode, PlaybackStatus, SyncMo
 from echozero.application.shared.ids import EventId, ProjectId, SessionId, SongId, SongVersionId
 from echozero.application.sync.models import SyncState
 from echozero.application.sync.service import SyncService
-from echozero.application.timeline.intents import Pause, Play, Seek, TimelineIntent, ToggleLayerExpanded, TriggerTakeAction
+from echozero.application.timeline.intents import (
+    Pause,
+    Play,
+    Seek,
+    Stop,
+    TimelineIntent,
+    ToggleLayerExpanded,
+    ToggleMute,
+    ToggleSolo,
+    TriggerTakeAction,
+)
 from echozero.application.transport.models import TransportState
 from echozero.application.transport.service import TransportService
 from echozero.ui.qt.timeline.fixture_loader import load_realistic_timeline_fixture
@@ -168,8 +178,27 @@ class DemoTimelineApp:
             self.session.transport_state.is_playing = False
         elif isinstance(intent, Play):
             self.session.transport_state.is_playing = True
+        elif isinstance(intent, Stop):
+            self.session.transport_state.is_playing = False
+            self.session.transport_state.playhead = 0.0
         elif isinstance(intent, Seek):
             self.session.transport_state.playhead = max(0.0, intent.position)
+        elif isinstance(intent, ToggleMute):
+            layers = []
+            for layer in self.presentation_state.layers:
+                if layer.layer_id == intent.layer_id:
+                    layers.append(replace(layer, muted=not layer.muted))
+                else:
+                    layers.append(layer)
+            self.presentation_state = replace(self.presentation_state, layers=layers)
+        elif isinstance(intent, ToggleSolo):
+            layers = []
+            for layer in self.presentation_state.layers:
+                if layer.layer_id == intent.layer_id:
+                    layers.append(replace(layer, soloed=not layer.soloed))
+                else:
+                    layers.append(layer)
+            self.presentation_state = replace(self.presentation_state, layers=layers)
         elif isinstance(intent, ToggleLayerExpanded):
             layers = []
             for layer in self.presentation_state.layers:

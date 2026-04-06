@@ -19,8 +19,21 @@ class HeaderSlots:
     metadata_rect: QRectF
 
 
+@dataclass(slots=True)
+class HeaderHitTargets:
+    mute_rect: QRectF
+    solo_rect: QRectF
+
+
 class LayerHeaderBlock:
-    def paint(self, painter: QPainter, slots: HeaderSlots, layer: LayerPresentation, *, dimmed: bool = False) -> None:
+    def paint(
+        self,
+        painter: QPainter,
+        slots: HeaderSlots,
+        layer: LayerPresentation,
+        *,
+        dimmed: bool = False,
+    ) -> HeaderHitTargets:
         rect = slots.rect
         painter.fillRect(rect, QColor('#202833' if layer.is_selected and not dimmed else '#151922' if dimmed else '#1b212a'))
 
@@ -32,8 +45,10 @@ class LayerHeaderBlock:
         painter.drawText(slots.title_rect, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, layer.title)
 
         self._draw_status_chips(painter, slots.status_rect, layer)
-        self._draw_ms_button(painter, QRectF(slots.controls_rect.left(), slots.controls_rect.top(), 24, 18), 'M', active=layer.muted, dimmed=dimmed)
-        self._draw_ms_button(painter, QRectF(slots.controls_rect.left() + 28, slots.controls_rect.top(), 24, 18), 'S', active=layer.soloed, dimmed=dimmed)
+        mute_rect = QRectF(slots.controls_rect.left(), slots.controls_rect.top(), 24, 18)
+        solo_rect = QRectF(slots.controls_rect.left() + 28, slots.controls_rect.top(), 24, 18)
+        self._draw_ms_button(painter, mute_rect, 'M', active=layer.muted, dimmed=dimmed)
+        self._draw_ms_button(painter, solo_rect, 'S', active=layer.soloed, dimmed=dimmed)
 
         painter.setPen(QColor('#445065'))
         painter.setBrush(QBrush(QColor('#141922')))
@@ -50,6 +65,7 @@ class LayerHeaderBlock:
             'v' if layer.is_expanded else '>',
         )
         painter.setFont(prior_font)
+        return HeaderHitTargets(mute_rect=mute_rect, solo_rect=solo_rect)
 
 
     def _draw_status_chips(self, painter: QPainter, rect: QRectF, layer: LayerPresentation) -> None:

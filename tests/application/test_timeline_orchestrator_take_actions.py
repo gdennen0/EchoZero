@@ -20,7 +20,15 @@ from echozero.application.shared.ids import (
 )
 from echozero.application.sync.models import SyncState
 from echozero.application.sync.service import SyncService
-from echozero.application.timeline.intents import SelectEvent, SelectTake, ToggleLayerExpanded, TriggerTakeAction
+from echozero.application.timeline.intents import (
+    SelectEvent,
+    SelectTake,
+    Stop,
+    ToggleLayerExpanded,
+    ToggleMute,
+    ToggleSolo,
+    TriggerTakeAction,
+)
 from echozero.application.timeline.models import Event, Layer, Take, Timeline
 from echozero.application.timeline.orchestrator import TimelineOrchestrator
 from echozero.application.transport.models import TransportState
@@ -256,6 +264,28 @@ def test_select_event_updates_selected_take_for_main_and_take_events():
     assert timeline.selection.selected_layer_id == layer.id
     assert timeline.selection.selected_take_id == alt_take.id
     assert timeline.selection.selected_event_ids == [alt_take.events[0].id]
+
+
+def test_stop_resets_transport_playhead_and_playing_state():
+    orchestrator, timeline, _layer, _main_take, _alt_take = _build_orchestrator_and_timeline()
+    session = orchestrator.session_service.get_session()
+    session.transport_state.is_playing = True
+    session.transport_state.playhead = 3.5
+
+    orchestrator.handle(timeline, Stop())
+
+    assert session.transport_state.is_playing is False
+    assert session.transport_state.playhead == 0.0
+
+
+def test_toggle_mute_and_solo_update_layer_mixer_state():
+    orchestrator, timeline, layer, _main_take, _alt_take = _build_orchestrator_and_timeline()
+
+    orchestrator.handle(timeline, ToggleMute(layer.id))
+    assert layer.mixer.mute is True
+
+    orchestrator.handle(timeline, ToggleSolo(layer.id))
+    assert layer.mixer.solo is True
 
 
 def test_trigger_take_action_overwrite_main_replaces_events_from_source_take():

@@ -64,6 +64,11 @@ class Pause(TimelineIntent):
 
 
 @dataclass(slots=True)
+class Stop(TimelineIntent):
+    pass
+
+
+@dataclass(slots=True)
 class Seek(TimelineIntent):
     position: float
 
