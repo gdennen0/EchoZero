@@ -6,18 +6,31 @@
     "schema",
     "artifactId",
     "runId",
+    "datasetVersionId",
+    "specHash",
     "weightsPath",
     "classes",
     "classificationMode",
-    "inferencePreprocessing"
+    "inferencePreprocessing",
+    "taxonomy",
+    "labelPolicy",
+    "runtime"
   ],
   "properties": {
     "schema": { "const": "foundry.artifact_manifest.v1" },
     "artifactId": { "type": "string" },
     "runId": { "type": "string" },
+    "datasetVersionId": { "type": "string" },
+    "specHash": { "type": "string" },
     "weightsPath": { "type": "string" },
     "classes": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
     "classificationMode": { "enum": ["multiclass", "binary", "positive_vs_other"] },
+    "taxonomy": { "type": "object" },
+    "labelPolicy": { "type": "object" },
+    "runtime": {
+      "type": "object",
+      "required": ["consumer", "backend", "device"]
+    },
     "inferencePreprocessing": {
       "type": "object",
       "required": ["sampleRate", "maxLength", "nFft", "hopLength", "nMels", "fmax"]

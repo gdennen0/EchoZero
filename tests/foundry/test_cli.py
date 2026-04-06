@@ -8,7 +8,13 @@ from echozero.foundry.cli import main
 
 def _write_samples(root: Path) -> None:
     (root / "kick").mkdir(parents=True, exist_ok=True)
+    (root / "snare").mkdir(parents=True, exist_ok=True)
     (root / "kick" / "k1.wav").write_bytes(b"RIFF" + b"\x00" * 32)
+    (root / "kick" / "k2.wav").write_bytes(b"RIFF" + b"\x01" * 32)
+    (root / "kick" / "k3.wav").write_bytes(b"RIFF" + b"\x02" * 32)
+    (root / "snare" / "s1.wav").write_bytes(b"RIFF" + b"\x10" * 32)
+    (root / "snare" / "s2.wav").write_bytes(b"RIFF" + b"\x11" * 32)
+    (root / "snare" / "s3.wav").write_bytes(b"RIFF" + b"\x12" * 32)
 
 
 def test_cli_dataset_ingest_and_run(tmp_path: Path, capsys):
@@ -22,6 +28,9 @@ def test_cli_dataset_ingest_and_run(tmp_path: Path, capsys):
     assert main(["--root", str(tmp_path), "ingest-folder", dataset_id, str(samples)]) == 0
     out = capsys.readouterr().out
     version_id = json.loads(out)["version_id"]
+
+    assert main(["--root", str(tmp_path), "plan-version", version_id, "--val", "0.2", "--test", "0.2", "--seed", "13"]) == 0
+    capsys.readouterr()
 
     run_spec = json.dumps(
         {

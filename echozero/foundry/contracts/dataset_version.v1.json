@@ -10,7 +10,10 @@
     "sample_rate",
     "audio_standard",
     "class_map",
-    "samples"
+    "samples",
+    "taxonomy",
+    "label_policy",
+    "manifest"
   ],
   "properties": {
     "id": { "type": "string" },
@@ -20,7 +23,26 @@
     "sample_rate": { "type": "integer" },
     "audio_standard": { "type": "string" },
     "class_map": { "type": "array", "items": { "type": "string" } },
-    "samples": { "type": "array", "items": { "type": "object" } },
+    "samples": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["sample_id", "audio_ref", "label", "content_hash", "source_provenance"],
+        "properties": {
+          "sample_id": { "type": "string" },
+          "audio_ref": { "type": "string" },
+          "label": { "type": "string" },
+          "content_hash": { "type": "string" },
+          "source_provenance": { "type": "object" },
+          "quality_flags": { "type": "array", "items": { "type": "string" } },
+          "split_assignment": { "type": ["string", "null"] },
+          "curation_state": { "type": "string" }
+        }
+      }
+    },
+    "taxonomy": { "type": "object" },
+    "label_policy": { "type": "object" },
+    "manifest": { "type": "object" },
     "split_plan": { "type": "object" },
     "balance_plan": { "type": "object" },
     "stats": { "type": "object" }

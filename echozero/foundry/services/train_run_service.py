@@ -7,7 +7,12 @@ from pathlib import Path
 from uuid import uuid4
 
 from echozero.foundry.domain import TrainRun, TrainRunStatus
-from echozero.foundry.persistence import TrainRunRepository
+from echozero.foundry.persistence import DatasetVersionRepository, TrainRunRepository
+
+
+_REQUIRED_DATA_KEYS = {"datasetVersionId", "sampleRate", "maxLength", "nFft", "hopLength", "nMels", "fmax"}
+_REQUIRED_TRAINING_KEYS = {"epochs", "batchSize", "learningRate"}
+_SUPPORTED_CLASSIFICATION_MODES = {"multiclass", "binary", "positive_vs_other"}
 
 
 _ALLOWED_TRANSITIONS: dict[TrainRunStatus, set[TrainRunStatus]] = {
@@ -29,11 +34,18 @@ _ALLOWED_TRANSITIONS: dict[TrainRunStatus, set[TrainRunStatus]] = {
 
 
 class TrainRunService:
-    def __init__(self, root: Path, repository: TrainRunRepository | None = None):
+    def __init__(
+        self,
+        root: Path,
+        repository: TrainRunRepository | None = None,
+        dataset_version_repository: DatasetVersionRepository | None = None,
+    ):
         self._root = root
         self._repo = repository or TrainRunRepository(root)
+        self._dataset_versions = dataset_version_repository or DatasetVersionRepository(root)
 
     def create_run(self, dataset_version_id: str, run_spec: dict, backend: str = "pytorch", device: str = "cpu") -> TrainRun:
+        self._validate_run_spec(dataset_version_id, run_spec)
         spec_json = json.dumps(run_spec, sort_keys=True)
         spec_hash = hashlib.sha256(spec_json.encode("utf-8")).hexdigest()
         run = TrainRun(
@@ -136,3 +148,66 @@ class TrainRunService:
         path = run.event_log_path(self._root)
         with path.open("a", encoding="utf-8") as fh:
             fh.write(json.dumps(event, sort_keys=True) + "\n")
+
+    def _validate_run_spec(self, dataset_version_id: str, run_spec: dict) -> None:
+        if run_spec.get("schema") != "foundry.train_run_spec.v1":
+            raise ValueError("run_spec.schema must be foundry.train_run_spec.v1")
+
+        classification_mode = run_spec.get("classificationMode")
+        if classification_mode not in _SUPPORTED_CLASSIFICATION_MODES:
+            raise ValueError("run_spec.classificationMode is unsupported")
+
+        data = run_spec.get("data")
+        if not isinstance(data, dict):
+            raise ValueError("run_spec.data must be an object")
+        missing_data = sorted(_REQUIRED_DATA_KEYS - set(data.keys()))
+        if missing_data:
+            raise ValueError(f"run_spec.data missing keys: {', '.join(missing_data)}")
+
+        training = run_spec.get("training")
+        if not isinstance(training, dict):
+            raise ValueError("run_spec.training must be an object")
+        missing_training = sorted(_REQUIRED_TRAINING_KEYS - set(training.keys()))
+        if missing_training:
+            raise ValueError(f"run_spec.training missing keys: {', '.join(missing_training)}")
+
+        dataset_version = self._dataset_versions.get(dataset_version_id)
+        if dataset_version is None:
+            raise ValueError(f"DatasetVersion not found: {dataset_version_id}")
+
+        if data.get("datasetVersionId") != dataset_version_id:
+            raise ValueError("run_spec.data.datasetVersionId must match the requested dataset version")
+        if int(data["sampleRate"]) != dataset_version.sample_rate:
+            raise ValueError("run_spec.data.sampleRate must match dataset version sample_rate")
+        if dataset_version.label_policy.get("classification_mode") not in {None, classification_mode}:
+            raise ValueError("run_spec.classificationMode must match dataset label policy")
+
+        split_plan = dataset_version.split_plan or {}
+        assignments = split_plan.get("assignments", {})
+        if not assignments:
+            raise ValueError("dataset version must have split assignments before training")
+        if not split_plan.get("train_ids"):
+            raise ValueError("dataset version split plan must contain train samples")
+        if not split_plan.get("val_ids"):
+            raise ValueError("dataset version split plan must contain validation samples")
+        if split_plan.get("leakage", {}).get("duplicate_hashes_across_splits"):
+            raise ValueError("dataset version split plan has duplicate content hashes across splits")
+
+        if len(dataset_version.class_map) < 2 and classification_mode == "multiclass":
+            raise ValueError("multiclass training requires at least two classes")
+        if dataset_version.taxonomy.get("namespace") != "percussion.one_shot":
+            raise ValueError("dataset taxonomy must target percussion.one_shot for the v1 baseline")
+
+        if int(training["epochs"]) < 1:
+            raise ValueError("run_spec.training.epochs must be >= 1")
+        if int(training["batchSize"]) < 1:
+            raise ValueError("run_spec.training.batchSize must be >= 1")
+        if float(training["learningRate"]) <= 0:
+            raise ValueError("run_spec.training.learningRate must be > 0")
+
+        if int(data["maxLength"]) < int(data["sampleRate"]) // 10:
+            raise ValueError("run_spec.data.maxLength is too small for one-shot training")
+        if int(data["hopLength"]) >= int(data["nFft"]):
+            raise ValueError("run_spec.data.hopLength must be smaller than nFft")
+        if int(data["fmax"]) > int(data["sampleRate"]) // 2:
+            raise ValueError("run_spec.data.fmax must not exceed the Nyquist limit")

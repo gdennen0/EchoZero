@@ -40,8 +40,10 @@ class DatasetSample:
     audio_ref: str
     label: str
     duration_ms: float | None = None
+    content_hash: str = ""
     source_provenance: dict[str, Any] = field(default_factory=dict)
     quality_flags: list[str] = field(default_factory=list)
+    split_assignment: str | None = None
     curation_state: CurationState = CurationState.UNKNOWN
 
 
@@ -55,6 +57,9 @@ class DatasetVersion:
     audio_standard: str
     class_map: list[str]
     samples: list[DatasetSample] = field(default_factory=list)
+    taxonomy: dict[str, Any] = field(default_factory=dict)
+    label_policy: dict[str, Any] = field(default_factory=dict)
+    manifest: dict[str, Any] = field(default_factory=dict)
     split_plan: dict[str, Any] = field(default_factory=dict)
     balance_plan: dict[str, Any] = field(default_factory=dict)
     stats: dict[str, Any] = field(default_factory=dict)
@@ -72,6 +77,11 @@ class EvalReport:
     run_id: str
     classification_mode: str
     metrics: dict[str, Any]
+    dataset_version_id: str | None = None
+    split_name: str = "test"
+    aggregate_metrics: dict[str, Any] = field(default_factory=dict)
+    per_class_metrics: dict[str, Any] = field(default_factory=dict)
+    baseline: dict[str, Any] = field(default_factory=dict)
     threshold_policy: dict[str, Any] | None = None
     confusion: dict[str, Any] | None = None
     summary: dict[str, Any] = field(default_factory=dict)

@@ -8,11 +8,25 @@
     "classificationMode": { "enum": ["multiclass", "binary", "positive_vs_other"] },
     "data": {
       "type": "object",
-      "required": ["datasetVersionId", "sampleRate", "maxLength", "nFft", "hopLength", "nMels", "fmax"]
+      "required": ["datasetVersionId", "sampleRate", "maxLength", "nFft", "hopLength", "nMels", "fmax"],
+      "properties": {
+        "datasetVersionId": { "type": "string" },
+        "sampleRate": { "type": "integer", "minimum": 8000 },
+        "maxLength": { "type": "integer", "minimum": 1 },
+        "nFft": { "type": "integer", "minimum": 64 },
+        "hopLength": { "type": "integer", "minimum": 1 },
+        "nMels": { "type": "integer", "minimum": 8 },
+        "fmax": { "type": "integer", "minimum": 1 }
+      }
     },
     "training": {
       "type": "object",
-      "required": ["epochs", "batchSize", "learningRate"]
+      "required": ["epochs", "batchSize", "learningRate"],
+      "properties": {
+        "epochs": { "type": "integer", "minimum": 1 },
+        "batchSize": { "type": "integer", "minimum": 1 },
+        "learningRate": { "type": "number", "exclusiveMinimum": 0 }
+      }
     }
   }
 }

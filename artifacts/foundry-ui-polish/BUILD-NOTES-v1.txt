@@ -1,22 +1,26 @@
 Foundry functional v1 build notes
 
 Changed in this run:
-- Completed the Foundry domain/persistence shape for v1 starter coverage by enriching Dataset, DatasetVersion, TrainRun, EvalReport, and ModelArtifact with persisted metadata used by lifecycle and compatibility flows.
-- Added explicit TrainRun path helpers for checkpoints, exports, logs, and event log access; kept the existing engine boundary unchanged.
-- Tightened artifact compatibility validation for the PyTorch classifier consumer so it now checks:
-  - manifest schema and required preprocessing keys
-  - runId and classificationMode consistency with the originating run
-  - inference preprocessing consistency with the train run spec
-  - classes consistency with the persisted dataset version class map
-  - weightsPath presence and `.pth` compatibility for `PyTorchAudioClassify`
-- Added persistence coverage for TrainRun and ModelArtifact round-trip reload/list behavior.
-- Upgraded the smoke path to use a tiny ingested dataset through run creation/start/completion, artifact finalization, persistence reload, and compatibility success.
-- Added `tests/foundry/conftest.py` to override pytest temp handling inside the Foundry test slice so the required `.venv\\Scripts\\python -m pytest -q tests/foundry` command runs cleanly in this Windows environment.
+- Foundry dataset contracts now carry explicit `taxonomy`, `label_policy`, and `manifest` structures for percussion one-shot work. The default ingest path stamps `percussion.one_shot` taxonomy metadata, allowed-label policy, stable content hashes, richer folder provenance, and deterministic manifest ordering.
+- Dataset planning is now train-ready instead of demo-only. Split plans persist per-sample assignments, planner metadata, label distribution, content-hash groups, and a leakage report. Duplicate content hashes are grouped globally so the same audio content cannot land in multiple splits.
+- Dataset curation keeps the manifest and split plan coherent by removing rejected samples from deterministic ordering, split assignments, and grouped-content metadata in the derived version.
+- Train run creation now validates the practical baseline path for one-shot training:
+  - spec schema and required data/training fields
+  - datasetVersionId and sampleRate consistency with the persisted dataset version
+  - taxonomy targeting `percussion.one_shot`
+  - label-policy compatibility with the requested classification mode
+  - planned train/validation assignments present before a run can be created
+  - no recorded duplicate-content leakage across splits
+  - sane numeric constraints for `epochs`, `batchSize`, `learningRate`, `maxLength`, `hopLength`, and `fmax`
+- Eval reports now persist baseline-oriented structure for metrics output: dataset version linkage, evaluated split name, aggregate metrics, per-class metrics, baseline metadata, threshold policy, confusion payloads, and a summary block.
+- Artifact manifests are now tightened for runtime use. Finalized artifacts carry `datasetVersionId`, `specHash`, taxonomy, label policy, and runtime consumer/backend/device metadata. Compatibility checks now verify those fields against the originating run and dataset version in addition to preprocessing, class ordering, and relative `.pth` weights paths.
+- Foundry tests were expanded end to end for the realistic path: dataset ingest/planning/curation, duplicate-hash split hygiene, run-spec validation, eval report persistence, artifact compatibility success/failure, CLI flow, and app-level smoke coverage.
 
 Verification:
-- `.venv\\Scripts\\python -m pytest -q tests/foundry` -> 10 passed
+- `.venv\\Scripts\\python -m pytest -q tests/foundry` -> 14 passed
 
 Remaining non-v1 items:
-- No real training backend execution loop was added; run lifecycle remains a service/domain scaffold with event logging and persistence.
-- No JSON-schema enforcement layer was added for contracts beyond service-level validation already in place.
-- No broader timeline/UI changes were made.
+- No real trainer execution backend, checkpoint contents, or exporter pipeline was added; Foundry is now ready to hand a validated dataset/run/artifact contract set to training, but it still does not perform actual model optimization.
+- No schema-engine integration was added; the contract JSON files were updated and the services enforce the practical baseline rules directly.
+- Out of scope for this pass: broader timeline/UI systems, non-percussion taxonomies, advanced augmentation policies, and richer evaluation visualizations.
+- TODO: add a dedicated dataset audit/report command that can surface duplicate-content groups and sparse-class warnings before planning. The data is persisted now, but there is not yet a first-class operator-facing report surface.

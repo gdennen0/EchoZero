@@ -37,6 +37,12 @@ class ArtifactService:
         run = self._run_repo.get(run_id)
         if not run:
             raise ValueError(f"TrainRun not found: {run_id}")
+        if run.status.value not in {"exporting", "completed"}:
+            raise ValueError("Artifacts can only be finalized from exporting or completed runs")
+
+        dataset_version = self._dataset_version_repo.get(run.dataset_version_id)
+        if dataset_version is None:
+            raise ValueError(f"DatasetVersion not found: {run.dataset_version_id}")
 
         artifact_id = f"art_{uuid4().hex[:12]}"
         run_export_dir = run.run_dir(self._root) / "exports"
@@ -47,6 +53,15 @@ class ArtifactService:
             "artifactId": artifact_id,
             "runId": run_id,
             "createdAt": datetime.now(UTC).isoformat(),
+            "datasetVersionId": dataset_version.id,
+            "specHash": run.spec_hash,
+            "taxonomy": dataset_version.taxonomy,
+            "labelPolicy": dataset_version.label_policy,
+            "runtime": {
+                "consumer": "PyTorchAudioClassify",
+                "backend": run.backend,
+                "device": run.device,
+            },
             **manifest,
         }
         manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
@@ -97,6 +112,10 @@ class ArtifactService:
         if run is not None:
             if m.get("runId") != run.id:
                 errors.append("manifest.runId must match the originating run id")
+            if m.get("datasetVersionId") != run.dataset_version_id:
+                errors.append("manifest.datasetVersionId must match the originating dataset version id")
+            if m.get("specHash") != run.spec_hash:
+                errors.append("manifest.specHash must match the originating run spec hash")
 
             if m.get("classificationMode") != run.spec.get("classificationMode"):
                 errors.append("manifest.classificationMode must match run spec classificationMode")
@@ -113,6 +132,10 @@ class ArtifactService:
             expected_classes = list(dataset_version.class_map)
             if classes != expected_classes:
                 errors.append("manifest.classes must match dataset version class_map order")
+            if m.get("taxonomy") != dataset_version.taxonomy:
+                errors.append("manifest.taxonomy must match dataset version taxonomy")
+            if m.get("labelPolicy") != dataset_version.label_policy:
+                errors.append("manifest.labelPolicy must match dataset version label_policy")
 
         if consumer == "PyTorchAudioClassify":
             weights_path = m.get("weightsPath")
@@ -120,6 +143,11 @@ class ArtifactService:
                 errors.append("manifest.weightsPath is required for PyTorchAudioClassify")
             elif not str(weights_path).endswith(".pth"):
                 errors.append("manifest.weightsPath must point to a .pth file for PyTorchAudioClassify")
+            if Path(str(weights_path)).is_absolute():
+                errors.append("manifest.weightsPath must be relative for portable runtime use")
+            runtime = m.get("runtime") or {}
+            if runtime.get("consumer") != consumer:
+                errors.append("manifest.runtime.consumer must match the validated consumer")
 
         if m.get("classificationMode") == "binary" and "thresholdPolicy" not in m:
             warnings.append("binary classifier missing thresholdPolicy")

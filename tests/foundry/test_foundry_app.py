@@ -8,8 +8,12 @@ from echozero.foundry.app import FoundryApp
 def _write_samples(root: Path) -> None:
     (root / "kick").mkdir(parents=True, exist_ok=True)
     (root / "snare").mkdir(parents=True, exist_ok=True)
-    (root / "kick" / "k1.wav").write_bytes(b"RIFF" + b"\x00" * 32)
-    (root / "snare" / "s1.wav").write_bytes(b"RIFF" + b"\x00" * 32)
+    (root / "kick" / "k1.wav").write_bytes(b"RIFF" + b"\x01" * 32)
+    (root / "kick" / "k2.wav").write_bytes(b"RIFF" + b"\x02" * 32)
+    (root / "kick" / "k3.wav").write_bytes(b"RIFF" + b"\x03" * 32)
+    (root / "snare" / "s1.wav").write_bytes(b"RIFF" + b"\x10" * 32)
+    (root / "snare" / "s2.wav").write_bytes(b"RIFF" + b"\x11" * 32)
+    (root / "snare" / "s3.wav").write_bytes(b"RIFF" + b"\x12" * 32)
 
 
 def test_foundry_app_end_to_end_run_to_artifact(tmp_path: Path):
@@ -19,6 +23,7 @@ def test_foundry_app_end_to_end_run_to_artifact(tmp_path: Path):
     app = FoundryApp(tmp_path)
     dataset = app.datasets.create_dataset("Drums")
     version = app.datasets.ingest_from_folder(dataset.id, samples)
+    app.plan_version(version.id, validation_split=0.25, test_split=0.25, seed=9, balance_strategy="none")
 
     run_spec = {
         "schema": "foundry.train_run_spec.v1",

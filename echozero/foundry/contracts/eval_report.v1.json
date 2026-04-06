@@ -2,14 +2,20 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "foundry.eval_report.v1",
   "type": "object",
-  "required": ["id", "run_id", "classification_mode", "metrics", "created_at"],
+  "required": ["id", "run_id", "classification_mode", "metrics", "split_name", "aggregate_metrics", "per_class_metrics", "baseline", "created_at"],
   "properties": {
     "id": { "type": "string" },
     "run_id": { "type": "string" },
     "classification_mode": { "type": "string" },
     "metrics": { "type": "object" },
+    "dataset_version_id": { "type": ["string", "null"] },
+    "split_name": { "type": "string" },
+    "aggregate_metrics": { "type": "object" },
+    "per_class_metrics": { "type": "object" },
+    "baseline": { "type": "object" },
     "threshold_policy": { "type": ["object", "null"] },
     "confusion": { "type": ["object", "null"] },
+    "summary": { "type": "object" },
     "created_at": { "type": "string" }
   }
 }

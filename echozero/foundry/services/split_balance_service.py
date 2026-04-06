@@ -18,32 +18,61 @@ class SplitBalanceService:
             raise ValueError("Invalid split percentages")
 
         rng = random.Random(seed)
-        by_label: dict[str, list[str]] = {}
+        grouped_samples: dict[str, list] = {}
+        class_counts: dict[str, int] = {}
         for sample in version.samples:
-            by_label.setdefault(sample.label, []).append(sample.sample_id)
+            group_key = sample.content_hash or sample.sample_id
+            grouped_samples.setdefault(group_key, []).append(sample)
+            class_counts[sample.label] = class_counts.get(sample.label, 0) + 1
 
         train: list[str] = []
         val: list[str] = []
         test: list[str] = []
+        assignments: dict[str, str] = {}
+        groups = [(group_key, sorted(samples, key=lambda sample: sample.sample_id)) for group_key, samples in grouped_samples.items()]
+        rng.shuffle(groups)
+        target_test = {label: int(round(count * test_split)) for label, count in class_counts.items()}
+        target_val = {label: int(round(count * validation_split)) for label, count in class_counts.items()}
+        assigned_test = {label: 0 for label in class_counts}
+        assigned_val = {label: 0 for label in class_counts}
 
-        for label, sample_ids in by_label.items():
-            ids = list(sample_ids)
-            rng.shuffle(ids)
-            n = len(ids)
-            n_test = int(round(n * test_split))
-            n_val = int(round(n * validation_split))
+        for index, (_, samples) in enumerate(groups):
+            sample_ids = [sample.sample_id for sample in samples]
+            label_counts: dict[str, int] = {}
+            for sample in samples:
+                label_counts[sample.label] = label_counts.get(sample.label, 0) + 1
 
-            test.extend(ids[:n_test])
-            val.extend(ids[n_test:n_test + n_val])
-            train.extend(ids[n_test + n_val:])
+            remaining_groups = len(groups) - index
+            split_name = "train"
+            if remaining_groups > 1 and self._should_assign(label_counts, assigned_test, target_test):
+                split_name = "test"
+                for label, count in label_counts.items():
+                    assigned_test[label] += count
+            elif remaining_groups > 1 and self._should_assign(label_counts, assigned_val, target_val):
+                split_name = "val"
+                for label, count in label_counts.items():
+                    assigned_val[label] += count
+
+            self._assign_samples(sample_ids, split_name, train=train, val=val, test=test, assignments=assignments)
+
+        leakage = self._build_leakage_report(version, assignments)
+        label_distribution = self._build_label_distribution(version, assignments)
 
         return {
             "validation_split": validation_split,
             "test_split": test_split,
             "seed": seed,
+            "planner": "content_hash_grouped_v1",
             "train_ids": sorted(train),
             "val_ids": sorted(val),
             "test_ids": sorted(test),
+            "assignments": assignments,
+            "label_distribution": label_distribution,
+            "content_hash_groups": {
+                group_key: sorted(sample.sample_id for sample in samples)
+                for group_key, samples in grouped_samples.items()
+            },
+            "leakage": leakage,
         }
 
     def plan_balance(
@@ -80,3 +109,50 @@ class SplitBalanceService:
             "target_counts": target_counts,
             "deltas": deltas,
         }
+
+    @staticmethod
+    def _assign_samples(
+        sample_ids: list[str],
+        split_name: str,
+        *,
+        train: list[str],
+        val: list[str],
+        test: list[str],
+        assignments: dict[str, str],
+    ) -> None:
+        target = train if split_name == "train" else val if split_name == "val" else test
+        target.extend(sample_ids)
+        for sample_id in sample_ids:
+            assignments[sample_id] = split_name
+
+    @staticmethod
+    def _build_label_distribution(version: DatasetVersion, assignments: dict[str, str]) -> dict:
+        distribution: dict[str, dict[str, int]] = {"train": {}, "val": {}, "test": {}}
+        for sample in version.samples:
+            split_name = assignments.get(sample.sample_id, "unassigned")
+            if split_name not in distribution:
+                distribution[split_name] = {}
+            distribution[split_name][sample.label] = distribution[split_name].get(sample.label, 0) + 1
+        return distribution
+
+    @staticmethod
+    def _build_leakage_report(version: DatasetVersion, assignments: dict[str, str]) -> dict:
+        hash_splits: dict[str, set[str]] = {}
+        for sample in version.samples:
+            if not sample.content_hash:
+                continue
+            split_name = assignments.get(sample.sample_id)
+            if split_name is None:
+                continue
+            hash_splits.setdefault(sample.content_hash, set()).add(split_name)
+
+        duplicate_hashes = sorted(content_hash for content_hash, splits in hash_splits.items() if len(splits) > 1)
+        return {
+            "guard": "content_hash",
+            "duplicate_hashes_across_splits": duplicate_hashes,
+            "ok": not duplicate_hashes,
+        }
+
+    @staticmethod
+    def _should_assign(label_counts: dict[str, int], assigned: dict[str, int], targets: dict[str, int]) -> bool:
+        return any(assigned.get(label, 0) < targets.get(label, 0) for label in label_counts)
