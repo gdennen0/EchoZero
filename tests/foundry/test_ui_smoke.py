@@ -5,6 +5,7 @@ import os
 import subprocess
 import sys
 import textwrap
+import time
 from pathlib import Path
 
 from tests.foundry.audio_fixtures import write_percussion_dataset
@@ -29,6 +30,7 @@ def test_foundry_window_smoke(tmp_path: Path):
             """
             import json
             import sys
+            import time
             from pathlib import Path
 
             from PyQt6.QtWidgets import QApplication
@@ -63,6 +65,7 @@ def test_foundry_window_desktop_workflow_exposes_run_artifact_and_eval(tmp_path:
             """
             import json
             import sys
+            import time
             from pathlib import Path
 
             from PyQt6.QtWidgets import QApplication
@@ -77,6 +80,10 @@ def test_foundry_window_desktop_workflow_exposes_run_artifact_and_eval(tmp_path:
             window._create_and_ingest_dataset()
             window._plan_version()
             window._create_and_start_run()
+            deadline = time.time() + 30
+            while window._run_thread is not None and time.time() < deadline:
+                app.processEvents()
+                time.sleep(0.01)
             print(json.dumps({
                 "dataset_id": window._dataset_id,
                 "version_id": window._version_id,

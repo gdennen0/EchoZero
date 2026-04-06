@@ -4,9 +4,11 @@ import json
 import os
 from pathlib import Path
 
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import QObject, QThread, QTimer, Qt, QUrl, pyqtSignal
+from PyQt6.QtGui import QDesktopServices
 from PyQt6.QtWidgets import (
     QApplication,
+    QComboBox,
     QFileDialog,
     QGridLayout,
     QGroupBox,
@@ -30,8 +32,27 @@ from echozero.foundry import FoundryApp
 from echozero.foundry.persistence import DatasetRepository, DatasetVersionRepository, EvalReportRepository, ModelArtifactRepository
 
 
+class _RunWorker(QObject):
+    finished = pyqtSignal(str)
+    failed = pyqtSignal(str)
+
+    def __init__(self, action):
+        super().__init__()
+        self._action = action
+
+    def run(self) -> None:
+        try:
+            run_id = str(self._action())
+        except Exception as exc:
+            self.failed.emit(str(exc))
+            return
+        self.finished.emit(run_id)
+
+
 class FoundryWindow(QMainWindow):
     """Official EchoZero Foundry v1 window for local desktop workflows."""
+
+    activity_item_received = pyqtSignal(str, str)
 
     def __init__(self, root: Path):
         super().__init__()
@@ -52,11 +73,20 @@ class FoundryWindow(QMainWindow):
         self._run_id: str | None = None
         self._artifact_id: str | None = None
         self._selected_artifact_id: str | None = None
+        self._run_thread: QThread | None = None
+        self._run_worker: _RunWorker | None = None
+        self._run_poll_timer = QTimer(self)
+        self._run_poll_timer.setInterval(250)
+        self._run_poll_timer.timeout.connect(self._poll_active_run)
+        self._last_event_count_by_run: dict[str, int] = {}
+        self._running_action_label: str | None = None
 
         container = QWidget()
         self.setCentralWidget(container)
         root_layout = QVBoxLayout(container)
         root_layout.setSpacing(10)
+
+        self.activity_item_received.connect(self._append_activity_item)
 
         root_layout.addWidget(self._build_header())
 
@@ -107,6 +137,10 @@ class FoundryWindow(QMainWindow):
 
         self.dataset_name = QLineEdit("Drums")
         self.dataset_folder = QLineEdit("")
+        self.dataset_selector = QComboBox()
+        self.dataset_selector.currentIndexChanged.connect(self._on_dataset_selected)
+        self.version_selector = QComboBox()
+        self.version_selector.currentIndexChanged.connect(self._on_version_selected)
         browse_btn = QPushButton("Browse")
         browse_btn.clicked.connect(self._pick_dataset_folder)
         ingest_btn = QPushButton("Create + Ingest")
@@ -130,21 +164,25 @@ class FoundryWindow(QMainWindow):
         plan_btn = QPushButton("Plan Split / Balance")
         plan_btn.clicked.connect(self._plan_version)
 
-        grid.addWidget(QLabel("Name"), 0, 0)
-        grid.addWidget(self.dataset_name, 0, 1, 1, 3)
-        grid.addWidget(QLabel("Folder"), 1, 0)
-        grid.addWidget(self.dataset_folder, 1, 1, 1, 2)
-        grid.addWidget(browse_btn, 1, 3)
-        grid.addWidget(ingest_btn, 2, 3)
-        grid.addWidget(QLabel("Val Split"), 3, 0)
-        grid.addWidget(self.val_split, 3, 1)
-        grid.addWidget(QLabel("Test Split"), 3, 2)
-        grid.addWidget(self.test_split, 3, 3)
-        grid.addWidget(QLabel("Seed"), 4, 0)
-        grid.addWidget(self.seed, 4, 1)
-        grid.addWidget(QLabel("Balance"), 4, 2)
-        grid.addWidget(self.balance, 4, 3)
-        grid.addWidget(plan_btn, 5, 3)
+        grid.addWidget(QLabel("Dataset"), 0, 0)
+        grid.addWidget(self.dataset_selector, 0, 1, 1, 3)
+        grid.addWidget(QLabel("Version"), 1, 0)
+        grid.addWidget(self.version_selector, 1, 1, 1, 3)
+        grid.addWidget(QLabel("Name"), 2, 0)
+        grid.addWidget(self.dataset_name, 2, 1, 1, 3)
+        grid.addWidget(QLabel("Folder"), 3, 0)
+        grid.addWidget(self.dataset_folder, 3, 1, 1, 2)
+        grid.addWidget(browse_btn, 3, 3)
+        grid.addWidget(ingest_btn, 4, 3)
+        grid.addWidget(QLabel("Val Split"), 5, 0)
+        grid.addWidget(self.val_split, 5, 1)
+        grid.addWidget(QLabel("Test Split"), 5, 2)
+        grid.addWidget(self.test_split, 5, 3)
+        grid.addWidget(QLabel("Seed"), 6, 0)
+        grid.addWidget(self.seed, 6, 1)
+        grid.addWidget(QLabel("Balance"), 6, 2)
+        grid.addWidget(self.balance, 6, 3)
+        grid.addWidget(plan_btn, 7, 3)
 
         self.dataset_summary = QPlainTextEdit()
         self.dataset_summary.setReadOnly(True)
@@ -176,18 +214,32 @@ class FoundryWindow(QMainWindow):
         self.learning_rate.setSingleStep(0.0005)
         self.learning_rate.setValue(0.01)
 
-        create_btn = QPushButton("Create Run")
-        create_btn.clicked.connect(self._create_run)
-        start_btn = QPushButton("Start Run")
-        start_btn.clicked.connect(self._start_run)
-        create_start_btn = QPushButton("Create + Start")
-        create_start_btn.clicked.connect(self._create_and_start_run)
+        self.create_run_btn = QPushButton("Create Run")
+        self.create_run_btn.clicked.connect(self._create_run)
+        self.start_run_btn = QPushButton("Start Run")
+        self.start_run_btn.clicked.connect(self._start_run)
+        self.create_start_run_btn = QPushButton("Create + Start")
+        self.create_start_run_btn.clicked.connect(self._create_and_start_run)
         checkpoint_btn = QPushButton("Save Checkpoint")
         checkpoint_btn.clicked.connect(self._checkpoint_run)
         complete_btn = QPushButton("Mark Complete")
         complete_btn.clicked.connect(self._complete_run)
         fail_btn = QPushButton("Mark Failed")
         fail_btn.clicked.connect(self._fail_run)
+        open_exports_btn = QPushButton("Open Exports Dir")
+        open_exports_btn.clicked.connect(self._open_exports_dir)
+        open_metrics_btn = QPushButton("Open metrics.json")
+        open_metrics_btn.clicked.connect(self._open_metrics_json)
+        open_run_summary_btn = QPushButton("Open run_summary.json")
+        open_run_summary_btn.clicked.connect(self._open_run_summary_json)
+        self._run_action_buttons = [
+            self.create_run_btn,
+            self.start_run_btn,
+            self.create_start_run_btn,
+            checkpoint_btn,
+            complete_btn,
+            fail_btn,
+        ]
 
         grid.addWidget(QLabel("Epochs"), 0, 0)
         grid.addWidget(self.epochs, 0, 1)
@@ -195,12 +247,15 @@ class FoundryWindow(QMainWindow):
         grid.addWidget(self.batch_size, 0, 3)
         grid.addWidget(QLabel("LR"), 0, 4)
         grid.addWidget(self.learning_rate, 0, 5)
-        grid.addWidget(create_btn, 1, 0)
-        grid.addWidget(start_btn, 1, 1)
-        grid.addWidget(create_start_btn, 1, 2)
+        grid.addWidget(self.create_run_btn, 1, 0)
+        grid.addWidget(self.start_run_btn, 1, 1)
+        grid.addWidget(self.create_start_run_btn, 1, 2)
         grid.addWidget(checkpoint_btn, 1, 3)
         grid.addWidget(complete_btn, 1, 4)
         grid.addWidget(fail_btn, 1, 5)
+        grid.addWidget(open_exports_btn, 2, 0, 1, 2)
+        grid.addWidget(open_metrics_btn, 2, 2, 1, 2)
+        grid.addWidget(open_run_summary_btn, 2, 4, 1, 2)
 
         self.run_summary = QPlainTextEdit()
         self.run_summary.setReadOnly(True)
@@ -223,11 +278,14 @@ class FoundryWindow(QMainWindow):
         finalize_btn.clicked.connect(self._finalize_artifact)
         validate_btn = QPushButton("Validate Selected Artifact")
         validate_btn.clicked.connect(self._validate_artifact)
+        open_manifest_btn = QPushButton("Open Artifact Manifest")
+        open_manifest_btn.clicked.connect(self._open_artifact_manifest)
 
         grid.addWidget(QLabel("Classes (comma-separated)"), 0, 0)
         grid.addWidget(self.class_names, 0, 1, 1, 3)
         grid.addWidget(finalize_btn, 1, 2)
         grid.addWidget(validate_btn, 1, 3)
+        grid.addWidget(open_manifest_btn, 2, 3)
 
         self.artifact_summary = QPlainTextEdit()
         self.artifact_summary.setReadOnly(True)
@@ -344,23 +402,36 @@ class FoundryWindow(QMainWindow):
             self._error(exc)
 
     def _create_and_start_run(self) -> None:
-        self._create_run()
-        if self._run_id:
-            self._start_run()
+        if self._run_thread is not None:
+            self._set_status("A run is already active.")
+            return
+
+        version_id = self._version_id
+        if not version_id:
+            self._error(ValueError("Create and plan a dataset before creating a run"))
+            return
+
+        run_spec = self._build_run_spec()
+
+        def action() -> str:
+            run = self._app.create_run(version_id, run_spec)
+            self._run_id = run.id
+            return self._app.start_run(run.id).id
+
+        self._start_background_run(action, action_label="Create + Start")
 
     def _start_run(self) -> None:
         try:
-            run = self._app.start_run(self._require_run_id())
-            artifacts = self._artifacts.list_for_run(run.id)
-            evals = self._evals.list_for_run(run.id)
-            self._artifact_id = artifacts[-1].id if artifacts else None
-            self._set_status(
-                f"Run {run.id} finished with status {run.status.value} "
-                f"({len(evals)} eval, {len(artifacts)} artifact)"
-            )
-            self._refresh_workspace_state(select_run_id=run.id, select_artifact_id=self._artifact_id)
+            run_id = self._require_run_id()
         except Exception as exc:
             self._error(exc)
+            return
+
+        if self._run_thread is not None:
+            self._set_status("A run is already active.")
+            return
+
+        self._start_background_run(lambda: self._app.start_run(run_id).id, action_label="Start Run")
 
     def _checkpoint_run(self) -> None:
         try:
@@ -409,6 +480,42 @@ class FoundryWindow(QMainWindow):
         except Exception as exc:
             self._error(exc)
 
+    def _open_exports_dir(self) -> None:
+        try:
+            run = self._require_selected_run()
+            self._open_existing_path(run.exports_dir(self._root), label="exports dir")
+        except Exception as exc:
+            self._error(exc)
+
+    def _open_metrics_json(self) -> None:
+        try:
+            run = self._require_selected_run()
+            self._open_existing_path(run.exports_dir(self._root) / "metrics.json", label="metrics.json")
+        except Exception as exc:
+            self._error(exc)
+
+    def _open_run_summary_json(self) -> None:
+        try:
+            run = self._require_selected_run()
+            self._open_existing_path(run.exports_dir(self._root) / "run_summary.json", label="run_summary.json")
+        except Exception as exc:
+            self._error(exc)
+
+    def _open_artifact_manifest(self) -> None:
+        try:
+            artifact_id = self._selected_artifact_id or self._artifact_id
+            if not artifact_id and self._run_id:
+                artifacts = sorted(self._artifacts.list_for_run(self._run_id), key=lambda item: item.created_at)
+                artifact_id = artifacts[-1].id if artifacts else None
+            if not artifact_id:
+                raise ValueError("Select or create an artifact first")
+            artifact = self._artifacts.get(artifact_id)
+            if artifact is None:
+                raise ValueError(f"Artifact not found: {artifact_id}")
+            self._open_existing_path(artifact.path, label="artifact manifest")
+        except Exception as exc:
+            self._error(exc)
+
     # ------------------------------------------------------------------
     # Refresh + Selection
     # ------------------------------------------------------------------
@@ -432,12 +539,7 @@ class FoundryWindow(QMainWindow):
         if self._dataset_id is None and latest_dataset is not None:
             self._dataset_id = latest_dataset.id
 
-        if self._dataset_id:
-            versions = self._app.datasets.list_versions(self._dataset_id)
-            if versions:
-                latest_version = versions[-1]
-                if self._version_id is None or latest_version.id == self._version_id:
-                    self._version_id = latest_version.id
+        self._populate_dataset_selectors(datasets)
 
         self.workspace_summary.setPlainText(self._format_workspace_summary(datasets, runs))
         self.dataset_summary.setPlainText(self._format_dataset_summary())
@@ -602,6 +704,163 @@ class FoundryWindow(QMainWindow):
             raise ValueError("No run selected")
         return self._run_id
 
+    def _require_selected_run(self):
+        run_id = self._require_run_id()
+        run = self._app.runs.get_run(run_id)
+        if run is None:
+            raise ValueError(f"Run not found: {run_id}")
+        return run
+
+    def _populate_dataset_selectors(self, datasets: list[object]) -> None:
+        selected_dataset_id = self._dataset_id
+        if selected_dataset_id and all(dataset.id != selected_dataset_id for dataset in datasets):
+            selected_dataset_id = None
+        if selected_dataset_id is None and datasets:
+            selected_dataset_id = datasets[-1].id
+        self._dataset_id = selected_dataset_id
+
+        self.dataset_selector.blockSignals(True)
+        self.dataset_selector.clear()
+        for dataset in datasets:
+            label = f"{dataset.name} ({dataset.id})"
+            self.dataset_selector.addItem(label, dataset.id)
+        if selected_dataset_id:
+            index = self.dataset_selector.findData(selected_dataset_id)
+            if index >= 0:
+                self.dataset_selector.setCurrentIndex(index)
+        self.dataset_selector.blockSignals(False)
+
+        versions = self._app.datasets.list_versions(selected_dataset_id) if selected_dataset_id else []
+        if self._version_id and all(version.id != self._version_id for version in versions):
+            self._version_id = None
+        if self._version_id is None and versions:
+            self._version_id = versions[-1].id
+
+        self.version_selector.blockSignals(True)
+        self.version_selector.clear()
+        for version in versions:
+            split_plan = version.split_plan or {}
+            label = (
+                f"v{version.version} [{version.id}] "
+                f"samples={version.sample_count} "
+                f"train/val/test={len(split_plan.get('train_ids', []))}/"
+                f"{len(split_plan.get('val_ids', []))}/{len(split_plan.get('test_ids', []))}"
+            )
+            self.version_selector.addItem(label, version.id)
+        if self._version_id:
+            index = self.version_selector.findData(self._version_id)
+            if index >= 0:
+                self.version_selector.setCurrentIndex(index)
+        self.version_selector.blockSignals(False)
+
+    def _on_dataset_selected(self, index: int) -> None:
+        dataset_id = self.dataset_selector.itemData(index)
+        self._dataset_id = str(dataset_id) if dataset_id else None
+        self._version_id = None
+        self._refresh_workspace_state()
+        dataset = self._app.datasets.get_dataset(self._dataset_id) if self._dataset_id else None
+        if dataset is not None:
+            self.dataset_name.setText(dataset.name)
+            self.dataset_folder.setText(dataset.source_ref or "")
+
+    def _on_version_selected(self, index: int) -> None:
+        version_id = self.version_selector.itemData(index)
+        self._version_id = str(version_id) if version_id else None
+        version = self._app.datasets.get_version(self._version_id) if self._version_id else None
+        if version is not None:
+            self.class_names.setText(",".join(version.class_map))
+        self.dataset_summary.setPlainText(self._format_dataset_summary())
+
+    def _start_background_run(self, action, *, action_label: str) -> None:
+        self._running_action_label = action_label
+        self._set_run_controls_enabled(False)
+        self._set_status(f"{action_label} running in background...")
+        self._run_thread = QThread(self)
+        self._run_worker = _RunWorker(action)
+        self._run_worker.moveToThread(self._run_thread)
+        self._run_thread.started.connect(self._run_worker.run)
+        self._run_worker.finished.connect(self._on_background_run_finished)
+        self._run_worker.failed.connect(self._on_background_run_failed)
+        self._run_worker.finished.connect(self._run_thread.quit)
+        self._run_worker.failed.connect(self._run_thread.quit)
+        self._run_thread.finished.connect(self._cleanup_run_worker)
+        self._run_thread.start()
+        self._run_poll_timer.start()
+
+    def _poll_active_run(self) -> None:
+        if not self._run_id:
+            return
+        run = self._app.runs.get_run(self._run_id)
+        if run is not None:
+            self.run_summary.setPlainText(self._format_run_summary(run))
+            self.status_line.setText(
+                f"{self._running_action_label or 'Run'}: {run.id} [{run.status.value}]"
+            )
+        self._append_new_run_events(self._run_id)
+        self._populate_artifact_list(
+            sorted(self._artifacts.list_for_run(self._run_id), key=lambda item: item.created_at),
+            select_artifact_id=self._artifact_id,
+        )
+        self._populate_eval_list(sorted(self._evals.list_for_run(self._run_id), key=lambda item: item.created_at))
+
+    def _append_new_run_events(self, run_id: str) -> None:
+        run = self._app.runs.get_run(run_id)
+        if run is None:
+            return
+        path = run.event_log_path(self._root)
+        if not path.exists():
+            return
+        lines = [line for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
+        previous_count = self._last_event_count_by_run.get(run_id, 0)
+        for raw_line in lines[previous_count:]:
+            payload = json.loads(raw_line)
+            event_type = str(payload.get("type", "RUN_EVENT"))
+            event_payload = payload.get("payload", {})
+            details = ", ".join(f"{key}={value}" for key, value in sorted(event_payload.items()))
+            message = event_type if not details else f"{event_type}: {details}"
+            self.activity.appendPlainText(f"[run] {message}")
+        self._last_event_count_by_run[run_id] = len(lines)
+
+    def _on_background_run_finished(self, run_id: str) -> None:
+        run = self._app.runs.get_run(run_id)
+        artifacts = sorted(self._artifacts.list_for_run(run_id), key=lambda item: item.created_at)
+        evals = sorted(self._evals.list_for_run(run_id), key=lambda item: item.created_at)
+        self._artifact_id = artifacts[-1].id if artifacts else None
+        self._append_new_run_events(run_id)
+        if run is not None:
+            self._run_id = run.id
+            self._set_status(
+                f"Run {run.id} finished with status {run.status.value} "
+                f"({len(evals)} eval, {len(artifacts)} artifact)"
+            )
+        self._refresh_workspace_state(select_run_id=run_id, select_artifact_id=self._artifact_id)
+        self._run_poll_timer.stop()
+
+    def _on_background_run_failed(self, message: str) -> None:
+        self._run_poll_timer.stop()
+        self._error(RuntimeError(message))
+
+    def _cleanup_run_worker(self) -> None:
+        self._set_run_controls_enabled(True)
+        if self._run_worker is not None:
+            self._run_worker.deleteLater()
+            self._run_worker = None
+        if self._run_thread is not None:
+            self._run_thread.deleteLater()
+            self._run_thread = None
+        self._running_action_label = None
+
+    def _set_run_controls_enabled(self, enabled: bool) -> None:
+        for button in self._run_action_buttons:
+            button.setEnabled(enabled)
+
+    def _open_existing_path(self, path: Path, *, label: str) -> None:
+        if not path.exists():
+            raise ValueError(f"{label} not found: {path}")
+        if not QDesktopServices.openUrl(QUrl.fromLocalFile(str(path))):
+            raise ValueError(f"Could not open {label}: {path}")
+        self._set_status(f"Opened {label}: {path}")
+
     def _format_workspace_summary(self, datasets: list[object], runs: list[object]) -> str:
         latest_run = runs[-1] if runs else None
         latest_run_line = "none"
@@ -721,7 +980,10 @@ class FoundryWindow(QMainWindow):
         )
 
     def _on_activity(self, item) -> None:
-        self.activity.appendPlainText(f"[{item.kind}] {item.message}")
+        self.activity_item_received.emit(item.kind, item.message)
+
+    def _append_activity_item(self, kind: str, message: str) -> None:
+        self.activity.appendPlainText(f"[{kind}] {message}")
 
     def _set_status(self, text: str) -> None:
         self.status_line.setText(text)
@@ -733,6 +995,10 @@ class FoundryWindow(QMainWindow):
         self.activity.appendPlainText(f"[error] {message}")
         if self._show_error_dialogs:
             QMessageBox.critical(self, "Foundry Error", message)
+
+    def closeEvent(self, event) -> None:
+        self._run_poll_timer.stop()
+        super().closeEvent(event)
 
 
 def run_foundry_ui(root: Path | None = None) -> int:

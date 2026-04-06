@@ -22,9 +22,12 @@ Optional helper script from the repo root:
 What Griff should expect in the desktop UI:
 
 - `Dataset` tab: choose a folder, click `Create + Ingest`, then `Plan Split / Balance`.
-- `Run` tab: click `Create + Start` for the default desktop path.
-- `Artifacts` tab and right-side workspace panel: inspect the latest run, eval report, artifact manifest, and validation status.
+- `Dataset` tab: use the new `Dataset` and `Version` selectors when the workspace contains multiple imported datasets or multiple dataset versions.
+- `Run` tab: `Start Run` and `Create + Start` now run in the background, keep the window responsive, and stream live run-stage updates into the activity log and status line.
+- `Run` tab: use the new open actions to jump straight to the selected run's exports folder, `metrics.json`, and `run_summary.json`.
+- `Artifacts` tab and right-side workspace panel: inspect the latest run, eval report, artifact manifest, and validation status. Use `Open Artifact Manifest` to open the selected manifest directly.
 - `Refresh` reloads persisted state from `foundry\state\` and `foundry\runs\`.
+- If an export or manifest file is missing, the UI keeps the window responsive and reports the missing path in the status/error area instead of crashing.
 
 ## Prerequisites
 
