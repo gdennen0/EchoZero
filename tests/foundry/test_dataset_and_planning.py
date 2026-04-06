@@ -4,28 +4,18 @@ from pathlib import Path
 
 from echozero.foundry.app import FoundryApp
 from echozero.foundry.domain import CurationState
-
-
-def _write_samples(root: Path) -> None:
-    (root / "kick").mkdir(parents=True, exist_ok=True)
-    (root / "snare").mkdir(parents=True, exist_ok=True)
-    (root / "kick" / "k1.wav").write_bytes(b"RIFF" + b"\x00" * 32)
-    (root / "kick" / "k2.wav").write_bytes(b"RIFF" + b"\x01" * 32)
-    (root / "kick" / "k3.wav").write_bytes(b"RIFF" + b"\x02" * 32)
-    (root / "snare" / "s1.wav").write_bytes(b"RIFF" + b"\x10" * 32)
-    (root / "snare" / "s2.wav").write_bytes(b"RIFF" + b"\x11" * 32)
-    (root / "snare" / "s3.wav").write_bytes(b"RIFF" + b"\x12" * 32)
+from tests.foundry.audio_fixtures import write_percussion_dataset
 
 
 def test_dataset_ingest_plan_and_curation(tmp_path: Path):
     dataset_dir = tmp_path / "dataset"
-    _write_samples(dataset_dir)
+    write_percussion_dataset(dataset_dir)
 
     app = FoundryApp(tmp_path)
     dataset = app.datasets.create_dataset("Drums", source_kind="folder_import")
     version = app.datasets.ingest_from_folder(dataset.id, dataset_dir)
 
-    assert version.stats["sample_count"] == 6
+    assert version.stats["sample_count"] == 8
     assert sorted(version.class_map) == ["kick", "snare"]
     assert version.taxonomy["namespace"] == "percussion.one_shot"
     assert version.label_policy["allowed_labels"] == ["kick", "snare"]
@@ -43,19 +33,15 @@ def test_dataset_ingest_plan_and_curation(tmp_path: Path):
 
     reject_id = version.samples[0].sample_id
     curated = app.datasets.apply_curation(version.id, {reject_id: CurationState.REJECTED})
-    assert curated.stats["sample_count"] == 5
+    assert curated.stats["sample_count"] == 7
     assert reject_id not in curated.split_plan["assignments"]
 
 
 def test_split_planning_keeps_duplicate_content_hashes_in_one_split(tmp_path: Path):
     dataset_dir = tmp_path / "dataset"
-    (dataset_dir / "kick").mkdir(parents=True, exist_ok=True)
-    (dataset_dir / "snare").mkdir(parents=True, exist_ok=True)
-    duplicate = b"RIFF" + b"\x44" * 32
-    (dataset_dir / "kick" / "k1.wav").write_bytes(duplicate)
-    (dataset_dir / "kick" / "k2.wav").write_bytes(b"RIFF" + b"\x45" * 32)
+    write_percussion_dataset(dataset_dir, sample_count=2)
+    duplicate = (dataset_dir / "kick" / "k1.wav").read_bytes()
     (dataset_dir / "snare" / "s1.wav").write_bytes(duplicate)
-    (dataset_dir / "snare" / "s2.wav").write_bytes(b"RIFF" + b"\x46" * 32)
 
     app = FoundryApp(tmp_path)
     dataset = app.datasets.create_dataset("Duplicates", source_kind="folder_import")

@@ -28,9 +28,9 @@ class FoundryApp:
 
         self.datasets = DatasetService(root)
         self.split_balance = SplitBalanceService()
-        self.runs = TrainRunService(root)
-        self.artifacts = ArtifactService(root)
         self.eval = EvalService(EvalReportRepository(root))
+        self.artifacts = ArtifactService(root)
+        self.runs = TrainRunService(root, eval_service=self.eval, artifact_service=self.artifacts)
 
         self.activity = FoundryActivityFeed(self.event_bus)
 

@@ -243,6 +243,16 @@ class EvalReportRepository:
             created_at=datetime.fromisoformat(row["created_at"]),
         )
 
+    def list_for_run(self, run_id: str) -> list[EvalReport]:
+        reports: list[EvalReport] = []
+        for report_id, row in _read_json(self._path).items():
+            if row.get("run_id") != run_id:
+                continue
+            report = self.get(report_id)
+            if report is not None:
+                reports.append(report)
+        return reports
+
 
 class ModelArtifactRepository:
     def __init__(self, root: Path):
@@ -281,6 +291,16 @@ class ModelArtifactRepository:
     def list(self) -> list[ModelArtifact]:
         artifacts: list[ModelArtifact] = []
         for artifact_id in _read_json(self._path).keys():
+            artifact = self.get(artifact_id)
+            if artifact is not None:
+                artifacts.append(artifact)
+        return artifacts
+
+    def list_for_run(self, run_id: str) -> list[ModelArtifact]:
+        artifacts: list[ModelArtifact] = []
+        for artifact_id, row in _read_json(self._path).items():
+            if row.get("run_id") != run_id:
+                continue
             artifact = self.get(artifact_id)
             if artifact is not None:
                 artifacts.append(artifact)

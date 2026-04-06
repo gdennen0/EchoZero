@@ -5,22 +5,12 @@ from pathlib import Path
 from echozero.foundry.app import FoundryApp
 from echozero.foundry.persistence import EvalReportRepository, ModelArtifactRepository, TrainRunRepository
 from echozero.foundry.services import ArtifactService, EvalService, TrainRunService
-
-
-def _write_samples(root: Path) -> None:
-    (root / "kick").mkdir(parents=True, exist_ok=True)
-    (root / "snare").mkdir(parents=True, exist_ok=True)
-    (root / "kick" / "k1.wav").write_bytes(b"RIFF" + b"\x00" * 16)
-    (root / "kick" / "k2.wav").write_bytes(b"RIFF" + b"\x01" * 16)
-    (root / "kick" / "k3.wav").write_bytes(b"RIFF" + b"\x02" * 16)
-    (root / "snare" / "s1.wav").write_bytes(b"RIFF" + b"\x10" * 16)
-    (root / "snare" / "s2.wav").write_bytes(b"RIFF" + b"\x11" * 16)
-    (root / "snare" / "s3.wav").write_bytes(b"RIFF" + b"\x12" * 16)
+from tests.foundry.audio_fixtures import write_percussion_dataset
 
 
 def test_train_run_and_model_artifact_persist_round_trip(tmp_path: Path):
     samples = tmp_path / "samples"
-    _write_samples(samples)
+    write_percussion_dataset(samples)
 
     app = FoundryApp(tmp_path)
     dataset = app.datasets.create_dataset("Persistence Drums")
@@ -41,23 +31,15 @@ def test_train_run_and_model_artifact_persist_round_trip(tmp_path: Path):
             "nMels": 128,
             "fmax": 8000,
         },
-        "training": {"epochs": 1, "batchSize": 2, "learningRate": 0.001},
+        "training": {"epochs": 1, "batchSize": 2, "learningRate": 0.01, "seed": 23},
     }
 
-    runs = TrainRunService(tmp_path)
+    runs = app.runs
     run = runs.create_run(version.id, spec, backend="pytorch", device="cpu")
-    runs.start_run(run.id)
-    runs.complete_run(run.id, metrics={"macro_f1": 0.91})
-
-    artifact = ArtifactService(tmp_path).finalize_artifact(
-        run.id,
-        {
-            "weightsPath": "exports/model.pth",
-            "classes": version.class_map,
-            "classificationMode": "multiclass",
-            "inferencePreprocessing": spec["data"] | {},
-        },
-    )
+    run = runs.start_run(run.id)
+    artifacts = ModelArtifactRepository(tmp_path).list_for_run(run.id)
+    assert len(artifacts) == 1
+    artifact = artifacts[0]
 
     persisted_run = TrainRunRepository(tmp_path).get(run.id)
     persisted_artifact = ModelArtifactRepository(tmp_path).get(artifact.id)
@@ -73,6 +55,7 @@ def test_train_run_and_model_artifact_persist_round_trip(tmp_path: Path):
     assert persisted_artifact.manifest["specHash"] == run.spec_hash
     assert persisted_artifact.manifest["taxonomy"] == version.taxonomy
     assert [item.id for item in listed_artifacts] == [artifact.id]
+    assert EvalReportRepository(tmp_path).list_for_run(run.id)
 
 
 def test_eval_report_persist_round_trip_with_baseline_metrics(tmp_path: Path):

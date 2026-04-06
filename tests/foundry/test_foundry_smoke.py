@@ -4,27 +4,17 @@ from pathlib import Path
 
 from echozero.foundry.app import FoundryApp
 from echozero.foundry.persistence import ModelArtifactRepository
-from echozero.foundry.services import ArtifactService, DatasetService, TrainRunService
-
-
-def _write_samples(root: Path) -> None:
-    (root / "kick").mkdir(parents=True, exist_ok=True)
-    (root / "snare").mkdir(parents=True, exist_ok=True)
-    (root / "kick" / "k1.wav").write_bytes(b"RIFF" + b"\x01" * 32)
-    (root / "kick" / "k2.wav").write_bytes(b"RIFF" + b"\x02" * 32)
-    (root / "kick" / "k3.wav").write_bytes(b"RIFF" + b"\x03" * 32)
-    (root / "snare" / "s1.wav").write_bytes(b"RIFF" + b"\x10" * 32)
-    (root / "snare" / "s2.wav").write_bytes(b"RIFF" + b"\x11" * 32)
-    (root / "snare" / "s3.wav").write_bytes(b"RIFF" + b"\x12" * 32)
+from echozero.foundry.services import ArtifactService, DatasetService
+from tests.foundry.audio_fixtures import write_percussion_dataset
 
 
 def test_foundry_smoke_tiny_dataset_run_to_artifact_compatibility(tmp_path: Path):
     samples = tmp_path / "samples"
-    _write_samples(samples)
+    write_percussion_dataset(samples)
 
     app = FoundryApp(tmp_path)
     dataset_service = DatasetService(tmp_path)
-    run_service = TrainRunService(tmp_path)
+    run_service = app.runs
     artifact_service = ArtifactService(tmp_path)
 
     dataset = dataset_service.create_dataset("Tiny Drums", source_ref=str(samples))
@@ -45,41 +35,18 @@ def test_foundry_smoke_tiny_dataset_run_to_artifact_compatibility(tmp_path: Path
             "nMels": 128,
             "fmax": 8000,
         },
-        "training": {
-            "epochs": 1,
-            "batchSize": 2,
-            "learningRate": 0.001,
-        },
+        "training": {"epochs": 1, "batchSize": 2, "learningRate": 0.01, "seed": 29},
     }
 
     run = run_service.create_run(dataset_version_id=version.id, run_spec=run_spec)
     run = run_service.start_run(run.id)
-    run = run_service.complete_run(run.id, metrics={"accuracy": 1.0})
-
-    artifact = artifact_service.finalize_artifact(
-        run_id=run.id,
-        manifest={
-            "weightsPath": "exports/model.pth",
-            "classes": version.class_map,
-            "classificationMode": "multiclass",
-            "inferencePreprocessing": {
-                "sampleRate": 22050,
-                "maxLength": 22050,
-                "nFft": 2048,
-                "hopLength": 512,
-                "nMels": 128,
-                "fmax": 8000,
-            },
-            "thresholdPolicy": None,
-            "evalSummary": {"accuracy": 1.0},
-        },
-    )
+    artifact = ModelArtifactRepository(tmp_path).list_for_run(run.id)[0]
 
     persisted_artifact = ModelArtifactRepository(tmp_path).get(artifact.id)
     report = artifact_service.validate_compatibility(artifact.id, consumer="PyTorchAudioClassify")
 
     assert dataset.source_ref == str(samples)
-    assert version.sample_count == 6
+    assert version.sample_count == 8
     assert run.status.value == "completed"
     assert artifact.path.exists()
     assert persisted_artifact is not None
@@ -90,7 +57,7 @@ def test_foundry_smoke_tiny_dataset_run_to_artifact_compatibility(tmp_path: Path
 
 def test_artifact_compatibility_rejects_runtime_mismatch(tmp_path: Path):
     samples = tmp_path / "samples"
-    _write_samples(samples)
+    write_percussion_dataset(samples)
 
     app = FoundryApp(tmp_path)
     dataset = app.datasets.create_dataset("Mismatch Drums", source_ref=str(samples))
@@ -109,16 +76,15 @@ def test_artifact_compatibility_rejects_runtime_mismatch(tmp_path: Path):
             "nMels": 128,
             "fmax": 8000,
         },
-        "training": {"epochs": 1, "batchSize": 2, "learningRate": 0.001},
+        "training": {"epochs": 1, "batchSize": 2, "learningRate": 0.01, "seed": 31},
     }
 
     run = app.create_run(version.id, run_spec)
-    app.start_run(run.id)
-    app.runs.complete_run(run.id, metrics={"macro_f1": 0.8})
+    run = app.start_run(run.id)
     artifact = app.finalize_artifact(
         run.id,
         {
-            "weightsPath": "exports/model.pth",
+            "weightsPath": "model.pth",
             "classes": version.class_map,
             "classificationMode": "multiclass",
             "runtime": {"consumer": "OtherRuntime", "backend": "pytorch", "device": "cpu"},

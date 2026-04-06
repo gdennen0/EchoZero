@@ -7,7 +7,10 @@ from pathlib import Path
 from uuid import uuid4
 
 from echozero.foundry.domain import TrainRun, TrainRunStatus
-from echozero.foundry.persistence import DatasetVersionRepository, TrainRunRepository
+from echozero.foundry.persistence import DatasetVersionRepository, EvalReportRepository, TrainRunRepository
+from echozero.foundry.services.artifact_service import ArtifactService
+from echozero.foundry.services.baseline_trainer import BaselineTrainer
+from echozero.foundry.services.eval_service import EvalService
 
 
 _REQUIRED_DATA_KEYS = {"datasetVersionId", "sampleRate", "maxLength", "nFft", "hopLength", "nMels", "fmax"}
@@ -39,10 +42,16 @@ class TrainRunService:
         root: Path,
         repository: TrainRunRepository | None = None,
         dataset_version_repository: DatasetVersionRepository | None = None,
+        eval_service: EvalService | None = None,
+        artifact_service: ArtifactService | None = None,
+        baseline_trainer: BaselineTrainer | None = None,
     ):
         self._root = root
         self._repo = repository or TrainRunRepository(root)
         self._dataset_versions = dataset_version_repository or DatasetVersionRepository(root)
+        self._eval = eval_service or EvalService(EvalReportRepository(root))
+        self._artifacts = artifact_service or ArtifactService(root)
+        self._trainer = baseline_trainer or BaselineTrainer(root)
 
     def create_run(self, dataset_version_id: str, run_spec: dict, backend: str = "pytorch", device: str = "cpu") -> TrainRun:
         self._validate_run_spec(dataset_version_id, run_spec)
@@ -66,7 +75,42 @@ class TrainRunService:
         return self._repo.save(run)
 
     def start_run(self, run_id: str) -> TrainRun:
-        return self._transition(run_id, TrainRunStatus.RUNNING, "RUN_STARTED")
+        run = self._transition(run_id, TrainRunStatus.PREPARING, "RUN_PREPARING")
+        try:
+            dataset_version = self._dataset_versions.get(run.dataset_version_id)
+            if dataset_version is None:
+                raise ValueError(f"DatasetVersion not found: {run.dataset_version_id}")
+
+            run = self._transition(run.id, TrainRunStatus.RUNNING, "RUN_STARTED")
+            result = self._trainer.train(run, dataset_version)
+
+            for checkpoint in result.checkpoint_metrics:
+                self.save_checkpoint(
+                    run.id,
+                    epoch=int(checkpoint["epoch"]),
+                    metric_snapshot={key: value for key, value in checkpoint.items() if key != "epoch"},
+                )
+
+            run = self._transition(run.id, TrainRunStatus.EVALUATING, "RUN_EVALUATING")
+            self._eval.record_eval(
+                run.id,
+                classification_mode=run.spec["classificationMode"],
+                metrics=result.final_metrics,
+                dataset_version_id=dataset_version.id,
+                split_name=result.eval_split_name,
+                aggregate_metrics=result.aggregate_metrics,
+                per_class_metrics=result.per_class_metrics,
+                baseline=result.baseline,
+                confusion=result.confusion,
+                summary=result.summary,
+            )
+
+            run = self._transition(run.id, TrainRunStatus.EXPORTING, "RUN_EXPORTING")
+            self._artifacts.finalize_artifact(run.id, result.artifact_manifest)
+
+            return self.complete_run(run.id, metrics=result.final_metrics)
+        except Exception as exc:
+            return self.fail_run(run.id, str(exc))
 
     def cancel_run(self, run_id: str, reason: str = "user") -> TrainRun:
         return self._transition(run_id, TrainRunStatus.CANCELED, "RUN_CANCELED", {"reason": reason})

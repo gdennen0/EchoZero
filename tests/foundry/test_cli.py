@@ -4,22 +4,12 @@ import json
 from pathlib import Path
 
 from echozero.foundry.cli import main
-
-
-def _write_samples(root: Path) -> None:
-    (root / "kick").mkdir(parents=True, exist_ok=True)
-    (root / "snare").mkdir(parents=True, exist_ok=True)
-    (root / "kick" / "k1.wav").write_bytes(b"RIFF" + b"\x00" * 32)
-    (root / "kick" / "k2.wav").write_bytes(b"RIFF" + b"\x01" * 32)
-    (root / "kick" / "k3.wav").write_bytes(b"RIFF" + b"\x02" * 32)
-    (root / "snare" / "s1.wav").write_bytes(b"RIFF" + b"\x10" * 32)
-    (root / "snare" / "s2.wav").write_bytes(b"RIFF" + b"\x11" * 32)
-    (root / "snare" / "s3.wav").write_bytes(b"RIFF" + b"\x12" * 32)
+from tests.foundry.audio_fixtures import write_percussion_dataset
 
 
 def test_cli_dataset_ingest_and_run(tmp_path: Path, capsys):
     samples = tmp_path / "samples"
-    _write_samples(samples)
+    write_percussion_dataset(samples)
 
     assert main(["--root", str(tmp_path), "create-dataset", "Drums"]) == 0
     out = capsys.readouterr().out
@@ -45,7 +35,7 @@ def test_cli_dataset_ingest_and_run(tmp_path: Path, capsys):
                 "nMels": 128,
                 "fmax": 8000,
             },
-            "training": {"epochs": 1, "batchSize": 2, "learningRate": 0.001},
+            "training": {"epochs": 1, "batchSize": 2, "learningRate": 0.01, "seed": 41},
         }
     )
     assert main(["--root", str(tmp_path), "create-run", version_id, run_spec]) == 0
@@ -53,3 +43,32 @@ def test_cli_dataset_ingest_and_run(tmp_path: Path, capsys):
     run_id = json.loads(out)["run_id"]
 
     assert main(["--root", str(tmp_path), "start-run", run_id]) == 0
+    out = json.loads(capsys.readouterr().out)
+    assert out["status"] == "completed"
+    assert out["eval_report_ids"]
+    assert out["artifact_ids"]
+
+
+def test_cli_train_folder_happy_path(tmp_path: Path, capsys):
+    samples = tmp_path / "samples"
+    write_percussion_dataset(samples)
+
+    assert main(
+        [
+            "--root",
+            str(tmp_path),
+            "train-folder",
+            "Practical Drums",
+            str(samples),
+            "--val",
+            "0.25",
+            "--test",
+            "0.25",
+            "--epochs",
+            "2",
+        ]
+    ) == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["status"] == "completed"
+    assert payload["eval_report_ids"]
+    assert payload["artifact_ids"]

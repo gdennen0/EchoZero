@@ -3,22 +3,12 @@ from __future__ import annotations
 from pathlib import Path
 
 from echozero.foundry.app import FoundryApp
-
-
-def _write_samples(root: Path) -> None:
-    (root / "kick").mkdir(parents=True, exist_ok=True)
-    (root / "snare").mkdir(parents=True, exist_ok=True)
-    (root / "kick" / "k1.wav").write_bytes(b"RIFF" + b"\x01" * 32)
-    (root / "kick" / "k2.wav").write_bytes(b"RIFF" + b"\x02" * 32)
-    (root / "kick" / "k3.wav").write_bytes(b"RIFF" + b"\x03" * 32)
-    (root / "snare" / "s1.wav").write_bytes(b"RIFF" + b"\x10" * 32)
-    (root / "snare" / "s2.wav").write_bytes(b"RIFF" + b"\x11" * 32)
-    (root / "snare" / "s3.wav").write_bytes(b"RIFF" + b"\x12" * 32)
+from tests.foundry.audio_fixtures import write_percussion_dataset
 
 
 def test_foundry_app_end_to_end_run_to_artifact(tmp_path: Path):
     samples = tmp_path / "samples"
-    _write_samples(samples)
+    write_percussion_dataset(samples)
 
     app = FoundryApp(tmp_path)
     dataset = app.datasets.create_dataset("Drums")
@@ -37,31 +27,19 @@ def test_foundry_app_end_to_end_run_to_artifact(tmp_path: Path):
             "nMels": 128,
             "fmax": 8000,
         },
-        "training": {"epochs": 1, "batchSize": 2, "learningRate": 0.001},
+        "training": {"epochs": 1, "batchSize": 2, "learningRate": 0.01, "seed": 19},
     }
 
     run = app.create_run(version.id, run_spec)
-    app.start_run(run.id)
-    app.runs.complete_run(run.id, metrics={"f1": 0.88})
-
-    artifact = app.finalize_artifact(
-        run.id,
-        {
-            "weightsPath": "exports/model.pth",
-            "classes": ["kick", "snare"],
-            "classificationMode": "multiclass",
-            "inferencePreprocessing": {
-                "sampleRate": 22050,
-                "maxLength": 22050,
-                "nFft": 2048,
-                "hopLength": 512,
-                "nMels": 128,
-                "fmax": 8000,
-            },
-        },
-    )
+    run = app.start_run(run.id)
+    artifacts = app.artifacts._artifact_repo.list_for_run(run.id)
+    assert len(artifacts) == 1
+    artifact = artifacts[0]
     report = app.validate_artifact(artifact.id)
 
+    assert run.status.value == "completed"
+    assert (run.exports_dir(tmp_path) / "model.pth").exists()
+    assert app.eval._repo.list_for_run(run.id)
     assert report.ok is True
     assert any(item.kind == "run_created" for item in app.activity.items)
     assert any(item.kind == "artifact_validated" for item in app.activity.items)

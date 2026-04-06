@@ -1,0 +1,41 @@
+EchoZero Foundry First Train Run Checklist v1
+
+Purpose
+- Run a real local CPU baseline trainer for one-shot percussion classification and confirm that Foundry writes eval + model artifacts.
+
+Operator path
+1. Prepare a folder with one subfolder per class label.
+   Example: `kick/*.wav`, `snare/*.wav`
+2. Run the one-shot baseline path:
+   `.venv\Scripts\python -m echozero.foundry.cli --root <workspace> train-folder "Baseline Drums" <dataset-folder> --val 0.25 --test 0.25 --epochs 4`
+3. Confirm the command exits with code `0` and reports:
+   `status = completed`
+   at least one `eval_report_id`
+   at least one `artifact_id`
+4. Inspect the run export directory shown in the CLI output.
+   Required files:
+   `model.pth`
+   `metrics.json`
+   `run_summary.json`
+   `<artifact-id>.manifest.json`
+5. Inspect Foundry state files under `<workspace>\foundry\state`.
+   Required persisted state:
+   `train_runs.json`
+   `eval_reports.json`
+   `artifacts.json`
+6. Validate the exported artifact if needed:
+   `.venv\Scripts\python -m echozero.foundry.cli --root <workspace> validate-artifact <artifact-id>`
+
+What v1 baseline does
+- Loads local audio on CPU.
+- Extracts mel-spectrogram features with deterministic pooling.
+- Trains a small SGD log-loss classifier.
+- Writes per-epoch checkpoint JSON files under `foundry\runs\<run-id>\checkpoints`.
+- Persists eval metrics and confusion data.
+- Exports a portable `.pth` model bundle plus artifact manifest.
+
+Known v1 limits
+- Baseline is synchronous and CPU-only.
+- Baseline targets `percussion.one_shot` multiclass training only.
+- Model quality is suitable for baseline validation, not final production accuracy.
+- Future upgrades should replace the sklearn baseline with a richer torch trainer while preserving the same Foundry lifecycle outputs.
