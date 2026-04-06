@@ -280,6 +280,12 @@ class DemoTimelineApp:
                 self.presentation_state,
                 layers=_apply_take_action(self.presentation_state.layers, intent.layer_id, intent.take_id, intent.action_id),
             )
+        if self.runtime_audio is not None:
+            # Keep UI transport state in lockstep with the runtime audio clock so
+            # layer mix actions (mute/solo) do not snap playhead backward.
+            self.session.transport_state.playhead = self.runtime_audio.current_time_seconds()
+            self.session.transport_state.is_playing = self.runtime_audio.is_playing()
+
         self.presentation_state = replace(
             self.presentation_state,
             is_playing=self.session.transport_state.is_playing,

@@ -769,6 +769,7 @@ class TimelineWidget(QWidget):
         self.presentation = presentation
         self._on_intent = on_intent
         self._runtime_audio = runtime_audio
+        self._runtime_source_signature: tuple[tuple[str, str], ...] | None = None
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.setWindowTitle('EchoZero Timeline Preview')
 
@@ -832,8 +833,16 @@ class TimelineWidget(QWidget):
         self._ruler.set_presentation(self.presentation)
         self._canvas.set_presentation(self.presentation)
         if self._runtime_audio is not None:
-            self._runtime_audio.build_for_presentation(self.presentation)
-            self._runtime_audio.apply_mix_state(self.presentation)
+            runtime_signature = tuple(
+                (str(layer.layer_id), layer.source_audio_path or "")
+                for layer in self.presentation.layers
+                if layer.source_audio_path
+            )
+            if runtime_signature != self._runtime_source_signature:
+                self._runtime_audio.build_for_presentation(self.presentation)
+                self._runtime_source_signature = runtime_signature
+            else:
+                self._runtime_audio.apply_mix_state(self.presentation)
 
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
@@ -876,6 +885,19 @@ class TimelineWidget(QWidget):
             return
         updated = self._on_intent(intent)
         if updated is not None:
+            if self._runtime_audio is not None:
+                runtime_time = self._runtime_audio.current_time_seconds()
+                runtime_playing = self._runtime_audio.is_playing()
+                if (
+                    abs(updated.playhead - runtime_time) > 0.02
+                    or updated.is_playing != runtime_playing
+                ):
+                    updated = replace(
+                        updated,
+                        playhead=runtime_time,
+                        is_playing=runtime_playing,
+                        current_time_label=_format_time_label(runtime_time),
+                    )
             self.set_presentation(updated)
 
     def _on_runtime_tick(self) -> None:
