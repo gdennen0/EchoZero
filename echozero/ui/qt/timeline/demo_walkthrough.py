@@ -16,6 +16,7 @@ def main() -> int:
     demo = build_demo_app()
     widget = TimelineWidget(demo.presentation(), on_intent=demo.dispatch)
     widget.resize(1400, 420)
+    widget.setWindowTitle("EchoZero Timeline Walkthrough")
     widget.show()
 
     presentation = demo.presentation()
