@@ -151,6 +151,7 @@ def benchmark_event_lane_paint(*, iterations: int = 220) -> dict[str, float]:
 
     presentation = EventLanePresentation(
         layer_id=LayerId("layer_render"),
+        take_id=None,
         events=events,
         pixels_per_second=180.0,
         scroll_x=9000.0,

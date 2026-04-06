@@ -31,6 +31,12 @@ class LayerStatusPresentation:
     manually_modified: bool = False
     source_label: str = ""
     sync_label: str = ""
+    stale_reason: str = ""
+    source_layer_id: str = ""
+    source_song_version_id: str = ""
+    pipeline_id: str = ""
+    output_name: str = ""
+    source_run_id: str = ""
 
 
 @dataclass(slots=True)
@@ -53,6 +59,7 @@ class EventPresentation:
 class LayerPresentation:
     layer_id: LayerId
     title: str
+    main_take_id: TakeId | None = None
     subtitle: str = ""
     kind: LayerKind = LayerKind.EVENT
     is_selected: bool = False

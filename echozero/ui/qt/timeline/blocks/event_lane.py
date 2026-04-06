@@ -13,6 +13,7 @@ from echozero.ui.FEEL import EVENT_LABEL_MIN_WIDTH_PX, EVENT_MIN_VISIBLE_WIDTH_P
 @dataclass(slots=True)
 class EventLanePresentation:
     layer_id: object
+    take_id: object | None
     events: list[EventPresentation]
     pixels_per_second: float
     scroll_x: float
@@ -23,8 +24,13 @@ class EventLanePresentation:
 
 
 class EventLaneBlock:
-    def paint(self, painter: QPainter, top_y: int, presentation: EventLanePresentation) -> list[tuple[QRectF, object, object]]:
-        rects: list[tuple[QRectF, object, object]] = []
+    def paint(
+        self,
+        painter: QPainter,
+        top_y: int,
+        presentation: EventLanePresentation,
+    ) -> list[tuple[QRectF, object, object | None, object]]:
+        rects: list[tuple[QRectF, object, object | None, object]] = []
 
         pps = max(1.0, presentation.pixels_per_second)
         content_left = float(presentation.header_width)
@@ -45,7 +51,7 @@ class EventLaneBlock:
                     continue
 
                 rect = QRectF(x, top_y, width, presentation.event_height)
-                rects.append((rect, presentation.layer_id, event.event_id))
+                rects.append((rect, presentation.layer_id, presentation.take_id, event.event_id))
 
                 color = QColor(event.color or '#57a0ff')
                 if presentation.dimmed:

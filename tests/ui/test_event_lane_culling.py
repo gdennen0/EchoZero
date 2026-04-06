@@ -19,6 +19,7 @@ def test_event_lane_culls_offscreen_events_by_time_window():
     events = [_event(i, float(i), float(i) + 0.1) for i in range(0, 200)]
     presentation = EventLanePresentation(
         layer_id="layer_1",
+        take_id=None,
         events=events,
         pixels_per_second=100.0,
         scroll_x=5000.0,  # around event ~50s
@@ -45,6 +46,7 @@ def test_event_lane_hides_labels_when_event_is_too_narrow():
     tiny = _event(1, 1.0, 1.01)
     presentation = EventLanePresentation(
         layer_id="layer_1",
+        take_id=None,
         events=[tiny],
         pixels_per_second=100.0,
         scroll_x=0.0,
