@@ -230,3 +230,55 @@ def test_synthetic_enabled_with_ratio_bounds_inclusion(tmp_path: Path):
     assert synthetic_mix["availableSyntheticCount"] == len(synthetic_ids)
     assert synthetic_mix["actualSyntheticCount"] == 1
     assert synthetic_mix["actualSyntheticCount"] <= int(synthetic_mix["realTrainCount"] * synthetic_mix["ratio"])
+
+
+def test_stronger_profile_persists_best_checkpoint_and_training_controls(tmp_path: Path):
+    version = _prepared_version(tmp_path)
+    assert version is not None
+    app = FoundryApp(tmp_path)
+
+    spec = _run_spec(version.id)
+    spec["training"].update(
+        {
+            "epochs": 5,
+            "trainerProfile": "stronger_v1",
+            "optimizer": "sgd_optimal",
+            "averageWeights": True,
+            "regularizationAlpha": 0.00005,
+            "earlyStoppingPatience": 2,
+            "minEpochs": 2,
+        }
+    )
+
+    run = app.runs.create_run(version.id, spec)
+    run = app.runs.start_run(run.id)
+    assert run.status == TrainRunStatus.COMPLETED
+
+    run_summary = json.loads((run.exports_dir(tmp_path) / "run_summary.json").read_text(encoding="utf-8"))
+    metrics = json.loads((run.exports_dir(tmp_path) / "metrics.json").read_text(encoding="utf-8"))
+    reports = app.eval._repo.list_for_run(run.id)
+
+    assert run_summary["trainerProfile"] == "stronger_v1"
+    assert run_summary["completedEpochs"] <= 5
+    assert 1 <= run_summary["bestCheckpointEpoch"] <= run_summary["completedEpochs"]
+    assert metrics["trainerOptions"]["optimizer"] == "sgd_optimal"
+    assert metrics["trainerOptions"]["averageWeights"] is True
+    assert metrics["trainerOptions"]["earlyStoppingPatience"] == 2
+    assert reports[0].baseline["profile"] == "stronger_v1"
+    assert reports[0].baseline["checkpoint_epoch"] == run_summary["bestCheckpointEpoch"]
+
+
+def test_create_run_rejects_invalid_stronger_profile_controls(tmp_path: Path):
+    version = _prepared_version(tmp_path)
+    assert version is not None
+
+    svc = TrainRunService(tmp_path)
+    bad_profile = _run_spec(version.id)
+    bad_profile["training"]["trainerProfile"] = "not_real"
+    with pytest.raises(ValueError, match="trainerProfile"):
+        svc.create_run(version.id, bad_profile)
+
+    bad_min_epochs = _run_spec(version.id)
+    bad_min_epochs["training"]["minEpochs"] = 3
+    with pytest.raises(ValueError, match="minEpochs"):
+        svc.create_run(version.id, bad_min_epochs)

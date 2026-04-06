@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 
 from echozero.foundry.cli import main
+from echozero.foundry.persistence import TrainRunRepository
 from tests.foundry.audio_fixtures import write_percussion_dataset
 
 
@@ -98,3 +99,40 @@ def test_cli_train_folder_next_level_profile(tmp_path: Path, capsys):
     assert payload["status"] == "completed"
     assert payload["eval_report_ids"]
     assert payload["artifact_ids"]
+
+
+def test_cli_train_folder_stronger_profile_and_synthetic_mix(tmp_path: Path, capsys):
+    samples = tmp_path / "samples"
+    write_percussion_dataset(samples)
+
+    assert main(
+        [
+            "--root",
+            str(tmp_path),
+            "train-folder",
+            "Stronger Drums",
+            str(samples),
+            "--val",
+            "0.25",
+            "--test",
+            "0.25",
+            "--epochs",
+            "5",
+            "--trainer-profile",
+            "stronger_v1",
+            "--early-stopping-patience",
+            "2",
+            "--min-epochs",
+            "2",
+            "--average-weights",
+            "--synthetic-mix-enabled",
+            "--synthetic-mix-ratio",
+            "0.25",
+        ]
+    ) == 0
+    payload = json.loads(capsys.readouterr().out)
+    run = TrainRunRepository(tmp_path).get(payload["run_id"])
+    assert run is not None
+    assert run.spec["training"]["trainerProfile"] == "stronger_v1"
+    assert run.spec["training"]["syntheticMix"]["enabled"] is True
+    assert run.spec["training"]["syntheticMix"]["ratio"] == 0.25

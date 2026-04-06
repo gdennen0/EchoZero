@@ -17,6 +17,8 @@ _REQUIRED_DATA_KEYS = {"datasetVersionId", "sampleRate", "maxLength", "nFft", "h
 _REQUIRED_TRAINING_KEYS = {"epochs", "batchSize", "learningRate"}
 _SUPPORTED_CLASSIFICATION_MODES = {"multiclass", "binary", "positive_vs_other"}
 _SYNTHETIC_MIX_KEYS = {"enabled", "ratio", "cap"}
+_SUPPORTED_TRAINER_PROFILES = {"baseline_v1", "stronger_v1"}
+_SUPPORTED_OPTIMIZERS = {"sgd_constant", "sgd_optimal"}
 
 
 _ALLOWED_TRANSITIONS: dict[TrainRunStatus, set[TrainRunStatus]] = {
@@ -249,6 +251,22 @@ class TrainRunService:
             raise ValueError("run_spec.training.batchSize must be >= 1")
         if float(training["learningRate"]) <= 0:
             raise ValueError("run_spec.training.learningRate must be > 0")
+        trainer_profile = str(training.get("trainerProfile", "baseline_v1")).lower()
+        if trainer_profile not in _SUPPORTED_TRAINER_PROFILES:
+            raise ValueError("run_spec.training.trainerProfile must be one of: baseline_v1, stronger_v1")
+        optimizer = str(training.get("optimizer", "sgd_constant")).lower()
+        if optimizer not in _SUPPORTED_OPTIMIZERS:
+            raise ValueError("run_spec.training.optimizer must be one of: sgd_constant, sgd_optimal")
+        if float(training.get("regularizationAlpha", 0.0001)) <= 0:
+            raise ValueError("run_spec.training.regularizationAlpha must be > 0")
+        early_stopping_patience = training.get("earlyStoppingPatience")
+        if early_stopping_patience is not None and int(early_stopping_patience) < 1:
+            raise ValueError("run_spec.training.earlyStoppingPatience must be >= 1")
+        min_epochs = training.get("minEpochs")
+        if min_epochs is not None and int(min_epochs) < 1:
+            raise ValueError("run_spec.training.minEpochs must be >= 1")
+        if min_epochs is not None and int(min_epochs) > int(training["epochs"]):
+            raise ValueError("run_spec.training.minEpochs must be <= epochs")
 
         class_weighting = str(training.get("classWeighting", "none")).lower()
         if class_weighting not in {"none", "balanced"}:

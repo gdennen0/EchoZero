@@ -52,6 +52,25 @@ def build_parser() -> argparse.ArgumentParser:
     train_folder.add_argument("--augment-gain-jitter", type=float, default=0.10)
     train_folder.add_argument("--augment-copies", type=int, default=1)
     train_folder.add_argument("--next-level", action="store_true", help="Enable v1.5 imbalance+augmentation defaults")
+    train_folder.add_argument(
+        "--trainer-profile",
+        choices=["baseline_v1", "stronger_v1"],
+        default="baseline_v1",
+        help="Training profile. Default preserves the current baseline behavior.",
+    )
+    train_folder.add_argument(
+        "--optimizer",
+        choices=["sgd_constant", "sgd_optimal"],
+        default="sgd_constant",
+        help="Optimizer schedule used by the selected trainer profile.",
+    )
+    train_folder.add_argument("--regularization-alpha", type=float, default=0.0001)
+    train_folder.add_argument("--average-weights", action="store_true")
+    train_folder.add_argument("--early-stopping-patience", type=int)
+    train_folder.add_argument("--min-epochs", type=int)
+    train_folder.add_argument("--synthetic-mix-enabled", action="store_true")
+    train_folder.add_argument("--synthetic-mix-ratio", type=float, default=0.0)
+    train_folder.add_argument("--synthetic-mix-cap", type=int)
 
     run = sub.add_parser("create-run")
     run.add_argument("dataset_version_id")
@@ -149,6 +168,15 @@ def main(argv: list[str] | None = None) -> int:
                 augment_noise_std=augment_noise_std,
                 augment_gain_jitter=augment_gain_jitter,
                 augment_copies=augment_copies,
+                trainer_profile=args.trainer_profile,
+                optimizer=args.optimizer,
+                regularization_alpha=args.regularization_alpha,
+                average_weights=args.average_weights,
+                early_stopping_patience=args.early_stopping_patience,
+                min_epochs=args.min_epochs,
+                synthetic_mix_enabled=args.synthetic_mix_enabled,
+                synthetic_mix_ratio=args.synthetic_mix_ratio,
+                synthetic_mix_cap=args.synthetic_mix_cap,
             ),
         )
         run = app.start_run(run.id)
@@ -230,7 +258,43 @@ def _default_run_spec(
     augment_noise_std: float = 0.02,
     augment_gain_jitter: float = 0.10,
     augment_copies: int = 1,
+    trainer_profile: str = "baseline_v1",
+    optimizer: str = "sgd_constant",
+    regularization_alpha: float = 0.0001,
+    average_weights: bool = False,
+    early_stopping_patience: int | None = None,
+    min_epochs: int | None = None,
+    synthetic_mix_enabled: bool = False,
+    synthetic_mix_ratio: float = 0.0,
+    synthetic_mix_cap: int | None = None,
 ) -> dict:
+    training = {
+        "epochs": epochs,
+        "batchSize": batch_size,
+        "learningRate": learning_rate,
+        "seed": seed,
+        "classWeighting": class_weighting,
+        "rebalanceStrategy": rebalance_strategy,
+        "augmentTrain": augment_train,
+        "augmentNoiseStd": augment_noise_std,
+        "augmentGainJitter": augment_gain_jitter,
+        "augmentCopies": augment_copies,
+        "trainerProfile": trainer_profile,
+        "optimizer": optimizer,
+        "regularizationAlpha": regularization_alpha,
+        "averageWeights": average_weights,
+    }
+    if early_stopping_patience is not None:
+        training["earlyStoppingPatience"] = early_stopping_patience
+    if min_epochs is not None:
+        training["minEpochs"] = min_epochs
+    if synthetic_mix_enabled or synthetic_mix_ratio > 0 or synthetic_mix_cap is not None:
+        training["syntheticMix"] = {
+            "enabled": synthetic_mix_enabled,
+            "ratio": synthetic_mix_ratio,
+            "cap": synthetic_mix_cap,
+        }
+
     return {
         "schema": "foundry.train_run_spec.v1",
         "classificationMode": "multiclass",
@@ -243,18 +307,7 @@ def _default_run_spec(
             "nMels": n_mels,
             "fmax": fmax,
         },
-        "training": {
-            "epochs": epochs,
-            "batchSize": batch_size,
-            "learningRate": learning_rate,
-            "seed": seed,
-            "classWeighting": class_weighting,
-            "rebalanceStrategy": rebalance_strategy,
-            "augmentTrain": augment_train,
-            "augmentNoiseStd": augment_noise_std,
-            "augmentGainJitter": augment_gain_jitter,
-            "augmentCopies": augment_copies,
-        },
+        "training": training,
     }
 
 

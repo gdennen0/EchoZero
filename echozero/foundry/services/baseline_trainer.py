@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import json
 from dataclasses import dataclass
 from pathlib import Path
@@ -121,15 +122,21 @@ class BaselineTrainer:
         class_weight = self._compute_class_weight(train_y_raw, classes=classes, mode=options["class_weighting"])
         classifier = SGDClassifier(
             loss="log_loss",
-            learning_rate="constant",
+            learning_rate="optimal" if options["optimizer"] == "sgd_optimal" else "constant",
             eta0=learning_rate,
-            alpha=0.0001,
+            alpha=float(options["regularization_alpha"]),
             random_state=random_seed,
             shuffle=False,
             class_weight=class_weight,
+            average=bool(options["average_weights"]),
         )
 
         checkpoint_metrics: list[dict[str, float | int | None]] = []
+        best_classifier: SGDClassifier | None = None
+        best_epoch = 0
+        best_primary_metric = float("-inf")
+        best_split_name = "val" if len(val_y) else "train"
+        epochs_without_improvement = 0
         for epoch in range(1, epochs + 1):
             epoch_x, epoch_y = self._augment_features(
                 train_x_scaled,
@@ -143,16 +150,45 @@ class BaselineTrainer:
             classifier.partial_fit(epoch_x, epoch_y, classes=classes)
             train_epoch = self._evaluate_split(classifier, train_x_scaled, train_y, class_names)
             val_epoch = self._evaluate_split(classifier, val_x_scaled, val_y, class_names) if len(val_y) else {}
+            train_epoch_metrics = train_epoch.get("metrics", {})
+            val_epoch_metrics = val_epoch.get("metrics", {})
             checkpoint_metrics.append(
                 {
                     "epoch": epoch,
-                    "train_loss": train_epoch.get("loss"),
-                    "train_accuracy": train_epoch.get("accuracy"),
-                    "val_loss": val_epoch.get("loss"),
-                    "val_accuracy": val_epoch.get("accuracy"),
-                    "val_macro_f1": val_epoch.get("macro_f1"),
+                    "train_loss": train_epoch_metrics.get("loss"),
+                    "train_accuracy": train_epoch_metrics.get("accuracy"),
+                    "train_macro_f1": train_epoch_metrics.get("macro_f1"),
+                    "val_loss": val_epoch_metrics.get("loss"),
+                    "val_accuracy": val_epoch_metrics.get("accuracy"),
+                    "val_macro_f1": val_epoch_metrics.get("macro_f1"),
                 }
             )
+            monitor_metrics = val_epoch_metrics if val_epoch_metrics else train_epoch_metrics
+            metric_name = "val_macro_f1" if val_epoch else "train_macro_f1"
+            current_primary_metric = float(monitor_metrics.get("macro_f1", float("-inf")))
+            if current_primary_metric > best_primary_metric:
+                best_primary_metric = current_primary_metric
+                best_epoch = epoch
+                best_split_name = "val" if val_epoch else "train"
+                best_classifier = copy.deepcopy(classifier)
+                epochs_without_improvement = 0
+            else:
+                epochs_without_improvement += 1
+
+            patience = options["early_stopping_patience"]
+            min_epochs = options["min_epochs"]
+            if (
+                patience is not None
+                and epoch >= min_epochs
+                and epochs_without_improvement >= patience
+            ):
+                checkpoint_metrics[-1]["stopped_early"] = 1
+                checkpoint_metrics[-1]["best_metric_name"] = metric_name
+                checkpoint_metrics[-1]["best_metric_value"] = best_primary_metric
+                break
+
+        if best_classifier is not None:
+            classifier = best_classifier
 
         final_eval = self._evaluate_split(classifier, eval_x_scaled, eval_y, class_names)
         if not final_eval:
@@ -181,9 +217,16 @@ class BaselineTrainer:
                 },
                 "training": {
                     "epochs": epochs,
+                    "completedEpochs": len(checkpoint_metrics),
                     "learningRate": learning_rate,
                     "batchSize": batch_size,
                     "seed": random_seed,
+                    "trainerProfile": options["trainer_profile"],
+                    "optimizer": options["optimizer"],
+                    "regularizationAlpha": options["regularization_alpha"],
+                    "averageWeights": options["average_weights"],
+                    "earlyStoppingPatience": options["early_stopping_patience"],
+                    "minEpochs": options["min_epochs"],
                     "classWeighting": options["class_weighting"],
                     "rebalanceStrategy": options["rebalance_strategy"],
                     "augmentTrain": options["augment_train"],
@@ -205,6 +248,12 @@ class BaselineTrainer:
             "checkpoints": checkpoint_metrics,
             "finalEval": final_eval,
             "trainerOptions": {
+                "trainerProfile": options["trainer_profile"],
+                "optimizer": options["optimizer"],
+                "regularizationAlpha": options["regularization_alpha"],
+                "averageWeights": options["average_weights"],
+                "earlyStoppingPatience": options["early_stopping_patience"],
+                "minEpochs": options["min_epochs"],
                 "classWeighting": options["class_weighting"],
                 "rebalanceStrategy": options["rebalance_strategy"],
                 "augmentTrain": options["augment_train"],
@@ -225,15 +274,19 @@ class BaselineTrainer:
             "metricsPath": metrics_path.name,
             "primaryMetric": final_eval["metrics"]["macro_f1"],
             "accuracy": final_eval["metrics"]["accuracy"],
-            "trainerProfile": "next_level_v1_5" if any(
+            "trainerProfile": options["trainer_profile"],
+            "dataProfile": "next_level_v1_5" if any(
                 [
                     options["augment_train"],
                     options["rebalance_strategy"] != "none",
                     options["class_weighting"] != "none",
                     synthetic_mix["actualSyntheticCount"] > 0,
                 ]
-            )
-            else "baseline_v1",
+            ) else "baseline_v1",
+            "completedEpochs": len(checkpoint_metrics),
+            "bestCheckpointEpoch": best_epoch,
+            "bestCheckpointMetric": best_primary_metric if best_epoch else None,
+            "bestCheckpointSplit": best_split_name if best_epoch else None,
             "syntheticMix": synthetic_mix,
         }
         run_summary_path = run.exports_dir(self._root) / "run_summary.json"
@@ -253,9 +306,15 @@ class BaselineTrainer:
             },
             baseline={
                 "family": "baseline_sgd_melspec_v1_5",
-                "optimizer": "sgd_log_loss",
+                "profile": options["trainer_profile"],
+                "optimizer": options["optimizer"],
                 "epochs": epochs,
-                "checkpoint_epoch": epochs,
+                "completed_epochs": len(checkpoint_metrics),
+                "checkpoint_epoch": best_epoch or len(checkpoint_metrics),
+                "early_stopping_patience": options["early_stopping_patience"],
+                "min_epochs": options["min_epochs"],
+                "regularization_alpha": options["regularization_alpha"],
+                "average_weights": options["average_weights"],
                 "feature_pooling": ["mean", "std", "max"],
                 "class_weighting": options["class_weighting"],
                 "rebalance_strategy": options["rebalance_strategy"],
@@ -284,6 +343,9 @@ class BaselineTrainer:
                 },
                 "trainingSummary": {
                     "trainer": "baseline_sgd_melspec_v1_5",
+                    "trainerProfile": options["trainer_profile"],
+                    "optimizer": options["optimizer"],
+                    "bestCheckpointEpoch": best_epoch,
                     "metricsPath": metrics_path.name,
                     "runSummaryPath": run_summary_path.name,
                     "classWeighting": options["class_weighting"],
@@ -300,6 +362,35 @@ class BaselineTrainer:
 
     @staticmethod
     def _resolve_training_options(training_spec: dict) -> dict[str, object]:
+        trainer_profile = str(training_spec.get("trainerProfile", "baseline_v1")).lower()
+        if trainer_profile not in {"baseline_v1", "stronger_v1"}:
+            raise ValueError("run_spec.training.trainerProfile must be one of: baseline_v1, stronger_v1")
+
+        optimizer = str(training_spec.get("optimizer", "sgd_constant")).lower()
+        if optimizer not in {"sgd_constant", "sgd_optimal"}:
+            raise ValueError("run_spec.training.optimizer must be one of: sgd_constant, sgd_optimal")
+
+        regularization_alpha = float(training_spec.get("regularizationAlpha", 0.0001))
+        if regularization_alpha <= 0:
+            raise ValueError("run_spec.training.regularizationAlpha must be > 0")
+
+        average_weights = bool(training_spec.get("averageWeights", False))
+        early_stopping_patience = training_spec.get("earlyStoppingPatience")
+        if early_stopping_patience is not None and int(early_stopping_patience) < 1:
+            raise ValueError("run_spec.training.earlyStoppingPatience must be >= 1")
+        min_epochs = training_spec.get("minEpochs")
+        if min_epochs is not None and int(min_epochs) < 1:
+            raise ValueError("run_spec.training.minEpochs must be >= 1")
+
+        if trainer_profile == "stronger_v1":
+            if optimizer == "sgd_constant" and "optimizer" not in training_spec:
+                optimizer = "sgd_optimal"
+            average_weights = True if "averageWeights" not in training_spec else average_weights
+            if early_stopping_patience is None:
+                early_stopping_patience = 3
+            if min_epochs is None:
+                min_epochs = min(int(training_spec.get("epochs", 1)), 3)
+
         class_weighting = str(training_spec.get("classWeighting", "none")).lower()
         if class_weighting not in {"none", "balanced"}:
             raise ValueError("run_spec.training.classWeighting must be one of: none, balanced")
@@ -331,6 +422,12 @@ class BaselineTrainer:
             raise ValueError("run_spec.training.syntheticMix.cap must be >= 0")
 
         return {
+            "trainer_profile": trainer_profile,
+            "optimizer": optimizer,
+            "regularization_alpha": regularization_alpha,
+            "average_weights": average_weights,
+            "early_stopping_patience": None if early_stopping_patience is None else int(early_stopping_patience),
+            "min_epochs": 1 if min_epochs is None else int(min_epochs),
             "class_weighting": class_weighting,
             "rebalance_strategy": rebalance_strategy,
             "augment_train": augment_train,
