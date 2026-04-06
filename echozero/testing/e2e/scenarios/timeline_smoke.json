@@ -1,0 +1,35 @@
+{
+  "name": "timeline_smoke",
+  "description": "Minimal Stage Zero smoke flow with playhead movement and a screenshot.",
+  "metadata": {
+    "surface": "stage-zero"
+  },
+  "steps": [
+    {
+      "kind": "assert",
+      "name": "demo_starts_playing",
+      "query": "is_playing",
+      "expected": true
+    },
+    {
+      "kind": "act",
+      "name": "seek_playhead",
+      "action": "intent",
+      "value": "Seek",
+      "args": {
+        "position": 2.5
+      }
+    },
+    {
+      "kind": "assert",
+      "name": "playhead_moved",
+      "query": "playhead",
+      "expected": 2.5
+    },
+    {
+      "kind": "capture",
+      "name": "timeline_smoke",
+      "artifact": "screenshot"
+    }
+  ]
+}

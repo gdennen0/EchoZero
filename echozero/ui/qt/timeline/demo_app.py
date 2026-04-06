@@ -19,9 +19,13 @@ from echozero.application.shared.ids import EventId, ProjectId, SessionId, SongI
 from echozero.application.sync.models import SyncState
 from echozero.application.sync.service import SyncService
 from echozero.application.timeline.intents import (
+    ClearSelection,
     Pause,
     Play,
     Seek,
+    SelectEvent,
+    SelectLayer,
+    SelectTake,
     Stop,
     TimelineIntent,
     ToggleLayerExpanded,
@@ -207,6 +211,54 @@ class DemoTimelineApp:
                 else:
                     layers.append(layer)
             self.presentation_state = replace(self.presentation_state, layers=layers)
+        elif isinstance(intent, SelectLayer):
+            layers = [
+                replace(layer, is_selected=(layer.layer_id == intent.layer_id))
+                for layer in self.presentation_state.layers
+            ]
+            self.presentation_state = replace(
+                self.presentation_state,
+                layers=layers,
+                selected_layer_id=intent.layer_id,
+                selected_take_id=None,
+                selected_event_ids=[],
+            )
+        elif isinstance(intent, SelectTake):
+            layers = [
+                replace(layer, is_selected=(layer.layer_id == intent.layer_id))
+                for layer in self.presentation_state.layers
+            ]
+            self.presentation_state = replace(
+                self.presentation_state,
+                layers=layers,
+                selected_layer_id=intent.layer_id,
+                selected_take_id=intent.take_id,
+                selected_event_ids=[],
+            )
+        elif isinstance(intent, SelectEvent):
+            layers = _select_event(
+                self.presentation_state.layers,
+                layer_id=intent.layer_id,
+                take_id=intent.take_id,
+                event_id=intent.event_id,
+            )
+            selected_ids = [] if intent.event_id is None else [intent.event_id]
+            self.presentation_state = replace(
+                self.presentation_state,
+                layers=layers,
+                selected_layer_id=intent.layer_id,
+                selected_take_id=intent.take_id,
+                selected_event_ids=selected_ids,
+            )
+        elif isinstance(intent, ClearSelection):
+            layers = _clear_selection(self.presentation_state.layers)
+            self.presentation_state = replace(
+                self.presentation_state,
+                layers=layers,
+                selected_layer_id=None,
+                selected_take_id=None,
+                selected_event_ids=[],
+            )
         elif isinstance(intent, TriggerTakeAction):
             self.presentation_state = replace(
                 self.presentation_state,
@@ -268,6 +320,55 @@ def _clone_events_for_main(events: list[EventPresentation], *, suffix: str) -> l
             )
         )
     return clones
+
+
+def _clear_selection(layers: list[LayerPresentation]) -> list[LayerPresentation]:
+    updated: list[LayerPresentation] = []
+    for layer in layers:
+        updated.append(
+            replace(
+                layer,
+                is_selected=False,
+                events=[replace(event, is_selected=False) for event in layer.events],
+                takes=[
+                    replace(take, events=[replace(event, is_selected=False) for event in take.events])
+                    for take in layer.takes
+                ],
+            )
+        )
+    return updated
+
+
+def _select_event(
+    layers: list[LayerPresentation],
+    *,
+    layer_id,
+    take_id,
+    event_id,
+) -> list[LayerPresentation]:
+    updated: list[LayerPresentation] = []
+    for layer in layers:
+        is_layer_selected = layer.layer_id == layer_id
+        events = [
+            replace(event, is_selected=is_layer_selected and take_id is None and event.event_id == event_id)
+            for event in layer.events
+        ]
+        takes = []
+        for take in layer.takes:
+            takes.append(
+                replace(
+                    take,
+                    events=[
+                        replace(
+                            event,
+                            is_selected=is_layer_selected and take.take_id == take_id and event.event_id == event_id,
+                        )
+                        for event in take.events
+                    ],
+                )
+            )
+        updated.append(replace(layer, is_selected=is_layer_selected, events=events, takes=takes))
+    return updated
 
 
 def build_demo_presentation() -> TimelinePresentation:

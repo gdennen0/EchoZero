@@ -1,0 +1,34 @@
+name: transport_selection_flow
+description: Transport controls and selection flow against the Stage Zero demo timeline.
+metadata:
+  surface: stage-zero
+steps:
+  - kind: act
+    name: start_playback
+    action: intent
+    value: Play
+  - kind: assert
+    name: playback_started
+    query: is_playing
+    expected: true
+  - kind: act
+    name: select_first_layer
+    action: intent
+    value: SelectLayer
+    args:
+      layer_id: layer_song
+  - kind: assert
+    name: first_layer_selected
+    query: layers[0].is_selected
+    expected: true
+  - kind: act
+    name: stop_playback
+    action: intent
+    value: Stop
+  - kind: assert
+    name: playback_stopped
+    query: playhead
+    expected: 0.0
+  - kind: capture
+    name: transport_selection_flow
+    artifact: screenshot
