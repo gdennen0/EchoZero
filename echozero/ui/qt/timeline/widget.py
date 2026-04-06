@@ -13,6 +13,7 @@ from echozero.application.presentation.models import TimelinePresentation, Layer
 from echozero.application.shared.enums import FollowMode
 from echozero.application.timeline.intents import (
     ClearSelection,
+    MoveSelectedEvents,
     Pause,
     Play,
     Seek,
@@ -176,6 +177,7 @@ class TimelineCanvas(QWidget):
     take_toggle_clicked = pyqtSignal(object)
     take_selected = pyqtSignal(object, object)
     event_selected = pyqtSignal(object, object, object, str)
+    move_selected_events_requested = pyqtSignal(float, object)
     take_action_selected = pyqtSignal(object, object, str)
     horizontal_scroll_requested = pyqtSignal(int)
     playhead_drag_requested = pyqtSignal(float)
@@ -201,8 +203,11 @@ class TimelineCanvas(QWidget):
         self._header_select_rects: list[tuple[QRectF, object]] = []
         self._row_body_select_rects: list[tuple[QRectF, object]] = []
         self._header_hover_rects: list[tuple[QRectF, LayerPresentation]] = []
+        self._event_drop_rects: list[tuple[QRectF, object]] = []
         self._hovered_layer_id: object | None = None
         self._dragging_playhead = False
+        self._drag_candidate: dict[str, object] | None = None
+        self._dragging_events = False
         self._header_block = LayerHeaderBlock()
         self._waveform_block = WaveformLaneBlock()
         self._event_lane_block = EventLaneBlock()
@@ -249,6 +254,7 @@ class TimelineCanvas(QWidget):
         self._header_select_rects.clear()
         self._row_body_select_rects.clear()
         self._header_hover_rects.clear()
+        self._event_drop_rects.clear()
         with timed("timeline.paint.layers"):
             self._draw_layers(painter)
         with timed("timeline.paint.playhead"):
@@ -259,6 +265,14 @@ class TimelineCanvas(QWidget):
             self.playhead_drag_requested.emit(self._seek_time_at_x(event.position().x()))
             event.accept()
             return
+
+        if self._drag_candidate is not None and event.buttons() & Qt.MouseButton.LeftButton:
+            dx = abs(event.position().x() - float(self._drag_candidate["anchor_x"]))
+            dy = abs(event.position().y() - float(self._drag_candidate["anchor_y"]))
+            if max(dx, dy) >= 4.0:
+                self._dragging_events = True
+                event.accept()
+                return
 
         pos = event.position()
         hovered: LayerPresentation | None = None
@@ -289,6 +303,8 @@ class TimelineCanvas(QWidget):
     def leaveEvent(self, event) -> None:
         self._hovered_layer_id = None
         self._dragging_playhead = False
+        self._drag_candidate = None
+        self._dragging_events = False
         QToolTip.hideText()
         super().leaveEvent(event)
 
@@ -327,6 +343,18 @@ class TimelineCanvas(QWidget):
                 return
         for rect, layer_id, take_id, event_id in self._event_rects:
             if rect.contains(pos):
+                if (
+                    event.button() == Qt.MouseButton.LeftButton
+                    and self._can_start_event_drag(event.modifiers(), event_id)
+                ):
+                    self._drag_candidate = {
+                        "anchor_x": pos.x(),
+                        "anchor_y": pos.y(),
+                        "source_layer_id": layer_id,
+                    }
+                    self._dragging_events = False
+                    event.accept()
+                    return
                 self.event_selected.emit(layer_id, take_id, event_id, self._selection_mode_for_modifiers(event.modifiers()))
                 return
         for rect, layer_id in self._toggle_rects:
@@ -346,6 +374,20 @@ class TimelineCanvas(QWidget):
     def mouseReleaseEvent(self, event) -> None:
         if event.button() == Qt.MouseButton.LeftButton:
             self._dragging_playhead = False
+            if self._drag_candidate is not None:
+                if self._dragging_events:
+                    delta_seconds = (event.position().x() - float(self._drag_candidate["anchor_x"])) / max(1.0, self.presentation.pixels_per_second)
+                    target_layer_id = self._event_drop_target_layer_id(event.position())
+                    source_layer_id = self._drag_candidate["source_layer_id"]
+                    if target_layer_id == source_layer_id:
+                        target_layer_id = None
+                    if abs(delta_seconds) >= 0.0001 or target_layer_id is not None:
+                        self.move_selected_events_requested.emit(float(delta_seconds), target_layer_id)
+                    event.accept()
+                self._drag_candidate = None
+                self._dragging_events = False
+                if event.isAccepted():
+                    return
         super().mouseReleaseEvent(event)
 
     def wheelEvent(self, event: QWheelEvent) -> None:
@@ -447,6 +489,8 @@ class TimelineCanvas(QWidget):
         self._header_select_rects.append((layout.header_rect, layer.layer_id))
         self._row_body_select_rects.append((layout.content_rect, layer.layer_id))
         self._header_hover_rects.append((layout.header_rect, layer))
+        if layer.kind.name == 'EVENT':
+            self._event_drop_rects.append((layout.content_rect, layer.layer_id))
         hit_targets = self._header_block.paint(painter, slots, layer, dimmed=dimmed)
         self._mute_rects.append((hit_targets.mute_rect, layer.layer_id))
         self._solo_rects.append((hit_targets.solo_rect, layer.layer_id))
@@ -507,6 +551,8 @@ class TimelineCanvas(QWidget):
         )
         self._take_rects.append(hit_targets.take_rect)
         self._row_body_select_rects.append((layout.content_rect, layer.layer_id))
+        if take.kind.name == 'EVENT':
+            self._event_drop_rects.append((layout.content_rect, layer.layer_id))
         if hit_targets.options_toggle_rect is not None:
             self._take_option_rects.append(hit_targets.options_toggle_rect)
         self._take_action_rects.extend(hit_targets.action_rects)
@@ -580,6 +626,21 @@ class TimelineCanvas(QWidget):
             pixels_per_second=self.presentation.pixels_per_second,
             content_start_x=self._header_width,
         )
+
+    def _can_start_event_drag(self, modifiers: Qt.KeyboardModifier, event_id: object) -> bool:
+        if modifiers & (
+            Qt.KeyboardModifier.ShiftModifier
+            | Qt.KeyboardModifier.ControlModifier
+            | Qt.KeyboardModifier.MetaModifier
+        ):
+            return False
+        return event_id in set(self.presentation.selected_event_ids)
+
+    def _event_drop_target_layer_id(self, pos: QPointF):
+        for rect, layer_id in self._event_drop_rects:
+            if rect.contains(pos):
+                return layer_id
+        return None
 
 
 class TransportBar(QWidget):
@@ -705,6 +766,7 @@ class TimelineWidget(QWidget):
         self._canvas.take_toggle_clicked.connect(self._toggle_take_selector)
         self._canvas.take_selected.connect(self._select_take)
         self._canvas.event_selected.connect(self._select_event)
+        self._canvas.move_selected_events_requested.connect(self._move_selected_events)
         self._canvas.take_action_selected.connect(self._trigger_take_action)
         self._canvas.playhead_drag_requested.connect(self._seek)
         self._canvas.horizontal_scroll_requested.connect(self._scroll_horizontally_by_steps)
@@ -808,6 +870,9 @@ class TimelineWidget(QWidget):
         if take_id is None or not action_id:
             return
         self._dispatch(TriggerTakeAction(layer_id, take_id, action_id))
+
+    def _move_selected_events(self, delta_seconds: float, target_layer_id) -> None:
+        self._dispatch(MoveSelectedEvents(delta_seconds=delta_seconds, target_layer_id=target_layer_id))
 
     def _toggle_mute(self, layer_id) -> None:
         self._dispatch(ToggleMute(layer_id))

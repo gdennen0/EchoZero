@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from echozero.application.mixer.models import AudibilityState, MixerState
 from echozero.application.mixer.service import MixerService
 from echozero.application.playback.models import PlaybackState
@@ -22,6 +24,7 @@ from echozero.application.sync.models import SyncState
 from echozero.application.sync.service import SyncService
 from echozero.application.timeline.intents import (
     ClearSelection,
+    MoveSelectedEvents,
     SelectEvent,
     SelectAllEvents,
     SelectTake,
@@ -456,3 +459,112 @@ def test_trigger_take_action_unknown_action_is_noop():
     )
 
     assert [event.id for event in main_take.events] == [event.id for event in original]
+
+
+def test_move_selected_events_shifts_selected_events_and_preserves_deterministic_take_context():
+    orchestrator, timeline, layer, main_take, alt_take = _build_orchestrator_and_timeline()
+    timeline.selection.selected_layer_id = layer.id
+    timeline.selection.selected_take_id = alt_take.id
+    timeline.selection.selected_event_ids = [main_take.events[0].id, alt_take.events[0].id]
+
+    orchestrator.handle(timeline, MoveSelectedEvents(delta_seconds=0.5))
+
+    assert main_take.events[0].start == 1.5
+    assert main_take.events[0].end == 1.7
+    assert alt_take.events[0].start == 1.75
+    assert alt_take.events[0].end == 1.95
+    assert timeline.selection.selected_layer_id == layer.id
+    assert timeline.selection.selected_take_id == alt_take.id
+    assert timeline.selection.selected_event_ids == [EventId("main_1"), EventId("alt_1")]
+
+
+def test_move_selected_events_clamps_at_time_zero():
+    orchestrator, timeline, layer, main_take, _alt_take = _build_orchestrator_and_timeline()
+    timeline.selection.selected_layer_id = layer.id
+    timeline.selection.selected_take_id = main_take.id
+    timeline.selection.selected_event_ids = [main_take.events[0].id]
+
+    orchestrator.handle(timeline, MoveSelectedEvents(delta_seconds=-5.0))
+
+    assert main_take.events[0].start == 0.0
+    assert main_take.events[0].end == pytest.approx(0.2)
+    assert timeline.selection.selected_take_id == main_take.id
+
+
+def test_move_selected_events_transfers_to_target_main_take():
+    orchestrator, timeline, layer, main_take, alt_take = _build_orchestrator_and_timeline()
+    target_take = Take(
+        id=TakeId("take_snare_main"),
+        layer_id=LayerId("layer_snare"),
+        name="Main",
+        events=[_event("snare_1", "take_snare_main", 3.0)],
+    )
+    target_layer = Layer(
+        id=LayerId("layer_snare"),
+        timeline_id=timeline.id,
+        name="Snare",
+        kind=LayerKind.EVENT,
+        order_index=1,
+        takes=[target_take],
+    )
+    timeline.layers.append(target_layer)
+    timeline.selection.selected_layer_id = layer.id
+    timeline.selection.selected_take_id = alt_take.id
+    timeline.selection.selected_event_ids = [alt_take.events[0].id]
+
+    orchestrator.handle(
+        timeline,
+        MoveSelectedEvents(delta_seconds=0.25, target_layer_id=target_layer.id),
+    )
+
+    assert [event.id for event in alt_take.events] == [EventId("alt_2")]
+    assert [event.id for event in target_take.events] == [EventId("alt_1"), EventId("snare_1")]
+    assert target_take.events[0].take_id == target_take.id
+    assert target_take.events[0].start == 1.5
+    assert target_take.events[0].end == 1.7
+    assert timeline.selection.selected_layer_id == target_layer.id
+    assert timeline.selection.selected_take_id == target_take.id
+    assert timeline.selection.selected_event_ids == [EventId("alt_1")]
+
+
+def test_move_selected_events_rejects_locked_or_hidden_transfer_targets():
+    orchestrator, timeline, layer, _main_take, alt_take = _build_orchestrator_and_timeline()
+    target_take = Take(
+        id=TakeId("take_snare_main"),
+        layer_id=LayerId("layer_snare"),
+        name="Main",
+        events=[],
+    )
+    target_layer = Layer(
+        id=LayerId("layer_snare"),
+        timeline_id=timeline.id,
+        name="Snare",
+        kind=LayerKind.EVENT,
+        order_index=1,
+        takes=[target_take],
+    )
+    timeline.layers.append(target_layer)
+    timeline.selection.selected_layer_id = layer.id
+    timeline.selection.selected_take_id = alt_take.id
+    timeline.selection.selected_event_ids = [alt_take.events[0].id]
+    original_start = alt_take.events[0].start
+    original_take_ids = [event.id for event in alt_take.events]
+
+    target_layer.presentation_hints.locked = True
+    orchestrator.handle(
+        timeline,
+        MoveSelectedEvents(delta_seconds=0.5, target_layer_id=target_layer.id),
+    )
+    assert [event.id for event in alt_take.events] == original_take_ids
+    assert alt_take.events[0].start == original_start
+    assert target_take.events == []
+
+    target_layer.presentation_hints.locked = False
+    target_layer.presentation_hints.visible = False
+    orchestrator.handle(
+        timeline,
+        MoveSelectedEvents(delta_seconds=0.5, target_layer_id=target_layer.id),
+    )
+    assert [event.id for event in alt_take.events] == original_take_ids
+    assert alt_take.events[0].start == original_start
+    assert target_take.events == []

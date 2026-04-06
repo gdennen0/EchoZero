@@ -150,17 +150,18 @@ class TimelineAssembler:
         selected_event_ids: set,
     ) -> tuple:
         def _events_sig(events: list[Event]) -> tuple:
-            if not events:
-                return (id(events), 0, None, None, None, None)
-            first = events[0]
-            last = events[-1]
             return (
                 id(events),
-                len(events),
-                str(first.id),
-                float(first.start),
-                str(last.id),
-                float(last.end),
+                tuple(
+                    (
+                        str(event.id),
+                        str(event.take_id),
+                        float(event.start),
+                        float(event.end),
+                        bool(event.muted),
+                    )
+                    for event in events
+                ),
             )
 
         layer_sigs: list[tuple] = []

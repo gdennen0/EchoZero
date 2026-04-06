@@ -17,6 +17,7 @@ from echozero.application.shared.enums import LayerKind
 from echozero.application.shared.ids import EventId, LayerId, TakeId, TimelineId
 from echozero.application.timeline.intents import (
     ClearSelection,
+    MoveSelectedEvents,
     Pause,
     Play,
     Seek,
@@ -198,6 +199,41 @@ def _selection_test_presentation() -> TimelinePresentation:
         ],
         pixels_per_second=100.0,
         end_time_label="00:05.00",
+    )
+
+
+def _drag_test_presentation() -> TimelinePresentation:
+    source = _selection_test_presentation()
+    target_layer_id = LayerId("layer_snare")
+    return replace(
+        source,
+        selected_layer_id=LayerId("layer_kick"),
+        selected_take_id=TakeId("take_main"),
+        selected_event_ids=[EventId("main_evt")],
+        layers=[
+            replace(
+                source.layers[0],
+                events=[
+                    replace(source.layers[0].events[0], is_selected=True),
+                ],
+            ),
+            LayerPresentation(
+                layer_id=target_layer_id,
+                title="Snare",
+                main_take_id=TakeId("take_snare_main"),
+                kind=LayerKind.EVENT,
+                is_expanded=False,
+                events=[
+                    EventPresentation(
+                        event_id=EventId("snare_evt"),
+                        start=3.0,
+                        end=3.5,
+                        label="Snare",
+                    )
+                ],
+                status=LayerStatusPresentation(),
+            ),
+        ],
     )
 
 
@@ -588,6 +624,57 @@ def test_transport_bar_clicks_dispatch_play_pause_and_stop():
         _click_transport_rect(widget, "stop")
         assert widget.presentation.is_playing is False
         assert widget.presentation.playhead == 0.0
+    finally:
+        widget.close()
+        app.processEvents()
+
+
+def test_dragging_selected_event_dispatches_move_intent():
+    app = QApplication.instance() or QApplication([])
+    intents: list[object] = []
+    presentation = _drag_test_presentation()
+    widget = TimelineWidget(presentation, on_intent=lambda intent: intents.append(intent) or presentation)
+    try:
+        _render_for_hit_testing(widget)
+
+        for rect, _, _, candidate_event_id in widget._canvas._event_rects:
+            if str(candidate_event_id) == "main_evt":
+                start = rect.center().toPoint()
+                break
+        else:
+            raise AssertionError("Missing event rect for main_evt")
+
+        _mouse_drag(widget._canvas, [start, QPoint(start.x() + 100, start.y())])
+
+        assert intents == [MoveSelectedEvents(delta_seconds=1.0, target_layer_id=None)]
+    finally:
+        widget.close()
+        app.processEvents()
+
+
+def test_dragging_selected_event_over_other_event_layer_dispatches_transfer_target():
+    app = QApplication.instance() or QApplication([])
+    intents: list[object] = []
+    presentation = _drag_test_presentation()
+    widget = TimelineWidget(presentation, on_intent=lambda intent: intents.append(intent) or presentation)
+    try:
+        _render_for_hit_testing(widget)
+
+        for rect, _, _, candidate_event_id in widget._canvas._event_rects:
+            if str(candidate_event_id) == "main_evt":
+                start = rect.center().toPoint()
+                break
+        else:
+            raise AssertionError("Missing event rect for main_evt")
+
+        target_rect = next(
+            rect for rect, layer_id in widget._canvas._event_drop_rects if layer_id == LayerId("layer_snare")
+        )
+        target = QPoint(start.x(), int(target_rect.center().y()))
+
+        _mouse_drag(widget._canvas, [start, target])
+
+        assert intents == [MoveSelectedEvents(delta_seconds=0.0, target_layer_id=LayerId("layer_snare"))]
     finally:
         widget.close()
         app.processEvents()

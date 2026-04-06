@@ -59,6 +59,12 @@ class MoveEvent(TimelineIntent):
 
 
 @dataclass(slots=True)
+class MoveSelectedEvents(TimelineIntent):
+    delta_seconds: float
+    target_layer_id: LayerId | None = None
+
+
+@dataclass(slots=True)
 class TrimEvent(TimelineIntent):
     event_id: EventId
     new_range: TimeRange

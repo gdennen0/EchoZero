@@ -13,6 +13,7 @@ if TYPE_CHECKING:
 from echozero.application.timeline.intents import (
     TimelineIntent,
     ClearSelection,
+    MoveSelectedEvents,
     SelectEvent,
     SelectAllEvents,
     SelectLayer,
@@ -68,6 +69,13 @@ class TimelineOrchestrator:
 
         elif isinstance(intent, SelectAllEvents):
             self._handle_select_all_events(timeline)
+
+        elif isinstance(intent, MoveSelectedEvents):
+            self._handle_move_selected_events(
+                timeline,
+                delta_seconds=float(intent.delta_seconds),
+                target_layer_id=intent.target_layer_id,
+            )
 
         elif isinstance(intent, ToggleLayerExpanded):
             layer = self._find_layer(timeline, intent.layer_id)
@@ -209,6 +217,103 @@ class TimelineOrchestrator:
         timeline.selection.selected_layer_id = layer.id
         timeline.selection.selected_take_id = main_take.id
         timeline.selection.selected_event_ids = []
+
+    def _handle_move_selected_events(self, timeline: Timeline, delta_seconds: float, target_layer_id) -> None:
+        selected_ids = list(timeline.selection.selected_event_ids)
+        if not selected_ids:
+            return
+
+        records = self._selected_event_records(timeline, selected_ids)
+        if not records:
+            timeline.selection.selected_event_ids = []
+            timeline.selection.selected_take_id = None
+            return
+
+        applied_delta = max(float(delta_seconds), -min(record.event.start for record in records))
+        source_layer_ids = {record.layer.id for record in records}
+        source_layer_id = timeline.selection.selected_layer_id
+        transfer_target = None
+
+        if target_layer_id is not None and target_layer_id not in source_layer_ids:
+            transfer_target = self._find_layer(timeline, target_layer_id)
+            if (
+                transfer_target.kind != records[0].layer.kind
+                or transfer_target.kind.value != "event"
+                or transfer_target.presentation_hints.locked
+                or not transfer_target.presentation_hints.visible
+            ):
+                return
+
+        affected_takes: dict[object, Take] = {}
+        if transfer_target is None:
+            for record in records:
+                record.event.start += applied_delta
+                record.event.end += applied_delta
+                affected_takes[record.take.id] = record.take
+            self._sort_take_events(*affected_takes.values())
+            if source_layer_id is None and records:
+                source_layer_id = records[0].layer.id
+            timeline.selection.selected_layer_id = source_layer_id
+            timeline.selection.selected_take_id = self._resolve_selected_take_id(
+                self._find_layer(timeline, source_layer_id) if source_layer_id is not None else records[0].layer,
+                selected_ids,
+                fallback_take_id=timeline.selection.selected_take_id,
+            )
+            return
+
+        target_take = self._main_take(transfer_target)
+        if target_take is None:
+            return
+
+        for record in records:
+            record.take.events = [candidate for candidate in record.take.events if candidate.id != record.event.id]
+            affected_takes[record.take.id] = record.take
+            record.event.start += applied_delta
+            record.event.end += applied_delta
+            record.event.take_id = target_take.id
+            target_take.events.append(record.event)
+
+        affected_takes[target_take.id] = target_take
+        self._sort_take_events(*affected_takes.values())
+        timeline.selection.selected_layer_id = transfer_target.id
+        timeline.selection.selected_take_id = target_take.id
+        timeline.selection.selected_event_ids = [record.event.id for record in records]
+
+    @dataclass(slots=True)
+    class _EventRecord:
+        layer: Layer
+        take: Take
+        event: Event
+
+    def _selected_event_records(self, timeline: Timeline, selected_ids: list) -> list[_EventRecord]:
+        selected_lookup = set(selected_ids)
+        order = {event_id: idx for idx, event_id in enumerate(selected_ids)}
+        records: list[TimelineOrchestrator._EventRecord] = []
+        for layer in timeline.layers:
+            for take in layer.takes:
+                for event in take.events:
+                    if event.id in selected_lookup:
+                        records.append(self._EventRecord(layer=layer, take=take, event=event))
+        records.sort(key=lambda record: order.get(record.event.id, len(order)))
+        return records
+
+    @staticmethod
+    def _resolve_selected_take_id(layer: Layer, selected_ids: list, fallback_take_id=None):
+        selected_lookup = set(selected_ids)
+        if fallback_take_id is not None:
+            fallback = TimelineOrchestrator._find_take(layer, fallback_take_id)
+            if fallback is not None and any(event.id in selected_lookup for event in fallback.events):
+                return fallback_take_id
+
+        for take in layer.takes:
+            if any(event.id in selected_lookup for event in take.events):
+                return take.id
+        return None
+
+    @staticmethod
+    def _sort_take_events(*takes: Take) -> None:
+        for take in takes:
+            take.events = sorted(take.events, key=lambda event: (event.start, event.end, str(event.id)))
 
     @staticmethod
     def _clone_events_for_target(events: list[Event], target_take: Take) -> list[Event]:
