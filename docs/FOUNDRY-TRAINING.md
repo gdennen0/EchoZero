@@ -25,8 +25,9 @@ What Griff should expect in the desktop UI:
 - `Dataset` tab: use the new `Dataset` and `Version` selectors when the workspace contains multiple imported datasets or multiple dataset versions.
 - `Run` tab: `Start Run` and `Create + Start` now run in the background, keep the window responsive, and stream live run-stage updates into the activity log and status line.
 - `Run` tab: use the new open actions to jump straight to the selected run's exports folder, `metrics.json`, and `run_summary.json`.
-- `Artifacts` tab and right-side workspace panel: inspect the latest run, eval report, artifact manifest, and validation status. Use `Open Artifact Manifest` to open the selected manifest directly.
-- `Refresh` reloads persisted state from `foundry\state\` and `foundry\runs\`.
+- `Artifacts` tab and right-side workspace panel: inspect the latest run, eval report, artifact manifest, and validation status. Use `Open Artifact Manifest` to open the selected manifest directly, or `Open Latest Artifact Package` to jump to the most recent persisted export package in one click.
+- Right-side `Background Queue`: shows queued, active, and recent runs with created/updated timestamps. The current active run is marked `ACTIVE`.
+- `Refresh` queues a non-blocking state reload from `foundry\state\` and `foundry\runs\`.
 - If an export or manifest file is missing, the UI keeps the window responsive and reports the missing path in the status/error area instead of crashing.
 
 ## Prerequisites

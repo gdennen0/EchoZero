@@ -53,6 +53,7 @@ class FoundryWindow(QMainWindow):
     """Official EchoZero Foundry v1 window for local desktop workflows."""
 
     activity_item_received = pyqtSignal(str, str)
+    _ACTIVE_RUN_STATUSES = {"queued", "preparing", "running", "evaluating", "exporting"}
 
     def __init__(self, root: Path):
         super().__init__()
@@ -112,12 +113,12 @@ class FoundryWindow(QMainWindow):
 
         self.workspace_path = QLineEdit(str(self._root))
         self.workspace_path.setReadOnly(True)
-        refresh_btn = QPushButton("Refresh")
-        refresh_btn.clicked.connect(self._refresh_workspace_state)
+        self.refresh_btn = QPushButton("Refresh")
+        self.refresh_btn.clicked.connect(self._queue_workspace_refresh)
 
         layout.addWidget(QLabel("Workspace"))
         layout.addWidget(self.workspace_path, stretch=1)
-        layout.addWidget(refresh_btn)
+        layout.addWidget(self.refresh_btn)
         return widget
 
     def _build_workflow_tabs(self) -> QWidget:
@@ -280,11 +281,14 @@ class FoundryWindow(QMainWindow):
         validate_btn.clicked.connect(self._validate_artifact)
         open_manifest_btn = QPushButton("Open Artifact Manifest")
         open_manifest_btn.clicked.connect(self._open_artifact_manifest)
+        open_latest_package_btn = QPushButton("Open Latest Artifact Package")
+        open_latest_package_btn.clicked.connect(self._open_latest_artifact_package)
 
         grid.addWidget(QLabel("Classes (comma-separated)"), 0, 0)
         grid.addWidget(self.class_names, 0, 1, 1, 3)
         grid.addWidget(finalize_btn, 1, 2)
         grid.addWidget(validate_btn, 1, 3)
+        grid.addWidget(open_latest_package_btn, 2, 2)
         grid.addWidget(open_manifest_btn, 2, 3)
 
         self.artifact_summary = QPlainTextEdit()
@@ -324,6 +328,12 @@ class FoundryWindow(QMainWindow):
         self.run_list.setMinimumHeight(140)
         runs_layout.addWidget(self.run_list)
 
+        queue_box = QGroupBox("Background Queue")
+        queue_layout = QVBoxLayout(queue_box)
+        self.queue_list = QListWidget()
+        self.queue_list.setMinimumHeight(120)
+        queue_layout.addWidget(self.queue_list)
+
         artifacts_box = QGroupBox("Artifacts")
         artifacts_layout = QVBoxLayout(artifacts_box)
         self.artifact_list = QListWidget()
@@ -342,6 +352,7 @@ class FoundryWindow(QMainWindow):
 
         layout.addWidget(overview_box)
         layout.addWidget(runs_box)
+        layout.addWidget(queue_box)
         layout.addWidget(artifacts_box)
         layout.addWidget(evals_box, stretch=1)
         return widget
@@ -516,9 +527,26 @@ class FoundryWindow(QMainWindow):
         except Exception as exc:
             self._error(exc)
 
+    def _open_latest_artifact_package(self) -> None:
+        path = self._resolve_latest_artifact_package_path()
+        if path is None:
+            self._set_status("No artifact package available yet. Complete a run to generate exports.")
+            return
+        if not path.exists():
+            self._set_status(f"Latest artifact package is missing on disk: {path}")
+            return
+        try:
+            self._open_existing_path(path, label="latest artifact package")
+        except Exception as exc:
+            self._error(exc)
+
     # ------------------------------------------------------------------
     # Refresh + Selection
     # ------------------------------------------------------------------
+
+    def _queue_workspace_refresh(self) -> None:
+        self._set_status("Refreshing workspace state...")
+        QTimer.singleShot(0, self._refresh_workspace_state)
 
     def _load_defaults(self) -> None:
         candidate = self._root / "data" / "drum-oneshots"
@@ -544,6 +572,7 @@ class FoundryWindow(QMainWindow):
         self.workspace_summary.setPlainText(self._format_workspace_summary(datasets, runs))
         self.dataset_summary.setPlainText(self._format_dataset_summary())
         self._populate_run_list(runs, select_run_id=select_run_id)
+        self._populate_queue_list(runs)
         self._update_selection_details(select_run_id=select_run_id, select_artifact_id=select_artifact_id)
 
     def _populate_run_list(self, runs: list[object], *, select_run_id: str | None = None) -> None:
@@ -566,6 +595,7 @@ class FoundryWindow(QMainWindow):
             self.run_list.setCurrentRow(selected_row)
         else:
             self.run_summary.setPlainText("No runs yet.")
+            self.queue_list.clear()
             self.artifact_list.clear()
             self.artifact_summary.clear()
             self.eval_list.clear()
@@ -653,6 +683,32 @@ class FoundryWindow(QMainWindow):
             self.eval_list.addItem(f"{report.id} [{report.split_name}] macro_f1={macro_f1} accuracy={accuracy}")
         self.eval_summary.setPlainText(self._format_eval_summary(evals[-1]))
 
+    def _populate_queue_list(self, runs: list[object]) -> None:
+        self.queue_list.clear()
+        if not runs:
+            self.queue_list.addItem("No queued or recent runs yet.")
+            return
+
+        active_runs = [
+            run for run in runs
+            if str(run.status.value).lower() in self._ACTIVE_RUN_STATUSES
+        ]
+        recent_terminal_runs = [
+            run for run in sorted(runs, key=lambda item: (item.updated_at, item.id), reverse=True)
+            if str(run.status.value).lower() not in self._ACTIVE_RUN_STATUSES
+        ][:5]
+        visible_runs = sorted(
+            {run.id: run for run in [*active_runs, *recent_terminal_runs]}.values(),
+            key=lambda item: (item.updated_at, item.id),
+            reverse=True,
+        )
+        active_run_id = self._resolve_active_run_id(active_runs)
+        if not visible_runs:
+            self.queue_list.addItem("No queued or recent runs yet.")
+            return
+        for run in visible_runs:
+            self.queue_list.addItem(self._format_queue_entry(run, is_active=run.id == active_run_id))
+
     # ------------------------------------------------------------------
     # Helpers
     # ------------------------------------------------------------------
@@ -698,6 +754,35 @@ class FoundryWindow(QMainWindow):
             "classificationMode": "multiclass",
             "inferencePreprocessing": dict(run.spec.get("data", {})),
         }
+
+    def _resolve_latest_artifact_package_path(self) -> Path | None:
+        artifacts = sorted(self._artifacts.list(), key=lambda item: (item.created_at, item.id))
+        if artifacts:
+            return artifacts[-1].path.parent
+
+        runs = sorted(self._app.runs.list_runs(), key=lambda item: (item.updated_at, item.id))
+        for run in reversed(runs):
+            exports_dir = run.exports_dir(self._root)
+            if exports_dir.exists() and any(exports_dir.iterdir()):
+                return exports_dir
+        return None
+
+    def _resolve_active_run_id(self, active_runs: list[object]) -> str | None:
+        if self._run_id:
+            current_run = self._app.runs.get_run(self._run_id)
+            if current_run is not None and str(current_run.status.value).lower() in self._ACTIVE_RUN_STATUSES:
+                return current_run.id
+        if not active_runs:
+            return None
+        return max(active_runs, key=lambda item: (item.updated_at, item.id)).id
+
+    def _format_queue_entry(self, run: object, *, is_active: bool) -> str:
+        marker = "ACTIVE " if is_active else ""
+        return (
+            f"{marker}{run.id} [{run.status.value}] "
+            f"created {run.created_at.strftime('%Y-%m-%d %H:%M:%S')} "
+            f"updated {run.updated_at.strftime('%Y-%m-%d %H:%M:%S')}"
+        )
 
     def _require_run_id(self) -> str:
         if not self._run_id:
@@ -791,12 +876,14 @@ class FoundryWindow(QMainWindow):
         if not self._run_id:
             return
         run = self._app.runs.get_run(self._run_id)
+        runs = sorted(self._app.runs.list_runs(), key=lambda item: item.created_at)
         if run is not None:
             self.run_summary.setPlainText(self._format_run_summary(run))
             self.status_line.setText(
                 f"{self._running_action_label or 'Run'}: {run.id} [{run.status.value}]"
             )
         self._append_new_run_events(self._run_id)
+        self._populate_queue_list(runs)
         self._populate_artifact_list(
             sorted(self._artifacts.list_for_run(self._run_id), key=lambda item: item.created_at),
             select_artifact_id=self._artifact_id,
