@@ -3,7 +3,13 @@ from __future__ import annotations
 from pathlib import Path
 
 from echozero.foundry.app import FoundryApp
-from echozero.foundry.persistence import EvalReportRepository, ModelArtifactRepository, TrainRunRepository
+from echozero.foundry.domain import DatasetSample
+from echozero.foundry.persistence import (
+    DatasetVersionRepository,
+    EvalReportRepository,
+    ModelArtifactRepository,
+    TrainRunRepository,
+)
 from echozero.foundry.services import ArtifactService, EvalService, TrainRunService
 from tests.foundry.audio_fixtures import write_percussion_dataset
 
@@ -86,3 +92,91 @@ def test_eval_report_persist_round_trip_with_baseline_metrics(tmp_path: Path):
     assert persisted.aggregate_metrics["macro_f1"] == 0.89
     assert persisted.per_class_metrics["kick"]["support"] == 12
     assert persisted.summary["primary_metric"] == "macro_f1"
+
+
+def test_synthetic_provenance_persisted_and_surfaced(tmp_path: Path):
+    samples = tmp_path / "samples"
+    write_percussion_dataset(samples)
+
+    app = FoundryApp(tmp_path)
+    dataset = app.datasets.create_dataset("Synthetic Provenance Drums")
+    version = app.datasets.ingest_from_folder(dataset.id, samples)
+    app.plan_version(version.id, validation_split=0.25, test_split=0.25, seed=17, balance_strategy="none")
+
+    version_repo = DatasetVersionRepository(tmp_path)
+    version = version_repo.get(version.id)
+    assert version is not None
+
+    synthetic_id = version.split_plan["train_ids"][0]
+    version.samples = [
+        DatasetSample(
+            sample_id=sample.sample_id,
+            audio_ref=sample.audio_ref,
+            label=sample.label,
+            duration_ms=sample.duration_ms,
+            content_hash=sample.content_hash,
+            source_provenance=sample.source_provenance,
+            is_synthetic=sample.sample_id == synthetic_id,
+            synthetic_provenance=(
+                {
+                    "generator": "fixture.synthetic",
+                    "recipe": "noise_plus_envelope",
+                    "source_sample_id": synthetic_id,
+                }
+                if sample.sample_id == synthetic_id
+                else {}
+            ),
+            quality_flags=sample.quality_flags,
+            split_assignment=sample.split_assignment,
+            curation_state=sample.curation_state,
+        )
+        for sample in version.samples
+    ]
+    version.stats = {
+        **version.stats,
+        "real_sample_count": sum(1 for sample in version.samples if not sample.is_synthetic),
+        "synthetic_sample_count": sum(1 for sample in version.samples if sample.is_synthetic),
+    }
+    version.manifest = {
+        **version.manifest,
+        "synthetic_sample_ids": [synthetic_id],
+        "real_sample_ids": [sample.sample_id for sample in version.samples if not sample.is_synthetic],
+    }
+    version_repo.save(version)
+
+    persisted_version = version_repo.get(version.id)
+    assert persisted_version is not None
+    persisted_sample = next(sample for sample in persisted_version.samples if sample.sample_id == synthetic_id)
+    assert persisted_sample.is_synthetic is True
+    assert persisted_sample.synthetic_provenance["generator"] == "fixture.synthetic"
+    assert persisted_version.manifest["synthetic_sample_ids"] == [synthetic_id]
+    assert persisted_version.stats["synthetic_sample_count"] == 1
+
+    spec = {
+        "schema": "foundry.train_run_spec.v1",
+        "classificationMode": "multiclass",
+        "data": {
+            "datasetVersionId": version.id,
+            "sampleRate": 22050,
+            "maxLength": 22050,
+            "nFft": 2048,
+            "hopLength": 512,
+            "nMels": 128,
+            "fmax": 8000,
+        },
+        "training": {
+            "epochs": 1,
+            "batchSize": 2,
+            "learningRate": 0.01,
+            "seed": 23,
+            "syntheticMix": {"enabled": True, "ratio": 1.0, "cap": 1},
+        },
+    }
+
+    run = app.runs.create_run(version.id, spec, backend="pytorch", device="cpu")
+    run = app.runs.start_run(run.id)
+    artifact = ModelArtifactRepository(tmp_path).list_for_run(run.id)[0]
+
+    assert artifact.manifest["syntheticProvenance"]["syntheticSampleIds"] == [synthetic_id]
+    assert artifact.manifest["syntheticProvenance"]["syntheticSampleCount"] == 1
+    assert artifact.manifest["trainingSummary"]["syntheticMix"]["actualSyntheticCount"] == 1

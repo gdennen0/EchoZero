@@ -32,7 +32,15 @@
         "augmentTrain": { "type": "boolean" },
         "augmentNoiseStd": { "type": "number", "minimum": 0 },
         "augmentGainJitter": { "type": "number", "minimum": 0 },
-        "augmentCopies": { "type": "integer", "minimum": 0 }
+        "augmentCopies": { "type": "integer", "minimum": 0 },
+        "syntheticMix": {
+          "type": "object",
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "ratio": { "type": "number", "minimum": 0, "maximum": 1 },
+            "cap": { "type": "integer", "minimum": 0 }
+          }
+        }
       }
     }
   }

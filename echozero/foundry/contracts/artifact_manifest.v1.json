@@ -27,6 +27,7 @@
     "classificationMode": { "enum": ["multiclass", "binary", "positive_vs_other"] },
     "taxonomy": { "type": "object" },
     "labelPolicy": { "type": "object" },
+    "syntheticProvenance": { "type": "object" },
     "runtime": {
       "type": "object",
       "required": ["consumer", "backend", "device"]

@@ -57,6 +57,12 @@ class ArtifactService:
             "specHash": run.spec_hash,
             "taxonomy": dataset_version.taxonomy,
             "labelPolicy": dataset_version.label_policy,
+            "syntheticProvenance": {
+                "syntheticSampleIds": list(dataset_version.manifest.get("synthetic_sample_ids", [])),
+                "realSampleIds": list(dataset_version.manifest.get("real_sample_ids", [])),
+                "syntheticSampleCount": int(dataset_version.stats.get("synthetic_sample_count", 0)),
+                "realSampleCount": int(dataset_version.stats.get("real_sample_count", 0)),
+            },
             "runtime": {
                 "consumer": "PyTorchAudioClassify",
                 "backend": run.backend,

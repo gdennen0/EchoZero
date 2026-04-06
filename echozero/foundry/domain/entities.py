@@ -42,6 +42,8 @@ class DatasetSample:
     duration_ms: float | None = None
     content_hash: str = ""
     source_provenance: dict[str, Any] = field(default_factory=dict)
+    is_synthetic: bool = False
+    synthetic_provenance: dict[str, Any] = field(default_factory=dict)
     quality_flags: list[str] = field(default_factory=list)
     split_assignment: str | None = None
     curation_state: CurationState = CurationState.UNKNOWN

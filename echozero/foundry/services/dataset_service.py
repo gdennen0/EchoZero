@@ -83,6 +83,8 @@ class DatasetService:
                             "filename": file.name,
                             "label_from_path": label,
                         },
+                        is_synthetic=False,
+                        synthetic_provenance={},
                         curation_state=CurationState.UNKNOWN,
                     )
                 )
@@ -100,6 +102,8 @@ class DatasetService:
                 "label": s.label,
                 "content_hash": s.content_hash,
                 "source_provenance": s.source_provenance,
+                "is_synthetic": s.is_synthetic,
+                "synthetic_provenance": s.synthetic_provenance,
                 "quality_flags": s.quality_flags,
                 "split_assignment": s.split_assignment,
                 "curation_state": s.curation_state.value,
@@ -127,6 +131,8 @@ class DatasetService:
 
         stats = {
             "sample_count": len(samples),
+            "real_sample_count": sum(1 for s in samples if not s.is_synthetic),
+            "synthetic_sample_count": sum(1 for s in samples if s.is_synthetic),
             "class_counts": {
                 label: sum(1 for s in samples if s.label == label)
                 for label in class_map
@@ -141,6 +147,8 @@ class DatasetService:
             "deterministic_order": [s.sample_id for s in samples],
             "content_hash_algorithm": "sha256",
             "content_groups": {key: sorted(ids) for key, ids in sorted(content_groups.items())},
+            "synthetic_sample_ids": [s.sample_id for s in samples if s.is_synthetic],
+            "real_sample_ids": [s.sample_id for s in samples if not s.is_synthetic],
         }
 
         version = DatasetVersion(
@@ -181,6 +189,8 @@ class DatasetService:
                 duration_ms=sample.duration_ms,
                 content_hash=sample.content_hash,
                 source_provenance=sample.source_provenance,
+                is_synthetic=sample.is_synthetic,
+                synthetic_provenance=sample.synthetic_provenance,
                 quality_flags=sample.quality_flags,
                 split_assignment=assignments.get(sample.sample_id),
                 curation_state=sample.curation_state,
@@ -207,6 +217,8 @@ class DatasetService:
                     duration_ms=sample.duration_ms,
                     content_hash=sample.content_hash,
                     source_provenance=sample.source_provenance,
+                    is_synthetic=sample.is_synthetic,
+                    synthetic_provenance=sample.synthetic_provenance,
                     quality_flags=sample.quality_flags,
                     split_assignment=sample.split_assignment,
                     curation_state=state,
@@ -222,6 +234,8 @@ class DatasetService:
                 "sample_id": s.sample_id,
                 "label": s.label,
                 "content_hash": s.content_hash,
+                "is_synthetic": s.is_synthetic,
+                "synthetic_provenance": s.synthetic_provenance,
                 "split_assignment": s.split_assignment,
                 "curation_state": s.curation_state.value,
             }
@@ -247,6 +261,8 @@ class DatasetService:
             balance_plan=version.balance_plan,
             stats={
                 "sample_count": len(accepted),
+                "real_sample_count": sum(1 for s in accepted if not s.is_synthetic),
+                "synthetic_sample_count": sum(1 for s in accepted if s.is_synthetic),
                 "class_counts": {
                     label: sum(1 for s in accepted if s.label == label)
                     for label in sorted({s.label for s in accepted})
@@ -285,4 +301,10 @@ class DatasetService:
         }
         curated_manifest["deterministic_order"] = deterministic_order
         curated_manifest["content_groups"] = {key: ids for key, ids in content_groups.items() if ids}
+        curated_manifest["synthetic_sample_ids"] = [
+            sample_id for sample_id in manifest.get("synthetic_sample_ids", []) if sample_id in accepted_ids
+        ]
+        curated_manifest["real_sample_ids"] = [
+            sample_id for sample_id in manifest.get("real_sample_ids", []) if sample_id in accepted_ids
+        ]
         return curated_manifest

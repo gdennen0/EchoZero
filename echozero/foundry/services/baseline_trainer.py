@@ -55,8 +55,11 @@ class BaselineTrainer:
         sample_by_id = {sample.sample_id: sample for sample in dataset_version.samples}
         split_plan = dataset_version.split_plan or {}
         train_samples = [sample_by_id[sample_id] for sample_id in split_plan.get("train_ids", [])]
-        val_samples = [sample_by_id[sample_id] for sample_id in split_plan.get("val_ids", [])]
-        test_samples = [sample_by_id[sample_id] for sample_id in split_plan.get("test_ids", [])]
+        val_samples = [sample_by_id[sample_id] for sample_id in split_plan.get("val_ids", []) if sample_id in sample_by_id]
+        test_samples = [sample_by_id[sample_id] for sample_id in split_plan.get("test_ids", []) if sample_id in sample_by_id]
+        train_samples, synthetic_mix = self._resolve_train_samples(train_samples, options["synthetic_mix"], rng=rng)
+        val_samples = [sample for sample in val_samples if not sample.is_synthetic]
+        test_samples = [sample for sample in test_samples if not sample.is_synthetic]
 
         if len(train_samples) < 2:
             raise ValueError("baseline trainer requires at least two training samples")
@@ -187,6 +190,7 @@ class BaselineTrainer:
                     "augmentCopies": options["augment_copies"],
                     "augmentNoiseStd": options["augment_noise_std"],
                     "augmentGainJitter": options["augment_gain_jitter"],
+                    "syntheticMix": synthetic_mix,
                 },
                 "metrics": final_eval["metrics"],
             },
@@ -207,6 +211,7 @@ class BaselineTrainer:
                 "augmentCopies": options["augment_copies"],
                 "augmentNoiseStd": options["augment_noise_std"],
                 "augmentGainJitter": options["augment_gain_jitter"],
+                "syntheticMix": synthetic_mix,
             },
         }
         metrics_path = run.exports_dir(self._root) / "metrics.json"
@@ -225,9 +230,11 @@ class BaselineTrainer:
                     options["augment_train"],
                     options["rebalance_strategy"] != "none",
                     options["class_weighting"] != "none",
+                    synthetic_mix["actualSyntheticCount"] > 0,
                 ]
             )
             else "baseline_v1",
+            "syntheticMix": synthetic_mix,
         }
         run_summary_path = run.exports_dir(self._root) / "run_summary.json"
         run_summary_path.write_text(json.dumps(run_summary_payload, indent=2, sort_keys=True), encoding="utf-8")
@@ -256,6 +263,7 @@ class BaselineTrainer:
                 "augment_copies": options["augment_copies"],
                 "augment_noise_std": options["augment_noise_std"],
                 "augment_gain_jitter": options["augment_gain_jitter"],
+                "synthetic_mix": synthetic_mix,
             },
             artifact_manifest={
                 "weightsPath": model_path.name,
@@ -281,6 +289,7 @@ class BaselineTrainer:
                     "classWeighting": options["class_weighting"],
                     "rebalanceStrategy": options["rebalance_strategy"],
                     "augmentTrain": options["augment_train"],
+                    "syntheticMix": synthetic_mix,
                 },
             },
             model_path=model_path,
@@ -310,6 +319,17 @@ class BaselineTrainer:
         if augment_copies < 0:
             raise ValueError("run_spec.training.augmentCopies must be >= 0")
 
+        synthetic_mix_spec = training_spec.get("syntheticMix") or {}
+        if not isinstance(synthetic_mix_spec, dict):
+            raise ValueError("run_spec.training.syntheticMix must be an object")
+        synthetic_enabled = bool(synthetic_mix_spec.get("enabled", False))
+        synthetic_ratio = float(synthetic_mix_spec.get("ratio", 0.0))
+        synthetic_cap = synthetic_mix_spec.get("cap")
+        if synthetic_ratio < 0 or synthetic_ratio > 1:
+            raise ValueError("run_spec.training.syntheticMix.ratio must be between 0 and 1")
+        if synthetic_cap is not None and int(synthetic_cap) < 0:
+            raise ValueError("run_spec.training.syntheticMix.cap must be >= 0")
+
         return {
             "class_weighting": class_weighting,
             "rebalance_strategy": rebalance_strategy,
@@ -317,6 +337,49 @@ class BaselineTrainer:
             "augment_noise_std": augment_noise_std,
             "augment_gain_jitter": augment_gain_jitter,
             "augment_copies": augment_copies,
+            "synthetic_mix": {
+                "enabled": synthetic_enabled,
+                "ratio": synthetic_ratio,
+                "cap": None if synthetic_cap is None else int(synthetic_cap),
+            },
+        }
+
+    @staticmethod
+    def _resolve_train_samples(
+        train_samples: list[DatasetSample],
+        synthetic_mix_spec: dict[str, object],
+        *,
+        rng: np.random.Generator,
+    ) -> tuple[list[DatasetSample], dict[str, int | float | bool | None]]:
+        real_samples = [sample for sample in train_samples if not sample.is_synthetic]
+        synthetic_samples = [sample for sample in train_samples if sample.is_synthetic]
+        enabled = bool(synthetic_mix_spec.get("enabled", False))
+        ratio = float(synthetic_mix_spec.get("ratio", 0.0))
+        cap = synthetic_mix_spec.get("cap")
+        cap_value = None if cap is None else int(cap)
+
+        selected_synthetic: list[DatasetSample] = []
+        if enabled and synthetic_samples:
+            ratio_limit = int(len(real_samples) * ratio)
+            max_synthetic = ratio_limit
+            if cap_value is not None:
+                max_synthetic = min(max_synthetic, cap_value) if max_synthetic > 0 else cap_value
+            max_synthetic = max(0, min(max_synthetic, len(synthetic_samples)))
+            if max_synthetic >= len(synthetic_samples):
+                selected_synthetic = list(synthetic_samples)
+            elif max_synthetic > 0:
+                selected_indices = np.sort(rng.choice(len(synthetic_samples), size=max_synthetic, replace=False))
+                selected_synthetic = [synthetic_samples[index] for index in selected_indices.tolist()]
+
+        resolved = list(real_samples) + selected_synthetic
+        return resolved, {
+            "enabled": enabled,
+            "ratio": ratio,
+            "cap": cap_value,
+            "availableSyntheticCount": len(synthetic_samples),
+            "actualSyntheticCount": len(selected_synthetic),
+            "realTrainCount": len(real_samples),
+            "totalTrainCount": len(resolved),
         }
 
     @staticmethod

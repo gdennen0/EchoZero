@@ -16,6 +16,7 @@ from echozero.foundry.services.eval_service import EvalService
 _REQUIRED_DATA_KEYS = {"datasetVersionId", "sampleRate", "maxLength", "nFft", "hopLength", "nMels", "fmax"}
 _REQUIRED_TRAINING_KEYS = {"epochs", "batchSize", "learningRate"}
 _SUPPORTED_CLASSIFICATION_MODES = {"multiclass", "binary", "positive_vs_other"}
+_SYNTHETIC_MIX_KEYS = {"enabled", "ratio", "cap"}
 
 
 _ALLOWED_TRANSITIONS: dict[TrainRunStatus, set[TrainRunStatus]] = {
@@ -261,6 +262,25 @@ class TrainRunService:
             raise ValueError("run_spec.training.augmentGainJitter must be >= 0")
         if int(training.get("augmentCopies", 1)) < 0:
             raise ValueError("run_spec.training.augmentCopies must be >= 0")
+
+        synthetic_mix = training.get("syntheticMix")
+        if synthetic_mix is not None:
+            if not isinstance(synthetic_mix, dict):
+                raise ValueError("run_spec.training.syntheticMix must be an object")
+            unknown_keys = sorted(set(synthetic_mix.keys()) - _SYNTHETIC_MIX_KEYS)
+            if unknown_keys:
+                raise ValueError(
+                    f"run_spec.training.syntheticMix contains unsupported keys: {', '.join(unknown_keys)}"
+                )
+            enabled = bool(synthetic_mix.get("enabled", False))
+            ratio = float(synthetic_mix.get("ratio", 0.0))
+            cap = synthetic_mix.get("cap")
+            if ratio < 0 or ratio > 1:
+                raise ValueError("run_spec.training.syntheticMix.ratio must be between 0 and 1")
+            if cap is not None and int(cap) < 0:
+                raise ValueError("run_spec.training.syntheticMix.cap must be >= 0")
+            if enabled and ratio <= 0 and int(cap or 0) <= 0:
+                raise ValueError("enabled syntheticMix requires a positive ratio or cap")
 
         if int(data["maxLength"]) < int(data["sampleRate"]) // 10:
             raise ValueError("run_spec.data.maxLength is too small for one-shot training")

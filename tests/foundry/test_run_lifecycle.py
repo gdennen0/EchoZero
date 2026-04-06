@@ -6,7 +6,8 @@ from pathlib import Path
 import pytest
 
 from echozero.foundry.app import FoundryApp
-from echozero.foundry.domain import TrainRunStatus
+from echozero.foundry.domain import DatasetSample, TrainRunStatus
+from echozero.foundry.persistence import DatasetVersionRepository, ModelArtifactRepository
 from echozero.foundry.services import TrainRunService
 from tests.foundry.audio_fixtures import write_percussion_dataset
 
@@ -36,6 +37,60 @@ def _run_spec(version_id: str) -> dict:
         },
         "training": {"epochs": 2, "batchSize": 2, "learningRate": 0.01, "seed": 17},
     }
+
+
+def _mark_train_samples_synthetic(root: Path, version_id: str) -> tuple[object, list[str]]:
+    repo = DatasetVersionRepository(root)
+    version = repo.get(version_id)
+    assert version is not None
+
+    train_ids = set(version.split_plan.get("train_ids", []))
+    synthetic_ids: list[str] = []
+    seen_labels: set[str] = set()
+    for sample in version.samples:
+        if sample.sample_id not in train_ids:
+            continue
+        if sample.label in seen_labels:
+            synthetic_ids.append(sample.sample_id)
+            continue
+        seen_labels.add(sample.label)
+
+    synthetic_id_set = set(synthetic_ids)
+    version.samples = [
+        DatasetSample(
+            sample_id=sample.sample_id,
+            audio_ref=sample.audio_ref,
+            label=sample.label,
+            duration_ms=sample.duration_ms,
+            content_hash=sample.content_hash,
+            source_provenance=sample.source_provenance,
+            is_synthetic=sample.sample_id in synthetic_id_set,
+            synthetic_provenance=(
+                {
+                    "generator": "fixture.synthetic",
+                    "strategy": "test_marked_train_sample",
+                    "source_sample_id": sample.sample_id,
+                }
+                if sample.sample_id in synthetic_id_set
+                else {}
+            ),
+            quality_flags=sample.quality_flags,
+            split_assignment=sample.split_assignment,
+            curation_state=sample.curation_state,
+        )
+        for sample in version.samples
+    ]
+    version.stats = {
+        **version.stats,
+        "real_sample_count": sum(1 for sample in version.samples if not sample.is_synthetic),
+        "synthetic_sample_count": sum(1 for sample in version.samples if sample.is_synthetic),
+    }
+    version.manifest = {
+        **version.manifest,
+        "synthetic_sample_ids": synthetic_ids,
+        "real_sample_ids": [sample.sample_id for sample in version.samples if not sample.is_synthetic],
+    }
+    return repo.save(version), synthetic_ids
 
 
 def test_run_lifecycle_executes_training_and_writes_artifacts(tmp_path: Path):
@@ -130,3 +185,48 @@ def test_next_level_training_options_persist_into_eval_baseline(tmp_path: Path):
     assert baseline["class_weighting"] == "balanced"
     assert baseline["rebalance_strategy"] == "oversample"
     assert baseline["augment_train"] is True
+
+
+def test_synthetic_disabled_excludes_synthetic_from_training_path(tmp_path: Path):
+    version = _prepared_version(tmp_path)
+    assert version is not None
+    version, synthetic_ids = _mark_train_samples_synthetic(tmp_path, version.id)
+    assert synthetic_ids
+
+    app = FoundryApp(tmp_path)
+    run = app.runs.create_run(version.id, _run_spec(version.id))
+    run = app.runs.start_run(run.id)
+    assert run.status == TrainRunStatus.COMPLETED
+
+    run_summary = json.loads((run.exports_dir(tmp_path) / "run_summary.json").read_text(encoding="utf-8"))
+    metrics = json.loads((run.exports_dir(tmp_path) / "metrics.json").read_text(encoding="utf-8"))
+    artifact = ModelArtifactRepository(tmp_path).list_for_run(run.id)[0]
+
+    assert run_summary["syntheticMix"]["enabled"] is False
+    assert run_summary["syntheticMix"]["availableSyntheticCount"] == len(synthetic_ids)
+    assert run_summary["syntheticMix"]["actualSyntheticCount"] == 0
+    assert metrics["trainerOptions"]["syntheticMix"]["actualSyntheticCount"] == 0
+    assert artifact.manifest["trainingSummary"]["syntheticMix"]["actualSyntheticCount"] == 0
+
+
+def test_synthetic_enabled_with_ratio_bounds_inclusion(tmp_path: Path):
+    version = _prepared_version(tmp_path)
+    assert version is not None
+    version, synthetic_ids = _mark_train_samples_synthetic(tmp_path, version.id)
+    assert len(synthetic_ids) >= 1
+
+    app = FoundryApp(tmp_path)
+    spec = _run_spec(version.id)
+    spec["training"]["syntheticMix"] = {"enabled": True, "ratio": 0.5}
+
+    run = app.runs.create_run(version.id, spec)
+    run = app.runs.start_run(run.id)
+    assert run.status == TrainRunStatus.COMPLETED
+
+    run_summary = json.loads((run.exports_dir(tmp_path) / "run_summary.json").read_text(encoding="utf-8"))
+    synthetic_mix = run_summary["syntheticMix"]
+
+    assert synthetic_mix["enabled"] is True
+    assert synthetic_mix["availableSyntheticCount"] == len(synthetic_ids)
+    assert synthetic_mix["actualSyntheticCount"] == 1
+    assert synthetic_mix["actualSyntheticCount"] <= int(synthetic_mix["realTrainCount"] * synthetic_mix["ratio"])
