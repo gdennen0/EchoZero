@@ -1,8 +1,9 @@
 from dataclasses import replace
 
-from PyQt6.QtCore import QPoint
+from PyQt6.QtCore import QPoint, QPointF, QEvent
 from PyQt6.QtTest import QTest
 from PyQt6.QtCore import Qt
+from PyQt6.QtGui import QMouseEvent
 from PyQt6.QtWidgets import QApplication
 
 from echozero.application.presentation.models import (
@@ -27,6 +28,7 @@ from echozero.application.timeline.intents import (
 )
 from echozero.ui.qt.timeline.demo_app import build_demo_app
 from echozero.ui.qt.timeline.test_harness import build_variant_presentations, estimate_full_window_height
+from echozero.ui.qt.timeline.blocks.ruler import timeline_x_for_time
 from echozero.ui.qt.timeline.widget import TimelineWidget, compute_scroll_bounds, estimate_timeline_span_seconds
 
 
@@ -229,6 +231,60 @@ def _click_transport_rect(widget: TimelineWidget, key: str) -> None:
     QApplication.processEvents()
 
 
+def _mouse_drag(target, points: list[QPoint]) -> None:
+    first = points[0]
+    QApplication.sendEvent(
+        target,
+        QMouseEvent(
+            QEvent.Type.MouseButtonPress,
+            QPointF(first),
+            QPointF(first),
+            QPointF(first),
+            Qt.MouseButton.LeftButton,
+            Qt.MouseButton.LeftButton,
+            Qt.KeyboardModifier.NoModifier,
+        ),
+    )
+    for point in points[1:]:
+        QApplication.sendEvent(
+            target,
+            QMouseEvent(
+                QEvent.Type.MouseMove,
+                QPointF(point),
+                QPointF(point),
+                QPointF(point),
+                Qt.MouseButton.NoButton,
+                Qt.MouseButton.LeftButton,
+                Qt.KeyboardModifier.NoModifier,
+            ),
+        )
+    last = points[-1]
+    QApplication.sendEvent(
+        target,
+        QMouseEvent(
+            QEvent.Type.MouseButtonRelease,
+            QPointF(last),
+            QPointF(last),
+            QPointF(last),
+            Qt.MouseButton.LeftButton,
+            Qt.MouseButton.NoButton,
+            Qt.KeyboardModifier.NoModifier,
+        ),
+    )
+    QApplication.processEvents()
+
+
+def _seek_tracking_widget(presentation: TimelinePresentation) -> tuple[TimelineWidget, list[Seek]]:
+    intents: list[Seek] = []
+
+    def _on_intent(intent):
+        if isinstance(intent, Seek):
+            intents.append(intent)
+            return replace(presentation, playhead=intent.position)
+        return presentation
+
+    return TimelineWidget(presentation, on_intent=_on_intent), intents
+
 def test_main_row_event_click_dispatches_main_take_identity():
     app = QApplication.instance() or QApplication([])
     intents: list[SelectEvent] = []
@@ -321,6 +377,22 @@ def test_main_rows_expose_mute_solo_hit_targets_without_take_row_duplicates():
         app.processEvents()
 
 
+def test_ruler_click_dispatches_seek():
+    app = QApplication.instance() or QApplication([])
+    presentation = _selection_test_presentation()
+    widget, intents = _seek_tracking_widget(presentation)
+    try:
+        _render_for_hit_testing(widget)
+
+        QTest.mouseClick(widget._ruler, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier, QPoint(520, 12))
+        QApplication.processEvents()
+
+        assert intents == [Seek(2.0)]
+    finally:
+        widget.close()
+        app.processEvents()
+
+
 def test_main_row_mute_and_solo_clicks_dispatch_toggle_intents():
     app = QApplication.instance() or QApplication([])
     intents: list[object] = []
@@ -339,6 +411,71 @@ def test_main_row_mute_and_solo_clicks_dispatch_toggle_intents():
             ToggleMute(mute_layer_id),
             ToggleSolo(solo_layer_id),
         ]
+    finally:
+        widget.close()
+        app.processEvents()
+
+
+def test_ruler_drag_scrubs_playhead_continuously():
+    app = QApplication.instance() or QApplication([])
+    presentation = _selection_test_presentation()
+    widget, intents = _seek_tracking_widget(presentation)
+    try:
+        _render_for_hit_testing(widget)
+
+        _mouse_drag(
+            widget._ruler,
+            [QPoint(420, 12), QPoint(520, 12), QPoint(620, 12)],
+        )
+
+        assert intents == [Seek(1.0), Seek(2.0), Seek(3.0)]
+    finally:
+        widget.close()
+        app.processEvents()
+
+
+def test_playhead_head_drag_dispatches_seek():
+    app = QApplication.instance() or QApplication([])
+    presentation = replace(_selection_test_presentation(), playhead=1.0)
+    widget, intents = _seek_tracking_widget(presentation)
+    try:
+        _render_for_hit_testing(widget)
+
+        start_x = int(
+            timeline_x_for_time(
+                widget.presentation.playhead,
+                scroll_x=widget.presentation.scroll_x,
+                pixels_per_second=widget.presentation.pixels_per_second,
+                content_start_x=widget._canvas._header_width,
+            )
+        )
+        y = widget._canvas._top_padding - 4
+        _mouse_drag(widget._canvas, [QPoint(start_x, y), QPoint(start_x + 100, y), QPoint(start_x + 200, y)])
+
+        assert intents == [Seek(1.0), Seek(2.0), Seek(3.0)]
+    finally:
+        widget.close()
+        app.processEvents()
+
+
+def test_canvas_empty_non_selection_space_no_longer_dispatches_seek():
+
+    app = QApplication.instance() or QApplication([])
+    intents: list[object] = []
+    presentation = _selection_test_presentation()
+    widget = TimelineWidget(presentation, on_intent=lambda intent: intents.append(intent) or presentation)
+    try:
+        _render_for_hit_testing(widget)
+
+        QTest.mouseClick(
+            widget._canvas,
+            Qt.MouseButton.LeftButton,
+            Qt.KeyboardModifier.NoModifier,
+            QPoint(widget._canvas.width() - 10, widget._canvas.height() - 10),
+        )
+        QApplication.processEvents()
+
+        assert intents == []
     finally:
         widget.close()
         app.processEvents()

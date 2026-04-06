@@ -3,8 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from math import ceil, floor
 
-from PyQt6.QtCore import QRectF
-from PyQt6.QtGui import QColor, QPainter, QPen
+from PyQt6.QtCore import QPointF, QRectF
+from PyQt6.QtGui import QColor, QPainter, QPen, QPolygonF
 
 from echozero.application.presentation.models import TimelinePresentation
 
@@ -38,6 +38,17 @@ class RulerBlock:
             painter.drawLine(int(x), int(rect.top()), int(x), int(rect.bottom()) - 1)
             painter.drawText(int(x) + 4, int(rect.top()) + 12, f'{second}')
 
+        playhead_x = timeline_x_for_time(
+            presentation.playhead,
+            scroll_x=presentation.scroll_x,
+            pixels_per_second=pps,
+            content_start_x=layout.header_width,
+        )
+        head = playhead_head_polygon(playhead_x, rect.bottom() - 1)
+        painter.setPen(QPen(QColor('#ff5f57'), 1))
+        painter.setBrush(QColor('#ff5f57'))
+        painter.drawPolygon(head)
+
 
 def visible_ruler_seconds(
     *,
@@ -57,3 +68,35 @@ def visible_ruler_seconds(
         if (content_start_x - pps) <= x <= (content_start_x + content_width + pps):
             marks.append((second, x))
     return marks
+
+
+def timeline_x_for_time(
+    time_seconds: float,
+    *,
+    scroll_x: float,
+    pixels_per_second: float,
+    content_start_x: float,
+) -> float:
+    pps = max(1.0, pixels_per_second)
+    return content_start_x + (max(0.0, time_seconds) * pps) - scroll_x
+
+
+def seek_time_for_x(
+    x: float,
+    *,
+    scroll_x: float,
+    pixels_per_second: float,
+    content_start_x: float,
+) -> float:
+    pps = max(1.0, pixels_per_second)
+    return max(0.0, (x - content_start_x + scroll_x) / pps)
+
+
+def playhead_head_polygon(x: float, bottom_y: float) -> QPolygonF:
+    return QPolygonF(
+        [
+            QPointF(x, bottom_y),
+            QPointF(x - 7.0, bottom_y - 10.0),
+            QPointF(x + 7.0, bottom_y - 10.0),
+        ]
+    )

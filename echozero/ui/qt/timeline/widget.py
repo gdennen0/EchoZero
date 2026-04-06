@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import replace
 
-from PyQt6.QtCore import QRectF, Qt, pyqtSignal
+from PyQt6.QtCore import QPointF, QRectF, Qt, pyqtSignal
 from PyQt6.QtGui import QColor, QPainter, QPen, QWheelEvent
 from PyQt6.QtWidgets import QWidget, QVBoxLayout, QScrollArea, QScrollBar, QToolTip
 
@@ -37,7 +37,13 @@ from echozero.ui.FEEL import (
 from echozero.ui.qt.timeline.blocks.event_lane import EventLaneBlock, EventLanePresentation
 from echozero.ui.qt.timeline.blocks.layer_header import HeaderSlots, LayerHeaderBlock
 from echozero.ui.qt.timeline.blocks.layouts import MainRowLayout, TakeRowLayout
-from echozero.ui.qt.timeline.blocks.ruler import RulerBlock, RulerLayout
+from echozero.ui.qt.timeline.blocks.ruler import (
+    RulerBlock,
+    RulerLayout,
+    playhead_head_polygon,
+    seek_time_for_x,
+    timeline_x_for_time,
+)
 from echozero.ui.qt.timeline.blocks.take_row import TakeRowBlock
 from echozero.ui.qt.timeline.blocks.transport_bar import TransportLayout
 from echozero.ui.qt.timeline.blocks.transport_bar_block import TransportBarBlock
@@ -169,8 +175,8 @@ class TimelineCanvas(QWidget):
     take_selected = pyqtSignal(object, object)
     event_selected = pyqtSignal(object, object, object)
     take_action_selected = pyqtSignal(object, object, str)
-    seek_requested = pyqtSignal(float)
     horizontal_scroll_requested = pyqtSignal(int)
+    playhead_drag_requested = pyqtSignal(float)
 
     def __init__(self, presentation: TimelinePresentation, parent=None):
         super().__init__(parent)
@@ -192,6 +198,7 @@ class TimelineCanvas(QWidget):
         self._row_body_select_rects: list[tuple[QRectF, object]] = []
         self._header_hover_rects: list[tuple[QRectF, LayerPresentation]] = []
         self._hovered_layer_id: object | None = None
+        self._dragging_playhead = False
         self._header_block = LayerHeaderBlock()
         self._waveform_block = WaveformLaneBlock()
         self._event_lane_block = EventLaneBlock()
@@ -243,6 +250,11 @@ class TimelineCanvas(QWidget):
             self._draw_playhead(painter)
 
     def mouseMoveEvent(self, event) -> None:
+        if self._dragging_playhead and event.buttons() & Qt.MouseButton.LeftButton:
+            self.playhead_drag_requested.emit(self._seek_time_at_x(event.position().x()))
+            event.accept()
+            return
+
         pos = event.position()
         hovered: LayerPresentation | None = None
         hovered_rect: QRectF | None = None
@@ -271,11 +283,17 @@ class TimelineCanvas(QWidget):
 
     def leaveEvent(self, event) -> None:
         self._hovered_layer_id = None
+        self._dragging_playhead = False
         QToolTip.hideText()
         super().leaveEvent(event)
 
     def mousePressEvent(self, event):
         pos = event.position()
+        if event.button() == Qt.MouseButton.LeftButton and self._playhead_head_contains(pos):
+            self._dragging_playhead = True
+            self.playhead_drag_requested.emit(self._seek_time_at_x(pos.x()))
+            event.accept()
+            return
         for rect, layer_id in self._mute_rects:
             if rect.contains(pos):
                 self.mute_clicked.emit(layer_id)
@@ -317,7 +335,11 @@ class TimelineCanvas(QWidget):
             if rect.contains(pos):
                 self.layer_clicked.emit(layer_id)
                 return
-        self._emit_seek(pos.x())
+
+    def mouseReleaseEvent(self, event) -> None:
+        if event.button() == Qt.MouseButton.LeftButton:
+            self._dragging_playhead = False
+        super().mouseReleaseEvent(event)
 
     def wheelEvent(self, event: QWheelEvent) -> None:
         if event.modifiers() & Qt.KeyboardModifier.ShiftModifier:
@@ -327,11 +349,6 @@ class TimelineCanvas(QWidget):
                 event.accept()
                 return
         super().wheelEvent(event)
-
-    def _emit_seek(self, x: float) -> None:
-        pps = max(1.0, self.presentation.pixels_per_second)
-        seek_time = max(0.0, (x - self._header_width + self.presentation.scroll_x) / pps)
-        self.seek_requested.emit(seek_time)
 
     def _draw_layers(self, painter: QPainter) -> None:
         y = self._top_padding
@@ -503,9 +520,35 @@ class TimelineCanvas(QWidget):
             painter.restore()
 
     def _draw_playhead(self, painter: QPainter) -> None:
-        x = self._header_width + (self.presentation.playhead * self.presentation.pixels_per_second) - self.presentation.scroll_x
+        x = timeline_x_for_time(
+            self.presentation.playhead,
+            scroll_x=self.presentation.scroll_x,
+            pixels_per_second=self.presentation.pixels_per_second,
+            content_start_x=self._header_width,
+        )
         painter.setPen(QPen(QColor('#ff5f57'), 2))
         painter.drawLine(int(x), 0, int(x), self.height())
+        if x >= self._header_width:
+            painter.setBrush(QColor('#ff5f57'))
+            painter.setPen(QPen(QColor('#ff5f57'), 1))
+            painter.drawPolygon(playhead_head_polygon(x, float(self._top_padding)))
+
+    def _playhead_head_contains(self, pos: QPointF) -> bool:
+        x = timeline_x_for_time(
+            self.presentation.playhead,
+            scroll_x=self.presentation.scroll_x,
+            pixels_per_second=self.presentation.pixels_per_second,
+            content_start_x=self._header_width,
+        )
+        return playhead_head_polygon(x, float(self._top_padding)).boundingRect().contains(pos)
+
+    def _seek_time_at_x(self, x: float) -> float:
+        return seek_time_for_x(
+            x,
+            scroll_x=self.presentation.scroll_x,
+            pixels_per_second=self.presentation.pixels_per_second,
+            content_start_x=self._header_width,
+        )
 
 
 class TransportBar(QWidget):
@@ -549,11 +592,14 @@ class TransportBar(QWidget):
 
 
 class TimelineRuler(QWidget):
+    seek_requested = pyqtSignal(float)
+
     def __init__(self, presentation: TimelinePresentation, *, header_width: float = float(LAYER_HEADER_WIDTH_PX), parent=None):
         super().__init__(parent)
         self.presentation = presentation
         self._header_width = header_width
         self._block = RulerBlock()
+        self._dragging = False
         self.setMinimumHeight(RULER_HEIGHT_PX)
         self.setMaximumHeight(RULER_HEIGHT_PX)
 
@@ -568,6 +614,34 @@ class TimelineRuler(QWidget):
             painter,
             RulerLayout(QRectF(0, 0, self.width(), self.height()), self._header_width),
             self.presentation,
+        )
+
+    def mousePressEvent(self, event) -> None:
+        if event.button() == Qt.MouseButton.LeftButton and event.position().x() >= self._header_width:
+            self._dragging = True
+            self.seek_requested.emit(self._seek_time_at_x(event.position().x()))
+            event.accept()
+            return
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event) -> None:
+        if self._dragging and event.buttons() & Qt.MouseButton.LeftButton:
+            self.seek_requested.emit(self._seek_time_at_x(event.position().x()))
+            event.accept()
+            return
+        super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event) -> None:
+        if event.button() == Qt.MouseButton.LeftButton:
+            self._dragging = False
+        super().mouseReleaseEvent(event)
+
+    def _seek_time_at_x(self, x: float) -> float:
+        return seek_time_for_x(
+            x,
+            scroll_x=self.presentation.scroll_x,
+            pixels_per_second=self.presentation.pixels_per_second,
+            content_start_x=self._header_width,
         )
 
 
@@ -600,8 +674,9 @@ class TimelineWidget(QWidget):
         self._canvas.take_selected.connect(self._select_take)
         self._canvas.event_selected.connect(self._select_event)
         self._canvas.take_action_selected.connect(self._trigger_take_action)
-        self._canvas.seek_requested.connect(self._seek)
+        self._canvas.playhead_drag_requested.connect(self._seek)
         self._canvas.horizontal_scroll_requested.connect(self._scroll_horizontally_by_steps)
+        self._ruler.seek_requested.connect(self._seek)
         self._scroll.setWidget(self._canvas)
         layout.addWidget(self._scroll)
 
