@@ -2,6 +2,30 @@
 
 This flow matches the current `ez-foundry` CLI and produces a dataset version, split plan, train run, exported model, and compatibility validation report.
 
+## Windows desktop run path
+
+From the repo root on Windows:
+
+```powershell
+python -m venv .venv
+.venv\Scripts\Activate.ps1
+python -m pip install -r requirements.txt
+python -m echozero.foundry.cli --root . ui
+```
+
+Optional helper script from the repo root:
+
+```powershell
+.\scripts\run-foundry-ui.ps1
+```
+
+What Griff should expect in the desktop UI:
+
+- `Dataset` tab: choose a folder, click `Create + Ingest`, then `Plan Split / Balance`.
+- `Run` tab: click `Create + Start` for the default desktop path.
+- `Artifacts` tab and right-side workspace panel: inspect the latest run, eval report, artifact manifest, and validation status.
+- `Refresh` reloads persisted state from `foundry\state\` and `foundry\runs\`.
+
 ## Prerequisites
 
 From the repo root:
@@ -63,6 +87,12 @@ Improved run with synthetic mix:
 ```
 
 The script runs `train-folder`, then validates every returned artifact id with `validate-artifact`.
+
+Desktop UI helper:
+
+```powershell
+.\scripts\run-foundry-ui.ps1
+```
 
 ## Explicit multi-step workflow
 

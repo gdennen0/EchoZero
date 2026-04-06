@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 from echozero.foundry.cli import main
 from echozero.foundry.persistence import TrainRunRepository
 from tests.foundry.audio_fixtures import write_percussion_dataset
@@ -169,3 +171,16 @@ def test_cli_train_folder_promotion_flags_persist_into_run_spec(tmp_path: Path, 
     assert run.spec["promotion"]["gate_policy"]["macro_f1_floor"] == 0.8
     assert run.spec["promotion"]["gate_policy"]["max_regression_vs_reference"] == 0.05
     assert run.spec["promotion"]["gate_policy"]["per_class_recall_floors"] == {"kick": 0.7}
+
+
+def test_cli_ui_launches_foundry_window(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    captured_root: list[Path] = []
+
+    def fake_run_foundry_ui(root: Path) -> int:
+        captured_root.append(root)
+        return 0
+
+    monkeypatch.setattr("echozero.foundry.cli.run_foundry_ui", fake_run_foundry_ui)
+
+    assert main(["--root", str(tmp_path), "ui"]) == 0
+    assert captured_root == [tmp_path]
