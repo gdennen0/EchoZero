@@ -32,6 +32,8 @@ from echozero.application.timeline.intents import (
 from echozero.perf import timed
 from echozero.ui.FEEL import (
     EVENT_BAR_HEIGHT_PX,
+    GRID_LINE_ALPHA,
+    GRID_LINE_COLOR,
     LAYER_HEADER_TOP_PADDING_PX,
     LAYER_HEADER_WIDTH_PX,
     LAYER_ROW_HEIGHT_PX,
@@ -48,6 +50,7 @@ from echozero.ui.qt.timeline.blocks.ruler import (
     playhead_head_polygon,
     seek_time_for_x,
     timeline_x_for_time,
+    visible_ruler_seconds,
 )
 from echozero.ui.qt.timeline.blocks.take_row import TakeRowBlock
 from echozero.ui.qt.timeline.blocks.transport_bar import TransportLayout
@@ -58,6 +61,9 @@ from echozero.ui.qt.timeline.blocks.waveform_lane import WaveformLaneBlock, Wave
 
 _SPAN_CACHE: dict[tuple, float] = {}
 _MAX_SPAN_CACHE_ENTRIES = 24
+_ZOOM_STEP_FACTOR = 1.12
+_ZOOM_MIN_PPS = 40.0
+_ZOOM_MAX_PPS = 720.0
 
 
 def _span_signature(presentation: TimelinePresentation) -> tuple:
@@ -187,6 +193,7 @@ class TimelineCanvas(QWidget):
     move_selected_events_requested = pyqtSignal(float, object)
     take_action_selected = pyqtSignal(object, object, str)
     horizontal_scroll_requested = pyqtSignal(int)
+    zoom_requested = pyqtSignal(int, float)
     playhead_drag_requested = pyqtSignal(float)
     clear_selection_requested = pyqtSignal()
     select_all_requested = pyqtSignal()
@@ -254,6 +261,7 @@ class TimelineCanvas(QWidget):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         painter.fillRect(self.rect(), QColor('#12151b'))
+        self._draw_time_grid(painter)
         self._take_rects.clear()
         self._take_option_rects.clear()
         self._take_action_rects.clear()
@@ -269,6 +277,24 @@ class TimelineCanvas(QWidget):
             self._draw_layers(painter)
         with timed("timeline.paint.playhead"):
             self._draw_playhead(painter)
+
+    def _draw_time_grid(self, painter: QPainter) -> None:
+        content_left = float(self._header_width)
+        content_width = max(1.0, float(self.width()) - content_left)
+        marks = visible_ruler_seconds(
+            scroll_x=self.presentation.scroll_x,
+            pixels_per_second=self.presentation.pixels_per_second,
+            content_width=content_width,
+            content_start_x=content_left,
+        )
+
+        grid_color = QColor(GRID_LINE_COLOR)
+        grid_color.setAlpha(max(0, min(255, GRID_LINE_ALPHA)))
+        painter.setPen(QPen(grid_color, 1))
+        for _, x in marks:
+            if x < content_left:
+                continue
+            painter.drawLine(int(x), int(self._top_padding), int(x), self.height())
 
     def mouseMoveEvent(self, event) -> None:
         if self._dragging_playhead and event.buttons() & Qt.MouseButton.LeftButton:
@@ -401,6 +427,13 @@ class TimelineCanvas(QWidget):
         super().mouseReleaseEvent(event)
 
     def wheelEvent(self, event: QWheelEvent) -> None:
+        if event.modifiers() & Qt.KeyboardModifier.ControlModifier:
+            delta = event.angleDelta().y() or event.angleDelta().x()
+            if delta:
+                self.zoom_requested.emit(int(delta), float(event.position().x()))
+                event.accept()
+                return
+
         if event.modifiers() & Qt.KeyboardModifier.ShiftModifier:
             delta = event.angleDelta().y() or event.angleDelta().x()
             if delta:
@@ -436,6 +469,16 @@ class TimelineCanvas(QWidget):
             self.nudge_requested.emit(1, steps)
             event.accept()
             return
+
+        if has_primary and event.key() in (Qt.Key.Key_Plus, Qt.Key.Key_Equal):
+            self.zoom_requested.emit(120, float(self.width() * 0.5))
+            event.accept()
+            return
+        if has_primary and event.key() in (Qt.Key.Key_Minus, Qt.Key.Key_Underscore):
+            self.zoom_requested.emit(-120, float(self.width() * 0.5))
+            event.accept()
+            return
+
         super().keyPressEvent(event)
 
     @staticmethod
@@ -803,6 +846,7 @@ class TimelineWidget(QWidget):
         self._canvas.take_action_selected.connect(self._trigger_take_action)
         self._canvas.playhead_drag_requested.connect(self._seek)
         self._canvas.horizontal_scroll_requested.connect(self._scroll_horizontally_by_steps)
+        self._canvas.zoom_requested.connect(self._zoom_from_input)
         self._canvas.clear_selection_requested.connect(self._clear_selection)
         self._canvas.select_all_requested.connect(self._select_all_events)
         self._canvas.nudge_requested.connect(self._nudge_selected_events)
@@ -886,11 +930,51 @@ class TimelineWidget(QWidget):
         next_value = self._hscroll.value() + (notches * self._hscroll.singleStep())
         self._hscroll.setValue(max(self._hscroll.minimum(), min(self._hscroll.maximum(), next_value)))
 
+    def _zoom_from_input(self, delta: int, anchor_x: float) -> None:
+        if delta == 0:
+            return
+        factor = _ZOOM_STEP_FACTOR if delta > 0 else (1.0 / _ZOOM_STEP_FACTOR)
+        self._apply_zoom_factor(factor, anchor_x=anchor_x)
+
+    def _apply_zoom_factor(self, factor: float, *, anchor_x: float) -> None:
+        current_pps = max(1.0, float(self.presentation.pixels_per_second))
+        target_pps = max(_ZOOM_MIN_PPS, min(_ZOOM_MAX_PPS, current_pps * float(factor)))
+        if abs(target_pps - current_pps) < 0.001:
+            return
+
+        content_start_x = float(self._canvas._header_width)
+        anchor_view_x = max(content_start_x, float(anchor_x))
+        anchor_time = seek_time_for_x(
+            anchor_view_x,
+            scroll_x=self.presentation.scroll_x,
+            pixels_per_second=current_pps,
+            content_start_x=content_start_x,
+        )
+        new_scroll = max(0.0, (anchor_time * target_pps) - (anchor_view_x - content_start_x))
+
+        self.presentation = replace(
+            self.presentation,
+            pixels_per_second=target_pps,
+            scroll_x=new_scroll,
+        )
+        self._update_horizontal_scroll_bounds(sync_bar_value=True)
+        self._transport.set_presentation(self.presentation)
+        self._ruler.set_presentation(self.presentation)
+        self._canvas.set_presentation(self.presentation, recompute_layout=False)
+
     def _dispatch(self, intent: object) -> None:
         if self._on_intent is None:
             return
         updated = self._on_intent(intent)
         if updated is not None:
+            # Viewport state (scroll/zoom) is owned by the widget, not the demo/app
+            # transport intent responses. Preserve local viewport through dispatch.
+            updated = replace(
+                updated,
+                scroll_x=self.presentation.scroll_x,
+                scroll_y=self.presentation.scroll_y,
+                pixels_per_second=self.presentation.pixels_per_second,
+            )
             if self._runtime_audio is not None:
                 runtime_time = self._runtime_audio.current_time_seconds()
                 runtime_playing = self._runtime_audio.is_playing()

@@ -13,6 +13,7 @@ from echozero.application.timeline.intents import Pause, Play, Seek, Stop, Toggl
 from echozero.audio.engine import AudioEngine
 from echozero.ui.qt.timeline.demo_app import build_demo_app
 from echozero.ui.qt.timeline.runtime_audio import TimelineRuntimeAudioController
+from echozero.ui.qt.timeline.blocks.ruler import seek_time_for_x
 from echozero.ui.qt.timeline.widget import TimelineWidget
 
 
@@ -564,6 +565,67 @@ def test_widget_seek_churn_keeps_seek_anchor_through_stale_runtime_samples():
         widget._on_runtime_tick()
         assert widget.presentation.playhead == 0.81
         assert widget.presentation.current_time_label == "00:00.81"
+    finally:
+        widget.close()
+        app.processEvents()
+
+
+def test_widget_dispatch_preserves_local_scroll_when_seek_updates_arrive_with_stale_scroll_state():
+    app = QApplication.instance() or QApplication([])
+    initial = replace(_audio_presentation(), scroll_x=972.0, pixels_per_second=180.0)
+
+    def _on_intent(intent):
+        if isinstance(intent, Seek):
+            # Simulate app response that forgot viewport state.
+            return replace(initial, playhead=float(intent.position), scroll_x=0.0)
+        return initial
+
+    widget = TimelineWidget(initial, on_intent=_on_intent, runtime_audio=None)
+    widget._runtime_timer.stop()
+    try:
+        widget.resize(1200, 320)
+        widget.show()
+        app.processEvents()
+
+        widget._dispatch(Seek(60.0))
+
+        assert widget.presentation.playhead == 60.0
+        assert widget.presentation.scroll_x == 972.0
+    finally:
+        widget.close()
+        app.processEvents()
+
+
+def test_widget_zoom_keeps_anchor_time_under_cursor():
+    app = QApplication.instance() or QApplication([])
+    initial = replace(_audio_presentation(), scroll_x=840.0, pixels_per_second=180.0)
+    widget = TimelineWidget(initial, runtime_audio=None)
+    widget._runtime_timer.stop()
+    try:
+        widget.resize(1280, 360)
+        widget.show()
+        app.processEvents()
+
+        anchor_x = 760.0
+        content_start_x = float(widget._canvas._header_width)
+        before_time = seek_time_for_x(
+            anchor_x,
+            scroll_x=widget.presentation.scroll_x,
+            pixels_per_second=widget.presentation.pixels_per_second,
+            content_start_x=content_start_x,
+        )
+
+        widget._zoom_from_input(120, anchor_x)
+
+        after_time = seek_time_for_x(
+            anchor_x,
+            scroll_x=widget.presentation.scroll_x,
+            pixels_per_second=widget.presentation.pixels_per_second,
+            content_start_x=content_start_x,
+        )
+
+        assert widget.presentation.pixels_per_second > initial.pixels_per_second
+        assert abs(after_time - before_time) < 0.02
     finally:
         widget.close()
         app.processEvents()
