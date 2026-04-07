@@ -7,7 +7,7 @@ from dataclasses import replace
 
 from PyQt6.QtCore import QPointF, QRectF, Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QColor, QPainter, QPen, QWheelEvent
-from PyQt6.QtWidgets import QWidget, QVBoxLayout, QScrollArea, QScrollBar, QToolTip
+from PyQt6.QtWidgets import QFrame, QLabel, QScrollArea, QScrollBar, QToolTip, QVBoxLayout, QWidget
 
 from echozero.application.presentation.models import TimelinePresentation, LayerPresentation, TakeLanePresentation
 from echozero.application.shared.enums import FollowMode
@@ -181,6 +181,54 @@ def _parse_time_label_seconds(label: str | None) -> float:
         return max(0.0, float(text))
     except (TypeError, ValueError):
         return 0.0
+
+
+def _format_seconds(value: float) -> str:
+    return f"{value:.2f}s"
+
+
+class ObjectInfoPanel(QFrame):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setObjectName("timeline_object_info")
+        self.setStyleSheet(
+            """
+            QFrame#timeline_object_info {
+                background: #171d26;
+                border-top: 1px solid #252c38;
+                border-bottom: 1px solid #252c38;
+            }
+            QLabel#timeline_object_info_title {
+                color: #f0f3f8;
+                font-size: 11px;
+                font-weight: 600;
+            }
+            QLabel#timeline_object_info_body {
+                color: #c2cad6;
+                font-size: 10px;
+            }
+            """
+        )
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(12, 8, 12, 8)
+        layout.setSpacing(3)
+
+        title = QLabel("Object Info", self)
+        title.setObjectName("timeline_object_info_title")
+        layout.addWidget(title)
+
+        self._body = QLabel(self)
+        self._body.setObjectName("timeline_object_info_body")
+        self._body.setWordWrap(True)
+        self._body.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        layout.addWidget(self._body)
+
+    def set_text(self, text: str) -> None:
+        self._body.setText(text)
+
+    def text(self) -> str:
+        return self._body.text()
 
 
 class TimelineCanvas(QWidget):
@@ -832,6 +880,9 @@ class TimelineWidget(QWidget):
         self._transport = TransportBar(self.presentation, on_intent=self._dispatch)
         layout.addWidget(self._transport)
 
+        self._object_info = ObjectInfoPanel(self)
+        layout.addWidget(self._object_info)
+
         self._canvas = TimelineCanvas(self.presentation)
         self._ruler = TimelineRuler(self.presentation, header_width=self._canvas._header_width)
         layout.addWidget(self._ruler)
@@ -884,6 +935,7 @@ class TimelineWidget(QWidget):
         self.presentation = replace(presentation, scroll_x=followed)
         self._update_horizontal_scroll_bounds(sync_bar_value=True)
         self._transport.set_presentation(self.presentation)
+        self._object_info.set_text(self._object_info_text(self.presentation))
         self._ruler.set_presentation(self.presentation)
         self._canvas.set_presentation(self.presentation)
         if self._runtime_audio is not None:
@@ -963,8 +1015,90 @@ class TimelineWidget(QWidget):
         )
         self._update_horizontal_scroll_bounds(sync_bar_value=True)
         self._transport.set_presentation(self.presentation)
+        self._object_info.set_text(self._object_info_text(self.presentation))
         self._ruler.set_presentation(self.presentation)
         self._canvas.set_presentation(self.presentation, recompute_layout=False)
+
+    @staticmethod
+    def _object_info_text(presentation: TimelinePresentation) -> str:
+        if event_text := TimelineWidget._selected_event_info_text(presentation):
+            return event_text
+        if layer_text := TimelineWidget._selected_layer_info_text(presentation):
+            return layer_text
+        return "No timeline object selected."
+
+    @staticmethod
+    def _selected_event_info_text(presentation: TimelinePresentation) -> str:
+        if not presentation.selected_event_ids or presentation.selected_layer_id is None:
+            return ""
+
+        selected_event_id = presentation.selected_event_ids[0]
+        layer = next(
+            (candidate for candidate in presentation.layers if candidate.layer_id == presentation.selected_layer_id),
+            None,
+        )
+        if layer is None:
+            return ""
+
+        for event in layer.events:
+            if event.event_id == selected_event_id:
+                return TimelineWidget._event_info_text(
+                    layer,
+                    event,
+                    take_id=layer.main_take_id,
+                    take_name="Main take",
+                )
+
+        for take in layer.takes:
+            for event in take.events:
+                if event.event_id == selected_event_id:
+                    return TimelineWidget._event_info_text(
+                        layer,
+                        event,
+                        take_id=take.take_id,
+                        take_name=take.name,
+                    )
+        return ""
+
+    @staticmethod
+    def _selected_layer_info_text(presentation: TimelinePresentation) -> str:
+        if presentation.selected_layer_id is None or presentation.selected_event_ids:
+            return ""
+
+        layer = next((item for item in presentation.layers if item.layer_id == presentation.selected_layer_id), None)
+        if layer is None:
+            return ""
+
+        flags: list[str] = []
+        if layer.muted:
+            flags.append("muted")
+        if layer.soloed:
+            flags.append("soloed")
+        if layer.status.stale:
+            flags.append("stale")
+        if layer.status.manually_modified:
+            flags.append("edited")
+
+        return (
+            f"Layer {layer.title}\n"
+            f"id: {layer.layer_id} | kind: {layer.kind.name} | main take: {layer.main_take_id or 'none'}\n"
+            f"status flags: {', '.join(flags) if flags else 'none'}"
+        )
+
+    @staticmethod
+    def _event_info_text(
+        layer: LayerPresentation,
+        event,
+        *,
+        take_id: object | None,
+        take_name: str,
+    ) -> str:
+        return (
+            f"Event {event.label}\n"
+            f"id: {event.event_id} | start: {_format_seconds(event.start)} | "
+            f"end: {_format_seconds(event.end)} | duration: {_format_seconds(event.duration)}\n"
+            f"layer: {layer.title} | take: {take_name} ({take_id or 'none'})"
+        )
 
     def _dispatch(self, intent: object) -> None:
         if self._on_intent is None:

@@ -239,6 +239,98 @@ def _drag_test_presentation() -> TimelinePresentation:
     )
 
 
+class _SelectionInspectorHarness:
+    def __init__(self, presentation: TimelinePresentation):
+        self._presentation = presentation
+
+    def presentation(self) -> TimelinePresentation:
+        return self._presentation
+
+    def dispatch(self, intent):
+        if isinstance(intent, SelectLayer):
+            self._presentation = replace(
+                self._presentation,
+                layers=[
+                    replace(layer, is_selected=(layer.layer_id == intent.layer_id))
+                    for layer in self._presentation.layers
+                ],
+                selected_layer_id=intent.layer_id,
+                selected_take_id=None,
+                selected_event_ids=[],
+            )
+            return self._presentation
+
+        if isinstance(intent, SelectEvent):
+            layers = []
+            for layer in self._presentation.layers:
+                is_target_layer = layer.layer_id == intent.layer_id
+                layers.append(
+                    replace(
+                        layer,
+                        is_selected=is_target_layer,
+                        events=[
+                            replace(
+                                event,
+                                is_selected=(
+                                    is_target_layer
+                                    and intent.take_id == layer.main_take_id
+                                    and event.event_id == intent.event_id
+                                ),
+                            )
+                            for event in layer.events
+                        ],
+                        takes=[
+                            replace(
+                                take,
+                                events=[
+                                    replace(
+                                        event,
+                                        is_selected=(
+                                            is_target_layer
+                                            and take.take_id == intent.take_id
+                                            and event.event_id == intent.event_id
+                                        ),
+                                    )
+                                    for event in take.events
+                                ],
+                            )
+                            for take in layer.takes
+                        ],
+                    )
+                )
+            self._presentation = replace(
+                self._presentation,
+                layers=layers,
+                selected_layer_id=intent.layer_id,
+                selected_take_id=intent.take_id,
+                selected_event_ids=[] if intent.event_id is None else [intent.event_id],
+            )
+            return self._presentation
+
+        if isinstance(intent, ClearSelection):
+            self._presentation = replace(
+                self._presentation,
+                layers=[
+                    replace(
+                        layer,
+                        is_selected=False,
+                        events=[replace(event, is_selected=False) for event in layer.events],
+                        takes=[
+                            replace(take, events=[replace(event, is_selected=False) for event in take.events])
+                            for take in layer.takes
+                        ],
+                    )
+                    for layer in self._presentation.layers
+                ],
+                selected_layer_id=None,
+                selected_take_id=None,
+                selected_event_ids=[],
+            )
+            return self._presentation
+
+        return self._presentation
+
+
 def _render_for_hit_testing(widget: TimelineWidget) -> None:
     widget.resize(1200, 320)
     widget.show()
@@ -348,6 +440,60 @@ def test_main_row_event_click_dispatches_main_take_identity():
         app.processEvents()
 
 
+def test_object_info_panel_shows_empty_state_without_selection():
+    app = QApplication.instance() or QApplication([])
+    widget = TimelineWidget(_selection_test_presentation())
+    try:
+        _render_for_hit_testing(widget)
+
+        assert widget._object_info.text() == "No timeline object selected."
+    finally:
+        widget.close()
+        app.processEvents()
+
+
+def test_object_info_panel_updates_for_layer_selection():
+    app = QApplication.instance() or QApplication([])
+    harness = _SelectionInspectorHarness(_selection_test_presentation())
+    widget = TimelineWidget(harness.presentation(), on_intent=harness.dispatch)
+    try:
+        _render_for_hit_testing(widget)
+
+        rect, _ = widget._canvas._header_select_rects[0]
+        _click_rect(widget, rect)
+
+        info = widget._object_info.text()
+        assert "Layer Kick" in info
+        assert "id: layer_kick" in info
+        assert "kind: EVENT" in info
+        assert "main take: take_main" in info
+        assert "status flags: none" in info
+    finally:
+        widget.close()
+        app.processEvents()
+
+
+def test_object_info_panel_updates_for_main_lane_event_selection():
+    app = QApplication.instance() or QApplication([])
+    harness = _SelectionInspectorHarness(_selection_test_presentation())
+    widget = TimelineWidget(harness.presentation(), on_intent=harness.dispatch)
+    try:
+        _render_for_hit_testing(widget)
+        _click_event_rect(widget, "main_evt")
+
+        info = widget._object_info.text()
+        assert "Event Main" in info
+        assert "id: main_evt" in info
+        assert "start: 1.00s" in info
+        assert "end: 1.50s" in info
+        assert "duration: 0.50s" in info
+        assert "layer: Kick" in info
+        assert "take: Main take (take_main)" in info
+    finally:
+        widget.close()
+        app.processEvents()
+
+
 def test_take_lane_event_click_dispatches_take_identity():
     app = QApplication.instance() or QApplication([])
     intents: list[SelectEvent] = []
@@ -364,6 +510,27 @@ def test_take_lane_event_click_dispatches_take_identity():
             event_id=EventId("take_evt"),
             mode="replace",
         )
+    finally:
+        widget.close()
+        app.processEvents()
+
+
+def test_object_info_panel_updates_for_take_lane_event_selection():
+    app = QApplication.instance() or QApplication([])
+    harness = _SelectionInspectorHarness(_selection_test_presentation())
+    widget = TimelineWidget(harness.presentation(), on_intent=harness.dispatch)
+    try:
+        _render_for_hit_testing(widget)
+        _click_event_rect(widget, "take_evt")
+
+        info = widget._object_info.text()
+        assert "Event Take" in info
+        assert "id: take_evt" in info
+        assert "start: 2.00s" in info
+        assert "end: 2.50s" in info
+        assert "duration: 0.50s" in info
+        assert "layer: Kick" in info
+        assert "take: Take 2 (take_alt)" in info
     finally:
         widget.close()
         app.processEvents()
