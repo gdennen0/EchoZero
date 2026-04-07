@@ -202,7 +202,21 @@ class ObjectInfoPanel(QFrame):
             }
             QLabel#timeline_object_info_title {
                 color: #f0f3f8;
-                font-size: 11px;
+                font-size: 12px;
+                font-weight: 700;
+            }
+            QLabel#timeline_object_info_section {
+                color: #8da1b9;
+                font-size: 9px;
+                font-weight: 700;
+            }
+            QLabel#timeline_object_info_kind {
+                color: #d6e3f6;
+                background: #223347;
+                border: 1px solid #35506d;
+                border-radius: 10px;
+                padding: 2px 8px;
+                font-size: 10px;
                 font-weight: 600;
             }
             QLabel#timeline_object_info_body {
@@ -214,36 +228,58 @@ class ObjectInfoPanel(QFrame):
                 color: #dbe8f8;
                 border: 1px solid #32455d;
                 border-radius: 4px;
-                padding: 4px 8px;
+                padding: 5px 8px;
                 font-size: 10px;
+                font-weight: 600;
+                min-height: 26px;
             }
             QPushButton:disabled {
                 color: #6b7481;
                 background: #1a212b;
                 border-color: #263142;
             }
+            QDoubleSpinBox {
+                color: #dce8fb;
+                background: #1e2a38;
+                border: 1px solid #344a65;
+                border-radius: 4px;
+                padding: 3px 6px;
+                min-height: 24px;
+            }
             """
         )
 
-        self.setMinimumWidth(280)
-        self.setMaximumWidth(460)
+        self.setMinimumWidth(300)
+        self.setMaximumWidth(500)
 
         self._selected_layer_id = None
         self._selected_event_start: float | None = None
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(12, 8, 12, 8)
-        layout.setSpacing(6)
+        layout.setContentsMargins(12, 10, 12, 10)
+        layout.setSpacing(8)
 
         title = QLabel("Object Palette", self)
         title.setObjectName("timeline_object_info_title")
         layout.addWidget(title)
+
+        selection_section = QLabel("SELECTION", self)
+        selection_section.setObjectName("timeline_object_info_section")
+        layout.addWidget(selection_section)
+
+        self._kind = QLabel("None", self)
+        self._kind.setObjectName("timeline_object_info_kind")
+        layout.addWidget(self._kind, 0, Qt.AlignmentFlag.AlignLeft)
 
         self._body = QLabel(self)
         self._body.setObjectName("timeline_object_info_body")
         self._body.setWordWrap(True)
         self._body.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         layout.addWidget(self._body)
+
+        event_section = QLabel("EVENT ACTIONS", self)
+        event_section.setObjectName("timeline_object_info_section")
+        layout.addWidget(event_section)
 
         event_actions = QHBoxLayout()
         event_actions.setSpacing(6)
@@ -254,6 +290,10 @@ class ObjectInfoPanel(QFrame):
         for button in (self._seek_btn, self._nudge_left_btn, self._nudge_right_btn, self._duplicate_btn):
             event_actions.addWidget(button)
         layout.addLayout(event_actions)
+
+        layer_section = QLabel("LAYER ACTIONS", self)
+        layer_section.setObjectName("timeline_object_info_section")
+        layout.addWidget(layer_section)
 
         layer_actions = QHBoxLayout()
         layer_actions.setSpacing(6)
@@ -301,6 +341,13 @@ class ObjectInfoPanel(QFrame):
         has_event = event is not None
         self._selected_layer_id = layer.layer_id if layer is not None else None
         self._selected_event_start = float(event.start) if event is not None else None
+
+        if event is not None:
+            self._kind.setText("Event")
+        elif layer is not None:
+            self._kind.setText("Layer")
+        else:
+            self._kind.setText("None")
 
         if layer is not None:
             self._mute_btn.setText("Unmute" if layer.muted else "Mute")
