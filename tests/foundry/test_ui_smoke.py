@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import importlib.util
 import json
 import os
 import subprocess
@@ -8,7 +9,16 @@ import textwrap
 import time
 from pathlib import Path
 
+import pytest
+
 from tests.foundry.audio_fixtures import write_percussion_dataset
+from echozero.ui.style.qt.qss import build_foundry_shell_qss
+
+
+pytestmark = pytest.mark.skipif(
+    importlib.util.find_spec("torch") is None,
+    reason="torch is not installed in this environment",
+)
 
 
 def _run_ui_script(script: str, workspace: Path) -> dict:
@@ -54,6 +64,37 @@ def test_foundry_window_smoke(tmp_path: Path):
     assert payload["title"].startswith("EchoZero Foundry")
     assert "Workspace ready" in payload["status"]
     assert "Root:" in payload["workspace"]
+
+
+def test_foundry_window_applies_shared_shell_stylesheet(tmp_path: Path):
+    payload = _run_ui_script(
+        textwrap.dedent(
+            """
+            import json
+            import sys
+            from pathlib import Path
+
+            from PyQt6.QtWidgets import QApplication
+            from echozero.foundry.ui import FoundryWindow
+
+            root = Path(sys.argv[1])
+            app = QApplication.instance() or QApplication([])
+            window = FoundryWindow(root)
+            print(json.dumps({
+                "style": window.styleSheet(),
+                "root_name": window.centralWidget().objectName(),
+                "status_name": window.status_line.objectName(),
+            }))
+            window.close()
+            app.quit()
+            """
+        ),
+        tmp_path,
+    )
+
+    assert payload["style"] == build_foundry_shell_qss()
+    assert payload["root_name"] == "foundryRoot"
+    assert payload["status_name"] == "foundryStatusLine"
 
 
 def test_foundry_window_desktop_workflow_exposes_run_artifact_and_eval(tmp_path: Path):

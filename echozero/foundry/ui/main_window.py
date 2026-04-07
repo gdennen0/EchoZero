@@ -31,6 +31,8 @@ from PyQt6.QtWidgets import (
 
 from echozero.foundry import FoundryApp
 from echozero.foundry.persistence import DatasetRepository, DatasetVersionRepository, EvalReportRepository, ModelArtifactRepository
+from echozero.ui.style import SHELL_TOKENS
+from echozero.ui.style.qt.qss import build_foundry_shell_qss
 
 
 class _RunWorker(QObject):
@@ -69,6 +71,7 @@ class FoundryWindow(QMainWindow):
 
         self.setWindowTitle("EchoZero Foundry v1")
         self.resize(1280, 860)
+        shell_scales = SHELL_TOKENS.scales
 
         self._dataset_id: str | None = None
         self._version_id: str | None = None
@@ -85,11 +88,19 @@ class FoundryWindow(QMainWindow):
         self._run_cancel_event: Event | None = None
 
         container = QWidget()
+        container.setObjectName("foundryRoot")
         self.setCentralWidget(container)
         root_layout = QVBoxLayout(container)
-        root_layout.setSpacing(10)
+        root_layout.setSpacing(shell_scales.layout_gap)
+        root_layout.setContentsMargins(
+            shell_scales.layout_gap,
+            shell_scales.layout_gap,
+            shell_scales.layout_gap,
+            shell_scales.layout_gap,
+        )
 
         self.activity_item_received.connect(self._append_activity_item)
+        self.setStyleSheet(build_foundry_shell_qss())
 
         root_layout.addWidget(self._build_header())
 
@@ -110,8 +121,10 @@ class FoundryWindow(QMainWindow):
 
     def _build_header(self) -> QWidget:
         widget = QWidget()
+        widget.setObjectName("foundryHeader")
         layout = QHBoxLayout(widget)
         layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(SHELL_TOKENS.scales.layout_gap)
 
         self.workspace_path = QLineEdit(str(self._root))
         self.workspace_path.setReadOnly(True)
@@ -134,9 +147,12 @@ class FoundryWindow(QMainWindow):
     def _build_dataset_box(self) -> QWidget:
         box = QWidget()
         layout = QVBoxLayout(box)
+        layout.setSpacing(SHELL_TOKENS.scales.layout_gap)
 
         form = QGroupBox("Dataset Import")
         grid = QGridLayout(form)
+        grid.setHorizontalSpacing(SHELL_TOKENS.scales.layout_gap)
+        grid.setVerticalSpacing(SHELL_TOKENS.scales.inline_gap)
 
         self.dataset_name = QLineEdit("Drums")
         self.dataset_folder = QLineEdit("")
@@ -199,9 +215,12 @@ class FoundryWindow(QMainWindow):
     def _build_training_box(self) -> QWidget:
         box = QWidget()
         layout = QVBoxLayout(box)
+        layout.setSpacing(SHELL_TOKENS.scales.layout_gap)
 
         form = QGroupBox("Training Run")
         grid = QGridLayout(form)
+        grid.setHorizontalSpacing(SHELL_TOKENS.scales.layout_gap)
+        grid.setVerticalSpacing(SHELL_TOKENS.scales.inline_gap)
 
         self.epochs = QSpinBox()
         self.epochs.setRange(1, 500)
@@ -272,9 +291,12 @@ class FoundryWindow(QMainWindow):
     def _build_artifact_box(self) -> QWidget:
         box = QWidget()
         layout = QVBoxLayout(box)
+        layout.setSpacing(SHELL_TOKENS.scales.layout_gap)
 
         form = QGroupBox("Artifact Actions")
         grid = QGridLayout(form)
+        grid.setHorizontalSpacing(SHELL_TOKENS.scales.layout_gap)
+        grid.setVerticalSpacing(SHELL_TOKENS.scales.inline_gap)
 
         self.class_names = QLineEdit("kick,snare")
         finalize_btn = QPushButton("Finalize Artifact")
@@ -305,7 +327,9 @@ class FoundryWindow(QMainWindow):
     def _build_activity_box(self) -> QWidget:
         box = QWidget()
         layout = QVBoxLayout(box)
+        layout.setSpacing(SHELL_TOKENS.scales.compact_gap)
         self.status_line = QLabel("Ready")
+        self.status_line.setObjectName("foundryStatusLine")
         self.activity = QPlainTextEdit()
         self.activity.setReadOnly(True)
         self.activity.setLineWrapMode(QPlainTextEdit.LineWrapMode.NoWrap)
@@ -315,7 +339,9 @@ class FoundryWindow(QMainWindow):
 
     def _build_workspace_panel(self) -> QWidget:
         widget = QWidget()
+        widget.setObjectName("foundryWorkspacePanel")
         layout = QVBoxLayout(widget)
+        layout.setSpacing(SHELL_TOKENS.scales.layout_gap)
 
         overview_box = QGroupBox("Workspace Overview")
         overview_layout = QVBoxLayout(overview_box)
@@ -337,6 +363,7 @@ class FoundryWindow(QMainWindow):
         self.queue_list.setMinimumHeight(120)
         queue_layout.addWidget(self.queue_list)
         queue_actions = QHBoxLayout()
+        queue_actions.setSpacing(SHELL_TOKENS.scales.inline_gap)
         self.cancel_queue_run_btn = QPushButton("Cancel Run")
         self.cancel_queue_run_btn.clicked.connect(self._cancel_selected_queue_run)
         self.retry_queue_run_btn = QPushButton("Retry / Requeue")

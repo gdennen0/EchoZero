@@ -42,6 +42,8 @@ from echozero.ui.FEEL import (
     TAKE_ROW_HEIGHT_PX,
     TIMELINE_RIGHT_PADDING_PX,
 )
+from echozero.ui.style.tokens import SHELL_TOKENS
+from echozero.ui.style.qt.qss import build_object_info_panel_qss
 from echozero.ui.qt.timeline.blocks.event_lane import EventLaneBlock, EventLanePresentation
 from echozero.ui.qt.timeline.blocks.layer_header import HeaderSlots, LayerHeaderBlock
 from echozero.ui.qt.timeline.blocks.layouts import MainRowLayout, TakeRowLayout
