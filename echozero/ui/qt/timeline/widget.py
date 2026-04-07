@@ -866,12 +866,15 @@ class TimelineCanvas(QWidget):
             pixels_per_second=self.presentation.pixels_per_second,
             content_start_x=self._header_width,
         )
+        # Hide playhead when it is outside timeline content band.
+        if x < self._header_width or x > self.width():
+            return
+
         painter.setPen(QPen(QColor(self._style.playhead.color_hex), self._style.playhead.line_width_px))
         painter.drawLine(int(x), 0, int(x), self.height())
-        if x >= self._header_width:
-            painter.setBrush(QColor(self._style.playhead.color_hex))
-            painter.setPen(QPen(QColor(self._style.playhead.color_hex), self._style.playhead.head_outline_width_px))
-            painter.drawPolygon(playhead_head_polygon(x, float(self._top_padding)))
+        painter.setBrush(QColor(self._style.playhead.color_hex))
+        painter.setPen(QPen(QColor(self._style.playhead.color_hex), self._style.playhead.head_outline_width_px))
+        painter.drawPolygon(playhead_head_polygon(x, float(self._top_padding)))
 
     def _playhead_head_contains(self, pos: QPointF) -> bool:
         x = timeline_x_for_time(

@@ -46,7 +46,7 @@ def test_visible_ruler_seconds_screen_x_remains_in_content_band():
 
     assert marks
     for _, x in marks:
-        assert (content_start_x - pps) <= x <= (content_start_x + content_width + pps)
+        assert content_start_x <= x <= (content_start_x + content_width)
 
 
 def test_seek_time_for_x_maps_ruler_x_to_timeline_time():

@@ -37,6 +37,8 @@ class RulerBlock:
             content_width=content_width,
             content_start_x=layout.header_width,
         ):
+            if x < layout.header_width or x > rect.right():
+                continue
             painter.setPen(QPen(QColor(self.style.tick_hex), 1))
             painter.drawLine(int(x), int(rect.bottom()) - 10, int(x), int(rect.bottom()))
             painter.setPen(QColor(self.style.grid_hex))
@@ -50,10 +52,11 @@ class RulerBlock:
             pixels_per_second=pps,
             content_start_x=layout.header_width,
         )
-        head = playhead_head_polygon(playhead_x, rect.bottom() - 1)
-        painter.setPen(QPen(QColor(self.playhead_color_hex), 1))
-        painter.setBrush(QColor(self.playhead_color_hex))
-        painter.drawPolygon(head)
+        if layout.header_width <= playhead_x <= rect.right():
+            head = playhead_head_polygon(playhead_x, rect.bottom() - 1)
+            painter.setPen(QPen(QColor(self.playhead_color_hex), 1))
+            painter.setBrush(QColor(self.playhead_color_hex))
+            painter.drawPolygon(head)
 
 
 def visible_ruler_seconds(
@@ -71,7 +74,7 @@ def visible_ruler_seconds(
     marks: list[tuple[int, float]] = []
     for second in range(start_second, max(start_second, end_second) + 1):
         x = content_start_x + (second * pps) - scroll_x
-        if (content_start_x - pps) <= x <= (content_start_x + content_width + pps):
+        if content_start_x <= x <= (content_start_x + content_width):
             marks.append((second, x))
     return marks
 
