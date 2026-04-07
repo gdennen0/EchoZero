@@ -8,6 +8,7 @@ from PyQt6.QtGui import QColor, QPainter, QPen, QBrush
 from echozero.application.presentation.models import EventPresentation
 from echozero.perf import timed
 from echozero.ui.FEEL import EVENT_LABEL_MIN_WIDTH_PX, EVENT_MIN_VISIBLE_WIDTH_PX
+from echozero.ui.qt.timeline.style import EventLaneStyle, TIMELINE_STYLE
 
 
 @dataclass(slots=True)
@@ -24,6 +25,9 @@ class EventLanePresentation:
 
 
 class EventLaneBlock:
+    def __init__(self, style: EventLaneStyle = TIMELINE_STYLE.event_lane):
+        self.style = style
+
     def paint(
         self,
         painter: QPainter,
@@ -53,17 +57,18 @@ class EventLaneBlock:
                 rect = QRectF(x, top_y, width, presentation.event_height)
                 rects.append((rect, presentation.layer_id, presentation.take_id, event.event_id))
 
-                color = QColor(event.color or '#57a0ff')
+                color = QColor(event.color or self.style.default_fill_hex)
                 if presentation.dimmed:
-                    color.setAlpha(120)
+                    color.setAlpha(self.style.dimmed_alpha)
                 if event.is_selected:
-                    color = color.lighter(130)
-                painter.setPen(QPen(color.darker(160), 2 if event.is_selected else 1))
+                    color = color.lighter(self.style.selection_lighten_factor)
+                border_width = self.style.selected_border_width_px if event.is_selected else self.style.normal_border_width_px
+                painter.setPen(QPen(color.darker(self.style.border_darkness_factor), border_width))
                 painter.setBrush(QBrush(color))
-                painter.drawRoundedRect(rect, 5, 5)
+                painter.drawRoundedRect(rect, self.style.corner_radius, self.style.corner_radius)
 
                 if width >= EVENT_LABEL_MIN_WIDTH_PX:
-                    painter.setPen(QColor('#0b1220'))
+                    painter.setPen(QColor(self.style.text_hex))
                     painter.drawText(
                         QRectF(x + 6, top_y, max(0, width - 12), presentation.event_height),
                         Qt.AlignmentFlag.AlignVCenter,

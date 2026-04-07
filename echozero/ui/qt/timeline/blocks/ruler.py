@@ -7,6 +7,7 @@ from PyQt6.QtCore import QPointF, QRectF
 from PyQt6.QtGui import QColor, QPainter, QPen, QPolygonF
 
 from echozero.application.presentation.models import TimelinePresentation
+from echozero.ui.qt.timeline.style import RulerStyle, TIMELINE_STYLE
 
 
 @dataclass(slots=True)
@@ -16,12 +17,16 @@ class RulerLayout:
 
 
 class RulerBlock:
+    def __init__(self, style: RulerStyle = TIMELINE_STYLE.ruler, *, playhead_color_hex: str = TIMELINE_STYLE.playhead.color_hex):
+        self.style = style
+        self.playhead_color_hex = playhead_color_hex
+
     def paint(self, painter: QPainter, layout: RulerLayout, presentation: TimelinePresentation) -> None:
         rect = layout.rect
-        painter.fillRect(rect, QColor('#0f1318'))
-        painter.fillRect(QRectF(rect.left(), rect.bottom() - 1, rect.width(), 1), QColor('#2a303c'))
-        painter.fillRect(QRectF(rect.left(), rect.top(), layout.header_width, rect.height()), QColor('#171c23'))
-        painter.setPen(QColor('#9aa4b2'))
+        painter.fillRect(rect, QColor(self.style.background_hex))
+        painter.fillRect(QRectF(rect.left(), rect.bottom() - 1, rect.width(), 1), QColor(self.style.divider_hex))
+        painter.fillRect(QRectF(rect.left(), rect.top(), layout.header_width, rect.height()), QColor(self.style.header_background_hex))
+        painter.setPen(QColor(self.style.title_hex))
         painter.drawText(14, int(rect.top()) + 18, 'Timeline')
 
         pps = max(1.0, presentation.pixels_per_second)
@@ -32,10 +37,11 @@ class RulerBlock:
             content_width=content_width,
             content_start_x=layout.header_width,
         ):
-            painter.setPen(QPen(QColor('#3b4352'), 1))
+            painter.setPen(QPen(QColor(self.style.tick_hex), 1))
             painter.drawLine(int(x), int(rect.bottom()) - 10, int(x), int(rect.bottom()))
-            painter.setPen(QColor('#b8c0cc'))
+            painter.setPen(QColor(self.style.grid_hex))
             painter.drawLine(int(x), int(rect.top()), int(x), int(rect.bottom()) - 1)
+            painter.setPen(QColor(self.style.label_hex))
             painter.drawText(int(x) + 4, int(rect.top()) + 12, f'{second}')
 
         playhead_x = timeline_x_for_time(
@@ -45,8 +51,8 @@ class RulerBlock:
             content_start_x=layout.header_width,
         )
         head = playhead_head_polygon(playhead_x, rect.bottom() - 1)
-        painter.setPen(QPen(QColor('#ff5f57'), 1))
-        painter.setBrush(QColor('#ff5f57'))
+        painter.setPen(QPen(QColor(self.playhead_color_hex), 1))
+        painter.setBrush(QColor(self.playhead_color_hex))
         painter.drawPolygon(head)
 
 

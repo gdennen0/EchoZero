@@ -59,6 +59,7 @@ from echozero.ui.qt.timeline.blocks.transport_bar_block import TransportBarBlock
 from echozero.ui.qt.timeline.runtime_audio import TimelineRuntimeAudioController
 from echozero.ui.qt.timeline.style import (
     TIMELINE_STYLE,
+    TimelineShellStyle,
     build_object_palette_stylesheet,
     build_timeline_scroll_area_stylesheet,
 )
@@ -390,6 +391,7 @@ class TimelineCanvas(QWidget):
     def __init__(self, presentation: TimelinePresentation, parent=None):
         super().__init__(parent)
         self.presentation = presentation
+        self._style = TIMELINE_STYLE
         self._header_width = LAYER_HEADER_WIDTH_PX
         self._top_padding = LAYER_HEADER_TOP_PADDING_PX
         self._main_row_height = LAYER_ROW_HEIGHT_PX
@@ -447,7 +449,7 @@ class TimelineCanvas(QWidget):
     def paintEvent(self, event):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        painter.fillRect(self.rect(), QColor('#12151b'))
+        painter.fillRect(self.rect(), QColor(self._style.canvas.background_hex))
         self._take_rects.clear()
         self._take_option_rects.clear()
         self._take_action_rects.clear()
@@ -725,12 +727,12 @@ class TimelineCanvas(QWidget):
     def _draw_main_row(self, painter: QPainter, layer: LayerPresentation, top: int) -> None:
         dimmed = self._layer_dimmed(layer)
         layout = MainRowLayout.create(top=top, width=self.width(), header_width=self._header_width, row_height=self._main_row_height)
-        row_bg = QColor('#1a212b' if layer.is_selected else '#161b22')
+        row_bg = QColor(self._style.canvas.selected_row_fill_hex if layer.is_selected else self._style.canvas.row_fill_hex)
         if dimmed:
-            row_bg = QColor('#12161c')
+            row_bg = QColor(self._style.canvas.dimmed_row_fill_hex)
         painter.fillRect(layout.row_rect, row_bg)
         self._draw_time_grid_band(painter, top=top, row_height=self._main_row_height)
-        painter.fillRect(0, top + self._main_row_height - 1, self.width(), 1, QColor('#252c38'))
+        painter.fillRect(0, top + self._main_row_height - 1, self.width(), 1, QColor(self._style.canvas.row_divider_hex))
 
         slots = HeaderSlots(
             rect=layout.header_rect,
@@ -860,11 +862,11 @@ class TimelineCanvas(QWidget):
             pixels_per_second=self.presentation.pixels_per_second,
             content_start_x=self._header_width,
         )
-        painter.setPen(QPen(QColor('#ff5f57'), 2))
+        painter.setPen(QPen(QColor(self._style.playhead.color_hex), self._style.playhead.line_width_px))
         painter.drawLine(int(x), 0, int(x), self.height())
         if x >= self._header_width:
-            painter.setBrush(QColor('#ff5f57'))
-            painter.setPen(QPen(QColor('#ff5f57'), 1))
+            painter.setBrush(QColor(self._style.playhead.color_hex))
+            painter.setPen(QPen(QColor(self._style.playhead.color_hex), self._style.playhead.head_outline_width_px))
             painter.drawPolygon(playhead_head_polygon(x, float(self._top_padding)))
 
     def _playhead_head_contains(self, pos: QPointF) -> bool:
@@ -1004,13 +1006,14 @@ class TimelineWidget(QWidget):
         parent=None,
     ):
         super().__init__(parent)
+        self._style: TimelineShellStyle = TIMELINE_STYLE
         self.presentation = presentation
         self._on_intent = on_intent
         self._runtime_audio = runtime_audio
         self._runtime_source_signature: tuple[tuple[str, str], ...] | None = None
         self._runtime_playhead_floor: float | None = None
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
-        self.setWindowTitle('EchoZero Timeline Preview')
+        self.setWindowTitle(self._style.window_title)
 
         root_layout = QHBoxLayout(self)
         root_layout.setContentsMargins(0, 0, 0, 0)

@@ -14,6 +14,52 @@ class BoxInsets:
 
 
 @dataclass(frozen=True, slots=True)
+class FontStyle:
+    point_size: int
+    bold: bool = False
+    weight: int | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class PaintButtonStyle:
+    fill_hex: str
+    border_hex: str
+    text_hex: str
+    corner_radius: int
+    font: FontStyle
+
+
+@dataclass(frozen=True, slots=True)
+class ToggleButtonStateStyle:
+    fill_hex: str
+    text_hex: str
+
+
+@dataclass(frozen=True, slots=True)
+class MuteSoloButtonStyle:
+    active: ToggleButtonStateStyle
+    inactive: ToggleButtonStateStyle
+    dimmed_inactive_fill_hex: str
+    border_hex: str
+    corner_radius: int
+    font: FontStyle
+
+
+@dataclass(frozen=True, slots=True)
+class StatusChipStyle:
+    fill_hex: str
+    text_hex: str
+    corner_radius: int
+    font: FontStyle
+
+
+@dataclass(frozen=True, slots=True)
+class LayerHeaderStatusStyles:
+    stale: StatusChipStyle
+    edited: StatusChipStyle
+
+
+@dataclass(frozen=True, slots=True)
 class ObjectPaletteStyle:
     frame_object_name: str
     title_object_name: str
@@ -54,14 +100,124 @@ class ObjectPaletteStyle:
 
 
 @dataclass(frozen=True, slots=True)
+class TimelineCanvasStyle:
+    background_hex: str
+    row_fill_hex: str
+    selected_row_fill_hex: str
+    dimmed_row_fill_hex: str
+    row_divider_hex: str
+
+
+@dataclass(frozen=True, slots=True)
+class TimelinePlayheadStyle:
+    color_hex: str
+    line_width_px: int
+    head_outline_width_px: int
+
+
+@dataclass(frozen=True, slots=True)
+class TransportBarStyle:
+    background_hex: str
+    title_hex: str
+    time_hex: str
+    meta_hex: str
+    button: PaintButtonStyle
+
+
+@dataclass(frozen=True, slots=True)
+class LayerHeaderStyle:
+    background_hex: str
+    selected_background_hex: str
+    dimmed_background_hex: str
+    title_hex: str
+    dimmed_title_hex: str
+    title_font: FontStyle
+    toggle_fill_hex: str
+    toggle_border_hex: str
+    toggle_text_hex: str
+    toggle_corner_radius: int
+    toggle_font: FontStyle
+    status: LayerHeaderStatusStyles
+    mute_solo: MuteSoloButtonStyle
+
+
+@dataclass(frozen=True, slots=True)
+class TakeActionChipStyle:
+    fill_hex: str
+    text_hex: str
+    font: FontStyle
+
+
+@dataclass(frozen=True, slots=True)
+class TakeRowStyle:
+    row_fill_hex: str
+    dimmed_row_fill_hex: str
+    header_fill_hex: str
+    dimmed_header_fill_hex: str
+    divider_hex: str
+    label_hex: str
+    dimmed_label_hex: str
+    options_button_open_fill_hex: str
+    options_button_closed_fill_hex: str
+    options_button_dimmed_fill_hex: str
+    options_button_open_text_hex: str
+    options_button_closed_text_hex: str
+    options_button_font: FontStyle
+    options_area_fill_hex: str
+    action_chip: TakeActionChipStyle
+
+
+@dataclass(frozen=True, slots=True)
+class EventLaneStyle:
+    default_fill_hex: str
+    dimmed_alpha: int
+    selection_lighten_factor: int
+    border_darkness_factor: int
+    normal_border_width_px: int
+    selected_border_width_px: int
+    text_hex: str
+    corner_radius: int
+
+
+@dataclass(frozen=True, slots=True)
+class RulerStyle:
+    background_hex: str
+    divider_hex: str
+    header_background_hex: str
+    title_hex: str
+    tick_hex: str
+    grid_hex: str
+    label_hex: str
+
+
+@dataclass(frozen=True, slots=True)
 class TimelineShellStyle:
-    canvas_background_hex: str
+    window_title: str
+    canvas: TimelineCanvasStyle
+    playhead: TimelinePlayheadStyle
     scroll_area_background_hex: str
     object_palette: ObjectPaletteStyle
+    transport_bar: TransportBarStyle
+    layer_header: LayerHeaderStyle
+    take_row: TakeRowStyle
+    event_lane: EventLaneStyle
+    ruler: RulerStyle
 
 
 TIMELINE_STYLE = TimelineShellStyle(
-    canvas_background_hex="#12151b",
+    window_title="EchoZero Timeline Preview",
+    canvas=TimelineCanvasStyle(
+        background_hex="#12151b",
+        row_fill_hex="#161b22",
+        selected_row_fill_hex="#1a212b",
+        dimmed_row_fill_hex="#12161c",
+        row_divider_hex="#252c38",
+    ),
+    playhead=TimelinePlayheadStyle(
+        color_hex="#ff5f57",
+        line_width_px=2,
+        head_outline_width_px=1,
+    ),
     scroll_area_background_hex="#12151b",
     object_palette=ObjectPaletteStyle(
         frame_object_name="timeline_object_info",
@@ -100,6 +256,94 @@ TIMELINE_STYLE = TimelineShellStyle(
         max_width_px=500,
         content_padding=BoxInsets(left=14, top=12, right=14, bottom=12),
         section_spacing_px=6,
+    ),
+    transport_bar=TransportBarStyle(
+        background_hex="#0e1217",
+        title_hex="#f0f3f8",
+        time_hex="#f6f8fb",
+        meta_hex="#93a0b1",
+        button=PaintButtonStyle(
+            fill_hex="#1b2330",
+            border_hex="#334055",
+            text_hex="#ffffff",
+            corner_radius=6,
+            font=FontStyle(point_size=9, bold=True),
+        ),
+    ),
+    layer_header=LayerHeaderStyle(
+        background_hex="#1b212a",
+        selected_background_hex="#202833",
+        dimmed_background_hex="#151922",
+        title_hex="#f0f3f8",
+        dimmed_title_hex="#cbd3df",
+        title_font=FontStyle(point_size=10, bold=True),
+        toggle_fill_hex="#141922",
+        toggle_border_hex="#445065",
+        toggle_text_hex="#d7dce4",
+        toggle_corner_radius=6,
+        toggle_font=FontStyle(point_size=9, bold=True),
+        status=LayerHeaderStatusStyles(
+            stale=StatusChipStyle(
+                fill_hex="#7a5b16",
+                text_hex="#f8c555",
+                corner_radius=5,
+                font=FontStyle(point_size=8, bold=True),
+            ),
+            edited=StatusChipStyle(
+                fill_hex="#184c39",
+                text_hex="#7fd1ae",
+                corner_radius=5,
+                font=FontStyle(point_size=8, bold=True),
+            ),
+        ),
+        mute_solo=MuteSoloButtonStyle(
+            active=ToggleButtonStateStyle(fill_hex="#2b6bf0", text_hex="#ffffff"),
+            inactive=ToggleButtonStateStyle(fill_hex="#18202a", text_hex="#b8c0cc"),
+            dimmed_inactive_fill_hex="#10151b",
+            border_hex="#4b5669",
+            corner_radius=5,
+            font=FontStyle(point_size=8, bold=True),
+        ),
+    ),
+    take_row=TakeRowStyle(
+        row_fill_hex="#121821",
+        dimmed_row_fill_hex="#0f141b",
+        header_fill_hex="#171d26",
+        dimmed_header_fill_hex="#141922",
+        divider_hex="#222936",
+        label_hex="#aeb8c6",
+        dimmed_label_hex="#8e98a6",
+        options_button_open_fill_hex="#263244",
+        options_button_closed_fill_hex="#1f2938",
+        options_button_dimmed_fill_hex="#1a2230",
+        options_button_open_text_hex="#9fcbff",
+        options_button_closed_text_hex="#8ea4bf",
+        options_button_font=FontStyle(point_size=8, bold=True),
+        options_area_fill_hex="#101822",
+        action_chip=TakeActionChipStyle(
+            fill_hex="#22364f",
+            text_hex="#d0e4ff",
+            font=FontStyle(point_size=8),
+        ),
+    ),
+    event_lane=EventLaneStyle(
+        default_fill_hex="#57a0ff",
+        dimmed_alpha=120,
+        selection_lighten_factor=130,
+        border_darkness_factor=160,
+        normal_border_width_px=1,
+        selected_border_width_px=2,
+        text_hex="#0b1220",
+        corner_radius=5,
+    ),
+    ruler=RulerStyle(
+        background_hex="#0f1318",
+        divider_hex="#2a303c",
+        header_background_hex="#171c23",
+        title_hex="#9aa4b2",
+        tick_hex="#3b4352",
+        grid_hex="#b8c0cc",
+        label_hex="#b8c0cc",
     ),
 )
 
