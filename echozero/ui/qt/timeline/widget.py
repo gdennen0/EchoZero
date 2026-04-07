@@ -774,6 +774,7 @@ class TimelineWidget(QWidget):
         self._on_intent = on_intent
         self._runtime_audio = runtime_audio
         self._runtime_source_signature: tuple[tuple[str, str], ...] | None = None
+        self._runtime_playhead_floor: float | None = None
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.setWindowTitle('EchoZero Timeline Preview')
 
@@ -893,6 +894,14 @@ class TimelineWidget(QWidget):
             if self._runtime_audio is not None:
                 runtime_time = self._runtime_audio.current_time_seconds()
                 runtime_playing = self._runtime_audio.is_playing()
+                if isinstance(intent, Seek):
+                    runtime_time = max(0.0, float(intent.position))
+                    self._runtime_playhead_floor = runtime_time if runtime_playing else None
+                elif isinstance(intent, Stop):
+                    runtime_time = 0.0
+                    self._runtime_playhead_floor = None
+                else:
+                    runtime_time = self._stabilize_runtime_playhead(runtime_time, playing=runtime_playing)
                 updated = replace(
                     updated,
                     playhead=runtime_time,
@@ -906,7 +915,10 @@ class TimelineWidget(QWidget):
             return
 
         playing = self._runtime_audio.is_playing()
-        current_time = self._runtime_audio.current_time_seconds()
+        current_time = self._stabilize_runtime_playhead(
+            self._runtime_audio.current_time_seconds(),
+            playing=playing,
+        )
         current_label = _format_time_label(current_time)
         if (
             abs(current_time - self.presentation.playhead) < 0.001
@@ -976,6 +988,23 @@ class TimelineWidget(QWidget):
 
     def _toggle_solo(self, layer_id) -> None:
         self._dispatch(ToggleSolo(layer_id))
+
+    def _stabilize_runtime_playhead(self, current_time: float, *, playing: bool) -> float:
+        resolved = max(0.0, float(current_time))
+        if not playing:
+            self._runtime_playhead_floor = None
+            return resolved
+
+        floor = self._runtime_playhead_floor
+        if floor is None:
+            floor = max(0.0, float(self.presentation.playhead))
+            self._runtime_playhead_floor = floor
+
+        if resolved + 0.001 < floor:
+            return floor
+
+        self._runtime_playhead_floor = resolved
+        return resolved
 
 
 def _format_time_label(seconds: float) -> str:

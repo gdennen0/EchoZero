@@ -416,3 +416,154 @@ def test_widget_uses_precise_runtime_timer_with_8ms_interval():
     finally:
         widget.close()
         app.processEvents()
+
+
+def test_widget_runtime_ticks_do_not_snap_backward_during_mix_toggle_churn():
+    app = QApplication.instance() or QApplication([])
+    base_presentation = _audio_presentation()
+    runtime_audio = FakeRuntimeAudio()
+    runtime_audio.playing = True
+    state = {"presentation": base_presentation}
+
+    def _on_intent(intent):
+        current = state["presentation"]
+        layer = current.layers[0]
+        if isinstance(intent, ToggleMute):
+            layer = replace(layer, muted=not layer.muted)
+        elif isinstance(intent, ToggleSolo):
+            layer = replace(layer, soloed=not layer.soloed)
+        updated = replace(
+            current,
+            layers=[layer],
+            playhead=0.0,
+            is_playing=False,
+            current_time_label="00:00.00",
+        )
+        state["presentation"] = updated
+        return updated
+
+    widget = TimelineWidget(state["presentation"], on_intent=_on_intent, runtime_audio=runtime_audio)
+    widget._runtime_timer.stop()
+    try:
+        widget.resize(1200, 320)
+        widget.show()
+        app.processEvents()
+
+        samples: list[float] = []
+
+        runtime_audio.current_time = 4.000
+        widget._on_runtime_tick()
+        samples.append(widget.presentation.playhead)
+
+        runtime_audio.current_time = 4.042
+        widget._on_runtime_tick()
+        samples.append(widget.presentation.playhead)
+
+        runtime_audio.current_time = 4.018
+        widget._dispatch(ToggleMute(base_presentation.layers[0].layer_id))
+        samples.append(widget.presentation.playhead)
+        widget._on_runtime_tick()
+        samples.append(widget.presentation.playhead)
+
+        runtime_audio.current_time = 4.019
+        widget._dispatch(ToggleSolo(base_presentation.layers[0].layer_id))
+        samples.append(widget.presentation.playhead)
+        widget._on_runtime_tick()
+        samples.append(widget.presentation.playhead)
+
+        runtime_audio.current_time = 4.083
+        widget._on_runtime_tick()
+        samples.append(widget.presentation.playhead)
+
+        assert samples == sorted(samples)
+        assert widget.presentation.playhead == 4.083
+        assert widget.presentation.current_time_label == "00:04.08"
+    finally:
+        widget.close()
+        app.processEvents()
+
+
+def test_widget_seek_churn_keeps_seek_anchor_through_stale_runtime_samples():
+    app = QApplication.instance() or QApplication([])
+    base_presentation = _audio_presentation()
+    runtime_audio = FakeRuntimeAudio()
+    state = {"presentation": base_presentation}
+
+    def _on_intent(intent):
+        current = state["presentation"]
+        layer = current.layers[0]
+        if isinstance(intent, Play):
+            runtime_audio.play()
+            updated = replace(
+                current,
+                is_playing=True,
+                playhead=1.0,
+                current_time_label="00:01.00",
+            )
+        elif isinstance(intent, Seek):
+            runtime_audio.seek(intent.position)
+            updated = replace(
+                current,
+                is_playing=True,
+                playhead=float(intent.position),
+                current_time_label="00:00.75",
+            )
+        elif isinstance(intent, ToggleMute):
+            updated = replace(
+                current,
+                layers=[replace(layer, muted=not layer.muted)],
+                playhead=0.0,
+                is_playing=False,
+                current_time_label="00:00.00",
+            )
+        elif isinstance(intent, ToggleSolo):
+            updated = replace(
+                current,
+                layers=[replace(layer, soloed=not layer.soloed)],
+                playhead=0.0,
+                is_playing=False,
+                current_time_label="00:00.00",
+            )
+        else:
+            updated = current
+        state["presentation"] = updated
+        return updated
+
+    widget = TimelineWidget(state["presentation"], on_intent=_on_intent, runtime_audio=runtime_audio)
+    widget._runtime_timer.stop()
+    try:
+        widget.resize(1200, 320)
+        widget.show()
+        app.processEvents()
+
+        runtime_audio.current_time = 1.000
+        widget._dispatch(Play())
+        assert widget.presentation.playhead == 1.0
+
+        runtime_audio.current_time = 1.040
+        widget._on_runtime_tick()
+        assert widget.presentation.playhead == 1.04
+
+        widget._dispatch(Seek(0.75))
+        assert widget.presentation.playhead == 0.75
+        assert widget.presentation.current_time_label == "00:00.75"
+
+        runtime_audio.current_time = 0.710
+        widget._on_runtime_tick()
+        assert widget.presentation.playhead == 0.75
+
+        runtime_audio.current_time = 0.720
+        widget._dispatch(ToggleMute(base_presentation.layers[0].layer_id))
+        assert widget.presentation.playhead == 0.75
+
+        runtime_audio.current_time = 0.710
+        widget._dispatch(ToggleSolo(base_presentation.layers[0].layer_id))
+        assert widget.presentation.playhead == 0.75
+
+        runtime_audio.current_time = 0.810
+        widget._on_runtime_tick()
+        assert widget.presentation.playhead == 0.81
+        assert widget.presentation.current_time_label == "00:00.81"
+    finally:
+        widget.close()
+        app.processEvents()
