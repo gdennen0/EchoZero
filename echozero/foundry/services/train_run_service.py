@@ -116,16 +116,26 @@ class TrainRunService:
 
             run = self._transition(run.id, TrainRunStatus.RUNNING, "RUN_STARTED")
             trainer = self._trainer_factory.resolve(run.spec, legacy_backend=self._legacy_trainer)
-            result = trainer.train(
-                run,
-                dataset_version,
-                cancel_event=cancel_event,
-                progress_callback=lambda payload: self.save_checkpoint(
-                    run.id,
-                    epoch=int(payload.get("epoch", 0)),
-                    metric_snapshot=dict(payload.get("checkpoint", {})),
-                ),
+            progress_callback = lambda payload: self.save_checkpoint(
+                run.id,
+                epoch=int(payload.get("epoch", 0)),
+                metric_snapshot=dict(payload.get("checkpoint", {})),
             )
+            try:
+                result = trainer.train(
+                    run,
+                    dataset_version,
+                    cancel_event=cancel_event,
+                    progress_callback=progress_callback,
+                )
+            except TypeError as exc:
+                if "progress_callback" not in str(exc):
+                    raise
+                result = trainer.train(
+                    run,
+                    dataset_version,
+                    cancel_event=cancel_event,
+                )
 
             saved_epochs = {
                 int(path.stem.split("_")[-1])
