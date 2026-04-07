@@ -4,10 +4,17 @@ from typing import Protocol
 
 from echozero.foundry.domain import DatasetVersion, TrainRun
 from echozero.foundry.services.cnn_trainer import CnnTrainer
+from echozero.foundry.services.crnn_trainer import CrnnTrainer
 
 
 class TrainerBackend(Protocol):
-    def train(self, run: TrainRun, dataset_version: DatasetVersion, cancel_event=None): ...
+    def train(
+        self,
+        run: TrainRun,
+        dataset_version: DatasetVersion,
+        cancel_event=None,
+        progress_callback=None,
+    ): ...
 
 
 _SUPPORTED_MODEL_TYPES = {"baseline_sgd", "cnn", "crnn"}
@@ -39,4 +46,12 @@ class TrainerBackendFactory:
                 raise ValueError("legacy backend must expose a root path for cnn backend resolution")
             return CnnTrainer(root)
 
-        raise NotImplementedError("model.type=crnn is wired but backend is not implemented yet")
+        if model_type == "crnn":
+            root = getattr(legacy_backend, "_root", None)
+            if root is None:
+                raise ValueError("legacy backend must expose a root path for crnn backend resolution")
+            return CrnnTrainer(root)
+
+        raise ValueError(
+            f"run_spec.model.type must be one of: {', '.join(sorted(_SUPPORTED_MODEL_TYPES))}"
+        )

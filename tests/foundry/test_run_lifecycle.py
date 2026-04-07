@@ -23,8 +23,8 @@ def _prepared_version(root: Path):
     return app.datasets.get_version(version.id)
 
 
-def _run_spec(version_id: str) -> dict:
-    return {
+def _run_spec(version_id: str, *, model_type: str | None = None) -> dict:
+    payload = {
         "schema": "foundry.train_run_spec.v1",
         "classificationMode": "multiclass",
         "data": {
@@ -38,6 +38,9 @@ def _run_spec(version_id: str) -> dict:
         },
         "training": {"epochs": 2, "batchSize": 2, "learningRate": 0.01, "seed": 17},
     }
+    if model_type is not None:
+        payload["model"] = {"type": model_type}
+    return payload
 
 
 def _mark_train_samples_synthetic(root: Path, version_id: str) -> tuple[object, list[str]]:
@@ -225,6 +228,22 @@ def test_run_lifecycle_executes_training_and_writes_artifacts(tmp_path: Path):
     assert "RUN_EVALUATING" in event_types
     assert "RUN_EXPORTING" in event_types
     assert "RUN_COMPLETED" in event_types
+
+
+def test_crnn_run_lifecycle_executes_training_and_writes_artifacts(tmp_path: Path):
+    version = _prepared_version(tmp_path)
+    assert version is not None
+    app = FoundryApp(tmp_path)
+    run = app.runs.create_run(version.id, _run_spec(version.id, model_type="crnn"))
+
+    run = app.runs.start_run(run.id)
+    assert run.status == TrainRunStatus.COMPLETED
+
+    exports = run.exports_dir(tmp_path)
+    assert (exports / "model.pth").exists()
+    assert (exports / "metrics.json").exists()
+    metrics = json.loads((exports / "metrics.json").read_text(encoding="utf-8"))
+    assert metrics["trainerOptions"]["trainerProfile"] == "crnn_v1"
 
 
 def test_invalid_transition_raises(tmp_path: Path):

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from echozero.foundry.services import BaselineTrainer, CnnTrainer, TrainerBackendFactory
+from echozero.foundry.services import BaselineTrainer, CnnTrainer, CrnnTrainer, TrainerBackendFactory
 
 
 def test_resolve_defaults_to_legacy_backend(tmp_path):
@@ -38,9 +38,9 @@ def test_resolve_cnn_backend(tmp_path):
     assert isinstance(resolved, CnnTrainer)
 
 
-def test_resolve_marks_crnn_not_implemented_yet(tmp_path):
+def test_resolve_crnn_backend(tmp_path):
     factory = TrainerBackendFactory()
     legacy = BaselineTrainer(tmp_path)
 
-    with pytest.raises(NotImplementedError, match="model.type=crnn"):
-        factory.resolve({"model": {"type": "crnn"}}, legacy_backend=legacy)
+    resolved = factory.resolve({"model": {"type": "crnn"}}, legacy_backend=legacy)
+    assert isinstance(resolved, CrnnTrainer)

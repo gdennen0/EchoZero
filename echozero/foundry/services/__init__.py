@@ -3,6 +3,7 @@ from .baseline_trainer import BaselineTrainer
 from .dataset_service import DatasetService
 from .eval_service import EvalService
 from .cnn_trainer import CnnTrainer
+from .crnn_trainer import CrnnTrainer
 from .split_balance_service import SplitBalanceService
 from .train_run_service import TrainRunService
 from .trainer_backend_factory import TrainerBackendFactory
@@ -13,6 +14,7 @@ __all__ = [
     "DatasetService",
     "EvalService",
     "CnnTrainer",
+    "CrnnTrainer",
     "SplitBalanceService",
     "TrainRunService",
     "TrainerBackendFactory",
