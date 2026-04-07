@@ -261,7 +261,6 @@ class TimelineCanvas(QWidget):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         painter.fillRect(self.rect(), QColor('#12151b'))
-        self._draw_time_grid(painter)
         self._take_rects.clear()
         self._take_option_rects.clear()
         self._take_action_rects.clear()
@@ -278,7 +277,7 @@ class TimelineCanvas(QWidget):
         with timed("timeline.paint.playhead"):
             self._draw_playhead(painter)
 
-    def _draw_time_grid(self, painter: QPainter) -> None:
+    def _draw_time_grid_band(self, painter: QPainter, *, top: int, row_height: int) -> None:
         content_left = float(self._header_width)
         content_width = max(1.0, float(self.width()) - content_left)
         marks = visible_ruler_seconds(
@@ -291,10 +290,13 @@ class TimelineCanvas(QWidget):
         grid_color = QColor(GRID_LINE_COLOR)
         grid_color.setAlpha(max(0, min(255, GRID_LINE_ALPHA)))
         painter.setPen(QPen(grid_color, 1))
+
+        band_top = int(top)
+        band_bottom = int(top + max(1, row_height) - 1)
         for _, x in marks:
             if x < content_left:
                 continue
-            painter.drawLine(int(x), int(self._top_padding), int(x), self.height())
+            painter.drawLine(int(x), band_top, int(x), band_bottom)
 
     def mouseMoveEvent(self, event) -> None:
         if self._dragging_playhead and event.buttons() & Qt.MouseButton.LeftButton:
@@ -540,6 +542,7 @@ class TimelineCanvas(QWidget):
         if dimmed:
             row_bg = QColor('#12161c')
         painter.fillRect(layout.row_rect, row_bg)
+        self._draw_time_grid_band(painter, top=top, row_height=self._main_row_height)
         painter.fillRect(0, top + self._main_row_height - 1, self.width(), 1, QColor('#252c38'))
 
         slots = HeaderSlots(
@@ -615,6 +618,7 @@ class TimelineCanvas(QWidget):
             options_open=options_open,
             dimmed=dimmed,
         )
+        self._draw_time_grid_band(painter, top=top, row_height=self._take_row_height)
         self._take_rects.append(hit_targets.take_rect)
         self._row_body_select_rects.append((layout.content_rect, layer.layer_id))
         if take.kind.name == 'EVENT':
