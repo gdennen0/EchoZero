@@ -6,9 +6,16 @@ from collections.abc import Callable
 from dataclasses import dataclass, replace
 
 from PyQt6.QtCore import QPointF, QRectF, Qt, QTimer, pyqtSignal
-from PyQt6.QtGui import QAction, QColor, QPainter, QPen, QWheelEvent
-from PyQt6.QtWidgets import QDoubleSpinBox, QFrame, QGridLayout, QHBoxLayout, QLabel, QMenu, QPushButton, QScrollArea, QScrollBar, QSplitter, QToolTip, QVBoxLayout, QWidget
+from PyQt6.QtGui import QColor, QContextMenuEvent, QPainter, QPen, QWheelEvent
+from PyQt6.QtWidgets import QFrame, QLabel, QMenu, QScrollArea, QScrollBar, QToolTip, QVBoxLayout, QWidget
 
+from echozero.application.presentation.inspector_contract import (
+    InspectorAction,
+    InspectorContract,
+    TimelineInspectorHitTarget,
+    build_timeline_inspector_contract,
+    render_inspector_contract_text,
+)
 from echozero.application.presentation.models import TimelinePresentation, LayerPresentation, TakeLanePresentation
 from echozero.application.shared.enums import FollowMode
 from echozero.application.timeline.intents import (
@@ -19,6 +26,7 @@ from echozero.application.timeline.intents import (
     Pause,
     Play,
     Seek,
+    SetGain,
     SelectAllEvents,
     SelectEvent,
     SelectLayer,
@@ -239,6 +247,7 @@ class ObjectInfoPanel(QFrame):
         self._body.setMinimumHeight(72)
         self._body.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         layout.addWidget(self._body)
+        self._contract = InspectorContract(title="No timeline object selected.")
 
         event_section = QLabel("EVENT ACTIONS", self)
         event_section.setObjectName("timeline_object_info_section")
@@ -303,71 +312,12 @@ class ObjectInfoPanel(QFrame):
     def set_context(self, presentation: TimelinePresentation, text: str) -> None:
         self._body.setText(text)
 
-        layer = self._selected_layer(presentation)
-        event = self._selected_event(presentation, layer)
+    def set_contract(self, contract: InspectorContract) -> None:
+        self._contract = contract
+        self._body.setText(render_inspector_contract_text(contract))
 
-        has_layer = layer is not None
-        has_event = event is not None
-        self._selected_layer_id = layer.layer_id if layer is not None else None
-        self._selected_event_start = float(event.start) if event is not None else None
-
-        if event is not None:
-            self._kind.setText("Event")
-        elif layer is not None:
-            self._kind.setText("Layer")
-        else:
-            self._kind.setText("None")
-
-        if layer is not None:
-            self._mute_btn.setText("Unmute" if layer.muted else "Mute")
-            self._solo_btn.setText("Unsolo" if layer.soloed else "Solo")
-            self._gain_spin.setValue(float(layer.gain_db))
-        else:
-            self._mute_btn.setText("Mute")
-            self._solo_btn.setText("Solo")
-            self._gain_spin.setValue(0.0)
-
-        self._set_controls_enabled(has_layer=has_layer, has_event=has_event)
-
-    @staticmethod
-    def _selected_layer(presentation: TimelinePresentation):
-        if presentation.selected_layer_id is None:
-            return None
-        return next((layer for layer in presentation.layers if layer.layer_id == presentation.selected_layer_id), None)
-
-    @staticmethod
-    def _selected_event(presentation: TimelinePresentation, layer):
-        if layer is None or not presentation.selected_event_ids:
-            return None
-        selected_event_id = presentation.selected_event_ids[0]
-        for event in layer.events:
-            if event.event_id == selected_event_id:
-                return event
-        for take in layer.takes:
-            for event in take.events:
-                if event.event_id == selected_event_id:
-                    return event
-        return None
-
-    def _emit_seek_selected_event(self) -> None:
-        if self._selected_event_start is None:
-            return
-        self.action_requested.emit(Seek(float(self._selected_event_start)))
-
-    def _emit_toggle_mute(self) -> None:
-        if self._selected_layer_id is None:
-            return
-        self.action_requested.emit(ToggleMute(self._selected_layer_id))
-
-    def _emit_toggle_solo(self) -> None:
-        if self._selected_layer_id is None:
-            return
-        self.action_requested.emit(ToggleSolo(self._selected_layer_id))
-
-    def _emit_apply_gain(self) -> None:
-        if self._selected_layer_id is None:
-            return
-        self.action_requested.emit(SetGain(self._selected_layer_id, float(self._gain_spin.value())))
+    def contract(self) -> InspectorContract:
+        return self._contract
 
     def text(self) -> str:
         return self._body.text()
@@ -389,6 +339,7 @@ class TimelineCanvas(QWidget):
     event_selected = pyqtSignal(object, object, object, str)
     move_selected_events_requested = pyqtSignal(float, object)
     take_action_selected = pyqtSignal(object, object, str)
+    contract_action_selected = pyqtSignal(object)
     horizontal_scroll_requested = pyqtSignal(int)
     zoom_requested = pyqtSignal(int, float)
     playhead_drag_requested = pyqtSignal(float)
@@ -613,169 +564,33 @@ class TimelineCanvas(QWidget):
                 return
         super().mousePressEvent(event)
 
-    def _show_context_menu(self, pos: QPointF) -> bool:
-        entries = self._context_entries_for_pos(pos)
-        if not entries:
-            return False
+    def contextMenuEvent(self, event: QContextMenuEvent) -> None:
+        hit_target = self._hit_target_for_position(event.position())
+        contract = build_timeline_inspector_contract(self.presentation, hit_target=hit_target)
+        menu = self._build_context_menu(contract)
+        if menu.isEmpty():
+            event.ignore()
+            return
+        chosen = menu.exec(event.globalPos())
+        if chosen is None:
+            return
+        payload = chosen.data()
+        if isinstance(payload, InspectorAction):
+            self.contract_action_selected.emit(payload)
+            event.accept()
 
+    def _build_context_menu(self, contract: InspectorContract) -> QMenu:
         menu = QMenu(self)
-        for entry in entries:
-            if entry.label == "---":
+        first_section = True
+        for section in contract.context_sections:
+            if not first_section:
                 menu.addSeparator()
-                continue
-            action = QAction(entry.label, menu)
-            action.setEnabled(entry.enabled)
-            if entry.enabled and entry.callback is not None:
-                action.triggered.connect(entry.callback)
-            menu.addAction(action)
-
-        menu.exec(self.mapToGlobal(pos.toPoint()))
-        return True
-
-    def _context_entries_for_pos(self, pos: QPointF) -> list[_ContextMenuEntry]:
-        for rect, layer_id, take_id, event_id in self._event_rects:
-            if rect.contains(pos):
-                return self._event_context_entries(layer_id, take_id, event_id)
-
-        for rect, layer_id, take_id in self._take_rects:
-            if rect.contains(pos):
-                return self._take_context_entries(layer_id, take_id)
-
-        for rect, layer_id in self._header_select_rects:
-            if rect.contains(pos):
-                return self._layer_context_entries(layer_id)
-
-        for rect, layer_id in self._row_body_select_rects:
-            if rect.contains(pos):
-                return self._layer_context_entries(layer_id)
-
-        return []
-
-    def _context_action_labels_for_pos(self, pos: QPointF) -> list[str]:
-        return [entry.label for entry in self._context_entries_for_pos(pos) if entry.label != "---"]
-
-    def _layer_by_id(self, layer_id):
-        return next((layer for layer in self.presentation.layers if layer.layer_id == layer_id), None)
-
-    @staticmethod
-    def _take_by_id(layer: LayerPresentation | None, take_id):
-        if layer is None:
-            return None
-        return next((take for take in layer.takes if take.take_id == take_id), None)
-
-    def _event_context_entries(self, layer_id, take_id, event_id) -> list[_ContextMenuEntry]:
-        layer = self._layer_by_id(layer_id)
-        event = None
-        if layer is not None:
-            if take_id is None or take_id == layer.main_take_id:
-                event = next((e for e in layer.events if e.event_id == event_id), None)
-            if event is None and take_id is not None:
-                take = self._take_by_id(layer, take_id)
-                if take is not None:
-                    event = next((e for e in take.events if e.event_id == event_id), None)
-
-        label = event.label if event is not None else str(event_id)
-        start = event.start if event is not None else 0.0
-
-        return [
-            _ContextMenuEntry(f"Event | {label}", enabled=False),
-            _ContextMenuEntry("---", enabled=False),
-            _ContextMenuEntry(
-                "Select Event",
-                enabled=True,
-                callback=lambda lid=layer_id, tid=take_id, eid=event_id: self.event_selected.emit(lid, tid, eid, "replace"),
-            ),
-            _ContextMenuEntry(
-                "Seek to Event",
-                enabled=True,
-                callback=lambda s=start: self.playhead_drag_requested.emit(float(s)),
-            ),
-            _ContextMenuEntry(
-                "Nudge Left",
-                enabled=True,
-                callback=lambda: self.nudge_requested.emit(-1, 1),
-            ),
-            _ContextMenuEntry(
-                "Nudge Right",
-                enabled=True,
-                callback=lambda: self.nudge_requested.emit(1, 1),
-            ),
-            _ContextMenuEntry(
-                "Duplicate Event",
-                enabled=True,
-                callback=lambda: self.duplicate_requested.emit(1),
-            ),
-        ]
-
-    def _take_context_entries(self, layer_id, take_id) -> list[_ContextMenuEntry]:
-        layer = self._layer_by_id(layer_id)
-        take = self._take_by_id(layer, take_id)
-        take_name = take.name if take is not None else str(take_id)
-
-        entries: list[_ContextMenuEntry] = [
-            _ContextMenuEntry(f"Take | {take_name}", enabled=False),
-            _ContextMenuEntry("---", enabled=False),
-            _ContextMenuEntry(
-                "Select Take",
-                enabled=True,
-                callback=lambda lid=layer_id, tid=take_id: self.take_selected.emit(lid, tid),
-            ),
-        ]
-
-        actions = list(take.actions) if take is not None else []
-        if actions:
-            entries.append(_ContextMenuEntry("---", enabled=False))
-            for action in actions:
-                entries.append(
-                    _ContextMenuEntry(
-                        action.label,
-                        enabled=True,
-                        callback=lambda lid=layer_id, tid=take_id, aid=action.action_id: self.take_action_selected.emit(lid, tid, aid),
-                    )
-                )
-        else:
-            entries.append(_ContextMenuEntry("No take actions available", enabled=False))
-
-        return entries
-
-    def _layer_context_entries(self, layer_id) -> list[_ContextMenuEntry]:
-        layer = self._layer_by_id(layer_id)
-        if layer is None:
-            return []
-
-        has_takes = bool(layer.takes)
-        entries: list[_ContextMenuEntry] = [
-            _ContextMenuEntry(f"Layer | {layer.title}", enabled=False),
-            _ContextMenuEntry("---", enabled=False),
-            _ContextMenuEntry(
-                "Select Layer",
-                enabled=True,
-                callback=lambda lid=layer_id: self.layer_clicked.emit(lid),
-            ),
-            _ContextMenuEntry(
-                "Unmute Layer" if layer.muted else "Mute Layer",
-                enabled=True,
-                callback=lambda lid=layer_id: self.mute_clicked.emit(lid),
-            ),
-            _ContextMenuEntry(
-                "Unsolo Layer" if layer.soloed else "Solo Layer",
-                enabled=True,
-                callback=lambda lid=layer_id: self.solo_clicked.emit(lid),
-            ),
-        ]
-
-        if has_takes:
-            entries.append(
-                _ContextMenuEntry(
-                    "Toggle Takes",
-                    enabled=True,
-                    callback=lambda lid=layer_id: self.take_toggle_clicked.emit(lid),
-                )
-            )
-        else:
-            entries.append(_ContextMenuEntry("No takes available", enabled=False))
-
-        return entries
+            first_section = False
+            for action in section.actions:
+                qt_action = menu.addAction(action.label)
+                qt_action.setEnabled(action.enabled)
+                qt_action.setData(action)
+        return menu
 
     def mouseReleaseEvent(self, event) -> None:
         if event.button() == Qt.MouseButton.LeftButton:
@@ -1094,6 +909,39 @@ class TimelineCanvas(QWidget):
                 return layer_id
         return None
 
+    def _hit_target_for_position(self, pos: QPointF) -> TimelineInspectorHitTarget:
+        for rect, layer_id, take_id, event_id in self._event_rects:
+            if rect.contains(pos):
+                return TimelineInspectorHitTarget(
+                    kind="event",
+                    layer_id=layer_id,
+                    take_id=take_id,
+                    event_id=event_id,
+                    time_seconds=self._seek_time_at_x(pos.x()) if pos.x() >= self._header_width else None,
+                )
+        for rect, layer_id, take_id in self._take_rects:
+            if rect.contains(pos):
+                return TimelineInspectorHitTarget(
+                    kind="take",
+                    layer_id=layer_id,
+                    take_id=take_id,
+                    time_seconds=self._seek_time_at_x(pos.x()) if pos.x() >= self._header_width else None,
+                )
+        for rect, layer_id in self._header_select_rects:
+            if rect.contains(pos):
+                return TimelineInspectorHitTarget(kind="layer", layer_id=layer_id)
+        for rect, layer_id in self._row_body_select_rects:
+            if rect.contains(pos):
+                return TimelineInspectorHitTarget(
+                    kind="layer",
+                    layer_id=layer_id,
+                    time_seconds=self._seek_time_at_x(pos.x()) if pos.x() >= self._header_width else None,
+                )
+        return TimelineInspectorHitTarget(
+            kind="timeline",
+            time_seconds=self._seek_time_at_x(pos.x()) if pos.x() >= self._header_width else None,
+        )
+
 
 class TransportBar(QWidget):
     def __init__(self, presentation: TimelinePresentation, on_intent: Callable[[object], object | None] | None = None, parent=None):
@@ -1236,6 +1084,7 @@ class TimelineWidget(QWidget):
         self._canvas.event_selected.connect(self._select_event)
         self._canvas.move_selected_events_requested.connect(self._move_selected_events)
         self._canvas.take_action_selected.connect(self._trigger_take_action)
+        self._canvas.contract_action_selected.connect(self._trigger_contract_action)
         self._canvas.playhead_drag_requested.connect(self._seek)
         self._canvas.horizontal_scroll_requested.connect(self._scroll_horizontally_by_steps)
         self._canvas.zoom_requested.connect(self._zoom_from_input)
@@ -1284,7 +1133,7 @@ class TimelineWidget(QWidget):
         self.presentation = replace(presentation, scroll_x=followed)
         self._update_horizontal_scroll_bounds(sync_bar_value=True)
         self._transport.set_presentation(self.presentation)
-        self._object_info.set_context(self.presentation, self._object_info_text(self.presentation))
+        self._object_info.set_contract(build_timeline_inspector_contract(self.presentation))
         self._ruler.set_presentation(self.presentation)
         self._canvas.set_presentation(self.presentation)
         if self._runtime_audio is not None:
@@ -1334,120 +1183,6 @@ class TimelineWidget(QWidget):
         notches = max(-6, min(6, int(delta / 120) if abs(delta) >= 120 else (1 if delta > 0 else -1)))
         next_value = self._hscroll.value() + (notches * self._hscroll.singleStep())
         self._hscroll.setValue(max(self._hscroll.minimum(), min(self._hscroll.maximum(), next_value)))
-
-    def _zoom_from_input(self, delta: int, anchor_x: float) -> None:
-        if delta == 0:
-            return
-        factor = _ZOOM_STEP_FACTOR if delta > 0 else (1.0 / _ZOOM_STEP_FACTOR)
-        self._apply_zoom_factor(factor, anchor_x=anchor_x)
-
-    def _apply_zoom_factor(self, factor: float, *, anchor_x: float) -> None:
-        current_pps = max(1.0, float(self.presentation.pixels_per_second))
-        target_pps = max(_ZOOM_MIN_PPS, min(_ZOOM_MAX_PPS, current_pps * float(factor)))
-        if abs(target_pps - current_pps) < 0.001:
-            return
-
-        content_start_x = float(self._canvas._header_width)
-        anchor_view_x = max(content_start_x, float(anchor_x))
-        anchor_time = seek_time_for_x(
-            anchor_view_x,
-            scroll_x=self.presentation.scroll_x,
-            pixels_per_second=current_pps,
-            content_start_x=content_start_x,
-        )
-        new_scroll = max(0.0, (anchor_time * target_pps) - (anchor_view_x - content_start_x))
-
-        self.presentation = replace(
-            self.presentation,
-            pixels_per_second=target_pps,
-            scroll_x=new_scroll,
-        )
-        self._update_horizontal_scroll_bounds(sync_bar_value=True)
-        self._transport.set_presentation(self.presentation)
-        self._object_info.set_context(self.presentation, self._object_info_text(self.presentation))
-        self._ruler.set_presentation(self.presentation)
-        self._canvas.set_presentation(self.presentation, recompute_layout=False)
-
-    @staticmethod
-    def _object_info_text(presentation: TimelinePresentation) -> str:
-        if event_text := TimelineWidget._selected_event_info_text(presentation):
-            return event_text
-        if layer_text := TimelineWidget._selected_layer_info_text(presentation):
-            return layer_text
-        return "No timeline object selected."
-
-    @staticmethod
-    def _selected_event_info_text(presentation: TimelinePresentation) -> str:
-        if not presentation.selected_event_ids or presentation.selected_layer_id is None:
-            return ""
-
-        selected_event_id = presentation.selected_event_ids[0]
-        layer = next(
-            (candidate for candidate in presentation.layers if candidate.layer_id == presentation.selected_layer_id),
-            None,
-        )
-        if layer is None:
-            return ""
-
-        for event in layer.events:
-            if event.event_id == selected_event_id:
-                return TimelineWidget._event_info_text(
-                    layer,
-                    event,
-                    take_id=layer.main_take_id,
-                    take_name="Main take",
-                )
-
-        for take in layer.takes:
-            for event in take.events:
-                if event.event_id == selected_event_id:
-                    return TimelineWidget._event_info_text(
-                        layer,
-                        event,
-                        take_id=take.take_id,
-                        take_name=take.name,
-                    )
-        return ""
-
-    @staticmethod
-    def _selected_layer_info_text(presentation: TimelinePresentation) -> str:
-        if presentation.selected_layer_id is None or presentation.selected_event_ids:
-            return ""
-
-        layer = next((item for item in presentation.layers if item.layer_id == presentation.selected_layer_id), None)
-        if layer is None:
-            return ""
-
-        flags: list[str] = []
-        if layer.muted:
-            flags.append("muted")
-        if layer.soloed:
-            flags.append("soloed")
-        if layer.status.stale:
-            flags.append("stale")
-        if layer.status.manually_modified:
-            flags.append("edited")
-
-        return (
-            f"Layer {layer.title}\n"
-            f"id: {layer.layer_id} | kind: {layer.kind.name} | main take: {layer.main_take_id or 'none'}\n"
-            f"status flags: {', '.join(flags) if flags else 'none'}"
-        )
-
-    @staticmethod
-    def _event_info_text(
-        layer: LayerPresentation,
-        event,
-        *,
-        take_id: object | None,
-        take_name: str,
-    ) -> str:
-        return (
-            f"Event {event.label}\n"
-            f"id: {event.event_id} | start: {_format_seconds(event.start)} | "
-            f"end: {_format_seconds(event.end)} | duration: {_format_seconds(event.duration)}\n"
-            f"layer: {layer.title} | take: {take_name} ({take_id or 'none'})"
-        )
 
     def _dispatch(self, intent: object) -> None:
         if self._on_intent is None:
@@ -1560,22 +1295,44 @@ class TimelineWidget(QWidget):
     def _toggle_solo(self, layer_id) -> None:
         self._dispatch(ToggleSolo(layer_id))
 
-    def _stabilize_runtime_playhead(self, current_time: float, *, playing: bool) -> float:
-        resolved = max(0.0, float(current_time))
-        if not playing:
-            self._runtime_playhead_floor = None
-            return resolved
-
-        floor = self._runtime_playhead_floor
-        if floor is None:
-            floor = max(0.0, float(self.presentation.playhead))
-            self._runtime_playhead_floor = floor
-
-        if resolved + 0.001 < floor:
-            return floor
-
-        self._runtime_playhead_floor = resolved
-        return resolved
+    def _trigger_contract_action(self, action: InspectorAction) -> None:
+        params = action.params
+        action_id = action.action_id
+        if action_id == "seek_here":
+            time_seconds = params.get("time_seconds")
+            if isinstance(time_seconds, (int, float)):
+                self._dispatch(Seek(float(time_seconds)))
+            return
+        if action_id == "nudge_left":
+            self._dispatch(NudgeSelectedEvents(direction=-1, steps=int(params.get("steps", 1))))
+            return
+        if action_id == "nudge_right":
+            self._dispatch(NudgeSelectedEvents(direction=1, steps=int(params.get("steps", 1))))
+            return
+        if action_id == "duplicate":
+            self._dispatch(DuplicateSelectedEvents(steps=int(params.get("steps", 1))))
+            return
+        if action_id == "toggle_mute":
+            layer_id = params.get("layer_id")
+            if layer_id is not None:
+                self._dispatch(ToggleMute(layer_id))
+            return
+        if action_id == "toggle_solo":
+            layer_id = params.get("layer_id")
+            if layer_id is not None:
+                self._dispatch(ToggleSolo(layer_id))
+            return
+        if action_id in {"gain_down", "gain_unity", "gain_up"}:
+            layer_id = params.get("layer_id")
+            gain_db = params.get("gain_db")
+            if layer_id is not None and isinstance(gain_db, (int, float)):
+                self._dispatch(SetGain(layer_id=layer_id, gain_db=float(gain_db)))
+            return
+        if action_id:
+            layer_id = params.get("layer_id")
+            take_id = params.get("take_id")
+            if layer_id is not None and take_id is not None:
+                self._dispatch(TriggerTakeAction(layer_id, take_id, action_id))
 
 
 def _format_time_label(seconds: float) -> str:

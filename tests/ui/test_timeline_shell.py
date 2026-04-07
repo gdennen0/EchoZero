@@ -6,6 +6,11 @@ from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QMouseEvent
 from PyQt6.QtWidgets import QApplication
 
+from echozero.application.presentation.inspector_contract import (
+    TimelineInspectorHitTarget,
+    build_timeline_inspector_contract,
+    render_inspector_contract_text,
+)
 from echozero.application.presentation.models import (
     EventPresentation,
     LayerPresentation,
@@ -250,6 +255,26 @@ def _drag_test_presentation() -> TimelinePresentation:
     )
 
 
+def _no_takes_layer_presentation() -> TimelinePresentation:
+    return TimelinePresentation(
+        timeline_id=TimelineId("timeline_empty"),
+        title="Empty",
+        layers=[
+            LayerPresentation(
+                layer_id=LayerId("layer_empty"),
+                title="Empty",
+                main_take_id=None,
+                kind=LayerKind.EVENT,
+                events=[],
+                takes=[],
+                status=LayerStatusPresentation(),
+            )
+        ],
+        pixels_per_second=100.0,
+        end_time_label="00:05.00",
+    )
+
+
 class _SelectionInspectorHarness:
     def __init__(self, presentation: TimelinePresentation):
         self._presentation = presentation
@@ -478,6 +503,7 @@ def test_object_info_panel_updates_for_layer_selection():
         assert "id: layer_kick" in info
         assert "kind: EVENT" in info
         assert "main take: take_main" in info
+        assert "takes: 2" in info
         assert "status flags: none" in info
     finally:
         widget.close()
@@ -547,86 +573,65 @@ def test_object_info_panel_updates_for_take_lane_event_selection():
         app.processEvents()
 
 
-def test_object_palette_seek_button_dispatches_seek_for_selected_event():
+def test_object_info_panel_renders_selected_layer_contract_text():
     app = QApplication.instance() or QApplication([])
-    intents: list[object] = []
-    harness = _SelectionInspectorHarness(_selection_test_presentation())
-
-    def _on_intent(intent):
-        intents.append(intent)
-        return harness.dispatch(intent)
-
-    widget = TimelineWidget(harness.presentation(), on_intent=_on_intent)
+    presentation = replace(_selection_test_presentation(), selected_layer_id=LayerId("layer_kick"))
+    widget = TimelineWidget(presentation)
     try:
         _render_for_hit_testing(widget)
-        _click_event_rect(widget, "main_evt")
 
-        widget._object_info._emit_seek_selected_event()
+        contract = build_timeline_inspector_contract(widget.presentation)
 
-        assert any(isinstance(intent, Seek) and intent.position == 1.0 for intent in intents)
+        assert widget._object_info.contract() == contract
+        assert widget._object_info.text() == render_inspector_contract_text(contract)
     finally:
         widget.close()
         app.processEvents()
 
 
-def test_context_menu_labels_self_describe_event_actions():
+def test_object_info_panel_keeps_no_takes_indication_for_empty_layer():
+    app = QApplication.instance() or QApplication([])
+    presentation = replace(_no_takes_layer_presentation(), selected_layer_id=LayerId("layer_empty"))
+    widget = TimelineWidget(presentation)
+    try:
+        _render_for_hit_testing(widget)
+
+        info = widget._object_info.text()
+        assert "Layer Empty" in info
+        assert "main take: none" in info
+        assert "takes: none" in info
+    finally:
+        widget.close()
+        app.processEvents()
+
+
+def test_context_menu_uses_contract_actions_for_take_event_hit_target():
     app = QApplication.instance() or QApplication([])
     widget = TimelineWidget(_selection_test_presentation())
     try:
         _render_for_hit_testing(widget)
-        _click_event_rect(widget, "main_evt")
-        for rect, _, _, event_id in widget._canvas._event_rects:
-            if str(event_id) == "main_evt":
-                labels = widget._canvas._context_action_labels_for_pos(rect.center())
-                assert labels[0].startswith("Event | Main")
-                assert "Seek to Event" in labels
-                assert "Duplicate Event" in labels
+
+        for rect, layer_id, take_id, event_id in widget._canvas._event_rects:
+            if str(event_id) == "take_evt":
+                hit_target = TimelineInspectorHitTarget(
+                    kind="event",
+                    layer_id=layer_id,
+                    take_id=take_id,
+                    event_id=event_id,
+                    time_seconds=widget._canvas._seek_time_at_x(rect.center().x()),
+                )
                 break
         else:
-            raise AssertionError("main_evt rect missing")
-    finally:
-        widget.close()
-        app.processEvents()
+            raise AssertionError("Missing event rect for take_evt")
 
+        contract = build_timeline_inspector_contract(widget.presentation, hit_target=hit_target)
+        menu = widget._canvas._build_context_menu(contract)
+        menu_labels = [action.text() for action in menu.actions() if not action.isSeparator()]
+        contract_labels = [action.label for section in contract.context_sections for action in section.actions]
 
-def test_context_menu_labels_self_describe_layer_without_takes():
-    app = QApplication.instance() or QApplication([])
-    widget = TimelineWidget(_no_takes_presentation())
-    try:
-        _render_for_hit_testing(widget)
-        rect, _ = widget._canvas._header_select_rects[0]
-        labels = widget._canvas._context_action_labels_for_pos(rect.center())
-        assert labels[0].startswith("Layer | Kick")
-        assert "No takes available" in labels
-        assert "Toggle Takes" not in labels
-    finally:
-        widget.close()
-        app.processEvents()
-
-
-def test_object_palette_layer_controls_dispatch_mute_solo_gain():
-    app = QApplication.instance() or QApplication([])
-    intents: list[object] = []
-    harness = _SelectionInspectorHarness(_selection_test_presentation())
-
-    def _on_intent(intent):
-        intents.append(intent)
-        return harness.dispatch(intent)
-
-    widget = TimelineWidget(harness.presentation(), on_intent=_on_intent)
-    try:
-        _render_for_hit_testing(widget)
-        rect, _ = widget._canvas._header_select_rects[0]
-        _click_rect(widget, rect)
-
-        widget._object_info._emit_toggle_mute()
-        widget._object_info._emit_toggle_solo()
-        widget._object_info._gain_spin.setValue(-6.0)
-        widget._object_info._emit_apply_gain()
-
-        assert any(isinstance(intent, ToggleMute) for intent in intents)
-        assert any(isinstance(intent, ToggleSolo) for intent in intents)
-        assert any(isinstance(intent, SetGain) and intent.gain_db == -6.0 for intent in intents)
+        assert menu_labels == contract_labels
+        assert "Overwrite Main" in menu_labels
+        assert "Merge Main" in menu_labels
     finally:
         widget.close()
         app.processEvents()
