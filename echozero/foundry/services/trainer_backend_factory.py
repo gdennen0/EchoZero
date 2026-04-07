@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Protocol
 
 from echozero.foundry.domain import DatasetVersion, TrainRun
+from echozero.foundry.services.cnn_trainer import CnnTrainer
 
 
 class TrainerBackend(Protocol):
@@ -32,7 +33,10 @@ class TrainerBackendFactory:
         if model_type == "baseline_sgd":
             return legacy_backend
 
-        # Phase 1 architecture wiring is complete; concrete backends land next.
-        raise NotImplementedError(
-            f"model.type={model_type} is wired in resolver but backend is not implemented yet"
-        )
+        if model_type == "cnn":
+            root = getattr(legacy_backend, "_root", None)
+            if root is None:
+                raise ValueError("legacy backend must expose a root path for cnn backend resolution")
+            return CnnTrainer(root)
+
+        raise NotImplementedError("model.type=crnn is wired but backend is not implemented yet")

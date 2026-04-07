@@ -55,6 +55,53 @@ def test_foundry_smoke_tiny_dataset_run_to_artifact_compatibility(tmp_path: Path
     assert report.errors == []
 
 
+def test_foundry_smoke_cnn_tiny_dataset_run_to_artifact_compatibility(tmp_path: Path):
+    samples = tmp_path / "samples"
+    write_percussion_dataset(samples)
+
+    app = FoundryApp(tmp_path)
+    dataset_service = DatasetService(tmp_path)
+    run_service = app.runs
+    artifact_service = ArtifactService(tmp_path)
+
+    dataset = dataset_service.create_dataset("Tiny Drums CNN", source_ref=str(samples))
+    version = dataset_service.ingest_from_folder(dataset.id, samples)
+    app.plan_version(version.id, validation_split=0.2, test_split=0.2, seed=23, balance_strategy="none")
+    version = dataset_service.get_version(version.id)
+    assert version is not None
+
+    run_spec = {
+        "schema": "foundry.train_run_spec.v1",
+        "classificationMode": "multiclass",
+        "model": {"type": "cnn"},
+        "data": {
+            "datasetVersionId": version.id,
+            "sampleRate": 22050,
+            "maxLength": 22050,
+            "nFft": 2048,
+            "hopLength": 512,
+            "nMels": 128,
+            "fmax": 8000,
+        },
+        "training": {"epochs": 1, "batchSize": 2, "learningRate": 0.001, "seed": 29},
+    }
+
+    run = run_service.create_run(dataset_version_id=version.id, run_spec=run_spec)
+    run = run_service.start_run(run.id)
+    artifact = ModelArtifactRepository(tmp_path).list_for_run(run.id)[0]
+
+    persisted_artifact = ModelArtifactRepository(tmp_path).get(artifact.id)
+    report = artifact_service.validate_compatibility(artifact.id, consumer="PyTorchAudioClassify")
+
+    assert run.status.value == "completed"
+    assert artifact.path.exists()
+    assert persisted_artifact is not None
+    assert persisted_artifact.consumer_hints["consumer"] == "PyTorchAudioClassify"
+    assert report.ok is True
+    assert report.errors == []
+
+
+
 def test_artifact_compatibility_rejects_runtime_mismatch(tmp_path: Path):
     samples = tmp_path / "samples"
     write_percussion_dataset(samples)

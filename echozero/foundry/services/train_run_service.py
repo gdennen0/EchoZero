@@ -70,6 +70,8 @@ class TrainRunService:
         self._eval = eval_service or EvalService(EvalReportRepository(root))
         self._artifacts = artifact_service or ArtifactService(root)
         self._legacy_trainer = baseline_trainer or BaselineTrainer(root)
+        # Backward-compatible alias used by existing UI tests that monkeypatch trainer.train.
+        self._trainer = self._legacy_trainer
         self._trainer_factory = trainer_factory or TrainerBackendFactory()
 
     def create_run(self, dataset_version_id: str, run_spec: dict, backend: str = "pytorch", device: str = "cpu") -> TrainRun:
