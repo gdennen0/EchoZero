@@ -251,6 +251,41 @@ def test_widget_dispatch_preserves_runtime_playhead_on_solo_toggle_update():
         app.processEvents()
 
 
+def test_widget_dispatch_uses_exact_runtime_clock_time_when_pausing():
+    app = QApplication.instance() or QApplication([])
+    presentation = _audio_presentation()
+    runtime_audio = FakeRuntimeAudio()
+    runtime_audio.playing = True
+    runtime_audio.current_time = 4.257
+
+    def _on_intent(intent):
+        if isinstance(intent, Pause):
+            runtime_audio.pause()
+            return replace(
+                presentation,
+                playhead=4.25,
+                is_playing=False,
+                current_time_label="00:04.25",
+            )
+        return presentation
+
+    widget = TimelineWidget(presentation, on_intent=_on_intent, runtime_audio=runtime_audio)
+    widget._runtime_timer.stop()
+    try:
+        widget.resize(1200, 320)
+        widget.show()
+        app.processEvents()
+
+        widget._dispatch(Pause())
+
+        assert widget.presentation.playhead == 4.257
+        assert widget.presentation.is_playing is False
+        assert widget.presentation.current_time_label == "00:04.26"
+    finally:
+        widget.close()
+        app.processEvents()
+
+
 def test_widget_set_presentation_avoids_rebuilding_runtime_layers_when_sources_unchanged():
     app = QApplication.instance() or QApplication([])
     presentation = _audio_presentation()

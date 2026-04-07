@@ -481,6 +481,22 @@ def test_ruler_click_dispatches_seek():
         app.processEvents()
 
 
+def test_ruler_click_dispatches_seek_using_scroll_offset():
+    app = QApplication.instance() or QApplication([])
+    presentation = replace(_selection_test_presentation(), scroll_x=200.0, end_time_label="00:12.00")
+    widget, intents = _seek_tracking_widget(presentation)
+    try:
+        _render_for_hit_testing(widget)
+
+        QTest.mouseClick(widget._ruler, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier, QPoint(520, 12))
+        QApplication.processEvents()
+
+        assert intents == [Seek(4.0)]
+    finally:
+        widget.close()
+        app.processEvents()
+
+
 def test_main_row_mute_and_solo_clicks_dispatch_toggle_intents():
     app = QApplication.instance() or QApplication([])
     intents: list[object] = []
@@ -541,6 +557,35 @@ def test_playhead_head_drag_dispatches_seek():
         _mouse_drag(widget._canvas, [QPoint(start_x, y), QPoint(start_x + 100, y), QPoint(start_x + 200, y)])
 
         assert intents == [Seek(1.0), Seek(2.0), Seek(3.0)]
+    finally:
+        widget.close()
+        app.processEvents()
+
+
+def test_playhead_head_drag_dispatches_seek_using_scroll_offset():
+    app = QApplication.instance() or QApplication([])
+    presentation = replace(
+        _selection_test_presentation(),
+        playhead=4.0,
+        scroll_x=200.0,
+        end_time_label="00:12.00",
+    )
+    widget, intents = _seek_tracking_widget(presentation)
+    try:
+        _render_for_hit_testing(widget)
+
+        start_x = int(
+            timeline_x_for_time(
+                widget.presentation.playhead,
+                scroll_x=widget.presentation.scroll_x,
+                pixels_per_second=widget.presentation.pixels_per_second,
+                content_start_x=widget._canvas._header_width,
+            )
+        )
+        y = widget._canvas._top_padding - 4
+        _mouse_drag(widget._canvas, [QPoint(start_x, y), QPoint(start_x + 100, y), QPoint(start_x + 200, y)])
+
+        assert intents == [Seek(4.0), Seek(5.0), Seek(6.0)]
     finally:
         widget.close()
         app.processEvents()

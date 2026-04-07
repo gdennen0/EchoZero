@@ -1,4 +1,9 @@
-from echozero.ui.qt.timeline.blocks.ruler import seek_time_for_x, timeline_x_for_time, visible_ruler_seconds
+from echozero.ui.qt.timeline.blocks.ruler import (
+    absolute_timeline_x_for_view_x,
+    seek_time_for_x,
+    timeline_x_for_time,
+    visible_ruler_seconds,
+)
 
 
 def test_visible_ruler_seconds_starts_near_zero_without_scroll():
@@ -50,6 +55,14 @@ def test_seek_time_for_x_maps_ruler_x_to_timeline_time():
         pixels_per_second=100.0,
         content_start_x=320.0,
     ) == 3.2
+
+
+def test_absolute_timeline_x_for_view_x_includes_scroll_offset():
+    assert absolute_timeline_x_for_view_x(
+        520.0,
+        scroll_x=180.0,
+        content_start_x=320.0,
+    ) == 380.0
 
 
 def test_timeline_x_for_time_inverts_seek_mapping():

@@ -888,16 +888,12 @@ class TimelineWidget(QWidget):
             if self._runtime_audio is not None:
                 runtime_time = self._runtime_audio.current_time_seconds()
                 runtime_playing = self._runtime_audio.is_playing()
-                if (
-                    abs(updated.playhead - runtime_time) > 0.02
-                    or updated.is_playing != runtime_playing
-                ):
-                    updated = replace(
-                        updated,
-                        playhead=runtime_time,
-                        is_playing=runtime_playing,
-                        current_time_label=_format_time_label(runtime_time),
-                    )
+                updated = replace(
+                    updated,
+                    playhead=runtime_time,
+                    is_playing=runtime_playing,
+                    current_time_label=_format_time_label(runtime_time),
+                )
             self.set_presentation(updated)
 
     def _on_runtime_tick(self) -> None:

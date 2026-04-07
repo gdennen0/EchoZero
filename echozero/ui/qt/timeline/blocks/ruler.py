@@ -81,6 +81,15 @@ def timeline_x_for_time(
     return content_start_x + (max(0.0, time_seconds) * pps) - scroll_x
 
 
+def absolute_timeline_x_for_view_x(
+    x: float,
+    *,
+    scroll_x: float,
+    content_start_x: float,
+) -> float:
+    return max(0.0, x - content_start_x + scroll_x)
+
+
 def seek_time_for_x(
     x: float,
     *,
@@ -89,7 +98,12 @@ def seek_time_for_x(
     content_start_x: float,
 ) -> float:
     pps = max(1.0, pixels_per_second)
-    return max(0.0, (x - content_start_x + scroll_x) / pps)
+    timeline_x = absolute_timeline_x_for_view_x(
+        x,
+        scroll_x=scroll_x,
+        content_start_x=content_start_x,
+    )
+    return timeline_x / pps
 
 
 def playhead_head_polygon(x: float, bottom_y: float) -> QPolygonF:
