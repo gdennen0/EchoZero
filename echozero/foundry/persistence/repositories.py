@@ -16,22 +16,6 @@ from echozero.foundry.domain import (
 )
 
 
-_STATE_VERSION = 1
-_STATE_ITEMS_KEY = "items"
-
-
-class StateFormatError(RuntimeError):
-    """Raised when foundry state files are corrupt/unsupported/unmigrated."""
-
-
-def _state_envelope(schema: str, items: dict) -> dict:
-    return {
-        "schema": schema,
-        "version": _STATE_VERSION,
-        _STATE_ITEMS_KEY: items,
-    }
-
-
 def _read_json(path: Path) -> dict:
     if not path.exists():
         return {}
@@ -43,99 +27,12 @@ def _write_json(path: Path, payload: dict) -> None:
     path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
 
 
-def _read_state(path: Path, expected_schema: str) -> dict:
-    """Read state envelope with strict version/schema checks.
-
-    Strict mode rules:
-    - Missing file / empty object => empty state
-    - Proper envelope required for non-empty state
-    - Legacy flat maps are rejected until explicit migrate-state is run
-    - Unknown schema/version are hard failures
-    """
-
-    payload = _read_json(path)
-    if not payload:
-        return {}
-
-    if not isinstance(payload, dict):
-        raise StateFormatError(f"Invalid state format in {path}: expected JSON object")
-
-    has_envelope_keys = any(k in payload for k in ("schema", "version", _STATE_ITEMS_KEY))
-    if not has_envelope_keys:
-        raise StateFormatError(
-            f"Legacy state detected in {path}. Run `ez-foundry --root <path> migrate-state` before continuing."
-        )
-
-    schema = payload.get("schema")
-    version = payload.get("version")
-    items = payload.get(_STATE_ITEMS_KEY)
-
-    if schema != expected_schema:
-        raise StateFormatError(
-            f"Unsupported schema in {path}: expected {expected_schema}, got {schema!r}"
-        )
-    if version != _STATE_VERSION:
-        raise StateFormatError(
-            f"Unsupported state version in {path}: expected {_STATE_VERSION}, got {version!r}"
-        )
-    if not isinstance(items, dict):
-        raise StateFormatError(f"Invalid state payload in {path}: items must be an object")
-
-    return items
-
-
-def _write_state(path: Path, schema: str, items: dict) -> None:
-    _write_json(path, _state_envelope(schema=schema, items=items))
-
-
-def migrate_state_file(path: Path, schema: str) -> bool:
-    """Explicitly migrate a legacy flat state file into v1 envelope format.
-
-    Returns True when a migration write occurred, False when no change was needed.
-    """
-
-    payload = _read_json(path)
-    if not payload:
-        _write_state(path, schema, {})
-        return True
-
-    if not isinstance(payload, dict):
-        raise StateFormatError(f"Invalid state format in {path}: expected JSON object")
-
-    has_envelope_keys = any(k in payload for k in ("schema", "version", _STATE_ITEMS_KEY))
-    if has_envelope_keys:
-        # Validate known-good envelope and no-op.
-        _read_state(path, schema)
-        return False
-
-    # Legacy flat map -> wrap.
-    _write_state(path, schema, payload)
-    return True
-
-
-def migrate_foundry_state(root: Path) -> dict[str, bool]:
-    state_dir = root / "foundry" / "state"
-    mappings = {
-        "train_runs.json": "foundry.state.train_runs.v1",
-        "datasets.json": "foundry.state.datasets.v1",
-        "dataset_versions.json": "foundry.state.dataset_versions.v1",
-        "eval_reports.json": "foundry.state.eval_reports.v1",
-        "artifacts.json": "foundry.state.artifacts.v1",
-    }
-    results: dict[str, bool] = {}
-    for filename, schema in mappings.items():
-        path = state_dir / filename
-        results[filename] = migrate_state_file(path, schema)
-    return results
-
-
 class TrainRunRepository:
     def __init__(self, root: Path):
         self._path = root / "foundry" / "state" / "train_runs.json"
-        self._schema = "foundry.state.train_runs.v1"
 
     def save(self, run: TrainRun) -> TrainRun:
-        rows = _read_state(self._path, self._schema)
+        rows = _read_json(self._path)
         rows[run.id] = {
             "id": run.id,
             "dataset_version_id": run.dataset_version_id,
@@ -147,11 +44,11 @@ class TrainRunRepository:
             "created_at": run.created_at.isoformat(),
             "updated_at": run.updated_at.isoformat(),
         }
-        _write_state(self._path, self._schema, rows)
+        _write_json(self._path, rows)
         return run
 
     def get(self, run_id: str) -> TrainRun | None:
-        row = _read_state(self._path, self._schema).get(run_id)
+        row = _read_json(self._path).get(run_id)
         if not row:
             return None
         return TrainRun(
@@ -168,7 +65,7 @@ class TrainRunRepository:
 
     def list(self) -> list[TrainRun]:
         runs: list[TrainRun] = []
-        for run_id in _read_state(self._path, self._schema).keys():
+        for run_id in _read_json(self._path).keys():
             run = self.get(run_id)
             if run is not None:
                 runs.append(run)
@@ -178,10 +75,9 @@ class TrainRunRepository:
 class DatasetRepository:
     def __init__(self, root: Path):
         self._path = root / "foundry" / "state" / "datasets.json"
-        self._schema = "foundry.state.datasets.v1"
 
     def save(self, dataset: Dataset) -> Dataset:
-        rows = _read_state(self._path, self._schema)
+        rows = _read_json(self._path)
         rows[dataset.id] = {
             "id": dataset.id,
             "name": dataset.name,
@@ -190,11 +86,11 @@ class DatasetRepository:
             "metadata": dataset.metadata,
             "created_at": dataset.created_at.isoformat(),
         }
-        _write_state(self._path, self._schema, rows)
+        _write_json(self._path, rows)
         return dataset
 
     def get(self, dataset_id: str) -> Dataset | None:
-        row = _read_state(self._path, self._schema).get(dataset_id)
+        row = _read_json(self._path).get(dataset_id)
         if not row:
             return None
         return Dataset(
@@ -208,7 +104,7 @@ class DatasetRepository:
 
     def list(self) -> list[Dataset]:
         items: list[Dataset] = []
-        for dataset_id in _read_state(self._path, self._schema).keys():
+        for dataset_id in _read_json(self._path).keys():
             item = self.get(dataset_id)
             if item is not None:
                 items.append(item)
@@ -218,10 +114,9 @@ class DatasetRepository:
 class DatasetVersionRepository:
     def __init__(self, root: Path):
         self._path = root / "foundry" / "state" / "dataset_versions.json"
-        self._schema = "foundry.state.dataset_versions.v1"
 
     def save(self, version: DatasetVersion) -> DatasetVersion:
-        rows = _read_state(self._path, self._schema)
+        rows = _read_json(self._path)
         rows[version.id] = {
             "id": version.id,
             "dataset_id": version.dataset_id,
@@ -255,11 +150,11 @@ class DatasetVersionRepository:
             "lineage": version.lineage,
             "created_at": version.created_at.isoformat(),
         }
-        _write_state(self._path, self._schema, rows)
+        _write_json(self._path, rows)
         return version
 
     def get(self, version_id: str) -> DatasetVersion | None:
-        row = _read_state(self._path, self._schema).get(version_id)
+        row = _read_json(self._path).get(version_id)
         if not row:
             return None
         return DatasetVersion(
@@ -298,7 +193,7 @@ class DatasetVersionRepository:
 
     def list_for_dataset(self, dataset_id: str) -> list[DatasetVersion]:
         results: list[DatasetVersion] = []
-        rows = _read_state(self._path, self._schema)
+        rows = _read_json(self._path)
         for version_id, row in rows.items():
             if row.get("dataset_id") != dataset_id:
                 continue
@@ -311,10 +206,9 @@ class DatasetVersionRepository:
 class EvalReportRepository:
     def __init__(self, root: Path):
         self._path = root / "foundry" / "state" / "eval_reports.json"
-        self._schema = "foundry.state.eval_reports.v1"
 
     def save(self, report: EvalReport) -> EvalReport:
-        rows = _read_state(self._path, self._schema)
+        rows = _read_json(self._path)
         rows[report.id] = {
             "id": report.id,
             "run_id": report.run_id,
@@ -330,11 +224,11 @@ class EvalReportRepository:
             "summary": report.summary,
             "created_at": report.created_at.isoformat(),
         }
-        _write_state(self._path, self._schema, rows)
+        _write_json(self._path, rows)
         return report
 
     def get(self, report_id: str) -> EvalReport | None:
-        row = _read_state(self._path, self._schema).get(report_id)
+        row = _read_json(self._path).get(report_id)
         if not row:
             return None
         return EvalReport(
@@ -355,7 +249,7 @@ class EvalReportRepository:
 
     def list_for_run(self, run_id: str) -> list[EvalReport]:
         reports: list[EvalReport] = []
-        for report_id, row in _read_state(self._path, self._schema).items():
+        for report_id, row in _read_json(self._path).items():
             if row.get("run_id") != run_id:
                 continue
             report = self.get(report_id)
@@ -367,10 +261,9 @@ class EvalReportRepository:
 class ModelArtifactRepository:
     def __init__(self, root: Path):
         self._path = root / "foundry" / "state" / "artifacts.json"
-        self._schema = "foundry.state.artifacts.v1"
 
     def save(self, artifact: ModelArtifact) -> ModelArtifact:
-        rows = _read_state(self._path, self._schema)
+        rows = _read_json(self._path)
         rows[artifact.id] = {
             "id": artifact.id,
             "run_id": artifact.run_id,
@@ -381,11 +274,11 @@ class ModelArtifactRepository:
             "consumer_hints": artifact.consumer_hints,
             "created_at": artifact.created_at.isoformat(),
         }
-        _write_state(self._path, self._schema, rows)
+        _write_json(self._path, rows)
         return artifact
 
     def get(self, artifact_id: str) -> ModelArtifact | None:
-        row = _read_state(self._path, self._schema).get(artifact_id)
+        row = _read_json(self._path).get(artifact_id)
         if not row:
             return None
         return ModelArtifact(
@@ -401,7 +294,7 @@ class ModelArtifactRepository:
 
     def list(self) -> list[ModelArtifact]:
         artifacts: list[ModelArtifact] = []
-        for artifact_id in _read_state(self._path, self._schema).keys():
+        for artifact_id in _read_json(self._path).keys():
             artifact = self.get(artifact_id)
             if artifact is not None:
                 artifacts.append(artifact)
@@ -409,7 +302,7 @@ class ModelArtifactRepository:
 
     def list_for_run(self, run_id: str) -> list[ModelArtifact]:
         artifacts: list[ModelArtifact] = []
-        for artifact_id, row in _read_state(self._path, self._schema).items():
+        for artifact_id, row in _read_json(self._path).items():
             if row.get("run_id") != run_id:
                 continue
             artifact = self.get(artifact_id)

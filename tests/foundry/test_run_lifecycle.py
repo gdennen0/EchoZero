@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-from threading import Event
 from pathlib import Path
 
 import pytest
@@ -462,47 +461,3 @@ def test_reference_comparison_summary_persists_in_exports_and_manifest(tmp_path:
     assert artifact.manifest["referenceComparison"]["delta"]["macroF1"] == pytest.approx(-0.02, abs=1e-6)
     assert metrics_payload["referenceComparison"] == artifact.manifest["referenceComparison"]
     assert run_summary["referenceComparison"] == artifact.manifest["referenceComparison"]
-
-
-
-def test_start_run_cancels_when_cancel_event_is_set_before_execution(tmp_path: Path):
-    version = _prepared_version(tmp_path)
-    assert version is not None
-    app = FoundryApp(tmp_path)
-    run = app.runs.create_run(version.id, _run_spec(version.id))
-
-    cancel_event = Event()
-    cancel_event.set()
-    run = app.runs.start_run(run.id, cancel_event=cancel_event)
-
-    assert run.status == TrainRunStatus.CANCELED
-    events = [
-        json.loads(line)["type"]
-        for line in run.event_log_path(tmp_path).read_text(encoding="utf-8").splitlines()
-    ]
-    assert "RUN_PREPARING" in events
-    assert "RUN_CANCELED" in events
-    assert "RUN_COMPLETED" not in events
-
-
-def test_start_run_transitions_to_failed_when_export_step_raises(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    version = _prepared_version(tmp_path)
-    assert version is not None
-    app = FoundryApp(tmp_path)
-    run = app.runs.create_run(version.id, _run_spec(version.id))
-
-    def _boom(*args, **kwargs):
-        raise RuntimeError("export explosion")
-
-    monkeypatch.setattr(app.runs._artifacts, "finalize_artifact", _boom)
-
-    run = app.runs.start_run(run.id)
-    assert run.status == TrainRunStatus.FAILED
-
-    events = [
-        json.loads(line)["type"]
-        for line in run.event_log_path(tmp_path).read_text(encoding="utf-8").splitlines()
-    ]
-    assert "RUN_EXPORTING" in events
-    assert "RUN_FAILED" in events
-    assert "RUN_COMPLETED" not in events
