@@ -4,6 +4,7 @@ from .dataset_service import DatasetService
 from .eval_service import EvalService
 from .split_balance_service import SplitBalanceService
 from .train_run_service import TrainRunService
+from .trainer_backend_factory import TrainerBackendFactory
 
 __all__ = [
     "ArtifactService",
@@ -12,4 +13,5 @@ __all__ = [
     "EvalService",
     "SplitBalanceService",
     "TrainRunService",
+    "TrainerBackendFactory",
 ]

@@ -14,6 +14,7 @@ from echozero.foundry.persistence import DatasetVersionRepository, EvalReportRep
 from echozero.foundry.services.artifact_service import ArtifactService
 from echozero.foundry.services.baseline_trainer import BaselineTrainer, RunCanceledError
 from echozero.foundry.services.eval_service import EvalService
+from echozero.foundry.services.trainer_backend_factory import TrainerBackendFactory
 
 
 _REQUIRED_DATA_KEYS = {"datasetVersionId", "sampleRate", "maxLength", "nFft", "hopLength", "nMels", "fmax"}
@@ -61,13 +62,15 @@ class TrainRunService:
         eval_service: EvalService | None = None,
         artifact_service: ArtifactService | None = None,
         baseline_trainer: BaselineTrainer | None = None,
+        trainer_factory: TrainerBackendFactory | None = None,
     ):
         self._root = root
         self._repo = repository or TrainRunRepository(root)
         self._dataset_versions = dataset_version_repository or DatasetVersionRepository(root)
         self._eval = eval_service or EvalService(EvalReportRepository(root))
         self._artifacts = artifact_service or ArtifactService(root)
-        self._trainer = baseline_trainer or BaselineTrainer(root)
+        self._legacy_trainer = baseline_trainer or BaselineTrainer(root)
+        self._trainer_factory = trainer_factory or TrainerBackendFactory()
 
     def create_run(self, dataset_version_id: str, run_spec: dict, backend: str = "pytorch", device: str = "cpu") -> TrainRun:
         self._validate_run_spec(dataset_version_id, run_spec)
@@ -99,7 +102,8 @@ class TrainRunService:
                 raise ValueError(f"DatasetVersion not found: {run.dataset_version_id}")
 
             run = self._transition(run.id, TrainRunStatus.RUNNING, "RUN_STARTED")
-            result = self._trainer.train(run, dataset_version, cancel_event=cancel_event)
+            trainer = self._trainer_factory.resolve(run.spec, legacy_backend=self._legacy_trainer)
+            result = trainer.train(run, dataset_version, cancel_event=cancel_event)
 
             for checkpoint in result.checkpoint_metrics:
                 self._raise_if_canceled(cancel_event)
@@ -316,6 +320,14 @@ class TrainRunService:
         classification_mode = run_spec.get("classificationMode")
         if classification_mode not in _SUPPORTED_CLASSIFICATION_MODES:
             raise ValueError("run_spec.classificationMode is unsupported")
+
+        model = run_spec.get("model")
+        if model is not None:
+            if not isinstance(model, dict):
+                raise ValueError("run_spec.model must be an object")
+            model_type = str(model.get("type", "baseline_sgd")).lower()
+            if model_type not in {"baseline_sgd", "cnn", "crnn"}:
+                raise ValueError("run_spec.model.type must be one of: baseline_sgd, cnn, crnn")
 
         data = run_spec.get("data")
         if not isinstance(data, dict):

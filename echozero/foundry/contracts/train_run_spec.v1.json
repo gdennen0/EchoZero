@@ -6,6 +6,12 @@
   "properties": {
     "schema": { "const": "foundry.train_run_spec.v1" },
     "classificationMode": { "enum": ["multiclass", "binary", "positive_vs_other"] },
+    "model": {
+      "type": "object",
+      "properties": {
+        "type": { "enum": ["baseline_sgd", "cnn", "crnn"] }
+      }
+    },
     "data": {
       "type": "object",
       "required": ["datasetVersionId", "sampleRate", "maxLength", "nFft", "hopLength", "nMels", "fmax"],
