@@ -4,7 +4,7 @@
     "title": "Stage Zero Timeline",
     "playhead": 9.42,
     "is_playing": true,
-    "follow_mode": "page",
+    "follow_mode": "center",
     "selected_layer_id": "layer_drums",
     "selected_take_id": null,
     "selected_event_ids": ["evt_snare_02"],

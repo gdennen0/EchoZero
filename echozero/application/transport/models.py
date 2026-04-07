@@ -13,4 +13,4 @@ class TransportState:
     loop_enabled: bool = False
     loop_region: TimeRange | None = None
     preroll_enabled: bool = False
-    follow_mode: FollowMode = FollowMode.PAGE
+    follow_mode: FollowMode = FollowMode.CENTER

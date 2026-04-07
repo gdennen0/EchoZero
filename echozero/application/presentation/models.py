@@ -94,7 +94,7 @@ class TimelinePresentation:
     playhead: float = 0.0
     is_playing: bool = False
     loop_region: TimeRange | None = None
-    follow_mode: FollowMode = FollowMode.PAGE
+    follow_mode: FollowMode = FollowMode.CENTER
     selected_layer_id: LayerId | None = None
     selected_take_id: TakeId | None = None
     selected_event_ids: list[EventId] = field(default_factory=list)

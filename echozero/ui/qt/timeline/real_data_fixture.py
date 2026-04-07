@@ -174,7 +174,7 @@ def build_real_data_presentation(
             layers=presentation_layers,
             playhead=8.0,
             is_playing=False,
-            follow_mode=FollowMode.PAGE,
+            follow_mode=FollowMode.CENTER,
             selected_layer_id=presentation_layers[1].layer_id if len(presentation_layers) > 1 else presentation_layers[0].layer_id,
             selected_take_id=None,
             selected_event_ids=[],

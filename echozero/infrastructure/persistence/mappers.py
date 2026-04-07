@@ -327,7 +327,7 @@ def to_session(record: SessionRecord) -> Session:
                 if transport.get("loop_region") else None
             ),
             preroll_enabled=transport.get("preroll_enabled", False),
-            follow_mode=FollowMode(transport.get("follow_mode", FollowMode.PAGE.value)),
+            follow_mode=FollowMode(transport.get("follow_mode", FollowMode.CENTER.value)),
         ),
         mixer_state=MixerState(
             master_gain_db=mixer.get("master_gain_db", 0.0),
