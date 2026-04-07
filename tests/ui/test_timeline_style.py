@@ -5,6 +5,7 @@ from echozero.ui.qt.timeline.blocks.layer_header import LayerHeaderBlock
 from echozero.ui.qt.timeline.blocks.ruler import RulerBlock
 from echozero.ui.qt.timeline.blocks.take_row import TakeRowBlock
 from echozero.ui.qt.timeline.blocks.transport_bar_block import TransportBarBlock
+from echozero.ui.qt.timeline.blocks.waveform_lane import WaveformLaneBlock
 from echozero.ui.qt.timeline.demo_app import build_demo_app
 from echozero.ui.qt.timeline.style import (
     TIMELINE_STYLE,
@@ -55,6 +56,7 @@ def test_timeline_blocks_default_to_shared_style_tokens():
     assert LayerHeaderBlock().style is TIMELINE_STYLE.layer_header
     assert TakeRowBlock().style is TIMELINE_STYLE.take_row
     assert EventLaneBlock().style is TIMELINE_STYLE.event_lane
+    assert WaveformLaneBlock().style is TIMELINE_STYLE.waveform_lane
 
     ruler = RulerBlock()
     assert ruler.style is TIMELINE_STYLE.ruler

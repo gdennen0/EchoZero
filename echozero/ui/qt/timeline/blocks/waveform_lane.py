@@ -5,6 +5,7 @@ from math import ceil, floor
 
 from PyQt6.QtGui import QColor, QPainter, QPen
 
+from echozero.ui.qt.timeline.style import TIMELINE_STYLE, WaveformLaneStyle
 from echozero.ui.qt.timeline.waveform_cache import CachedWaveform, get_cached_waveform
 
 
@@ -21,10 +22,13 @@ class WaveformLanePresentation:
 
 
 class WaveformLaneBlock:
+    def __init__(self, style: WaveformLaneStyle = TIMELINE_STYLE.waveform_lane):
+        self.style = style
+
     def paint(self, painter: QPainter, top: int, presentation: WaveformLanePresentation) -> None:
         base = QColor(presentation.color_hex)
         if presentation.dimmed:
-            base.setAlpha(120)
+            base.setAlpha(self.style.dimmed_alpha)
 
         cached = get_cached_waveform(presentation.waveform_key)
         if cached is not None:
@@ -36,10 +40,10 @@ class WaveformLaneBlock:
         pps = max(1.0, presentation.pixels_per_second)
         step = max(2, int(180 / pps * 10))
         amp_scale = min(1.0, max(0.35, pps / 220.0))
-        painter.setPen(QPen(base, 1.2))
+        painter.setPen(QPen(base, self.style.fallback_pen_width_px))
         for x, sample_index in visible_waveform_columns(presentation, step):
             amp = (((sample_index * 37) % 11) + 1) / 11.0
-            h = amp * (presentation.row_height * 0.30) * amp_scale
+            h = amp * (presentation.row_height * self.style.fallback_amp_row_factor) * amp_scale
             painter.drawLine(int(x), int(mid_y - h), int(x), int(mid_y + h))
 
     def _paint_cached_waveform(
@@ -67,9 +71,9 @@ class WaveformLaneBlock:
             return
 
         center_y = top + (presentation.row_height / 2.0)
-        amp_px = presentation.row_height * 0.38
+        amp_px = presentation.row_height * self.style.cached_amp_row_factor
 
-        painter.setPen(QPen(color, 1.0))
+        painter.setPen(QPen(color, self.style.cached_pen_width_px))
         for idx in range(start_idx, end_idx + 1):
             t = idx * spp
             x = waveform_x_for_time(

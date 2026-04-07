@@ -181,6 +181,15 @@ class EventLaneStyle:
 
 
 @dataclass(frozen=True, slots=True)
+class WaveformLaneStyle:
+    dimmed_alpha: int
+    fallback_pen_width_px: float
+    cached_pen_width_px: float
+    fallback_amp_row_factor: float
+    cached_amp_row_factor: float
+
+
+@dataclass(frozen=True, slots=True)
 class RulerStyle:
     background_hex: str
     divider_hex: str
@@ -210,6 +219,7 @@ class TimelineShellStyle:
     layer_header: LayerHeaderStyle
     take_row: TakeRowStyle
     event_lane: EventLaneStyle
+    waveform_lane: WaveformLaneStyle
     ruler: RulerStyle
     fixture: TimelineFixtureStyle
 
@@ -345,6 +355,13 @@ TIMELINE_STYLE = TimelineShellStyle(
         selected_border_width_px=2,
         text_hex="#0b1220",
         corner_radius=5,
+    ),
+    waveform_lane=WaveformLaneStyle(
+        dimmed_alpha=120,
+        fallback_pen_width_px=1.2,
+        cached_pen_width_px=1.0,
+        fallback_amp_row_factor=0.30,
+        cached_amp_row_factor=0.38,
     ),
     ruler=RulerStyle(
         background_hex="#0f1318",
