@@ -220,11 +220,11 @@ TIMELINE_STYLE = TimelineShellStyle(
     ),
     scroll_area_background_hex="#12151b",
     object_palette=ObjectPaletteStyle(
-        frame_object_name="timeline_object_info",
-        title_object_name="timeline_object_info_title",
+        frame_object_name="objectInfoPanel",
+        title_object_name="objectPaletteHeader",
         section_object_name="timeline_object_info_section",
         kind_object_name="timeline_object_info_kind",
-        body_object_name="timeline_object_info_body",
+        body_object_name="selectionSecondaryLabel",
         background_hex="#171d26",
         border_hex="#252c38",
         title_hex="#f0f3f8",
@@ -255,7 +255,7 @@ TIMELINE_STYLE = TimelineShellStyle(
         min_width_px=300,
         max_width_px=500,
         content_padding=BoxInsets(left=14, top=12, right=14, bottom=12),
-        section_spacing_px=6,
+        section_spacing_px=10,
     ),
     transport_bar=TransportBarStyle(
         background_hex="#0e1217",

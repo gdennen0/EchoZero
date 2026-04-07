@@ -203,7 +203,7 @@ class ObjectInfoPanel(QFrame):
         super().__init__(parent)
         style = TIMELINE_STYLE.object_palette
         self.setObjectName(style.frame_object_name)
-        self.setStyleSheet(build_object_palette_stylesheet(style))
+        self.setStyleSheet(build_object_info_panel_qss())
 
         self.setMinimumWidth(style.min_width_px)
         self.setMaximumWidth(style.max_width_px)
@@ -1036,7 +1036,7 @@ class TimelineWidget(QWidget):
         self._scroll = QScrollArea()
         self._scroll.setWidgetResizable(True)
         self._scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        self._scroll.setStyleSheet(build_timeline_scroll_area_stylesheet())
+        self._scroll.setStyleSheet(f"background: {SHELL_TOKENS.canvas_bg}; border: none;")
         self._canvas.layer_clicked.connect(self._select_layer)
         self._canvas.mute_clicked.connect(self._toggle_mute)
         self._canvas.solo_clicked.connect(self._toggle_solo)
@@ -1065,6 +1065,7 @@ class TimelineWidget(QWidget):
 
         self._object_info = ObjectInfoPanel(self)
         self._object_info.action_requested.connect(self._dispatch)
+        self._object_info_panel = self._object_info
         self._main_splitter = QSplitter(Qt.Orientation.Horizontal, self)
         self._main_splitter.setChildrenCollapsible(False)
         self._main_splitter.addWidget(left_pane)

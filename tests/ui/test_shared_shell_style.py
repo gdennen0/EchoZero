@@ -9,7 +9,7 @@ from PyQt6.QtWidgets import QApplication
 from echozero.ui.style import SHELL_TOKENS
 from echozero.ui.style.qt.qss import build_foundry_shell_qss, build_object_info_panel_qss
 from echozero.ui.qt.timeline.widget import TimelineWidget
-from tests.ui.test_timeline_shell import _palette_test_presentation
+from tests.ui.test_timeline_shell import _selection_test_presentation
 
 
 def test_object_info_panel_qss_builder_uses_shared_shell_tokens():
@@ -22,7 +22,7 @@ def test_object_info_panel_qss_builder_uses_shared_shell_tokens():
 
 def test_timeline_widget_object_palette_stylesheet_uses_shared_builder():
     app = QApplication.instance() or QApplication([])
-    widget = TimelineWidget(_palette_test_presentation())
+    widget = TimelineWidget(_selection_test_presentation())
     try:
         assert widget._object_info_panel.styleSheet() == build_object_info_panel_qss()
         assert widget._object_info_panel.layout().spacing() == SHELL_TOKENS.scales.layout_gap
