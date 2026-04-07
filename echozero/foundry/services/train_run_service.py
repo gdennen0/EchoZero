@@ -105,13 +105,30 @@ class TrainRunService:
 
             run = self._transition(run.id, TrainRunStatus.RUNNING, "RUN_STARTED")
             trainer = self._trainer_factory.resolve(run.spec, legacy_backend=self._legacy_trainer)
-            result = trainer.train(run, dataset_version, cancel_event=cancel_event)
+            result = trainer.train(
+                run,
+                dataset_version,
+                cancel_event=cancel_event,
+                progress_callback=lambda payload: self.save_checkpoint(
+                    run.id,
+                    epoch=int(payload.get("epoch", 0)),
+                    metric_snapshot=dict(payload.get("checkpoint", {})),
+                ),
+            )
 
+            saved_epochs = {
+                int(path.stem.split("_")[-1])
+                for path in run.checkpoints_dir(self._root).glob("epoch_*.json")
+                if path.stem.split("_")[-1].isdigit()
+            }
             for checkpoint in result.checkpoint_metrics:
+                epoch = int(checkpoint["epoch"])
+                if epoch in saved_epochs:
+                    continue
                 self._raise_if_canceled(cancel_event)
                 self.save_checkpoint(
                     run.id,
-                    epoch=int(checkpoint["epoch"]),
+                    epoch=epoch,
                     metric_snapshot={key: value for key, value in checkpoint.items() if key != "epoch"},
                 )
 
@@ -166,6 +183,8 @@ class TrainRunService:
         return self._transition(run_id, stage, f"RUN_{stage.value.upper()}")
 
     def save_checkpoint(self, run_id: str, epoch: int, metric_snapshot: dict | None = None) -> Path:
+        if epoch < 1:
+            raise ValueError("checkpoint epoch must be >= 1")
         run = self._require(run_id)
         ckpt_path = run.checkpoints_dir(self._root) / f"epoch_{epoch:04d}.json"
         payload = {
@@ -174,7 +193,9 @@ class TrainRunService:
             "metric_snapshot": metric_snapshot or {},
             "at": datetime.now(UTC).isoformat(),
         }
-        ckpt_path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
+        temp_path = ckpt_path.with_suffix(".json.tmp")
+        temp_path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
+        temp_path.replace(ckpt_path)
         self._append_event(
             run,
             "CHECKPOINT_SAVED",
@@ -324,6 +345,7 @@ class TrainRunService:
             raise ValueError("run_spec.classificationMode is unsupported")
 
         model = run_spec.get("model")
+        model_type = "baseline_sgd"
         if model is not None:
             if not isinstance(model, dict):
                 raise ValueError("run_spec.model must be an object")
@@ -382,10 +404,17 @@ class TrainRunService:
         if trainer_profile not in _SUPPORTED_TRAINER_PROFILES:
             raise ValueError("run_spec.training.trainerProfile must be one of: baseline_v1, stronger_v1")
         optimizer = str(training.get("optimizer", "sgd_constant")).lower()
-        if optimizer not in _SUPPORTED_OPTIMIZERS:
-            raise ValueError("run_spec.training.optimizer must be one of: sgd_constant, sgd_optimal")
+        if model_type == "baseline_sgd":
+            if optimizer not in _SUPPORTED_OPTIMIZERS:
+                raise ValueError("run_spec.training.optimizer must be one of: sgd_constant, sgd_optimal")
+        elif optimizer not in {"sgd_constant", "sgd_optimal", "adam", "adamw"}:
+            raise ValueError("run_spec.training.optimizer must be one of: sgd_constant, sgd_optimal, adam, adamw")
         if float(training.get("regularizationAlpha", 0.0001)) <= 0:
             raise ValueError("run_spec.training.regularizationAlpha must be > 0")
+        if float(training.get("gradientClipNorm", 1.0)) < 0:
+            raise ValueError("run_spec.training.gradientClipNorm must be >= 0")
+        if float(training.get("weightDecay", 0.0001)) < 0:
+            raise ValueError("run_spec.training.weightDecay must be >= 0")
         early_stopping_patience = training.get("earlyStoppingPatience")
         if early_stopping_patience is not None and int(early_stopping_patience) < 1:
             raise ValueError("run_spec.training.earlyStoppingPatience must be >= 1")

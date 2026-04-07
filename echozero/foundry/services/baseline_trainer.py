@@ -5,6 +5,7 @@ import json
 from dataclasses import dataclass
 from pathlib import Path
 from threading import Event
+from typing import Callable
 
 import librosa
 import numpy as np
@@ -47,6 +48,7 @@ class BaselineTrainer:
         run: TrainRun,
         dataset_version: DatasetVersion,
         cancel_event: Event | None = None,
+        progress_callback: Callable[[dict[str, object]], None] | None = None,
     ) -> BaselineTrainingResult:
         data_spec = run.spec["data"]
         training_spec = run.spec["training"]
@@ -183,17 +185,19 @@ class BaselineTrainer:
             val_epoch = self._evaluate_split(classifier, val_x_scaled, val_y, class_names) if len(val_y) else {}
             train_epoch_metrics = train_epoch.get("metrics", {})
             val_epoch_metrics = val_epoch.get("metrics", {})
-            checkpoint_metrics.append(
-                {
-                    "epoch": epoch,
-                    "train_loss": train_epoch_metrics.get("loss"),
-                    "train_accuracy": train_epoch_metrics.get("accuracy"),
-                    "train_macro_f1": train_epoch_metrics.get("macro_f1"),
-                    "val_loss": val_epoch_metrics.get("loss"),
-                    "val_accuracy": val_epoch_metrics.get("accuracy"),
-                    "val_macro_f1": val_epoch_metrics.get("macro_f1"),
-                }
-            )
+            checkpoint = {
+                "epoch": epoch,
+                "train_loss": train_epoch_metrics.get("loss"),
+                "train_accuracy": train_epoch_metrics.get("accuracy"),
+                "train_macro_f1": train_epoch_metrics.get("macro_f1"),
+                "val_loss": val_epoch_metrics.get("loss"),
+                "val_accuracy": val_epoch_metrics.get("accuracy"),
+                "val_macro_f1": val_epoch_metrics.get("macro_f1"),
+            }
+            checkpoint_metrics.append(checkpoint)
+            if progress_callback is not None:
+                progress_callback({"epoch": epoch, "total_epochs": epochs, "checkpoint": checkpoint})
+
             monitor_metrics = val_epoch_metrics if val_epoch_metrics else train_epoch_metrics
             metric_name = "val_macro_f1" if val_epoch else "train_macro_f1"
             current_primary_metric = float(monitor_metrics.get("macro_f1", float("-inf")))

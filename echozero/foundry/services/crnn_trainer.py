@@ -84,6 +84,8 @@ class CrnnTrainer:
         synthetic_mix_spec = training_spec.get("syntheticMix") or {}
         gradient_clip_norm = float(training_spec.get("gradientClipNorm", 1.0))
         weight_decay = float(training_spec.get("weightDecay", 0.0001))
+        early_stopping_patience = training_spec.get("earlyStoppingPatience")
+        min_epochs = int(training_spec.get("minEpochs", 1))
 
         rng = np.random.default_rng(seed)
         torch.manual_seed(seed)
@@ -168,6 +170,7 @@ class CrnnTrainer:
         best_epoch = 0
         best_primary_metric = float("-inf")
         best_split_name = "val" if len(val_ds.y) else "train"
+        epochs_without_improvement = 0
         start = time.perf_counter()
 
         for epoch in range(1, epochs + 1):
@@ -220,6 +223,17 @@ class CrnnTrainer:
                 best_epoch = epoch
                 best_split_name = "val" if val_metrics else "train"
                 best_state = copy.deepcopy(model.state_dict())
+                epochs_without_improvement = 0
+            else:
+                epochs_without_improvement += 1
+
+            if (
+                early_stopping_patience is not None
+                and epoch >= max(1, min_epochs)
+                and epochs_without_improvement >= int(early_stopping_patience)
+            ):
+                checkpoint_metrics[-1]["stopped_early"] = 1
+                break
 
         if best_state is not None:
             model.load_state_dict(best_state)
@@ -277,8 +291,8 @@ class CrnnTrainer:
             "trainerOptions": {
                 "trainerProfile": "crnn_v1",
                 "optimizer": "adamw",
-                "earlyStoppingPatience": None,
-                "minEpochs": 1,
+                "earlyStoppingPatience": None if early_stopping_patience is None else int(early_stopping_patience),
+                "minEpochs": max(1, min_epochs),
                 "syntheticMix": synthetic_mix,
                 "gradientClipNorm": gradient_clip_norm,
                 "weightDecay": weight_decay,

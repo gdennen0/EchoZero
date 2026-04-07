@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import copy
 import json
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from threading import Event
+from typing import Callable
 
 import librosa
 import numpy as np
@@ -52,6 +54,7 @@ class CnnTrainer:
         run: TrainRun,
         dataset_version: DatasetVersion,
         cancel_event: Event | None = None,
+        progress_callback: Callable[[dict[str, object]], None] | None = None,
     ) -> BaselineTrainingResult:
         data_spec = run.spec["data"]
         training_spec = run.spec["training"]
@@ -66,6 +69,10 @@ class CnnTrainer:
         learning_rate = float(training_spec["learningRate"])
         seed = int(training_spec.get("seed", 17))
         synthetic_mix_spec = training_spec.get("syntheticMix") or {}
+        gradient_clip_norm = float(training_spec.get("gradientClipNorm", 1.0))
+        weight_decay = float(training_spec.get("weightDecay", 0.0001))
+        early_stopping_patience = training_spec.get("earlyStoppingPatience")
+        min_epochs = int(training_spec.get("minEpochs", 1))
 
         rng = np.random.default_rng(seed)
         torch.manual_seed(seed)
@@ -142,7 +149,7 @@ class CnnTrainer:
         )
 
         model = _SimpleCnn(num_classes=len(class_names))
-        optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
+        optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate, weight_decay=weight_decay)
         criterion = torch.nn.CrossEntropyLoss()
 
         checkpoint_metrics: list[dict[str, float | int | None]] = []
@@ -150,6 +157,8 @@ class CnnTrainer:
         best_epoch = 0
         best_primary_metric = float("-inf")
         best_split_name = "val" if len(val_ds.y) else "train"
+        epochs_without_improvement = 0
+        started = time.perf_counter()
 
         for epoch in range(1, epochs + 1):
             self._ensure_not_canceled(cancel_event)
@@ -164,7 +173,11 @@ class CnnTrainer:
                 optimizer.zero_grad(set_to_none=True)
                 logits = model(xb)
                 loss = criterion(logits, yb)
+                if not torch.isfinite(loss):
+                    raise ValueError(f"cnn trainer encountered non-finite loss at epoch {epoch}")
                 loss.backward()
+                if gradient_clip_norm > 0:
+                    torch.nn.utils.clip_grad_norm_(model.parameters(), gradient_clip_norm)
                 optimizer.step()
                 total_loss += float(loss.item()) * len(idx)
                 sample_count += len(idx)
@@ -173,17 +186,18 @@ class CnnTrainer:
             val_epoch = self._evaluate_split(model, val_ds, class_names) if len(val_ds.y) else {}
             train_metrics = train_epoch.get("metrics", {})
             val_metrics = val_epoch.get("metrics", {})
-            checkpoint_metrics.append(
-                {
-                    "epoch": epoch,
-                    "train_loss": total_loss / max(1, sample_count) if sample_count else train_metrics.get("loss"),
-                    "train_accuracy": train_metrics.get("accuracy"),
-                    "train_macro_f1": train_metrics.get("macro_f1"),
-                    "val_loss": val_metrics.get("loss"),
-                    "val_accuracy": val_metrics.get("accuracy"),
-                    "val_macro_f1": val_metrics.get("macro_f1"),
-                }
-            )
+            elapsed = max(1e-6, time.perf_counter() - started)
+            checkpoint = {
+                "epoch": epoch,
+                "train_loss": total_loss / max(1, sample_count) if sample_count else train_metrics.get("loss"),
+                "train_accuracy": train_metrics.get("accuracy"),
+                "train_macro_f1": train_metrics.get("macro_f1"),
+                "val_loss": val_metrics.get("loss"),
+                "val_accuracy": val_metrics.get("accuracy"),
+                "val_macro_f1": val_metrics.get("macro_f1"),
+                "eta_seconds": max(0.0, (epochs - epoch) * (elapsed / epoch)),
+            }
+            checkpoint_metrics.append(checkpoint)
 
             monitor_metrics = val_metrics if val_metrics else train_metrics
             current_primary_metric = float(monitor_metrics.get("macro_f1", float("-inf")))
@@ -192,6 +206,20 @@ class CnnTrainer:
                 best_epoch = epoch
                 best_split_name = "val" if val_metrics else "train"
                 best_state = copy.deepcopy(model.state_dict())
+                epochs_without_improvement = 0
+            else:
+                epochs_without_improvement += 1
+
+            if progress_callback is not None:
+                progress_callback({"epoch": epoch, "total_epochs": epochs, "checkpoint": checkpoint})
+
+            if (
+                early_stopping_patience is not None
+                and epoch >= max(1, min_epochs)
+                and epochs_without_improvement >= int(early_stopping_patience)
+            ):
+                checkpoint_metrics[-1]["stopped_early"] = 1
+                break
 
         if best_state is not None:
             model.load_state_dict(best_state)
@@ -246,10 +274,12 @@ class CnnTrainer:
             "finalEval": final_eval,
             "trainerOptions": {
                 "trainerProfile": "cnn_v1",
-                "optimizer": "adam",
-                "earlyStoppingPatience": None,
-                "minEpochs": 1,
+                "optimizer": "adamw",
+                "earlyStoppingPatience": None if early_stopping_patience is None else int(early_stopping_patience),
+                "minEpochs": max(1, min_epochs),
                 "syntheticMix": synthetic_mix,
+                "gradientClipNorm": gradient_clip_norm,
+                "weightDecay": weight_decay,
             },
         }
         if synthetic_eval is not None:
@@ -301,7 +331,7 @@ class CnnTrainer:
             baseline={
                 "family": "cnn_melspec_v1",
                 "profile": "cnn_v1",
-                "optimizer": "adam",
+                "optimizer": "adamw",
                 "epochs": epochs,
                 "completed_epochs": len(checkpoint_metrics),
                 "checkpoint_epoch": best_epoch or len(checkpoint_metrics),
@@ -331,6 +361,8 @@ class CnnTrainer:
                     "metricsPath": metrics_path.name,
                     "runSummaryPath": run_summary_path.name,
                     "syntheticMix": synthetic_mix,
+                    "gradientClipNorm": gradient_clip_norm,
+                    "weightDecay": weight_decay,
                 },
             },
             model_path=model_path,
