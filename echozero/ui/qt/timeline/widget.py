@@ -7,7 +7,7 @@ from dataclasses import dataclass, replace
 
 from PyQt6.QtCore import QPointF, QRectF, Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QColor, QContextMenuEvent, QPainter, QPen, QWheelEvent
-from PyQt6.QtWidgets import QFrame, QLabel, QMenu, QScrollArea, QScrollBar, QToolTip, QVBoxLayout, QWidget
+from PyQt6.QtWidgets import QDoubleSpinBox, QFrame, QGridLayout, QHBoxLayout, QLabel, QMenu, QPushButton, QScrollArea, QScrollBar, QSplitter, QToolTip, QVBoxLayout, QWidget
 
 from echozero.application.presentation.inspector_contract import (
     InspectorAction,
@@ -289,9 +289,9 @@ class ObjectInfoPanel(QFrame):
         layout.addStretch(1)
 
         self._seek_btn.clicked.connect(self._emit_seek_selected_event)
-        self._nudge_left_btn.clicked.connect(lambda: self.action_requested.emit(NudgeSelectedEvents(direction=-1, steps=1)))
-        self._nudge_right_btn.clicked.connect(lambda: self.action_requested.emit(NudgeSelectedEvents(direction=1, steps=1)))
-        self._duplicate_btn.clicked.connect(lambda: self.action_requested.emit(DuplicateSelectedEvents(steps=1)))
+        self._nudge_left_btn.clicked.connect(lambda: self._emit_contract_action("nudge_left"))
+        self._nudge_right_btn.clicked.connect(lambda: self._emit_contract_action("nudge_right"))
+        self._duplicate_btn.clicked.connect(lambda: self._emit_contract_action("duplicate"))
         self._mute_btn.clicked.connect(self._emit_toggle_mute)
         self._solo_btn.clicked.connect(self._emit_toggle_solo)
         self._gain_apply_btn.clicked.connect(self._emit_apply_gain)
@@ -312,9 +312,58 @@ class ObjectInfoPanel(QFrame):
     def set_context(self, presentation: TimelinePresentation, text: str) -> None:
         self._body.setText(text)
 
+    def _iter_contract_actions(self):
+        for section in self._contract.context_sections:
+            for action in section.actions:
+                yield action
+
+    def _find_contract_action(self, action_id: str) -> InspectorAction | None:
+        return next((action for action in self._iter_contract_actions() if action.action_id == action_id), None)
+
+    def _emit_contract_action(self, action_id: str) -> None:
+        action = self._find_contract_action(action_id)
+        if action is None or not action.enabled:
+            return
+        self.action_requested.emit(action)
+
+    def _emit_seek_selected_event(self) -> None:
+        self._emit_contract_action("seek_here")
+
+    def _emit_toggle_mute(self) -> None:
+        self._emit_contract_action("toggle_mute")
+
+    def _emit_toggle_solo(self) -> None:
+        self._emit_contract_action("toggle_solo")
+
+    def _emit_apply_gain(self) -> None:
+        layer_action = self._find_contract_action("toggle_mute")
+        layer_id = layer_action.params.get("layer_id") if layer_action is not None else None
+        if layer_id is None:
+            return
+        self.action_requested.emit(
+            InspectorAction(
+                action_id="set_gain_custom",
+                label="Set Gain",
+                group="gain",
+                params={"layer_id": layer_id, "gain_db": float(self._gain_spin.value())},
+            )
+        )
+
     def set_contract(self, contract: InspectorContract) -> None:
         self._contract = contract
         self._body.setText(render_inspector_contract_text(contract))
+
+        object_type = contract.identity.object_type if contract.identity is not None else "none"
+        self._kind.setText(object_type.capitalize())
+
+        has_event = self._find_contract_action("seek_here") is not None
+        has_layer = self._find_contract_action("toggle_mute") is not None
+        self._set_controls_enabled(has_layer=has_layer, has_event=has_event)
+
+        mute_action = self._find_contract_action("toggle_mute")
+        solo_action = self._find_contract_action("toggle_solo")
+        self._mute_btn.setText(mute_action.label if mute_action is not None else "Mute")
+        self._solo_btn.setText(solo_action.label if solo_action is not None else "Solo")
 
     def contract(self) -> InspectorContract:
         return self._contract
@@ -1104,7 +1153,7 @@ class TimelineWidget(QWidget):
         left_layout.addWidget(self._hscroll)
 
         self._object_info = ObjectInfoPanel(self)
-        self._object_info.action_requested.connect(self._dispatch)
+        self._object_info.action_requested.connect(self._trigger_contract_action)
         self._object_info_panel = self._object_info
         self._main_splitter = QSplitter(Qt.Orientation.Horizontal, self)
         self._main_splitter.setChildrenCollapsible(False)
@@ -1184,6 +1233,39 @@ class TimelineWidget(QWidget):
         next_value = self._hscroll.value() + (notches * self._hscroll.singleStep())
         self._hscroll.setValue(max(self._hscroll.minimum(), min(self._hscroll.maximum(), next_value)))
 
+    def _zoom_from_input(self, delta: int, anchor_x: float) -> None:
+        if delta == 0:
+            return
+        factor = _ZOOM_STEP_FACTOR if delta > 0 else (1.0 / _ZOOM_STEP_FACTOR)
+        self._apply_zoom_factor(factor, anchor_x=anchor_x)
+
+    def _apply_zoom_factor(self, factor: float, *, anchor_x: float) -> None:
+        current_pps = max(1.0, float(self.presentation.pixels_per_second))
+        target_pps = max(_ZOOM_MIN_PPS, min(_ZOOM_MAX_PPS, current_pps * float(factor)))
+        if abs(target_pps - current_pps) < 0.001:
+            return
+
+        content_start_x = float(self._canvas._header_width)
+        anchor_view_x = max(content_start_x, float(anchor_x))
+        anchor_time = seek_time_for_x(
+            anchor_view_x,
+            scroll_x=self.presentation.scroll_x,
+            pixels_per_second=current_pps,
+            content_start_x=content_start_x,
+        )
+        new_scroll = max(0.0, (anchor_time * target_pps) - (anchor_view_x - content_start_x))
+
+        self.presentation = replace(
+            self.presentation,
+            pixels_per_second=target_pps,
+            scroll_x=new_scroll,
+        )
+        self._update_horizontal_scroll_bounds(sync_bar_value=True)
+        self._transport.set_presentation(self.presentation)
+        self._object_info.set_contract(build_timeline_inspector_contract(self.presentation))
+        self._ruler.set_presentation(self.presentation)
+        self._canvas.set_presentation(self.presentation, recompute_layout=False)
+
     def _dispatch(self, intent: object) -> None:
         if self._on_intent is None:
             return
@@ -1249,6 +1331,23 @@ class TimelineWidget(QWidget):
         self._transport.set_presentation(self.presentation)
         self._ruler.set_presentation(self.presentation)
         self._canvas.set_presentation(self.presentation, recompute_layout=False)
+
+    def _stabilize_runtime_playhead(self, runtime_time: float, *, playing: bool) -> float:
+        next_time = max(0.0, float(runtime_time))
+        if not playing:
+            self._runtime_playhead_floor = None
+            return next_time
+
+        if self._runtime_playhead_floor is None:
+            self._runtime_playhead_floor = next_time
+            return next_time
+
+        # Guard against stale backward clock samples during churn.
+        if next_time + 1e-6 < self._runtime_playhead_floor:
+            return self._runtime_playhead_floor
+
+        self._runtime_playhead_floor = next_time
+        return next_time
 
     def _seek(self, position: float) -> None:
         self._dispatch(Seek(position))
@@ -1322,7 +1421,7 @@ class TimelineWidget(QWidget):
             if layer_id is not None:
                 self._dispatch(ToggleSolo(layer_id))
             return
-        if action_id in {"gain_down", "gain_unity", "gain_up"}:
+        if action_id in {"gain_down", "gain_unity", "gain_up", "set_gain_custom"}:
             layer_id = params.get("layer_id")
             gain_db = params.get("gain_db")
             if layer_id is not None and isinstance(gain_db, (int, float)):
