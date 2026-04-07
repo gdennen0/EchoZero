@@ -154,7 +154,8 @@ def test_ruler_is_separate_widget_from_scroll_canvas():
     widget = TimelineWidget(build_demo_app().presentation())
     try:
         assert widget._scroll.widget() is widget._canvas
-        assert widget._ruler.parent() is widget
+        assert widget._ruler.parent() is not widget._scroll
+        assert widget._ruler.parent() is not widget._canvas
     finally:
         widget.close()
 

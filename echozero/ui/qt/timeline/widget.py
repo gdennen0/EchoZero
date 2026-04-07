@@ -7,7 +7,7 @@ from dataclasses import replace
 
 from PyQt6.QtCore import QPointF, QRectF, Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QColor, QPainter, QPen, QWheelEvent
-from PyQt6.QtWidgets import QFrame, QLabel, QScrollArea, QScrollBar, QToolTip, QVBoxLayout, QWidget
+from PyQt6.QtWidgets import QFrame, QHBoxLayout, QLabel, QScrollArea, QScrollBar, QSplitter, QToolTip, QVBoxLayout, QWidget
 
 from echozero.application.presentation.models import TimelinePresentation, LayerPresentation, TakeLanePresentation
 from echozero.application.shared.enums import FollowMode
@@ -195,8 +195,7 @@ class ObjectInfoPanel(QFrame):
             """
             QFrame#timeline_object_info {
                 background: #171d26;
-                border-top: 1px solid #252c38;
-                border-bottom: 1px solid #252c38;
+                border-left: 1px solid #252c38;
             }
             QLabel#timeline_object_info_title {
                 color: #f0f3f8;
@@ -209,6 +208,9 @@ class ObjectInfoPanel(QFrame):
             }
             """
         )
+
+        self.setMinimumWidth(280)
+        self.setMaximumWidth(460)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(12, 8, 12, 8)
@@ -873,19 +875,21 @@ class TimelineWidget(QWidget):
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.setWindowTitle('EchoZero Timeline Preview')
 
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(0)
+        root_layout = QHBoxLayout(self)
+        root_layout.setContentsMargins(0, 0, 0, 0)
+        root_layout.setSpacing(0)
+
+        left_pane = QWidget(self)
+        left_layout = QVBoxLayout(left_pane)
+        left_layout.setContentsMargins(0, 0, 0, 0)
+        left_layout.setSpacing(0)
 
         self._transport = TransportBar(self.presentation, on_intent=self._dispatch)
-        layout.addWidget(self._transport)
-
-        self._object_info = ObjectInfoPanel(self)
-        layout.addWidget(self._object_info)
+        left_layout.addWidget(self._transport)
 
         self._canvas = TimelineCanvas(self.presentation)
         self._ruler = TimelineRuler(self.presentation, header_width=self._canvas._header_width)
-        layout.addWidget(self._ruler)
+        left_layout.addWidget(self._ruler)
 
         self._scroll = QScrollArea()
         self._scroll.setWidgetResizable(True)
@@ -909,13 +913,23 @@ class TimelineWidget(QWidget):
         self._ruler.seek_requested.connect(self._seek)
         self._scroll.setWidget(self._canvas)
         self.setFocusProxy(self._canvas)
-        layout.addWidget(self._scroll)
+        left_layout.addWidget(self._scroll)
 
         self._hscroll = QScrollBar(Qt.Orientation.Horizontal)
         self._hscroll.setSingleStep(24)
         self._hscroll.setPageStep(200)
         self._hscroll.valueChanged.connect(self._on_horizontal_scroll_changed)
-        layout.addWidget(self._hscroll)
+        left_layout.addWidget(self._hscroll)
+
+        self._object_info = ObjectInfoPanel(self)
+        self._main_splitter = QSplitter(Qt.Orientation.Horizontal, self)
+        self._main_splitter.setChildrenCollapsible(False)
+        self._main_splitter.addWidget(left_pane)
+        self._main_splitter.addWidget(self._object_info)
+        self._main_splitter.setStretchFactor(0, 1)
+        self._main_splitter.setStretchFactor(1, 0)
+        self._main_splitter.setSizes([1080, 320])
+        root_layout.addWidget(self._main_splitter)
 
         self._runtime_timer = QTimer(self)
         self._runtime_timer.setTimerType(Qt.TimerType.PreciseTimer)
