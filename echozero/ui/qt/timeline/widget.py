@@ -814,7 +814,8 @@ class TimelineWidget(QWidget):
         layout.addWidget(self._hscroll)
 
         self._runtime_timer = QTimer(self)
-        self._runtime_timer.setInterval(16)
+        self._runtime_timer.setTimerType(Qt.TimerType.PreciseTimer)
+        self._runtime_timer.setInterval(8)
         self._runtime_timer.timeout.connect(self._on_runtime_tick)
         self._runtime_timer.start()
 

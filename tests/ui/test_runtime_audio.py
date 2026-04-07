@@ -4,6 +4,7 @@ from dataclasses import replace
 
 import numpy as np
 from PyQt6.QtWidgets import QApplication
+from PyQt6.QtCore import Qt
 
 from echozero.application.presentation.models import EventPresentation, LayerPresentation, TimelinePresentation
 from echozero.application.shared.enums import LayerKind, PlaybackMode
@@ -400,6 +401,18 @@ def test_widget_set_presentation_avoids_rebuilding_runtime_layers_when_sources_u
 
         assert runtime_audio.build_calls == 1
         assert runtime_audio.mix_calls == 1
+    finally:
+        widget.close()
+        app.processEvents()
+
+
+def test_widget_uses_precise_runtime_timer_with_8ms_interval():
+    app = QApplication.instance() or QApplication([])
+    presentation = _audio_presentation()
+    widget = TimelineWidget(presentation)
+    try:
+        assert widget._runtime_timer.timerType() == Qt.TimerType.PreciseTimer
+        assert widget._runtime_timer.interval() == 8
     finally:
         widget.close()
         app.processEvents()

@@ -72,13 +72,29 @@ class WaveformLaneBlock:
         painter.setPen(QPen(color, 1.0))
         for idx in range(start_idx, end_idx + 1):
             t = idx * spp
-            x = content_left + (t * pps) - presentation.scroll_x
+            x = waveform_x_for_time(
+                t,
+                scroll_x=presentation.scroll_x,
+                pixels_per_second=pps,
+                content_start_x=content_left,
+            )
             if x < (content_left - 1) or x > (content_right + 1):
                 continue
             vmin, vmax = cached.peaks[idx]
             y1 = center_y - (float(vmax) * amp_px)
             y2 = center_y - (float(vmin) * amp_px)
             painter.drawLine(int(x), int(y1), int(x), int(y2))
+
+
+def waveform_x_for_time(
+    time_seconds: float,
+    *,
+    scroll_x: float,
+    pixels_per_second: float,
+    content_start_x: float,
+) -> float:
+    pps = max(1.0, pixels_per_second)
+    return content_start_x + (max(0.0, time_seconds) * pps) - scroll_x
 
 
 def visible_waveform_columns(

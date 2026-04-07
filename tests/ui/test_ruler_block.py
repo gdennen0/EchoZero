@@ -4,6 +4,7 @@ from echozero.ui.qt.timeline.blocks.ruler import (
     timeline_x_for_time,
     visible_ruler_seconds,
 )
+from echozero.ui.qt.timeline.blocks.waveform_lane import waveform_x_for_time
 
 
 def test_visible_ruler_seconds_starts_near_zero_without_scroll():
@@ -80,3 +81,17 @@ def test_timeline_x_for_time_inverts_seek_mapping():
         pixels_per_second=100.0,
         content_start_x=320.0,
     ) == 4.5
+
+
+def test_waveform_x_for_time_matches_ruler_mapping():
+    assert waveform_x_for_time(
+        4.5,
+        scroll_x=80.0,
+        pixels_per_second=100.0,
+        content_start_x=320.0,
+    ) == timeline_x_for_time(
+        4.5,
+        scroll_x=80.0,
+        pixels_per_second=100.0,
+        content_start_x=320.0,
+    )
