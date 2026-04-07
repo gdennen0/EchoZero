@@ -5,7 +5,7 @@ import json
 from pathlib import Path
 
 from echozero.foundry import FoundryApp
-from echozero.foundry.persistence import EvalReportRepository, ModelArtifactRepository
+from echozero.foundry.persistence import EvalReportRepository, ModelArtifactRepository, migrate_foundry_state
 from echozero.foundry.ui import run_foundry_ui
 
 
@@ -102,6 +102,8 @@ def build_parser() -> argparse.ArgumentParser:
     val = sub.add_parser("validate-artifact")
     val.add_argument("artifact_id")
 
+    sub.add_parser("migrate-state", help="Explicitly migrate legacy foundry/state JSON to v1 envelopes")
+
     sub.add_parser("ui", help="Launch standalone Foundry UI")
 
     return parser
@@ -110,6 +112,12 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
+
+    if args.command == "migrate-state":
+        result = migrate_foundry_state(args.root)
+        print(json.dumps({"migrated": result}, indent=2))
+        return 0
+
     app = FoundryApp(args.root)
 
     if args.command == "create-dataset":

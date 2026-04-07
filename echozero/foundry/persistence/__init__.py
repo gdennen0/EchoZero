@@ -3,7 +3,9 @@ from .repositories import (
     DatasetVersionRepository,
     EvalReportRepository,
     ModelArtifactRepository,
+    StateFormatError,
     TrainRunRepository,
+    migrate_foundry_state,
 )
 
 __all__ = [
@@ -11,5 +13,7 @@ __all__ = [
     "DatasetVersionRepository",
     "EvalReportRepository",
     "ModelArtifactRepository",
+    "StateFormatError",
     "TrainRunRepository",
+    "migrate_foundry_state",
 ]

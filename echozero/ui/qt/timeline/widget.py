@@ -57,6 +57,11 @@ from echozero.ui.qt.timeline.blocks.take_row import TakeRowBlock
 from echozero.ui.qt.timeline.blocks.transport_bar import TransportLayout
 from echozero.ui.qt.timeline.blocks.transport_bar_block import TransportBarBlock
 from echozero.ui.qt.timeline.runtime_audio import TimelineRuntimeAudioController
+from echozero.ui.qt.timeline.style import (
+    TIMELINE_STYLE,
+    build_object_palette_stylesheet,
+    build_timeline_scroll_area_stylesheet,
+)
 from echozero.ui.qt.timeline.blocks.waveform_lane import WaveformLaneBlock, WaveformLanePresentation
 
 
@@ -193,74 +198,27 @@ class ObjectInfoPanel(QFrame):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setObjectName("timeline_object_info")
-        self.setStyleSheet(
-            """
-            QFrame#timeline_object_info {
-                background: #171d26;
-                border-left: 1px solid #252c38;
-            }
-            QLabel#timeline_object_info_title {
-                color: #f0f3f8;
-                font-size: 12px;
-                font-weight: 700;
-            }
-            QLabel#timeline_object_info_section {
-                color: #8da1b9;
-                font-size: 9px;
-                font-weight: 700;
-            }
-            QLabel#timeline_object_info_kind {
-                color: #d6e3f6;
-                background: #223347;
-                border: 1px solid #35506d;
-                border-radius: 10px;
-                padding: 2px 8px;
-                font-size: 10px;
-                font-weight: 600;
-            }
-            QLabel#timeline_object_info_body {
-                color: #c2cad6;
-                font-size: 10px;
-            }
-            QPushButton {
-                background: #223041;
-                color: #dbe8f8;
-                border: 1px solid #32455d;
-                border-radius: 4px;
-                padding: 5px 8px;
-                font-size: 10px;
-                font-weight: 600;
-                min-height: 26px;
-            }
-            QPushButton:disabled {
-                color: #6b7481;
-                background: #1a212b;
-                border-color: #263142;
-            }
-            QDoubleSpinBox {
-                color: #dce8fb;
-                background: #1e2a38;
-                border: 1px solid #344a65;
-                border-radius: 4px;
-                padding: 3px 6px;
-                min-height: 24px;
-            }
-            """
-        )
+        style = TIMELINE_STYLE.object_palette
+        self.setObjectName(style.frame_object_name)
+        self.setStyleSheet(build_object_palette_stylesheet(style))
 
-        self.setMinimumWidth(300)
-        self.setMaximumWidth(500)
+        self.setMinimumWidth(style.min_width_px)
+        self.setMaximumWidth(style.max_width_px)
 
         self._selected_layer_id = None
         self._selected_event_start: float | None = None
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(14, 12, 14, 12)
-        layout.setSpacing(6)
+        layout.setContentsMargins(
+            style.content_padding.left,
+            style.content_padding.top,
+            style.content_padding.right,
+            style.content_padding.bottom,
+        )
+        layout.setSpacing(style.section_spacing_px)
 
         title = QLabel("Object Palette", self)
-        title.setObjectName("timeline_object_info_title")
+        title.setObjectName(style.title_object_name)
         layout.addWidget(title)
 
         selection_section = QLabel("SELECTION", self)
@@ -272,7 +230,7 @@ class ObjectInfoPanel(QFrame):
         layout.addWidget(self._kind, 0, Qt.AlignmentFlag.AlignLeft)
 
         self._body = QLabel(self)
-        self._body.setObjectName("timeline_object_info_body")
+        self._body.setObjectName(style.body_object_name)
         self._body.setWordWrap(True)
         self._body.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
         self._body.setMinimumHeight(72)
@@ -1073,7 +1031,7 @@ class TimelineWidget(QWidget):
         self._scroll = QScrollArea()
         self._scroll.setWidgetResizable(True)
         self._scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        self._scroll.setStyleSheet('background: #12151b; border: none;')
+        self._scroll.setStyleSheet(build_timeline_scroll_area_stylesheet())
         self._canvas.layer_clicked.connect(self._select_layer)
         self._canvas.mute_clicked.connect(self._toggle_mute)
         self._canvas.solo_clicked.connect(self._toggle_solo)
