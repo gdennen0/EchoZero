@@ -48,3 +48,22 @@ def test_follow_center_targets_midpoint_and_clamps():
 
     p2 = replace(p, playhead=0.0)
     assert compute_follow_scroll_x(p2, viewport_width=1200) == 0.0
+
+
+def test_follow_smooth_targets_75_percent_position_not_center():
+    p_center = replace(
+        build_demo_app().presentation(),
+        follow_mode=FollowMode.CENTER,
+        is_playing=True,
+        playhead=20.0,
+        pixels_per_second=200.0,
+        scroll_x=0.0,
+    )
+    p_smooth = replace(p_center, follow_mode=FollowMode.SMOOTH)
+
+    center_scroll = compute_follow_scroll_x(p_center, viewport_width=1200)
+    smooth_scroll = compute_follow_scroll_x(p_smooth, viewport_width=1200)
+
+    # Smooth mode should keep more look-ahead than centered mode.
+    assert smooth_scroll < center_scroll
+    assert smooth_scroll > 0.0

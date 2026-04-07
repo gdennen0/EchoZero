@@ -133,8 +133,12 @@ def compute_follow_scroll_x(
             target = max(0.0, timeline_x - content_padding_px)
         elif timeline_x > right_bound:
             target = max(0.0, timeline_x - content_padding_px)
-    elif presentation.follow_mode in {FollowMode.CENTER, FollowMode.SMOOTH}:
+    elif presentation.follow_mode == FollowMode.CENTER:
         target = max(0.0, timeline_x - (content_width * 0.5))
+    elif presentation.follow_mode == FollowMode.SMOOTH:
+        # Match EZ1 semantics: keep playhead around 75% of the viewport
+        # rather than centered, reducing forward-jump feel.
+        target = max(0.0, timeline_x - (content_width * 0.75))
 
     _, max_scroll = compute_scroll_bounds(presentation, viewport, header_width=header_width)
     return float(max(0.0, min(target, max_scroll)))
