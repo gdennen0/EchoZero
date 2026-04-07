@@ -10,6 +10,8 @@ from echozero.ui.qt.timeline.style import (
     TIMELINE_STYLE,
     build_object_palette_stylesheet,
     build_timeline_scroll_area_stylesheet,
+    fixture_color,
+    fixture_take_action_label,
 )
 from echozero.ui.qt.timeline.widget import ObjectInfoPanel, TimelineWidget
 
@@ -69,3 +71,10 @@ def test_timeline_widget_shell_uses_shared_style_tokens():
     finally:
         widget.close()
         app.processEvents()
+
+
+def test_timeline_fixture_tokens_are_discoverable_from_style_module():
+    assert fixture_color("song") == TIMELINE_STYLE.fixture.layer_color_tokens["song"]
+    assert fixture_color("sync") == TIMELINE_STYLE.fixture.layer_color_tokens["sync"]
+    assert fixture_take_action_label("overwrite_main") == "Overwrite Main"
+    assert fixture_take_action_label("merge_main") == "Merge Main"

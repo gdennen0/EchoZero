@@ -19,6 +19,7 @@ from echozero.application.shared.enums import FollowMode, LayerKind
 from echozero.application.shared.ids import EventId, LayerId, TakeId, TimelineId
 from echozero.domain.types import AudioData, Event as DomainEvent, EventData
 from echozero.ui.qt.timeline.drum_classifier_preview import classify_drum_hits
+from echozero.ui.qt.timeline.style import TIMELINE_STYLE, fixture_color, fixture_take_action_label
 from echozero.ui.qt.timeline.waveform_cache import register_waveform_from_audio_file
 
 
@@ -71,14 +72,14 @@ def build_real_data_presentation(
                 kind=LayerKind.AUDIO,
                 is_selected=False,
                 is_expanded=False,
-                color="#4da3ff",
+                color=fixture_color("song"),
                 waveform_key="song-real",
                 badges=["main", "audio", "real-data"],
                 status=LayerStatusPresentation(
                     stale=False,
                     manually_modified=False,
                     source_label="Imported track",
-                    sync_label="No sync",
+                    sync_label=TIMELINE_STYLE.fixture.default_sync_label,
                 ),
             )
         ]
@@ -124,8 +125,14 @@ def build_real_data_presentation(
                         waveform_key=take_waveform_key,
                         source_audio_path=str(take.data.file_path) if isinstance(take.data, AudioData) else None,
                         actions=[
-                            TakeActionPresentation(action_id="overwrite_main", label="Overwrite Main"),
-                            TakeActionPresentation(action_id="merge_main", label="Merge Main"),
+                            TakeActionPresentation(
+                                action_id="overwrite_main",
+                                label=fixture_take_action_label("overwrite_main"),
+                            ),
+                            TakeActionPresentation(
+                                action_id="merge_main",
+                                label=fixture_take_action_label("merge_main"),
+                            ),
                         ],
                     )
                 )
@@ -134,7 +141,7 @@ def build_real_data_presentation(
                 stale=bool(layer_record.state_flags.get("stale", False)),
                 manually_modified=bool(layer_record.state_flags.get("manually_modified", False)),
                 source_label=_source_label(layer_record),
-                sync_label="No sync",
+                sync_label=TIMELINE_STYLE.fixture.default_sync_label,
             )
             main_waveform_key = None
             if main_kind == LayerKind.AUDIO and isinstance(main_take.data, AudioData):
@@ -153,7 +160,7 @@ def build_real_data_presentation(
                     is_expanded=bool(take_rows),
                     events=main_events,
                     takes=take_rows,
-                    color=layer_record.color or "#66a3ff",
+                    color=layer_record.color or _fixture_layer_color(layer_record.name),
                     badges=["main", "stem", main_kind.value, "real-data"],
                     waveform_key=main_waveform_key,
                     source_audio_path=str(main_take.data.file_path) if isinstance(main_take.data, AudioData) else None,
@@ -223,7 +230,6 @@ def _event_presentations_from_take(take) -> list[EventPresentation]:
             start=float(event.time),
             end=float(event.time + max(event.duration, 0.08)),
             label=_event_label(event),
-            color="#7fd1ae",
         )
         for event in events
     ]
@@ -261,10 +267,10 @@ def _source_ref(source: Any) -> str | None:
 
 def _classifier_layers_from_hits(hits: dict[str, list]) -> list[LayerPresentation]:
     order = [
-        ("kick", "Kick", "#66a3ff"),
-        ("snare", "Snare", "#7fd1ae"),
-        ("hihat", "HiHat", "#f8c555"),
-        ("clap", "Clap", "#ff8c78"),
+        ("kick", "Kick", fixture_color("kick")),
+        ("snare", "Snare", fixture_color("snare")),
+        ("hihat", "HiHat", fixture_color("hihat")),
+        ("clap", "Clap", fixture_color("clap")),
     ]
     layers: list[LayerPresentation] = []
 
@@ -296,7 +302,7 @@ def _classifier_layers_from_hits(hits: dict[str, list]) -> list[LayerPresentatio
                     stale=False,
                     manually_modified=False,
                     source_label="Drums stem classifier preview",
-                    sync_label="No sync",
+                    sync_label=TIMELINE_STYLE.fixture.default_sync_label,
                 ),
             )
         )
@@ -308,3 +314,8 @@ def _fmt_time(seconds: float) -> str:
     mins = int(seconds // 60)
     secs = seconds - (mins * 60)
     return f"{mins:02d}:{secs:05.2f}"
+
+
+def _fixture_layer_color(name: str) -> str:
+    token = name.strip().lower()
+    return TIMELINE_STYLE.fixture.layer_color_tokens.get(token, TIMELINE_STYLE.fixture.fallback_audio_lane_hex)

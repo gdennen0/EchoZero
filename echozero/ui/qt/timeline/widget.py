@@ -763,7 +763,7 @@ class TimelineCanvas(QWidget):
                     painter,
                     top,
                     WaveformLanePresentation(
-                        color_hex=layer.color or '#9b87f5',
+                        color_hex=layer.color or self._style.fixture.fallback_audio_lane_hex,
                         row_height=self._main_row_height,
                         pixels_per_second=self.presentation.pixels_per_second,
                         scroll_x=self.presentation.scroll_x,
@@ -782,6 +782,7 @@ class TimelineCanvas(QWidget):
                             layer_id=layer.layer_id,
                             take_id=layer.main_take_id,
                             events=layer.events,
+                            default_fill_hex=layer.color,
                             pixels_per_second=self.presentation.pixels_per_second,
                             scroll_x=self.presentation.scroll_x,
                             header_width=self._header_width,
@@ -826,7 +827,7 @@ class TimelineCanvas(QWidget):
                     painter,
                     top,
                     WaveformLanePresentation(
-                        color_hex=layer.color or '#9b87f5',
+                        color_hex=layer.color or self._style.fixture.fallback_audio_lane_hex,
                         row_height=self._take_row_height,
                         pixels_per_second=self.presentation.pixels_per_second,
                         scroll_x=self.presentation.scroll_x,
@@ -845,6 +846,7 @@ class TimelineCanvas(QWidget):
                             layer_id=layer.layer_id,
                             take_id=take.take_id,
                             events=take.events,
+                            default_fill_hex=layer.color,
                             pixels_per_second=self.presentation.pixels_per_second,
                             scroll_x=self.presentation.scroll_x,
                             header_width=self._header_width,

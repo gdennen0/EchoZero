@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from types import MappingProxyType
 
 
 @dataclass(frozen=True, slots=True)
@@ -191,6 +192,14 @@ class RulerStyle:
 
 
 @dataclass(frozen=True, slots=True)
+class TimelineFixtureStyle:
+    default_sync_label: str
+    fallback_audio_lane_hex: str
+    layer_color_tokens: MappingProxyType
+    take_action_labels: MappingProxyType
+
+
+@dataclass(frozen=True, slots=True)
 class TimelineShellStyle:
     window_title: str
     canvas: TimelineCanvasStyle
@@ -202,6 +211,7 @@ class TimelineShellStyle:
     take_row: TakeRowStyle
     event_lane: EventLaneStyle
     ruler: RulerStyle
+    fixture: TimelineFixtureStyle
 
 
 TIMELINE_STYLE = TimelineShellStyle(
@@ -345,7 +355,41 @@ TIMELINE_STYLE = TimelineShellStyle(
         grid_hex="#b8c0cc",
         label_hex="#b8c0cc",
     ),
+    fixture=TimelineFixtureStyle(
+        default_sync_label="No sync",
+        fallback_audio_lane_hex="#9b87f5",
+        layer_color_tokens=MappingProxyType(
+            {
+                "song": "#4da3ff",
+                "drums": "#9b87f5",
+                "bass": "#d68cff",
+                "vocals": "#7dd3fc",
+                "other": "#94a3b8",
+                "kick": "#66a3ff",
+                "snare": "#7fd1ae",
+                "hihat": "#f8c555",
+                "clap": "#ff8c78",
+                "sync": "#ff8c78",
+                "event_preview": "#7fd1ae",
+            }
+        ),
+        take_action_labels=MappingProxyType(
+            {
+                "overwrite_main": "Overwrite Main",
+                "merge_main": "Merge Main",
+                "promote_take": "Promote Take",
+            }
+        ),
+    ),
 )
+
+
+def fixture_color(token: str, style: TimelineShellStyle = TIMELINE_STYLE) -> str:
+    return style.fixture.layer_color_tokens[token]
+
+
+def fixture_take_action_label(action_id: str, style: TimelineShellStyle = TIMELINE_STYLE) -> str:
+    return style.fixture.take_action_labels[action_id]
 
 
 def build_object_palette_stylesheet(style: ObjectPaletteStyle = TIMELINE_STYLE.object_palette) -> str:

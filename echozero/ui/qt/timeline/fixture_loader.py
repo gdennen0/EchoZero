@@ -15,6 +15,7 @@ from echozero.application.presentation.models import (
 )
 from echozero.application.shared.enums import FollowMode, LayerKind
 from echozero.application.shared.ids import EventId, LayerId, TakeId, TimelineId
+from echozero.ui.qt.timeline.style import TIMELINE_STYLE, fixture_color, fixture_take_action_label
 
 _DEFAULT_FIXTURE_PATH = Path(__file__).resolve().parent / "fixtures" / "realistic_timeline_fixture.json"
 
@@ -52,6 +53,7 @@ def load_realistic_timeline_fixture(path: str | Path | None = None) -> TimelineP
 
 def _parse_layer(data: dict) -> LayerPresentation:
     status_data = data.get("status", {})
+    resolved_color = _resolved_color(data)
     return LayerPresentation(
         layer_id=LayerId(data["id"]),
         title=data["title"],
@@ -59,15 +61,15 @@ def _parse_layer(data: dict) -> LayerPresentation:
         kind=LayerKind(data.get("kind", LayerKind.EVENT.value)),
         is_selected=bool(data.get("is_selected", False)),
         is_expanded=bool(data.get("is_expanded", False)),
-        events=[_parse_event(event) for event in data.get("events", [])],
-        takes=[_parse_take(take) for take in data.get("takes", [])],
+        events=[_parse_event(event, default_color=resolved_color) for event in data.get("events", [])],
+        takes=[_parse_take(take, default_color=resolved_color) for take in data.get("takes", [])],
         visible=bool(data.get("visible", True)),
         locked=bool(data.get("locked", False)),
         muted=bool(data.get("muted", False)),
         soloed=bool(data.get("soloed", False)),
         gain_db=float(data.get("gain_db", 0.0)),
         pan=float(data.get("pan", 0.0)),
-        color=data.get("color"),
+        color=resolved_color,
         badges=list(data.get("badges", [])),
         waveform_key=data.get("waveform_key"),
         source_audio_path=data.get("source_audio_path"),
@@ -75,39 +77,49 @@ def _parse_layer(data: dict) -> LayerPresentation:
             stale=bool(status_data.get("stale", False)),
             manually_modified=bool(status_data.get("manually_modified", False)),
             source_label=status_data.get("source_label", ""),
-            sync_label=status_data.get("sync_label", ""),
+            sync_label=status_data.get("sync_label", TIMELINE_STYLE.fixture.default_sync_label),
         ),
     )
 
 
-def _parse_take(data: dict) -> TakeLanePresentation:
+def _parse_take(data: dict, *, default_color: str | None) -> TakeLanePresentation:
     return TakeLanePresentation(
         take_id=TakeId(data["id"]),
         name=data["name"],
         is_main=bool(data.get("is_main", False)),
         kind=LayerKind(data.get("kind", LayerKind.EVENT.value)),
-        events=[_parse_event(event) for event in data.get("events", [])],
+        events=[_parse_event(event, default_color=default_color) for event in data.get("events", [])],
         source_ref=data.get("source_ref"),
         waveform_key=data.get("waveform_key"),
         source_audio_path=data.get("source_audio_path"),
         actions=[
-            TakeActionPresentation(action_id=action["action_id"], label=action["label"])
+            TakeActionPresentation(
+                action_id=action["action_id"],
+                label=action.get("label", fixture_take_action_label(action["action_id"])),
+            )
             for action in data.get("actions", [])
         ],
     )
 
 
-def _parse_event(data: dict) -> EventPresentation:
+def _parse_event(data: dict, *, default_color: str | None) -> EventPresentation:
     return EventPresentation(
         event_id=EventId(data["id"]),
         start=float(data["start"]),
         end=float(data["end"]),
         label=data["label"],
-        color=data.get("color"),
+        color=data.get("color", default_color),
         muted=bool(data.get("muted", False)),
         is_selected=bool(data.get("is_selected", False)),
         badges=list(data.get("badges", [])),
     )
+
+
+def _resolved_color(data: dict) -> str | None:
+    token = data.get("color_token")
+    if token:
+        return fixture_color(token)
+    return data.get("color")
 
 
 def _layer_id_or_none(value: str | None) -> LayerId | None:

@@ -22,6 +22,7 @@ class EventLanePresentation:
     event_height: int = 22
     dimmed: bool = False
     viewport_width: int = 1440
+    default_fill_hex: str | None = None
 
 
 class EventLaneBlock:
@@ -57,7 +58,7 @@ class EventLaneBlock:
                 rect = QRectF(x, top_y, width, presentation.event_height)
                 rects.append((rect, presentation.layer_id, presentation.take_id, event.event_id))
 
-                color = QColor(event.color or self.style.default_fill_hex)
+                color = QColor(event.color or presentation.default_fill_hex or self.style.default_fill_hex)
                 if presentation.dimmed:
                     color.setAlpha(self.style.dimmed_alpha)
                 if event.is_selected:

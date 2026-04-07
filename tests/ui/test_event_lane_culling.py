@@ -65,3 +65,37 @@ def test_event_lane_hides_labels_when_event_is_too_narrow():
 
     assert len(rects) == 1
     assert rects[0][0].width() >= 2.0
+
+
+def test_event_lane_uses_presented_default_fill_when_event_has_no_color():
+    event = EventPresentation(
+        event_id=EventId("unstyled"),
+        start=1.0,
+        end=1.3,
+        label="Unstyled",
+        color=None,
+    )
+    presentation = EventLanePresentation(
+        layer_id="layer_1",
+        take_id=None,
+        events=[event],
+        pixels_per_second=100.0,
+        scroll_x=0.0,
+        header_width=320,
+        event_height=22,
+        viewport_width=800,
+        default_fill_hex="#123456",
+    )
+
+    image = QImage(800, 120, QImage.Format.Format_ARGB32)
+    image.fill(0)
+    painter = QPainter(image)
+    try:
+        EventLaneBlock().paint(painter, 20, presentation)
+    finally:
+        painter.end()
+
+    sample = image.pixelColor(430, 31)
+    assert sample.red() == 0x12
+    assert sample.green() == 0x34
+    assert sample.blue() == 0x56

@@ -24,7 +24,7 @@
       "is_expanded": false,
       "muted": false,
       "soloed": false,
-      "color": "#4da3ff",
+      "color_token": "song",
       "waveform_key": "song-main",
       "badges": ["main", "audio"],
       "status": {
@@ -45,7 +45,7 @@
       "is_expanded": true,
       "muted": false,
       "soloed": true,
-      "color": "#9b87f5",
+      "color_token": "drums",
       "waveform_key": "drums-main",
       "badges": ["main", "audio"],
       "status": {
@@ -64,8 +64,8 @@
           "source_ref": "separator:v2",
           "waveform_key": "drums-take-2",
           "actions": [
-            { "action_id": "overwrite_main", "label": "Overwrite Main" },
-            { "action_id": "merge_main", "label": "Merge Main" }
+            { "action_id": "overwrite_main" },
+            { "action_id": "merge_main" }
           ],
           "events": []
         },
@@ -77,8 +77,8 @@
           "source_ref": "separator:v3",
           "waveform_key": "drums-take-3",
           "actions": [
-            { "action_id": "overwrite_main", "label": "Overwrite Main" },
-            { "action_id": "merge_main", "label": "Merge Main" }
+            { "action_id": "overwrite_main" },
+            { "action_id": "merge_main" }
           ],
           "events": []
         }
@@ -93,7 +93,7 @@
       "is_expanded": false,
       "muted": false,
       "soloed": false,
-      "color": "#d68cff",
+      "color_token": "bass",
       "waveform_key": "bass-main",
       "badges": ["main", "audio"],
       "status": {
@@ -114,7 +114,7 @@
       "is_expanded": false,
       "muted": false,
       "soloed": false,
-      "color": "#7dd3fc",
+      "color_token": "vocals",
       "waveform_key": "vocals-main",
       "badges": ["main", "audio"],
       "status": {
@@ -135,7 +135,7 @@
       "is_expanded": false,
       "muted": false,
       "soloed": false,
-      "color": "#94a3b8",
+      "color_token": "other",
       "waveform_key": "other-main",
       "badges": ["main", "audio"],
       "status": {
@@ -156,7 +156,7 @@
       "is_expanded": true,
       "muted": false,
       "soloed": false,
-      "color": "#66a3ff",
+      "color_token": "kick",
       "badges": ["main", "event"],
       "status": {
         "stale": true,
@@ -165,10 +165,10 @@
         "sync_label": "Not synced"
       },
       "events": [
-        { "id": "evt_kick_01", "start": 0.52, "end": 0.78, "label": "Kick", "color": "#66a3ff" },
-        { "id": "evt_kick_02", "start": 4.12, "end": 4.38, "label": "Kick", "color": "#66a3ff" },
-        { "id": "evt_kick_03", "start": 8.14, "end": 8.40, "label": "Kick", "color": "#66a3ff" },
-        { "id": "evt_kick_04", "start": 12.14, "end": 12.40, "label": "Kick", "color": "#66a3ff" }
+        { "id": "evt_kick_01", "start": 0.52, "end": 0.78, "label": "Kick" },
+        { "id": "evt_kick_02", "start": 4.12, "end": 4.38, "label": "Kick" },
+        { "id": "evt_kick_03", "start": 8.14, "end": 8.40, "label": "Kick" },
+        { "id": "evt_kick_04", "start": 12.14, "end": 12.40, "label": "Kick" }
       ],
       "takes": [
         {
@@ -178,13 +178,13 @@
           "kind": "event",
           "source_ref": "classifier:v2",
           "actions": [
-            { "action_id": "overwrite_main", "label": "Overwrite Main" },
-            { "action_id": "merge_main", "label": "Merge Main" }
+            { "action_id": "overwrite_main" },
+            { "action_id": "merge_main" }
           ],
           "events": [
-            { "id": "evt_kick_t2_01", "start": 0.48, "end": 0.74, "label": "Kick v2", "color": "#66a3ff" },
-            { "id": "evt_kick_t2_02", "start": 4.08, "end": 4.32, "label": "Kick v2", "color": "#66a3ff" },
-            { "id": "evt_kick_t2_03", "start": 8.10, "end": 8.34, "label": "Kick v2", "color": "#66a3ff" }
+            { "id": "evt_kick_t2_01", "start": 0.48, "end": 0.74, "label": "Kick v2" },
+            { "id": "evt_kick_t2_02", "start": 4.08, "end": 4.32, "label": "Kick v2" },
+            { "id": "evt_kick_t2_03", "start": 8.10, "end": 8.34, "label": "Kick v2" }
           ]
         },
         {
@@ -194,14 +194,14 @@
           "kind": "event",
           "source_ref": "classifier:v3",
           "actions": [
-            { "action_id": "overwrite_main", "label": "Overwrite Main" },
-            { "action_id": "merge_main", "label": "Merge Main" }
+            { "action_id": "overwrite_main" },
+            { "action_id": "merge_main" }
           ],
           "events": [
-            { "id": "evt_kick_t3_01", "start": 0.51, "end": 0.77, "label": "Kick v3", "color": "#66a3ff" },
-            { "id": "evt_kick_t3_02", "start": 4.11, "end": 4.37, "label": "Kick v3", "color": "#66a3ff" },
-            { "id": "evt_kick_t3_03", "start": 8.12, "end": 8.38, "label": "Kick v3", "color": "#66a3ff" },
-            { "id": "evt_kick_t3_04", "start": 12.12, "end": 12.38, "label": "Kick v3", "color": "#66a3ff" }
+            { "id": "evt_kick_t3_01", "start": 0.51, "end": 0.77, "label": "Kick v3" },
+            { "id": "evt_kick_t3_02", "start": 4.11, "end": 4.37, "label": "Kick v3" },
+            { "id": "evt_kick_t3_03", "start": 8.12, "end": 8.38, "label": "Kick v3" },
+            { "id": "evt_kick_t3_04", "start": 12.12, "end": 12.38, "label": "Kick v3" }
           ]
         }
       ]
@@ -215,7 +215,7 @@
       "is_expanded": false,
       "muted": false,
       "soloed": false,
-      "color": "#7fd1ae",
+      "color_token": "snare",
       "badges": ["main", "event"],
       "status": {
         "stale": false,
@@ -224,10 +224,10 @@
         "sync_label": "Not synced"
       },
       "events": [
-        { "id": "evt_snare_01", "start": 1.16, "end": 1.42, "label": "Snare", "color": "#7fd1ae" },
-        { "id": "evt_snare_02", "start": 5.16, "end": 5.42, "label": "Snare", "color": "#7fd1ae", "is_selected": true },
-        { "id": "evt_snare_03", "start": 9.16, "end": 9.42, "label": "Snare", "color": "#7fd1ae" },
-        { "id": "evt_snare_04", "start": 13.16, "end": 13.42, "label": "Snare", "color": "#7fd1ae" }
+        { "id": "evt_snare_01", "start": 1.16, "end": 1.42, "label": "Snare" },
+        { "id": "evt_snare_02", "start": 5.16, "end": 5.42, "label": "Snare", "is_selected": true },
+        { "id": "evt_snare_03", "start": 9.16, "end": 9.42, "label": "Snare" },
+        { "id": "evt_snare_04", "start": 13.16, "end": 13.42, "label": "Snare" }
       ],
       "takes": []
     },
@@ -240,7 +240,7 @@
       "is_expanded": false,
       "muted": false,
       "soloed": false,
-      "color": "#f8c555",
+      "color_token": "hihat",
       "badges": ["main", "event"],
       "status": {
         "stale": false,
@@ -249,12 +249,12 @@
         "sync_label": "Not synced"
       },
       "events": [
-        { "id": "evt_hat_01", "start": 0.90, "end": 1.01, "label": "Hat", "color": "#f8c555" },
-        { "id": "evt_hat_02", "start": 1.88, "end": 1.99, "label": "Hat", "color": "#f8c555" },
-        { "id": "evt_hat_03", "start": 2.90, "end": 3.01, "label": "Hat", "color": "#f8c555" },
-        { "id": "evt_hat_04", "start": 3.88, "end": 3.99, "label": "Hat", "color": "#f8c555" },
-        { "id": "evt_hat_05", "start": 4.90, "end": 5.01, "label": "Hat", "color": "#f8c555" },
-        { "id": "evt_hat_06", "start": 5.88, "end": 5.99, "label": "Hat", "color": "#f8c555" }
+        { "id": "evt_hat_01", "start": 0.90, "end": 1.01, "label": "Hat" },
+        { "id": "evt_hat_02", "start": 1.88, "end": 1.99, "label": "Hat" },
+        { "id": "evt_hat_03", "start": 2.90, "end": 3.01, "label": "Hat" },
+        { "id": "evt_hat_04", "start": 3.88, "end": 3.99, "label": "Hat" },
+        { "id": "evt_hat_05", "start": 4.90, "end": 5.01, "label": "Hat" },
+        { "id": "evt_hat_06", "start": 5.88, "end": 5.99, "label": "Hat" }
       ],
       "takes": []
     },
@@ -267,7 +267,7 @@
       "is_expanded": true,
       "muted": false,
       "soloed": false,
-      "color": "#ff8c78",
+      "color_token": "clap",
       "badges": ["main", "event"],
       "status": {
         "stale": false,
@@ -276,9 +276,9 @@
         "sync_label": "Not synced"
       },
       "events": [
-        { "id": "evt_clap_01", "start": 2.52, "end": 2.66, "label": "Clap", "color": "#ff8c78" },
-        { "id": "evt_clap_02", "start": 6.52, "end": 6.66, "label": "Clap", "color": "#ff8c78" },
-        { "id": "evt_clap_03", "start": 10.52, "end": 10.66, "label": "Clap", "color": "#ff8c78" }
+        { "id": "evt_clap_01", "start": 2.52, "end": 2.66, "label": "Clap" },
+        { "id": "evt_clap_02", "start": 6.52, "end": 6.66, "label": "Clap" },
+        { "id": "evt_clap_03", "start": 10.52, "end": 10.66, "label": "Clap" }
       ],
       "takes": [
         {
@@ -288,14 +288,14 @@
           "kind": "event",
           "source_ref": "classifier:v2",
           "actions": [
-            { "action_id": "overwrite_main", "label": "Overwrite Main" },
-            { "action_id": "merge_main", "label": "Merge Main" }
+            { "action_id": "overwrite_main" },
+            { "action_id": "merge_main" }
           ],
           "events": [
-            { "id": "evt_clap_t2_01", "start": 2.48, "end": 2.60, "label": "Clap v2", "color": "#ff8c78" },
-            { "id": "evt_clap_t2_02", "start": 6.48, "end": 6.60, "label": "Clap v2", "color": "#ff8c78" },
-            { "id": "evt_clap_t2_03", "start": 10.48, "end": 10.60, "label": "Clap v2", "color": "#ff8c78" },
-            { "id": "evt_clap_t2_04", "start": 14.48, "end": 14.60, "label": "Clap v2", "color": "#ff8c78" }
+            { "id": "evt_clap_t2_01", "start": 2.48, "end": 2.60, "label": "Clap v2" },
+            { "id": "evt_clap_t2_02", "start": 6.48, "end": 6.60, "label": "Clap v2" },
+            { "id": "evt_clap_t2_03", "start": 10.48, "end": 10.60, "label": "Clap v2" },
+            { "id": "evt_clap_t2_04", "start": 14.48, "end": 14.60, "label": "Clap v2" }
           ]
         }
       ]
@@ -309,7 +309,7 @@
       "is_expanded": false,
       "muted": true,
       "soloed": false,
-      "color": "#ff8c78",
+      "color_token": "sync",
       "badges": ["sync"],
       "status": {
         "stale": false,
@@ -318,11 +318,12 @@
         "sync_label": "Connected tc101"
       },
       "events": [
-        { "id": "evt_sync_01", "start": 0.74, "end": 1.05, "label": "Cue 101", "color": "#ff8c78" },
-        { "id": "evt_sync_02", "start": 8.74, "end": 9.05, "label": "Cue 102", "color": "#ff8c78" },
-        { "id": "evt_sync_03", "start": 16.74, "end": 17.05, "label": "Cue 103", "color": "#ff8c78" }
+        { "id": "evt_sync_01", "start": 0.74, "end": 1.05, "label": "Cue 101" },
+        { "id": "evt_sync_02", "start": 8.74, "end": 9.05, "label": "Cue 102" },
+        { "id": "evt_sync_03", "start": 16.74, "end": 17.05, "label": "Cue 103" }
       ],
       "takes": []
     }
   ]
 }
+

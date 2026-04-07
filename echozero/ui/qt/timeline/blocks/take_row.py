@@ -7,7 +7,7 @@ from PyQt6.QtGui import QColor, QPainter, QFont
 
 from echozero.application.presentation.models import LayerPresentation, TakeActionPresentation, TakeLanePresentation
 from echozero.ui.qt.timeline.blocks.layouts import TakeRowLayout
-from echozero.ui.qt.timeline.style import TIMELINE_STYLE, TakeRowStyle
+from echozero.ui.qt.timeline.style import TIMELINE_STYLE, TakeRowStyle, fixture_take_action_label
 
 
 @dataclass(slots=True)
@@ -95,6 +95,12 @@ class TakeRowBlock:
         if take.actions:
             return take.actions
         return [
-            TakeActionPresentation(action_id='overwrite_main', label='Overwrite Main'),
-            TakeActionPresentation(action_id='merge_main', label='Merge Main'),
+            TakeActionPresentation(
+                action_id='overwrite_main',
+                label=fixture_take_action_label('overwrite_main'),
+            ),
+            TakeActionPresentation(
+                action_id='merge_main',
+                label=fixture_take_action_label('merge_main'),
+            ),
         ]
