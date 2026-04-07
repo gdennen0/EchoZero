@@ -5,6 +5,17 @@ import json
 import subprocess
 import sys
 from datetime import UTC, datetime
+from typing import Any
+
+try:
+    import psutil
+except Exception:  # pragma: no cover - optional dependency
+    psutil = None
+
+try:
+    import torch
+except Exception:  # pragma: no cover - optional dependency
+    torch = None
 from pathlib import Path
 from threading import Event
 from uuid import uuid4
@@ -201,7 +212,9 @@ class TrainRunService:
             "CHECKPOINT_SAVED",
             {"epoch": epoch, "path": str(ckpt_path), "metric_snapshot": metric_snapshot or {}},
         )
-        self._write_progress_snapshot(run.id, epoch=epoch, metric_snapshot=metric_snapshot or {})
+        snapshot = metric_snapshot or {}
+        self._write_progress_snapshot(run.id, epoch=epoch, metric_snapshot=snapshot)
+        self._append_run_telemetry(run, epoch=epoch, metric_snapshot=snapshot)
         return ckpt_path
 
     def get_run(self, run_id: str) -> TrainRun | None:
@@ -285,6 +298,63 @@ class TrainRunService:
         (tracking / f"{run_id}_latest_progress.json").write_text(
             json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8"
         )
+
+    def _append_run_telemetry(self, run: TrainRun, *, epoch: int, metric_snapshot: dict[str, Any]) -> None:
+        run_dir = run.run_dir(self._root)
+        telemetry_path = run_dir / "telemetry.jsonl"
+        latest_path = run_dir / "telemetry.latest.json"
+
+        loss = metric_snapshot.get("val_loss")
+        if loss is None:
+            loss = metric_snapshot.get("train_loss")
+
+        payload: dict[str, Any] = {
+            "at": datetime.now(UTC).isoformat(),
+            "run_id": run.id,
+            "status": run.status.value,
+            "epoch": int(epoch),
+            "loss": loss,
+            "eta_seconds": metric_snapshot.get("eta_seconds"),
+            "metrics": metric_snapshot,
+        }
+
+        system_stats = self._collect_system_stats()
+        payload.update(system_stats)
+
+        with telemetry_path.open("a", encoding="utf-8") as fh:
+            fh.write(json.dumps(payload, sort_keys=True) + "\n")
+        latest_path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
+
+    def _collect_system_stats(self) -> dict[str, Any]:
+        stats: dict[str, Any] = {
+            "cpu_percent": None,
+            "ram_percent": None,
+            "ram_used_mb": None,
+            "gpu_vram_used_mb": None,
+            "gpu_vram_total_mb": None,
+        }
+
+        if psutil is not None:
+            try:
+                vm = psutil.virtual_memory()
+                stats["cpu_percent"] = float(psutil.cpu_percent(interval=None))
+                stats["ram_percent"] = float(vm.percent)
+                stats["ram_used_mb"] = round(float(vm.used) / (1024 * 1024), 2)
+            except Exception:
+                pass
+
+        if torch is not None:
+            try:
+                if torch.cuda.is_available():
+                    device = torch.cuda.current_device()
+                    used = float(torch.cuda.memory_allocated(device)) / (1024 * 1024)
+                    total = float(torch.cuda.get_device_properties(device).total_memory) / (1024 * 1024)
+                    stats["gpu_vram_used_mb"] = round(used, 2)
+                    stats["gpu_vram_total_mb"] = round(total, 2)
+            except Exception:
+                pass
+
+        return stats
 
     def _refresh_tracking_artifacts(self, run_id: str, *, status: str) -> None:
         scripts = [

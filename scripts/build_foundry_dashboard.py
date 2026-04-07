@@ -58,7 +58,9 @@ def build_runs_payload() -> list[dict]:
         metrics = _read_json(run_dir / "exports" / "metrics.json")
         summary = _read_json(run_dir / "exports" / "run_summary.json")
         events = _read_events(run_dir / "events.jsonl")
+        telemetry_latest = _read_json(run_dir / "telemetry.latest.json")
         last_event = events[-1] if events else {}
+        failed_event = next((event for event in reversed(events) if event.get("type") == "RUN_FAILED"), None)
 
         runs.append(
             {
@@ -79,6 +81,8 @@ def build_runs_payload() -> list[dict]:
                 "synthetic_eval": metrics.get("syntheticEval"),
                 "run_summary": summary,
                 "events_tail": events[-8:],
+                "telemetry_latest": telemetry_latest,
+                "failure_error": (failed_event or {}).get("payload", {}).get("error"),
                 "artifacts": [
                     {
                         "artifact_id": a.get("id"),
@@ -147,6 +151,7 @@ def write_dashboard(runs: list[dict]) -> None:
   <div class=\"right\">
     <div class=\"controls\"><button onclick=\"prevRun()\">← Prev</button><button onclick=\"nextRun()\">Next →</button><button onclick=\"location.href='training_brief.md'\">Open training_brief.md</button></div>
     <div id=\"bestByClass\" style=\"margin-top:10px\"></div>
+    <div id=\"telemetryPanel\" style=\"margin-top:10px\"></div>
     <div id=\"detail\"></div>
   </div>
 </div>
@@ -183,9 +188,14 @@ function renderBestByClass() {
 }
 
 async function load() {
-  const res = await fetch(DATA_PATH);
+  const currentRunId = filtered[idx]?.run_id;
+  const res = await fetch(DATA_PATH + '?t=' + Date.now());
   data = await res.json();
   filtered = data.runs;
+  if (currentRunId) {
+    const newIndex = filtered.findIndex(r => r.run_id === currentRunId);
+    if (newIndex >= 0) idx = newIndex;
+  }
   document.getElementById('summaryStats').textContent = statusSummary(data.runs);
   renderBestByClass();
   renderList();
@@ -209,16 +219,45 @@ function pick(i) { idx = i; renderList(); renderDetail(); }
 function prevRun() { if (idx>0) idx--; renderList(); renderDetail(); }
 function nextRun() { if (idx<filtered.length-1) idx++; renderList(); renderDetail(); }
 
+function renderTelemetry(r) {
+  const t = r?.telemetry_latest || {};
+  const panel = document.getElementById('telemetryPanel');
+  if (!r) {
+    panel.innerHTML = '';
+    return;
+  }
+  panel.innerHTML = `
+    <h3>Live Telemetry</h3>
+    <table>
+      <tr><th>Epoch</th><th>Loss</th><th>ETA (s)</th><th>CPU %</th><th>RAM %</th><th>GPU VRAM (MB)</th></tr>
+      <tr>
+        <td>${t.epoch ?? '-'}</td>
+        <td>${fmt(t.loss)}</td>
+        <td>${t.eta_seconds === null || t.eta_seconds === undefined ? '-' : Math.round(Number(t.eta_seconds))}</td>
+        <td>${fmt(t.cpu_percent, 2)}</td>
+        <td>${fmt(t.ram_percent, 2)}</td>
+        <td>${t.gpu_vram_used_mb === null || t.gpu_vram_used_mb === undefined ? '-' : `${fmt(t.gpu_vram_used_mb, 1)} / ${fmt(t.gpu_vram_total_mb, 1)}`}</td>
+      </tr>
+    </table>
+    <div class=\"muted\">Updated: ${t.at || '-'}</div>
+  `;
+}
+
 function renderDetail() {
   const r = filtered[idx];
   const el = document.getElementById('detail');
-  if (!r) { el.innerHTML = '<p>No runs.</p>'; return; }
+  if (!r) { el.innerHTML = '<p>No runs.</p>'; renderTelemetry(null); return; }
   const perClassRows = Object.entries(r.per_class_metrics||{}).map(([k,v])=>`<tr><td>${k}</td><td>${fmt(v.precision)}</td><td>${fmt(v.recall)}</td><td>${fmt(v.f1)}</td><td>${v.support??'-'}</td></tr>`).join('');
   const ckRows = (r.checkpoints||[]).slice(-20).map(c=>`<tr><td>${c.epoch}</td><td>${fmt(c.train_macro_f1)}</td><td>${fmt(c.val_macro_f1)}</td><td>${fmt(c.train_accuracy)}</td><td>${fmt(c.val_accuracy)}</td></tr>`).join('');
   const eventRows = (r.events_tail||[]).map(e=>`<tr><td>${e.at||'-'}</td><td>${e.type||'-'}</td><td><code>${JSON.stringify(e.payload||{})}</code></td></tr>`).join('');
+  renderTelemetry(r);
+  const failureBanner = r.status === 'failed'
+    ? `<div style=\"margin-top:8px;padding:10px;border:1px solid #7a2a2a;background:#3a1717;border-radius:8px;\"><strong>Run failed:</strong> ${r.failure_error || 'No error payload captured.'}</div>`
+    : '';
   el.innerHTML = `
     <h2>${r.run_id}</h2>
     <div>${r.status==='completed' ? '<span class="pill ok">completed</span>' : '<span class="pill bad">'+r.status+'</span>'} <span class=\"muted\">${r.dataset_version_id||'-'}</span></div>
+    ${failureBanner}
     <div class=\"grid\" style=\"margin-top:12px\">
       <div class=\"card\"><div class=\"muted\">Macro F1</div><div class=\"num\">${fmt(r.final_metrics?.macro_f1)}</div></div>
       <div class=\"card\"><div class=\"muted\">Accuracy</div><div class=\"num\">${fmt(r.final_metrics?.accuracy)}</div></div>
@@ -241,6 +280,7 @@ function renderDetail() {
 document.getElementById('search').addEventListener('input', ()=>{ renderList(); renderDetail(); });
 document.getElementById('failedOnly').addEventListener('change', ()=>{ idx = 0; renderList(); renderDetail(); });
 load();
+setInterval(load, 5000);
 </script>
 </body>
 </html>

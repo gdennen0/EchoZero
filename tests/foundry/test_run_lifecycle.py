@@ -215,6 +215,13 @@ def test_run_lifecycle_executes_training_and_writes_artifacts(tmp_path: Path):
     assert (run.exports_dir(tmp_path) / "model.pth").exists()
     assert (run.exports_dir(tmp_path) / "metrics.json").exists()
     assert (run.exports_dir(tmp_path) / "run_summary.json").exists()
+    telemetry_latest = run.run_dir(tmp_path) / "telemetry.latest.json"
+    telemetry_jsonl = run.run_dir(tmp_path) / "telemetry.jsonl"
+    assert telemetry_latest.exists()
+    assert telemetry_jsonl.exists()
+    telemetry_payload = json.loads(telemetry_latest.read_text(encoding="utf-8"))
+    assert telemetry_payload["epoch"] >= 1
+    assert "loss" in telemetry_payload
     assert app.eval._repo.list_for_run(run.id)
     assert app.artifacts._artifact_repo.list_for_run(run.id)
 
