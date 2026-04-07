@@ -107,6 +107,8 @@ class TimelineCanvasStyle:
     selected_row_fill_hex: str
     dimmed_row_fill_hex: str
     row_divider_hex: str
+    no_takes_hint_hex: str
+    no_takes_hint_dimmed_hex: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -232,6 +234,8 @@ TIMELINE_STYLE = TimelineShellStyle(
         selected_row_fill_hex="#1a212b",
         dimmed_row_fill_hex="#12161c",
         row_divider_hex="#252c38",
+        no_takes_hint_hex="#8b97a8",
+        no_takes_hint_dimmed_hex="#5f6977",
     ),
     playhead=TimelinePlayheadStyle(
         color_hex="#ff5f57",

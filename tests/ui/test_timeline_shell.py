@@ -206,6 +206,15 @@ def _selection_test_presentation() -> TimelinePresentation:
     )
 
 
+def _no_takes_presentation() -> TimelinePresentation:
+    base = _selection_test_presentation()
+    layer = base.layers[0]
+    return replace(
+        base,
+        layers=[replace(layer, takes=[])],
+    )
+
+
 def _drag_test_presentation() -> TimelinePresentation:
     source = _selection_test_presentation()
     target_layer_id = LayerId("layer_snare")
@@ -555,6 +564,41 @@ def test_object_palette_seek_button_dispatches_seek_for_selected_event():
         widget._object_info._emit_seek_selected_event()
 
         assert any(isinstance(intent, Seek) and intent.position == 1.0 for intent in intents)
+    finally:
+        widget.close()
+        app.processEvents()
+
+
+def test_context_menu_labels_self_describe_event_actions():
+    app = QApplication.instance() or QApplication([])
+    widget = TimelineWidget(_selection_test_presentation())
+    try:
+        _render_for_hit_testing(widget)
+        _click_event_rect(widget, "main_evt")
+        for rect, _, _, event_id in widget._canvas._event_rects:
+            if str(event_id) == "main_evt":
+                labels = widget._canvas._context_action_labels_for_pos(rect.center())
+                assert labels[0].startswith("Event | Main")
+                assert "Seek to Event" in labels
+                assert "Duplicate Event" in labels
+                break
+        else:
+            raise AssertionError("main_evt rect missing")
+    finally:
+        widget.close()
+        app.processEvents()
+
+
+def test_context_menu_labels_self_describe_layer_without_takes():
+    app = QApplication.instance() or QApplication([])
+    widget = TimelineWidget(_no_takes_presentation())
+    try:
+        _render_for_hit_testing(widget)
+        rect, _ = widget._canvas._header_select_rects[0]
+        labels = widget._canvas._context_action_labels_for_pos(rect.center())
+        assert labels[0].startswith("Layer | Kick")
+        assert "No takes available" in labels
+        assert "Toggle Takes" not in labels
     finally:
         widget.close()
         app.processEvents()

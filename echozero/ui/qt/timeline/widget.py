@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import replace
+from dataclasses import dataclass, replace
 
 from PyQt6.QtCore import QPointF, QRectF, Qt, QTimer, pyqtSignal
-from PyQt6.QtGui import QColor, QPainter, QPen, QWheelEvent
-from PyQt6.QtWidgets import QDoubleSpinBox, QFrame, QGridLayout, QHBoxLayout, QLabel, QPushButton, QScrollArea, QScrollBar, QSplitter, QToolTip, QVBoxLayout, QWidget
+from PyQt6.QtGui import QAction, QColor, QPainter, QPen, QWheelEvent
+from PyQt6.QtWidgets import QDoubleSpinBox, QFrame, QGridLayout, QHBoxLayout, QLabel, QMenu, QPushButton, QScrollArea, QScrollBar, QSplitter, QToolTip, QVBoxLayout, QWidget
 
 from echozero.application.presentation.models import TimelinePresentation, LayerPresentation, TakeLanePresentation
 from echozero.application.shared.enums import FollowMode
@@ -373,6 +373,13 @@ class ObjectInfoPanel(QFrame):
         return self._body.text()
 
 
+@dataclass(slots=True)
+class _ContextMenuEntry:
+    label: str
+    enabled: bool
+    callback: Callable[[], None] | None = None
+
+
 class TimelineCanvas(QWidget):
     layer_clicked = pyqtSignal(object)
     mute_clicked = pyqtSignal(object)
@@ -540,6 +547,12 @@ class TimelineCanvas(QWidget):
     def mousePressEvent(self, event):
         self.setFocus(Qt.FocusReason.MouseFocusReason)
         pos = event.position()
+
+        if event.button() == Qt.MouseButton.RightButton:
+            if self._show_context_menu(pos):
+                event.accept()
+                return
+
         if event.button() == Qt.MouseButton.LeftButton and self._playhead_head_contains(pos):
             self._dragging_playhead = True
             self.playhead_drag_requested.emit(self._seek_time_at_x(pos.x()))
@@ -599,6 +612,170 @@ class TimelineCanvas(QWidget):
                 self.layer_clicked.emit(layer_id)
                 return
         super().mousePressEvent(event)
+
+    def _show_context_menu(self, pos: QPointF) -> bool:
+        entries = self._context_entries_for_pos(pos)
+        if not entries:
+            return False
+
+        menu = QMenu(self)
+        for entry in entries:
+            if entry.label == "---":
+                menu.addSeparator()
+                continue
+            action = QAction(entry.label, menu)
+            action.setEnabled(entry.enabled)
+            if entry.enabled and entry.callback is not None:
+                action.triggered.connect(entry.callback)
+            menu.addAction(action)
+
+        menu.exec(self.mapToGlobal(pos.toPoint()))
+        return True
+
+    def _context_entries_for_pos(self, pos: QPointF) -> list[_ContextMenuEntry]:
+        for rect, layer_id, take_id, event_id in self._event_rects:
+            if rect.contains(pos):
+                return self._event_context_entries(layer_id, take_id, event_id)
+
+        for rect, layer_id, take_id in self._take_rects:
+            if rect.contains(pos):
+                return self._take_context_entries(layer_id, take_id)
+
+        for rect, layer_id in self._header_select_rects:
+            if rect.contains(pos):
+                return self._layer_context_entries(layer_id)
+
+        for rect, layer_id in self._row_body_select_rects:
+            if rect.contains(pos):
+                return self._layer_context_entries(layer_id)
+
+        return []
+
+    def _context_action_labels_for_pos(self, pos: QPointF) -> list[str]:
+        return [entry.label for entry in self._context_entries_for_pos(pos) if entry.label != "---"]
+
+    def _layer_by_id(self, layer_id):
+        return next((layer for layer in self.presentation.layers if layer.layer_id == layer_id), None)
+
+    @staticmethod
+    def _take_by_id(layer: LayerPresentation | None, take_id):
+        if layer is None:
+            return None
+        return next((take for take in layer.takes if take.take_id == take_id), None)
+
+    def _event_context_entries(self, layer_id, take_id, event_id) -> list[_ContextMenuEntry]:
+        layer = self._layer_by_id(layer_id)
+        event = None
+        if layer is not None:
+            if take_id is None or take_id == layer.main_take_id:
+                event = next((e for e in layer.events if e.event_id == event_id), None)
+            if event is None and take_id is not None:
+                take = self._take_by_id(layer, take_id)
+                if take is not None:
+                    event = next((e for e in take.events if e.event_id == event_id), None)
+
+        label = event.label if event is not None else str(event_id)
+        start = event.start if event is not None else 0.0
+
+        return [
+            _ContextMenuEntry(f"Event | {label}", enabled=False),
+            _ContextMenuEntry("---", enabled=False),
+            _ContextMenuEntry(
+                "Select Event",
+                enabled=True,
+                callback=lambda lid=layer_id, tid=take_id, eid=event_id: self.event_selected.emit(lid, tid, eid, "replace"),
+            ),
+            _ContextMenuEntry(
+                "Seek to Event",
+                enabled=True,
+                callback=lambda s=start: self.playhead_drag_requested.emit(float(s)),
+            ),
+            _ContextMenuEntry(
+                "Nudge Left",
+                enabled=True,
+                callback=lambda: self.nudge_requested.emit(-1, 1),
+            ),
+            _ContextMenuEntry(
+                "Nudge Right",
+                enabled=True,
+                callback=lambda: self.nudge_requested.emit(1, 1),
+            ),
+            _ContextMenuEntry(
+                "Duplicate Event",
+                enabled=True,
+                callback=lambda: self.duplicate_requested.emit(1),
+            ),
+        ]
+
+    def _take_context_entries(self, layer_id, take_id) -> list[_ContextMenuEntry]:
+        layer = self._layer_by_id(layer_id)
+        take = self._take_by_id(layer, take_id)
+        take_name = take.name if take is not None else str(take_id)
+
+        entries: list[_ContextMenuEntry] = [
+            _ContextMenuEntry(f"Take | {take_name}", enabled=False),
+            _ContextMenuEntry("---", enabled=False),
+            _ContextMenuEntry(
+                "Select Take",
+                enabled=True,
+                callback=lambda lid=layer_id, tid=take_id: self.take_selected.emit(lid, tid),
+            ),
+        ]
+
+        actions = list(take.actions) if take is not None else []
+        if actions:
+            entries.append(_ContextMenuEntry("---", enabled=False))
+            for action in actions:
+                entries.append(
+                    _ContextMenuEntry(
+                        action.label,
+                        enabled=True,
+                        callback=lambda lid=layer_id, tid=take_id, aid=action.action_id: self.take_action_selected.emit(lid, tid, aid),
+                    )
+                )
+        else:
+            entries.append(_ContextMenuEntry("No take actions available", enabled=False))
+
+        return entries
+
+    def _layer_context_entries(self, layer_id) -> list[_ContextMenuEntry]:
+        layer = self._layer_by_id(layer_id)
+        if layer is None:
+            return []
+
+        has_takes = bool(layer.takes)
+        entries: list[_ContextMenuEntry] = [
+            _ContextMenuEntry(f"Layer | {layer.title}", enabled=False),
+            _ContextMenuEntry("---", enabled=False),
+            _ContextMenuEntry(
+                "Select Layer",
+                enabled=True,
+                callback=lambda lid=layer_id: self.layer_clicked.emit(lid),
+            ),
+            _ContextMenuEntry(
+                "Unmute Layer" if layer.muted else "Mute Layer",
+                enabled=True,
+                callback=lambda lid=layer_id: self.mute_clicked.emit(lid),
+            ),
+            _ContextMenuEntry(
+                "Unsolo Layer" if layer.soloed else "Solo Layer",
+                enabled=True,
+                callback=lambda lid=layer_id: self.solo_clicked.emit(lid),
+            ),
+        ]
+
+        if has_takes:
+            entries.append(
+                _ContextMenuEntry(
+                    "Toggle Takes",
+                    enabled=True,
+                    callback=lambda lid=layer_id: self.take_toggle_clicked.emit(lid),
+                )
+            )
+        else:
+            entries.append(_ContextMenuEntry("No takes available", enabled=False))
+
+        return entries
 
     def mouseReleaseEvent(self, event) -> None:
         if event.button() == Qt.MouseButton.LeftButton:
@@ -791,6 +968,15 @@ class TimelineCanvas(QWidget):
                             viewport_width=self.width(),
                         ),
                     )
+                )
+
+            if not layer.takes:
+                hint_color = self._style.canvas.no_takes_hint_dimmed_hex if dimmed else self._style.canvas.no_takes_hint_hex
+                painter.setPen(QColor(hint_color))
+                painter.drawText(
+                    layout.content_rect.adjusted(10, 0, -10, 0),
+                    Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter,
+                    "No takes yet",
                 )
         finally:
             painter.restore()
