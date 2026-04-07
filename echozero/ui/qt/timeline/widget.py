@@ -7,7 +7,7 @@ from dataclasses import replace
 
 from PyQt6.QtCore import QPointF, QRectF, Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QColor, QPainter, QPen, QWheelEvent
-from PyQt6.QtWidgets import QDoubleSpinBox, QFrame, QHBoxLayout, QLabel, QPushButton, QScrollArea, QScrollBar, QSplitter, QToolTip, QVBoxLayout, QWidget
+from PyQt6.QtWidgets import QDoubleSpinBox, QFrame, QGridLayout, QHBoxLayout, QLabel, QPushButton, QScrollArea, QScrollBar, QSplitter, QToolTip, QVBoxLayout, QWidget
 
 from echozero.application.presentation.models import TimelinePresentation, LayerPresentation, TakeLanePresentation
 from echozero.application.shared.enums import FollowMode
@@ -256,8 +256,8 @@ class ObjectInfoPanel(QFrame):
         self._selected_event_start: float | None = None
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(12, 10, 12, 10)
-        layout.setSpacing(8)
+        layout.setContentsMargins(14, 12, 14, 12)
+        layout.setSpacing(6)
 
         title = QLabel("Object Palette", self)
         title.setObjectName("timeline_object_info_title")
@@ -274,6 +274,8 @@ class ObjectInfoPanel(QFrame):
         self._body = QLabel(self)
         self._body.setObjectName("timeline_object_info_body")
         self._body.setWordWrap(True)
+        self._body.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
+        self._body.setMinimumHeight(72)
         self._body.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         layout.addWidget(self._body)
 
@@ -281,22 +283,26 @@ class ObjectInfoPanel(QFrame):
         event_section.setObjectName("timeline_object_info_section")
         layout.addWidget(event_section)
 
-        event_actions = QHBoxLayout()
-        event_actions.setSpacing(6)
+        event_actions = QGridLayout()
+        event_actions.setHorizontalSpacing(6)
+        event_actions.setVerticalSpacing(6)
         self._seek_btn = QPushButton("Seek", self)
         self._nudge_left_btn = QPushButton("Nudge -", self)
         self._nudge_right_btn = QPushButton("Nudge +", self)
         self._duplicate_btn = QPushButton("Duplicate", self)
-        for button in (self._seek_btn, self._nudge_left_btn, self._nudge_right_btn, self._duplicate_btn):
-            event_actions.addWidget(button)
+        event_actions.addWidget(self._seek_btn, 0, 0)
+        event_actions.addWidget(self._nudge_left_btn, 0, 1)
+        event_actions.addWidget(self._nudge_right_btn, 1, 0)
+        event_actions.addWidget(self._duplicate_btn, 1, 1)
         layout.addLayout(event_actions)
 
         layer_section = QLabel("LAYER ACTIONS", self)
         layer_section.setObjectName("timeline_object_info_section")
         layout.addWidget(layer_section)
 
-        layer_actions = QHBoxLayout()
-        layer_actions.setSpacing(6)
+        layer_actions = QGridLayout()
+        layer_actions.setHorizontalSpacing(6)
+        layer_actions.setVerticalSpacing(6)
         self._mute_btn = QPushButton("Mute", self)
         self._solo_btn = QPushButton("Solo", self)
         self._gain_spin = QDoubleSpinBox(self)
@@ -304,11 +310,13 @@ class ObjectInfoPanel(QFrame):
         self._gain_spin.setSingleStep(0.5)
         self._gain_spin.setSuffix(" dB")
         self._gain_apply_btn = QPushButton("Apply Gain", self)
-        layer_actions.addWidget(self._mute_btn)
-        layer_actions.addWidget(self._solo_btn)
-        layer_actions.addWidget(self._gain_spin)
-        layer_actions.addWidget(self._gain_apply_btn)
+        layer_actions.addWidget(self._mute_btn, 0, 0)
+        layer_actions.addWidget(self._solo_btn, 0, 1)
+        layer_actions.addWidget(self._gain_spin, 1, 0)
+        layer_actions.addWidget(self._gain_apply_btn, 1, 1)
         layout.addLayout(layer_actions)
+
+        layout.addStretch(1)
 
         self._seek_btn.clicked.connect(self._emit_seek_selected_event)
         self._nudge_left_btn.clicked.connect(lambda: self.action_requested.emit(NudgeSelectedEvents(direction=-1, steps=1)))
