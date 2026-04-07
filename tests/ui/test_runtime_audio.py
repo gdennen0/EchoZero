@@ -5,9 +5,9 @@ from dataclasses import replace
 import numpy as np
 from PyQt6.QtWidgets import QApplication
 
-from echozero.application.presentation.models import LayerPresentation, TimelinePresentation
-from echozero.application.shared.enums import LayerKind
-from echozero.application.shared.ids import LayerId
+from echozero.application.presentation.models import EventPresentation, LayerPresentation, TimelinePresentation
+from echozero.application.shared.enums import LayerKind, PlaybackMode
+from echozero.application.shared.ids import EventId, LayerId
 from echozero.application.timeline.intents import Pause, Play, Seek, Stop, ToggleMute, ToggleSolo
 from echozero.audio.engine import AudioEngine
 from echozero.ui.qt.timeline.demo_app import build_demo_app
@@ -124,7 +124,54 @@ def _audio_presentation() -> TimelinePresentation:
         kind=LayerKind.AUDIO,
         source_audio_path="demo.wav",
     )
-    return replace(base, layers=[audio_layer], playhead=0.0, is_playing=False, current_time_label="00:00.00")
+    return replace(
+        base,
+        layers=[audio_layer],
+        playhead=0.0,
+        is_playing=False,
+        current_time_label="00:00.00",
+    )
+
+
+def _event_slice_presentation(*, soloed: bool = False, muted_audio: bool = False) -> TimelinePresentation:
+    base = build_demo_app().presentation()
+    audio_layer = LayerPresentation(
+        layer_id=LayerId("bed"),
+        title="Bed",
+        kind=LayerKind.AUDIO,
+        source_audio_path="bed.wav",
+        muted=muted_audio,
+    )
+    kick_layer = LayerPresentation(
+        layer_id=LayerId("kick_lane"),
+        title="Kick",
+        kind=LayerKind.EVENT,
+        soloed=soloed,
+        playback_enabled=True,
+        playback_mode=PlaybackMode.EVENT_SLICE,
+        playback_source_ref="kick.wav",
+        events=[
+            EventPresentation(
+                event_id=EventId("kick_1"),
+                start=0.5,
+                end=0.6,
+                label="Kick",
+            ),
+            EventPresentation(
+                event_id=EventId("kick_2"),
+                start=1.0,
+                end=1.1,
+                label="Kick",
+            ),
+        ],
+    )
+    return replace(
+        base,
+        layers=[audio_layer, kick_layer],
+        playhead=0.0,
+        is_playing=False,
+        current_time_label="00:00.00",
+    )
 
 
 def test_runtime_controller_updates_mix_state_while_playing():
@@ -149,6 +196,47 @@ def test_runtime_controller_updates_mix_state_while_playing():
     assert engine_layer.muted is True
     assert engine_layer.solo is True
     assert round(engine_layer.volume, 3) == round(10 ** (-6.0 / 20.0), 3)
+    controller.shutdown()
+
+
+def test_runtime_controller_event_lane_solo_isolates_non_solo_audio():
+    presentation = _event_slice_presentation(soloed=True)
+    engine = AudioEngine(stream_factory=_fake_stream_factory)
+
+    def _loader(path: str):
+        if path == "bed.wav":
+            return np.full(44100, 0.25, dtype=np.float32), 44100
+        if path == "kick.wav":
+            return np.array([1.0, 0.5], dtype=np.float32), 44100
+        raise AssertionError(path)
+
+    controller = TimelineRuntimeAudioController(engine=engine, audio_loader=_loader)
+    controller.build_for_presentation(presentation)
+
+    mixed = engine.mixer.read_mix(int(0.5 * 44100), 2)
+
+    np.testing.assert_array_almost_equal(mixed, np.array([1.0, 0.5], dtype=np.float32))
+    controller.shutdown()
+
+
+def test_runtime_controller_renders_event_lane_sample_at_event_starts():
+    presentation = _event_slice_presentation()
+    engine = AudioEngine(stream_factory=_fake_stream_factory)
+
+    def _loader(path: str):
+        if path == "bed.wav":
+            return np.zeros(44100, dtype=np.float32), 44100
+        if path == "kick.wav":
+            return np.array([0.75, -0.25], dtype=np.float32), 44100
+        raise AssertionError(path)
+
+    controller = TimelineRuntimeAudioController(engine=engine, audio_loader=_loader)
+    controller.build_for_presentation(presentation)
+
+    kick_layer = engine.mixer.get_layer("kick_lane")
+    assert kick_layer is not None
+    assert kick_layer.buffer[int(0.5 * 44100): int(0.5 * 44100) + 2].tolist() == [0.75, -0.25]
+    assert kick_layer.buffer[int(1.0 * 44100): int(1.0 * 44100) + 2].tolist() == [0.75, -0.25]
     controller.shutdown()
 
 

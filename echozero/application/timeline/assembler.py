@@ -86,6 +86,7 @@ class TimelineAssembler:
                     kind=layer.kind,
                     events=self._assemble_events(take.events, selected_event_ids),
                     source_ref=take.source_ref,
+                    playback_source_ref=layer.playback.armed_source_ref,
                     actions=[
                         TakeActionPresentation(action_id="overwrite_main", label="Overwrite Main"),
                         TakeActionPresentation(action_id="merge_main", label="Merge Main"),
@@ -138,6 +139,7 @@ class TimelineAssembler:
             sync_connected=layer.sync.connected,
             color=layer.presentation_hints.color,
             badges=badges,
+            playback_source_ref=layer.playback.armed_source_ref,
             status=status,
         )
 

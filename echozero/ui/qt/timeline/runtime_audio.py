@@ -8,6 +8,7 @@ import numpy as np
 import soundfile as sf
 
 from echozero.application.presentation.models import TimelinePresentation
+from echozero.application.shared.enums import LayerKind, PlaybackMode
 from echozero.audio.engine import AudioEngine
 
 
@@ -26,11 +27,13 @@ def _load_mono_audio(path: str | Path) -> tuple[np.ndarray, int]:
 @dataclass(slots=True)
 class RuntimeAudioLayer:
     layer_id: str
-    path: str
     name: str
     gain_db: float
     muted: bool
     soloed: bool
+    source_key: str
+    buffer: np.ndarray
+    sample_rate: int
 
 
 class TimelineRuntimeAudioController:
@@ -59,24 +62,27 @@ class TimelineRuntimeAudioController:
                 self._loaded_paths.pop(existing, None)
 
         for layer in runtime_layers:
-            previous_path = self._loaded_paths.get(layer.layer_id)
-            if previous_path != layer.path:
-                if previous_path is not None:
+            previous_source = self._loaded_paths.get(layer.layer_id)
+            if previous_source != layer.source_key:
+                if previous_source is not None:
                     self._engine.remove_layer(layer.layer_id)
-                buffer, sample_rate = self._audio_loader(layer.path)
                 self._engine.add_layer(
                     layer.layer_id,
-                    buffer,
-                    sample_rate,
+                    layer.buffer,
+                    layer.sample_rate,
                     name=layer.name,
                     volume=_db_to_linear(layer.gain_db),
                 )
-                self._loaded_paths[layer.layer_id] = layer.path
+                self._loaded_paths[layer.layer_id] = layer.source_key
 
         self.apply_mix_state(presentation)
 
     def apply_mix_state(self, presentation: TimelinePresentation) -> None:
-        desired_ids = {str(layer.layer_id) for layer in presentation.layers if layer.source_audio_path}
+        desired_ids = {
+            str(layer.layer_id)
+            for layer in presentation.layers
+            if layer.source_audio_path or self._is_event_slice_layer(layer)
+        }
         for layer in presentation.layers:
             layer_id = str(layer.layer_id)
             if layer_id not in desired_ids:
@@ -109,20 +115,85 @@ class TimelineRuntimeAudioController:
     def shutdown(self) -> None:
         self._engine.shutdown()
 
-    @staticmethod
-    def _runtime_layers(presentation: TimelinePresentation) -> list[RuntimeAudioLayer]:
+    def _runtime_layers(self, presentation: TimelinePresentation) -> list[RuntimeAudioLayer]:
         layers: list[RuntimeAudioLayer] = []
         for layer in presentation.layers:
-            if not layer.source_audio_path:
+            layer_id = str(layer.layer_id)
+            if layer.source_audio_path:
+                buffer, sample_rate = self._audio_loader(layer.source_audio_path)
+                layers.append(
+                    RuntimeAudioLayer(
+                        layer_id=layer_id,
+                        name=layer.title,
+                        gain_db=layer.gain_db,
+                        muted=layer.muted,
+                        soloed=layer.soloed,
+                        source_key=f"audio:{layer.source_audio_path}",
+                        buffer=buffer,
+                        sample_rate=sample_rate,
+                    )
+                )
                 continue
+
+            if not self._is_event_slice_layer(layer):
+                continue
+
+            event_buffer, sample_rate = self._audio_loader(layer.playback_source_ref)
+            rendered = TimelineRuntimeAudioController._render_event_slice_buffer(
+                event_buffer,
+                sample_rate,
+                presentation_events=layer.events,
+            )
+            if rendered.size == 0:
+                continue
+            event_signature = ",".join(
+                f"{event.start:.6f}:{int(event.muted)}"
+                for event in layer.events
+            )
             layers.append(
                 RuntimeAudioLayer(
-                    layer_id=str(layer.layer_id),
-                    path=layer.source_audio_path,
+                    layer_id=layer_id,
                     name=layer.title,
                     gain_db=layer.gain_db,
                     muted=layer.muted,
                     soloed=layer.soloed,
+                    source_key=f"event:{layer.playback_source_ref}:{event_signature}",
+                    buffer=rendered,
+                    sample_rate=sample_rate,
                 )
             )
         return layers
+
+    @staticmethod
+    def _is_event_slice_layer(layer: object) -> bool:
+        return bool(
+            getattr(layer, "kind", None) == LayerKind.EVENT
+            and getattr(layer, "playback_enabled", False)
+            and getattr(layer, "playback_mode", None) == PlaybackMode.EVENT_SLICE
+            and getattr(layer, "playback_source_ref", None)
+        )
+
+    @staticmethod
+    def _render_event_slice_buffer(
+        event_buffer: np.ndarray,
+        sample_rate: int,
+        *,
+        presentation_events: list,
+    ) -> np.ndarray:
+        if event_buffer.size == 0:
+            return np.zeros(0, dtype=np.float32)
+
+        active_events = [event for event in presentation_events if not event.muted]
+        if not active_events:
+            return np.zeros(0, dtype=np.float32)
+
+        start_samples = [max(0, int(round(float(event.start) * sample_rate))) for event in active_events]
+        total_samples = max(start_samples) + int(event_buffer.size)
+        rendered = np.zeros(total_samples, dtype=np.float32)
+
+        for start_sample in start_samples:
+            end_sample = start_sample + int(event_buffer.size)
+            rendered[start_sample:end_sample] += event_buffer
+
+        np.clip(rendered, -1.0, 1.0, out=rendered)
+        return rendered
