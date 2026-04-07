@@ -2,83 +2,66 @@
 
 ## Scope
 
-This audit scaffold covers the Stage Zero timeline shell alignment path between:
-- playhead rendering in the ruler/canvas
-- event-bar rendering in main layer lanes and take lanes
-- presentation-state inputs that drive both paths
+This audit is limited to the current Stage Zero horizontal alignment path that already exists in code and tests:
+- playhead x-position from `echozero/ui/qt/timeline/blocks/ruler.py`
+- event-bar x-position from `echozero/ui/qt/timeline/blocks/event_lane.py`
+- waveform backdrop positioning from `echozero/ui/qt/timeline/blocks/waveform_lane.py`
+- shared presentation plumbing in `echozero/ui/qt/timeline/widget.py`
+- focused tests in `tests/ui/test_ruler_block.py`, `tests/ui/test_event_lane_culling.py`, `tests/ui/test_waveform_lane.py`, and `tests/ui/test_follow_scroll.py`
 
-This document is limited to measurement definitions, formulas, and data-path tracing. It does not include a full audit matrix, screenshots, or pass/fail judgments.
+No broader repo scan, screenshot pass, or new instrumentation was added for this retry.
 
-## Measurement Method + Formulas
+## Method
 
-Use a single `TimelinePresentation` snapshot and measure both playhead and event geometry from the same values for:
-- `playhead`
-- `pixels_per_second`
-- `scroll_x`
-- `header_width`
-- `event.start`
-- `event.end`
+This pass replaces the scaffold with code-backed observations from the existing render formulas and tests only.
 
-Render-space formulas used by the current Stage Zero shell:
+Shared horizontal basis confirmed in current code:
 
 ```text
 playhead_x = header_width + (playhead_s * pixels_per_second) - scroll_x
-event_start_x = header_width + (event_start_s * pixels_per_second) - scroll_x
-event_end_x = header_width + (event_end_s * pixels_per_second) - scroll_x
-event_width_px = max(EVENT_MIN_VISIBLE_WIDTH_PX, (event_end_s - event_start_s) * pixels_per_second)
+event_x    = header_width + (event_start_s * pixels_per_second) - scroll_x
 ```
 
-Primary alignment deltas:
+Observed verification points:
+- `timeline_x_for_time()` and `seek_time_for_x()` are exact inverses in `tests/ui/test_ruler_block.py` for the covered case (`4.5s <-> 690px` at `scroll_x=80`, `pps=100`, `header_width=320`).
+- `EventLaneBlock.paint()` uses the same `header_width + time * pps - scroll_x` basis as the ruler/playhead path.
+- `compute_follow_scroll_x()` preserves the same presentation scroll basis during playback; follow-mode changes viewport placement, not the underlying time-to-x formula.
+- Runtime reconciliation in `widget.py` snaps presentation playhead updates when drift exceeds `0.02s`, while redundant updates are skipped below `0.001s`.
 
-```text
-delta_start_px = event_start_x - playhead_x
-delta_end_px = event_end_x - playhead_x
-delta_start_s = delta_start_px / pixels_per_second
-delta_end_s = delta_end_px / pixels_per_second
-```
+## Current Observations
 
-Useful simplification when both primitives share the same `header_width`, `scroll_x`, and `pixels_per_second`:
+1. Playhead and event bars are on the same horizontal math path today.
+   `ruler.py:timeline_x_for_time()` and `event_lane.py:EventLaneBlock.paint()` both anchor to `header_width` and subtract the same `scroll_x`. There is no code-level offset between those two primitives.
 
-```text
-delta_start_px = (event_start_s - playhead_s) * pixels_per_second
-delta_end_px = (event_end_s - playhead_s) * pixels_per_second
-```
+2. The current visible alignment risk is waveform-to-playhead/event mismatch, not event-to-playhead mismatch.
+   `waveform_lane.py` uses `content_left = header_width + 8` in both cached and placeholder rendering paths. That creates an effective `+8px` inset relative to ruler ticks, playhead x, and event-bar starts.
 
-Measurement procedure:
-1. Load one fixture or real-data presentation without mutating timing fields during capture.
-2. Record `playhead`, `scroll_x`, `pixels_per_second`, and active lane event times from the same presentation instance.
-3. Compute expected screen-space `x` values using the formulas above.
-4. Compare those computed `x` values to rendered playhead and event-bar edges in the same frame.
-5. Report drift in both pixels and seconds, using `delta_t = delta_px / pixels_per_second`.
+3. That waveform inset is large in time terms at current tested zoom levels.
+   Equivalent drift for the existing formulas:
+- at `100 px/s`: `8px = 80ms`
+- at `180 px/s`: `8px = 44.4ms`
+- at `200 px/s`: `8px = 40ms`
 
-## Data-Path Tracing
+4. Existing tests validate local geometry helpers, but they do not yet assert cross-panel coincidence for the same timestamp.
+   Current coverage proves ruler invertibility, event-lane culling/min width, waveform column continuity, and follow-scroll behavior. It does not prove that playhead, event edge, and waveform transient land on the same screen x in one rendered frame.
 
-### Presentation Sources
+5. Event width clamping can visually extend an event beyond its true duration, but it should not move the event start edge.
+   `EVENT_MIN_VISIBLE_WIDTH_PX` affects width only. Start-edge alignment remains governed by `event.start`.
 
-- Fixture JSON source: `echozero/ui/qt/timeline/fixtures/realistic_timeline_fixture.json`
-- Fixture loader to presentation model: `echozero/ui/qt/timeline/fixture_loader.py`
-- Real-data builder to presentation model: `echozero/ui/qt/timeline/real_data_fixture.py`
+## Tolerance Targets (ms)
 
-### Canonical UI State
+Use these targets for audit pass/fail until a pixel-diff harness exists:
 
-- Shared presentation dataclasses: `echozero/application/presentation/models.py`
-- Key fields for alignment: `TimelinePresentation.playhead`, `TimelinePresentation.pixels_per_second`, `TimelinePresentation.scroll_x`, `LayerPresentation.events`, `TakeLanePresentation.events`, `EventPresentation.start`, `EventPresentation.end`
+| Comparison | Target | Notes |
+| --- | ---: | --- |
+| playhead vs event start edge | <= 5 ms | Equivalent to `<= 0.5px` at `100 px/s`; should be effectively exact with shared math |
+| playhead vs event end edge | <= 5 ms | Same expectation; exclude min-width visual expansion cases from end-edge judgment |
+| playhead/event vs waveform onset guide | <= 10 ms | Allows small rendering/inset cleanup margin, but current `+8px` path exceeds this at common zoom levels |
+| runtime presentation drift before forced reconcile | 20 ms | Matches existing `widget.py` threshold |
+| no-op runtime update suppression | 1 ms | Matches existing `widget.py` threshold |
 
-### Intent and Update Flow
+## Next Fixes
 
-- Timeline intents, including seek/select operations: `echozero/application/timeline/intents.py`
-- Demo dispatch that mutates transport/playhead state into presentation state: `echozero/ui/qt/timeline/demo_app.py`
-- Widget dispatch, follow-scroll adjustment, runtime tick reconciliation, and child-widget propagation: `echozero/ui/qt/timeline/widget.py`
-
-### Playhead Render Path
-
-- `TimelineWidget` owns ruler/canvas presentation updates: `echozero/ui/qt/timeline/widget.py`
-- Ruler playhead geometry helpers: `echozero/ui/qt/timeline/blocks/ruler.py`
-- Canvas playhead draw and hit-test path: `echozero/ui/qt/timeline/widget.py`
-
-### Event Render Path
-
-- `TimelineCanvas` builds per-row lane presentations and forwards them to paint blocks: `echozero/ui/qt/timeline/widget.py`
-- Event-lane screen-space geometry and label painting: `echozero/ui/qt/timeline/blocks/event_lane.py`
-- Waveform/take-row adjacency that shares the same horizontal scroll basis: `echozero/ui/qt/timeline/blocks/waveform_lane.py`
-- Take-row composition feeding alternate event lanes: `echozero/ui/qt/timeline/blocks/take_row.py`
+1. Remove or centralize the waveform lane's `+8px` horizontal inset so waveform content shares the same origin as ruler ticks, playhead, and event bars.
+2. Add one focused UI test that computes screen x for a single timestamp and asserts coincidence across `timeline_x_for_time()`, event-lane rect left edge, and waveform column origin within the targets above.
+3. Add one real-data fixture assertion using the existing timeline fixture/build path so the same timestamp is checked after full presentation assembly, not only at helper level.
