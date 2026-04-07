@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import hashlib
 import json
+import subprocess
+import sys
 from datetime import UTC, datetime
 from pathlib import Path
 from threading import Event
@@ -45,6 +47,9 @@ _ALLOWED_TRANSITIONS: dict[TrainRunStatus, set[TrainRunStatus]] = {
     TrainRunStatus.FAILED: {TrainRunStatus.QUEUED},
     TrainRunStatus.CANCELED: {TrainRunStatus.QUEUED},
 }
+
+
+_TERMINAL_STATUSES = {TrainRunStatus.COMPLETED, TrainRunStatus.FAILED, TrainRunStatus.CANCELED}
 
 
 class TrainRunService:
@@ -169,6 +174,7 @@ class TrainRunService:
             "CHECKPOINT_SAVED",
             {"epoch": epoch, "path": str(ckpt_path), "metric_snapshot": metric_snapshot or {}},
         )
+        self._write_progress_snapshot(run.id, epoch=epoch, metric_snapshot=metric_snapshot or {})
         return ckpt_path
 
     def get_run(self, run_id: str) -> TrainRun | None:
@@ -206,7 +212,16 @@ class TrainRunService:
         if extra_payload:
             payload.update(extra_payload)
         self._append_event(run, event_type, payload)
-        return self._repo.save(run)
+        saved = self._repo.save(run)
+
+        self._write_status_snapshot(saved.id, status=saved.status.value, event_type=event_type)
+        if new_status in _TERMINAL_STATUSES:
+            self._refresh_tracking_artifacts(saved.id, status=saved.status.value)
+            self._notify_openclaw(
+                f"Foundry run {saved.id} {saved.status.value}. Tracking + dashboard refreshed."
+            )
+
+        return saved
 
     def _append_event(self, run: TrainRun, event_type: str, payload: dict) -> None:
         event = {
@@ -217,6 +232,82 @@ class TrainRunService:
         path = run.event_log_path(self._root)
         with path.open("a", encoding="utf-8") as fh:
             fh.write(json.dumps(event, sort_keys=True) + "\n")
+
+    def _write_status_snapshot(self, run_id: str, *, status: str, event_type: str) -> None:
+        tracking = self._root / "foundry" / "tracking" / "snapshots"
+        tracking.mkdir(parents=True, exist_ok=True)
+        payload = {
+            "run_id": run_id,
+            "status": status,
+            "event_type": event_type,
+            "at": datetime.now(UTC).isoformat(),
+        }
+        (tracking / f"{run_id}_latest_status.json").write_text(
+            json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8"
+        )
+
+    def _write_progress_snapshot(self, run_id: str, *, epoch: int, metric_snapshot: dict) -> None:
+        tracking = self._root / "foundry" / "tracking" / "snapshots"
+        tracking.mkdir(parents=True, exist_ok=True)
+        payload = {
+            "run_id": run_id,
+            "epoch": epoch,
+            "metric_snapshot": metric_snapshot,
+            "at": datetime.now(UTC).isoformat(),
+        }
+        (tracking / f"{run_id}_latest_progress.json").write_text(
+            json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8"
+        )
+
+    def _refresh_tracking_artifacts(self, run_id: str, *, status: str) -> None:
+        scripts = [
+            self._root / "scripts" / "refresh_foundry_tracking.py",
+            self._root / "scripts" / "build_foundry_dashboard.py",
+        ]
+        for script in scripts:
+            if not script.exists():
+                continue
+            try:
+                subprocess.run(
+                    [sys.executable, str(script)],
+                    cwd=str(self._root),
+                    check=False,
+                    capture_output=True,
+                    text=True,
+                    timeout=120,
+                )
+            except Exception:
+                pass
+
+        marker = self._root / "foundry" / "tracking" / "snapshots"
+        marker.mkdir(parents=True, exist_ok=True)
+        (marker / f"{run_id}_terminal.json").write_text(
+            json.dumps(
+                {
+                    "run_id": run_id,
+                    "status": status,
+                    "at": datetime.now(UTC).isoformat(),
+                    "dashboard": str(self._root / "foundry" / "tracking" / "dashboard.html"),
+                    "brief": str(self._root / "foundry" / "tracking" / "training_brief.md"),
+                },
+                indent=2,
+                sort_keys=True,
+            ),
+            encoding="utf-8",
+        )
+
+    def _notify_openclaw(self, text: str) -> None:
+        try:
+            subprocess.run(
+                ["openclaw", "system", "event", "--text", text, "--mode", "now"],
+                cwd=str(self._root),
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=20,
+            )
+        except Exception:
+            pass
 
     def _validate_run_spec(self, dataset_version_id: str, run_spec: dict) -> None:
         if run_spec.get("schema") != "foundry.train_run_spec.v1":
