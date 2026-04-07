@@ -50,8 +50,10 @@ class WaveformLaneBlock:
         cached: CachedWaveform,
         color: QColor,
     ) -> None:
-        content_left = presentation.header_width + 8
-        content_right = max(content_left + 1, presentation.width - 8)
+        # Alignment contract: waveform time origin must match ruler/event/playhead
+        # origin (header_width) exactly, with no extra inset offset.
+        content_left = float(presentation.header_width)
+        content_right = max(content_left + 1.0, float(presentation.width))
         content_width = max(1.0, content_right - content_left)
         pps = max(1.0, presentation.pixels_per_second)
 
@@ -84,8 +86,9 @@ def visible_waveform_columns(
     step: int,
 ) -> list[tuple[float, int]]:
     """Return screen-space waveform columns while preserving scroll continuity."""
-    content_left = presentation.header_width + 8
-    content_right = max(content_left + 1, presentation.width - 8)
+    # Keep waveform columns on the same horizontal time origin as ruler/events.
+    content_left = float(presentation.header_width)
+    content_right = max(content_left + 1.0, float(presentation.width))
     visible_span = max(1.0, content_right - content_left)
     timeline_start_px = max(0.0, presentation.scroll_x)
 
