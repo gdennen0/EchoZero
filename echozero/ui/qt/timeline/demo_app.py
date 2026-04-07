@@ -32,6 +32,7 @@ from echozero.application.timeline.intents import (
     ToggleLayerExpanded,
     ToggleMute,
     ToggleSolo,
+    SetGain,
     TriggerTakeAction,
 )
 from echozero.application.transport.models import TransportState
@@ -214,6 +215,16 @@ class DemoTimelineApp:
             for layer in self.presentation_state.layers:
                 if layer.layer_id == intent.layer_id:
                     layers.append(replace(layer, soloed=not layer.soloed))
+                else:
+                    layers.append(layer)
+            self.presentation_state = replace(self.presentation_state, layers=layers)
+            if self.runtime_audio is not None:
+                self.runtime_audio.apply_mix_state(self.presentation_state)
+        elif isinstance(intent, SetGain):
+            layers = []
+            for layer in self.presentation_state.layers:
+                if layer.layer_id == intent.layer_id:
+                    layers.append(replace(layer, gain_db=float(intent.gain_db)))
                 else:
                     layers.append(layer)
             self.presentation_state = replace(self.presentation_state, layers=layers)

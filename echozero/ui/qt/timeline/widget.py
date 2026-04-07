@@ -7,7 +7,7 @@ from dataclasses import replace
 
 from PyQt6.QtCore import QPointF, QRectF, Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QColor, QPainter, QPen, QWheelEvent
-from PyQt6.QtWidgets import QFrame, QHBoxLayout, QLabel, QScrollArea, QScrollBar, QSplitter, QToolTip, QVBoxLayout, QWidget
+from PyQt6.QtWidgets import QDoubleSpinBox, QFrame, QHBoxLayout, QLabel, QPushButton, QScrollArea, QScrollBar, QSplitter, QToolTip, QVBoxLayout, QWidget
 
 from echozero.application.presentation.models import TimelinePresentation, LayerPresentation, TakeLanePresentation
 from echozero.application.shared.enums import FollowMode
@@ -28,6 +28,7 @@ from echozero.application.timeline.intents import (
     ToggleSolo,
     ToggleLayerExpanded,
     TriggerTakeAction,
+    SetGain,
 )
 from echozero.perf import timed
 from echozero.ui.FEEL import (
@@ -188,6 +189,8 @@ def _format_seconds(value: float) -> str:
 
 
 class ObjectInfoPanel(QFrame):
+    action_requested = pyqtSignal(object)
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setObjectName("timeline_object_info")
@@ -206,17 +209,33 @@ class ObjectInfoPanel(QFrame):
                 color: #c2cad6;
                 font-size: 10px;
             }
+            QPushButton {
+                background: #223041;
+                color: #dbe8f8;
+                border: 1px solid #32455d;
+                border-radius: 4px;
+                padding: 4px 8px;
+                font-size: 10px;
+            }
+            QPushButton:disabled {
+                color: #6b7481;
+                background: #1a212b;
+                border-color: #263142;
+            }
             """
         )
 
         self.setMinimumWidth(280)
         self.setMaximumWidth(460)
 
+        self._selected_layer_id = None
+        self._selected_event_start: float | None = None
+
         layout = QVBoxLayout(self)
         layout.setContentsMargins(12, 8, 12, 8)
-        layout.setSpacing(3)
+        layout.setSpacing(6)
 
-        title = QLabel("Object Info", self)
+        title = QLabel("Object Palette", self)
         title.setObjectName("timeline_object_info_title")
         layout.addWidget(title)
 
@@ -226,8 +245,113 @@ class ObjectInfoPanel(QFrame):
         self._body.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         layout.addWidget(self._body)
 
-    def set_text(self, text: str) -> None:
+        event_actions = QHBoxLayout()
+        event_actions.setSpacing(6)
+        self._seek_btn = QPushButton("Seek", self)
+        self._nudge_left_btn = QPushButton("Nudge -", self)
+        self._nudge_right_btn = QPushButton("Nudge +", self)
+        self._duplicate_btn = QPushButton("Duplicate", self)
+        for button in (self._seek_btn, self._nudge_left_btn, self._nudge_right_btn, self._duplicate_btn):
+            event_actions.addWidget(button)
+        layout.addLayout(event_actions)
+
+        layer_actions = QHBoxLayout()
+        layer_actions.setSpacing(6)
+        self._mute_btn = QPushButton("Mute", self)
+        self._solo_btn = QPushButton("Solo", self)
+        self._gain_spin = QDoubleSpinBox(self)
+        self._gain_spin.setRange(-60.0, 12.0)
+        self._gain_spin.setSingleStep(0.5)
+        self._gain_spin.setSuffix(" dB")
+        self._gain_apply_btn = QPushButton("Apply Gain", self)
+        layer_actions.addWidget(self._mute_btn)
+        layer_actions.addWidget(self._solo_btn)
+        layer_actions.addWidget(self._gain_spin)
+        layer_actions.addWidget(self._gain_apply_btn)
+        layout.addLayout(layer_actions)
+
+        self._seek_btn.clicked.connect(self._emit_seek_selected_event)
+        self._nudge_left_btn.clicked.connect(lambda: self.action_requested.emit(NudgeSelectedEvents(direction=-1, steps=1)))
+        self._nudge_right_btn.clicked.connect(lambda: self.action_requested.emit(NudgeSelectedEvents(direction=1, steps=1)))
+        self._duplicate_btn.clicked.connect(lambda: self.action_requested.emit(DuplicateSelectedEvents(steps=1)))
+        self._mute_btn.clicked.connect(self._emit_toggle_mute)
+        self._solo_btn.clicked.connect(self._emit_toggle_solo)
+        self._gain_apply_btn.clicked.connect(self._emit_apply_gain)
+
+        self._set_controls_enabled(has_layer=False, has_event=False)
+
+    def _set_controls_enabled(self, *, has_layer: bool, has_event: bool) -> None:
+        self._seek_btn.setEnabled(has_event)
+        self._nudge_left_btn.setEnabled(has_event)
+        self._nudge_right_btn.setEnabled(has_event)
+        self._duplicate_btn.setEnabled(has_event)
+
+        self._mute_btn.setEnabled(has_layer)
+        self._solo_btn.setEnabled(has_layer)
+        self._gain_spin.setEnabled(has_layer)
+        self._gain_apply_btn.setEnabled(has_layer)
+
+    def set_context(self, presentation: TimelinePresentation, text: str) -> None:
         self._body.setText(text)
+
+        layer = self._selected_layer(presentation)
+        event = self._selected_event(presentation, layer)
+
+        has_layer = layer is not None
+        has_event = event is not None
+        self._selected_layer_id = layer.layer_id if layer is not None else None
+        self._selected_event_start = float(event.start) if event is not None else None
+
+        if layer is not None:
+            self._mute_btn.setText("Unmute" if layer.muted else "Mute")
+            self._solo_btn.setText("Unsolo" if layer.soloed else "Solo")
+            self._gain_spin.setValue(float(layer.gain_db))
+        else:
+            self._mute_btn.setText("Mute")
+            self._solo_btn.setText("Solo")
+            self._gain_spin.setValue(0.0)
+
+        self._set_controls_enabled(has_layer=has_layer, has_event=has_event)
+
+    @staticmethod
+    def _selected_layer(presentation: TimelinePresentation):
+        if presentation.selected_layer_id is None:
+            return None
+        return next((layer for layer in presentation.layers if layer.layer_id == presentation.selected_layer_id), None)
+
+    @staticmethod
+    def _selected_event(presentation: TimelinePresentation, layer):
+        if layer is None or not presentation.selected_event_ids:
+            return None
+        selected_event_id = presentation.selected_event_ids[0]
+        for event in layer.events:
+            if event.event_id == selected_event_id:
+                return event
+        for take in layer.takes:
+            for event in take.events:
+                if event.event_id == selected_event_id:
+                    return event
+        return None
+
+    def _emit_seek_selected_event(self) -> None:
+        if self._selected_event_start is None:
+            return
+        self.action_requested.emit(Seek(float(self._selected_event_start)))
+
+    def _emit_toggle_mute(self) -> None:
+        if self._selected_layer_id is None:
+            return
+        self.action_requested.emit(ToggleMute(self._selected_layer_id))
+
+    def _emit_toggle_solo(self) -> None:
+        if self._selected_layer_id is None:
+            return
+        self.action_requested.emit(ToggleSolo(self._selected_layer_id))
+
+    def _emit_apply_gain(self) -> None:
+        if self._selected_layer_id is None:
+            return
+        self.action_requested.emit(SetGain(self._selected_layer_id, float(self._gain_spin.value())))
 
     def text(self) -> str:
         return self._body.text()
@@ -922,6 +1046,7 @@ class TimelineWidget(QWidget):
         left_layout.addWidget(self._hscroll)
 
         self._object_info = ObjectInfoPanel(self)
+        self._object_info.action_requested.connect(self._dispatch)
         self._main_splitter = QSplitter(Qt.Orientation.Horizontal, self)
         self._main_splitter.setChildrenCollapsible(False)
         self._main_splitter.addWidget(left_pane)
@@ -949,7 +1074,7 @@ class TimelineWidget(QWidget):
         self.presentation = replace(presentation, scroll_x=followed)
         self._update_horizontal_scroll_bounds(sync_bar_value=True)
         self._transport.set_presentation(self.presentation)
-        self._object_info.set_text(self._object_info_text(self.presentation))
+        self._object_info.set_context(self.presentation, self._object_info_text(self.presentation))
         self._ruler.set_presentation(self.presentation)
         self._canvas.set_presentation(self.presentation)
         if self._runtime_audio is not None:
@@ -1029,7 +1154,7 @@ class TimelineWidget(QWidget):
         )
         self._update_horizontal_scroll_bounds(sync_bar_value=True)
         self._transport.set_presentation(self.presentation)
-        self._object_info.set_text(self._object_info_text(self.presentation))
+        self._object_info.set_context(self.presentation, self._object_info_text(self.presentation))
         self._ruler.set_presentation(self.presentation)
         self._canvas.set_presentation(self.presentation, recompute_layout=False)
 

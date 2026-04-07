@@ -30,6 +30,7 @@ from echozero.application.timeline.intents import (
     ToggleLayerExpanded,
     ToggleMute,
     ToggleSolo,
+    SetGain,
 )
 from echozero.ui.qt.timeline.demo_app import build_demo_app
 from echozero.ui.qt.timeline.test_harness import build_variant_presentations, estimate_full_window_height
@@ -532,6 +533,56 @@ def test_object_info_panel_updates_for_take_lane_event_selection():
         assert "duration: 0.50s" in info
         assert "layer: Kick" in info
         assert "take: Take 2 (take_alt)" in info
+    finally:
+        widget.close()
+        app.processEvents()
+
+
+def test_object_palette_seek_button_dispatches_seek_for_selected_event():
+    app = QApplication.instance() or QApplication([])
+    intents: list[object] = []
+    harness = _SelectionInspectorHarness(_selection_test_presentation())
+
+    def _on_intent(intent):
+        intents.append(intent)
+        return harness.dispatch(intent)
+
+    widget = TimelineWidget(harness.presentation(), on_intent=_on_intent)
+    try:
+        _render_for_hit_testing(widget)
+        _click_event_rect(widget, "main_evt")
+
+        widget._object_info._emit_seek_selected_event()
+
+        assert any(isinstance(intent, Seek) and intent.position == 1.0 for intent in intents)
+    finally:
+        widget.close()
+        app.processEvents()
+
+
+def test_object_palette_layer_controls_dispatch_mute_solo_gain():
+    app = QApplication.instance() or QApplication([])
+    intents: list[object] = []
+    harness = _SelectionInspectorHarness(_selection_test_presentation())
+
+    def _on_intent(intent):
+        intents.append(intent)
+        return harness.dispatch(intent)
+
+    widget = TimelineWidget(harness.presentation(), on_intent=_on_intent)
+    try:
+        _render_for_hit_testing(widget)
+        rect, _ = widget._canvas._header_select_rects[0]
+        _click_rect(widget, rect)
+
+        widget._object_info._emit_toggle_mute()
+        widget._object_info._emit_toggle_solo()
+        widget._object_info._gain_spin.setValue(-6.0)
+        widget._object_info._emit_apply_gain()
+
+        assert any(isinstance(intent, ToggleMute) for intent in intents)
+        assert any(isinstance(intent, ToggleSolo) for intent in intents)
+        assert any(isinstance(intent, SetGain) and intent.gain_db == -6.0 for intent in intents)
     finally:
         widget.close()
         app.processEvents()
