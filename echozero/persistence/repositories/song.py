@@ -6,6 +6,7 @@ SongRecord ordering and active-version tracking are first-class persistence conc
 
 from __future__ import annotations
 
+import json
 import sqlite3
 from datetime import datetime
 
@@ -88,6 +89,12 @@ class SongVersionRepository(BaseRepository[SongVersionRecord]):
 
     def _from_row(self, row: sqlite3.Row) -> SongVersionRecord:
         """Convert a database row to a SongVersionRecord entity."""
+        rebuild_plan_raw = row['rebuild_plan_json'] if 'rebuild_plan_json' in row.keys() else '{}'
+        try:
+            rebuild_plan = json.loads(rebuild_plan_raw) if rebuild_plan_raw else {}
+        except json.JSONDecodeError:
+            rebuild_plan = {}
+
         return SongVersionRecord(
             id=row['id'],
             song_id=row['song_id'],
@@ -97,6 +104,7 @@ class SongVersionRepository(BaseRepository[SongVersionRecord]):
             original_sample_rate=row['original_sample_rate'],
             audio_hash=row['audio_hash'],
             created_at=datetime.fromisoformat(row['created_at']),
+            rebuild_plan=rebuild_plan,
         )
 
     def create(self, version: SongVersionRecord) -> None:
@@ -104,8 +112,8 @@ class SongVersionRepository(BaseRepository[SongVersionRecord]):
         self._execute(
             "INSERT INTO song_versions "
             "(id, song_id, label, audio_file, duration_seconds, "
-            "original_sample_rate, audio_hash, created_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            "original_sample_rate, audio_hash, rebuild_plan_json, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 version.id,
                 version.song_id,
@@ -114,6 +122,7 @@ class SongVersionRepository(BaseRepository[SongVersionRecord]):
                 version.duration_seconds,
                 version.original_sample_rate,
                 version.audio_hash,
+                json.dumps(version.rebuild_plan or {}),
                 version.created_at.isoformat(),
             ),
         )
@@ -122,7 +131,7 @@ class SongVersionRepository(BaseRepository[SongVersionRecord]):
         """Return a song version by ID, or None if not found."""
         row = self._fetchone(
             "SELECT id, song_id, label, audio_file, duration_seconds, "
-            "original_sample_rate, audio_hash, created_at "
+            "original_sample_rate, audio_hash, rebuild_plan_json, created_at "
             "FROM song_versions WHERE id = ?",
             (version_id,),
         )
@@ -134,7 +143,7 @@ class SongVersionRepository(BaseRepository[SongVersionRecord]):
         """Return all versions for a song, ordered by creation time."""
         rows = self._fetchall(
             "SELECT id, song_id, label, audio_file, duration_seconds, "
-            "original_sample_rate, audio_hash, created_at "
+            "original_sample_rate, audio_hash, rebuild_plan_json, created_at "
             "FROM song_versions WHERE song_id = ? ORDER BY created_at",
             (song_id,),
         )
@@ -144,13 +153,14 @@ class SongVersionRepository(BaseRepository[SongVersionRecord]):
         """Overwrite a song version's mutable fields (label, audio_file, duration, sample_rate, hash)."""
         self._execute(
             "UPDATE song_versions SET label = ?, audio_file = ?, duration_seconds = ?, "
-            "original_sample_rate = ?, audio_hash = ? WHERE id = ?",
+            "original_sample_rate = ?, audio_hash = ?, rebuild_plan_json = ? WHERE id = ?",
             (
                 version.label,
                 version.audio_file,
                 version.duration_seconds,
                 version.original_sample_rate,
                 version.audio_hash,
+                json.dumps(version.rebuild_plan or {}),
                 version.id,
             ),
         )

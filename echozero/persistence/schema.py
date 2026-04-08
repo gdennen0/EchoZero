@@ -9,7 +9,7 @@ from __future__ import annotations
 import sqlite3
 from collections.abc import Callable
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 _DDL = """\
 CREATE TABLE IF NOT EXISTS _meta (
@@ -46,6 +46,7 @@ CREATE TABLE IF NOT EXISTS song_versions (
     duration_seconds REAL NOT NULL,
     original_sample_rate INTEGER NOT NULL,
     audio_hash TEXT NOT NULL,
+    rebuild_plan_json TEXT NOT NULL DEFAULT '{}',
     created_at TEXT NOT NULL
 );
 
@@ -167,6 +168,12 @@ def _migrate_v1_to_v2(conn: sqlite3.Connection) -> None:
 
 
 def _migrate_v2_to_v3(conn: sqlite3.Connection) -> None:
+    layers_table = conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='layers'"
+    ).fetchone()
+    if layers_table is None:
+        return
+
     columns = {
         row['name'] for row in conn.execute("PRAGMA table_info(layers)").fetchall()
     }
@@ -176,9 +183,24 @@ def _migrate_v2_to_v3(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE layers ADD COLUMN provenance_json TEXT NOT NULL DEFAULT '{}' ")
 
 
+def _migrate_v3_to_v4(conn: sqlite3.Connection) -> None:
+    versions_table = conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='song_versions'"
+    ).fetchone()
+    if versions_table is None:
+        return
+
+    columns = {
+        row['name'] for row in conn.execute("PRAGMA table_info(song_versions)").fetchall()
+    }
+    if 'rebuild_plan_json' not in columns:
+        conn.execute("ALTER TABLE song_versions ADD COLUMN rebuild_plan_json TEXT NOT NULL DEFAULT '{}' ")
+
+
 _MIGRATIONS: dict[int, Callable[[sqlite3.Connection], None]] = {
     2: _migrate_v1_to_v2,
     3: _migrate_v2_to_v3,
+    4: _migrate_v3_to_v4,
 }
 
 

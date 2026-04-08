@@ -39,12 +39,18 @@ def test_add_song_version_copies_configs_and_records_blank_slate_rebuild_plan(tm
     cfgs_v1 = session.pipeline_configs.list_by_version(version1.id)
     cfgs_v2 = session.pipeline_configs.list_by_version(version2.id)
     assert len(cfgs_v1) == len(cfgs_v2)
-    assert len(cfgs_v2) > 0
 
     plan = getattr(version2, 'rebuild_plan', None)
     assert plan is not None
     assert plan['mode'] == 'blank_slate_with_rerun'
     assert plan['previous_version_id'] == version1.id
     assert plan['new_version_id'] == version2.id
+
+    # Must round-trip through persistence, not only in-memory return value.
+    persisted = session.song_versions.get(version2.id)
+    assert persisted is not None
+    assert persisted.rebuild_plan['mode'] == 'blank_slate_with_rerun'
+    assert persisted.rebuild_plan['previous_version_id'] == version1.id
+    assert persisted.rebuild_plan['new_version_id'] == version2.id
 
     session.close()

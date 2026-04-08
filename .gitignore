@@ -26,40 +26,34 @@ venv/
 env/
 ENV/
 
-# IDE
+# IDE / editor
 .vscode/
 .idea/
 *.swp
 *.swo
 *~
+.spyderproject
+.spyproject
+.ropeproject
 
-# Logs
+# Logs / temp
 logs/
 *.log
-
-# Temporary files
 tmp/
 temp/
 *.tmp
-
-# Development/result files
-*Dump.txt
-*Result.txt
-*Output.txt
 
 # OS
 .DS_Store
 Thumbs.db
 
-# Audio/Video files (prevent accidental large file commits)
+# Audio / video / large binaries
 *.wav
 *.mp3
 *.mp4
 *.flac
 *.ogg
 *.m4a
-
-# Model files (prevent large model commits)
 *.model
 *.ckpt
 *.pt
@@ -67,6 +61,13 @@ Thumbs.db
 *.h5
 *.pb
 *.tflite
+
+# Development/result files
+*Dump.txt
+*Result.txt
+*Output.txt
+screenshot.png
+timeline_demo_screenshot.png
 
 # Project data directories
 projectdata/
@@ -81,16 +82,29 @@ data/recent_projects.json
 *.qmlc
 *.jsc
 
-# Coverage reports
+# Coverage/test caches
 htmlcov/
 .coverage
 .coverage.*
-
-# Pytest cache
 .pytest_cache/
+.hypothesis/
+.tox/
 
-# mypy
+# Type checkers / linters
 .mypy_cache/
+.ruff_cache/
+.pytype/
+.dmypy.json
+.pyre/
+.pyre_cache/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# pyenv / pip
+.python-version
+pip-log.txt
+pip-delete-this-directory.txt
 
 # Secrets and credentials
 echozero-key.json
@@ -100,33 +114,26 @@ echozero-key.json
 .env.local
 .env.*.local
 
-# Python type checkers
-.pytype/
-.dmypy.json
-.pyre/
-.pyre_cache/
-
-# Jupyter Notebook
-.ipynb_checkpoints
-
-# pyenv
-.python-version# pip
-pip-log.txt
-pip-delete-this-directory.txt
-
-# IDEs
-.spyderproject
-.spyproject
-.ropeproject# Ruff (Python linter)
-.ruff_cache/# Tox (testing tool)
-.tox/
-
-# Hypothesis (testing tool)
-.hypothesis/
-
-# Generated documentation (if not tracking)
-# Uncomment if docs are generated and shouldn't be committed
-# docs/docs.json
-# docs/index.html.wrangler/
-
+# Generated docs site
 site/
+
+# Local worktrees / temp sandboxes
+.worktrees/
+.foundry-test-tmp/
+.pytest-foundry-tmp/
+_pycheck/
+
+# Runtime/generated artifacts
+artifacts/perf/
+artifacts/foundry-runpacks/
+artifacts/foundry-ui/
+artifacts/foundry-ui-polish/
+artifacts/timeline-real-data-runtime/
+foundry/runs/
+foundry/state/
+foundry/tracking/batches/
+foundry/tracking/exports/
+foundry/tracking/model_cards/
+foundry/tracking/snapshots/
+foundry/tracking/training_index.json
+foundry/tracking/notification_state.json

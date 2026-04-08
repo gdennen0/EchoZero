@@ -1,0 +1,88 @@
+# EchoZero Development Tracker (Canonical)
+
+_Last updated: 2026-04-07_
+
+This is the **single source** for execution status before adding new features.
+If another plan doc disagrees, this file wins.
+
+---
+
+## 1) Current Direction Check (Go / No-Go)
+
+**Direction:** ✅ Correct
+- Main take truth model is preserved
+- UI contract is becoming explicit and shared
+- Real-data playback is part of verification (not mock-only)
+
+**Readiness to add features:** 🟡 Not yet
+- We need one cleanup + closure pass on remaining contract gaps and repo hygiene
+
+---
+
+## 2) Planning Decision Reconciliation (Reds/Yellows)
+
+Reference baseline: `docs/DISTILLATION-CONFORMANCE-AUDIT-2026-04-04.md`
+
+| ID | Topic | Prior | Current | Evidence | Action |
+|---|---|---:|---:|---|---|
+| A4 | Main-is-truth vs active-take truth leak | 🔴 | ✅ Closed | `echozero/application/timeline/orchestrator.py` (`SelectTake` selection-only), `echozero/application/timeline/assembler.py` (main take drives parent row), tests in `tests/application/test_timeline_assembler_contract.py` | none |
+| A7 | FEEL contract drift / magic numbers | 🔴 | ✅ Closed (baseline) | `tests/ui/test_timeline_feel_contract.py` green | keep FEEL as required gate for UI changes |
+| A9 | Branch-vs-Take terminology drift | 🔴 | 🟡 Partial | Local architecture uses takes; historical docs still mixed | standardize wording during doc sweep |
+| A5 | SongVersion rebuild_plan persistence | 🟡 | 🔴 Open | `echozero/persistence/session.py` builds plan but DB schema/repo path currently does not persist `rebuild_plan` round-trip | implement schema+repo persistence + test |
+| A6 | Sync boundary (main-only) proof | 🟡 | 🟡 Open | No concrete application sync adapter tests proving non-main takes are excluded | add contract tests around sync payload/source selection |
+| A10 | Real-data stems progression | 🟡 | ✅ Operational | real-data runs + visual proof loops active | continue during new feature work |
+
+---
+
+## 3) What Must Be Done Before New Features
+
+### P0 — Contract closure
+- [ ] Persist `SongVersionRecord.rebuild_plan` in SQLite and verify round-trip tests
+- [ ] Add explicit sync-boundary tests proving main-only sync semantics
+- [ ] Finish terminology sweep: remove remaining Branch language where Take is intended
+
+### P0 — Repo hygiene
+- [ ] Keep working tree clean (no generated artifacts/log churn in Git status)
+- [ ] Resolve local ACL-blocked temp folder warning (`.pytest-foundry-tmp/`) so `git status` is warning-free
+
+### P1 — Decision traceability
+- [ ] For each new feature, add one-line mapping: "which principle/decision does this implement?"
+- [ ] Keep this tracker as the only active backlog/status file
+
+---
+
+## 4) Cleanup Completed in This Pass
+
+- Removed large untracked noise from repo root and generated runtime output directories (`artifacts/*`, `foundry/runs/*`, temp debug files, ad-hoc screenshots, abandoned local worktree folders under repo).
+- Restored generated tracked files that were modified by local demo/training runs.
+- Hardened `.gitignore` to prevent recurrence of local noise artifacts and run outputs.
+
+---
+
+## 5) Operating Rules (to stay clean)
+
+1. No new feature branch starts unless P0 items are green.
+2. Any UI change must pass:
+   - timeline shell tests
+   - FEEL contract test
+   - relevant application contract tests
+3. Any sync-facing change must include a main-only boundary assertion.
+4. Generated outputs live outside tracked source unless intentionally versioned.
+
+---
+
+## 6) Socratic "What If" Questions (Decision Check Before Feature Expansion)
+
+1. **What if** we freeze all new features for 48 hours and only close P0 contract gaps — would that increase velocity more than shipping one more feature now?
+2. **What if** sync ever reads a non-main take in one edge path — do we have a failing test today that would catch it immediately?
+3. **What if** we require each PR to cite the principle/decision it implements — does that kill drift early?
+4. **What if** we split Foundry runtime outputs to an external data root by default — do we reduce repo entropy permanently?
+5. **What if** we define a hard acceptance gate: "no warning/noise in `git status`, no feature merge" — would this prevent spaghetti from re-accumulating?
+
+---
+
+## 7) Next Checkpoint
+
+When P0 is complete, update this file and mark:
+- **Direction:** ✅ Correct
+- **Readiness:** ✅ Add next feature tranche

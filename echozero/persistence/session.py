@@ -586,6 +586,7 @@ class ProjectStorage:
                 pipeline_config_ids=new_config_ids,
             )
             version = _replace(version, rebuild_plan=rebuild_plan)
+            self.song_versions.update(version)
 
             if activate:
                 self.songs.update(_replace(song, active_version_id=version.id))
