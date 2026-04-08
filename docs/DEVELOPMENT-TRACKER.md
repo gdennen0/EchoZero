@@ -2,8 +2,9 @@
 
 _Last updated: 2026-04-08_
 
-This is the **single source** for execution status before adding new features.
-If another plan doc disagrees, this file wins.
+This is the live execution status board.
+Canonical implementation authority is: `docs/UNIFIED-IMPLEMENTATION-PLAN.md`.
+If this tracker conflicts with the canonical implementation plan, update this tracker to match it immediately.
 
 ---
 
@@ -29,7 +30,7 @@ Reference baseline: `docs/DISTILLATION-CONFORMANCE-AUDIT-2026-04-04.md`
 | A7 | FEEL contract drift / magic numbers | 🔴 | ✅ Closed (baseline) | `tests/ui/test_timeline_feel_contract.py` green | keep FEEL as required gate for UI changes |
 | A9 | Legacy terminology drift (now standardizing on Take) | 🔴 | ✅ Closed | Documentation updated to use Take terminology for timeline variation model | keep this as an ongoing docs hygiene check |
 | A5 | SongVersion rebuild_plan persistence | 🟡 | ✅ Closed | schema v4 + repo persistence + session update path + round-trip test (`tests/test_song_version_rebuild_plan.py`) | none |
-| A6 | Sync boundary (main-only) proof | 🟡 | 🟡 Open | MA3 payload normalization contract now covered (`tests/unit/test_ma3_event_contract.py`), but explicit end-to-end main-only sync proof still missing | add sync harness tests with main vs non-main fixtures |
+| A6 | Sync boundary (main-only) proof | 🟡 | 🟡 Open | MA3 payload normalization + main-only filtering + hard-fail metadata tests are covered (`tests/unit/test_ma3_event_contract.py`), but explicit end-to-end main-only sync harness proof still missing | add sync harness tests with main vs non-main fixtures |
 | A10 | Real-data stems progression | 🟡 | ✅ Operational | real-data runs + visual proof loops active | continue during new feature work |
 
 ---
