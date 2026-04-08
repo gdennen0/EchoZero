@@ -93,7 +93,7 @@ def test_add_all_editor_events_to_ma3_filters_explicit_non_main_events(manager):
         {"time": 1.0, "name": "Main Kick", "metadata": {"is_main": True}},
         {"time": 2.0, "name": "Alt 1", "metadata": {"is_main": False}},
         {"time": 3.0, "name": "Alt 2", "metadata": {"take_role": "alternate"}},
-        {"time": 4.0, "name": "Main Snare", "metadata": {}},
+        {"time": 4.0, "name": "Main Snare", "metadata": {"is_main": True}},
     ]
 
     result = manager._add_all_editor_events_to_ma3(events, tc_no=1, tg_no=1, tr_no=1)
@@ -109,19 +109,31 @@ def test_add_all_editor_events_to_ma3_filters_explicit_non_main_events(manager):
     assert all("Alt 2" not in c for c in calls)
 
 
-def test_add_all_editor_events_to_ma3_defaults_to_main_when_metadata_absent(manager):
+def test_add_all_editor_events_to_ma3_fails_hard_when_metadata_missing(manager):
     manager._send_lua_command_with_target = MagicMock()
 
     events = [
         {"time": 1.0, "name": "Kick"},
-        {"time": 2.0, "name": "Snare"},
+        {"time": 2.0, "name": "Snare", "metadata": {"is_main": True}},
     ]
 
-    result = manager._add_all_editor_events_to_ma3(events, tc_no=1, tg_no=1, tr_no=2)
+    with pytest.raises(ValueError, match="missing required metadata"):
+        manager._add_all_editor_events_to_ma3(events, tc_no=1, tg_no=1, tr_no=2)
 
-    assert result["added"] == 2
-    assert result["failed"] == 0
-    assert manager._send_lua_command_with_target.call_count == 2
+    manager._send_lua_command_with_target.assert_not_called()
+
+
+def test_add_all_editor_events_to_ma3_fails_hard_when_metadata_empty(manager):
+    manager._send_lua_command_with_target = MagicMock()
+
+    events = [
+        {"time": 1.0, "name": "Kick", "metadata": {}},
+    ]
+
+    with pytest.raises(ValueError, match="missing required metadata"):
+        manager._add_all_editor_events_to_ma3(events, tc_no=1, tg_no=1, tr_no=2)
+
+    manager._send_lua_command_with_target.assert_not_called()
 
 
 def test_push_editor_to_ma3_empty_editor_events_does_not_auto_clear_track(manager):

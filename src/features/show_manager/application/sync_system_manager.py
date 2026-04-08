@@ -4150,15 +4150,21 @@ class SyncSystemManager(QObject):
     @staticmethod
     def _event_metadata(event: Any) -> Dict[str, Any]:
         if isinstance(event, dict):
-            metadata = event.get("metadata", {})
+            metadata = event.get("metadata")
         else:
-            metadata = getattr(event, "metadata", {})
-        return metadata if isinstance(metadata, dict) else {}
+            metadata = getattr(event, "metadata", None)
+
+        if not isinstance(metadata, dict) or not metadata:
+            raise ValueError(
+                "SyncSystemManager: Event missing required metadata; refusing MA3 sync write"
+            )
+
+        return metadata
 
     def _is_main_lane_event(self, event: Any) -> bool:
         """Return True when an event should be eligible for MA3 sync writes.
 
-        We default to main when metadata is absent to preserve compatibility.
+        Contract: metadata is mandatory. Missing/empty metadata is a hard failure.
         Explicit non-main markers force exclusion.
         """
         metadata = self._event_metadata(event)
