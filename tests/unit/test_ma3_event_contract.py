@@ -83,3 +83,41 @@ def test_on_track_events_received_normalizes_and_defaults_fields(manager):
     assert stored[2].time == 0.0
     assert stored[2].name == ""
     assert stored[2].idx == 3
+
+
+def test_add_all_editor_events_to_ma3_filters_explicit_non_main_events(manager):
+    manager._send_lua_command_with_target = MagicMock()
+
+    events = [
+        {"time": 1.0, "name": "Main Kick", "metadata": {"is_main": True}},
+        {"time": 2.0, "name": "Alt 1", "metadata": {"is_main": False}},
+        {"time": 3.0, "name": "Alt 2", "metadata": {"take_role": "alternate"}},
+        {"time": 4.0, "name": "Main Snare", "metadata": {}},
+    ]
+
+    result = manager._add_all_editor_events_to_ma3(events, tc_no=1, tg_no=1, tr_no=1)
+
+    assert result["added"] == 2
+    assert result["failed"] == 0
+    assert manager._send_lua_command_with_target.call_count == 2
+
+    calls = [c.args[0] for c in manager._send_lua_command_with_target.call_args_list]
+    assert any("Main Kick" in c for c in calls)
+    assert any("Main Snare" in c for c in calls)
+    assert all("Alt 1" not in c for c in calls)
+    assert all("Alt 2" not in c for c in calls)
+
+
+def test_add_all_editor_events_to_ma3_defaults_to_main_when_metadata_absent(manager):
+    manager._send_lua_command_with_target = MagicMock()
+
+    events = [
+        {"time": 1.0, "name": "Kick"},
+        {"time": 2.0, "name": "Snare"},
+    ]
+
+    result = manager._add_all_editor_events_to_ma3(events, tc_no=1, tg_no=1, tr_no=2)
+
+    assert result["added"] == 2
+    assert result["failed"] == 0
+    assert manager._send_lua_command_with_target.call_count == 2

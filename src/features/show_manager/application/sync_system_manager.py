@@ -2736,20 +2736,22 @@ class SyncSystemManager(QObject):
         tr_no: int,
     ) -> Dict[str, int]:
         """
-        Add all Editor events to MA3 track.
-        
-        This is used after clearing the track - we just add all events fresh.
-        
+        Add main-lane Editor events to MA3 track.
+
+        Contract: sync writes are main-only. Any explicitly tagged non-main/take-lane
+        events are filtered out before generating MA3 commands.
+
         Args:
             editor_events: List of events from Editor (Event objects or dicts)
             tc_no, tg_no, tr_no: MA3 track coordinates
-            
+
         Returns:
             Dict with counts: {"added": N, "failed": M}
         """
         result = {"added": 0, "failed": 0}
-        
-        
+
+        editor_events = self._filter_main_lane_events(editor_events)
+
         # Process each Editor event and add to MA3
         for i, event in enumerate(editor_events):
             # Extract event properties
@@ -4144,6 +4146,50 @@ class SyncSystemManager(QObject):
         if isinstance(value, bytes):
             return value.decode("utf-8", errors="replace")
         return str(value)
+
+    @staticmethod
+    def _event_metadata(event: Any) -> Dict[str, Any]:
+        if isinstance(event, dict):
+            metadata = event.get("metadata", {})
+        else:
+            metadata = getattr(event, "metadata", {})
+        return metadata if isinstance(metadata, dict) else {}
+
+    def _is_main_lane_event(self, event: Any) -> bool:
+        """Return True when an event should be eligible for MA3 sync writes.
+
+        We default to main when metadata is absent to preserve compatibility.
+        Explicit non-main markers force exclusion.
+        """
+        metadata = self._event_metadata(event)
+
+        # Explicit booleans from current/future payload variants.
+        if metadata.get("is_main") is False:
+            return False
+        if metadata.get("take_is_main") is False:
+            return False
+        if metadata.get("source_take_is_main") is False:
+            return False
+        if metadata.get("from_take_lane") is True:
+            return False
+        if metadata.get("take_lane") is True:
+            return False
+
+        take_role = self._safe_str(metadata.get("take_role", "")).strip().lower()
+        if take_role in {"alt", "alternate", "non_main", "secondary", "subordinate"}:
+            return False
+
+        return True
+
+    def _filter_main_lane_events(self, events: List[Any]) -> List[Any]:
+        filtered = [event for event in events if self._is_main_lane_event(event)]
+        dropped = len(events) - len(filtered)
+        if dropped > 0:
+            Log.info(
+                f"SyncSystemManager: Filtered {dropped} non-main event(s) before MA3 push "
+                f"(kept {len(filtered)})"
+            )
+        return filtered
 
     def _normalize_ma3_event(self, event: Dict[str, Any], fallback_idx: int) -> MA3EventInfo:
         """Normalize MA3 event payloads from fixture/live variants.
