@@ -1822,9 +1822,9 @@ Output auto-splits into one layer per classification label. "kicks" layer, "snar
 ### D141: Conflicting analyses use Take System
 **Date:** 2026-03-13
 **Status:** Decided
-**Note:** Terminology updated by D167: 'takes' → 'branches' for user-facing analysis results. The internal Take System (D93) retains its name for Editor's internal data versioning.
-**Decision:** When multiple analyses of the same type run on the same track (e.g., drum analysis with two different pipelines), results are stored as **branches** (per D167; previously called "takes"). No auto-replacement. User can compare branches and choose. This is the A/B mechanism in practice.
-**Rationale:** Branch model already designed for this exact scenario. Reuse it.
+**Note:** Terminology standardized to **Take** for user-facing analysis results. The internal Take System (D93) retains its name for Editor's internal data versioning.
+**Decision:** When multiple analyses of the same type run on the same track (e.g., drum analysis with two different pipelines), results are stored as **takes**. No auto-replacement. User can compare takes and choose. This is the A/B mechanism in practice.
+**Rationale:** Take model is designed for this exact scenario. Reuse it.
 
 ### D142: Time-range analysis supported
 **Date:** 2026-03-13
@@ -1885,16 +1885,16 @@ Output auto-splits into one layer per classification label. "kicks" layer, "snar
 **Decision:** Enforce a maximum track duration. Specific limit TBD, but long DJ sets (1hr+) are explicitly out of scope. Users with long recordings should split into individual tracks before importing. Clear error/guidance if limit exceeded.
 **Rationale:** Processing pipeline, memory, and timeline rendering all degrade at extreme durations. Better to set a clear boundary than silently choke. EchoZero analyzes songs, not marathon sets.
 
-### D151: Re-analysis creates a new branch - manual edits never lost
+### D151: Re-analysis creates a new take - manual edits never lost
 **Date:** 2026-03-13
 **Status:** Decided
-**Note:** Terminology updated by D167: 'takes' → 'branches' for user-facing analysis results.
+**Note:** Terminology standardized to **Take** for user-facing analysis results.
 **Decision:**
-- Re-running analysis on a track that already has results creates a **new branch**, never overwrites the existing one.
-- All branches are preserved and browsable.
-- Users can **cherry-pick events across branches** - select events from branch 1 and branch 2 to compose the best result.
-- Manual edits (boundary adjustments, reclassifications, manually created events) are part of the branch they were made on and are never destroyed by new analysis runs.
-**Rationale:** User work is sacred. An ML re-run should never destroy manual corrections. Branches solve this cleanly - each run is its own snapshot, user composes the final result.
+- Re-running analysis on a track that already has results creates a **new take**, never overwrites the existing one.
+- All takes are preserved and browsable.
+- Users can **cherry-pick events across takes** - select events from take 1 and take 2 to compose the best result.
+- Manual edits (boundary adjustments, reclassifications, manually created events) are part of the take they were made on and are never destroyed by new analysis runs.
+**Rationale:** User work is sacred. An ML re-run should never destroy manual corrections. Takes solve this cleanly - each run is its own snapshot, user composes the final result.
 
 ### D152: Block actions during active analysis
 **Date:** 2026-03-13
@@ -2027,41 +2027,41 @@ Output auto-splits into one layer per classification label. "kicks" layer, "snar
 **Decision:** MA3 sync flows through ShowManager directly, not through a manual export action from the timeline. Timeline surfaces sync status (divergent/synced indicators per event). Right-click → "Export to..." submenu reserved for future non-MA3 targets (MIDI, CSV, OSC). No export button in the toolbar at launch.
 **Rationale:** ShowManager is the bridge to MA3. The timeline's job is to show sync state, not manage export.
 
-### D167: Git-style branch model for analysis layers
+### D167: Git-style take model for analysis layers
 **Date:** 2026-03-15
 **Status:** Decided
 **Decision:**
-- Each track has a **main branch** (always visible, canonical) and zero or more **branches**.
-- Running analysis creates a new branch.
-- Each branch maintains its own independent state (events, classifications, manual edits).
-- **Merge** = pull branch results into main (additive).
-- **Swap** = branch becomes main, old main becomes a branch (nothing lost).
-- Branches accessible via dropdown in track header or right-click → Switch Branch.
-- Dropdown shows visual preview of each branch's events.
-- Different tracks can be on different branches independently.
-- Delete branch with confirmation if it has manual edits.
-- Terminology: "branch" not "take."
-**Rationale:** Git mental model is universally understood. Branches give fearless experimentation - run different models/configs without risking main.
+- Each track has a **main take** (always visible, canonical) and zero or more **takes**.
+- Running analysis creates a new take.
+- Each take maintains its own independent state (events, classifications, manual edits).
+- **Merge** = pull take results into main (additive).
+- **Swap** = take becomes main, old main becomes a take (nothing lost).
+- Takes accessible via dropdown in track header or right-click → Switch Take.
+- Dropdown shows visual preview of each take's events.
+- Different tracks can be on different takes independently.
+- Delete take with confirmation if it has manual edits.
+- Terminology: "take".
+**Rationale:** Git mental model is universally understood. Takes give fearless experimentation - run different models/configs without risking main.
 
 ### D168: Analysis triggering
 **Date:** 2026-03-15
 **Status:** Decided
 **Decision:**
-- **Per-track:** Right-click → Analyze (or button in track header) → creates a branch on that track.
-- **Batch:** Toolbar action → "Analyze All" → runs selected profile across all tracks, each gets its own new branch.
+- **Per-track:** Right-click → Analyze (or button in track header) → creates a take on that track.
+- **Batch:** Toolbar action → "Analyze All" → runs selected profile across all tracks, each gets its own new take.
 - Analysis Profile = preset config (model, sensitivity, categories).
-- Running analysis always creates a new branch, never overwrites main.
+- Running analysis always creates a new take, never overwrites main.
 - Profile selection persists as a project-level default but can be overridden per-track.
-**Rationale:** Both granular and batch workflows needed. Always branching protects main from accidental overwrites.
+**Rationale:** Both granular and batch workflows are needed. Always creating a new take protects main from accidental overwrites.
 
-### D169: Branch merge conflict resolution
+### D169: Take merge conflict resolution
 **Date:** 2026-03-15
 **Status:** Decided
 **Decision:**
 - Merge triggers a **conflict review panel** showing only conflicts (clean merges auto-apply).
 - Conflict types: same position different classification, same position different boundaries, one exists / one deleted.
-- Per-conflict actions: Keep Main / Keep Branch / Keep Both.
-- Batch actions: "Keep All Main" / "Keep All Branch" for speed.
+- Per-conflict actions: Keep Main / Keep Take / Keep Both.
+- Batch actions: "Keep All Main" / "Keep All Take" for speed.
 - Non-conflicting events merge automatically.
 - Merge completes only after all conflicts are resolved. Can cancel at any point.
 - Conflict markers highlighted on timeline during review with step-through navigation.
@@ -2100,7 +2100,7 @@ Output auto-splits into one layer per classification label. "kicks" layer, "snar
 ### D173: One song = one audio file
 **Date:** 2026-03-15 (clarified 2026-03-16)  
 **Status:** Decided  
-**Decision:** Each song in the setlist is one audio file, deeply analyzed. Project contains a setlist of multiple songs (D90 still applies). Per-song data: events, stems, classifications, branches, annotations. Not a multi-track DAW — one audio source per song. BPM, grid, ruler are per-song. Combined with D178 (10 min cap), this prevents users from loading hour-long files as a single "song."  
+**Decision:** Each song in the setlist is one audio file, deeply analyzed. Project contains a setlist of multiple songs (D90 still applies). Per-song data: events, stems, classifications, takes, annotations. Not a multi-track DAW — one audio source per song. BPM, grid, ruler are per-song. Combined with D178 (10 min cap), this prevents users from loading hour-long files as a single "song."  
 **Rationale:** Scope what a "song" is without killing the setlist concept. One file per song keeps analysis clean. Length cap prevents abuse.
 
 ### D174: Downbeat detection
@@ -2205,7 +2205,7 @@ Output auto-splits into one layer per classification label. "kicks" layer, "snar
 - OSC Gateway auto-reconnects on connection loss (configurable interval per D119).  
 - On reconnect: automatic full diff of all sync layers.  
 - If no divergence: silent reconnect, status returns to "Connected/Synced."  
-- If divergence detected: show divergence indicator on affected sync layers. Ask user how to proceed per layer (MA3 Master / EZ Master / Union / manual review via branch).  
+- If divergence detected: show divergence indicator on affected sync layers. Ask user how to proceed per layer (MA3 Master / EZ Master / Union / manual review via take).  
 - Never auto-overwrite on reconnect divergence — always surface it.  
 **Rationale:** Live production environments have flaky connections. Auto-reconnect is mandatory. But divergence after disconnect could mean someone edited on the console while disconnected — user must decide.
 
@@ -2265,18 +2265,18 @@ Output auto-splits into one layer per classification label. "kicks" layer, "snar
 - Exact limits and UX details refined through user testing. Architecture supports arbitrary layer counts.  
 **Rationale:** Architecture shouldn't limit layers. UX should manage complexity through organization, not caps. Testing will reveal the practical sweet spot.
 
-### D191: Branch switch is undoable
+### D191: Take switch is undoable
 **Date:** 2026-03-16  
 **Status:** Decided  
 **Supersedes:** Clarifies D156  
 **Decision:**  
-- Switching branches IS an undoable action.  
-- Ctrl+Z after a branch switch reverts to the previous branch.  
-- Then the next Ctrl+Z undoes whatever was done before the switch (in that branch's undo stack).  
-- Each branch maintains its own undo history. Switching branches pushes a "switch" entry onto a global undo stack.  
-- Global undo stack: tracks branch switches and cross-branch operations. Per-branch undo stack: tracks edits within that branch.  
-- D156's "undo does not cross branch boundaries" means edits in Branch A can't undo edits in Branch B. But the ACT of switching is itself undoable.  
-**Rationale:** Branch switch is a user action — it should be undoable like any other action. The two-stack model (global + per-branch) keeps it clean.
+- Switching takes IS an undoable action.  
+- Ctrl+Z after a take switch reverts to the previous take.  
+- Then the next Ctrl+Z undoes whatever was done before the switch (in that take's undo stack).  
+- Each take maintains its own undo history. Switching takes pushes a "switch" entry onto a global undo stack.  
+- Global undo stack: tracks take switches and cross-take operations. Per-take undo stack: tracks edits within that take.  
+- D156's "undo does not cross take boundaries" means edits in Take A can't undo edits in Take B. But the ACT of switching is itself undoable.  
+**Rationale:** Take switch is a user action — it should be undoable like any other action. The two-stack model (global + per-take) keeps it clean.
 
 ### D192: Progressive waveform rendering
 **Date:** 2026-03-16  
@@ -2385,15 +2385,15 @@ Output auto-splits into one layer per classification label. "kicks" layer, "snar
 - Display original sample rate in file info for reference.  
 **Rationale:** Consistent internal rate simplifies ML model input, waveform rendering, and buffer management. Resample once on import, not on every read.
 
-### D202: Branch accumulation — soft limit with cleanup tools
+### D202: Take accumulation — soft limit with cleanup tools
 **Date:** 2026-03-16  
 **Status:** Decided  
 **Decision:**  
-- Branches accumulate — no auto-deletion.  
-- Soft limit warning at a high threshold (e.g., 50 branches per track). Warning only, not enforced.  
-- Branch manager UI: list all branches, sort by date/name, bulk delete, archive.  
+- Takes accumulate — no auto-deletion.  
+- Soft limit warning at a high threshold (e.g., 50 takes per track). Warning only, not enforced.  
+- Take manager UI: list all takes, sort by date/name, bulk delete, archive.  
 - Exact threshold adjustable after user testing.  
-**Rationale:** Branches are cheap (event metadata, not audio copies). Let them accumulate, provide cleanup tools, optimize later.
+**Rationale:** Takes are cheap (event metadata, not audio copies). Let them accumulate, provide cleanup tools, optimize later.
 
 ### D203: Mass conflict resolution — batch tools
 **Date:** 2026-03-16  
@@ -2402,8 +2402,8 @@ Output auto-splits into one layer per classification label. "kicks" layer, "snar
 **Decision:**  
 - D169's side-by-side per-conflict resolution works for small conflict sets.  
 - For mass conflicts (50+): batch resolution options:  
-  - "Accept all from Branch A" / "Accept all from Branch B"  
-  - "Accept all from Branch A where confidence > X%"  
+  - "Accept all from Take A" / "Accept all from Take B"  
+  - "Accept all from Take A where confidence > X%"  
   - Filter conflicts by type/layer, resolve filtered set in bulk  
   - "Review remaining" opens per-conflict view for what's left  
 - Quick, clean, minimal clicks for the common case (accept all from one side). Detailed review available for edge cases.  
@@ -2415,7 +2415,7 @@ Output auto-splits into one layer per classification label. "kicks" layer, "snar
 **Decision:**  
 - Standard undo/redo behavior: undo creates redo stack, new edit destroys redo stack.  
 - No redo branching or undo trees — standard DAW behavior.  
-- Per D191: branch switches are on the global undo stack, edits within a branch are on the per-branch stack.  
+- Per D191: take switches are on the global undo stack, edits within a take are on the per-take stack.  
 **Rationale:** Standard behavior. Users expect it. Undo trees are confusing and no DAW does them.
 
 ### D205: Non-musical content handling — silence/noise detection
@@ -2438,7 +2438,7 @@ Output auto-splits into one layer per classification label. "kicks" layer, "snar
 **Status:** Decided  
 **Decision:**  
 - Export a single song's analysis data as a portable package (.ezsong or similar).  
-- Package contains: event layers, branches, classifications, annotations, section data. Does NOT contain audio (licensing issues, file size).  
+- Package contains: event layers, takes, classifications, annotations, section data. Does NOT contain audio (licensing issues, file size).  
 - Import into another project: user provides matching audio file, analysis data maps by timestamp.  
 - Use case: LD shares their song analysis with another LD on the same tour.  
 - If imported audio duration doesn't match: warning, import anyway, flag events beyond audio end.  
@@ -2484,8 +2484,8 @@ Output auto-splits into one layer per classification label. "kicks" layer, "snar
 - Deleting a layer is undoable (standard undo).  
 - No separate "trash" or "recently deleted" for layers.  
 - Bulk delete confirmation per D161 prevents accidents.  
-- If undo history is exhausted: layer is gone. Branches serve as the safety net — analysis results exist in other branches.  
-**Rationale:** Undo is the standard recovery mechanism. Branches provide a second safety net. A separate layer trash adds complexity with minimal benefit.
+- If undo history is exhausted: layer is gone. Takes serve as the safety net — analysis results exist in other takes.  
+**Rationale:** Undo is the standard recovery mechanism. Takes provide a second safety net. A separate layer trash adds complexity with minimal benefit.
 
 ### D211: Window state persistence — standard platform behavior
 **Date:** 2026-03-16  
@@ -2566,16 +2566,16 @@ Output auto-splits into one layer per classification label. "kicks" layer, "snar
 - No event prioritization needed — change events are relatively infrequent compared to playback-rate updates.  
 **Rationale:** This isn't a lighting control protocol during live playback — it's a data sync protocol. Events fire on mutation, not on every playhead tick.
 
-### D219: Background analysis + active editing — branch isolation
+### D219: Background analysis + active editing — take isolation
 **Date:** 2026-03-16  
 **Status:** Decided  
 **Decision:**  
-- Background analysis always writes to a NEW branch (per D168). User edits happen on the current branch.  
-- No read/write contention: analysis writes to branch X, user edits branch Y. Different data targets.  
-- When analysis completes: notification "Analysis complete on branch [name]." User can switch/merge at will.  
-- If user is editing the SAME branch that analysis is targeting (shouldn't happen — but defensive): analysis aborts with message "Branch modified during analysis. Re-run required."  
+- Background analysis always writes to a NEW take (per D168). User edits happen on the current take.  
+- No read/write contention: analysis writes to take X, user edits take Y. Different data targets.  
+- When analysis completes: notification "Analysis complete on take [name]." User can switch/merge at will.  
+- If user is editing the SAME take that analysis is targeting (shouldn't happen — but defensive): analysis aborts with message "Take modified during analysis. Re-run required."  
 - Standard approach in version-controlled systems — isolation via branching.  
-**Rationale:** Branches solve the contention problem architecturally. No locks, no conflicts, no surprises.
+**Rationale:** Takes solve the contention problem architecturally. No locks, no conflicts, no surprises.
 
 ### D220: Audio callback deadline miss — standard handling
 **Date:** 2026-03-16  
@@ -2632,16 +2632,16 @@ Output auto-splits into one layer per classification label. "kicks" layer, "snar
 - Existing system, no new UI concepts. Just a new section type.  
 **Rationale:** Reuse section markers (D139) instead of inventing a new exclusion mechanism. Clean, discoverable, already designed.
 
-### D225: Manual vs ML comparison — branch diff workflow
+### D225: Manual vs ML comparison — take diff workflow
 **Date:** 2026-03-16  
 **Status:** Decided  
 **Decision:**  
-- "What I programmed vs what the AI found" is a branch comparison workflow.  
-- Import manual cues from MA3 (via ShowManager pull) into one branch.  
-- Run analysis → results go into a different branch.  
-- Use A/B comparison mode (D140) or branch merge conflict view (D169/D203) to diff them.  
-- No special "compare mode" needed — existing branch + A/B tools cover this naturally.  
-**Rationale:** Branches + A/B comparison already solve this. Don't build a separate diff feature when the existing workflow applies.
+- "What I programmed vs what the AI found" is a take comparison workflow.  
+- Import manual cues from MA3 (via ShowManager pull) into one take.  
+- Run analysis → results go into a different take.  
+- Use A/B comparison mode (D140) or take merge conflict view (D169/D203) to diff them.  
+- No special "compare mode" needed — existing take + A/B tools cover this naturally.  
+**Rationale:** Takes + A/B comparison already solve this. Don't build a separate diff feature when the existing workflow applies.
 
 ### D226: Model verification — signed models + weights_only loading
 **Date:** 2026-03-16  
@@ -2768,7 +2768,7 @@ Output auto-splits into one layer per classification label. "kicks" layer, "snar
 **Decision:**  
 - Conflict resolution UI shows only changed events (deltas), not full MA3 state.  
 - LD who changed 3 cues reviews 3 cues, not 500.  
-- Full-failure fallback: "Import MA3 full state as sync branch" — user can then use standard branch tools to merge.  
+- Full-failure fallback: "Import MA3 full state as sync take" — user can then use standard take tools to merge.  
 - Integrates with D203 batch conflict resolution for large delta sets.  
 **Rationale:** Showing full state is overwhelming and useless. Deltas respect the user's time and attention.
 
@@ -2787,11 +2787,11 @@ Output auto-splits into one layer per classification label. "kicks" layer, "snar
 **Status:** Decided  
 **Decision:**  
 - `TransferVersionAnalysis` command: maps events from version A to version B using WarpMap.  
-- Operational command (not undoable) — creates a transfer branch on the target version.  
+- Operational command (not undoable) — creates a transfer take on the target version.  
 - Events with low WarpMap confidence at their timestamp → flagged UNCERTAIN.  
 - ShowManager sync state cleared for the target version — must re-push after review.  
-- Transfers: events, section boundaries, annotations. All land in the transfer branch, never main.  
-**Rationale:** Branch-based transfer is fearless — nothing on main is touched. Uncertain flags prevent blind trust in the alignment.
+- Transfers: events, section boundaries, annotations. All land in the transfer take, never main.  
+**Rationale:** Take-based transfer is fearless — nothing on main is touched. Uncertain flags prevent blind trust in the alignment.
 
 ### D241: Version transfer UI — three-step review workflow
 **Date:** 2026-03-16  

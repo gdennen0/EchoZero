@@ -53,7 +53,7 @@
 - Naming conventions
 - WAL + RLock thread safety
 - DDL as source of truth
-- Kill Branch (never built)
+- Remove legacy variation entity (never built)
 - Manual layers (source_pipeline=null)
 - Don't pre-build pipeline storage
 
@@ -67,7 +67,7 @@
 
 ### DIVERGENT ❌ (2)
 - Module structure: engine files (execution.py, pipeline.py, coordinator.py, cache.py, commands.py) at echozero/ root instead of engine/ subdirectory. shared/ directory doesn't exist.
-- API Contract: completely out of date — still references Branch, branch-keyed layers, no Take endpoints. Needs full rewrite.
+- API Contract: completely out of date — still references legacy variation-keyed layers and is not aligned with take endpoints. Needs full rewrite.
 
 ### NOT YET BUILT (correctly deferred) (6)
 - AnalysisService, SetlistProcessor (services layer)

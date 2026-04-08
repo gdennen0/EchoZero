@@ -27,7 +27,7 @@ Reference baseline: `docs/DISTILLATION-CONFORMANCE-AUDIT-2026-04-04.md`
 |---|---|---:|---:|---|---|
 | A4 | Main-is-truth vs active-take truth leak | 🔴 | ✅ Closed | `echozero/application/timeline/orchestrator.py` (`SelectTake` selection-only), `echozero/application/timeline/assembler.py` (main take drives parent row), tests in `tests/application/test_timeline_assembler_contract.py` | none |
 | A7 | FEEL contract drift / magic numbers | 🔴 | ✅ Closed (baseline) | `tests/ui/test_timeline_feel_contract.py` green | keep FEEL as required gate for UI changes |
-| A9 | Branch-vs-Take terminology drift | 🔴 | 🟡 Partial | Local architecture uses takes; historical docs still mixed | standardize wording during doc sweep |
+| A9 | Legacy terminology drift (now standardizing on Take) | 🔴 | ✅ Closed | Documentation updated to use Take terminology for timeline variation model | keep this as an ongoing docs hygiene check |
 | A5 | SongVersion rebuild_plan persistence | 🟡 | ✅ Closed | schema v4 + repo persistence + session update path + round-trip test (`tests/test_song_version_rebuild_plan.py`) | none |
 | A6 | Sync boundary (main-only) proof | 🟡 | 🟡 Open | MA3 payload normalization contract now covered (`tests/unit/test_ma3_event_contract.py`), but explicit end-to-end main-only sync proof still missing | add sync harness tests with main vs non-main fixtures |
 | A10 | Real-data stems progression | 🟡 | ✅ Operational | real-data runs + visual proof loops active | continue during new feature work |
@@ -39,7 +39,7 @@ Reference baseline: `docs/DISTILLATION-CONFORMANCE-AUDIT-2026-04-04.md`
 ### P0 — Contract closure
 - [x] Persist `SongVersionRecord.rebuild_plan` in SQLite and verify round-trip tests
 - [ ] Add explicit sync-boundary tests proving main-only sync semantics
-- [ ] Finish terminology sweep: remove remaining Branch language where Take is intended
+- [x] Finish terminology sweep: replace legacy timeline variation terms with Take terminology
 
 ### P0 — Repo hygiene
 - [x] Keep working tree clean (no generated artifacts/log churn in Git status)
@@ -66,7 +66,7 @@ Reference baseline: `docs/DISTILLATION-CONFORMANCE-AUDIT-2026-04-04.md`
 
 ## 5) Operating Rules (to stay clean)
 
-1. No new feature branch starts unless P0 items are green.
+1. No new feature implementation starts unless P0 items are green.
 2. Any UI change must pass:
    - timeline shell tests
    - FEEL contract test

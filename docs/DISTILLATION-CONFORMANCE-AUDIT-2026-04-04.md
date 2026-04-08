@@ -154,18 +154,18 @@ Assessment:
 
 ---
 
-### A9) Terminology consistency (Branch vs Take)
-**Status: 🔴 Red (documentation drift)**
+### A9) Terminology consistency (standardize on Take)
+**Status: ✅ Green (closed)**
 
-Conflict:
-- Distillation glossary still defines **Branch** as user-facing timeline result primitive (`DISTILLATION.md:1055`).
-- Current architecture memory states Branch entity killed; takes are the variation primitive (`MEMORY.md#L70-L84`).
+Resolution:
+- Timeline variation terminology is now standardized on **Take** in active architecture docs.
+- Legacy references have been swept from current guidance and tracker docs.
 
 Impact:
-- Ambiguous guidance for contributors; can reintroduce dead model patterns.
+- Contributor guidance is now aligned with the current take-system model.
 
-Required fix:
-- Update distillation glossary and any lingering branch-facing timeline semantics to take-system terms.
+Follow-through:
+- Keep terminology drift checks as part of periodic doc hygiene.
 
 ---
 
@@ -176,7 +176,7 @@ State:
 - Real stems path now runs and surfaces lanes; classifier-in-place currently preview heuristic layer set.
 
 Assessment:
-- Correct progression direction is in place, but classifier branch remains preview-mode until true model path is integrated.
+- Correct progression direction is in place, but classifier take remains preview-mode until true model path is integrated.
 
 ---
 
@@ -184,11 +184,11 @@ Assessment:
 1. **Kill active-take truth leak** (A4) — highest architecture risk.
 2. **FEEL integration pass** (A7) — highest UX contract risk.
 3. **Persist SongVersion rebuild plan + tests** (A5).
-4. **Distillation glossary cleanup (Branch→Take)** (A9).
+4. **Distillation glossary cleanup (legacy terminology → Take)** (A9).
 5. **Concrete sync-boundary tests for main-only behavior** (A6).
 
 ---
 
 ## Bottom Line
 The codebase is materially aligned on boundary design, output mapping, staleness logic, and recent stems-first UX progress.  
-However, three contract-level risks remain and must be fixed for full distillation compliance: **active-take truth leak, FEEL contract drift, and stale Branch terminology in distillation docs**.
+However, two contract-level risks remain and must be fixed for full distillation compliance: **active-take truth leak and FEEL contract drift**.
