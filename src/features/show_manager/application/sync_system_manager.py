@@ -3977,17 +3977,9 @@ class SyncSystemManager(QObject):
         self._ma3_events_in_flight.pop(coord, None)
         
         
-        # Store the raw events from MA3
+        # Store normalized events from MA3 (tolerant of schema variation).
         new_events = [
-            MA3EventInfo(
-                time=e.get("time", 0.0),
-                name=e.get("name", ""),
-                cmd=e.get("cmd", ""),
-                idx=e.get("idx", i),
-                tc=e.get("tc", 0),
-                tg=e.get("tg", 0),
-                track=e.get("track", 0),
-            )
+            self._normalize_ma3_event(e, fallback_idx=i + 1)
             for i, e in enumerate(events)
         ]
         
@@ -4124,6 +4116,62 @@ class SyncSystemManager(QObject):
                 "track": int(match.group(3)),
             }
         return None
+
+    @staticmethod
+    def _safe_float(value: Any, default: float = 0.0) -> float:
+        try:
+            if value is None:
+                return default
+            return float(value)
+        except (TypeError, ValueError):
+            return default
+
+    @staticmethod
+    def _safe_int(value: Any, default: int = 0) -> int:
+        try:
+            if value is None:
+                return default
+            return int(value)
+        except (TypeError, ValueError):
+            return default
+
+    @staticmethod
+    def _safe_str(value: Any, default: str = "") -> str:
+        if value is None:
+            return default
+        if isinstance(value, str):
+            return value
+        if isinstance(value, bytes):
+            return value.decode("utf-8", errors="replace")
+        return str(value)
+
+    def _normalize_ma3_event(self, event: Dict[str, Any], fallback_idx: int) -> MA3EventInfo:
+        """Normalize MA3 event payloads from fixture/live variants.
+
+        Accepts common aliases and unexpected value types so sync remains robust
+        when plugin payloads evolve.
+        """
+        if not isinstance(event, dict):
+            event = {}
+
+        time_raw = event.get("time", event.get("t", event.get("timestamp", 0.0)))
+        name_raw = event.get("name", event.get("label", event.get("text", "")))
+        cmd_raw = event.get("cmd", event.get("command", ""))
+
+        idx_raw = event.get("idx", event.get("no", event.get("id", fallback_idx)))
+        tc_raw = event.get("tc", event.get("timecode", 0))
+        tg_raw = event.get("tg", event.get("track_group", 0))
+        tr_raw = event.get("track", event.get("tr", 0))
+
+        return MA3EventInfo(
+            time=self._safe_float(time_raw, default=0.0),
+            name=self._safe_str(name_raw, default=""),
+            cmd=self._safe_str(cmd_raw, default=""),
+            idx=self._safe_int(idx_raw, default=fallback_idx),
+            tc=self._safe_int(tc_raw, default=0),
+            tg=self._safe_int(tg_raw, default=0),
+            track=self._safe_int(tr_raw, default=0),
+        )
     
     # =========================================================================
     # Private: Editor Operations
@@ -4787,14 +4835,19 @@ class SyncSystemManager(QObject):
             )
         elif "layer_id" in data:
             # EditorLayerEntity format
+            mapped_coord = data.get("mapped_ma3_track_id")
+            parsed = self._parse_ma3_coord(mapped_coord) if mapped_coord else None
             return SyncLayerEntity(
                 id=entity_id,
                 source=SyncSource.EDITOR,
                 name=data.get("name", data.get("layer_id", "")),
                 editor_layer_id=data.get("layer_id"),
                 editor_block_id=data.get("block_id"),
-                ma3_coord=data.get("mapped_ma3_track_id"),
-                sync_status=SyncStatus.SYNCED if data.get("mapped_ma3_track_id") else SyncStatus.UNMAPPED,
+                ma3_coord=mapped_coord,
+                ma3_timecode_no=parsed.get("timecode_no") if parsed else None,
+                ma3_track_group=parsed.get("track_group") if parsed else None,
+                ma3_track=parsed.get("track") if parsed else None,
+                sync_status=SyncStatus.SYNCED if mapped_coord else SyncStatus.UNMAPPED,
                 event_count=data.get("event_count", 0),
                 settings=SyncLayerSettings.from_dict(data.get("settings", {})),
                 group_name=data.get("group_name"),

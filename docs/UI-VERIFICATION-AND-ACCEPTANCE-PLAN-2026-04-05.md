@@ -203,7 +203,7 @@ The script already prints:
 
 ### Artifact
 
-Required artifacts:
+Required artifacts (generated locally or in CI workspace; do not commit to Git):
 - `artifacts/timeline-real-data/timeline_real_default.png`
 - `artifacts/timeline-real-data/timeline_real_scrolled.png`
 - `artifacts/timeline-real-data/timeline_real_zoomed_in.png`

@@ -28,6 +28,8 @@ Outputs are written to:
 artifacts/timeline-demo/
 ```
 
+> Note: capture outputs are local runtime artifacts and are **not tracked in Git**.
+
 Expected files:
 - `timeline_default.png`
 - `timeline_stopped.png`
