@@ -10,6 +10,7 @@ import pytest
 from PyQt6.QtWidgets import QApplication
 
 from src.features.show_manager.application.sync_system_manager import SyncSystemManager
+from src.features.show_manager.domain.sync_layer_entity import SyncLayerEntity, SyncSource, SyncStatus
 
 
 @pytest.fixture(scope="module")
@@ -121,3 +122,26 @@ def test_add_all_editor_events_to_ma3_defaults_to_main_when_metadata_absent(mana
     assert result["added"] == 2
     assert result["failed"] == 0
     assert manager._send_lua_command_with_target.call_count == 2
+
+
+def test_push_editor_to_ma3_empty_editor_events_does_not_auto_clear_track(manager):
+    entity = SyncLayerEntity(
+        id="sync-1",
+        source=SyncSource.EDITOR,
+        name="Layer 1",
+        editor_layer_id="layer-1",
+        editor_block_id="editor-1",
+        ma3_coord="tc1_tg1_tr1",
+        sync_status=SyncStatus.SYNCED,
+    )
+
+    manager._facade.ma3_comm_service = MagicMock()
+    manager._get_editor_events = MagicMock(return_value=[])
+    manager._clear_ma3_track = MagicMock(return_value=True)
+    manager._add_all_editor_events_to_ma3 = MagicMock(return_value={"added": 0, "failed": 0})
+
+    manager._push_editor_to_ma3(entity)
+
+    # Empty editor side should not auto-destruct MA3 state.
+    manager._clear_ma3_track.assert_not_called()
+    manager._add_all_editor_events_to_ma3.assert_not_called()
