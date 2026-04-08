@@ -157,3 +157,54 @@ def test_push_editor_to_ma3_empty_editor_events_does_not_auto_clear_track(manage
     # Empty editor side should not auto-destruct MA3 state.
     manager._clear_ma3_track.assert_not_called()
     manager._add_all_editor_events_to_ma3.assert_not_called()
+
+
+def test_push_editor_to_ma3_all_non_main_events_does_not_auto_clear_track(manager):
+    entity = SyncLayerEntity(
+        id="sync-2",
+        source=SyncSource.EDITOR,
+        name="Layer 2",
+        editor_layer_id="layer-2",
+        editor_block_id="editor-1",
+        ma3_coord="tc1_tg1_tr2",
+        sync_status=SyncStatus.SYNCED,
+    )
+
+    manager._facade.ma3_comm_service = MagicMock()
+    manager._get_editor_events = MagicMock(
+        return_value=[
+            {"time": 1.0, "name": "Alt A", "metadata": {"is_main": False}},
+            {"time": 2.0, "name": "Alt B", "metadata": {"take_role": "alternate"}},
+        ]
+    )
+    manager._clear_ma3_track = MagicMock(return_value=True)
+    manager._add_all_editor_events_to_ma3 = MagicMock(return_value={"added": 0, "failed": 0})
+
+    manager._push_editor_to_ma3(entity)
+
+    # Non-main-only editor events should not clear MA3 implicitly.
+    manager._clear_ma3_track.assert_not_called()
+    manager._add_all_editor_events_to_ma3.assert_not_called()
+
+
+def test_apply_to_ma3_missing_metadata_returns_error_without_clearing(manager):
+    entity = SyncLayerEntity(
+        id="sync-3",
+        source=SyncSource.EDITOR,
+        name="Layer 3",
+        editor_layer_id="layer-3",
+        editor_block_id="editor-1",
+        ma3_coord="tc1_tg1_tr3",
+        sync_status=SyncStatus.SYNCED,
+    )
+
+    manager._synced_layers[entity.id] = entity
+    manager._facade.ma3_comm_service = MagicMock()
+    manager._get_editor_events = MagicMock(return_value=[{"time": 1.0, "name": "Kick"}])
+    manager._clear_ma3_track = MagicMock(return_value=True)
+
+    ok = manager.apply_to_ma3(entity.id)
+
+    assert ok is False
+    assert entity.sync_status == SyncStatus.ERROR
+    manager._clear_ma3_track.assert_not_called()

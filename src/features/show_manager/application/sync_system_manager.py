@@ -2646,8 +2646,17 @@ class SyncSystemManager(QObject):
         if not editor_events:
             Log.warning(f"SyncSystemManager: No Editor events to push for {entity.editor_layer_id}")
             return
-        
-        
+
+        # Enforce main-only sync write contract before any destructive MA3 action.
+        # Missing/invalid metadata is a hard failure (raises) by design.
+        main_events = self._filter_main_lane_events(editor_events)
+        if not main_events:
+            Log.info(
+                f"SyncSystemManager: No main-lane events eligible for MA3 push "
+                f"for {entity.editor_layer_id}; skipping push"
+            )
+            return
+
         # Parse coord
         parts = self._parse_ma3_coord(entity.ma3_coord)
         if not parts:
@@ -2671,7 +2680,7 @@ class SyncSystemManager(QObject):
         
         # Add all Editor events to MA3
         result = self._add_all_editor_events_to_ma3(
-            editor_events=editor_events,
+            editor_events=main_events,
             tc_no=tc_no,
             tg_no=tg_no,
             tr_no=tr_no
@@ -2685,7 +2694,7 @@ class SyncSystemManager(QObject):
             # Update cache directly with Editor events (what we just sent to MA3)
             # Convert Editor events to MA3EventInfo format for cache
             cache_events = []
-            for i, event in enumerate(editor_events):
+            for i, event in enumerate(main_events):
                 # Extract time and name from Editor event
                 if isinstance(event, dict):
                     time_val = event.get("time", 0.0)
