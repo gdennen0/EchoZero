@@ -1,0 +1,57 @@
+{
+  "timecode_no": 101,
+  "track_groups": [
+    {
+      "no": 1,
+      "name": "Drums",
+      "track_count": 3
+    }
+  ],
+  "tracks_by_group": {
+    "1": [
+      {
+        "no": 1,
+        "name": "Other Layer",
+        "event_count": 4,
+        "sequence_no": 5,
+        "note": "ez:other_layer"
+      },
+      {
+        "no": 2,
+        "name": "Kick Layer",
+        "event_count": 3,
+        "sequence_no": 5,
+        "note": "ez:kick_layer"
+      },
+      {
+        "no": 3,
+        "name": "Snare Layer",
+        "event_count": 2,
+        "sequence_no": 5,
+        "note": "ez:snare_layer"
+      }
+    ]
+  },
+  "events_by_coord": {
+    "tc101_tg1_tr2": [
+      {
+        "time": 1.0,
+        "name": "Kick",
+        "cmd": "Go",
+        "idx": 1
+      },
+      {
+        "time": 2.0,
+        "name": "Kick",
+        "cmd": "Go",
+        "idx": 2
+      },
+      {
+        "time": 3.0,
+        "name": "Kick",
+        "cmd": "Go",
+        "idx": 3
+      }
+    ]
+  }
+}

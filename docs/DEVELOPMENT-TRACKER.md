@@ -15,8 +15,8 @@ If this tracker conflicts with the canonical implementation plan, update this tr
 - UI contract is becoming explicit and shared
 - Real-data playback is part of verification (not mock-only)
 
-**Readiness to add features:** 🟡 Not yet
-- Feature freeze is active for Timeline/Sync surfaces until P0 is green.
+**Readiness to add features:** ✅ Ready for next feature tranche
+- P0 contract + hygiene gate is green. Continue with contract-first execution discipline.
 
 ---
 
@@ -30,7 +30,7 @@ Reference baseline: `docs/DISTILLATION-CONFORMANCE-AUDIT-2026-04-04.md`
 | A7 | FEEL contract drift / magic numbers | 🔴 | ✅ Closed (baseline) | `tests/ui/test_timeline_feel_contract.py` green | keep FEEL as required gate for UI changes |
 | A9 | Legacy terminology drift (now standardizing on Take) | 🔴 | ✅ Closed | Documentation updated to use Take terminology for timeline variation model | keep this as an ongoing docs hygiene check |
 | A5 | SongVersion rebuild_plan persistence | 🟡 | ✅ Closed | schema v4 + repo persistence + session update path + round-trip test (`tests/test_song_version_rebuild_plan.py`) | none |
-| A6 | Sync boundary (main-only) proof | 🟡 | 🟡 Open | Sync harness now covers apply/push path (`tests/unit/test_ma3_event_contract.py`) and pull/reconnect divergence state handling (`tests/unit/test_multitrack_sync_coalesce.py`); remaining gap is external MA3 fixture replay + reconnect end-to-end proof | add MA3 fixture replay tests (track/events lifecycle, reconnect) at app boundary |
+| A6 | Sync boundary (main-only) proof | 🟡 | ✅ Closed | Sync harness covers apply/push path (`tests/unit/test_ma3_event_contract.py`), pull/reconnect divergence state handling (`tests/unit/test_multitrack_sync_coalesce.py`), and external MA3 fixture replay at app boundary (`tests/unit/test_ma3_fixture_replay.py`) | keep live-console soak as non-blocking operational verification |
 | A10 | Real-data stems progression | 🟡 | ✅ Operational | real-data runs + visual proof loops active | continue during new feature work |
 
 ---
@@ -39,7 +39,7 @@ Reference baseline: `docs/DISTILLATION-CONFORMANCE-AUDIT-2026-04-04.md`
 
 ### P0 — Contract closure
 - [x] Persist `SongVersionRecord.rebuild_plan` in SQLite and verify round-trip tests
-- [ ] Add explicit sync-boundary tests proving main-only sync semantics
+- [x] Add explicit sync-boundary tests proving main-only sync semantics
 - [x] Finish terminology sweep: replace legacy timeline variation terms with Take terminology
 
 ### P0 — Repo hygiene
