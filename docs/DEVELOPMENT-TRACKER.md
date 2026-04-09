@@ -30,7 +30,7 @@ Reference baseline: `docs/DISTILLATION-CONFORMANCE-AUDIT-2026-04-04.md`
 | A7 | FEEL contract drift / magic numbers | 🔴 | ✅ Closed (baseline) | `tests/ui/test_timeline_feel_contract.py` green | keep FEEL as required gate for UI changes |
 | A9 | Legacy terminology drift (now standardizing on Take) | 🔴 | ✅ Closed | Documentation updated to use Take terminology for timeline variation model | keep this as an ongoing docs hygiene check |
 | A5 | SongVersion rebuild_plan persistence | 🟡 | ✅ Closed | schema v4 + repo persistence + session update path + round-trip test (`tests/test_song_version_rebuild_plan.py`) | none |
-| A6 | Sync boundary (main-only) proof | 🟡 | 🟡 Open | Sync harness now covers apply/push path with main-only filtering, hard-fail metadata, and no implicit clear on non-main/empty (`tests/unit/test_ma3_event_contract.py`); remaining gap is broader pull/reconnect fixture matrix | add pull/reconnect harness tests with main vs non-main fixtures |
+| A6 | Sync boundary (main-only) proof | 🟡 | 🟡 Open | Sync harness now covers apply/push path (`tests/unit/test_ma3_event_contract.py`) and pull/reconnect divergence state handling (`tests/unit/test_multitrack_sync_coalesce.py`); remaining gap is external MA3 fixture replay + reconnect end-to-end proof | add MA3 fixture replay tests (track/events lifecycle, reconnect) at app boundary |
 | A10 | Real-data stems progression | 🟡 | ✅ Operational | real-data runs + visual proof loops active | continue during new feature work |
 
 ---

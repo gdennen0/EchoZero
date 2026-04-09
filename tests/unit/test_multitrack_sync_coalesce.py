@@ -168,6 +168,15 @@ def _make_entity(coord: str, layer_id: str):
     )
 
 
+def _comparison(diverged: bool, ma3_count: int = 1, editor_count: int = 1, matched_count: int = 1):
+    c = MagicMock()
+    c.diverged = diverged
+    c.ma3_count = ma3_count
+    c.editor_count = editor_count
+    c.matched_count = matched_count
+    return c
+
+
 # ---------------------------------------------------------------------------
 # Tests
 # ---------------------------------------------------------------------------
@@ -350,3 +359,92 @@ class TestRetryMechanism:
 
         # Retry counter should be cleared
         assert "tc1_tg1_tr1" not in ssm._events_request_retries
+
+
+class TestPullReconnectContract:
+    """Contract coverage for pull/reconnect divergence handling."""
+
+    def test_synced_diverged_schedules_push_when_updates_enabled(self):
+        ssm = _make_ssm()
+        entity = _make_entity("tc1_tg1_tr1", "clap")
+        ssm._synced_layers[entity.id] = entity
+
+        ssm._compare_entity = MagicMock(return_value=_comparison(diverged=True, ma3_count=4, editor_count=2))
+        ssm._schedule_push_ma3_to_editor = MagicMock()
+
+        events = [{"time": 1.0, "name": "evt1", "cmd": "Go", "idx": 1}]
+        ssm.on_track_events_received("tc1_tg1_tr1", events)
+
+        ssm._schedule_push_ma3_to_editor.assert_called_once_with(entity)
+
+    def test_synced_diverged_does_not_schedule_when_updates_disabled(self):
+        ssm = _make_ssm()
+        entity = _make_entity("tc1_tg1_tr1", "clap")
+        entity.settings.apply_updates_enabled = False
+        ssm._synced_layers[entity.id] = entity
+
+        ssm._compare_entity = MagicMock(return_value=_comparison(diverged=True, ma3_count=4, editor_count=2))
+        ssm._schedule_push_ma3_to_editor = MagicMock()
+
+        events = [{"time": 1.0, "name": "evt1", "cmd": "Go", "idx": 1}]
+        ssm.on_track_events_received("tc1_tg1_tr1", events)
+
+        ssm._schedule_push_ma3_to_editor.assert_not_called()
+
+    def test_synced_force_apply_overrides_updates_disabled(self):
+        ssm = _make_ssm()
+        entity = _make_entity("tc1_tg1_tr1", "clap")
+        entity.settings.apply_updates_enabled = False
+        ssm._synced_layers[entity.id] = entity
+        ssm._force_apply_to_ez["tc1_tg1_tr1"] = True
+
+        ssm._compare_entity = MagicMock(return_value=_comparison(diverged=False, ma3_count=3, editor_count=3))
+        ssm._schedule_push_ma3_to_editor = MagicMock()
+
+        events = [{"time": 1.0, "name": "evt1", "cmd": "Go", "idx": 1}]
+        ssm.on_track_events_received("tc1_tg1_tr1", events)
+
+        ssm._schedule_push_ma3_to_editor.assert_called_once_with(entity)
+        assert "tc1_tg1_tr1" not in ssm._force_apply_to_ez
+
+    def test_pending_diverged_marks_diverged_without_auto_push(self):
+        from src.features.show_manager.domain.sync_layer_entity import SyncStatus
+
+        ssm = _make_ssm()
+        entity = _make_entity("tc1_tg1_tr1", "clap")
+        entity.sync_status = SyncStatus.PENDING
+        ssm._synced_layers[entity.id] = entity
+
+        ssm._compare_entity = MagicMock(return_value=_comparison(diverged=True, ma3_count=5, editor_count=2, matched_count=1))
+        ssm._schedule_push_ma3_to_editor = MagicMock()
+        ssm._save_to_settings = MagicMock()
+        ssm._push_sync_state_to_all_layers = MagicMock()
+
+        events = [{"time": 1.0, "name": "evt1", "cmd": "Go", "idx": 1}]
+        ssm.on_track_events_received("tc1_tg1_tr1", events)
+
+        assert entity.sync_status == SyncStatus.DIVERGED
+        ssm._schedule_push_ma3_to_editor.assert_not_called()
+        ssm._save_to_settings.assert_called_once()
+        ssm._push_sync_state_to_all_layers.assert_called_once()
+
+    def test_pending_non_diverged_promotes_to_synced(self):
+        from src.features.show_manager.domain.sync_layer_entity import SyncStatus
+
+        ssm = _make_ssm()
+        entity = _make_entity("tc1_tg1_tr1", "clap")
+        entity.sync_status = SyncStatus.PENDING
+        ssm._synced_layers[entity.id] = entity
+
+        ssm._compare_entity = MagicMock(return_value=_comparison(diverged=False, ma3_count=2, editor_count=2, matched_count=2))
+        ssm._schedule_push_ma3_to_editor = MagicMock()
+        ssm._save_to_settings = MagicMock()
+        ssm._push_sync_state_to_all_layers = MagicMock()
+
+        events = [{"time": 1.0, "name": "evt1", "cmd": "Go", "idx": 1}]
+        ssm.on_track_events_received("tc1_tg1_tr1", events)
+
+        assert entity.sync_status == SyncStatus.SYNCED
+        ssm._schedule_push_ma3_to_editor.assert_not_called()
+        ssm._save_to_settings.assert_called_once()
+        ssm._push_sync_state_to_all_layers.assert_called_once()
