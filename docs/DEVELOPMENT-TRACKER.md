@@ -1,6 +1,6 @@
 # EchoZero Development Tracker (Canonical)
 
-_Last updated: 2026-04-08_
+_Last updated: 2026-04-09_
 
 This is the live execution status board.
 Canonical implementation authority is: `docs/UNIFIED-IMPLEMENTATION-PLAN.md`.
@@ -35,7 +35,7 @@ Reference baseline: `docs/DISTILLATION-CONFORMANCE-AUDIT-2026-04-04.md`
 
 ---
 
-## 3) What Must Be Done Before New Features
+## 3) Phase-0 Closure Status (Pre-Feature Gate)
 
 ### P0 — Contract closure
 - [x] Persist `SongVersionRecord.rebuild_plan` in SQLite and verify round-trip tests
@@ -54,8 +54,17 @@ Reference baseline: `docs/DISTILLATION-CONFORMANCE-AUDIT-2026-04-04.md`
 
 ---
 
-## 4) Cleanup Completed in This Pass
+## 4) Active Phase (Phase 1 from unified plan): Sync Surface Consolidation
 
+- [x] Add concrete app-layer `SyncService` adapters (`InMemorySyncService`, `MA3SyncAdapter`) in `echozero/application/sync/adapters.py`
+- [x] Add adapter contract tests (`tests/application/test_sync_adapters.py`)
+- [x] Remove duplicated demo-only sync service implementation from timeline demo app
+- [ ] Wire `MA3SyncAdapter` into a production composition root (timeline runtime path)
+- [ ] Lift remaining sync behavior assertions from manager-internals to app-boundary integration tests
+
+---
+
+## 5) Cleanup Completed in This Pass
 - Removed large untracked noise from repo root and generated runtime output directories (`artifacts/*`, `foundry/runs/*`, temp debug files, ad-hoc screenshots, abandoned local worktree folders under repo).
 - Restored generated tracked files that were modified by local demo/training runs.
 - Hardened `.gitignore` to prevent recurrence of local noise artifacts and run outputs.
@@ -65,7 +74,7 @@ Reference baseline: `docs/DISTILLATION-CONFORMANCE-AUDIT-2026-04-04.md`
 
 ---
 
-## 5) Operating Rules (to stay clean)
+## 6) Operating Rules (to stay clean)
 
 1. No new feature implementation starts unless P0 items are green.
 2. Any UI change must pass:
@@ -77,7 +86,7 @@ Reference baseline: `docs/DISTILLATION-CONFORMANCE-AUDIT-2026-04-04.md`
 
 ---
 
-## 6) Socratic "What If" Questions (Decision Check Before Feature Expansion)
+## 7) Socratic "What If" Questions (Decision Check Before Feature Expansion)
 
 1. **What if** we freeze all new features for 48 hours and only close P0 contract gaps — would that increase velocity more than shipping one more feature now?
 2. **What if** sync ever reads a non-main take in one edge path — do we have a failing test today that would catch it immediately?
@@ -87,7 +96,7 @@ Reference baseline: `docs/DISTILLATION-CONFORMANCE-AUDIT-2026-04-04.md`
 
 ---
 
-## 7) Next Checkpoint
+## 8) Next Checkpoint
 
 When P0 is complete, update this file and mark:
 - **Direction:** ✅ Correct

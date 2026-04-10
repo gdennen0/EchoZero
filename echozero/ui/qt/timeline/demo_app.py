@@ -18,7 +18,6 @@ from echozero.application.session.service import SessionService
 from echozero.application.shared.enums import FollowMode, PlaybackStatus, SyncMode
 from echozero.application.shared.ids import EventId, ProjectId, SessionId, SongId, SongVersionId
 from echozero.application.sync.models import SyncState
-from echozero.application.sync.service import SyncService
 from echozero.application.timeline.intents import (
     ClearSelection,
     Pause,
@@ -146,30 +145,6 @@ class DemoPlaybackService(PlaybackService):
     def stop(self) -> PlaybackState:
         self._session.playback_state.status = PlaybackStatus.STOPPED
         return self._session.playback_state
-
-
-class DemoSyncService(SyncService):
-    def __init__(self, session: Session):
-        self._session = session
-
-    def get_state(self) -> SyncState:
-        return self._session.sync_state
-
-    def connect(self) -> SyncState:
-        self._session.sync_state.connected = True
-        return self._session.sync_state
-
-    def disconnect(self) -> SyncState:
-        self._session.sync_state.connected = False
-        self._session.sync_state.mode = SyncMode.NONE
-        return self._session.sync_state
-
-    def set_mode(self, mode: SyncMode) -> SyncState:
-        self._session.sync_state.mode = mode
-        return self._session.sync_state
-
-    def align_transport(self, transport: TransportState) -> TransportState:
-        return transport
 
 
 @dataclass(slots=True)
