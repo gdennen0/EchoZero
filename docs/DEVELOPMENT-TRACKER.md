@@ -103,16 +103,16 @@ Concrete checklist:
 - [x] Define required screenshot + video artifacts
 - [x] Define explicit pass/fail criteria
 - [x] Document intentional differences from full DAW precedent
-- [ ] Select the stable real-data song/version fixture used for `LD-01`
+- [x] Select the stable real-data song/version fixture used for `LD-01` (`docs/PHASE3-LD01-FIXTURE.md`)
 - [ ] Execute first full `LD-01` run against the current baseline
-- [ ] Package evidence artifacts outside tracked source and attach run metadata
+- [ ] Package evidence artifacts outside tracked source and attach run metadata (bootstrap helper created in `scripts/phase3_ld01_evidence_pack.py`; clean pack still pending)
 - [ ] Review pass/fail result and record any workflow gaps
 - [ ] Confirm the runbook is usable as regression signoff for workflow-affecting changes
 
 Checkpoints:
 - Checkpoint P3.1: runbook and tracker activation complete
-- Checkpoint P3.2: fixture frozen for repeatable reruns
-- Checkpoint P3.3: first clean `LD-01` evidence pack captured
+- Checkpoint P3.2: complete - fixture frozen for repeatable reruns (`docs/PHASE3-LD01-FIXTURE.md`)
+- Checkpoint P3.3: in progress - first `LD-01` evidence-pack bootstrap generated (`scripts/phase3_ld01_evidence_pack.py`)
 - Checkpoint P3.4: proof-pack accepted as active regression signoff path
 
 ---
@@ -153,4 +153,4 @@ Checkpoints:
 
 ## 10) Next Checkpoint
 
-Phase 3 active. Next checkpoint: freeze the `LD-01` fixture and capture the first clean evidence pack under the canonical runbook.
+Phase 3 active. Next checkpoint: capture the first clean `LD-01` evidence pack under the canonical runbook.
