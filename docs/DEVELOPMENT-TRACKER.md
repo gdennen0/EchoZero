@@ -1,6 +1,6 @@
 # EchoZero Development Tracker (Canonical)
 
-_Last updated: 2026-04-09_
+_Last updated: 2026-04-10_
 
 This is the live execution status board.
 Canonical implementation authority is: `docs/UNIFIED-IMPLEMENTATION-PLAN.md`.
@@ -64,7 +64,31 @@ Reference baseline: `docs/DISTILLATION-CONFORMANCE-AUDIT-2026-04-04.md`
 
 ---
 
-## 5) Cleanup Completed in This Pass
+## 5) Active Phase (Phase 2 from unified plan): UX/FEEL Contract Hardening ✅ Complete
+
+- [x] FEEL shell contract baseline expanded (`tests/ui/test_timeline_feel_contract.py`)
+  - ruler height asserted from FEEL
+  - scroll-bounds right padding asserted from FEEL
+- [x] Timeline zoom contract moved to FEEL constants
+  - `TIMELINE_ZOOM_STEP_FACTOR`
+  - `TIMELINE_ZOOM_MIN_PPS`
+  - `TIMELINE_ZOOM_MAX_PPS`
+  - wired in `echozero/ui/qt/timeline/widget.py`
+- [x] Inspector contract transition coverage expanded
+  - timeline → layer → event → clear sequence remains contract-rendered
+  - no-takes layers exclude take actions and toggle affordance/hit-paths
+- [x] Evidence loop completed
+  - scripted screenshot sweep (`run_timeline_capture.py`)
+  - real-data object-info walkthrough clip + screenshots (`tmp/object-info-demo` staged to workspace tmp)
+
+Phase 2 milestone commits:
+- `f773d99` — Phase 2: expand FEEL contract coverage for timeline shell
+- `c971a78` — Phase 2: move timeline zoom bounds into FEEL contract
+- `1e82db2` — Phase 2: harden inspector contract transition coverage
+
+---
+
+## 6) Cleanup Completed in This Pass
 - Removed large untracked noise from repo root and generated runtime output directories (`artifacts/*`, `foundry/runs/*`, temp debug files, ad-hoc screenshots, abandoned local worktree folders under repo).
 - Restored generated tracked files that were modified by local demo/training runs.
 - Hardened `.gitignore` to prevent recurrence of local noise artifacts and run outputs.
@@ -74,7 +98,7 @@ Reference baseline: `docs/DISTILLATION-CONFORMANCE-AUDIT-2026-04-04.md`
 
 ---
 
-## 6) Operating Rules (to stay clean)
+## 7) Operating Rules (to stay clean)
 
 1. No new feature implementation starts unless P0 items are green.
 2. Any UI change must pass:
@@ -86,7 +110,7 @@ Reference baseline: `docs/DISTILLATION-CONFORMANCE-AUDIT-2026-04-04.md`
 
 ---
 
-## 7) Socratic "What If" Questions (Decision Check Before Feature Expansion)
+## 8) Socratic "What If" Questions (Decision Check Before Feature Expansion)
 
 1. **What if** we freeze all new features for 48 hours and only close P0 contract gaps — would that increase velocity more than shipping one more feature now?
 2. **What if** sync ever reads a non-main take in one edge path — do we have a failing test today that would catch it immediately?
@@ -96,8 +120,6 @@ Reference baseline: `docs/DISTILLATION-CONFORMANCE-AUDIT-2026-04-04.md`
 
 ---
 
-## 8) Next Checkpoint
+## 9) Next Checkpoint
 
-When P0 is complete, update this file and mark:
-- **Direction:** ✅ Correct
-- **Readiness:** ✅ Add next feature tranche
+Phase 2 complete. Next checkpoint: Phase 3 DAW proof-pack execution order and acceptance criteria signoff.
