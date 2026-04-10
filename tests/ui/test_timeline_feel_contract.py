@@ -1,3 +1,5 @@
+from dataclasses import replace
+
 from PyQt6.QtWidgets import QApplication
 
 from echozero.ui.FEEL import (
@@ -8,11 +10,15 @@ from echozero.ui.FEEL import (
     RULER_HEIGHT_PX,
     TAKE_ROW_HEIGHT_PX,
     TIMELINE_RIGHT_PADDING_PX,
+    TIMELINE_ZOOM_MAX_PPS,
+    TIMELINE_ZOOM_MIN_PPS,
+    TIMELINE_ZOOM_STEP_FACTOR,
 )
 from echozero.ui.qt.timeline.demo_app import build_demo_app
 from echozero.ui.qt.timeline.widget import (
     TimelineCanvas,
     TimelineRuler,
+    TimelineWidget,
     compute_scroll_bounds,
     estimate_timeline_span_seconds,
 )
@@ -58,3 +64,43 @@ def test_compute_scroll_bounds_default_right_padding_is_sourced_from_feel():
 
     assert content_width == expected_content_width
     assert max_scroll == expected_content_width - viewport_width
+
+
+def test_timeline_zoom_in_clamps_to_feel_max_pps():
+    app = QApplication.instance() or QApplication([])
+    presentation = build_demo_app().presentation()
+    widget = TimelineWidget(
+        presentation,
+    )
+    try:
+        widget.set_presentation(
+            replace(
+                widget.presentation,
+                pixels_per_second=TIMELINE_ZOOM_MAX_PPS / TIMELINE_ZOOM_STEP_FACTOR,
+            )
+        )
+        widget._zoom_from_input(120, anchor_x=widget._canvas._header_width + 120.0)
+
+        assert widget.presentation.pixels_per_second == TIMELINE_ZOOM_MAX_PPS
+    finally:
+        widget.close()
+
+
+def test_timeline_zoom_out_clamps_to_feel_min_pps():
+    app = QApplication.instance() or QApplication([])
+    presentation = build_demo_app().presentation()
+    widget = TimelineWidget(
+        presentation,
+    )
+    try:
+        widget.set_presentation(
+            replace(
+                widget.presentation,
+                pixels_per_second=TIMELINE_ZOOM_MIN_PPS * TIMELINE_ZOOM_STEP_FACTOR,
+            )
+        )
+        widget._zoom_from_input(-120, anchor_x=widget._canvas._header_width + 120.0)
+
+        assert widget.presentation.pixels_per_second == TIMELINE_ZOOM_MIN_PPS
+    finally:
+        widget.close()

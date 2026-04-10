@@ -48,6 +48,9 @@ from echozero.ui.FEEL import (
     LAYER_ROW_HEIGHT_PX,
     RULER_HEIGHT_PX,
     TAKE_ROW_HEIGHT_PX,
+    TIMELINE_ZOOM_MAX_PPS,
+    TIMELINE_ZOOM_MIN_PPS,
+    TIMELINE_ZOOM_STEP_FACTOR,
     TIMELINE_RIGHT_PADDING_PX,
 )
 from echozero.ui.style.tokens import SHELL_TOKENS
@@ -78,9 +81,6 @@ from echozero.ui.qt.timeline.blocks.waveform_lane import WaveformLaneBlock, Wave
 
 _SPAN_CACHE: dict[tuple, float] = {}
 _MAX_SPAN_CACHE_ENTRIES = 24
-_ZOOM_STEP_FACTOR = 1.12
-_ZOOM_MIN_PPS = 40.0
-_ZOOM_MAX_PPS = 720.0
 
 
 def _span_signature(presentation: TimelinePresentation) -> tuple:
@@ -1236,12 +1236,12 @@ class TimelineWidget(QWidget):
     def _zoom_from_input(self, delta: int, anchor_x: float) -> None:
         if delta == 0:
             return
-        factor = _ZOOM_STEP_FACTOR if delta > 0 else (1.0 / _ZOOM_STEP_FACTOR)
+        factor = TIMELINE_ZOOM_STEP_FACTOR if delta > 0 else (1.0 / TIMELINE_ZOOM_STEP_FACTOR)
         self._apply_zoom_factor(factor, anchor_x=anchor_x)
 
     def _apply_zoom_factor(self, factor: float, *, anchor_x: float) -> None:
         current_pps = max(1.0, float(self.presentation.pixels_per_second))
-        target_pps = max(_ZOOM_MIN_PPS, min(_ZOOM_MAX_PPS, current_pps * float(factor)))
+        target_pps = max(TIMELINE_ZOOM_MIN_PPS, min(TIMELINE_ZOOM_MAX_PPS, current_pps * float(factor)))
         if abs(target_pps - current_pps) < 0.001:
             return
 

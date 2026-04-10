@@ -23,6 +23,9 @@ ZOOM_ANCHOR_TO_CURSOR = True  # Zoom keeps the point under cursor fixed
 ZOOM_SPEED_MULTIPLIER = 1.0  # Scale factor for zoom sensitivity
 ZOOM_MIN_SCALE = 0.001  # Minimum zoom level (full song overview)
 ZOOM_MAX_SCALE = 100.0  # Maximum zoom level (individual samples)
+TIMELINE_ZOOM_STEP_FACTOR = 1.12  # Per-notch timeline zoom multiplier
+TIMELINE_ZOOM_MIN_PPS = 40.0  # Minimum timeline zoom clamp in pixels/second
+TIMELINE_ZOOM_MAX_PPS = 720.0  # Maximum timeline zoom clamp in pixels/second
 
 # =============================================================================
 # PLAYHEAD
