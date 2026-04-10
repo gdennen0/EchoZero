@@ -54,13 +54,13 @@ Reference baseline: `docs/DISTILLATION-CONFORMANCE-AUDIT-2026-04-04.md`
 
 ---
 
-## 4) Active Phase (Phase 1 from unified plan): Sync Surface Consolidation
+## 4) Active Phase (Phase 1 from unified plan): Sync Surface Consolidation ✅ Complete
 
 - [x] Add concrete app-layer `SyncService` adapters (`InMemorySyncService`, `MA3SyncAdapter`) in `echozero/application/sync/adapters.py`
 - [x] Add adapter contract tests (`tests/application/test_sync_adapters.py`)
 - [x] Remove duplicated demo-only sync service implementation from timeline demo app
 - [x] Wire `MA3SyncAdapter` into timeline runtime composition path (`build_demo_app` / Stage Zero driver wiring)
-- [ ] Lift remaining sync behavior assertions from manager-internals to app-boundary integration tests (legacy show-manager path still manager-heavy)
+- [x] Lift sync behavior assertions from manager-internals to app-boundary integration tests (`tests/application/test_timeline_runtime_sync_composition.py`, `tests/application/test_timeline_orchestrator_sync_contract.py`)
 
 ---
 

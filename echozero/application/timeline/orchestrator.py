@@ -132,8 +132,13 @@ class TimelineOrchestrator:
 
         elif isinstance(intent, EnableSync):
             sync_state = self.sync_service.set_mode(intent.mode)
-            self.sync_service.connect()
             session = self.session_service.get_session()
+            try:
+                sync_state = self.sync_service.connect()
+            except Exception:
+                # Keep session state in lockstep with sync service error state.
+                session.sync_state = self.sync_service.get_state()
+                raise
             session.sync_state = sync_state
 
         elif isinstance(intent, DisableSync):
