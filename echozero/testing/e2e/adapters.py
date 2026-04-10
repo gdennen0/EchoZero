@@ -23,6 +23,8 @@ from echozero.application.timeline.intents import (
     ToggleSolo,
     TriggerTakeAction,
 )
+from echozero.application.shared.enums import SyncMode
+from echozero.application.sync.adapters import MA3SyncBridge
 from echozero.ui.qt.timeline.demo_app import DemoTimelineApp, build_demo_app
 from echozero.ui.qt.timeline.widget import TimelineWidget
 
@@ -103,9 +105,17 @@ class FoundryDriverPlaceholder:
         )
 
 
-def create_stage_zero_driver(*, width: int = 1440, height: int = 720) -> StageZeroDriver:
+def create_stage_zero_driver(
+    *,
+    width: int = 1440,
+    height: int = 720,
+    sync_bridge: MA3SyncBridge | None = None,
+    auto_connect_sync: bool = False,
+) -> StageZeroDriver:
     app = QApplication.instance() or QApplication([])
-    timeline_app = build_demo_app()
+    timeline_app = build_demo_app(sync_bridge=sync_bridge)
+    if auto_connect_sync and sync_bridge is not None:
+        timeline_app.enable_sync(SyncMode.MA3)
     widget = TimelineWidget(timeline_app.presentation(), on_intent=timeline_app.dispatch)
     widget.resize(width, height)
     widget.show()

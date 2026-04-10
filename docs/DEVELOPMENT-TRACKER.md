@@ -59,8 +59,8 @@ Reference baseline: `docs/DISTILLATION-CONFORMANCE-AUDIT-2026-04-04.md`
 - [x] Add concrete app-layer `SyncService` adapters (`InMemorySyncService`, `MA3SyncAdapter`) in `echozero/application/sync/adapters.py`
 - [x] Add adapter contract tests (`tests/application/test_sync_adapters.py`)
 - [x] Remove duplicated demo-only sync service implementation from timeline demo app
-- [ ] Wire `MA3SyncAdapter` into a production composition root (timeline runtime path)
-- [ ] Lift remaining sync behavior assertions from manager-internals to app-boundary integration tests
+- [x] Wire `MA3SyncAdapter` into timeline runtime composition path (`build_demo_app` / Stage Zero driver wiring)
+- [ ] Lift remaining sync behavior assertions from manager-internals to app-boundary integration tests (legacy show-manager path still manager-heavy)
 
 ---
 
