@@ -55,21 +55,22 @@ class LayerHeaderBlock:
         self._draw_ms_button(painter, mute_rect, 'M', active=layer.muted, dimmed=dimmed)
         self._draw_ms_button(painter, solo_rect, 'S', active=layer.soloed, dimmed=dimmed)
 
-        painter.setPen(QColor(self.style.toggle_border_hex))
-        painter.setBrush(QBrush(QColor(self.style.toggle_fill_hex)))
-        painter.drawRoundedRect(slots.toggle_rect, self.style.toggle_corner_radius, self.style.toggle_corner_radius)
-        painter.setPen(QColor(self.style.toggle_text_hex))
-        prior_font = painter.font()
-        toggle_font = QFont(prior_font)
-        toggle_font.setPointSize(self.style.toggle_font.point_size)
-        toggle_font.setBold(self.style.toggle_font.bold)
-        painter.setFont(toggle_font)
-        painter.drawText(
-            slots.toggle_rect.adjusted(0, -1, 0, -1),
-            Qt.AlignmentFlag.AlignCenter | Qt.TextFlag.TextSingleLine,
-            'v' if layer.is_expanded else '>',
-        )
-        painter.setFont(prior_font)
+        if layer.takes:
+            painter.setPen(QColor(self.style.toggle_border_hex))
+            painter.setBrush(QBrush(QColor(self.style.toggle_fill_hex)))
+            painter.drawRoundedRect(slots.toggle_rect, self.style.toggle_corner_radius, self.style.toggle_corner_radius)
+            painter.setPen(QColor(self.style.toggle_text_hex))
+            prior_font = painter.font()
+            toggle_font = QFont(prior_font)
+            toggle_font.setPointSize(self.style.toggle_font.point_size)
+            toggle_font.setBold(self.style.toggle_font.bold)
+            painter.setFont(toggle_font)
+            painter.drawText(
+                slots.toggle_rect.adjusted(0, -1, 0, -1),
+                Qt.AlignmentFlag.AlignCenter | Qt.TextFlag.TextSingleLine,
+                'v' if layer.is_expanded else '>',
+            )
+            painter.setFont(prior_font)
         return HeaderHitTargets(mute_rect=mute_rect, solo_rect=solo_rect)
 
     def _draw_status_chips(self, painter: QPainter, rect: QRectF, layer: LayerPresentation) -> None:

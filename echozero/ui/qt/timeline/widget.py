@@ -786,7 +786,8 @@ class TimelineCanvas(QWidget):
             toggle_rect=layout.toggle_rect,
             metadata_rect=layout.metadata_rect,
         )
-        self._toggle_rects.append((slots.toggle_rect, layer.layer_id))
+        if layer.takes:
+            self._toggle_rects.append((slots.toggle_rect, layer.layer_id))
         self._header_select_rects.append((layout.header_rect, layer.layer_id))
         self._row_body_select_rects.append((layout.content_rect, layer.layer_id))
         self._header_hover_rects.append((layout.header_rect, layer))

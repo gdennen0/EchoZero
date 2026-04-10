@@ -146,3 +146,65 @@ def test_inspector_contract_no_takes_layer_state():
     assert rows["takes"] == "none"
     assert "overwrite_main" not in action_ids
     assert "merge_main" not in action_ids
+
+
+def test_inspector_contract_render_text_tracks_selection_transition_sequence():
+    presentation = _contract_test_presentation()
+
+    timeline_contract = build_timeline_inspector_contract(presentation)
+
+    presentation.selected_layer_id = LayerId("layer_kick")
+    layer_contract = build_timeline_inspector_contract(presentation)
+
+    presentation.selected_take_id = TakeId("take_main")
+    presentation.selected_event_ids = [EventId("main_evt")]
+    event_contract = build_timeline_inspector_contract(presentation)
+
+    presentation.selected_layer_id = None
+    presentation.selected_take_id = None
+    presentation.selected_event_ids = []
+    cleared_contract = build_timeline_inspector_contract(presentation)
+
+    assert render_inspector_contract_text(timeline_contract) == "No timeline object selected."
+    assert render_inspector_contract_text(layer_contract) == "\n".join(
+        [
+            "Layer Kick",
+            "id: layer_kick",
+            "kind: EVENT",
+            "main take: take_main",
+            "takes: 2",
+            "status flags: none",
+        ]
+    )
+    assert render_inspector_contract_text(event_contract) == "\n".join(
+        [
+            "Event Main",
+            "id: main_evt",
+            "start: 1.00s",
+            "end: 1.50s",
+            "duration: 0.50s",
+            "layer: Kick",
+            "take: Main take (take_main)",
+        ]
+    )
+    assert render_inspector_contract_text(cleared_contract) == "No timeline object selected."
+
+
+def test_inspector_contract_no_takes_hit_target_excludes_take_actions():
+    presentation = _contract_test_presentation()
+
+    contract = build_timeline_inspector_contract(
+        presentation,
+        hit_target=TimelineInspectorHitTarget(
+            kind="layer",
+            layer_id=LayerId("layer_empty"),
+            time_seconds=1.25,
+        ),
+    )
+    section_ids = [section.section_id for section in contract.context_sections]
+    action_ids = [action.action_id for section in contract.context_sections for action in section.actions]
+
+    assert contract.title == "Layer Empty"
+    assert "take-actions" not in section_ids
+    assert "overwrite_main" not in action_ids
+    assert "merge_main" not in action_ids

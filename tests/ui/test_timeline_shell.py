@@ -589,6 +589,34 @@ def test_object_info_panel_renders_selected_layer_contract_text():
         app.processEvents()
 
 
+def test_object_info_panel_remains_contract_rendered_through_selection_transition_sequence():
+    app = QApplication.instance() or QApplication([])
+    harness = _SelectionInspectorHarness(_selection_test_presentation())
+    widget = TimelineWidget(harness.presentation(), on_intent=harness.dispatch)
+    try:
+        _render_for_hit_testing(widget)
+
+        expected = build_timeline_inspector_contract(widget.presentation)
+        assert widget._object_info.text() == render_inspector_contract_text(expected)
+
+        header_rect, _ = widget._canvas._header_select_rects[0]
+        _click_rect(widget, header_rect)
+        expected = build_timeline_inspector_contract(widget.presentation)
+        assert widget._object_info.text() == render_inspector_contract_text(expected)
+
+        _click_event_rect(widget, "main_evt")
+        expected = build_timeline_inspector_contract(widget.presentation)
+        assert widget._object_info.text() == render_inspector_contract_text(expected)
+
+        QTest.keyClick(widget._canvas, Qt.Key.Key_Escape)
+        QApplication.processEvents()
+        expected = build_timeline_inspector_contract(widget.presentation)
+        assert widget._object_info.text() == render_inspector_contract_text(expected)
+    finally:
+        widget.close()
+        app.processEvents()
+
+
 def test_object_info_panel_keeps_no_takes_indication_for_empty_layer():
     app = QApplication.instance() or QApplication([])
     presentation = replace(_no_takes_layer_presentation(), selected_layer_id=LayerId("layer_empty"))
@@ -603,6 +631,50 @@ def test_object_info_panel_keeps_no_takes_indication_for_empty_layer():
     finally:
         widget.close()
         app.processEvents()
+
+
+def test_no_takes_layer_context_menu_excludes_take_actions():
+    app = QApplication.instance() or QApplication([])
+    presentation = _no_takes_layer_presentation()
+    widget = TimelineWidget(presentation)
+    try:
+        _render_for_hit_testing(widget)
+
+        contract = build_timeline_inspector_contract(
+            widget.presentation,
+            hit_target=TimelineInspectorHitTarget(
+                kind="layer",
+                layer_id=LayerId("layer_empty"),
+                time_seconds=1.25,
+            ),
+        )
+        menu = widget._canvas._build_context_menu(contract)
+        action_ids = [action.action_id for section in contract.context_sections for action in section.actions]
+        menu_labels = [action.text() for action in menu.actions() if not action.isSeparator()]
+
+        assert "overwrite_main" not in action_ids
+        assert "merge_main" not in action_ids
+        assert "Overwrite Main" not in menu_labels
+        assert "Merge Main" not in menu_labels
+    finally:
+        widget.close()
+        app.processEvents()
+
+
+def test_no_takes_layer_has_no_toggle_takes_intent_path():
+    app = QApplication.instance() or QApplication([])
+    intents: list[object] = []
+    presentation = _no_takes_layer_presentation()
+    widget = TimelineWidget(presentation, on_intent=lambda intent: intents.append(intent) or presentation)
+    try:
+        _render_for_hit_testing(widget)
+
+        assert widget._canvas._toggle_rects == []
+    finally:
+        widget.close()
+        app.processEvents()
+
+    assert intents == []
 
 
 def test_context_menu_uses_contract_actions_for_take_event_hit_target():
