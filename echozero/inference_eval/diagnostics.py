@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
+from typing import Any
 
 
 @dataclass(frozen=True, slots=True)
@@ -34,3 +35,19 @@ class ValidationReport:
         self.errors.extend(other.errors)
         self.warnings.extend(other.warnings)
         return self
+
+    def to_dict(self) -> dict[str, list[dict[str, str]]]:
+        return {
+            "errors": [asdict(issue) for issue in self.errors],
+            "warnings": [asdict(issue) for issue in self.warnings],
+        }
+
+
+def attach_validation_report(error: Exception, report: ValidationReport) -> None:
+    """Attach machine-readable diagnostics to an exception without changing its string output."""
+    setattr(error, "validation_report", report)
+    setattr(error, "validation_diagnostics", report.to_dict())
+
+
+def issue_payload(issue: ValidationIssue) -> dict[str, Any]:
+    return asdict(issue)

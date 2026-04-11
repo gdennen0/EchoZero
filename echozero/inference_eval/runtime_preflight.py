@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Mapping
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -9,6 +10,7 @@ from echozero.errors import ValidationError
 
 from .constants import REQUIRED_PREPROCESSING_KEYS
 from .core import EvalContract, InferenceContract, contract_fingerprint
+from .diagnostics import ValidationReport, attach_validation_report
 from .validation import validate_manifest_inference_section, validate_runtime_consumer
 
 _PREPROCESSING_ALIASES = {
@@ -21,11 +23,10 @@ _PREPROCESSING_ALIASES = {
 }
 
 
-def _manifest_matches_model(manifest: Mapping[str, Any], model_path: Path) -> bool:
-    weights_path = manifest.get("weightsPath")
-    if not isinstance(weights_path, str) or not weights_path:
-        return False
-    return Path(weights_path).name == model_path.name
+@dataclass(frozen=True, slots=True)
+class _ManifestCandidate:
+    path: Path
+    manifest: Mapping[str, Any]
 
 
 def _load_manifest(path: Path) -> Mapping[str, Any] | None:
@@ -38,13 +39,58 @@ def _load_manifest(path: Path) -> Mapping[str, Any] | None:
     return None
 
 
-def _discover_manifest(model_path: Path) -> Mapping[str, Any] | None:
-    manifest_candidates = sorted(model_path.parent.glob("*.manifest.json"))
-    for candidate in manifest_candidates:
-        manifest = _load_manifest(candidate)
-        if manifest is not None and _manifest_matches_model(manifest, model_path):
-            return manifest
-    return None
+def _iter_manifest_candidates(model_path: Path) -> list[_ManifestCandidate]:
+    candidates: list[_ManifestCandidate] = []
+    for candidate_path in sorted(model_path.parent.glob("*.manifest.json")):
+        manifest = _load_manifest(candidate_path)
+        if manifest is None:
+            continue
+        candidates.append(_ManifestCandidate(path=candidate_path, manifest=manifest))
+    return candidates
+
+
+def _manifest_target_path(manifest_path: Path, manifest: Mapping[str, Any]) -> Path | None:
+    raw_weights_path = manifest.get("weightsPath")
+    if not isinstance(raw_weights_path, str) or not raw_weights_path.strip():
+        return None
+
+    weights_path = Path(raw_weights_path)
+    if weights_path.is_absolute():
+        return weights_path.resolve()
+    return (manifest_path.parent / weights_path).resolve()
+
+
+def _resolve_manifest_for_model(model_path: Path, report: ValidationReport) -> Mapping[str, Any] | None:
+    candidates = _iter_manifest_candidates(model_path)
+    if not candidates:
+        return None
+
+    resolved_model_path = model_path.resolve()
+    matches: list[_ManifestCandidate] = []
+    for candidate in candidates:
+        target_path = _manifest_target_path(candidate.path, candidate.manifest)
+        if target_path is None:
+            continue
+        if target_path == resolved_model_path:
+            matches.append(candidate)
+
+    if not matches:
+        report.add_error(
+            "manifest_not_found_for_model",
+            "manifest.weightsPath",
+            "no manifest in model directory resolves manifest.weightsPath to the requested model path",
+        )
+        return None
+
+    if len(matches) > 1:
+        report.add_error(
+            "ambiguous_manifest_match",
+            "manifest.weightsPath",
+            "multiple manifests resolve to the requested model path; keep exactly one matching artifact manifest",
+        )
+        return None
+
+    return matches[0].manifest
 
 
 def _canonicalize_preprocessing_keys(payload: Mapping[str, Any]) -> dict[str, Any]:
@@ -125,49 +171,68 @@ def run_runtime_preflight(
     consumer: str = "PyTorchAudioClassify",
 ) -> None:
     resolved_model_path = Path(model_path)
-    manifest = _discover_manifest(resolved_model_path)
-    if manifest is None:
+    report = ValidationReport()
+    manifest = _resolve_manifest_for_model(resolved_model_path, report)
+
+    if manifest is None and report.ok:
         return
 
-    errors: list[str] = []
-    manifest_report = validate_manifest_inference_section(manifest)
-    runtime_report = validate_runtime_consumer(manifest, consumer=consumer)
+    if manifest is not None:
+        manifest_report = validate_manifest_inference_section(manifest)
+        runtime_report = validate_runtime_consumer(manifest, consumer=consumer)
+        report.merge(manifest_report).merge(runtime_report)
 
-    errors.extend(issue.message for issue in manifest_report.errors)
-    errors.extend(issue.message for issue in runtime_report.errors)
+        manifest_preprocessing = manifest.get("inferencePreprocessing")
+        if isinstance(manifest_preprocessing, Mapping):
+            checkpoint_preprocessing = _checkpoint_preprocessing(checkpoint)
+            for key in sorted(REQUIRED_PREPROCESSING_KEYS):
+                expected = checkpoint_preprocessing.get(key)
+                actual = manifest_preprocessing.get(key)
+                if expected is None or actual is None:
+                    continue
+                if actual != expected:
+                    report.add_error(
+                        "preprocessing_checkpoint_mismatch",
+                        f"manifest.inferencePreprocessing.{key}",
+                        f"manifest.inferencePreprocessing.{key} must match checkpoint preprocessing",
+                    )
 
-    manifest_preprocessing = manifest.get("inferencePreprocessing")
-    if isinstance(manifest_preprocessing, Mapping):
-        checkpoint_preprocessing = _checkpoint_preprocessing(checkpoint)
-        for key in sorted(REQUIRED_PREPROCESSING_KEYS):
-            expected = checkpoint_preprocessing.get(key)
-            actual = manifest_preprocessing.get(key)
-            if expected is None or actual is None:
-                continue
-            if actual != expected:
-                errors.append(f"manifest.inferencePreprocessing.{key} must match checkpoint preprocessing")
+        manifest_classes = manifest.get("classes")
+        checkpoint_classes = _checkpoint_classes(checkpoint)
+        if checkpoint_classes and isinstance(manifest_classes, list):
+            if manifest_classes != list(checkpoint_classes):
+                report.add_error(
+                    "checkpoint_class_order_mismatch",
+                    "manifest.classes",
+                    "manifest.classes must match checkpoint class map order",
+                )
 
-    manifest_classes = manifest.get("classes")
-    checkpoint_classes = _checkpoint_classes(checkpoint)
-    if checkpoint_classes and isinstance(manifest_classes, list):
-        if manifest_classes != list(checkpoint_classes):
-            errors.append("manifest.classes must match checkpoint class map order")
-
-    manifest_classification_mode = manifest.get("classificationMode")
-    checkpoint_classification_mode = _checkpoint_classification_mode(checkpoint)
-    if manifest_classification_mode is not None and str(manifest_classification_mode) != checkpoint_classification_mode:
-        errors.append("manifest.classificationMode must match checkpoint classification mode")
-
-    manifest_fingerprint = manifest.get("sharedContractFingerprint")
-    if manifest_fingerprint is not None:
-        expected_fingerprint = checkpoint_contract_fingerprint(checkpoint)
-        if manifest_fingerprint != expected_fingerprint:
-            errors.append(
-                "manifest.sharedContractFingerprint must match the checkpoint-derived shared contract fingerprint"
+        manifest_classification_mode = manifest.get("classificationMode")
+        checkpoint_classification_mode = _checkpoint_classification_mode(checkpoint)
+        if (
+            manifest_classification_mode is not None
+            and str(manifest_classification_mode) != checkpoint_classification_mode
+        ):
+            report.add_error(
+                "checkpoint_classification_mode_mismatch",
+                "manifest.classificationMode",
+                "manifest.classificationMode must match checkpoint classification mode",
             )
 
-    if errors:
-        joined = "; ".join(errors)
-        raise ValidationError(
+        manifest_fingerprint = manifest.get("sharedContractFingerprint")
+        if manifest_fingerprint is not None:
+            expected_fingerprint = checkpoint_contract_fingerprint(checkpoint)
+            if manifest_fingerprint != expected_fingerprint:
+                report.add_error(
+                    "shared_fingerprint_mismatch",
+                    "manifest.sharedContractFingerprint",
+                    "manifest.sharedContractFingerprint must match the checkpoint-derived shared contract fingerprint",
+                )
+
+    if report.errors:
+        joined = "; ".join(issue.message for issue in report.errors)
+        error = ValidationError(
             f"Runtime bundle preflight failed for {resolved_model_path.name}: {joined}"
         )
+        attach_validation_report(error, report)
+        raise error
