@@ -69,10 +69,12 @@ def _section_rows(contract):
 
 def test_inspector_contract_no_selection_state():
     contract = build_timeline_inspector_contract(_contract_test_presentation())
+    action_ids = [action.action_id for section in contract.context_sections for action in section.actions]
 
     assert contract.identity is None
     assert contract.title == "No timeline object selected."
     assert render_inspector_contract_text(contract) == "No timeline object selected."
+    assert "pull_from_ma3" in action_ids
 
 
 def test_inspector_contract_layer_selection_state():
@@ -111,7 +113,7 @@ def test_inspector_contract_main_event_state():
     assert rows["end"] == "1.50s"
     assert rows["duration"] == "0.50s"
     assert rows["take"] == "Main take (take_main)"
-    assert "push_to_ma3" in action_ids
+    assert {"push_to_ma3", "pull_from_ma3"} <= set(action_ids)
 
 
 def test_inspector_contract_take_event_state():

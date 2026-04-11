@@ -20,10 +20,12 @@ from echozero.application.presentation.models import TimelinePresentation, Layer
 from echozero.application.shared.enums import FollowMode
 from echozero.application.timeline.intents import (
     ClearSelection,
+    ConfirmPullFromMA3,
     ConfirmPushToMA3,
     DuplicateSelectedEvents,
     MoveSelectedEvents,
     NudgeSelectedEvents,
+    OpenPullFromMA3Dialog,
     OpenPushToMA3Dialog,
     Pause,
     Play,
@@ -32,6 +34,9 @@ from echozero.application.timeline.intents import (
     SelectAllEvents,
     SelectEvent,
     SelectLayer,
+    SelectPullSourceEvents,
+    SelectPullSourceTrack,
+    SelectPullTargetLayer,
     SelectPushTargetTrack,
     SelectTake,
     Stop,
@@ -1475,6 +1480,106 @@ class TimelineWidget(QWidget):
                     self._manual_push_diff_preview_summary(preview.selected_count, preview.target_track_name, preview.target_track_coord),
                 )
             return
+        if action_id == "pull_from_ma3":
+            self._dispatch(OpenPullFromMA3Dialog())
+            flow = self.presentation.manual_pull_flow
+            if not flow.available_tracks:
+                return
+
+            track_labels = [self._manual_pull_track_label(track) for track in flow.available_tracks]
+            chosen_track_label, accepted = QInputDialog.getItem(
+                self,
+                "Pull from MA3",
+                "Source track",
+                track_labels,
+                0,
+                False,
+            )
+            if not accepted:
+                return
+
+            selected_track = next(
+                (track for track, label in zip(flow.available_tracks, track_labels) if label == chosen_track_label),
+                None,
+            )
+            if selected_track is None:
+                return
+
+            self._dispatch(SelectPullSourceTrack(source_track_coord=selected_track.coord))
+            flow = self.presentation.manual_pull_flow
+            if not flow.available_events:
+                return
+
+            event_labels = ["All events", *[self._manual_pull_event_label(event) for event in flow.available_events]]
+            chosen_event_label, accepted = QInputDialog.getItem(
+                self,
+                "Pull from MA3",
+                "Source events",
+                event_labels,
+                0,
+                False,
+            )
+            if not accepted:
+                return
+
+            selected_event_ids = (
+                [event.event_id for event in flow.available_events]
+                if chosen_event_label == "All events"
+                else [
+                    event.event_id
+                    for event, label in zip(flow.available_events, event_labels[1:])
+                    if label == chosen_event_label
+                ]
+            )
+            if not selected_event_ids:
+                return
+
+            self._dispatch(SelectPullSourceEvents(selected_ma3_event_ids=selected_event_ids))
+            flow = self.presentation.manual_pull_flow
+            if not flow.available_target_layers:
+                return
+
+            target_labels = [self._manual_pull_target_label(target) for target in flow.available_target_layers]
+            chosen_target_label, accepted = QInputDialog.getItem(
+                self,
+                "Pull from MA3",
+                "Destination EZ layer",
+                target_labels,
+                0,
+                False,
+            )
+            if not accepted:
+                return
+
+            selected_target = next(
+                (target for target, label in zip(flow.available_target_layers, target_labels) if label == chosen_target_label),
+                None,
+            )
+            if selected_target is None:
+                return
+
+            self._dispatch(SelectPullTargetLayer(target_layer_id=selected_target.layer_id))
+            self._dispatch(
+                ConfirmPullFromMA3(
+                    source_track_coord=selected_track.coord,
+                    selected_ma3_event_ids=selected_event_ids,
+                    target_layer_id=selected_target.layer_id,
+                )
+            )
+            flow = self.presentation.manual_pull_flow
+            preview = flow.diff_preview
+            if flow.diff_gate_open and preview is not None:
+                QMessageBox.information(
+                    self,
+                    "Pull Diff Preview",
+                    self._manual_pull_diff_preview_summary(
+                        preview.selected_count,
+                        preview.source_track_name,
+                        preview.source_track_coord,
+                        preview.target_layer_name,
+                    ),
+                )
+            return
         if action_id:
             layer_id = params.get("layer_id")
             take_id = params.get("take_id")
@@ -1497,6 +1602,41 @@ class TimelineWidget(QWidget):
             f"Prepared diff preview for {selected_count} selected {noun}.\n\n"
             f"Target track: {target_track_name} ({target_track_coord})\n"
             f"No MA3 transfer has been started in this step."
+        )
+
+    @staticmethod
+    def _manual_pull_track_label(track) -> str:
+        parts = [track.name, f"({track.coord})"]
+        if track.note:
+            parts.append(f"- {track.note}")
+        if track.event_count is not None:
+            parts.append(f"[{track.event_count} events]")
+        return " ".join(parts)
+
+    @staticmethod
+    def _manual_pull_event_label(event) -> str:
+        parts = [event.label]
+        if event.start is not None and event.end is not None:
+            parts.append(f"({_format_seconds(event.start)}-{_format_seconds(event.end)})")
+        return " ".join(parts)
+
+    @staticmethod
+    def _manual_pull_target_label(target) -> str:
+        return f"{target.name} ({target.layer_id})"
+
+    @staticmethod
+    def _manual_pull_diff_preview_summary(
+        selected_count: int,
+        source_track_name: str,
+        source_track_coord: str,
+        target_layer_name: str,
+    ) -> str:
+        noun = "event" if selected_count == 1 else "events"
+        return (
+            f"Prepared diff preview for {selected_count} selected {noun}.\n\n"
+            f"Source track: {source_track_name} ({source_track_coord})\n"
+            f"Target layer: {target_layer_name}\n"
+            f"No MA3 import has been started in this step."
         )
 
 

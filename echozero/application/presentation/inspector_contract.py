@@ -320,14 +320,32 @@ def _shared_context_sections(
                         group="selection",
                         params={"steps": 1},
                     ),
-                    InspectorAction(
-                        action_id="push_to_ma3",
-                        label="Push Selection to MA3",
-                        group="selection",
-                    ),
                 ),
             )
         )
+
+    transfer_actions = [
+        InspectorAction(
+            action_id="pull_from_ma3",
+            label="Pull from MA3",
+            group="transfer",
+        )
+    ]
+    if has_selected_events:
+        transfer_actions.append(
+            InspectorAction(
+                action_id="push_to_ma3",
+                label="Push Selection to MA3",
+                group="transfer",
+            )
+        )
+    sections.append(
+        InspectorContextSection(
+            section_id="transfer",
+            label="Transfer",
+            actions=tuple(transfer_actions),
+        )
+    )
 
     if layer is not None:
         sections.append(

@@ -14,6 +14,11 @@ from echozero.application.presentation.inspector_contract import (
 from echozero.application.presentation.models import (
     EventPresentation,
     LayerPresentation,
+    ManualPullDiffPreviewPresentation,
+    ManualPullEventOptionPresentation,
+    ManualPullFlowPresentation,
+    ManualPullTargetOptionPresentation,
+    ManualPullTrackOptionPresentation,
     ManualPushDiffPreviewPresentation,
     ManualPushFlowPresentation,
     ManualPushTrackOptionPresentation,
@@ -25,10 +30,12 @@ from echozero.application.shared.enums import LayerKind
 from echozero.application.shared.ids import EventId, LayerId, TakeId, TimelineId
 from echozero.application.timeline.intents import (
     ClearSelection,
+    ConfirmPullFromMA3,
     ConfirmPushToMA3,
     DuplicateSelectedEvents,
     MoveSelectedEvents,
     NudgeSelectedEvents,
+    OpenPullFromMA3Dialog,
     OpenPushToMA3Dialog,
     Pause,
     Play,
@@ -36,6 +43,9 @@ from echozero.application.timeline.intents import (
     SelectAllEvents,
     SelectEvent,
     SelectLayer,
+    SelectPullSourceEvents,
+    SelectPullSourceTrack,
+    SelectPullTargetLayer,
     SelectPushTargetTrack,
     Stop,
     ToggleLayerExpanded,
@@ -432,6 +442,106 @@ class _ManualPushHarness:
         return self._presentation
 
 
+class _ManualPullHarness:
+    def __init__(self, presentation: TimelinePresentation):
+        self._presentation = presentation
+        self.intents: list[object] = []
+
+    def presentation(self) -> TimelinePresentation:
+        return self._presentation
+
+    def dispatch(self, intent):
+        self.intents.append(intent)
+        if isinstance(intent, OpenPullFromMA3Dialog):
+            self._presentation = replace(
+                self._presentation,
+                manual_pull_flow=ManualPullFlowPresentation(
+                    dialog_open=True,
+                    available_tracks=[
+                        ManualPullTrackOptionPresentation(
+                            coord="tc1_tg2_tr3",
+                            name="Track 3",
+                            note="Lead",
+                            event_count=2,
+                        )
+                    ],
+                    available_target_layers=[
+                        ManualPullTargetOptionPresentation(
+                            layer_id=LayerId("layer_target"),
+                            name="Target Layer",
+                        )
+                    ],
+                ),
+            )
+            return self._presentation
+        if isinstance(intent, SelectPullSourceTrack):
+            self._presentation = replace(
+                self._presentation,
+                manual_pull_flow=replace(
+                    self._presentation.manual_pull_flow,
+                    source_track_coord=intent.source_track_coord,
+                    available_events=[
+                        ManualPullEventOptionPresentation(
+                            event_id="ma3_evt_1",
+                            label="Cue 1",
+                            start=1.0,
+                            end=1.5,
+                        ),
+                        ManualPullEventOptionPresentation(
+                            event_id="ma3_evt_2",
+                            label="Cue 2",
+                            start=2.0,
+                            end=2.5,
+                        ),
+                    ],
+                ),
+            )
+            return self._presentation
+        if isinstance(intent, SelectPullSourceEvents):
+            self._presentation = replace(
+                self._presentation,
+                manual_pull_flow=replace(
+                    self._presentation.manual_pull_flow,
+                    selected_ma3_event_ids=list(intent.selected_ma3_event_ids),
+                ),
+            )
+            return self._presentation
+        if isinstance(intent, SelectPullTargetLayer):
+            self._presentation = replace(
+                self._presentation,
+                manual_pull_flow=replace(
+                    self._presentation.manual_pull_flow,
+                    target_layer_id=intent.target_layer_id,
+                ),
+            )
+            return self._presentation
+        if isinstance(intent, ConfirmPullFromMA3):
+            self._presentation = replace(
+                self._presentation,
+                manual_pull_flow=ManualPullFlowPresentation(
+                    dialog_open=False,
+                    available_tracks=list(self._presentation.manual_pull_flow.available_tracks),
+                    source_track_coord=intent.source_track_coord,
+                    available_events=list(self._presentation.manual_pull_flow.available_events),
+                    selected_ma3_event_ids=list(intent.selected_ma3_event_ids),
+                    available_target_layers=list(self._presentation.manual_pull_flow.available_target_layers),
+                    target_layer_id=intent.target_layer_id,
+                    diff_gate_open=True,
+                    diff_preview=ManualPullDiffPreviewPresentation(
+                        selected_count=len(intent.selected_ma3_event_ids),
+                        source_track_coord=intent.source_track_coord,
+                        source_track_name="Track 3",
+                        source_track_note="Lead",
+                        source_track_event_count=2,
+                        target_layer_id=intent.target_layer_id,
+                        target_layer_name="Target Layer",
+                    ),
+                ),
+            )
+            return self._presentation
+        return self._presentation
+
+
 def _render_for_hit_testing(widget: TimelineWidget) -> None:
     widget.resize(1200, 320)
     widget.show()
@@ -797,6 +907,84 @@ def test_selection_contract_exposes_push_to_ma3_action():
     action_ids = [action.action_id for section in contract.context_sections for action in section.actions]
 
     assert "push_to_ma3" in action_ids
+
+
+def test_empty_contract_exposes_pull_from_ma3_action():
+    contract = build_timeline_inspector_contract(_selection_test_presentation())
+    action_ids = [action.action_id for section in contract.context_sections for action in section.actions]
+
+    assert "pull_from_ma3" in action_ids
+
+
+def test_pull_from_ma3_action_dispatches_open_select_confirm_and_shows_diff_preview(monkeypatch):
+    app = QApplication.instance() or QApplication([])
+    base = _selection_test_presentation()
+    harness = _ManualPullHarness(base)
+    widget = TimelineWidget(harness.presentation(), on_intent=harness.dispatch)
+    summaries: list[tuple[str, str, str]] = []
+    picks = iter(
+        [
+            ("Track 3 (tc1_tg2_tr3) - Lead [2 events]", True),
+            ("All events", True),
+            ("Target Layer (layer_target)", True),
+        ]
+    )
+    monkeypatch.setattr(
+        "echozero.ui.qt.timeline.widget.QInputDialog.getItem",
+        lambda *args, **kwargs: next(picks),
+    )
+    monkeypatch.setattr(
+        "echozero.ui.qt.timeline.widget.QMessageBox.information",
+        lambda parent, title, text: summaries.append((parent.__class__.__name__, title, text)),
+    )
+    try:
+        _render_for_hit_testing(widget)
+
+        contract = build_timeline_inspector_contract(widget.presentation)
+        pull_action = next(
+            action
+            for section in contract.context_sections
+            for action in section.actions
+            if action.action_id == "pull_from_ma3"
+        )
+
+        widget._trigger_contract_action(pull_action)
+
+        assert harness.intents == [
+            OpenPullFromMA3Dialog(),
+            SelectPullSourceTrack(source_track_coord="tc1_tg2_tr3"),
+            SelectPullSourceEvents(selected_ma3_event_ids=["ma3_evt_1", "ma3_evt_2"]),
+            SelectPullTargetLayer(target_layer_id=LayerId("layer_target")),
+            ConfirmPullFromMA3(
+                source_track_coord="tc1_tg2_tr3",
+                selected_ma3_event_ids=["ma3_evt_1", "ma3_evt_2"],
+                target_layer_id=LayerId("layer_target"),
+            ),
+        ]
+        assert widget.presentation.manual_pull_flow.diff_gate_open is True
+        assert widget.presentation.manual_pull_flow.diff_preview == ManualPullDiffPreviewPresentation(
+            selected_count=2,
+            source_track_coord="tc1_tg2_tr3",
+            source_track_name="Track 3",
+            source_track_note="Lead",
+            source_track_event_count=2,
+            target_layer_id=LayerId("layer_target"),
+            target_layer_name="Target Layer",
+            import_mode="new_take",
+        )
+        assert summaries == [
+            (
+                "TimelineWidget",
+                "Pull Diff Preview",
+                "Prepared diff preview for 2 selected events.\n\n"
+                "Source track: Track 3 (tc1_tg2_tr3)\n"
+                "Target layer: Target Layer\n"
+                "No MA3 import has been started in this step.",
+            )
+        ]
+    finally:
+        widget.close()
+        app.processEvents()
 
 
 def test_push_to_ma3_action_dispatches_open_select_confirm_and_shows_diff_preview(monkeypatch):
