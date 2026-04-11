@@ -140,5 +140,7 @@ class CompatibilityReport:
     ok: bool
     errors: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
+    error_details: list[dict[str, Any]] = field(default_factory=list)
+    warning_details: list[dict[str, Any]] = field(default_factory=list)
     schema: str = "foundry.compatibility_report.v1"
     checked_at: datetime = field(default_factory=lambda: datetime.now(UTC))

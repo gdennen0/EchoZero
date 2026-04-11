@@ -4,10 +4,12 @@ import hashlib
 import json
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 from uuid import uuid4
 
 from echozero.foundry.domain import CompatibilityReport, ModelArtifact
 from echozero.inference_eval import create_foundry_adapter
+from echozero.inference_eval.diagnostics import issue_payload
 from echozero.inference_eval.validation import (
     validate_manifest_inference_section,
     validate_runtime_consumer,
@@ -249,17 +251,39 @@ class ArtifactService:
 
         errors: list[str] = []
         warnings: list[str] = []
+        error_details: list[dict[str, Any]] = []
+        warning_details: list[dict[str, Any]] = []
+
+        def _add_error(*, code: str, path: str, message: str) -> None:
+            errors.append(message)
+            error_details.append(
+                {
+                    "code": code,
+                    "path": path,
+                    "message": message,
+                    "severity": "error",
+                }
+            )
+
         m = artifact.manifest
         run = self._run_repo.get(artifact.run_id)
         dataset_version = None
         run_data = {}
         if run is None:
-            errors.append(f"originating run not found: {artifact.run_id}")
+            _add_error(
+                code="originating_run_not_found",
+                path="manifest.runId",
+                message=f"originating run not found: {artifact.run_id}",
+            )
         else:
             run_data = run.spec.get("data", {})
             dataset_version = self._dataset_version_repo.get(run.dataset_version_id)
             if dataset_version is None:
-                errors.append(f"dataset version not found: {run.dataset_version_id}")
+                _add_error(
+                    code="dataset_version_not_found",
+                    path="manifest.datasetVersionId",
+                    message=f"dataset version not found: {run.dataset_version_id}",
+                )
 
         if run is not None:
             expected_run_data = {
@@ -276,30 +300,52 @@ class ArtifactService:
         else:
             manifest_report = validate_manifest_inference_section(m)
 
-        errors.extend(issue.message for issue in manifest_report.errors)
-        warnings.extend(issue.message for issue in manifest_report.warnings)
+        for issue in manifest_report.errors:
+            errors.append(issue.message)
+            error_details.append(issue_payload(issue))
+        for issue in manifest_report.warnings:
+            warnings.append(issue.message)
+            warning_details.append(issue_payload(issue))
 
         if run is not None:
             if m.get("runId") != run.id:
-                errors.append("manifest.runId must match the originating run id")
+                _add_error(
+                    code="run_id_mismatch",
+                    path="manifest.runId",
+                    message="manifest.runId must match the originating run id",
+                )
             if m.get("datasetVersionId") != run.dataset_version_id:
-                errors.append("manifest.datasetVersionId must match the originating dataset version id")
+                _add_error(
+                    code="dataset_version_id_mismatch",
+                    path="manifest.datasetVersionId",
+                    message="manifest.datasetVersionId must match the originating dataset version id",
+                )
             if m.get("specHash") != run.spec_hash:
-                errors.append("manifest.specHash must match the originating run spec hash")
+                _add_error(
+                    code="spec_hash_mismatch",
+                    path="manifest.specHash",
+                    message="manifest.specHash must match the originating run spec hash",
+                )
             if dataset_version is not None and "sharedContractFingerprint" in m:
                 expected_fingerprint = self._shared_adapter.contract_fingerprint_from_run_spec(
                     run.spec,
                     class_map=dataset_version.class_map,
                 )
                 if m.get("sharedContractFingerprint") != expected_fingerprint:
-                    errors.append(
-                        "manifest.sharedContractFingerprint must match the originating shared contract fingerprint"
+                    _add_error(
+                        code="shared_contract_fingerprint_mismatch",
+                        path="manifest.sharedContractFingerprint",
+                        message="manifest.sharedContractFingerprint must match the originating shared contract fingerprint",
                     )
 
         if consumer == "PyTorchAudioClassify":
             runtime_report = validate_runtime_consumer(m, consumer=consumer)
-            errors.extend(issue.message for issue in runtime_report.errors)
-            warnings.extend(issue.message for issue in runtime_report.warnings)
+            for issue in runtime_report.errors:
+                errors.append(issue.message)
+                error_details.append(issue_payload(issue))
+            for issue in runtime_report.warnings:
+                warnings.append(issue.message)
+                warning_details.append(issue_payload(issue))
 
         return CompatibilityReport(
             artifact_id=artifact.id,
@@ -307,4 +353,6 @@ class ArtifactService:
             ok=not errors,
             errors=errors,
             warnings=warnings,
+            error_details=error_details,
+            warning_details=warning_details,
         )
