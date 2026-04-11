@@ -7,6 +7,7 @@ from echozero.application.shared.enums import LayerKind
 from echozero.application.shared.ranges import TimeRange
 from echozero.application.mixer.models import LayerMixerState
 from echozero.application.playback.models import LayerPlaybackState
+from echozero.application.sync.models import LiveSyncState, coerce_live_sync_state
 
 
 @dataclass(slots=True)
@@ -18,6 +19,15 @@ class LayerSyncState:
     show_manager_block_id: str | None = None
     ma3_track_coord: str | None = None
     derived_from_source: bool = False
+    live_sync_state: LiveSyncState = LiveSyncState.OFF
+    live_sync_pause_reason: str | None = None
+    live_sync_divergent: bool = False
+
+    def __post_init__(self) -> None:
+        self.live_sync_state = coerce_live_sync_state(self.live_sync_state)
+        if self.live_sync_pause_reason is not None:
+            reason = self.live_sync_pause_reason.strip()
+            self.live_sync_pause_reason = reason or None
 
 
 @dataclass(slots=True)

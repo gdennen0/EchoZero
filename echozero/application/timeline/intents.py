@@ -10,6 +10,7 @@ from echozero.application.session.models import (
 from echozero.application.shared.ids import LayerId, TakeId, EventId
 from echozero.application.shared.enums import SyncMode
 from echozero.application.shared.ranges import TimeRange
+from echozero.application.sync.models import LiveSyncState, coerce_live_sync_state
 
 
 class TimelineIntent:
@@ -130,6 +131,50 @@ class EnableSync(TimelineIntent):
 @dataclass(slots=True)
 class DisableSync(TimelineIntent):
     pass
+
+
+@dataclass(slots=True)
+class EnableExperimentalLiveSync(TimelineIntent):
+    pass
+
+
+@dataclass(slots=True)
+class DisableExperimentalLiveSync(TimelineIntent):
+    pass
+
+
+@dataclass(slots=True)
+class SetLayerLiveSyncState(TimelineIntent):
+    layer_id: LayerId
+    live_sync_state: LiveSyncState | str
+
+    def __post_init__(self) -> None:
+        if self.layer_id is None or not str(self.layer_id).strip():
+            raise ValueError("SetLayerLiveSyncState requires a non-empty layer_id")
+        self.live_sync_state = coerce_live_sync_state(self.live_sync_state)
+
+
+@dataclass(slots=True)
+class SetLayerLiveSyncPauseReason(TimelineIntent):
+    layer_id: LayerId
+    pause_reason: str
+
+    def __post_init__(self) -> None:
+        if self.layer_id is None or not str(self.layer_id).strip():
+            raise ValueError("SetLayerLiveSyncPauseReason requires a non-empty layer_id")
+        reason = self.pause_reason.strip()
+        if not reason:
+            raise ValueError("SetLayerLiveSyncPauseReason requires a non-empty pause_reason")
+        self.pause_reason = reason
+
+
+@dataclass(slots=True)
+class ClearLayerLiveSyncPauseReason(TimelineIntent):
+    layer_id: LayerId
+
+    def __post_init__(self) -> None:
+        if self.layer_id is None or not str(self.layer_id).strip():
+            raise ValueError("ClearLayerLiveSyncPauseReason requires a non-empty layer_id")
 
 
 @dataclass(slots=True)
