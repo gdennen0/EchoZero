@@ -74,6 +74,7 @@ class TimelineAssembler:
                 pixels_per_second=timeline.viewport.pixels_per_second,
                 scroll_x=timeline.viewport.scroll_x,
                 scroll_y=timeline.viewport.scroll_y,
+                experimental_live_sync_enabled=session.sync_state.experimental_live_sync_enabled,
                 manual_push_flow=self._assemble_manual_push_flow(session),
                 manual_pull_flow=self._assemble_manual_pull_flow(session),
             )
@@ -149,6 +150,9 @@ class TimelineAssembler:
             playback_enabled=layer.playback.enabled,
             sync_mode=sync_mode,
             sync_connected=layer.sync.connected,
+            live_sync_state=layer.sync.live_sync_state,
+            live_sync_pause_reason=layer.sync.live_sync_pause_reason,
+            live_sync_divergent=layer.sync.live_sync_divergent,
             color=layer.presentation_hints.color,
             badges=badges,
             playback_source_ref=layer.playback.armed_source_ref,
@@ -212,6 +216,9 @@ class TimelineAssembler:
                     float(layer.mixer.pan),
                     str(layer.sync.mode),
                     bool(layer.sync.connected),
+                    str(layer.sync.live_sync_state.value),
+                    layer.sync.live_sync_pause_reason,
+                    bool(layer.sync.live_sync_divergent),
                     take_sigs,
                 )
             )

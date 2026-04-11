@@ -102,7 +102,11 @@ def build_timeline_inspector_contract(
             layer = _find_layer(presentation, hit_target.layer_id)
             if layer is not None:
                 return _layer_contract(presentation, layer=layer, hit_target=hit_target)
-        return _empty_contract(hit_target=hit_target, has_selected_events=bool(presentation.selected_event_ids))
+        return _empty_contract(
+            presentation,
+            hit_target=hit_target,
+            has_selected_events=bool(presentation.selected_event_ids),
+        )
 
     if presentation.selected_event_ids and presentation.selected_layer_id is not None:
         selected_event_id = presentation.selected_event_ids[0]
@@ -122,7 +126,11 @@ def build_timeline_inspector_contract(
         if layer is not None:
             return _layer_contract(presentation, layer=layer, hit_target=None)
 
-    return _empty_contract(hit_target=None, has_selected_events=bool(presentation.selected_event_ids))
+    return _empty_contract(
+        presentation,
+        hit_target=None,
+        has_selected_events=bool(presentation.selected_event_ids),
+    )
 
 
 def render_inspector_contract_text(contract: InspectorContract) -> str:
@@ -136,10 +144,16 @@ def render_inspector_contract_text(contract: InspectorContract) -> str:
     return "\n".join(lines)
 
 
-def _empty_contract(*, hit_target: TimelineInspectorHitTarget | None, has_selected_events: bool) -> InspectorContract:
+def _empty_contract(
+    presentation: TimelinePresentation,
+    *,
+    hit_target: TimelineInspectorHitTarget | None,
+    has_selected_events: bool,
+) -> InspectorContract:
     return InspectorContract(
         title="No timeline object selected.",
         context_sections=_shared_context_sections(
+            presentation=presentation,
             layer=None,
             take=None,
             hit_target=hit_target,
@@ -165,6 +179,20 @@ def _layer_contract(
         flags.append("edited")
 
     take_count = 0 if layer.main_take_id is None else 1 + len(layer.takes)
+    rows = [
+        InspectorFactRow("id", str(layer.layer_id)),
+        InspectorFactRow("kind", layer.kind.name),
+        InspectorFactRow("main take", str(layer.main_take_id or "none")),
+        InspectorFactRow("takes", str(take_count) if take_count else "none"),
+        InspectorFactRow("status flags", ", ".join(flags) if flags else "none"),
+    ]
+    if presentation.experimental_live_sync_enabled:
+        rows.append(InspectorFactRow("live sync state", layer.live_sync_state.value))
+        if layer.live_sync_pause_reason:
+            rows.append(InspectorFactRow("live sync pause", layer.live_sync_pause_reason))
+        if layer.live_sync_divergent:
+            rows.append(InspectorFactRow("live sync divergence", "diverged"))
+
     return InspectorContract(
         title=f"Layer {layer.title}",
         identity=InspectorObjectIdentity(
@@ -176,16 +204,11 @@ def _layer_contract(
             InspectorSection(
                 section_id="layer-core",
                 label="Layer",
-                rows=(
-                    InspectorFactRow("id", str(layer.layer_id)),
-                    InspectorFactRow("kind", layer.kind.name),
-                    InspectorFactRow("main take", str(layer.main_take_id or "none")),
-                    InspectorFactRow("takes", str(take_count) if take_count else "none"),
-                    InspectorFactRow("status flags", ", ".join(flags) if flags else "none"),
-                ),
+                rows=tuple(rows),
             ),
         ),
         context_sections=_shared_context_sections(
+            presentation=presentation,
             layer=layer,
             take=None,
             hit_target=hit_target,
@@ -222,6 +245,7 @@ def _take_contract(
             ),
         ),
         context_sections=_shared_context_sections(
+            presentation=presentation,
             layer=layer,
             take=take,
             hit_target=hit_target,
@@ -263,6 +287,7 @@ def _event_contract(
         ),
         sections=sections,
         context_sections=_shared_context_sections(
+            presentation=presentation,
             layer=layer,
             take=take,
             hit_target=hit_target,
@@ -273,6 +298,7 @@ def _event_contract(
 
 def _shared_context_sections(
     *,
+    presentation: TimelinePresentation,
     layer: LayerPresentation | None,
     take: TakeLanePresentation | None,
     hit_target: TimelineInspectorHitTarget | None,
@@ -384,6 +410,50 @@ def _shared_context_sections(
                         params={"layer_id": layer.layer_id, "gain_db": 6.0},
                     ),
                 ),
+            )
+        )
+
+    if presentation.experimental_live_sync_enabled and layer is not None:
+        actions = [
+            InspectorAction(
+                action_id="live_sync_set_off",
+                label="Set Off",
+                group="live_sync",
+                params={"layer_id": layer.layer_id},
+            ),
+            InspectorAction(
+                action_id="live_sync_set_observe",
+                label="Set Observe",
+                group="live_sync",
+                params={"layer_id": layer.layer_id},
+            ),
+            InspectorAction(
+                action_id="live_sync_set_armed_write",
+                label="Set Armed Write",
+                group="live_sync",
+                params={"layer_id": layer.layer_id},
+            ),
+            InspectorAction(
+                action_id="live_sync_set_pause_reason",
+                label="Operator Pause",
+                group="live_sync",
+                params={"layer_id": layer.layer_id, "pause_reason": "operator pause"},
+            ),
+        ]
+        if layer.live_sync_pause_reason:
+            actions.append(
+                InspectorAction(
+                    action_id="live_sync_clear_pause_reason",
+                    label="Clear Pause Reason",
+                    group="live_sync",
+                    params={"layer_id": layer.layer_id},
+                )
+            )
+        sections.append(
+            InspectorContextSection(
+                section_id="live-sync",
+                label="Live Sync",
+                actions=tuple(actions),
             )
         )
 

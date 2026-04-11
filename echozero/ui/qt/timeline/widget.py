@@ -18,8 +18,10 @@ from echozero.application.presentation.inspector_contract import (
 )
 from echozero.application.presentation.models import TimelinePresentation, LayerPresentation, TakeLanePresentation
 from echozero.application.shared.enums import FollowMode
+from echozero.application.sync.models import LiveSyncState
 from echozero.application.timeline.intents import (
     ApplyPullFromMA3,
+    ClearLayerLiveSyncPauseReason,
     ClearSelection,
     ConfirmPullFromMA3,
     ConfirmPushToMA3,
@@ -32,6 +34,8 @@ from echozero.application.timeline.intents import (
     Play,
     Seek,
     SetGain,
+    SetLayerLiveSyncPauseReason,
+    SetLayerLiveSyncState,
     SelectAllEvents,
     SelectEvent,
     SelectLayer,
@@ -45,7 +49,6 @@ from echozero.application.timeline.intents import (
     ToggleSolo,
     ToggleLayerExpanded,
     TriggerTakeAction,
-    SetGain,
 )
 from echozero.perf import timed
 from echozero.ui.FEEL import (
@@ -1436,6 +1439,43 @@ class TimelineWidget(QWidget):
             gain_db = params.get("gain_db")
             if layer_id is not None and isinstance(gain_db, (int, float)):
                 self._dispatch(SetGain(layer_id=layer_id, gain_db=float(gain_db)))
+            return
+        if action_id in {"live_sync_set_off", "live_sync_set_observe", "live_sync_set_armed_write"}:
+            layer_id = params.get("layer_id")
+            if layer_id is None:
+                return
+            if action_id == "live_sync_set_armed_write":
+                reply = QMessageBox.question(
+                    self,
+                    "Arm Live Sync Write",
+                    "Arm live sync write for this layer? MA3 changes may be written immediately.",
+                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                    QMessageBox.StandardButton.No,
+                )
+                if reply != QMessageBox.StandardButton.Yes:
+                    return
+                state = LiveSyncState.ARMED_WRITE
+            elif action_id == "live_sync_set_observe":
+                state = LiveSyncState.OBSERVE
+            else:
+                state = LiveSyncState.OFF
+            self._dispatch(SetLayerLiveSyncState(layer_id=layer_id, live_sync_state=state))
+            return
+        if action_id == "live_sync_set_pause_reason":
+            layer_id = params.get("layer_id")
+            pause_reason = params.get("pause_reason")
+            if layer_id is not None and isinstance(pause_reason, str) and pause_reason.strip():
+                self._dispatch(
+                    SetLayerLiveSyncPauseReason(
+                        layer_id=layer_id,
+                        pause_reason=pause_reason,
+                    )
+                )
+            return
+        if action_id == "live_sync_clear_pause_reason":
+            layer_id = params.get("layer_id")
+            if layer_id is not None:
+                self._dispatch(ClearLayerLiveSyncPauseReason(layer_id=layer_id))
             return
         if action_id == "push_to_ma3":
             selected_event_ids = list(self.presentation.selected_event_ids)

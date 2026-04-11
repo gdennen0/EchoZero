@@ -5,6 +5,7 @@ from dataclasses import dataclass, field
 from echozero.application.shared.ids import TimelineId, LayerId, TakeId, EventId
 from echozero.application.shared.enums import LayerKind, FollowMode, PlaybackMode, SyncMode
 from echozero.application.shared.ranges import TimeRange
+from echozero.application.sync.models import LiveSyncState
 
 
 @dataclass(slots=True)
@@ -175,6 +176,9 @@ class LayerPresentation:
     playback_enabled: bool = False
     sync_mode: SyncMode = SyncMode.NONE
     sync_connected: bool = False
+    live_sync_state: LiveSyncState = LiveSyncState.OFF
+    live_sync_pause_reason: str | None = None
+    live_sync_divergent: bool = False
     color: str | None = None
     badges: list[str] = field(default_factory=list)
     waveform_key: str | None = None
@@ -198,6 +202,7 @@ class TimelinePresentation:
     pixels_per_second: float = 100.0
     scroll_x: float = 0.0
     scroll_y: float = 0.0
+    experimental_live_sync_enabled: bool = False
     current_time_label: str = "00:00.00"
     end_time_label: str = "00:00.00"
     manual_push_flow: ManualPushFlowPresentation = field(default_factory=ManualPushFlowPresentation)

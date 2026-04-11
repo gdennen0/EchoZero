@@ -28,8 +28,10 @@ from echozero.application.presentation.models import (
 )
 from echozero.application.shared.enums import LayerKind
 from echozero.application.shared.ids import EventId, LayerId, TakeId, TimelineId
+from echozero.application.sync.models import LiveSyncState
 from echozero.application.timeline.intents import (
     ApplyPullFromMA3,
+    ClearLayerLiveSyncPauseReason,
     ClearSelection,
     ConfirmPullFromMA3,
     ConfirmPushToMA3,
@@ -41,6 +43,8 @@ from echozero.application.timeline.intents import (
     Pause,
     Play,
     Seek,
+    SetLayerLiveSyncPauseReason,
+    SetLayerLiveSyncState,
     SelectAllEvents,
     SelectEvent,
     SelectLayer,
@@ -925,6 +929,114 @@ def test_empty_contract_exposes_pull_from_ma3_action():
     action_ids = [action.action_id for section in contract.context_sections for action in section.actions]
 
     assert "pull_from_ma3" in action_ids
+
+
+def test_live_sync_actions_hidden_when_experimental_flag_disabled():
+    presentation = replace(
+        _selection_test_presentation(),
+        selected_layer_id=LayerId("layer_kick"),
+        layers=[
+            replace(
+                _selection_test_presentation().layers[0],
+                live_sync_state=LiveSyncState.OBSERVE,
+                live_sync_pause_reason="operator pause",
+                live_sync_divergent=True,
+            )
+        ],
+    )
+
+    contract = build_timeline_inspector_contract(presentation)
+    section_ids = [section.section_id for section in contract.context_sections]
+    action_ids = [action.action_id for section in contract.context_sections for action in section.actions]
+
+    assert "live-sync" not in section_ids
+    assert "live_sync_set_off" not in action_ids
+
+
+def test_live_sync_action_dispatches_state_and_pause_intents(monkeypatch):
+    app = QApplication.instance() or QApplication([])
+    intents: list[object] = []
+    presentation = replace(
+        _selection_test_presentation(),
+        experimental_live_sync_enabled=True,
+        selected_layer_id=LayerId("layer_kick"),
+        layers=[
+            replace(
+                _selection_test_presentation().layers[0],
+                live_sync_state=LiveSyncState.PAUSED,
+                live_sync_pause_reason="operator pause",
+                live_sync_divergent=True,
+            )
+        ],
+    )
+    widget = TimelineWidget(presentation, on_intent=lambda intent: intents.append(intent) or presentation)
+    try:
+        _render_for_hit_testing(widget)
+
+        contract = build_timeline_inspector_contract(widget.presentation)
+        actions = {
+            action.action_id: action
+            for section in contract.context_sections
+            for action in section.actions
+        }
+
+        widget._trigger_contract_action(actions["live_sync_set_off"])
+        widget._trigger_contract_action(actions["live_sync_set_observe"])
+        widget._trigger_contract_action(actions["live_sync_set_pause_reason"])
+        widget._trigger_contract_action(actions["live_sync_clear_pause_reason"])
+
+        assert intents == [
+            SetLayerLiveSyncState(layer_id=LayerId("layer_kick"), live_sync_state=LiveSyncState.OFF),
+            SetLayerLiveSyncState(layer_id=LayerId("layer_kick"), live_sync_state=LiveSyncState.OBSERVE),
+            SetLayerLiveSyncPauseReason(layer_id=LayerId("layer_kick"), pause_reason="operator pause"),
+            ClearLayerLiveSyncPauseReason(layer_id=LayerId("layer_kick")),
+        ]
+    finally:
+        widget.close()
+        app.processEvents()
+
+
+def test_live_sync_armed_write_requires_confirmation_before_dispatch(monkeypatch):
+    app = QApplication.instance() or QApplication([])
+    intents: list[object] = []
+    presentation = replace(
+        _selection_test_presentation(),
+        experimental_live_sync_enabled=True,
+        selected_layer_id=LayerId("layer_kick"),
+    )
+    widget = TimelineWidget(presentation, on_intent=lambda intent: intents.append(intent) or presentation)
+    try:
+        _render_for_hit_testing(widget)
+
+        contract = build_timeline_inspector_contract(widget.presentation)
+        armed_action = next(
+            action
+            for section in contract.context_sections
+            for action in section.actions
+            if action.action_id == "live_sync_set_armed_write"
+        )
+
+        monkeypatch.setattr(
+            "echozero.ui.qt.timeline.widget.QMessageBox.question",
+            lambda *args, **kwargs: QMessageBox.StandardButton.No,
+        )
+        widget._trigger_contract_action(armed_action)
+        assert intents == []
+
+        monkeypatch.setattr(
+            "echozero.ui.qt.timeline.widget.QMessageBox.question",
+            lambda *args, **kwargs: QMessageBox.StandardButton.Yes,
+        )
+        widget._trigger_contract_action(armed_action)
+        assert intents == [
+            SetLayerLiveSyncState(
+                layer_id=LayerId("layer_kick"),
+                live_sync_state=LiveSyncState.ARMED_WRITE,
+            )
+        ]
+    finally:
+        widget.close()
+        app.processEvents()
 
 
 def test_pull_from_ma3_action_dispatches_apply_when_confirmation_accepted(monkeypatch):

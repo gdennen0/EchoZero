@@ -12,6 +12,7 @@ from echozero.application.presentation.models import (
 )
 from echozero.application.shared.enums import LayerKind
 from echozero.application.shared.ids import EventId, LayerId, TakeId, TimelineId
+from echozero.application.sync.models import LiveSyncState
 
 
 def _contract_test_presentation() -> TimelinePresentation:
@@ -93,6 +94,51 @@ def test_inspector_contract_layer_selection_state():
     assert rows["main take"] == "take_main"
     assert rows["status flags"] == "none"
     assert {"toggle_mute", "toggle_solo", "gain_down", "gain_unity", "gain_up"} <= set(action_ids)
+    assert "live-sync" not in [section.section_id for section in contract.context_sections]
+
+
+def test_inspector_contract_live_sync_section_hidden_when_experimental_disabled():
+    presentation = _contract_test_presentation()
+    presentation.selected_layer_id = LayerId("layer_kick")
+    presentation.layers[0].live_sync_state = LiveSyncState.OBSERVE
+    presentation.layers[0].live_sync_pause_reason = "operator pause"
+    presentation.layers[0].live_sync_divergent = True
+
+    contract = build_timeline_inspector_contract(presentation)
+    rows = _section_rows(contract)
+    section_ids = [section.section_id for section in contract.context_sections]
+
+    assert "live-sync" not in section_ids
+    assert "live sync state" not in rows
+    assert "live sync pause" not in rows
+    assert "live sync divergence" not in rows
+
+
+def test_inspector_contract_live_sync_section_visible_when_experimental_enabled():
+    presentation = _contract_test_presentation()
+    presentation.experimental_live_sync_enabled = True
+    presentation.selected_layer_id = LayerId("layer_kick")
+    presentation.layers[0].live_sync_state = LiveSyncState.PAUSED
+    presentation.layers[0].live_sync_pause_reason = "operator pause"
+    presentation.layers[0].live_sync_divergent = True
+
+    contract = build_timeline_inspector_contract(presentation)
+    rows = _section_rows(contract)
+    live_sync_section = next(
+        section for section in contract.context_sections if section.section_id == "live-sync"
+    )
+    action_ids = [action.action_id for action in live_sync_section.actions]
+
+    assert rows["live sync state"] == "paused"
+    assert rows["live sync pause"] == "operator pause"
+    assert rows["live sync divergence"] == "diverged"
+    assert action_ids == [
+        "live_sync_set_off",
+        "live_sync_set_observe",
+        "live_sync_set_armed_write",
+        "live_sync_set_pause_reason",
+        "live_sync_clear_pause_reason",
+    ]
 
 
 def test_inspector_contract_main_event_state():
