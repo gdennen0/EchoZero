@@ -23,6 +23,7 @@ class ArtifactState:
     status: str
     path: Path | None = None
     detail: str | None = None
+    external_bootstrap: bool = False
 
 
 def parse_args() -> argparse.Namespace:
@@ -122,10 +123,12 @@ def main() -> int:
     commit_hash = git_head()
     timestamp = datetime.now(timezone.utc).isoformat()
 
-    initial_artifact = copy_if_exists(
-        walkthrough_source_dir / "object_info_empty.png",
-        evidence_dir / "01-initial-state.png",
-        detail="Seeded from the current external object-info walkthrough bootstrap.",
+    initial_artifact = mark_external_bootstrap(
+        copy_if_exists(
+            walkthrough_source_dir / "object_info_empty.png",
+            evidence_dir / "01-initial-state.png",
+            detail="Seeded from the current external object-info walkthrough bootstrap.",
+        )
     )
     post_extract_artifact = copy_if_exists(
         raw_capture_dir / "timeline_real_default.png",
@@ -151,20 +154,25 @@ def main() -> int:
         destination=evidence_dir / "phase3-ld-01-walkthrough.mp4",
     )
 
-    statuses = [
-        initial_artifact.status,
-        post_extract_artifact.status,
-        divergence_artifact.status,
-        resolution_artifact.status,
-        walkthrough_artifact.status,
-    ]
-    run_status = "PASS" if all(status == "PASS" for status in statuses) and capture_result.returncode == 0 else "INCOMPLETE"
+    artifact_states = {
+        "01-initial-state.png": initial_artifact,
+        "02-post-extract-all.png": post_extract_artifact,
+        "03-divergence-visible.png": divergence_artifact,
+        "04-post-resolution-or-sync.png": resolution_artifact,
+        "phase3-ld-01-walkthrough.mp4": walkthrough_artifact,
+    }
+    run_status, signoff_ready, run_outcome_note = evaluate_run_status(
+        capture_exit_code=capture_result.returncode,
+        artifacts=artifact_states,
+    )
 
     run_notes = build_run_notes(
         timestamp=timestamp,
         operator=args.operator,
         commit_hash=commit_hash,
         run_status=run_status,
+        signoff_ready=signoff_ready,
+        run_outcome_note=run_outcome_note,
         audio_path=audio_path,
         ma3_replay_fixture=ma3_replay_fixture,
         evidence_dir=evidence_dir,
@@ -172,13 +180,7 @@ def main() -> int:
         work_root=work_root,
         walkthrough_source_dir=walkthrough_source_dir,
         capture_result=capture_result,
-        artifacts={
-            "01-initial-state.png": initial_artifact,
-            "02-post-extract-all.png": post_extract_artifact,
-            "03-divergence-visible.png": divergence_artifact,
-            "04-post-resolution-or-sync.png": resolution_artifact,
-            "phase3-ld-01-walkthrough.mp4": walkthrough_artifact,
-        },
+        artifacts=artifact_states,
     )
     run_notes_path = evidence_dir / "run-notes.md"
     run_notes_path.write_text(run_notes, encoding="utf-8")
@@ -212,10 +214,12 @@ def resolve_optional_artifact(
     if source is not None and source.exists():
         if note_path.exists():
             note_path.unlink()
-        return copy_if_exists(
-            source,
-            destination,
-            detail=f"{success_detail_prefix} from {source}.",
+        return mark_external_bootstrap(
+            copy_if_exists(
+                source,
+                destination,
+                detail=f"{success_detail_prefix} from {source}.",
+            )
         )
     return missing_artifact(note_path, missing_message)
 
@@ -234,12 +238,59 @@ def resolve_walkthrough_video(*, walkthrough_source_dir: Path, destination: Path
                 status="PASS",
                 path=destination,
                 detail=f"Copied existing object-info walkthrough video from {video_path}.",
+                external_bootstrap=True,
             )
     direct_video = walkthrough_source_dir / "object_info_demo.mp4"
     if direct_video.exists():
+        destination.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(direct_video, destination)
-        return ArtifactState(status="PASS", path=destination, detail=f"Copied existing walkthrough video from {direct_video}.")
+        return ArtifactState(
+            status="PASS",
+            path=destination,
+            detail=f"Copied existing walkthrough video from {direct_video}.",
+            external_bootstrap=True,
+        )
     return ArtifactState(status="MISSING", detail=f"Walkthrough video not found under {walkthrough_source_dir}")
+
+
+def mark_external_bootstrap(state: ArtifactState) -> ArtifactState:
+    return ArtifactState(
+        status=state.status,
+        path=state.path,
+        detail=state.detail,
+        external_bootstrap=True,
+    )
+
+
+def evaluate_run_status(*, capture_exit_code: int, artifacts: dict[str, ArtifactState]) -> tuple[str, bool, str]:
+    required_missing = [
+        name
+        for name, state in artifacts.items()
+        if state.status != "PASS"
+    ]
+    if capture_exit_code != 0:
+        return (
+            "INCOMPLETE",
+            False,
+            f"bootstrap-only: real-data capture failed with exit code {capture_exit_code}, so the pack is not signoff-ready.",
+        )
+    if required_missing:
+        return (
+            "INCOMPLETE",
+            False,
+            "bootstrap-only: required artifacts are missing or incomplete, so the pack is not signoff-ready.",
+        )
+    if any(state.external_bootstrap for state in artifacts.values()):
+        return (
+            "BOOTSTRAP_PASS",
+            False,
+            "bootstrap-only: all required artifacts are present, but at least one required artifact depends on an explicit external bootstrap source.",
+        )
+    return (
+        "PASS",
+        True,
+        "signoff-ready: all required artifacts were produced by this run without explicit external bootstrap dependencies.",
+    )
 
 
 def git_head() -> str:
@@ -261,6 +312,8 @@ def build_run_notes(
     operator: str,
     commit_hash: str,
     run_status: str,
+    signoff_ready: bool,
+    run_outcome_note: str,
     audio_path: Path,
     ma3_replay_fixture: Path,
     evidence_dir: Path,
@@ -274,6 +327,7 @@ def build_run_notes(
         "# Phase 3 LD-01 Evidence Pack",
         "",
         f"- status: {run_status}",
+        f"- signoff_ready: {'yes' if signoff_ready else 'no'}",
         f"- executed_at_utc: {timestamp}",
         f"- operator: {operator}",
         f"- commit: {commit_hash}",
@@ -284,6 +338,7 @@ def build_run_notes(
         f"- work_root: {work_root}",
         f"- walkthrough_source_dir: {walkthrough_source_dir}",
         f"- real_data_capture_exit_code: {capture_result.returncode}",
+        f"- run_classification: {run_outcome_note}",
         "",
         "## Artifact status",
         "",
@@ -294,8 +349,13 @@ def build_run_notes(
         lines.append(f"- {name}: {state.status} ({target})")
         if detail:
             lines.append(f"  - {detail}")
+        lines.append(f"  - external_bootstrap: {'yes' if state.external_bootstrap else 'no'}")
     lines.extend(
         [
+            "",
+            "## Signoff",
+            "",
+            run_outcome_note,
             "",
             "## Capture command",
             "",
