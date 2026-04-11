@@ -1,11 +1,12 @@
 """Timeline orchestration for the new EchoZero application layer."""
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from echozero.application.mixer.service import MixerService
 from echozero.application.playback.service import PlaybackService
 from echozero.application.presentation.models import TimelinePresentation
+from echozero.application.session.models import ManualPushTrackOption
 from echozero.application.session.service import SessionService
 from echozero.application.sync.service import SyncService
 if TYPE_CHECKING:
@@ -155,6 +156,7 @@ class TimelineOrchestrator:
             session.manual_push_flow.selected_event_ids = list(intent.selection_event_ids)
             session.manual_push_flow.target_track_coord = None
             session.manual_push_flow.diff_gate_open = False
+            session.manual_push_flow.available_tracks = self._load_manual_push_track_options()
 
         elif isinstance(intent, SetPushTrackOptions):
             session = self.session_service.get_session()
@@ -491,6 +493,49 @@ class TimelineOrchestrator:
 
         selected.sort(key=lambda item: selected_order[str(item[2].id)])
         return selected
+
+    def _load_manual_push_track_options(self) -> list[ManualPushTrackOption]:
+        provider = self.sync_service
+        if hasattr(provider, "list_push_track_options"):
+            raw_tracks = provider.list_push_track_options()
+        elif hasattr(provider, "get_available_ma3_tracks"):
+            raw_tracks = provider.get_available_ma3_tracks()
+        else:
+            return []
+
+        return [
+            self._normalize_manual_push_track_option(raw_track)
+            for raw_track in raw_tracks or []
+        ]
+
+    @staticmethod
+    def _normalize_manual_push_track_option(raw_track: Any) -> ManualPushTrackOption:
+        if isinstance(raw_track, ManualPushTrackOption):
+            return raw_track
+
+        coord = TimelineOrchestrator._track_option_value(raw_track, "coord")
+        name = TimelineOrchestrator._track_option_value(raw_track, "name")
+        note = TimelineOrchestrator._track_option_value(raw_track, "note")
+        event_count = TimelineOrchestrator._track_option_value(raw_track, "event_count")
+
+        return ManualPushTrackOption(
+            coord=str(coord or ""),
+            name=str(name or ""),
+            note=None if note is None else str(note),
+            event_count=TimelineOrchestrator._coerce_optional_int(event_count),
+        )
+
+    @staticmethod
+    def _track_option_value(raw_track: Any, key: str) -> Any:
+        if isinstance(raw_track, dict):
+            return raw_track.get(key)
+        return getattr(raw_track, key, None)
+
+    @staticmethod
+    def _coerce_optional_int(value: Any) -> int | None:
+        if value is None or value == "":
+            return None
+        return int(value)
 
     def _find_layer(self, timeline: Timeline, layer_id):
         for layer in timeline.layers:

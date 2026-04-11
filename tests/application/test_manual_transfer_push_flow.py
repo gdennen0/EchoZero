@@ -4,7 +4,7 @@ from echozero.application.mixer.models import AudibilityState, MixerState, Layer
 from echozero.application.mixer.service import MixerService
 from echozero.application.playback.models import PlaybackState
 from echozero.application.playback.service import PlaybackService
-from echozero.application.session.models import Session
+from echozero.application.session.models import ManualPushTrackOption, Session
 from echozero.application.session.service import SessionService
 from echozero.application.shared.ids import EventId, ProjectId, SessionId, SongVersionId, TimelineId
 from echozero.application.sync.models import SyncState
@@ -135,12 +135,30 @@ class _SyncService(SyncService):
         return transport
 
 
+class _PushTrackListingSyncService(_SyncService):
+    def __init__(self, tracks):
+        super().__init__()
+        self._tracks = tracks
+
+    def list_push_track_options(self):
+        return list(self._tracks)
+
+
+class _AvailableTracksSyncService(_SyncService):
+    def __init__(self, tracks):
+        super().__init__()
+        self._tracks = tracks
+
+    def get_available_ma3_tracks(self):
+        return list(self._tracks)
+
+
 class _Assembler:
     def assemble(self, timeline, session):
         return timeline
 
 
-def _build_orchestrator():
+def _build_orchestrator(sync_service: SyncService | None = None):
     session = Session(
         id=SessionId("session_manual_push_flow"),
         project_id=ProjectId("project_manual_push_flow"),
@@ -157,7 +175,7 @@ def _build_orchestrator():
         transport_service=_TransportService(),
         mixer_service=_MixerService(),
         playback_service=playback_service,
-        sync_service=_SyncService(),
+        sync_service=sync_service or _SyncService(),
         assembler=_Assembler(),
     )
     return orchestrator, timeline, session, playback_service
@@ -175,6 +193,66 @@ def test_open_push_intent_sets_manual_push_dialog_state():
     assert session.manual_push_flow.selected_event_ids == [EventId("evt_1"), EventId("evt_2")]
     assert session.manual_push_flow.target_track_coord is None
     assert session.manual_push_flow.diff_gate_open is False
+
+
+def test_open_push_intent_hydrates_available_tracks_from_sync_service_provider():
+    orchestrator, timeline, session, _playback_service = _build_orchestrator(
+        sync_service=_PushTrackListingSyncService(
+            tracks=[
+                ManualPushTrackOption(
+                    coord="tc1_tg1_tr1",
+                    name="Track 1",
+                    note="Main",
+                    event_count=12,
+                ),
+                ManualPushTrackOption(coord="tc1_tg1_tr2", name="Track 2"),
+            ]
+        )
+    )
+
+    orchestrator.handle(
+        timeline,
+        OpenPushToMA3Dialog(selection_event_ids=[EventId("evt_1")]),
+    )
+
+    assert session.manual_push_flow.available_tracks == [
+        ManualPushTrackOption(
+            coord="tc1_tg1_tr1",
+            name="Track 1",
+            note="Main",
+            event_count=12,
+        ),
+        ManualPushTrackOption(coord="tc1_tg1_tr2", name="Track 2"),
+    ]
+
+
+def test_open_push_intent_maps_legacy_provider_dict_payload_note_and_event_count():
+    orchestrator, timeline, session, _playback_service = _build_orchestrator(
+        sync_service=_AvailableTracksSyncService(
+            tracks=[
+                {
+                    "coord": "tc2_tg3_tr4",
+                    "name": "Drums",
+                    "note": "ez:Drums",
+                    "event_count": 7,
+                }
+            ]
+        )
+    )
+
+    orchestrator.handle(
+        timeline,
+        OpenPushToMA3Dialog(selection_event_ids=[EventId("evt_1")]),
+    )
+
+    assert session.manual_push_flow.available_tracks == [
+        ManualPushTrackOption(
+            coord="tc2_tg3_tr4",
+            name="Drums",
+            note="ez:Drums",
+            event_count=7,
+        )
+    ]
 
 
 def test_confirm_push_intent_stages_diff_gate_without_immediate_transfer():
