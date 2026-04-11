@@ -4,7 +4,7 @@ from PyQt6.QtCore import QPoint, QPointF, QEvent
 from PyQt6.QtTest import QTest
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QMouseEvent
-from PyQt6.QtWidgets import QApplication
+from PyQt6.QtWidgets import QApplication, QMessageBox
 
 from echozero.application.presentation.inspector_contract import (
     TimelineInspectorHitTarget,
@@ -29,6 +29,7 @@ from echozero.application.presentation.models import (
 from echozero.application.shared.enums import LayerKind
 from echozero.application.shared.ids import EventId, LayerId, TakeId, TimelineId
 from echozero.application.timeline.intents import (
+    ApplyPullFromMA3,
     ClearSelection,
     ConfirmPullFromMA3,
     ConfirmPushToMA3,
@@ -539,6 +540,16 @@ class _ManualPullHarness:
                 ),
             )
             return self._presentation
+        if isinstance(intent, ApplyPullFromMA3):
+            self._presentation = replace(
+                self._presentation,
+                manual_pull_flow=replace(
+                    self._presentation.manual_pull_flow,
+                    diff_gate_open=False,
+                    diff_preview=None,
+                ),
+            )
+            return self._presentation
         return self._presentation
 
 
@@ -916,7 +927,7 @@ def test_empty_contract_exposes_pull_from_ma3_action():
     assert "pull_from_ma3" in action_ids
 
 
-def test_pull_from_ma3_action_dispatches_open_select_confirm_and_shows_diff_preview(monkeypatch):
+def test_pull_from_ma3_action_dispatches_apply_when_confirmation_accepted(monkeypatch):
     app = QApplication.instance() or QApplication([])
     base = _selection_test_presentation()
     harness = _ManualPullHarness(base)
@@ -936,6 +947,77 @@ def test_pull_from_ma3_action_dispatches_open_select_confirm_and_shows_diff_prev
     monkeypatch.setattr(
         "echozero.ui.qt.timeline.widget.QMessageBox.information",
         lambda parent, title, text: summaries.append((parent.__class__.__name__, title, text)),
+    )
+    monkeypatch.setattr(
+        "echozero.ui.qt.timeline.widget.QMessageBox.question",
+        lambda *args, **kwargs: QMessageBox.StandardButton.Yes,
+    )
+    try:
+        _render_for_hit_testing(widget)
+
+        contract = build_timeline_inspector_contract(widget.presentation)
+        pull_action = next(
+            action
+            for section in contract.context_sections
+            for action in section.actions
+            if action.action_id == "pull_from_ma3"
+        )
+
+        widget._trigger_contract_action(pull_action)
+
+        assert harness.intents == [
+            OpenPullFromMA3Dialog(),
+            SelectPullSourceTrack(source_track_coord="tc1_tg2_tr3"),
+            SelectPullSourceEvents(selected_ma3_event_ids=["ma3_evt_1", "ma3_evt_2"]),
+            SelectPullTargetLayer(target_layer_id=LayerId("layer_target")),
+            ConfirmPullFromMA3(
+                source_track_coord="tc1_tg2_tr3",
+                selected_ma3_event_ids=["ma3_evt_1", "ma3_evt_2"],
+                target_layer_id=LayerId("layer_target"),
+            ),
+            ApplyPullFromMA3(),
+        ]
+        assert widget.presentation.manual_pull_flow.diff_gate_open is False
+        assert widget.presentation.manual_pull_flow.diff_preview is None
+        assert summaries == [
+            (
+                "TimelineWidget",
+                "Pull Diff Preview",
+                "Prepared diff preview for 2 selected events.\n\n"
+                "Source track: Track 3 (tc1_tg2_tr3)\n"
+                "Target layer: Target Layer\n"
+                "No MA3 import has been started in this step.",
+            )
+        ]
+    finally:
+        widget.close()
+        app.processEvents()
+
+
+def test_pull_from_ma3_action_keeps_staging_only_when_confirmation_declined(monkeypatch):
+    app = QApplication.instance() or QApplication([])
+    base = _selection_test_presentation()
+    harness = _ManualPullHarness(base)
+    widget = TimelineWidget(harness.presentation(), on_intent=harness.dispatch)
+    summaries: list[tuple[str, str, str]] = []
+    picks = iter(
+        [
+            ("Track 3 (tc1_tg2_tr3) - Lead [2 events]", True),
+            ("All events", True),
+            ("Target Layer (layer_target)", True),
+        ]
+    )
+    monkeypatch.setattr(
+        "echozero.ui.qt.timeline.widget.QInputDialog.getItem",
+        lambda *args, **kwargs: next(picks),
+    )
+    monkeypatch.setattr(
+        "echozero.ui.qt.timeline.widget.QMessageBox.information",
+        lambda parent, title, text: summaries.append((parent.__class__.__name__, title, text)),
+    )
+    monkeypatch.setattr(
+        "echozero.ui.qt.timeline.widget.QMessageBox.question",
+        lambda *args, **kwargs: QMessageBox.StandardButton.No,
     )
     try:
         _render_for_hit_testing(widget)

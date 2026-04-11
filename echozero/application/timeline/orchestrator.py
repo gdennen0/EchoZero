@@ -20,6 +20,7 @@ from echozero.application.sync.service import SyncService
 if TYPE_CHECKING:
     from echozero.application.timeline.assembler import TimelineAssembler
 from echozero.application.timeline.intents import (
+    ApplyPullFromMA3,
     ClearSelection,
     ConfirmPullFromMA3,
     ConfirmPushToMA3,
@@ -315,6 +316,38 @@ class TimelineOrchestrator:
                 target_layer_name=target_layer.name,
                 import_mode=intent.import_mode,
             )
+
+        elif isinstance(intent, ApplyPullFromMA3):
+            session = self.session_service.get_session()
+            flow = session.manual_pull_flow
+            preview = flow.diff_preview
+            if not flow.diff_gate_open or preview is None:
+                raise ValueError("ApplyPullFromMA3 requires an open diff preview")
+            if flow.target_layer_id is None:
+                raise ValueError("ApplyPullFromMA3 requires a selected target_layer_id")
+
+            target_layer = self._find_layer(timeline, flow.target_layer_id)
+            source_track = self._manual_pull_track_by_coord(
+                flow.available_tracks,
+                flow.source_track_coord or preview.source_track_coord,
+                action_name="ApplyPullFromMA3",
+            )
+            selected_events = self._manual_pull_selected_events(flow)
+
+            imported_take = self._build_manual_pull_take(
+                layer=target_layer,
+                source_track=source_track,
+                selected_events=selected_events,
+            )
+            target_layer.takes.append(imported_take)
+            self._sort_take_events(imported_take)
+
+            timeline.selection.selected_layer_id = target_layer.id
+            timeline.selection.selected_take_id = imported_take.id
+            timeline.selection.selected_event_ids = [event.id for event in imported_take.events]
+
+            flow.diff_gate_open = False
+            flow.diff_preview = None
 
         session = self.session_service.get_session()
         audibility = self.mixer_service.resolve_audibility(timeline.layers)
@@ -627,6 +660,96 @@ class TimelineOrchestrator:
 
         selected.sort(key=lambda item: selected_order[str(item[2].id)])
         return selected
+
+    @staticmethod
+    def _manual_pull_selected_events(flow) -> list[ManualPullEventOption]:
+        selected_ids = list(flow.selected_ma3_event_ids)
+        available_by_id = {
+            event.event_id: event
+            for event in flow.available_events
+        }
+        selected_events: list[ManualPullEventOption] = []
+        missing_event_ids: list[str] = []
+        for event_id in selected_ids:
+            selected_event = available_by_id.get(event_id)
+            if selected_event is None:
+                missing_event_ids.append(event_id)
+                continue
+            selected_events.append(selected_event)
+        if missing_event_ids:
+            raise ValueError(
+                "ApplyPullFromMA3 selected_ma3_event_ids not found in available_events: "
+                + ", ".join(missing_event_ids)
+            )
+        return selected_events
+
+    def _build_manual_pull_take(
+        self,
+        *,
+        layer: Layer,
+        source_track: ManualPullTrackOption,
+        selected_events: list[ManualPullEventOption],
+    ) -> Take:
+        take_id = self._next_manual_pull_take_id(layer)
+        imported_events = [
+            self._build_manual_pull_event(
+                take_id=take_id,
+                source_track=source_track,
+                source_event=source_event,
+                order_index=index,
+            )
+            for index, source_event in enumerate(selected_events, start=1)
+        ]
+        return Take(
+            id=take_id,
+            layer_id=layer.id,
+            name=f"MA3 Pull - {source_track.name}",
+            events=imported_events,
+            source_ref=source_track.coord,
+        )
+
+    def _build_manual_pull_event(
+        self,
+        *,
+        take_id,
+        source_track: ManualPullTrackOption,
+        source_event: ManualPullEventOption,
+        order_index: int,
+    ) -> Event:
+        start, end = self._resolve_manual_pull_event_range(source_event, order_index=order_index)
+        return Event(
+            id=f"{take_id}:ma3:{source_track.coord}:{source_event.event_id}:{order_index}",
+            take_id=take_id,
+            start=start,
+            end=end,
+            label=source_event.label,
+            payload_ref=source_event.event_id,
+        )
+
+    @staticmethod
+    def _resolve_manual_pull_event_range(source_event: ManualPullEventOption, *, order_index: int) -> tuple[float, float]:
+        default_duration = 0.25
+        if source_event.start is not None and source_event.end is not None:
+            return float(source_event.start), float(source_event.end)
+        if source_event.start is not None:
+            start = max(0.0, float(source_event.start))
+            return start, start + default_duration
+        if source_event.end is not None:
+            end = max(0.0, float(source_event.end))
+            return max(0.0, end - default_duration), end
+
+        start = float(order_index - 1) * default_duration
+        return start, start + default_duration
+
+    @staticmethod
+    def _next_manual_pull_take_id(layer: Layer):
+        existing_ids = {str(take.id) for take in layer.takes}
+        index = 1
+        while True:
+            candidate = f"{layer.id}:ma3_pull:{index}"
+            if candidate not in existing_ids:
+                return candidate
+            index += 1
 
     def _load_manual_push_track_options(self) -> list[ManualPushTrackOption]:
         provider = self.sync_service

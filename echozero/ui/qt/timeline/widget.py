@@ -19,6 +19,7 @@ from echozero.application.presentation.inspector_contract import (
 from echozero.application.presentation.models import TimelinePresentation, LayerPresentation, TakeLanePresentation
 from echozero.application.shared.enums import FollowMode
 from echozero.application.timeline.intents import (
+    ApplyPullFromMA3,
     ClearSelection,
     ConfirmPullFromMA3,
     ConfirmPushToMA3,
@@ -1579,6 +1580,15 @@ class TimelineWidget(QWidget):
                         preview.target_layer_name,
                     ),
                 )
+                apply_reply = QMessageBox.question(
+                    self,
+                    "Apply Pull Import",
+                    "Apply this MA3 pull into the selected layer as a new take?",
+                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                    QMessageBox.StandardButton.No,
+                )
+                if apply_reply == QMessageBox.StandardButton.Yes:
+                    self._dispatch(ApplyPullFromMA3())
             return
         if action_id:
             layer_id = params.get("layer_id")

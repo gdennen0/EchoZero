@@ -19,6 +19,7 @@ from echozero.application.shared.ids import LayerId, ProjectId, SessionId, SongV
 from echozero.application.sync.models import SyncState
 from echozero.application.sync.service import SyncService
 from echozero.application.timeline.intents import (
+    ApplyPullFromMA3,
     ConfirmPullFromMA3,
     OpenPullFromMA3Dialog,
     SelectPullSourceEvents,
@@ -27,7 +28,7 @@ from echozero.application.timeline.intents import (
     SetPullSourceEvents,
     SetPullTrackOptions,
 )
-from echozero.application.timeline.models import Layer, Take, Timeline
+from echozero.application.timeline.models import Event, Layer, Take, Timeline
 from echozero.application.timeline.orchestrator import TimelineOrchestrator
 from echozero.application.transport.models import TransportState
 from echozero.application.transport.service import TransportService
@@ -368,6 +369,102 @@ def test_confirm_pull_intent_stages_diff_gate_without_immediate_transfer():
     assert playback_service.update_runtime_calls == 5
 
 
+def test_apply_pull_import_creates_new_take_selects_imported_events_and_clears_diff_gate():
+    orchestrator, timeline, session, playback_service = _build_orchestrator(
+        sync_service=_SyncService(
+            tracks=[
+                ManualPullTrackOption(
+                    coord="tc1_tg2_tr3",
+                    name="MA3 Track",
+                    note="Lead",
+                    event_count=8,
+                )
+            ],
+            events_by_track={
+                "tc1_tg2_tr3": [
+                    ManualPullEventOption(event_id="ma3_evt_1", label="Cue 1", start=1.0, end=1.5),
+                    ManualPullEventOption(event_id="ma3_evt_2", label="Cue 2", start=3.0),
+                    ManualPullEventOption(event_id="ma3_evt_3", label="Cue 3"),
+                ]
+            },
+        )
+    )
+    target_layer = next(layer for layer in timeline.layers if layer.id == LayerId("layer_target"))
+    target_layer.takes[0].events = [
+        Event(
+            id="existing_evt",
+            take_id=TakeId("take_target"),
+            start=0.25,
+            end=0.5,
+            label="Existing",
+        )
+    ]
+
+    orchestrator.handle(timeline, OpenPullFromMA3Dialog())
+    orchestrator.handle(timeline, SelectPullSourceTrack(source_track_coord="tc1_tg2_tr3"))
+    orchestrator.handle(
+        timeline,
+        SelectPullSourceEvents(selected_ma3_event_ids=["ma3_evt_1", "ma3_evt_2", "ma3_evt_3"]),
+    )
+    orchestrator.handle(
+        timeline,
+        SelectPullTargetLayer(target_layer_id=LayerId("layer_target")),
+    )
+    orchestrator.handle(
+        timeline,
+        ConfirmPullFromMA3(
+            source_track_coord="tc1_tg2_tr3",
+            selected_ma3_event_ids=["ma3_evt_1", "ma3_evt_2", "ma3_evt_3"],
+            target_layer_id=LayerId("layer_target"),
+        ),
+    )
+
+    orchestrator.handle(timeline, ApplyPullFromMA3())
+
+    assert len(target_layer.takes) == 2
+    imported_take = target_layer.takes[-1]
+    assert imported_take.id == TakeId("layer_target:ma3_pull:1")
+    assert imported_take.name == "MA3 Pull - MA3 Track"
+    assert imported_take.source_ref == "tc1_tg2_tr3"
+    assert imported_take.events == [
+        Event(
+            id="layer_target:ma3_pull:1:ma3:tc1_tg2_tr3:ma3_evt_3:3",
+            take_id=TakeId("layer_target:ma3_pull:1"),
+            start=0.5,
+            end=0.75,
+            label="Cue 3",
+            payload_ref="ma3_evt_3",
+        ),
+        Event(
+            id="layer_target:ma3_pull:1:ma3:tc1_tg2_tr3:ma3_evt_1:1",
+            take_id=TakeId("layer_target:ma3_pull:1"),
+            start=1.0,
+            end=1.5,
+            label="Cue 1",
+            payload_ref="ma3_evt_1",
+        ),
+        Event(
+            id="layer_target:ma3_pull:1:ma3:tc1_tg2_tr3:ma3_evt_2:2",
+            take_id=TakeId("layer_target:ma3_pull:1"),
+            start=3.0,
+            end=3.25,
+            label="Cue 2",
+            payload_ref="ma3_evt_2",
+        ),
+    ]
+    assert timeline.selection.selected_layer_id == LayerId("layer_target")
+    assert timeline.selection.selected_take_id == TakeId("layer_target:ma3_pull:1")
+    assert timeline.selection.selected_event_ids == [
+        "layer_target:ma3_pull:1:ma3:tc1_tg2_tr3:ma3_evt_3:3",
+        "layer_target:ma3_pull:1:ma3:tc1_tg2_tr3:ma3_evt_1:1",
+        "layer_target:ma3_pull:1:ma3:tc1_tg2_tr3:ma3_evt_2:2",
+    ]
+    assert session.manual_pull_flow.diff_gate_open is False
+    assert session.manual_pull_flow.diff_preview is None
+    assert session.manual_pull_flow.selected_ma3_event_ids == ["ma3_evt_1", "ma3_evt_2", "ma3_evt_3"]
+    assert playback_service.update_runtime_calls == 6
+
+
 def test_pull_flow_validation_errors_reject_unknown_source_events_and_targets():
     orchestrator, timeline, _session, _playback_service = _build_orchestrator(
         sync_service=_SyncService(
@@ -418,3 +515,13 @@ def test_pull_flow_validation_errors_reject_unknown_source_events_and_targets():
             timeline,
             SelectPullTargetLayer(target_layer_id=LayerId("missing_layer")),
         )
+
+
+def test_apply_pull_requires_open_diff_preview():
+    orchestrator, timeline, _session, _playback_service = _build_orchestrator()
+
+    with pytest.raises(
+        ValueError,
+        match="ApplyPullFromMA3 requires an open diff preview",
+    ):
+        orchestrator.handle(timeline, ApplyPullFromMA3())

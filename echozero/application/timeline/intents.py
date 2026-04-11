@@ -223,3 +223,8 @@ class ConfirmPullFromMA3(TimelineIntent):
             raise ValueError("ConfirmPullFromMA3 requires non-empty selected_ma3_event_ids")
         if self.target_layer_id is None or not str(self.target_layer_id).strip():
             raise ValueError("ConfirmPullFromMA3 requires a non-empty target_layer_id")
+
+
+@dataclass(slots=True)
+class ApplyPullFromMA3(TimelineIntent):
+    pass

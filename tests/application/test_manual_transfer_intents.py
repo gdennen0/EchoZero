@@ -4,6 +4,7 @@ import pytest
 
 from echozero.application.shared.ids import EventId, LayerId
 from echozero.application.timeline.intents import (
+    ApplyPullFromMA3,
     ConfirmPullFromMA3,
     ConfirmPushToMA3,
     OpenPullFromMA3Dialog,
@@ -176,3 +177,9 @@ def test_confirm_pull_from_ma3_requires_non_empty_target_layer_id(target_layer_i
             selected_ma3_event_ids=["ma3_evt_1"],
             target_layer_id=target_layer_id,
         )
+
+
+def test_apply_pull_from_ma3_is_constructible():
+    intent = ApplyPullFromMA3()
+
+    assert isinstance(intent, ApplyPullFromMA3)
