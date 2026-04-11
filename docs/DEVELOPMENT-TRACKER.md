@@ -106,14 +106,14 @@ Concrete checklist:
 - [x] Select the stable real-data song/version fixture used for `LD-01` (`docs/PHASE3-LD01-FIXTURE.md`)
 - [x] Execute first full `LD-01` run against the current baseline
 - [x] Package evidence artifacts outside tracked source and attach run metadata (`scripts/phase3_ld01_evidence_pack.py` now supports explicit external divergence/resolution captures for the first complete pack)
-- [ ] Review pass/fail result and record any workflow gaps
+- [x] Review pass/fail result and record any workflow gaps (`docs/PHASE3-LD01-REVIEW-2026-04-10.md` records the current pack as `REJECT` for signoff)
 - [ ] Confirm the runbook is usable as regression signoff for workflow-affecting changes
 
 Checkpoints:
 - Checkpoint P3.1: runbook and tracker activation complete
 - Checkpoint P3.2: complete - fixture frozen for repeatable reruns (`docs/PHASE3-LD01-FIXTURE.md`)
 - Checkpoint P3.3: complete - first `LD-01` evidence pack generated with the required artifact set (`scripts/phase3_ld01_evidence_pack.py`)
-- Checkpoint P3.4: proof-pack accepted as active regression signoff path
+- Checkpoint P3.4: review completed; acceptance remains pending until a clean rerunnable `LD-01` signoff pack exists
 
 ---
 
@@ -153,4 +153,4 @@ Checkpoints:
 
 ## 10) Next Checkpoint
 
-Phase 3 active. Next checkpoint: review the first complete `LD-01` evidence pack and promote the runbook to active regression signoff if it holds.
+Phase 3 active. Next checkpoint: close the documented `LD-01` workflow/signoff gaps and rerun the pack until it is acceptable as the active regression signoff path.
