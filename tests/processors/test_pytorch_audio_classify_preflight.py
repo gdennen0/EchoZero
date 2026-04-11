@@ -117,9 +117,12 @@ def _checkpoint() -> dict[str, object]:
 
 
 def _manifest(model_name: str, *, fingerprint: str | None = None) -> dict[str, object]:
-    manifest = {
+    if fingerprint is None:
+        fingerprint = checkpoint_contract_fingerprint(_checkpoint())
+    return {
         "schema": "foundry.artifact_manifest.v1",
         "weightsPath": model_name,
+        "sharedContractFingerprint": fingerprint,
         "classes": ["kick", "snare"],
         "classificationMode": "multiclass",
         "runtime": {"consumer": "PyTorchAudioClassify"},
@@ -132,9 +135,6 @@ def _manifest(model_name: str, *, fingerprint: str | None = None) -> dict[str, o
             "fmax": 8000,
         },
     }
-    if fingerprint is not None:
-        manifest["sharedContractFingerprint"] = fingerprint
-    return manifest
 
 
 def _write_manifest(directory: Path, payload: dict[str, object]) -> Path:
@@ -149,11 +149,19 @@ def _install_fake_torch(monkeypatch: pytest.MonkeyPatch, checkpoint: dict[str, o
     monkeypatch.setitem(sys.modules, "torch", fake_torch)
 
 
-def test_runtime_preflight_keeps_manifest_absent_behavior(local_tmp_path: Path) -> None:
+def test_runtime_preflight_rejects_missing_manifest(local_tmp_path: Path) -> None:
     model_path = local_tmp_path / "model.pth"
     model_path.write_bytes(b"weights")
 
-    run_runtime_preflight(model_path, _checkpoint())
+    with pytest.raises(ValidationError) as exc_info:
+        run_runtime_preflight(model_path, _checkpoint())
+
+    message = str(exc_info.value)
+    assert (
+        "artifact manifest is required for runtime preflight; no *.manifest.json files were found"
+        in message
+    )
+    assert f"requested model path: {model_path.resolve()}" in message
 
 
 def test_runtime_preflight_rejects_invalid_runtime_bundle(local_tmp_path: Path) -> None:
@@ -233,8 +241,6 @@ def test_runtime_preflight_rejects_preprocessing_mismatch_against_checkpoint(loc
 def test_runtime_preflight_rejects_legacy_checkpoint_missing_manifest_required_metadata(local_tmp_path: Path) -> None:
     model_path = local_tmp_path / "model.pth"
     model_path.write_bytes(b"weights")
-    _write_manifest(local_tmp_path, _manifest(model_path.name))
-
     legacy_checkpoint = {
         "model_state_dict": {},
         "preprocessing": {
@@ -246,6 +252,10 @@ def test_runtime_preflight_rejects_legacy_checkpoint_missing_manifest_required_m
         },
         "trainer": "cnn_melspec_v1",
     }
+    _write_manifest(
+        local_tmp_path,
+        _manifest(model_path.name, fingerprint=checkpoint_contract_fingerprint(legacy_checkpoint)),
+    )
 
     with pytest.raises(ValidationError) as exc_info:
         run_runtime_preflight(model_path, legacy_checkpoint)
@@ -254,6 +264,23 @@ def test_runtime_preflight_rejects_legacy_checkpoint_missing_manifest_required_m
     assert "checkpoint.classes must be present when validating against an artifact manifest" in message
     assert "checkpoint preprocessing missing keys required for manifest verification: fmax" in message
     assert "checkpoint classification mode must be present when validating against an artifact manifest" in message
+
+
+def test_runtime_preflight_rejects_missing_shared_contract_fingerprint(local_tmp_path: Path) -> None:
+    model_path = local_tmp_path / "model.pth"
+    model_path.write_bytes(b"weights")
+    payload = _manifest(model_path.name)
+    payload.pop("sharedContractFingerprint", None)
+    _write_manifest(local_tmp_path, payload)
+
+    with pytest.raises(
+        ValidationError,
+        match=(
+            "Runtime bundle preflight failed for model\\.pth: "
+            "manifest\\.sharedContractFingerprint is required"
+        ),
+    ):
+        run_runtime_preflight(model_path, _checkpoint())
 
 
 def test_default_classify_runs_preflight_once_per_model_load(

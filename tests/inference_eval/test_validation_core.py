@@ -81,3 +81,21 @@ def test_validate_manifest_inference_section_enforces_required_preprocessing_key
     issue = next(error for error in report.errors if error.code == "missing_preprocessing_keys")
     assert issue.path == "manifest.inferencePreprocessing"
     assert issue.message == f"manifest.inferencePreprocessing missing keys: {missing_key}"
+
+
+def test_validate_manifest_inference_section_requires_shared_contract_fingerprint() -> None:
+    report = validate_manifest_inference_section(
+        {
+            "schema": "foundry.artifact_manifest.v1",
+            "weightsPath": "model.pth",
+            "classes": ["kick", "snare"],
+            "classificationMode": "multiclass",
+            "runtime": {"consumer": "PyTorchAudioClassify"},
+            "inferencePreprocessing": _required_preprocessing(),
+        }
+    )
+
+    assert report.ok is False
+    issue = next(error for error in report.errors if error.code == "missing_shared_contract_fingerprint")
+    assert issue.path == "manifest.sharedContractFingerprint"
+    assert issue.message == "manifest.sharedContractFingerprint is required"

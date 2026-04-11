@@ -63,6 +63,12 @@ def _manifest_target_path(manifest_path: Path, manifest: Mapping[str, Any]) -> P
 def _resolve_manifest_for_model(model_path: Path, report: ValidationReport) -> Mapping[str, Any] | None:
     candidates = _iter_manifest_candidates(model_path)
     if not candidates:
+        report.add_error(
+            "missing_model_manifest",
+            "manifest",
+            "artifact manifest is required for runtime preflight; no *.manifest.json files were found"
+            f" alongside requested model path (requested model path: {model_path.resolve()})",
+        )
         return None
 
     resolved_model_path = model_path.resolve()
@@ -209,9 +215,6 @@ def run_runtime_preflight(
     report = ValidationReport()
     manifest = _resolve_manifest_for_model(resolved_model_path, report)
 
-    if manifest is None and report.ok:
-        return
-
     if manifest is not None:
         manifest_report = validate_manifest_inference_section(manifest)
         runtime_report = validate_runtime_consumer(manifest, consumer=consumer)
@@ -257,7 +260,7 @@ def run_runtime_preflight(
             )
 
         manifest_fingerprint = manifest.get("sharedContractFingerprint")
-        if manifest_fingerprint is not None:
+        if isinstance(manifest_fingerprint, str) and manifest_fingerprint.strip():
             expected_fingerprint = checkpoint_contract_fingerprint(checkpoint)
             if manifest_fingerprint != expected_fingerprint:
                 report.add_error(

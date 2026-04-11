@@ -8,6 +8,7 @@
     "runId",
     "datasetVersionId",
     "specHash",
+    "sharedContractFingerprint",
     "weightsPath",
     "classes",
     "classificationMode",

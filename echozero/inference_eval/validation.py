@@ -124,6 +124,20 @@ def validate_manifest_inference_section(
             f"manifest.inferencePreprocessing missing keys: {', '.join(missing)}",
         )
 
+    fingerprint = manifest.get("sharedContractFingerprint")
+    if fingerprint is None:
+        report.add_error(
+            "missing_shared_contract_fingerprint",
+            "manifest.sharedContractFingerprint",
+            "manifest.sharedContractFingerprint is required",
+        )
+    elif not isinstance(fingerprint, str) or not fingerprint.strip():
+        report.add_error(
+            "invalid_shared_contract_fingerprint",
+            "manifest.sharedContractFingerprint",
+            "manifest.sharedContractFingerprint must be a non-empty string",
+        )
+
     run_data = _as_mapping(expected_run_data)
     expected_classification_mode = run_data.get("classificationMode")
     if expected_classification_mode is not None and manifest.get("classificationMode") != expected_classification_mode:
