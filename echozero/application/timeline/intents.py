@@ -2,7 +2,11 @@
 
 from dataclasses import dataclass
 
-from echozero.application.session.models import ManualPushTrackOption
+from echozero.application.session.models import (
+    ManualPullEventOption,
+    ManualPullTrackOption,
+    ManualPushTrackOption,
+)
 from echozero.application.shared.ids import LayerId, TakeId, EventId
 from echozero.application.shared.enums import SyncMode
 from echozero.application.shared.ranges import TimeRange
@@ -165,6 +169,45 @@ class OpenPullFromMA3Dialog(TimelineIntent):
 
 
 @dataclass(slots=True)
+class SetPullTrackOptions(TimelineIntent):
+    tracks: list[ManualPullTrackOption]
+
+
+@dataclass(slots=True)
+class SelectPullSourceTrack(TimelineIntent):
+    source_track_coord: str
+
+    def __post_init__(self) -> None:
+        if not self.source_track_coord or not self.source_track_coord.strip():
+            raise ValueError("SelectPullSourceTrack requires a non-empty source_track_coord")
+
+
+@dataclass(slots=True)
+class SetPullSourceEvents(TimelineIntent):
+    events: list[ManualPullEventOption]
+
+
+@dataclass(slots=True)
+class SelectPullSourceEvents(TimelineIntent):
+    selected_ma3_event_ids: list[str]
+
+    def __post_init__(self) -> None:
+        if not self.selected_ma3_event_ids:
+            raise ValueError("SelectPullSourceEvents requires at least one selected_ma3_event_id")
+        if not all(event_id and str(event_id).strip() for event_id in self.selected_ma3_event_ids):
+            raise ValueError("SelectPullSourceEvents requires non-empty selected_ma3_event_ids")
+
+
+@dataclass(slots=True)
+class SelectPullTargetLayer(TimelineIntent):
+    target_layer_id: LayerId
+
+    def __post_init__(self) -> None:
+        if self.target_layer_id is None or not str(self.target_layer_id).strip():
+            raise ValueError("SelectPullTargetLayer requires a non-empty target_layer_id")
+
+
+@dataclass(slots=True)
 class ConfirmPullFromMA3(TimelineIntent):
     source_track_coord: str
     selected_ma3_event_ids: list[str]
@@ -172,5 +215,11 @@ class ConfirmPullFromMA3(TimelineIntent):
     import_mode: str = "new_take"
 
     def __post_init__(self) -> None:
+        if not self.source_track_coord or not self.source_track_coord.strip():
+            raise ValueError("ConfirmPullFromMA3 requires a non-empty source_track_coord")
+        if not self.selected_ma3_event_ids:
+            raise ValueError("ConfirmPullFromMA3 requires at least one selected_ma3_event_id")
+        if not all(event_id and str(event_id).strip() for event_id in self.selected_ma3_event_ids):
+            raise ValueError("ConfirmPullFromMA3 requires non-empty selected_ma3_event_ids")
         if self.target_layer_id is None or not str(self.target_layer_id).strip():
             raise ValueError("ConfirmPullFromMA3 requires a non-empty target_layer_id")

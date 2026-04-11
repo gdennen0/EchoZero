@@ -68,6 +68,53 @@ class ManualPushFlowPresentation:
 
 
 @dataclass(slots=True)
+class ManualPullTrackOptionPresentation:
+    coord: str
+    name: str
+    note: str | None = None
+    event_count: int | None = None
+
+
+@dataclass(slots=True)
+class ManualPullEventOptionPresentation:
+    event_id: str
+    label: str
+    start: float | None = None
+    end: float | None = None
+
+
+@dataclass(slots=True)
+class ManualPullTargetOptionPresentation:
+    layer_id: LayerId
+    name: str
+
+
+@dataclass(slots=True)
+class ManualPullDiffPreviewPresentation:
+    selected_count: int
+    source_track_coord: str
+    source_track_name: str
+    source_track_note: str | None = None
+    source_track_event_count: int | None = None
+    target_layer_id: LayerId | None = None
+    target_layer_name: str = ""
+    import_mode: str = "new_take"
+
+
+@dataclass(slots=True)
+class ManualPullFlowPresentation:
+    dialog_open: bool = False
+    available_tracks: list[ManualPullTrackOptionPresentation] = field(default_factory=list)
+    source_track_coord: str | None = None
+    available_events: list[ManualPullEventOptionPresentation] = field(default_factory=list)
+    selected_ma3_event_ids: list[str] = field(default_factory=list)
+    available_target_layers: list[ManualPullTargetOptionPresentation] = field(default_factory=list)
+    target_layer_id: LayerId | None = None
+    diff_gate_open: bool = False
+    diff_preview: ManualPullDiffPreviewPresentation | None = None
+
+
+@dataclass(slots=True)
 class EventPresentation:
     event_id: EventId
     start: float
@@ -130,3 +177,4 @@ class TimelinePresentation:
     current_time_label: str = "00:00.00"
     end_time_label: str = "00:00.00"
     manual_push_flow: ManualPushFlowPresentation = field(default_factory=ManualPushFlowPresentation)
+    manual_pull_flow: ManualPullFlowPresentation = field(default_factory=ManualPullFlowPresentation)

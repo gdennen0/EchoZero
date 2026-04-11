@@ -6,27 +6,42 @@ from typing import TYPE_CHECKING, Any
 from echozero.application.mixer.service import MixerService
 from echozero.application.playback.service import PlaybackService
 from echozero.application.presentation.models import TimelinePresentation
-from echozero.application.session.models import ManualPushDiffPreview, ManualPushTrackOption
+from echozero.application.session.models import (
+    ManualPullDiffPreview,
+    ManualPullEventOption,
+    ManualPullTargetOption,
+    ManualPullTrackOption,
+    ManualPushDiffPreview,
+    ManualPushTrackOption,
+)
 from echozero.application.session.service import SessionService
+from echozero.application.shared.enums import LayerKind
 from echozero.application.sync.service import SyncService
 if TYPE_CHECKING:
     from echozero.application.timeline.assembler import TimelineAssembler
 from echozero.application.timeline.intents import (
     ClearSelection,
+    ConfirmPullFromMA3,
     ConfirmPushToMA3,
     DuplicateSelectedEvents,
     DisableSync,
     MoveSelectedEvents,
     NudgeSelectedEvents,
+    OpenPullFromMA3Dialog,
     SelectAllEvents,
     SelectEvent,
     SelectLayer,
+    SelectPullSourceEvents,
+    SelectPullSourceTrack,
+    SelectPullTargetLayer,
     SelectTake,
     EnableSync,
     OpenPushToMA3Dialog,
     Play,
     Pause,
     Seek,
+    SetPullSourceEvents,
+    SetPullTrackOptions,
     SelectPushTargetTrack,
     SetGain,
     SetPushTrackOptions,
@@ -192,6 +207,113 @@ class TimelineOrchestrator:
                 target_track_name=target_track.name,
                 target_track_note=target_track.note,
                 target_track_event_count=target_track.event_count,
+            )
+
+        elif isinstance(intent, OpenPullFromMA3Dialog):
+            session = self.session_service.get_session()
+            session.manual_pull_flow.dialog_open = True
+            session.manual_pull_flow.available_tracks = self._load_manual_pull_track_options()
+            session.manual_pull_flow.source_track_coord = None
+            session.manual_pull_flow.available_events = []
+            session.manual_pull_flow.selected_ma3_event_ids = []
+            session.manual_pull_flow.available_target_layers = self._load_manual_pull_target_options(timeline)
+            session.manual_pull_flow.target_layer_id = None
+            session.manual_pull_flow.diff_gate_open = False
+            session.manual_pull_flow.diff_preview = None
+
+        elif isinstance(intent, SetPullTrackOptions):
+            session = self.session_service.get_session()
+            session.manual_pull_flow.available_tracks = list(intent.tracks)
+
+        elif isinstance(intent, SelectPullSourceTrack):
+            session = self.session_service.get_session()
+            source_track = self._manual_pull_track_by_coord(
+                session.manual_pull_flow.available_tracks,
+                intent.source_track_coord,
+                action_name="SelectPullSourceTrack",
+            )
+            session.manual_pull_flow.source_track_coord = source_track.coord
+            session.manual_pull_flow.available_events = self._load_manual_pull_event_options(source_track.coord)
+            session.manual_pull_flow.selected_ma3_event_ids = []
+            session.manual_pull_flow.diff_gate_open = False
+            session.manual_pull_flow.diff_preview = None
+
+        elif isinstance(intent, SetPullSourceEvents):
+            session = self.session_service.get_session()
+            session.manual_pull_flow.available_events = list(intent.events)
+
+        elif isinstance(intent, SelectPullSourceEvents):
+            session = self.session_service.get_session()
+            available_event_ids = {
+                event.event_id
+                for event in session.manual_pull_flow.available_events
+            }
+            unknown_event_ids = [
+                event_id
+                for event_id in intent.selected_ma3_event_ids
+                if event_id not in available_event_ids
+            ]
+            if unknown_event_ids:
+                raise ValueError(
+                    "SelectPullSourceEvents selected_ma3_event_ids not found in available_events: "
+                    + ", ".join(unknown_event_ids)
+                )
+            session.manual_pull_flow.selected_ma3_event_ids = list(intent.selected_ma3_event_ids)
+            session.manual_pull_flow.diff_gate_open = False
+            session.manual_pull_flow.diff_preview = None
+
+        elif isinstance(intent, SelectPullTargetLayer):
+            session = self.session_service.get_session()
+            target_layer = self._manual_pull_target_layer_by_id(
+                session.manual_pull_flow.available_target_layers,
+                intent.target_layer_id,
+                action_name="SelectPullTargetLayer",
+            )
+            session.manual_pull_flow.target_layer_id = target_layer.layer_id
+            session.manual_pull_flow.diff_gate_open = False
+            session.manual_pull_flow.diff_preview = None
+
+        elif isinstance(intent, ConfirmPullFromMA3):
+            session = self.session_service.get_session()
+            source_track = self._manual_pull_track_by_coord(
+                session.manual_pull_flow.available_tracks,
+                intent.source_track_coord,
+                action_name="ConfirmPullFromMA3",
+            )
+            target_layer = self._manual_pull_target_layer_by_id(
+                session.manual_pull_flow.available_target_layers,
+                intent.target_layer_id,
+                action_name="ConfirmPullFromMA3",
+            )
+            available_event_ids = {
+                event.event_id
+                for event in session.manual_pull_flow.available_events
+            }
+            unknown_event_ids = [
+                event_id
+                for event_id in intent.selected_ma3_event_ids
+                if event_id not in available_event_ids
+            ]
+            if unknown_event_ids:
+                raise ValueError(
+                    "ConfirmPullFromMA3 selected_ma3_event_ids not found in available_events: "
+                    + ", ".join(unknown_event_ids)
+                )
+
+            session.manual_pull_flow.dialog_open = False
+            session.manual_pull_flow.source_track_coord = source_track.coord
+            session.manual_pull_flow.selected_ma3_event_ids = list(intent.selected_ma3_event_ids)
+            session.manual_pull_flow.target_layer_id = target_layer.layer_id
+            session.manual_pull_flow.diff_gate_open = True
+            session.manual_pull_flow.diff_preview = ManualPullDiffPreview(
+                selected_count=len(intent.selected_ma3_event_ids),
+                source_track_coord=source_track.coord,
+                source_track_name=source_track.name,
+                source_track_note=source_track.note,
+                source_track_event_count=source_track.event_count,
+                target_layer_id=target_layer.layer_id,
+                target_layer_name=target_layer.name,
+                import_mode=intent.import_mode,
             )
 
         session = self.session_service.get_session()
@@ -520,6 +642,46 @@ class TimelineOrchestrator:
             for raw_track in raw_tracks or []
         ]
 
+    def _load_manual_pull_track_options(self) -> list[ManualPullTrackOption]:
+        provider = self.sync_service
+        if hasattr(provider, "list_pull_track_options"):
+            raw_tracks = provider.list_pull_track_options()
+        elif hasattr(provider, "get_available_ma3_tracks"):
+            raw_tracks = provider.get_available_ma3_tracks()
+        else:
+            return []
+
+        return [
+            self._normalize_manual_pull_track_option(raw_track)
+            for raw_track in raw_tracks or []
+        ]
+
+    def _load_manual_pull_event_options(self, source_track_coord: str) -> list[ManualPullEventOption]:
+        provider = self.sync_service
+        if hasattr(provider, "list_pull_source_events"):
+            raw_events = provider.list_pull_source_events(source_track_coord)
+        elif hasattr(provider, "list_ma3_track_events"):
+            raw_events = provider.list_ma3_track_events(source_track_coord)
+        elif hasattr(provider, "get_available_ma3_events"):
+            raw_events = provider.get_available_ma3_events(source_track_coord)
+        else:
+            return []
+
+        return [
+            self._normalize_manual_pull_event_option(raw_event)
+            for raw_event in raw_events or []
+        ]
+
+    @staticmethod
+    def _load_manual_pull_target_options(timeline: Timeline) -> list[ManualPullTargetOption]:
+        return [
+            ManualPullTargetOption(layer_id=layer.id, name=layer.name)
+            for layer in sorted(timeline.layers, key=lambda value: value.order_index)
+            if layer.kind == LayerKind.EVENT
+            and layer.presentation_hints.visible
+            and not layer.presentation_hints.locked
+        ]
+
     @staticmethod
     def _normalize_manual_push_track_option(raw_track: Any) -> ManualPushTrackOption:
         if isinstance(raw_track, ManualPushTrackOption):
@@ -535,6 +697,40 @@ class TimelineOrchestrator:
             name=str(name or ""),
             note=None if note is None else str(note),
             event_count=TimelineOrchestrator._coerce_optional_int(event_count),
+        )
+
+    @staticmethod
+    def _normalize_manual_pull_track_option(raw_track: Any) -> ManualPullTrackOption:
+        if isinstance(raw_track, ManualPullTrackOption):
+            return raw_track
+
+        coord = TimelineOrchestrator._track_option_value(raw_track, "coord")
+        name = TimelineOrchestrator._track_option_value(raw_track, "name")
+        note = TimelineOrchestrator._track_option_value(raw_track, "note")
+        event_count = TimelineOrchestrator._track_option_value(raw_track, "event_count")
+
+        return ManualPullTrackOption(
+            coord=str(coord or ""),
+            name=str(name or ""),
+            note=None if note is None else str(note),
+            event_count=TimelineOrchestrator._coerce_optional_int(event_count),
+        )
+
+    @staticmethod
+    def _normalize_manual_pull_event_option(raw_event: Any) -> ManualPullEventOption:
+        if isinstance(raw_event, ManualPullEventOption):
+            return raw_event
+
+        event_id = TimelineOrchestrator._track_option_value(raw_event, "event_id")
+        label = TimelineOrchestrator._track_option_value(raw_event, "label")
+        start = TimelineOrchestrator._track_option_value(raw_event, "start")
+        end = TimelineOrchestrator._track_option_value(raw_event, "end")
+
+        return ManualPullEventOption(
+            event_id=str(event_id or ""),
+            label=str(label or event_id or ""),
+            start=None if start is None else float(start),
+            end=None if end is None else float(end),
         )
 
     @staticmethod
@@ -560,6 +756,34 @@ class TimelineOrchestrator:
         raise ValueError(
             f"ConfirmPushToMA3 target_track_coord not found in available_tracks: "
             f"{target_track_coord}"
+        )
+
+    @staticmethod
+    def _manual_pull_track_by_coord(
+        available_tracks: list[ManualPullTrackOption],
+        source_track_coord: str,
+        action_name: str,
+    ) -> ManualPullTrackOption:
+        for track in available_tracks:
+            if track.coord == source_track_coord:
+                return track
+        raise ValueError(
+            f"{action_name} source_track_coord not found in available_tracks: "
+            f"{source_track_coord}"
+        )
+
+    @staticmethod
+    def _manual_pull_target_layer_by_id(
+        available_targets: list[ManualPullTargetOption],
+        target_layer_id,
+        action_name: str,
+    ) -> ManualPullTargetOption:
+        for target in available_targets:
+            if target.layer_id == target_layer_id:
+                return target
+        raise ValueError(
+            f"{action_name} target_layer_id not found in available_target_layers: "
+            f"{target_layer_id}"
         )
 
     def _find_layer(self, timeline: Timeline, layer_id):

@@ -5,6 +5,11 @@ from dataclasses import dataclass, field
 from echozero.application.presentation.models import (
     EventPresentation,
     LayerPresentation,
+    ManualPullDiffPreviewPresentation,
+    ManualPullEventOptionPresentation,
+    ManualPullFlowPresentation,
+    ManualPullTargetOptionPresentation,
+    ManualPullTrackOptionPresentation,
     LayerStatusPresentation,
     ManualPushDiffPreviewPresentation,
     ManualPushFlowPresentation,
@@ -68,6 +73,7 @@ class TimelineAssembler:
                 scroll_x=timeline.viewport.scroll_x,
                 scroll_y=timeline.viewport.scroll_y,
                 manual_push_flow=self._assemble_manual_push_flow(session),
+                manual_pull_flow=self._assemble_manual_pull_flow(session),
             )
 
     def _assemble_layer(
@@ -266,6 +272,56 @@ class TimelineAssembler:
                 for track in flow.available_tracks
             ],
             target_track_coord=flow.target_track_coord,
+            diff_gate_open=flow.diff_gate_open,
+            diff_preview=diff_preview,
+        )
+
+    @staticmethod
+    def _assemble_manual_pull_flow(session: Session) -> ManualPullFlowPresentation:
+        flow = session.manual_pull_flow
+        diff_preview = None
+        if flow.diff_preview is not None:
+            diff_preview = ManualPullDiffPreviewPresentation(
+                selected_count=flow.diff_preview.selected_count,
+                source_track_coord=flow.diff_preview.source_track_coord,
+                source_track_name=flow.diff_preview.source_track_name,
+                source_track_note=flow.diff_preview.source_track_note,
+                source_track_event_count=flow.diff_preview.source_track_event_count,
+                target_layer_id=flow.diff_preview.target_layer_id,
+                target_layer_name=flow.diff_preview.target_layer_name,
+                import_mode=flow.diff_preview.import_mode,
+            )
+
+        return ManualPullFlowPresentation(
+            dialog_open=flow.dialog_open,
+            available_tracks=[
+                ManualPullTrackOptionPresentation(
+                    coord=track.coord,
+                    name=track.name,
+                    note=track.note,
+                    event_count=track.event_count,
+                )
+                for track in flow.available_tracks
+            ],
+            source_track_coord=flow.source_track_coord,
+            available_events=[
+                ManualPullEventOptionPresentation(
+                    event_id=event.event_id,
+                    label=event.label,
+                    start=event.start,
+                    end=event.end,
+                )
+                for event in flow.available_events
+            ],
+            selected_ma3_event_ids=list(flow.selected_ma3_event_ids),
+            available_target_layers=[
+                ManualPullTargetOptionPresentation(
+                    layer_id=target.layer_id,
+                    name=target.name,
+                )
+                for target in flow.available_target_layers
+            ],
+            target_layer_id=flow.target_layer_id,
             diff_gate_open=flow.diff_gate_open,
             diff_preview=diff_preview,
         )

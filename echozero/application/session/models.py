@@ -2,7 +2,7 @@
 
 from dataclasses import dataclass, field
 
-from echozero.application.shared.ids import EventId, ProjectId, SessionId, SongId, SongVersionId, TimelineId
+from echozero.application.shared.ids import EventId, LayerId, ProjectId, SessionId, SongId, SongVersionId, TimelineId
 from echozero.application.transport.models import TransportState
 from echozero.application.mixer.models import MixerState
 from echozero.application.playback.models import PlaybackState
@@ -37,6 +37,53 @@ class ManualPushFlowState:
 
 
 @dataclass(slots=True)
+class ManualPullTrackOption:
+    coord: str
+    name: str
+    note: str | None = None
+    event_count: int | None = None
+
+
+@dataclass(slots=True)
+class ManualPullEventOption:
+    event_id: str
+    label: str
+    start: float | None = None
+    end: float | None = None
+
+
+@dataclass(slots=True)
+class ManualPullTargetOption:
+    layer_id: LayerId
+    name: str
+
+
+@dataclass(slots=True)
+class ManualPullDiffPreview:
+    selected_count: int
+    source_track_coord: str
+    source_track_name: str
+    source_track_note: str | None = None
+    source_track_event_count: int | None = None
+    target_layer_id: LayerId | None = None
+    target_layer_name: str = ""
+    import_mode: str = "new_take"
+
+
+@dataclass(slots=True)
+class ManualPullFlowState:
+    dialog_open: bool = False
+    available_tracks: list[ManualPullTrackOption] = field(default_factory=list)
+    source_track_coord: str | None = None
+    available_events: list[ManualPullEventOption] = field(default_factory=list)
+    selected_ma3_event_ids: list[str] = field(default_factory=list)
+    available_target_layers: list[ManualPullTargetOption] = field(default_factory=list)
+    target_layer_id: LayerId | None = None
+    diff_gate_open: bool = False
+    diff_preview: ManualPullDiffPreview | None = None
+
+
+@dataclass(slots=True)
 class Session:
     id: SessionId
     project_id: ProjectId
@@ -48,4 +95,5 @@ class Session:
     playback_state: PlaybackState = field(default_factory=PlaybackState)
     sync_state: SyncState = field(default_factory=SyncState)
     manual_push_flow: ManualPushFlowState = field(default_factory=ManualPushFlowState)
+    manual_pull_flow: ManualPullFlowState = field(default_factory=ManualPullFlowState)
     ui_prefs_ref: str | None = None
