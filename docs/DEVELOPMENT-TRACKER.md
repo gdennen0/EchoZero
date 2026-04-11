@@ -15,9 +15,9 @@ If this tracker conflicts with the canonical implementation plan, update this tr
 - UI contract is becoming explicit and shared
 - Real-data playback is part of verification (not mock-only)
 
-**Readiness to add features:** Phase 3 proof-pack in progress
+**Readiness to add features:** Phase 3 sync receive hardening in progress
 - P0 contract + hygiene gate is green.
-- Phase 3 workflow-proof runbook is now the active gate before feature expansion re-opens.
+- Phase 3 sync receive protocol gate is now the active gate before feature expansion re-opens.
 
 ---
 
@@ -89,31 +89,23 @@ Phase 2 milestone commits:
 
 ---
 
-## 6) Active Phase (Phase 3 from unified plan): Real-World DAW Proof Pack - Active
-
-Canonical runbook:
-- `docs/PHASE3-DAW-PROOF-PACK.md`
+## 6) Active Phase (Phase 3 from unified plan): Sync Receive Protocol Hardening - Active
 
 Goal:
-- prove one real-world LD workflow end-to-end with reproducible reviewer-visible evidence
+- prove EZ2 correctly receives/parses MA3 OSC plugin payloads using simple deterministic tests
 
 Concrete checklist:
-- [x] Create canonical Phase 3 runbook with one reproducible LD workflow scenario pack
-- [x] Define mandatory execution order for the canonical proof run
-- [x] Define required screenshot + video artifacts
-- [x] Define explicit pass/fail criteria
-- [x] Document intentional differences from full DAW precedent
-- [x] Select the stable real-data song/version fixture used for `LD-01` (`docs/PHASE3-LD01-FIXTURE.md`)
-- [x] Execute first full `LD-01` run against the current baseline
-- [x] Package evidence artifacts outside tracked source and attach run metadata (`scripts/phase3_ld01_evidence_pack.py` now distinguishes `BOOTSTRAP_PASS` from signoff-ready `PASS` when required artifacts depend on explicit external bootstrap sources)
-- [x] Review pass/fail result and record any workflow gaps (`docs/PHASE3-LD01-REVIEW-2026-04-10.md` records the current pack as `REJECT` for signoff and `BOOTSTRAP_PASS` for honest evidence-pack completeness)
-- [ ] Confirm the runbook is usable as regression signoff for workflow-affecting changes
+- [x] Add protocol tests for MA3 plugin payload shapes (`trackgroups.list`, `tracks.list`, `events.list`, `track.changed`)
+- [x] Fix delimiter parsing so embedded `|` in payload fields is preserved
+- [x] Keep receive-path suites green (`test_ma3_event_handler`, `test_ma3_event_contract`, `test_ma3_fixture_replay`)
+- [ ] Add one integration assertion that `track.changed` payloads flow through to sync-manager callbacks without payload loss
+- [ ] Promote a dedicated sync-receive test lane as required pre-merge gate for sync-affecting changes
 
 Checkpoints:
-- Checkpoint P3.1: runbook and tracker activation complete
-- Checkpoint P3.2: complete - fixture frozen for repeatable reruns (`docs/PHASE3-LD01-FIXTURE.md`)
-- Checkpoint P3.3: complete - first `LD-01` evidence pack generated with the required artifact set; bootstrap-only packs now classify as `BOOTSTRAP_PASS` instead of signoff-ready `PASS` (`scripts/phase3_ld01_evidence_pack.py`)
-- Checkpoint P3.4: review completed; acceptance remains pending until a clean rerunnable `LD-01` signoff pack exists
+- Checkpoint P3.1: plugin payload protocol coverage complete (`tests/unit/test_ma3_communication_service_protocol.py`)
+- Checkpoint P3.2: delimiter-robust parser split complete (`src/features/ma3/application/ma3_communication_service.py`)
+- Checkpoint P3.3: sync receive integration assertions pending
+- Checkpoint P3.4: dedicated sync-receive lane promotion pending
 
 ---
 
@@ -137,7 +129,7 @@ Checkpoints:
    - relevant application contract tests
 3. Any sync-facing change must include a main-only boundary assertion.
 4. Generated outputs live outside tracked source unless intentionally versioned.
-5. Workflow-affecting changes in Phase 3 must reference the canonical DAW proof-pack runbook for signoff.
+5. Sync-affecting changes in Phase 3 must pass the sync-receive protocol lane before merge.
 
 ---
 
@@ -153,4 +145,4 @@ Checkpoints:
 
 ## 10) Next Checkpoint
 
-Phase 3 active. Next checkpoint: close the documented `LD-01` workflow/signoff gaps and rerun the pack until it is acceptable as the active regression signoff path.
+Phase 3 active. Next checkpoint: close remaining sync receive integration/lane-gating items and then reopen feature expansion.

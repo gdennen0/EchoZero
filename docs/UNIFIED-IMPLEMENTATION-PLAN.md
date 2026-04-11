@@ -160,21 +160,19 @@ Tasks:
 Exit criteria:
 - FEEL/UI contract tests and walkthrough proof lanes are stable and repeatable.
 
-## Phase 3 — Real-World DAW Proof Pack
-Goal: prove workflow fitness, not just correctness.
+## Phase 3 — Sync Receive Protocol Hardening
+Goal: prove EZ2 reliably receives/parses MA3 OSC plugin payloads with simple, deterministic tests.
 
 Tasks:
-1. Build one canonical scenario pack reflecting Griff’s LD workflow:
-   - add song/version
-   - extract all
-   - review/edit pass
-   - divergence resolution
-   - MA3 push/pull decisions
-2. Capture reproducible video + screenshot proof for review loops.
-3. Record gaps where EchoZero intentionally differs from DAW precedent.
+1. Encode MA3 plugin payload shapes as protocol tests (trackgroups, tracks, events, track.changed).
+2. Validate parser robustness for embedded delimiters and nested payload structures.
+3. Verify receive-path compatibility from communication service through event handler/sync manager entrypoints.
+4. Keep a dedicated sync-receive lane green and required before sync-affecting merges.
 
 Exit criteria:
-- One reproducible “DAW-evidence” runbook exists and is used for regression signoff.
+- Sync receive protocol suite is green and stable.
+- Known MA3 plugin payloads are covered by tests.
+- No unresolved parser ambiguity for current plugin protocol.
 
 ## Phase 4 — Feature Expansion Re-open
 Goal: re-enable net-new features without reintroducing drift.
