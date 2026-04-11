@@ -17,16 +17,20 @@ from echozero.application.session.models import (
 from echozero.application.session.service import SessionService
 from echozero.application.shared.enums import LayerKind
 from echozero.application.sync.diff_service import SyncDiffService
+from echozero.application.sync.models import LiveSyncState
 from echozero.application.sync.service import SyncService
 if TYPE_CHECKING:
     from echozero.application.timeline.assembler import TimelineAssembler
 from echozero.application.timeline.intents import (
     ApplyPullFromMA3,
+    ClearLayerLiveSyncPauseReason,
     ClearSelection,
     ConfirmPullFromMA3,
     ConfirmPushToMA3,
+    DisableExperimentalLiveSync,
     DuplicateSelectedEvents,
     DisableSync,
+    EnableExperimentalLiveSync,
     MoveSelectedEvents,
     NudgeSelectedEvents,
     OpenPullFromMA3Dialog,
@@ -46,6 +50,8 @@ from echozero.application.timeline.intents import (
     SetPullTrackOptions,
     SelectPushTargetTrack,
     SetGain,
+    SetLayerLiveSyncPauseReason,
+    SetLayerLiveSyncState,
     SetPushTrackOptions,
     Stop,
     TimelineIntent,
@@ -58,6 +64,7 @@ from echozero.application.timeline.models import Timeline, Layer, Take, Event
 from echozero.application.transport.service import TransportService
 
 _KEYBOARD_STEP_SECONDS = 1.0 / 30.0
+_RECONNECT_REARM_REQUIRED_REASON = "Live sync reconnected; explicit re-arm required"
 
 
 @dataclass(slots=True)
@@ -162,11 +169,44 @@ class TimelineOrchestrator:
                 # Keep session state in lockstep with sync service error state.
                 session.sync_state = self.sync_service.get_state()
                 raise
+            self._pause_armed_write_layers_on_reconnect(timeline)
             session.sync_state = sync_state
 
         elif isinstance(intent, DisableSync):
             session = self.session_service.get_session()
             session.sync_state = self.sync_service.disconnect()
+
+        elif isinstance(intent, EnableExperimentalLiveSync):
+            session = self.session_service.get_session()
+            session.sync_state.experimental_live_sync_enabled = True
+
+        elif isinstance(intent, DisableExperimentalLiveSync):
+            session = self.session_service.get_session()
+            session.sync_state.experimental_live_sync_enabled = False
+            self._reset_live_sync_guardrails(timeline)
+
+        elif isinstance(intent, SetLayerLiveSyncState):
+            session = self.session_service.get_session()
+            if (
+                not session.sync_state.experimental_live_sync_enabled
+                and intent.live_sync_state is not LiveSyncState.OFF
+            ):
+                raise ValueError(
+                    "SetLayerLiveSyncState requires experimental live sync to be enabled for non-off states"
+                )
+            layer = self._find_layer(timeline, intent.layer_id)
+            layer.sync.live_sync_state = intent.live_sync_state
+            if intent.live_sync_state is LiveSyncState.OFF:
+                layer.sync.live_sync_pause_reason = None
+
+        elif isinstance(intent, SetLayerLiveSyncPauseReason):
+            layer = self._find_layer(timeline, intent.layer_id)
+            layer.sync.live_sync_state = LiveSyncState.PAUSED
+            layer.sync.live_sync_pause_reason = intent.pause_reason
+
+        elif isinstance(intent, ClearLayerLiveSyncPauseReason):
+            layer = self._find_layer(timeline, intent.layer_id)
+            layer.sync.live_sync_pause_reason = None
 
         elif isinstance(intent, OpenPushToMA3Dialog):
             session = self.session_service.get_session()
@@ -948,3 +988,17 @@ class TimelineOrchestrator:
             if layer.id == layer_id:
                 return layer
         raise ValueError(f"Layer not found: {layer_id}")
+
+    @staticmethod
+    def _reset_live_sync_guardrails(timeline: Timeline) -> None:
+        for layer in timeline.layers:
+            layer.sync.live_sync_state = LiveSyncState.OFF
+            layer.sync.live_sync_pause_reason = None
+            layer.sync.live_sync_divergent = False
+
+    @staticmethod
+    def _pause_armed_write_layers_on_reconnect(timeline: Timeline) -> None:
+        for layer in timeline.layers:
+            if layer.sync.live_sync_state is LiveSyncState.ARMED_WRITE:
+                layer.sync.live_sync_state = LiveSyncState.PAUSED
+                layer.sync.live_sync_pause_reason = _RECONNECT_REARM_REQUIRED_REASON
