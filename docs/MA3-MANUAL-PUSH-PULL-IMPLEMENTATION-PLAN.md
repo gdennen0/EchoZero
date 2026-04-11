@@ -158,7 +158,14 @@ Add transfer commands:
 - ensure deterministic tests.
 
 ### Step 5 — Live Sync guardrail
-- keep live sync under experimental flag and out of primary CTA path.
+- Live sync remains **experimental** and **off by default**.
+- The primary sync CTA path remains **manual transfer only**:
+  - Push EZ → MA3
+  - Pull MA3 → EZ
+- Any live-sync state other than `off` requires the experimental flag to be enabled first.
+- Reconnect handling must downgrade `armed_write` to `paused`; the user must explicitly re-arm write mode after reconnect.
+- Disabling the experimental flag must reset per-layer live-sync guardrail state back to the safe baseline.
+- Entering `armed_write` requires explicit user confirmation in the UI before the state is applied.
 
 ---
 

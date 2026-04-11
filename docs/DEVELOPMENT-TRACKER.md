@@ -152,16 +152,13 @@ Phase 3 complete. Manual transfer execution status:
   - pull flow staging contracts complete (`3907da1`)
   - pull picker interaction + diff preview gate complete (`305c0e2`)
   - pull import execution into selected EZ layer (default new take) complete (`5cc62e5`)
-
-Next checkpoint: Step 5 live sync guardrail.
-Manual transfer execution status:
-- Step 1 complete (contracts + pull target validation)
-- Step 2 complete (push track picker interaction + diff preview gate, no transfer yet)
-- Step 3 complete:
-  - pull flow staging contracts complete (`3907da1`)
-  - pull picker interaction + diff preview gate complete (`305c0e2`)
-  - pull import execution into selected EZ layer (default new take) complete (`5cc62e5`)
 - Step 4 complete:
   - shared diff service added for push/pull preview generation
   - shared diff summary/row contracts added through session/presentation assembler mapping
   - deterministic unit coverage added for shared diff row ordering and summary output
+- Step 5 complete:
+  - 5A live sync state model + experimental gate complete (`acf178f`)
+  - 5B reconnect downgrade + explicit re-arm guardrail complete (`623a605`)
+  - 5C disable/reset behavior + UI confirmation guardrail complete (`4ca8ba3`)
+
+Next checkpoint: post-Step-5 follow-up and tranche closeout review.
