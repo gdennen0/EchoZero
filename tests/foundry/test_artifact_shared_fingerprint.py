@@ -102,7 +102,7 @@ def test_validate_compatibility_rejects_shared_contract_fingerprint_mismatch(tmp
     } in report.error_details
 
 
-def test_validate_compatibility_allows_legacy_manifest_without_shared_contract_fingerprint(tmp_path: Path) -> None:
+def test_validate_compatibility_rejects_missing_shared_contract_fingerprint(tmp_path: Path) -> None:
     app, version, run = _prepare_run(tmp_path)
     artifact = app.finalize_artifact(run.id, _artifact_manifest_payload(version))
 
@@ -123,9 +123,14 @@ def test_validate_compatibility_allows_legacy_manifest_without_shared_contract_f
 
     report = app.validate_artifact(artifact.id)
 
-    assert report.ok is True
-    assert report.errors == []
-    assert report.error_details == []
+    assert report.ok is False
+    assert "manifest.sharedContractFingerprint is required" in report.errors
+    assert {
+        "code": "missing_shared_contract_fingerprint",
+        "path": "manifest.sharedContractFingerprint",
+        "message": "manifest.sharedContractFingerprint is required",
+        "severity": "error",
+    } in report.error_details
 
 
 def test_validate_compatibility_includes_structured_details_for_manifest_and_runtime_issues(tmp_path: Path) -> None:

@@ -326,17 +326,19 @@ class ArtifactService:
                     path="manifest.specHash",
                     message="manifest.specHash must match the originating run spec hash",
                 )
-            if dataset_version is not None and "sharedContractFingerprint" in m:
-                expected_fingerprint = self._shared_adapter.contract_fingerprint_from_run_spec(
-                    run.spec,
-                    class_map=dataset_version.class_map,
-                )
-                if m.get("sharedContractFingerprint") != expected_fingerprint:
-                    _add_error(
-                        code="shared_contract_fingerprint_mismatch",
-                        path="manifest.sharedContractFingerprint",
-                        message="manifest.sharedContractFingerprint must match the originating shared contract fingerprint",
+            if dataset_version is not None:
+                manifest_fingerprint = m.get("sharedContractFingerprint")
+                if isinstance(manifest_fingerprint, str) and manifest_fingerprint.strip():
+                    expected_fingerprint = self._shared_adapter.contract_fingerprint_from_run_spec(
+                        run.spec,
+                        class_map=dataset_version.class_map,
                     )
+                    if manifest_fingerprint != expected_fingerprint:
+                        _add_error(
+                            code="shared_contract_fingerprint_mismatch",
+                            path="manifest.sharedContractFingerprint",
+                            message="manifest.sharedContractFingerprint must match the originating shared contract fingerprint",
+                        )
 
         if consumer == "PyTorchAudioClassify":
             runtime_report = validate_runtime_consumer(m, consumer=consumer)
