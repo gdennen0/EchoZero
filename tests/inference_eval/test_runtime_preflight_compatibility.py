@@ -81,14 +81,16 @@ def test_runtime_preflight_rejects_directory_manifests_that_do_not_resolve_to_mo
     wrong_manifest = _manifest("other_model.pth")
     _write_manifest(tmp_path / "other.manifest.json", wrong_manifest)
 
-    with pytest.raises(
-        ValidationError,
-        match=(
-            "Runtime bundle preflight failed for model\\.pth: "
-            "no manifest in model directory resolves manifest\\.weightsPath to the requested model path"
-        ),
-    ):
+    with pytest.raises(ValidationError) as exc_info:
         run_runtime_preflight(model_path, _checkpoint())
+
+    message = str(exc_info.value)
+    assert (
+        "no manifest in model directory resolves manifest.weightsPath to the requested model path"
+        in message
+    )
+    assert f"requested model path: {model_path.resolve()}" in message
+    assert f"other.manifest.json -> {(tmp_path / 'other_model.pth').resolve()}" in message
 
 
 def test_runtime_preflight_rejects_ambiguous_manifest_resolution(tmp_path: Path) -> None:
@@ -99,12 +101,45 @@ def test_runtime_preflight_rejects_ambiguous_manifest_resolution(tmp_path: Path)
     _write_manifest(tmp_path / "a.manifest.json", payload)
     _write_manifest(tmp_path / "b.manifest.json", payload)
 
-    with pytest.raises(
-        ValidationError,
-        match=(
-            "Runtime bundle preflight failed for model\\.pth: "
-            "multiple manifests resolve to the requested model path; "
-            "keep exactly one matching artifact manifest"
-        ),
-    ):
+    with pytest.raises(ValidationError) as exc_info:
         run_runtime_preflight(model_path, _checkpoint())
+
+    message = str(exc_info.value)
+    assert "multiple manifests resolve to the requested model path" in message
+    assert "keep exactly one matching artifact manifest" in message
+    assert f"requested model path: {model_path.resolve()}" in message
+    assert f"a.manifest.json -> {(tmp_path / model_path.name).resolve()}" in message
+    assert f"b.manifest.json -> {(tmp_path / model_path.name).resolve()}" in message
+
+
+def test_runtime_preflight_rejects_manifest_validation_when_checkpoint_metadata_is_missing(tmp_path: Path) -> None:
+    model_path = tmp_path / "model.pth"
+    model_path.write_bytes(b"weights")
+    _write_manifest(tmp_path / "art_test.manifest.json", _manifest(model_path.name))
+
+    legacy_checkpoint = {
+        "model_state_dict": {},
+        "preprocessing": {
+            "sampleRate": 22050,
+            "maxLength": 22050,
+            "nFft": 2048,
+            "hopLength": 512,
+            "nMels": 128,
+        },
+        "trainer": "cnn_melspec_v1",
+    }
+
+    with pytest.raises(ValidationError) as exc_info:
+        run_runtime_preflight(model_path, legacy_checkpoint)
+
+    message = str(exc_info.value)
+    assert "checkpoint.classes must be present when validating against an artifact manifest" in message
+    assert "checkpoint preprocessing missing keys required for manifest verification: fmax" in message
+    assert "checkpoint classification mode must be present when validating against an artifact manifest" in message
+
+    diagnostics = getattr(exc_info.value, "validation_diagnostics", None)
+    assert diagnostics is not None
+    error_codes = [entry["code"] for entry in diagnostics["errors"]]
+    assert "missing_checkpoint_classes" in error_codes
+    assert "missing_checkpoint_preprocessing_keys" in error_codes
+    assert "missing_checkpoint_classification_mode" in error_codes

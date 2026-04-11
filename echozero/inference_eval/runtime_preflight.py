@@ -67,18 +67,24 @@ def _resolve_manifest_for_model(model_path: Path, report: ValidationReport) -> M
 
     resolved_model_path = model_path.resolve()
     matches: list[_ManifestCandidate] = []
+    candidate_descriptions: list[str] = []
     for candidate in candidates:
         target_path = _manifest_target_path(candidate.path, candidate.manifest)
         if target_path is None:
+            candidate_descriptions.append(candidate.path.name)
             continue
+        candidate_descriptions.append(f"{candidate.path.name} -> {target_path}")
         if target_path == resolved_model_path:
             matches.append(candidate)
+
+    candidate_summary = ", ".join(candidate_descriptions)
 
     if not matches:
         report.add_error(
             "manifest_not_found_for_model",
             "manifest.weightsPath",
-            "no manifest in model directory resolves manifest.weightsPath to the requested model path",
+            "no manifest in model directory resolves manifest.weightsPath to the requested model path"
+            f" (requested model path: {resolved_model_path}; candidates: {candidate_summary})",
         )
         return None
 
@@ -86,7 +92,8 @@ def _resolve_manifest_for_model(model_path: Path, report: ValidationReport) -> M
         report.add_error(
             "ambiguous_manifest_match",
             "manifest.weightsPath",
-            "multiple manifests resolve to the requested model path; keep exactly one matching artifact manifest",
+            "multiple manifests resolve to the requested model path; keep exactly one matching artifact manifest"
+            f" (requested model path: {resolved_model_path}; candidates: {candidate_summary})",
         )
         return None
 
@@ -148,7 +155,35 @@ def _checkpoint_classification_mode(checkpoint: Mapping[str, Any]) -> str:
         value = checkpoint.get(key)
         if value:
             return str(value)
-    return "multiclass"
+    return ""
+
+
+def _validate_checkpoint_completeness_for_manifest(checkpoint: Mapping[str, Any], report: ValidationReport) -> None:
+    checkpoint_classes = _checkpoint_classes(checkpoint)
+    if not checkpoint_classes:
+        report.add_error(
+            "missing_checkpoint_classes",
+            "checkpoint.classes",
+            "checkpoint.classes must be present when validating against an artifact manifest",
+        )
+
+    checkpoint_preprocessing = _checkpoint_preprocessing(checkpoint)
+    missing_preprocessing = sorted(REQUIRED_PREPROCESSING_KEYS - set(checkpoint_preprocessing.keys()))
+    if missing_preprocessing:
+        report.add_error(
+            "missing_checkpoint_preprocessing_keys",
+            "checkpoint.preprocessing",
+            "checkpoint preprocessing missing keys required for manifest verification: "
+            f"{', '.join(missing_preprocessing)}",
+        )
+
+    checkpoint_classification_mode = _checkpoint_classification_mode(checkpoint)
+    if not checkpoint_classification_mode:
+        report.add_error(
+            "missing_checkpoint_classification_mode",
+            "checkpoint.classification_mode",
+            "checkpoint classification mode must be present when validating against an artifact manifest",
+        )
 
 
 def checkpoint_contract_fingerprint(checkpoint: Mapping[str, Any]) -> str:
@@ -158,7 +193,7 @@ def checkpoint_contract_fingerprint(checkpoint: Mapping[str, Any]) -> str:
         model_signature=_checkpoint_model_signature(checkpoint),
     )
     eval_contract = EvalContract(
-        classification_mode=_checkpoint_classification_mode(checkpoint),
+        classification_mode=_checkpoint_classification_mode(checkpoint) or "multiclass",
         split_name="test",
     )
     return contract_fingerprint(inference_contract, eval_contract)
@@ -181,6 +216,7 @@ def run_runtime_preflight(
         manifest_report = validate_manifest_inference_section(manifest)
         runtime_report = validate_runtime_consumer(manifest, consumer=consumer)
         report.merge(manifest_report).merge(runtime_report)
+        _validate_checkpoint_completeness_for_manifest(checkpoint, report)
 
         manifest_preprocessing = manifest.get("inferencePreprocessing")
         if isinstance(manifest_preprocessing, Mapping):
@@ -211,6 +247,7 @@ def run_runtime_preflight(
         checkpoint_classification_mode = _checkpoint_classification_mode(checkpoint)
         if (
             manifest_classification_mode is not None
+            and checkpoint_classification_mode
             and str(manifest_classification_mode) != checkpoint_classification_mode
         ):
             report.add_error(

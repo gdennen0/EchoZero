@@ -230,6 +230,32 @@ def test_runtime_preflight_rejects_preprocessing_mismatch_against_checkpoint(loc
         run_runtime_preflight(model_path, _checkpoint())
 
 
+def test_runtime_preflight_rejects_legacy_checkpoint_missing_manifest_required_metadata(local_tmp_path: Path) -> None:
+    model_path = local_tmp_path / "model.pth"
+    model_path.write_bytes(b"weights")
+    _write_manifest(local_tmp_path, _manifest(model_path.name))
+
+    legacy_checkpoint = {
+        "model_state_dict": {},
+        "preprocessing": {
+            "sampleRate": 22050,
+            "maxLength": 22050,
+            "nFft": 2048,
+            "hopLength": 512,
+            "nMels": 128,
+        },
+        "trainer": "cnn_melspec_v1",
+    }
+
+    with pytest.raises(ValidationError) as exc_info:
+        run_runtime_preflight(model_path, legacy_checkpoint)
+
+    message = str(exc_info.value)
+    assert "checkpoint.classes must be present when validating against an artifact manifest" in message
+    assert "checkpoint preprocessing missing keys required for manifest verification: fmax" in message
+    assert "checkpoint classification mode must be present when validating against an artifact manifest" in message
+
+
 def test_default_classify_runs_preflight_once_per_model_load(
     local_tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
