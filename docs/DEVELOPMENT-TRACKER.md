@@ -89,7 +89,7 @@ Phase 2 milestone commits:
 
 ---
 
-## 6) Active Phase (Phase 3 from unified plan): Sync Receive Protocol Hardening - Active
+## 6) Completed Phase (Phase 3 from unified plan): Sync Receive Protocol Hardening - Complete
 
 Goal:
 - prove EZ2 correctly receives/parses MA3 OSC plugin payloads using simple deterministic tests
@@ -98,14 +98,14 @@ Concrete checklist:
 - [x] Add protocol tests for MA3 plugin payload shapes (`trackgroups.list`, `tracks.list`, `events.list`, `track.changed`)
 - [x] Fix delimiter parsing so embedded `|` in payload fields is preserved
 - [x] Keep receive-path suites green (`test_ma3_event_handler`, `test_ma3_event_contract`, `test_ma3_fixture_replay`)
-- [ ] Add one integration assertion that `track.changed` payloads flow through to sync-manager callbacks without payload loss
-- [ ] Promote a dedicated sync-receive test lane as required pre-merge gate for sync-affecting changes
+- [x] Add one integration assertion that `track.changed` payloads flow through to sync-manager callbacks without payload loss
+- [x] Promote a dedicated sync-receive test lane as required pre-merge gate for sync-affecting changes
 
 Checkpoints:
 - Checkpoint P3.1: plugin payload protocol coverage complete (`tests/unit/test_ma3_communication_service_protocol.py`)
 - Checkpoint P3.2: delimiter-robust parser split complete (`src/features/ma3/application/ma3_communication_service.py`)
-- Checkpoint P3.3: sync receive integration assertions pending
-- Checkpoint P3.4: dedicated sync-receive lane promotion pending
+- Checkpoint P3.3: sync receive integration assertions complete (`tests/unit/test_ma3_event_handler.py`)
+- Checkpoint P3.4: dedicated sync-receive lane promotion complete (`.github/workflows/test.yml`)
 
 ---
 
@@ -145,4 +145,4 @@ Checkpoints:
 
 ## 10) Next Checkpoint
 
-Phase 3 active. Next checkpoint: close remaining sync receive integration/lane-gating items and then reopen feature expansion.
+Phase 3 complete. Next checkpoint: reopen feature expansion with the sync-receive protocol lane enforced in CI.

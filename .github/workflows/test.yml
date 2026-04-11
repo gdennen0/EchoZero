@@ -37,6 +37,32 @@ jobs:
       - name: Run tests with coverage
         run: pytest --cov=echozero --cov-report=term-missing --cov-fail-under=85
 
+  sync-receive:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -e ".[dev]"
+          pip install numpy
+
+      - name: Run sync receive lane
+        env:
+          QT_QPA_PLATFORM: offscreen
+          PYTHONPATH: ${{ github.workspace }}
+        run: |
+          pytest -q \
+            tests/unit/test_ma3_communication_service_protocol.py \
+            tests/unit/test_ma3_event_handler.py \
+            tests/unit/test_ma3_event_contract.py \
+            tests/unit/test_ma3_fixture_replay.py
+
   perf-guardrails:
     runs-on: ubuntu-latest
     steps:

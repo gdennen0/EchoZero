@@ -280,6 +280,105 @@ class TestMA3EventHandler:
         assert len(received_changes) == 1
         assert received_changes[0].change_type == MA3ChangeType.EVENT_ADDED
 
+    def test_handle_track_changed_remaps_and_forwards_full_payload(self, handler):
+        """track.changed should remap by name and forward the raw events payload."""
+        raw_events = [
+            {
+                "idx": 1,
+                "time": 1.25,
+                "name": "Kick In",
+                "cmd": "Go+ Sequence 5 Cue 1",
+                "tc": 101,
+                "tg": 1,
+                "track": 2,
+                "meta": {"fingerprint": "1.250000||Kick In"},
+            },
+            {
+                "idx": 2,
+                "time": 2.5,
+                "name": "Snare Accent",
+                "cmd": 'SetVar "mode|accent"',
+                "tc": 101,
+                "tg": 1,
+                "track": 2,
+            },
+        ]
+        raw_changes = {
+            "added_count": 1,
+            "deleted_count": 0,
+            "moved_count": 1,
+            "added": [{"fingerprint": "1.250000||Kick In"}],
+            "deleted": [],
+            "moved": [{"from": 2.0, "to": 2.5, "fingerprint": "2.500000||Snare Accent"}],
+        }
+        message = _make_mock_message("changed", {
+            "tc": "101",
+            "tg": "1",
+            "track": "2",
+            "name": "Drums Main",
+            "note": "ez:drums_main",
+            "events": raw_events,
+            "changes": raw_changes,
+        })
+
+        mock_entity = Mock()
+        mock_entity.settings = None
+        mock_manager = Mock()
+        mock_manager.get_synced_layer_by_ma3_coord.return_value = mock_entity
+        handler.set_sync_manager(mock_manager)
+
+        handler.handle_track_changed(message)
+
+        mock_manager.remap_ma3_track_by_name.assert_called_once_with(
+            101, 1, 2, "Drums Main", track_note="ez:drums_main"
+        )
+        mock_manager.on_track_events_received.assert_called_once_with("tc101_tg1_tr2", raw_events)
+        assert handler._cached_events["tc101_tg1_tr2"]["events"] is raw_events
+        assert message.data["events"] is raw_events
+        assert message.data["changes"] is raw_changes
+
+    def test_handle_track_changed_skips_sync_callback_when_updates_disabled(self, handler):
+        """track.changed should not forward into sync apply when updates are paused."""
+        message = _make_mock_message("changed", {
+            "tc": "101",
+            "tg": "1",
+            "track": "2",
+            "name": "Drums Main",
+            "note": "ez:drums_main",
+            "events": [
+                {
+                    "idx": 1,
+                    "time": 1.25,
+                    "name": "Kick In",
+                    "cmd": "Go+",
+                    "tc": 101,
+                    "tg": 1,
+                    "track": 2,
+                }
+            ],
+            "changes": {
+                "added_count": 1,
+                "deleted_count": 0,
+                "moved_count": 0,
+            },
+        })
+
+        mock_settings = Mock()
+        mock_settings.apply_updates_enabled = False
+        mock_entity = Mock()
+        mock_entity.settings = mock_settings
+        mock_manager = Mock()
+        mock_manager.get_synced_layer_by_ma3_coord.return_value = mock_entity
+        handler.set_sync_manager(mock_manager)
+
+        handler.handle_track_changed(message)
+
+        mock_manager.remap_ma3_track_by_name.assert_called_once_with(
+            101, 1, 2, "Drums Main", track_note="ez:drums_main"
+        )
+        mock_manager.on_track_events_received.assert_not_called()
+        assert handler._cached_events["tc101_tg1_tr2"]["events"] == message.data["events"]
+
 
 class TestMA3ChangeType:
     """Tests for MA3ChangeType enum."""
