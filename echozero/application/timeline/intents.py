@@ -125,3 +125,31 @@ class EnableSync(TimelineIntent):
 @dataclass(slots=True)
 class DisableSync(TimelineIntent):
     pass
+
+
+@dataclass(slots=True)
+class OpenPushToMA3Dialog(TimelineIntent):
+    selection_event_ids: list[EventId]
+
+
+@dataclass(slots=True)
+class ConfirmPushToMA3(TimelineIntent):
+    target_track_coord: str
+    selected_event_ids: list[EventId]
+
+
+@dataclass(slots=True)
+class OpenPullFromMA3Dialog(TimelineIntent):
+    pass
+
+
+@dataclass(slots=True)
+class ConfirmPullFromMA3(TimelineIntent):
+    source_track_coord: str
+    selected_ma3_event_ids: list[str]
+    target_layer_id: LayerId
+    import_mode: str = "new_take"
+
+    def __post_init__(self) -> None:
+        if self.target_layer_id is None or not str(self.target_layer_id).strip():
+            raise ValueError("ConfirmPullFromMA3 requires a non-empty target_layer_id")
