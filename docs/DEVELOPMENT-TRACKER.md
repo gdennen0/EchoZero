@@ -145,4 +145,5 @@ Checkpoints:
 
 ## 10) Next Checkpoint
 
-Phase 3 complete. Next checkpoint: reopen feature expansion with the sync-receive protocol lane enforced in CI.
+Phase 3 complete. Next checkpoint: execute manual transfer UX plan (push/pull + mandatory pull-layer picker + diff modal) per:
+- `docs/MA3-MANUAL-PUSH-PULL-IMPLEMENTATION-PLAN.md`
