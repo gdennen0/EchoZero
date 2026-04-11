@@ -22,6 +22,7 @@
     "runId": { "type": "string" },
     "datasetVersionId": { "type": "string" },
     "specHash": { "type": "string" },
+    "sharedContractFingerprint": { "type": "string" },
     "weightsPath": { "type": "string" },
     "classes": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
     "classificationMode": { "enum": ["multiclass", "binary", "positive_vs_other"] },

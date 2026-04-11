@@ -7,6 +7,7 @@ from pathlib import Path
 from uuid import uuid4
 
 from echozero.foundry.domain import CompatibilityReport, ModelArtifact
+from echozero.inference_eval import create_foundry_adapter
 from echozero.inference_eval.validation import (
     validate_manifest_inference_section,
     validate_runtime_consumer,
@@ -30,6 +31,7 @@ class ArtifactService:
         self._run_repo = train_run_repository or TrainRunRepository(root)
         self._dataset_version_repo = dataset_version_repository or DatasetVersionRepository(root)
         self._artifact_repo = artifact_repository or ModelArtifactRepository(root)
+        self._shared_adapter = create_foundry_adapter()
 
     def finalize_artifact(self, run_id: str, manifest: dict) -> ModelArtifact:
         run = self._run_repo.get(run_id)
@@ -73,6 +75,10 @@ class ArtifactService:
             "createdAt": datetime.now(UTC).isoformat(),
             "datasetVersionId": dataset_version.id,
             "specHash": run.spec_hash,
+            "sharedContractFingerprint": self._shared_adapter.contract_fingerprint_from_run_spec(
+                run.spec,
+                class_map=dataset_version.class_map,
+            ),
             "taxonomy": dataset_version.taxonomy,
             "labelPolicy": dataset_version.label_policy,
             "syntheticProvenance": {
@@ -280,6 +286,15 @@ class ArtifactService:
                 errors.append("manifest.datasetVersionId must match the originating dataset version id")
             if m.get("specHash") != run.spec_hash:
                 errors.append("manifest.specHash must match the originating run spec hash")
+            if dataset_version is not None and "sharedContractFingerprint" in m:
+                expected_fingerprint = self._shared_adapter.contract_fingerprint_from_run_spec(
+                    run.spec,
+                    class_map=dataset_version.class_map,
+                )
+                if m.get("sharedContractFingerprint") != expected_fingerprint:
+                    errors.append(
+                        "manifest.sharedContractFingerprint must match the originating shared contract fingerprint"
+                    )
 
         if consumer == "PyTorchAudioClassify":
             runtime_report = validate_runtime_consumer(m, consumer=consumer)
