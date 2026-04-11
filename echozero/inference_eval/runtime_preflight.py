@@ -7,8 +7,18 @@ from typing import Any
 
 from echozero.errors import ValidationError
 
+from .constants import REQUIRED_PREPROCESSING_KEYS
 from .core import EvalContract, InferenceContract, contract_fingerprint
 from .validation import validate_manifest_inference_section, validate_runtime_consumer
+
+_PREPROCESSING_ALIASES = {
+    "sample_rate": "sampleRate",
+    "max_length": "maxLength",
+    "n_fft": "nFft",
+    "hop_length": "hopLength",
+    "n_mels": "nMels",
+    "f_max": "fmax",
+}
 
 
 def _manifest_matches_model(manifest: Mapping[str, Any], model_path: Path) -> bool:
@@ -37,20 +47,28 @@ def _discover_manifest(model_path: Path) -> Mapping[str, Any] | None:
     return None
 
 
+def _canonicalize_preprocessing_keys(payload: Mapping[str, Any]) -> dict[str, Any]:
+    normalized: dict[str, Any] = {}
+    for raw_key, value in payload.items():
+        key = str(raw_key)
+        normalized[_PREPROCESSING_ALIASES.get(key, key)] = value
+    return normalized
+
+
 def _checkpoint_preprocessing(checkpoint: Mapping[str, Any]) -> dict[str, Any]:
     preprocessing = checkpoint.get("inference_preprocessing")
     if isinstance(preprocessing, Mapping):
-        return dict(preprocessing)
+        return _canonicalize_preprocessing_keys(preprocessing)
 
     preprocessing = checkpoint.get("preprocessing")
     if isinstance(preprocessing, Mapping):
-        return dict(preprocessing)
+        return _canonicalize_preprocessing_keys(preprocessing)
 
     config = checkpoint.get("config")
     if isinstance(config, Mapping):
         nested = config.get("preprocessing")
         if isinstance(nested, Mapping):
-            return dict(nested)
+            return _canonicalize_preprocessing_keys(nested)
 
     return {}
 
@@ -117,6 +135,28 @@ def run_runtime_preflight(
 
     errors.extend(issue.message for issue in manifest_report.errors)
     errors.extend(issue.message for issue in runtime_report.errors)
+
+    manifest_preprocessing = manifest.get("inferencePreprocessing")
+    if isinstance(manifest_preprocessing, Mapping):
+        checkpoint_preprocessing = _checkpoint_preprocessing(checkpoint)
+        for key in sorted(REQUIRED_PREPROCESSING_KEYS):
+            expected = checkpoint_preprocessing.get(key)
+            actual = manifest_preprocessing.get(key)
+            if expected is None or actual is None:
+                continue
+            if actual != expected:
+                errors.append(f"manifest.inferencePreprocessing.{key} must match checkpoint preprocessing")
+
+    manifest_classes = manifest.get("classes")
+    checkpoint_classes = _checkpoint_classes(checkpoint)
+    if checkpoint_classes and isinstance(manifest_classes, list):
+        if manifest_classes != list(checkpoint_classes):
+            errors.append("manifest.classes must match checkpoint class map order")
+
+    manifest_classification_mode = manifest.get("classificationMode")
+    checkpoint_classification_mode = _checkpoint_classification_mode(checkpoint)
+    if manifest_classification_mode is not None and str(manifest_classification_mode) != checkpoint_classification_mode:
+        errors.append("manifest.classificationMode must match checkpoint classification mode")
 
     manifest_fingerprint = manifest.get("sharedContractFingerprint")
     if manifest_fingerprint is not None:

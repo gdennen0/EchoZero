@@ -196,6 +196,40 @@ def test_runtime_preflight_rejects_fingerprint_mismatch(local_tmp_path: Path) ->
         run_runtime_preflight(model_path, _checkpoint())
 
 
+def test_runtime_preflight_rejects_class_order_mismatch(local_tmp_path: Path) -> None:
+    model_path = local_tmp_path / "model.pth"
+    model_path.write_bytes(b"weights")
+    payload = _manifest(model_path.name)
+    payload["classes"] = ["snare", "kick"]
+    _write_manifest(local_tmp_path, payload)
+
+    with pytest.raises(
+        ValidationError,
+        match=(
+            "Runtime bundle preflight failed for model\\.pth: "
+            "manifest\\.classes must match checkpoint class map order"
+        ),
+    ):
+        run_runtime_preflight(model_path, _checkpoint())
+
+
+def test_runtime_preflight_rejects_preprocessing_mismatch_against_checkpoint(local_tmp_path: Path) -> None:
+    model_path = local_tmp_path / "model.pth"
+    model_path.write_bytes(b"weights")
+    payload = _manifest(model_path.name)
+    payload["inferencePreprocessing"]["hopLength"] = 256
+    _write_manifest(local_tmp_path, payload)
+
+    with pytest.raises(
+        ValidationError,
+        match=(
+            "Runtime bundle preflight failed for model\\.pth: "
+            "manifest\\.inferencePreprocessing\\.hopLength must match checkpoint preprocessing"
+        ),
+    ):
+        run_runtime_preflight(model_path, _checkpoint())
+
+
 def test_default_classify_runs_preflight_once_per_model_load(
     local_tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
