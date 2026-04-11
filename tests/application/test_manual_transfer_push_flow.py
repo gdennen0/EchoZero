@@ -4,7 +4,7 @@ from echozero.application.mixer.models import AudibilityState, MixerState, Layer
 from echozero.application.mixer.service import MixerService
 from echozero.application.playback.models import PlaybackState
 from echozero.application.playback.service import PlaybackService
-from echozero.application.session.models import ManualPushTrackOption, Session
+from echozero.application.session.models import ManualPushDiffPreview, ManualPushTrackOption, Session
 from echozero.application.session.service import SessionService
 from echozero.application.shared.ids import EventId, ProjectId, SessionId, SongVersionId, TimelineId
 from echozero.application.sync.models import SyncState
@@ -183,6 +183,11 @@ def _build_orchestrator(sync_service: SyncService | None = None):
 
 def test_open_push_intent_sets_manual_push_dialog_state():
     orchestrator, timeline, session, _playback_service = _build_orchestrator()
+    session.manual_push_flow.diff_preview = ManualPushDiffPreview(
+        selected_count=3,
+        target_track_coord="tc9_tg9_tr9",
+        target_track_name="Old Preview",
+    )
 
     orchestrator.handle(
         timeline,
@@ -193,6 +198,7 @@ def test_open_push_intent_sets_manual_push_dialog_state():
     assert session.manual_push_flow.selected_event_ids == [EventId("evt_1"), EventId("evt_2")]
     assert session.manual_push_flow.target_track_coord is None
     assert session.manual_push_flow.diff_gate_open is False
+    assert session.manual_push_flow.diff_preview is None
 
 
 def test_open_push_intent_hydrates_available_tracks_from_sync_service_provider():
@@ -256,7 +262,18 @@ def test_open_push_intent_maps_legacy_provider_dict_payload_note_and_event_count
 
 
 def test_confirm_push_intent_stages_diff_gate_without_immediate_transfer():
-    orchestrator, timeline, session, playback_service = _build_orchestrator()
+    orchestrator, timeline, session, playback_service = _build_orchestrator(
+        sync_service=_PushTrackListingSyncService(
+            tracks=[
+                ManualPushTrackOption(
+                    coord="tc1_tg2_tr3",
+                    name="Track 3",
+                    note="Bass",
+                    event_count=8,
+                )
+            ]
+        )
+    )
 
     orchestrator.handle(
         timeline,
@@ -275,4 +292,11 @@ def test_confirm_push_intent_stages_diff_gate_without_immediate_transfer():
     assert session.manual_push_flow.selected_event_ids == [EventId("evt_1")]
     assert session.manual_push_flow.target_track_coord == "tc1_tg2_tr3"
     assert session.manual_push_flow.diff_gate_open is True
+    assert session.manual_push_flow.diff_preview == ManualPushDiffPreview(
+        selected_count=1,
+        target_track_coord="tc1_tg2_tr3",
+        target_track_name="Track 3",
+        target_track_note="Bass",
+        target_track_event_count=8,
+    )
     assert playback_service.update_runtime_calls == 2

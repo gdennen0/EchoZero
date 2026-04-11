@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, Any
 from echozero.application.mixer.service import MixerService
 from echozero.application.playback.service import PlaybackService
 from echozero.application.presentation.models import TimelinePresentation
-from echozero.application.session.models import ManualPushTrackOption
+from echozero.application.session.models import ManualPushDiffPreview, ManualPushTrackOption
 from echozero.application.session.service import SessionService
 from echozero.application.sync.service import SyncService
 if TYPE_CHECKING:
@@ -156,6 +156,7 @@ class TimelineOrchestrator:
             session.manual_push_flow.selected_event_ids = list(intent.selection_event_ids)
             session.manual_push_flow.target_track_coord = None
             session.manual_push_flow.diff_gate_open = False
+            session.manual_push_flow.diff_preview = None
             session.manual_push_flow.available_tracks = self._load_manual_push_track_options()
 
         elif isinstance(intent, SetPushTrackOptions):
@@ -177,10 +178,21 @@ class TimelineOrchestrator:
 
         elif isinstance(intent, ConfirmPushToMA3):
             session = self.session_service.get_session()
+            target_track = self._manual_push_track_by_coord(
+                session.manual_push_flow.available_tracks,
+                intent.target_track_coord,
+            )
             session.manual_push_flow.dialog_open = False
             session.manual_push_flow.selected_event_ids = list(intent.selected_event_ids)
             session.manual_push_flow.target_track_coord = intent.target_track_coord
             session.manual_push_flow.diff_gate_open = True
+            session.manual_push_flow.diff_preview = ManualPushDiffPreview(
+                selected_count=len(intent.selected_event_ids),
+                target_track_coord=target_track.coord,
+                target_track_name=target_track.name,
+                target_track_note=target_track.note,
+                target_track_event_count=target_track.event_count,
+            )
 
         session = self.session_service.get_session()
         audibility = self.mixer_service.resolve_audibility(timeline.layers)
@@ -536,6 +548,19 @@ class TimelineOrchestrator:
         if value is None or value == "":
             return None
         return int(value)
+
+    @staticmethod
+    def _manual_push_track_by_coord(
+        available_tracks: list[ManualPushTrackOption],
+        target_track_coord: str,
+    ) -> ManualPushTrackOption:
+        for track in available_tracks:
+            if track.coord == target_track_coord:
+                return track
+        raise ValueError(
+            f"ConfirmPushToMA3 target_track_coord not found in available_tracks: "
+            f"{target_track_coord}"
+        )
 
     def _find_layer(self, timeline: Timeline, layer_id):
         for layer in timeline.layers:

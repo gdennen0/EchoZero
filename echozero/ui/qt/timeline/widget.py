@@ -7,7 +7,7 @@ from dataclasses import dataclass, replace
 
 from PyQt6.QtCore import QPointF, QRectF, Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QColor, QContextMenuEvent, QPainter, QPen, QWheelEvent
-from PyQt6.QtWidgets import QDoubleSpinBox, QFrame, QGridLayout, QHBoxLayout, QLabel, QMenu, QPushButton, QScrollArea, QScrollBar, QSplitter, QToolTip, QVBoxLayout, QWidget
+from PyQt6.QtWidgets import QDoubleSpinBox, QFrame, QGridLayout, QHBoxLayout, QInputDialog, QLabel, QMenu, QMessageBox, QPushButton, QScrollArea, QScrollBar, QSplitter, QToolTip, QVBoxLayout, QWidget
 
 from echozero.application.presentation.inspector_contract import (
     InspectorAction,
@@ -20,9 +20,11 @@ from echozero.application.presentation.models import TimelinePresentation, Layer
 from echozero.application.shared.enums import FollowMode
 from echozero.application.timeline.intents import (
     ClearSelection,
+    ConfirmPushToMA3,
     DuplicateSelectedEvents,
     MoveSelectedEvents,
     NudgeSelectedEvents,
+    OpenPushToMA3Dialog,
     Pause,
     Play,
     Seek,
@@ -30,6 +32,7 @@ from echozero.application.timeline.intents import (
     SelectAllEvents,
     SelectEvent,
     SelectLayer,
+    SelectPushTargetTrack,
     SelectTake,
     Stop,
     ToggleMute,
@@ -1428,11 +1431,73 @@ class TimelineWidget(QWidget):
             if layer_id is not None and isinstance(gain_db, (int, float)):
                 self._dispatch(SetGain(layer_id=layer_id, gain_db=float(gain_db)))
             return
+        if action_id == "push_to_ma3":
+            selected_event_ids = list(self.presentation.selected_event_ids)
+            if not selected_event_ids:
+                return
+            self._dispatch(OpenPushToMA3Dialog(selection_event_ids=selected_event_ids))
+            flow = self.presentation.manual_push_flow
+            if not flow.available_tracks:
+                return
+
+            labels = [self._manual_push_track_label(track) for track in flow.available_tracks]
+            chosen_label, accepted = QInputDialog.getItem(
+                self,
+                "Push Selection to MA3",
+                "Target track",
+                labels,
+                0,
+                False,
+            )
+            if not accepted:
+                return
+
+            selected_track = next(
+                (track for track, label in zip(flow.available_tracks, labels) if label == chosen_label),
+                None,
+            )
+            if selected_track is None:
+                return
+
+            self._dispatch(SelectPushTargetTrack(target_track_coord=selected_track.coord))
+            self._dispatch(
+                ConfirmPushToMA3(
+                    target_track_coord=selected_track.coord,
+                    selected_event_ids=selected_event_ids,
+                )
+            )
+            flow = self.presentation.manual_push_flow
+            preview = flow.diff_preview
+            if flow.diff_gate_open and preview is not None:
+                QMessageBox.information(
+                    self,
+                    "Push Diff Preview",
+                    self._manual_push_diff_preview_summary(preview.selected_count, preview.target_track_name, preview.target_track_coord),
+                )
+            return
         if action_id:
             layer_id = params.get("layer_id")
             take_id = params.get("take_id")
             if layer_id is not None and take_id is not None:
                 self._dispatch(TriggerTakeAction(layer_id, take_id, action_id))
+
+    @staticmethod
+    def _manual_push_track_label(track) -> str:
+        parts = [track.name, f"({track.coord})"]
+        if track.note:
+            parts.append(f"- {track.note}")
+        if track.event_count is not None:
+            parts.append(f"[{track.event_count} existing]")
+        return " ".join(parts)
+
+    @staticmethod
+    def _manual_push_diff_preview_summary(selected_count: int, target_track_name: str, target_track_coord: str) -> str:
+        noun = "event" if selected_count == 1 else "events"
+        return (
+            f"Prepared diff preview for {selected_count} selected {noun}.\n\n"
+            f"Target track: {target_track_name} ({target_track_coord})\n"
+            f"No MA3 transfer has been started in this step."
+        )
 
 
 def _format_time_label(seconds: float) -> str:

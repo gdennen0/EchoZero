@@ -14,6 +14,9 @@ from echozero.application.presentation.inspector_contract import (
 from echozero.application.presentation.models import (
     EventPresentation,
     LayerPresentation,
+    ManualPushDiffPreviewPresentation,
+    ManualPushFlowPresentation,
+    ManualPushTrackOptionPresentation,
     LayerStatusPresentation,
     TakeLanePresentation,
     TimelinePresentation,
@@ -22,15 +25,18 @@ from echozero.application.shared.enums import LayerKind
 from echozero.application.shared.ids import EventId, LayerId, TakeId, TimelineId
 from echozero.application.timeline.intents import (
     ClearSelection,
+    ConfirmPushToMA3,
     DuplicateSelectedEvents,
     MoveSelectedEvents,
     NudgeSelectedEvents,
+    OpenPushToMA3Dialog,
     Pause,
     Play,
     Seek,
     SelectAllEvents,
     SelectEvent,
     SelectLayer,
+    SelectPushTargetTrack,
     Stop,
     ToggleLayerExpanded,
     ToggleMute,
@@ -364,6 +370,65 @@ class _SelectionInspectorHarness:
             )
             return self._presentation
 
+        return self._presentation
+
+
+class _ManualPushHarness:
+    def __init__(self, presentation: TimelinePresentation):
+        self._presentation = presentation
+        self.intents: list[object] = []
+
+    def presentation(self) -> TimelinePresentation:
+        return self._presentation
+
+    def dispatch(self, intent):
+        self.intents.append(intent)
+        if isinstance(intent, OpenPushToMA3Dialog):
+            self._presentation = replace(
+                self._presentation,
+                manual_push_flow=ManualPushFlowPresentation(
+                    dialog_open=True,
+                    available_tracks=[
+                        ManualPushTrackOptionPresentation(
+                            coord="tc1_tg2_tr3",
+                            name="Track 3",
+                            note="Bass",
+                            event_count=8,
+                        )
+                    ],
+                    target_track_coord=None,
+                    diff_gate_open=False,
+                    diff_preview=None,
+                ),
+            )
+            return self._presentation
+        if isinstance(intent, SelectPushTargetTrack):
+            self._presentation = replace(
+                self._presentation,
+                manual_push_flow=replace(
+                    self._presentation.manual_push_flow,
+                    target_track_coord=intent.target_track_coord,
+                ),
+            )
+            return self._presentation
+        if isinstance(intent, ConfirmPushToMA3):
+            self._presentation = replace(
+                self._presentation,
+                manual_push_flow=ManualPushFlowPresentation(
+                    dialog_open=False,
+                    available_tracks=list(self._presentation.manual_push_flow.available_tracks),
+                    target_track_coord=intent.target_track_coord,
+                    diff_gate_open=True,
+                    diff_preview=ManualPushDiffPreviewPresentation(
+                        selected_count=len(intent.selected_event_ids),
+                        target_track_coord=intent.target_track_coord,
+                        target_track_name="Track 3",
+                        target_track_note="Bass",
+                        target_track_event_count=8,
+                    ),
+                ),
+            )
+            return self._presentation
         return self._presentation
 
 
@@ -704,6 +769,104 @@ def test_context_menu_uses_contract_actions_for_take_event_hit_target():
         assert menu_labels == contract_labels
         assert "Overwrite Main" in menu_labels
         assert "Merge Main" in menu_labels
+    finally:
+        widget.close()
+        app.processEvents()
+
+
+def test_selection_contract_exposes_push_to_ma3_action():
+    presentation = replace(
+        _selection_test_presentation(),
+        selected_layer_id=LayerId("layer_kick"),
+        selected_take_id=TakeId("take_main"),
+        selected_event_ids=[EventId("main_evt")],
+        layers=[
+            replace(
+                _selection_test_presentation().layers[0],
+                events=[
+                    replace(
+                        _selection_test_presentation().layers[0].events[0],
+                        is_selected=True,
+                    )
+                ],
+            )
+        ],
+    )
+
+    contract = build_timeline_inspector_contract(presentation)
+    action_ids = [action.action_id for section in contract.context_sections for action in section.actions]
+
+    assert "push_to_ma3" in action_ids
+
+
+def test_push_to_ma3_action_dispatches_open_select_confirm_and_shows_diff_preview(monkeypatch):
+    app = QApplication.instance() or QApplication([])
+    base = replace(
+        _selection_test_presentation(),
+        selected_layer_id=LayerId("layer_kick"),
+        selected_take_id=TakeId("take_main"),
+        selected_event_ids=[EventId("main_evt")],
+        layers=[
+            replace(
+                _selection_test_presentation().layers[0],
+                events=[
+                    replace(
+                        _selection_test_presentation().layers[0].events[0],
+                        is_selected=True,
+                    )
+                ],
+            )
+        ],
+    )
+    harness = _ManualPushHarness(base)
+    widget = TimelineWidget(harness.presentation(), on_intent=harness.dispatch)
+    summaries: list[tuple[str, str, str]] = []
+    monkeypatch.setattr(
+        "echozero.ui.qt.timeline.widget.QInputDialog.getItem",
+        lambda *args, **kwargs: ("Track 3 (tc1_tg2_tr3) - Bass [8 existing]", True),
+    )
+    monkeypatch.setattr(
+        "echozero.ui.qt.timeline.widget.QMessageBox.information",
+        lambda parent, title, text: summaries.append((parent.__class__.__name__, title, text)),
+    )
+    try:
+        _render_for_hit_testing(widget)
+
+        contract = build_timeline_inspector_contract(widget.presentation)
+        push_action = next(
+            action
+            for section in contract.context_sections
+            for action in section.actions
+            if action.action_id == "push_to_ma3"
+        )
+
+        widget._trigger_contract_action(push_action)
+
+        assert harness.intents == [
+            OpenPushToMA3Dialog(selection_event_ids=[EventId("main_evt")]),
+            SelectPushTargetTrack(target_track_coord="tc1_tg2_tr3"),
+            ConfirmPushToMA3(
+                target_track_coord="tc1_tg2_tr3",
+                selected_event_ids=[EventId("main_evt")],
+            ),
+        ]
+        assert widget.presentation.manual_push_flow.diff_gate_open is True
+        assert widget.presentation.manual_push_flow.diff_preview == ManualPushDiffPreviewPresentation(
+            selected_count=1,
+            target_track_coord="tc1_tg2_tr3",
+            target_track_name="Track 3",
+            target_track_note="Bass",
+            target_track_event_count=8,
+        )
+        assert summaries == [
+            (
+                "TimelineWidget",
+                "Push Diff Preview",
+                "Prepared diff preview for 1 selected event.\n\n"
+                "Target track: Track 3 (tc1_tg2_tr3)\n"
+                "No MA3 transfer has been started in this step.",
+            )
+        ]
     finally:
         widget.close()
         app.processEvents()

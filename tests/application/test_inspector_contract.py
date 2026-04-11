@@ -101,6 +101,7 @@ def test_inspector_contract_main_event_state():
 
     contract = build_timeline_inspector_contract(presentation)
     rows = _section_rows(contract)
+    action_ids = [action.action_id for section in contract.context_sections for action in section.actions]
 
     assert contract.identity is not None
     assert contract.identity.object_type == "event"
@@ -110,6 +111,7 @@ def test_inspector_contract_main_event_state():
     assert rows["end"] == "1.50s"
     assert rows["duration"] == "0.50s"
     assert rows["take"] == "Main take (take_main)"
+    assert "push_to_ma3" in action_ids
 
 
 def test_inspector_contract_take_event_state():

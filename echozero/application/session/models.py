@@ -18,12 +18,22 @@ class ManualPushTrackOption:
 
 
 @dataclass(slots=True)
+class ManualPushDiffPreview:
+    selected_count: int
+    target_track_coord: str
+    target_track_name: str
+    target_track_note: str | None = None
+    target_track_event_count: int | None = None
+
+
+@dataclass(slots=True)
 class ManualPushFlowState:
     dialog_open: bool = False
     selected_event_ids: list[EventId] = field(default_factory=list)
     available_tracks: list[ManualPushTrackOption] = field(default_factory=list)
     target_track_coord: str | None = None
     diff_gate_open: bool = False
+    diff_preview: ManualPushDiffPreview | None = None
 
 
 @dataclass(slots=True)

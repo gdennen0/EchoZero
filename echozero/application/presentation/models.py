@@ -42,6 +42,32 @@ class LayerStatusPresentation:
 
 
 @dataclass(slots=True)
+class ManualPushTrackOptionPresentation:
+    coord: str
+    name: str
+    note: str | None = None
+    event_count: int | None = None
+
+
+@dataclass(slots=True)
+class ManualPushDiffPreviewPresentation:
+    selected_count: int
+    target_track_coord: str
+    target_track_name: str
+    target_track_note: str | None = None
+    target_track_event_count: int | None = None
+
+
+@dataclass(slots=True)
+class ManualPushFlowPresentation:
+    dialog_open: bool = False
+    available_tracks: list[ManualPushTrackOptionPresentation] = field(default_factory=list)
+    target_track_coord: str | None = None
+    diff_gate_open: bool = False
+    diff_preview: ManualPushDiffPreviewPresentation | None = None
+
+
+@dataclass(slots=True)
 class EventPresentation:
     event_id: EventId
     start: float
@@ -103,3 +129,4 @@ class TimelinePresentation:
     scroll_y: float = 0.0
     current_time_label: str = "00:00.00"
     end_time_label: str = "00:00.00"
+    manual_push_flow: ManualPushFlowPresentation = field(default_factory=ManualPushFlowPresentation)

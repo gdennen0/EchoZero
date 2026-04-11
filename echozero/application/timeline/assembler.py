@@ -6,6 +6,9 @@ from echozero.application.presentation.models import (
     EventPresentation,
     LayerPresentation,
     LayerStatusPresentation,
+    ManualPushDiffPreviewPresentation,
+    ManualPushFlowPresentation,
+    ManualPushTrackOptionPresentation,
     TakeActionPresentation,
     TakeLanePresentation,
     TimelinePresentation,
@@ -64,6 +67,7 @@ class TimelineAssembler:
                 pixels_per_second=timeline.viewport.pixels_per_second,
                 scroll_x=timeline.viewport.scroll_x,
                 scroll_y=timeline.viewport.scroll_y,
+                manual_push_flow=self._assemble_manual_push_flow(session),
             )
 
     def _assemble_layer(
@@ -236,6 +240,35 @@ class TimelineAssembler:
             )
             for event in ordered
         ]
+
+    @staticmethod
+    def _assemble_manual_push_flow(session: Session) -> ManualPushFlowPresentation:
+        flow = session.manual_push_flow
+        diff_preview = None
+        if flow.diff_preview is not None:
+            diff_preview = ManualPushDiffPreviewPresentation(
+                selected_count=flow.diff_preview.selected_count,
+                target_track_coord=flow.diff_preview.target_track_coord,
+                target_track_name=flow.diff_preview.target_track_name,
+                target_track_note=flow.diff_preview.target_track_note,
+                target_track_event_count=flow.diff_preview.target_track_event_count,
+            )
+
+        return ManualPushFlowPresentation(
+            dialog_open=flow.dialog_open,
+            available_tracks=[
+                ManualPushTrackOptionPresentation(
+                    coord=track.coord,
+                    name=track.name,
+                    note=track.note,
+                    event_count=track.event_count,
+                )
+                for track in flow.available_tracks
+            ],
+            target_track_coord=flow.target_track_coord,
+            diff_gate_open=flow.diff_gate_open,
+            diff_preview=diff_preview,
+        )
 
     @staticmethod
     def _main_take(layer: Layer) -> Take | None:

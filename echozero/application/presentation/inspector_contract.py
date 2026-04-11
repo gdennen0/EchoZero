@@ -320,6 +320,11 @@ def _shared_context_sections(
                         group="selection",
                         params={"steps": 1},
                     ),
+                    InspectorAction(
+                        action_id="push_to_ma3",
+                        label="Push Selection to MA3",
+                        group="selection",
+                    ),
                 ),
             )
         )
