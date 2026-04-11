@@ -7,11 +7,11 @@ This document defines compatibility rules so schema growth does not silently bre
 
 ## Compatibility policy
 
-### 1) Runtime manifest resolution is strict
+### 1) Runtime manifest resolution is strict and mandatory
 
 - Runtime preflight scans `*.manifest.json` beside the requested model file.
-- If no manifests exist, runtime behavior is unchanged (legacy permissive path).
-- If manifests exist, exactly one manifest must resolve `manifest.weightsPath` to the requested model path.
+- At least one manifest must exist; no manifest is a hard error.
+- Exactly one manifest must resolve `manifest.weightsPath` to the requested model path.
 - Zero matches or multiple matches are hard errors.
 
 **Rationale:** prevents accidental pairing of a model with the wrong artifact manifest.
@@ -24,13 +24,14 @@ This document defines compatibility rules so schema growth does not silently bre
 
 **Rationale:** preserves existing UX and tests while enabling machine-driven triage.
 
-### 3) Fingerprint checks are optional for legacy artifacts, strict when present
+### 3) Fingerprint checks are strict and required
 
-- `sharedContractFingerprint` is optional in manifests for backward compatibility.
-- When present, it must match checkpoint-derived (runtime) and run-derived (Foundry) fingerprints.
-- A mismatch is a hard compatibility error.
+- `sharedContractFingerprint` is required in artifact manifests.
+- Runtime preflight fails if the fingerprint is missing or invalid.
+- Foundry compatibility fails if the fingerprint is missing, invalid, or mismatched.
+- Fingerprint mismatch remains a hard compatibility error.
 
-**Rationale:** allows incremental adoption without weakening drift detection.
+**Rationale:** fail-hard guarantees prevent silent contract drift between training and runtime.
 
 ### 4) Contract fields may grow, core invariants may not drift
 
@@ -58,5 +59,5 @@ Any contract evolution PR must keep these green:
 - [ ] Runtime summary error strings unchanged where behavior is intended to stay stable.
 - [ ] Structured diagnostics updated only additively.
 - [ ] Manifest resolution still enforces one-to-one model/manifest binding.
-- [ ] Fingerprint logic remains backward-compatible for legacy manifests.
+- [ ] Fingerprint logic remains strict: required + deterministic mismatch diagnostics.
 - [ ] Parity tests cover Foundry -> artifact -> runtime flow.
