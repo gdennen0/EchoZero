@@ -11,26 +11,28 @@ from echozero.application.sync.service import SyncService
 if TYPE_CHECKING:
     from echozero.application.timeline.assembler import TimelineAssembler
 from echozero.application.timeline.intents import (
-    TimelineIntent,
     ClearSelection,
+    ConfirmPushToMA3,
     DuplicateSelectedEvents,
+    DisableSync,
     MoveSelectedEvents,
     NudgeSelectedEvents,
-    SelectEvent,
     SelectAllEvents,
+    SelectEvent,
     SelectLayer,
     SelectTake,
-    ToggleLayerExpanded,
-    TriggerTakeAction,
+    EnableSync,
+    OpenPushToMA3Dialog,
     Play,
     Pause,
-    Stop,
     Seek,
+    SetGain,
+    Stop,
+    TimelineIntent,
+    ToggleLayerExpanded,
     ToggleMute,
     ToggleSolo,
-    SetGain,
-    EnableSync,
-    DisableSync,
+    TriggerTakeAction,
 )
 from echozero.application.timeline.models import Timeline, Layer, Take, Event
 from echozero.application.transport.service import TransportService
@@ -144,6 +146,20 @@ class TimelineOrchestrator:
         elif isinstance(intent, DisableSync):
             session = self.session_service.get_session()
             session.sync_state = self.sync_service.disconnect()
+
+        elif isinstance(intent, OpenPushToMA3Dialog):
+            session = self.session_service.get_session()
+            session.manual_push_flow.dialog_open = True
+            session.manual_push_flow.selected_event_ids = list(intent.selection_event_ids)
+            session.manual_push_flow.target_track_coord = None
+            session.manual_push_flow.diff_gate_open = False
+
+        elif isinstance(intent, ConfirmPushToMA3):
+            session = self.session_service.get_session()
+            session.manual_push_flow.dialog_open = False
+            session.manual_push_flow.selected_event_ids = list(intent.selected_event_ids)
+            session.manual_push_flow.target_track_coord = intent.target_track_coord
+            session.manual_push_flow.diff_gate_open = True
 
         session = self.session_service.get_session()
         audibility = self.mixer_service.resolve_audibility(timeline.layers)

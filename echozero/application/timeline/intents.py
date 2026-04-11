@@ -137,6 +137,12 @@ class ConfirmPushToMA3(TimelineIntent):
     target_track_coord: str
     selected_event_ids: list[EventId]
 
+    def __post_init__(self) -> None:
+        if not self.target_track_coord or not self.target_track_coord.strip():
+            raise ValueError("ConfirmPushToMA3 requires a non-empty target_track_coord")
+        if not self.selected_event_ids:
+            raise ValueError("ConfirmPushToMA3 requires at least one selected_event_id")
+
 
 @dataclass(slots=True)
 class OpenPullFromMA3Dialog(TimelineIntent):

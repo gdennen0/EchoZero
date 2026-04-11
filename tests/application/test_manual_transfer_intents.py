@@ -29,6 +29,29 @@ def test_confirm_push_to_ma3_captures_target_track_and_selected_events():
     assert intent.selected_event_ids == [EventId("evt_1")]
 
 
+@pytest.mark.parametrize("target_track_coord", ["", "   "])
+def test_confirm_push_to_ma3_requires_non_empty_target_track_coord(target_track_coord):
+    with pytest.raises(
+        ValueError,
+        match="ConfirmPushToMA3 requires a non-empty target_track_coord",
+    ):
+        ConfirmPushToMA3(
+            target_track_coord=target_track_coord,
+            selected_event_ids=[EventId("evt_1")],
+        )
+
+
+def test_confirm_push_to_ma3_requires_selected_event_ids():
+    with pytest.raises(
+        ValueError,
+        match="ConfirmPushToMA3 requires at least one selected_event_id",
+    ):
+        ConfirmPushToMA3(
+            target_track_coord="tc1_tg2_tr3",
+            selected_event_ids=[],
+        )
+
+
 def test_open_pull_from_ma3_dialog_is_constructible():
     intent = OpenPullFromMA3Dialog()
 

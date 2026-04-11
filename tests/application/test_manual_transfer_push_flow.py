@@ -1,0 +1,200 @@
+from __future__ import annotations
+
+from echozero.application.mixer.models import AudibilityState, MixerState, LayerMixerState
+from echozero.application.mixer.service import MixerService
+from echozero.application.playback.models import PlaybackState
+from echozero.application.playback.service import PlaybackService
+from echozero.application.session.models import Session
+from echozero.application.session.service import SessionService
+from echozero.application.shared.ids import EventId, ProjectId, SessionId, SongVersionId, TimelineId
+from echozero.application.sync.models import SyncState
+from echozero.application.sync.service import SyncService
+from echozero.application.timeline.intents import ConfirmPushToMA3, OpenPushToMA3Dialog
+from echozero.application.timeline.models import Timeline
+from echozero.application.timeline.orchestrator import TimelineOrchestrator
+from echozero.application.transport.models import TransportState
+from echozero.application.transport.service import TransportService
+
+
+class _SessionService(SessionService):
+    def __init__(self, session: Session):
+        self._session = session
+
+    def get_session(self) -> Session:
+        return self._session
+
+    def set_active_song(self, song_id):
+        self._session.active_song_id = song_id
+        return self._session
+
+    def set_active_song_version(self, song_version_id):
+        self._session.active_song_version_id = song_version_id
+        return self._session
+
+    def set_active_timeline(self, timeline_id):
+        self._session.active_timeline_id = timeline_id
+        return self._session
+
+
+class _TransportService(TransportService):
+    def __init__(self):
+        self._state = TransportState()
+
+    def get_state(self) -> TransportState:
+        return self._state
+
+    def play(self) -> TransportState:
+        self._state.is_playing = True
+        return self._state
+
+    def pause(self) -> TransportState:
+        self._state.is_playing = False
+        return self._state
+
+    def stop(self) -> TransportState:
+        self._state.is_playing = False
+        self._state.playhead = 0.0
+        return self._state
+
+    def seek(self, position: float) -> TransportState:
+        self._state.playhead = max(0.0, position)
+        return self._state
+
+    def set_loop(self, loop_region, enabled: bool = True) -> TransportState:
+        self._state.loop_region = loop_region
+        self._state.loop_enabled = enabled
+        return self._state
+
+
+class _MixerService(MixerService):
+    def __init__(self):
+        self._state = MixerState()
+
+    def get_state(self) -> MixerState:
+        return self._state
+
+    def set_layer_state(self, layer_id, state: LayerMixerState) -> MixerState:
+        self._state.layer_states[layer_id] = state
+        return self._state
+
+    def set_mute(self, layer_id, muted: bool) -> MixerState:
+        return self._state
+
+    def set_solo(self, layer_id, soloed: bool) -> MixerState:
+        return self._state
+
+    def set_gain(self, layer_id, gain_db: float) -> MixerState:
+        return self._state
+
+    def set_pan(self, layer_id, pan: float) -> MixerState:
+        return self._state
+
+    def resolve_audibility(self, layers: list) -> list[AudibilityState]:
+        return []
+
+
+class _PlaybackService(PlaybackService):
+    def __init__(self):
+        self._state = PlaybackState()
+        self.update_runtime_calls = 0
+
+    def get_state(self) -> PlaybackState:
+        return self._state
+
+    def prepare(self, timeline: Timeline) -> PlaybackState:
+        return self._state
+
+    def update_runtime(self, timeline, transport, audibility, sync) -> PlaybackState:
+        self.update_runtime_calls += 1
+        return self._state
+
+    def stop(self) -> PlaybackState:
+        return self._state
+
+
+class _SyncService(SyncService):
+    def __init__(self):
+        self._state = SyncState()
+
+    def get_state(self) -> SyncState:
+        return self._state
+
+    def set_mode(self, mode):
+        self._state.mode = mode
+        return self._state
+
+    def connect(self):
+        self._state.connected = True
+        return self._state
+
+    def disconnect(self):
+        self._state.connected = False
+        return self._state
+
+    def align_transport(self, transport: TransportState) -> TransportState:
+        return transport
+
+
+class _Assembler:
+    def assemble(self, timeline, session):
+        return timeline
+
+
+def _build_orchestrator():
+    session = Session(
+        id=SessionId("session_manual_push_flow"),
+        project_id=ProjectId("project_manual_push_flow"),
+        active_timeline_id=TimelineId("timeline_manual_push_flow"),
+    )
+    timeline = Timeline(
+        id=TimelineId("timeline_manual_push_flow"),
+        song_version_id=SongVersionId("song_version_manual_push_flow"),
+        layers=[],
+    )
+    playback_service = _PlaybackService()
+    orchestrator = TimelineOrchestrator(
+        session_service=_SessionService(session),
+        transport_service=_TransportService(),
+        mixer_service=_MixerService(),
+        playback_service=playback_service,
+        sync_service=_SyncService(),
+        assembler=_Assembler(),
+    )
+    return orchestrator, timeline, session, playback_service
+
+
+def test_open_push_intent_sets_manual_push_dialog_state():
+    orchestrator, timeline, session, _playback_service = _build_orchestrator()
+
+    orchestrator.handle(
+        timeline,
+        OpenPushToMA3Dialog(selection_event_ids=[EventId("evt_1"), EventId("evt_2")]),
+    )
+
+    assert session.manual_push_flow.dialog_open is True
+    assert session.manual_push_flow.selected_event_ids == [EventId("evt_1"), EventId("evt_2")]
+    assert session.manual_push_flow.target_track_coord is None
+    assert session.manual_push_flow.diff_gate_open is False
+
+
+def test_confirm_push_intent_stages_diff_gate_without_immediate_transfer():
+    orchestrator, timeline, session, playback_service = _build_orchestrator()
+
+    orchestrator.handle(
+        timeline,
+        OpenPushToMA3Dialog(selection_event_ids=[EventId("evt_1")]),
+    )
+
+    orchestrator.handle(
+        timeline,
+        ConfirmPushToMA3(
+            target_track_coord="tc1_tg2_tr3",
+            selected_event_ids=[EventId("evt_1")],
+        ),
+    )
+
+    assert session.manual_push_flow.dialog_open is False
+    assert session.manual_push_flow.selected_event_ids == [EventId("evt_1")]
+    assert session.manual_push_flow.target_track_coord == "tc1_tg2_tr3"
+    assert session.manual_push_flow.diff_gate_open is True
+    assert playback_service.update_runtime_calls == 2
