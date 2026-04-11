@@ -11,7 +11,11 @@ from echozero.domain.events import (
     create_event_id,
 )
 from echozero.event_bus import EventBus
-from echozero.foundry.persistence import EvalReportRepository
+from echozero.foundry.persistence import (
+    DatasetRepository,
+    EvalReportRepository,
+    ModelArtifactRepository,
+)
 from echozero.foundry.presentation import FoundryActivityFeed
 from echozero.foundry.services import ArtifactService, DatasetService, EvalService, SplitBalanceService, TrainRunService
 
@@ -26,10 +30,14 @@ class FoundryApp:
         self.root = root
         self.event_bus = EventBus()
 
-        self.datasets = DatasetService(root)
+        self._dataset_repo = DatasetRepository(root)
+        self._artifact_repo = ModelArtifactRepository(root)
+        self._eval_repo = EvalReportRepository(root)
+
+        self.datasets = DatasetService(root, dataset_repo=self._dataset_repo)
         self.split_balance = SplitBalanceService()
-        self.eval = EvalService(EvalReportRepository(root))
-        self.artifacts = ArtifactService(root)
+        self.eval = EvalService(self._eval_repo)
+        self.artifacts = ArtifactService(root, artifact_repository=self._artifact_repo)
         self.runs = TrainRunService(root, eval_service=self.eval, artifact_service=self.artifacts)
 
         self.activity = FoundryActivityFeed(self.event_bus)
@@ -114,3 +122,25 @@ class FoundryApp:
             "split_plan": split_plan,
             "balance_plan": balance_plan,
         }
+
+    # ------------------------------------------------------------------
+    # Query boundary for Foundry UI
+    # ------------------------------------------------------------------
+
+    def list_datasets(self):
+        return self._dataset_repo.list()
+
+    def list_runs(self):
+        return self.runs.list_runs()
+
+    def list_artifacts(self):
+        return self._artifact_repo.list()
+
+    def list_artifacts_for_run(self, run_id: str):
+        return self._artifact_repo.list_for_run(run_id)
+
+    def get_artifact(self, artifact_id: str):
+        return self._artifact_repo.get(artifact_id)
+
+    def list_eval_reports_for_run(self, run_id: str):
+        return self._eval_repo.list_for_run(run_id)

@@ -30,7 +30,6 @@ from PyQt6.QtWidgets import (
 )
 
 from echozero.foundry import FoundryApp
-from echozero.foundry.persistence import DatasetRepository, DatasetVersionRepository, EvalReportRepository, ModelArtifactRepository
 from echozero.ui.style import SHELL_TOKENS
 from echozero.ui.style.qt.qss import build_foundry_shell_qss
 
@@ -63,10 +62,6 @@ class FoundryWindow(QMainWindow):
         self._root = Path(root)
         self._app = FoundryApp(self._root)
         self._app.activity.set_listener(self._on_activity)
-        self._datasets = DatasetRepository(self._root)
-        self._versions = DatasetVersionRepository(self._root)
-        self._artifacts = ModelArtifactRepository(self._root)
-        self._evals = EvalReportRepository(self._root)
         self._show_error_dialogs = os.environ.get("QT_QPA_PLATFORM", "").lower() != "offscreen"
 
         self.setWindowTitle("EchoZero Foundry v1")
@@ -581,11 +576,11 @@ class FoundryWindow(QMainWindow):
         try:
             artifact_id = self._selected_artifact_id or self._artifact_id
             if not artifact_id and self._run_id:
-                artifacts = sorted(self._artifacts.list_for_run(self._run_id), key=lambda item: item.created_at)
+                artifacts = sorted(self._app.list_artifacts_for_run(self._run_id), key=lambda item: item.created_at)
                 artifact_id = artifacts[-1].id if artifacts else None
             if not artifact_id:
                 raise ValueError("Select or create an artifact first")
-            artifact = self._artifacts.get(artifact_id)
+            artifact = self._app.get_artifact(artifact_id)
             if artifact is None:
                 raise ValueError(f"Artifact not found: {artifact_id}")
             self._open_existing_path(artifact.path, label="artifact manifest")
@@ -625,8 +620,8 @@ class FoundryWindow(QMainWindow):
         select_run_id: str | None = None,
         select_artifact_id: str | None = None,
     ) -> None:
-        datasets = self._datasets.list()
-        runs = sorted(self._app.runs.list_runs(), key=lambda item: item.created_at)
+        datasets = self._app.list_datasets()
+        runs = sorted(self._app.list_runs(), key=lambda item: item.created_at)
 
         latest_dataset = datasets[-1] if datasets else None
         if self._dataset_id is None and latest_dataset is not None:
@@ -721,8 +716,8 @@ class FoundryWindow(QMainWindow):
 
         self.run_summary.setPlainText(self._format_run_summary(run))
 
-        artifacts = sorted(self._artifacts.list_for_run(run.id), key=lambda item: item.created_at)
-        evals = sorted(self._evals.list_for_run(run.id), key=lambda item: item.created_at)
+        artifacts = sorted(self._app.list_artifacts_for_run(run.id), key=lambda item: item.created_at)
+        evals = sorted(self._app.list_eval_reports_for_run(run.id), key=lambda item: item.created_at)
         self._populate_artifact_list(artifacts, select_artifact_id=select_artifact_id)
         self._populate_eval_list(evals)
 
@@ -846,11 +841,11 @@ class FoundryWindow(QMainWindow):
         }
 
     def _resolve_latest_artifact_package_path(self) -> Path | None:
-        artifacts = sorted(self._artifacts.list(), key=lambda item: (item.created_at, item.id))
+        artifacts = sorted(self._app.list_artifacts(), key=lambda item: (item.created_at, item.id))
         if artifacts:
             return artifacts[-1].path.parent
 
-        runs = sorted(self._app.runs.list_runs(), key=lambda item: (item.updated_at, item.id))
+        runs = sorted(self._app.list_runs(), key=lambda item: (item.updated_at, item.id))
         for run in reversed(runs):
             exports_dir = run.exports_dir(self._root)
             if exports_dir.exists() and any(exports_dir.iterdir()):
@@ -967,7 +962,7 @@ class FoundryWindow(QMainWindow):
         if not self._run_id:
             return
         run = self._app.runs.get_run(self._run_id)
-        runs = sorted(self._app.runs.list_runs(), key=lambda item: item.created_at)
+        runs = sorted(self._app.list_runs(), key=lambda item: item.created_at)
         if run is not None:
             self.run_summary.setPlainText(self._format_run_summary(run))
             self.status_line.setText(
@@ -976,10 +971,10 @@ class FoundryWindow(QMainWindow):
         self._append_new_run_events(self._run_id)
         self._populate_queue_list(runs)
         self._populate_artifact_list(
-            sorted(self._artifacts.list_for_run(self._run_id), key=lambda item: item.created_at),
+            sorted(self._app.list_artifacts_for_run(self._run_id), key=lambda item: item.created_at),
             select_artifact_id=self._artifact_id,
         )
-        self._populate_eval_list(sorted(self._evals.list_for_run(self._run_id), key=lambda item: item.created_at))
+        self._populate_eval_list(sorted(self._app.list_eval_reports_for_run(self._run_id), key=lambda item: item.created_at))
 
     def _append_new_run_events(self, run_id: str) -> None:
         run = self._app.runs.get_run(run_id)
@@ -1001,8 +996,8 @@ class FoundryWindow(QMainWindow):
 
     def _on_background_run_finished(self, run_id: str) -> None:
         run = self._app.runs.get_run(run_id)
-        artifacts = sorted(self._artifacts.list_for_run(run_id), key=lambda item: item.created_at)
-        evals = sorted(self._evals.list_for_run(run_id), key=lambda item: item.created_at)
+        artifacts = sorted(self._app.list_artifacts_for_run(run_id), key=lambda item: item.created_at)
+        evals = sorted(self._app.list_eval_reports_for_run(run_id), key=lambda item: item.created_at)
         self._artifact_id = artifacts[-1].id if artifacts else None
         self._append_new_run_events(run_id)
         if run is not None:
@@ -1175,7 +1170,7 @@ class FoundryWindow(QMainWindow):
     def _format_artifact_summary(self, artifact_id: str | None) -> str:
         if not artifact_id:
             return "No artifact selected."
-        artifact = self._artifacts.get(artifact_id)
+        artifact = self._app.get_artifact(artifact_id)
         if artifact is None:
             return f"Artifact not found: {artifact_id}"
 
