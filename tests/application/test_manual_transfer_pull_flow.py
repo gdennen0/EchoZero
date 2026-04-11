@@ -16,6 +16,7 @@ from echozero.application.session.models import (
 from echozero.application.session.service import SessionService
 from echozero.application.shared.enums import LayerKind
 from echozero.application.shared.ids import LayerId, ProjectId, SessionId, SongVersionId, TakeId, TimelineId
+from echozero.application.sync.diff_service import SyncDiffRow, SyncDiffSummary
 from echozero.application.sync.models import SyncState
 from echozero.application.sync.service import SyncService
 from echozero.application.timeline.intents import (
@@ -365,6 +366,33 @@ def test_confirm_pull_intent_stages_diff_gate_without_immediate_transfer():
         target_layer_id=LayerId("layer_target"),
         target_layer_name="Target Layer",
         import_mode="new_take",
+        diff_summary=SyncDiffSummary(
+            added_count=2,
+            removed_count=0,
+            modified_count=0,
+            unchanged_count=0,
+            row_count=2,
+        ),
+        diff_rows=[
+            SyncDiffRow(
+                row_id="ma3_evt_1",
+                action="add",
+                start=0.0,
+                end=0.25,
+                label="Cue 1",
+                before="Not present in EZ target layer",
+                after="Target Layer",
+            ),
+            SyncDiffRow(
+                row_id="ma3_evt_2",
+                action="add",
+                start=0.25,
+                end=0.5,
+                label="Cue 2",
+                before="Not present in EZ target layer",
+                after="Target Layer",
+            ),
+        ],
     )
     assert playback_service.update_runtime_calls == 5
 

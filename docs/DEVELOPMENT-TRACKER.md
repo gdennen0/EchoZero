@@ -1,6 +1,6 @@
 # EchoZero Development Tracker (Canonical)
 
-_Last updated: 2026-04-10_
+_Last updated: 2026-04-11_
 
 This is the live execution status board.
 Canonical implementation authority is: `docs/UNIFIED-IMPLEMENTATION-PLAN.md`.
@@ -153,5 +153,15 @@ Phase 3 complete. Manual transfer execution status:
   - pull picker interaction + diff preview gate complete (`305c0e2`)
   - pull import execution into selected EZ layer (default new take) complete (`5cc62e5`)
 
-Next checkpoint: begin Step 4 shared diff service (unify push/pull diff model + confirmation flow) per:
-- `docs/MA3-MANUAL-PUSH-PULL-IMPLEMENTATION-PLAN.md`
+Next checkpoint: Step 5 live sync guardrail.
+Manual transfer execution status:
+- Step 1 complete (contracts + pull target validation)
+- Step 2 complete (push track picker interaction + diff preview gate, no transfer yet)
+- Step 3 complete:
+  - pull flow staging contracts complete (`3907da1`)
+  - pull picker interaction + diff preview gate complete (`305c0e2`)
+  - pull import execution into selected EZ layer (default new take) complete (`5cc62e5`)
+- Step 4 complete:
+  - shared diff service added for push/pull preview generation
+  - shared diff summary/row contracts added through session/presentation assembler mapping
+  - deterministic unit coverage added for shared diff row ordering and summary output

@@ -1,6 +1,6 @@
 """Timeline orchestration for the new EchoZero application layer."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 from echozero.application.mixer.service import MixerService
@@ -16,6 +16,7 @@ from echozero.application.session.models import (
 )
 from echozero.application.session.service import SessionService
 from echozero.application.shared.enums import LayerKind
+from echozero.application.sync.diff_service import SyncDiffService
 from echozero.application.sync.service import SyncService
 if TYPE_CHECKING:
     from echozero.application.timeline.assembler import TimelineAssembler
@@ -69,6 +70,7 @@ class TimelineOrchestrator:
     playback_service: PlaybackService
     sync_service: SyncService
     assembler: 'TimelineAssembler'
+    diff_service: SyncDiffService = field(default_factory=SyncDiffService)
 
     def handle(self, timeline: Timeline, intent: TimelineIntent) -> TimelinePresentation:
         if isinstance(intent, SelectLayer):
@@ -198,6 +200,12 @@ class TimelineOrchestrator:
                 session.manual_push_flow.available_tracks,
                 intent.target_track_coord,
             )
+            selected_events = self._selected_events_by_ids(timeline, intent.selected_event_ids)
+            diff_summary, diff_rows = self.diff_service.build_push_preview_rows(
+                selected_events=selected_events,
+                target_track_name=target_track.name,
+                target_track_coord=target_track.coord,
+            )
             session.manual_push_flow.dialog_open = False
             session.manual_push_flow.selected_event_ids = list(intent.selected_event_ids)
             session.manual_push_flow.target_track_coord = intent.target_track_coord
@@ -208,6 +216,8 @@ class TimelineOrchestrator:
                 target_track_name=target_track.name,
                 target_track_note=target_track.note,
                 target_track_event_count=target_track.event_count,
+                diff_summary=diff_summary,
+                diff_rows=diff_rows,
             )
 
         elif isinstance(intent, OpenPullFromMA3Dialog):
@@ -300,6 +310,15 @@ class TimelineOrchestrator:
                     "ConfirmPullFromMA3 selected_ma3_event_ids not found in available_events: "
                     + ", ".join(unknown_event_ids)
                 )
+            selected_events = self._manual_pull_selected_events_by_ids(
+                available_events=session.manual_pull_flow.available_events,
+                selected_ids=intent.selected_ma3_event_ids,
+                action_name="ConfirmPullFromMA3",
+            )
+            diff_summary, diff_rows = self.diff_service.build_pull_preview_rows(
+                selected_events=selected_events,
+                target_layer_name=target_layer.name,
+            )
 
             session.manual_pull_flow.dialog_open = False
             session.manual_pull_flow.source_track_coord = source_track.coord
@@ -315,6 +334,8 @@ class TimelineOrchestrator:
                 target_layer_id=target_layer.layer_id,
                 target_layer_name=target_layer.name,
                 import_mode=intent.import_mode,
+                diff_summary=diff_summary,
+                diff_rows=diff_rows,
             )
 
         elif isinstance(intent, ApplyPullFromMA3):
@@ -662,11 +683,39 @@ class TimelineOrchestrator:
         return selected
 
     @staticmethod
+    def _selected_events_by_ids(timeline: Timeline, selected_ids: list) -> list[Event]:
+        selected_lookup = set(selected_ids)
+        selected_order = {
+            str(event_id): index for index, event_id in enumerate(selected_ids)
+        }
+        selected: list[Event] = []
+        for layer in timeline.layers:
+            for take in layer.takes:
+                for event in take.events:
+                    if event.id in selected_lookup:
+                        selected.append(event)
+
+        selected.sort(key=lambda event: selected_order[str(event.id)])
+        return selected
+
+    @staticmethod
     def _manual_pull_selected_events(flow) -> list[ManualPullEventOption]:
-        selected_ids = list(flow.selected_ma3_event_ids)
+        return TimelineOrchestrator._manual_pull_selected_events_by_ids(
+            available_events=flow.available_events,
+            selected_ids=flow.selected_ma3_event_ids,
+            action_name="ApplyPullFromMA3",
+        )
+
+    @staticmethod
+    def _manual_pull_selected_events_by_ids(
+        *,
+        available_events: list[ManualPullEventOption],
+        selected_ids: list[str],
+        action_name: str,
+    ) -> list[ManualPullEventOption]:
         available_by_id = {
             event.event_id: event
-            for event in flow.available_events
+            for event in available_events
         }
         selected_events: list[ManualPullEventOption] = []
         missing_event_ids: list[str] = []
@@ -678,7 +727,7 @@ class TimelineOrchestrator:
             selected_events.append(selected_event)
         if missing_event_ids:
             raise ValueError(
-                "ApplyPullFromMA3 selected_ma3_event_ids not found in available_events: "
+                f"{action_name} selected_ma3_event_ids not found in available_events: "
                 + ", ".join(missing_event_ids)
             )
         return selected_events
@@ -716,7 +765,7 @@ class TimelineOrchestrator:
         source_event: ManualPullEventOption,
         order_index: int,
     ) -> Event:
-        start, end = self._resolve_manual_pull_event_range(source_event, order_index=order_index)
+        start, end = self.diff_service.resolve_pull_event_range(source_event, order_index=order_index)
         return Event(
             id=f"{take_id}:ma3:{source_track.coord}:{source_event.event_id}:{order_index}",
             take_id=take_id,
@@ -725,21 +774,6 @@ class TimelineOrchestrator:
             label=source_event.label,
             payload_ref=source_event.event_id,
         )
-
-    @staticmethod
-    def _resolve_manual_pull_event_range(source_event: ManualPullEventOption, *, order_index: int) -> tuple[float, float]:
-        default_duration = 0.25
-        if source_event.start is not None and source_event.end is not None:
-            return float(source_event.start), float(source_event.end)
-        if source_event.start is not None:
-            start = max(0.0, float(source_event.start))
-            return start, start + default_duration
-        if source_event.end is not None:
-            end = max(0.0, float(source_event.end))
-            return max(0.0, end - default_duration), end
-
-        start = float(order_index - 1) * default_duration
-        return start, start + default_duration
 
     @staticmethod
     def _next_manual_pull_take_id(layer: Layer):

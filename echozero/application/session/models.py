@@ -3,6 +3,7 @@
 from dataclasses import dataclass, field
 
 from echozero.application.shared.ids import EventId, LayerId, ProjectId, SessionId, SongId, SongVersionId, TimelineId
+from echozero.application.sync.diff_service import SyncDiffRow, SyncDiffSummary
 from echozero.application.transport.models import TransportState
 from echozero.application.mixer.models import MixerState
 from echozero.application.playback.models import PlaybackState
@@ -24,6 +25,8 @@ class ManualPushDiffPreview:
     target_track_name: str
     target_track_note: str | None = None
     target_track_event_count: int | None = None
+    diff_summary: SyncDiffSummary | None = None
+    diff_rows: list[SyncDiffRow] = field(default_factory=list)
 
 
 @dataclass(slots=True)
@@ -68,6 +71,8 @@ class ManualPullDiffPreview:
     target_layer_id: LayerId | None = None
     target_layer_name: str = ""
     import_mode: str = "new_take"
+    diff_summary: SyncDiffSummary | None = None
+    diff_rows: list[SyncDiffRow] = field(default_factory=list)
 
 
 @dataclass(slots=True)

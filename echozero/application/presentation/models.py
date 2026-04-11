@@ -50,12 +50,34 @@ class ManualPushTrackOptionPresentation:
 
 
 @dataclass(slots=True)
+class SyncDiffSummaryPresentation:
+    added_count: int = 0
+    removed_count: int = 0
+    modified_count: int = 0
+    unchanged_count: int = 0
+    row_count: int = 0
+
+
+@dataclass(slots=True)
+class SyncDiffRowPresentation:
+    row_id: str
+    action: str
+    start: float
+    end: float
+    label: str
+    before: str
+    after: str
+
+
+@dataclass(slots=True)
 class ManualPushDiffPreviewPresentation:
     selected_count: int
     target_track_coord: str
     target_track_name: str
     target_track_note: str | None = None
     target_track_event_count: int | None = None
+    diff_summary: SyncDiffSummaryPresentation | None = None
+    diff_rows: list[SyncDiffRowPresentation] = field(default_factory=list)
 
 
 @dataclass(slots=True)
@@ -99,6 +121,8 @@ class ManualPullDiffPreviewPresentation:
     target_layer_id: LayerId | None = None
     target_layer_name: str = ""
     import_mode: str = "new_take"
+    diff_summary: SyncDiffSummaryPresentation | None = None
+    diff_rows: list[SyncDiffRowPresentation] = field(default_factory=list)
 
 
 @dataclass(slots=True)

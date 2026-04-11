@@ -16,6 +16,8 @@ from echozero.application.presentation.models import (
     ManualPushTrackOptionPresentation,
     TakeActionPresentation,
     TakeLanePresentation,
+    SyncDiffRowPresentation,
+    SyncDiffSummaryPresentation,
     TimelinePresentation,
 )
 from echozero.application.session.models import Session
@@ -247,8 +249,7 @@ class TimelineAssembler:
             for event in ordered
         ]
 
-    @staticmethod
-    def _assemble_manual_push_flow(session: Session) -> ManualPushFlowPresentation:
+    def _assemble_manual_push_flow(self, session: Session) -> ManualPushFlowPresentation:
         flow = session.manual_push_flow
         diff_preview = None
         if flow.diff_preview is not None:
@@ -258,6 +259,8 @@ class TimelineAssembler:
                 target_track_name=flow.diff_preview.target_track_name,
                 target_track_note=flow.diff_preview.target_track_note,
                 target_track_event_count=flow.diff_preview.target_track_event_count,
+                diff_summary=self._assemble_sync_diff_summary(flow.diff_preview.diff_summary),
+                diff_rows=self._assemble_sync_diff_rows(flow.diff_preview.diff_rows),
             )
 
         return ManualPushFlowPresentation(
@@ -276,8 +279,7 @@ class TimelineAssembler:
             diff_preview=diff_preview,
         )
 
-    @staticmethod
-    def _assemble_manual_pull_flow(session: Session) -> ManualPullFlowPresentation:
+    def _assemble_manual_pull_flow(self, session: Session) -> ManualPullFlowPresentation:
         flow = session.manual_pull_flow
         diff_preview = None
         if flow.diff_preview is not None:
@@ -290,6 +292,8 @@ class TimelineAssembler:
                 target_layer_id=flow.diff_preview.target_layer_id,
                 target_layer_name=flow.diff_preview.target_layer_name,
                 import_mode=flow.diff_preview.import_mode,
+                diff_summary=self._assemble_sync_diff_summary(flow.diff_preview.diff_summary),
+                diff_rows=self._assemble_sync_diff_rows(flow.diff_preview.diff_rows),
             )
 
         return ManualPullFlowPresentation(
@@ -331,6 +335,33 @@ class TimelineAssembler:
         if not layer.takes:
             return None
         return layer.takes[0]
+
+    @staticmethod
+    def _assemble_sync_diff_summary(summary) -> SyncDiffSummaryPresentation | None:
+        if summary is None:
+            return None
+        return SyncDiffSummaryPresentation(
+            added_count=summary.added_count,
+            removed_count=summary.removed_count,
+            modified_count=summary.modified_count,
+            unchanged_count=summary.unchanged_count,
+            row_count=summary.row_count,
+        )
+
+    @staticmethod
+    def _assemble_sync_diff_rows(rows) -> list[SyncDiffRowPresentation]:
+        return [
+            SyncDiffRowPresentation(
+                row_id=row.row_id,
+                action=row.action,
+                start=row.start,
+                end=row.end,
+                label=row.label,
+                before=row.before,
+                after=row.after,
+            )
+            for row in rows
+        ]
 
     @staticmethod
     def _source_label(layer: Layer, main_take: Take | None) -> str:

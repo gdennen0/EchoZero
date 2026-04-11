@@ -6,11 +6,13 @@ from echozero.application.playback.models import PlaybackState
 from echozero.application.playback.service import PlaybackService
 from echozero.application.session.models import ManualPushDiffPreview, ManualPushTrackOption, Session
 from echozero.application.session.service import SessionService
+from echozero.application.shared.enums import LayerKind
 from echozero.application.shared.ids import EventId, ProjectId, SessionId, SongVersionId, TimelineId
+from echozero.application.sync.diff_service import SyncDiffRow, SyncDiffSummary
 from echozero.application.sync.models import SyncState
 from echozero.application.sync.service import SyncService
 from echozero.application.timeline.intents import ConfirmPushToMA3, OpenPushToMA3Dialog
-from echozero.application.timeline.models import Timeline
+from echozero.application.timeline.models import Event, Layer, Take, Timeline
 from echozero.application.timeline.orchestrator import TimelineOrchestrator
 from echozero.application.transport.models import TransportState
 from echozero.application.transport.service import TransportService
@@ -167,7 +169,38 @@ def _build_orchestrator(sync_service: SyncService | None = None):
     timeline = Timeline(
         id=TimelineId("timeline_manual_push_flow"),
         song_version_id=SongVersionId("song_version_manual_push_flow"),
-        layers=[],
+        layers=[
+            Layer(
+                id="layer_push",
+                timeline_id=TimelineId("timeline_manual_push_flow"),
+                name="Push Layer",
+                kind=LayerKind.EVENT,
+                order_index=0,
+                takes=[
+                    Take(
+                        id="take_push",
+                        layer_id="layer_push",
+                        name="Main",
+                        events=[
+                            Event(
+                                id=EventId("evt_1"),
+                                take_id="take_push",
+                                start=1.0,
+                                end=1.5,
+                                label="Cue 1",
+                            ),
+                            Event(
+                                id=EventId("evt_2"),
+                                take_id="take_push",
+                                start=2.0,
+                                end=2.5,
+                                label="Cue 2",
+                            ),
+                        ],
+                    )
+                ],
+            )
+        ],
     )
     playback_service = _PlaybackService()
     orchestrator = TimelineOrchestrator(
@@ -298,5 +331,23 @@ def test_confirm_push_intent_stages_diff_gate_without_immediate_transfer():
         target_track_name="Track 3",
         target_track_note="Bass",
         target_track_event_count=8,
+        diff_summary=SyncDiffSummary(
+            added_count=1,
+            removed_count=0,
+            modified_count=0,
+            unchanged_count=0,
+            row_count=1,
+        ),
+        diff_rows=[
+            SyncDiffRow(
+                row_id="evt_1",
+                action="add",
+                start=1.0,
+                end=1.5,
+                label="Cue 1",
+                before="Not present in MA3 target",
+                after="Track 3 (tc1_tg2_tr3)",
+            )
+        ],
     )
     assert playback_service.update_runtime_calls == 2
