@@ -145,5 +145,9 @@ Checkpoints:
 
 ## 10) Next Checkpoint
 
-Phase 3 complete. Next checkpoint: execute manual transfer UX plan (push/pull + mandatory pull-layer picker + diff modal) per:
+Phase 3 complete. Manual transfer execution status:
+- Step 1 complete (contracts + pull target validation)
+- Step 2 complete (push track picker interaction + diff preview gate, no transfer yet)
+
+Next checkpoint: start Step 3 (pull UX with mandatory EZ layer picker + pull diff gate) per:
 - `docs/MA3-MANUAL-PUSH-PULL-IMPLEMENTATION-PLAN.md`
