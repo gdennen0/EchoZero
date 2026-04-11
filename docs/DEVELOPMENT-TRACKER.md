@@ -148,10 +148,10 @@ Checkpoints:
 Phase 3 complete. Manual transfer execution status:
 - Step 1 complete (contracts + pull target validation)
 - Step 2 complete (push track picker interaction + diff preview gate, no transfer yet)
-- Step 3 in progress:
+- Step 3 complete:
   - pull flow staging contracts complete (`3907da1`)
   - pull picker interaction + diff preview gate complete (`305c0e2`)
-  - remaining: apply pull into selected EZ layer (default new take)
+  - pull import execution into selected EZ layer (default new take) complete (`5cc62e5`)
 
-Next checkpoint: finish Step 3 by executing pull import to chosen EZ layer, then move to Step 4 shared diff service per:
+Next checkpoint: begin Step 4 shared diff service (unify push/pull diff model + confirmation flow) per:
 - `docs/MA3-MANUAL-PUSH-PULL-IMPLEMENTATION-PLAN.md`
