@@ -299,7 +299,7 @@ class MA3CommunicationService:
         """
         try:
             # Parse pipe-delimited format from MA3 plugin
-            parts = message_str.split('|')
+            parts = self._split_message_parts(message_str)
             data = {}
             
             for part in parts:
@@ -368,6 +368,60 @@ class MA3CommunicationService:
             
         except Exception as e:
             Log.error(f"MA3CommunicationService: Error parsing message '{message_str[:100]}...': {e}")
+
+    @staticmethod
+    def _split_message_parts(message_str: str) -> List[str]:
+        """
+        Split a pipe-delimited MA3 payload without breaking embedded values.
+
+        MA3 plugin payloads can contain JSON-ish arrays/objects inside values, and
+        those nested payloads may themselves contain pipe characters. We only treat
+        `|` as a field separator when it is at the top level.
+        """
+        if '|' not in message_str:
+            return [message_str]
+
+        parts: List[str] = []
+        current: List[str] = []
+        bracket_depth = 0
+        brace_depth = 0
+        in_string = False
+        escape = False
+
+        for char in message_str:
+            if escape:
+                current.append(char)
+                escape = False
+                continue
+
+            if char == '\\' and in_string:
+                current.append(char)
+                escape = True
+                continue
+
+            if char == '"':
+                current.append(char)
+                in_string = not in_string
+                continue
+
+            if not in_string:
+                if char == '[':
+                    bracket_depth += 1
+                elif char == ']':
+                    bracket_depth = max(0, bracket_depth - 1)
+                elif char == '{':
+                    brace_depth += 1
+                elif char == '}':
+                    brace_depth = max(0, brace_depth - 1)
+                elif char == '|' and bracket_depth == 0 and brace_depth == 0:
+                    parts.append(''.join(current))
+                    current = []
+                    continue
+
+            current.append(char)
+
+        parts.append(''.join(current))
+        return parts
     
     def _publish_ma3_event(self, message: MA3Message, raw_message: Optional[str] = None) -> None:
         """
