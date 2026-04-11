@@ -26,7 +26,9 @@ from echozero.application.timeline.intents import (
     Play,
     Pause,
     Seek,
+    SelectPushTargetTrack,
     SetGain,
+    SetPushTrackOptions,
     Stop,
     TimelineIntent,
     ToggleLayerExpanded,
@@ -153,6 +155,23 @@ class TimelineOrchestrator:
             session.manual_push_flow.selected_event_ids = list(intent.selection_event_ids)
             session.manual_push_flow.target_track_coord = None
             session.manual_push_flow.diff_gate_open = False
+
+        elif isinstance(intent, SetPushTrackOptions):
+            session = self.session_service.get_session()
+            session.manual_push_flow.available_tracks = list(intent.tracks)
+
+        elif isinstance(intent, SelectPushTargetTrack):
+            session = self.session_service.get_session()
+            available_coords = {
+                track.coord
+                for track in session.manual_push_flow.available_tracks
+            }
+            if intent.target_track_coord not in available_coords:
+                raise ValueError(
+                    f"SelectPushTargetTrack target_track_coord not found in available_tracks: "
+                    f"{intent.target_track_coord}"
+                )
+            session.manual_push_flow.target_track_coord = intent.target_track_coord
 
         elif isinstance(intent, ConfirmPushToMA3):
             session = self.session_service.get_session()

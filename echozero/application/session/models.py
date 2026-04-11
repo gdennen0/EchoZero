@@ -10,9 +10,18 @@ from echozero.application.sync.models import SyncState
 
 
 @dataclass(slots=True)
+class ManualPushTrackOption:
+    coord: str
+    name: str
+    note: str | None = None
+    event_count: int | None = None
+
+
+@dataclass(slots=True)
 class ManualPushFlowState:
     dialog_open: bool = False
     selected_event_ids: list[EventId] = field(default_factory=list)
+    available_tracks: list[ManualPushTrackOption] = field(default_factory=list)
     target_track_coord: str | None = None
     diff_gate_open: bool = False
 

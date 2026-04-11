@@ -2,6 +2,7 @@
 
 from dataclasses import dataclass
 
+from echozero.application.session.models import ManualPushTrackOption
 from echozero.application.shared.ids import LayerId, TakeId, EventId
 from echozero.application.shared.enums import SyncMode
 from echozero.application.shared.ranges import TimeRange
@@ -130,6 +131,20 @@ class DisableSync(TimelineIntent):
 @dataclass(slots=True)
 class OpenPushToMA3Dialog(TimelineIntent):
     selection_event_ids: list[EventId]
+
+
+@dataclass(slots=True)
+class SetPushTrackOptions(TimelineIntent):
+    tracks: list[ManualPushTrackOption]
+
+
+@dataclass(slots=True)
+class SelectPushTargetTrack(TimelineIntent):
+    target_track_coord: str
+
+    def __post_init__(self) -> None:
+        if not self.target_track_coord or not self.target_track_coord.strip():
+            raise ValueError("SelectPushTargetTrack requires a non-empty target_track_coord")
 
 
 @dataclass(slots=True)
