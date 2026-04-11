@@ -7,13 +7,13 @@ Used by ExecutionEngine when running blocks of type 'PyTorchAudioClassify'.
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 from typing import Any, Callable
 
 from echozero.domain.types import AudioData, Event, EventData, Layer
 from echozero.errors import ExecutionError, ValidationError
 from echozero.execution import ExecutionContext
+from echozero.inference_eval.runtime_preflight import run_runtime_preflight
 from echozero.progress import ProgressReport
 from echozero.result import Result, err, ok
 
@@ -69,17 +69,19 @@ def _default_classify(
             f"Error: {exc}"
         )
 
+    if not isinstance(checkpoint, dict):
+        raise ExecutionError(f"Unexpected checkpoint format from {model_path}")
+
+    run_runtime_preflight(model_path, checkpoint)
+
     try:
         # Try to extract model and config from checkpoint
-        if isinstance(checkpoint, dict):
-            if "model_state_dict" in checkpoint:
-                model_state = checkpoint["model_state_dict"]
-                config = checkpoint.get("config", {})
-            else:
-                model_state = checkpoint
-                config = {}
+        if "model_state_dict" in checkpoint:
+            model_state = checkpoint["model_state_dict"]
+            config = checkpoint.get("config", {})
         else:
-            raise ExecutionError(f"Unexpected checkpoint format from {model_path}")
+            model_state = checkpoint
+            config = {}
 
         # Build a simple model (the caller should provide one that matches their architecture)
         # For now, we'll just load the state and assume a simple sequential or custom model
@@ -336,5 +338,4 @@ class PyTorchAudioClassifyProcessor:
         )
 
         return ok(EventData(layers=tuple(output_layers)))
-
 
