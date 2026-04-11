@@ -7,21 +7,15 @@ from pathlib import Path
 from uuid import uuid4
 
 from echozero.foundry.domain import CompatibilityReport, ModelArtifact
+from echozero.inference_eval.validation import (
+    validate_manifest_inference_section,
+    validate_runtime_consumer,
+)
 from echozero.foundry.persistence import (
     DatasetVersionRepository,
     ModelArtifactRepository,
     TrainRunRepository,
 )
-
-
-_REQUIRED_PREPROCESSING_KEYS = {
-    "sampleRate",
-    "maxLength",
-    "nFft",
-    "hopLength",
-    "nMels",
-    "fmax",
-}
 
 
 class ArtifactService:
@@ -261,17 +255,23 @@ class ArtifactService:
             if dataset_version is None:
                 errors.append(f"dataset version not found: {run.dataset_version_id}")
 
-        if m.get("schema") != "foundry.artifact_manifest.v1":
-            errors.append("manifest.schema must be foundry.artifact_manifest.v1")
+        if run is not None:
+            expected_run_data = {
+                **run_data,
+                "classificationMode": run.spec.get("classificationMode"),
+            }
+            manifest_report = validate_manifest_inference_section(
+                m,
+                expected_run_data=expected_run_data,
+                expected_classes=list(dataset_version.class_map) if dataset_version is not None else None,
+                expected_taxonomy=dataset_version.taxonomy if dataset_version is not None else None,
+                expected_label_policy=dataset_version.label_policy if dataset_version is not None else None,
+            )
+        else:
+            manifest_report = validate_manifest_inference_section(m)
 
-        classes = m.get("classes")
-        if not isinstance(classes, list) or not classes:
-            errors.append("manifest.classes must be a non-empty list")
-
-        preprocessing = m.get("inferencePreprocessing") or {}
-        missing = sorted(_REQUIRED_PREPROCESSING_KEYS - set(preprocessing.keys()))
-        if missing:
-            errors.append(f"manifest.inferencePreprocessing missing keys: {', '.join(missing)}")
+        errors.extend(issue.message for issue in manifest_report.errors)
+        warnings.extend(issue.message for issue in manifest_report.warnings)
 
         if run is not None:
             if m.get("runId") != run.id:
@@ -281,40 +281,10 @@ class ArtifactService:
             if m.get("specHash") != run.spec_hash:
                 errors.append("manifest.specHash must match the originating run spec hash")
 
-            if m.get("classificationMode") != run.spec.get("classificationMode"):
-                errors.append("manifest.classificationMode must match run spec classificationMode")
-
-            for key in sorted(_REQUIRED_PREPROCESSING_KEYS):
-                expected = run_data.get(key)
-                actual = preprocessing.get(key)
-                if expected is None or actual is None:
-                    continue
-                if actual != expected:
-                    errors.append(f"manifest.inferencePreprocessing.{key} must match run spec")
-
-        if dataset_version is not None and classes:
-            expected_classes = list(dataset_version.class_map)
-            if classes != expected_classes:
-                errors.append("manifest.classes must match dataset version class_map order")
-            if m.get("taxonomy") != dataset_version.taxonomy:
-                errors.append("manifest.taxonomy must match dataset version taxonomy")
-            if m.get("labelPolicy") != dataset_version.label_policy:
-                errors.append("manifest.labelPolicy must match dataset version label_policy")
-
         if consumer == "PyTorchAudioClassify":
-            weights_path = m.get("weightsPath")
-            if not weights_path:
-                errors.append("manifest.weightsPath is required for PyTorchAudioClassify")
-            elif not str(weights_path).endswith(".pth"):
-                errors.append("manifest.weightsPath must point to a .pth file for PyTorchAudioClassify")
-            if Path(str(weights_path)).is_absolute():
-                errors.append("manifest.weightsPath must be relative for portable runtime use")
-            runtime = m.get("runtime") or {}
-            if runtime.get("consumer") != consumer:
-                errors.append("manifest.runtime.consumer must match the validated consumer")
-
-        if m.get("classificationMode") == "binary" and "thresholdPolicy" not in m:
-            warnings.append("binary classifier missing thresholdPolicy")
+            runtime_report = validate_runtime_consumer(m, consumer=consumer)
+            errors.extend(issue.message for issue in runtime_report.errors)
+            warnings.extend(issue.message for issue in runtime_report.warnings)
 
         return CompatibilityReport(
             artifact_id=artifact.id,
