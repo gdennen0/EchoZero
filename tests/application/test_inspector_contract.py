@@ -11,6 +11,7 @@ from echozero.application.presentation.models import (
     LayerStatusPresentation,
     TakeLanePresentation,
     TimelinePresentation,
+    ManualPullEventOptionPresentation,
 )
 from echozero.application.shared.enums import LayerKind
 from echozero.application.shared.ids import EventId, LayerId, TakeId, TimelineId
@@ -157,6 +158,59 @@ def test_inspector_contract_push_mode_layer_actions_and_facts():
     assert rows["push selection"] == "1"
     assert rows["push row"] == "ready"
     assert {"select_push_target_track", "preview_push_diff", "exit_push_mode"} <= set(action_ids)
+
+
+def test_inspector_contract_pull_workspace_actions_and_facts():
+    presentation = _contract_test_presentation()
+    presentation.selected_layer_id = LayerId("layer_kick")
+    presentation.manual_pull_flow.workspace_active = True
+    presentation.manual_pull_flow.available_tracks = []
+    presentation.manual_pull_flow.active_source_track_coord = "tc1_tg2_tr5"
+    presentation.manual_pull_flow.available_events = [
+        ManualPullEventOptionPresentation(
+            event_id="ma3_evt_1",
+            label="Cue 1",
+            start=1.0,
+            end=1.5,
+        )
+    ]
+    presentation.layers[0].pull_target_label = "Kick"
+    presentation.layers[0].pull_selection_count = 2
+    presentation.layers[0].pull_row_status = "ready"
+    presentation.batch_transfer_plan = BatchTransferPlanPresentation(
+        plan_id="pull:timeline_contract",
+        operation_type="pull",
+        rows=[
+            BatchTransferPlanRowPresentation(
+                row_id="pull:tc1_tg2_tr5",
+                direction="pull",
+                source_label="Track 5 (tc1_tg2_tr5)",
+                target_label="Kick",
+                source_track_coord="tc1_tg2_tr5",
+                target_layer_id=LayerId("layer_kick"),
+                selected_ma3_event_ids=["ma3_evt_1", "ma3_evt_2"],
+                selected_count=2,
+                status="ready",
+            )
+        ],
+        ready_count=1,
+    )
+
+    contract = build_timeline_inspector_contract(presentation)
+    rows = _section_rows(contract)
+    action_ids = [action.action_id for section in contract.context_sections for action in section.actions]
+
+    assert rows["pull workspace"] == "active"
+    assert rows["pull target"] == "Kick"
+    assert rows["pull selection"] == "2"
+    assert rows["pull row"] == "ready"
+    assert {
+        "select_pull_source_tracks",
+        "select_pull_source_events",
+        "set_pull_target_layer_mapping",
+        "preview_pull_diff",
+        "exit_pull_workspace",
+    } <= set(action_ids)
 
 
 def test_inspector_contract_live_sync_section_hidden_when_experimental_disabled():

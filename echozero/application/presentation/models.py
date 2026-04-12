@@ -130,12 +130,17 @@ class ManualPullDiffPreviewPresentation:
 @dataclass(slots=True)
 class ManualPullFlowPresentation:
     dialog_open: bool = False
+    workspace_active: bool = False
     available_tracks: list[ManualPullTrackOptionPresentation] = field(default_factory=list)
+    selected_source_track_coords: list[str] = field(default_factory=list)
+    active_source_track_coord: str | None = None
     source_track_coord: str | None = None
     available_events: list[ManualPullEventOptionPresentation] = field(default_factory=list)
     selected_ma3_event_ids: list[str] = field(default_factory=list)
+    selected_ma3_event_ids_by_track: dict[str, list[str]] = field(default_factory=dict)
     available_target_layers: list[ManualPullTargetOptionPresentation] = field(default_factory=list)
     target_layer_id: LayerId | None = None
+    target_layer_id_by_source_track: dict[str, LayerId] = field(default_factory=dict)
     diff_gate_open: bool = False
     diff_preview: ManualPullDiffPreviewPresentation | None = None
 
@@ -147,8 +152,11 @@ class BatchTransferPlanRowPresentation:
     source_label: str
     target_label: str
     source_layer_id: LayerId | None = None
+    source_track_coord: str | None = None
     target_track_coord: str | None = None
+    target_layer_id: LayerId | None = None
     selected_event_ids: list[EventId] = field(default_factory=list)
+    selected_ma3_event_ids: list[str] = field(default_factory=list)
     selected_count: int = 0
     status: str = "draft"
     issue: str | None = None
@@ -211,6 +219,10 @@ class LayerPresentation:
     push_selection_count: int = 0
     push_row_status: str = ""
     push_row_issue: str = ""
+    pull_target_label: str = ""
+    pull_selection_count: int = 0
+    pull_row_status: str = ""
+    pull_row_issue: str = ""
     color: str | None = None
     badges: list[str] = field(default_factory=list)
     waveform_key: str | None = None

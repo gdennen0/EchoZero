@@ -35,11 +35,13 @@ from echozero.application.timeline.intents import (
     EnableExperimentalLiveSync,
     MoveSelectedEvents,
     NudgeSelectedEvents,
+    ExitPullFromMA3Workspace,
     OpenPullFromMA3Dialog,
     SelectAllEvents,
     SelectEvent,
     SelectLayer,
     SelectPullSourceEvents,
+    SelectPullSourceTracks,
     SelectPullSourceTrack,
     SelectPullTargetLayer,
     SelectTake,
@@ -293,19 +295,95 @@ class TimelineOrchestrator:
 
         elif isinstance(intent, OpenPullFromMA3Dialog):
             session = self.session_service.get_session()
-            session.manual_pull_flow.dialog_open = True
+            session.manual_pull_flow.dialog_open = False
+            session.manual_pull_flow.workspace_active = True
             session.manual_pull_flow.available_tracks = self._load_manual_pull_track_options()
+            session.manual_pull_flow.selected_source_track_coords = []
+            session.manual_pull_flow.active_source_track_coord = None
             session.manual_pull_flow.source_track_coord = None
             session.manual_pull_flow.available_events = []
             session.manual_pull_flow.selected_ma3_event_ids = []
+            session.manual_pull_flow.selected_ma3_event_ids_by_track = {}
             session.manual_pull_flow.available_target_layers = self._load_manual_pull_target_options(timeline)
             session.manual_pull_flow.target_layer_id = None
+            session.manual_pull_flow.target_layer_id_by_source_track = {}
             session.manual_pull_flow.diff_gate_open = False
             session.manual_pull_flow.diff_preview = None
+            self._rebuild_pull_transfer_plan(timeline, session)
+
+        elif isinstance(intent, ExitPullFromMA3Workspace):
+            session = self.session_service.get_session()
+            session.manual_pull_flow.dialog_open = False
+            session.manual_pull_flow.workspace_active = False
+            session.manual_pull_flow.available_tracks = []
+            session.manual_pull_flow.selected_source_track_coords = []
+            session.manual_pull_flow.active_source_track_coord = None
+            session.manual_pull_flow.source_track_coord = None
+            session.manual_pull_flow.available_events = []
+            session.manual_pull_flow.selected_ma3_event_ids = []
+            session.manual_pull_flow.selected_ma3_event_ids_by_track = {}
+            session.manual_pull_flow.available_target_layers = []
+            session.manual_pull_flow.target_layer_id = None
+            session.manual_pull_flow.target_layer_id_by_source_track = {}
+            session.manual_pull_flow.diff_gate_open = False
+            session.manual_pull_flow.diff_preview = None
+            if session.batch_transfer_plan is not None and session.batch_transfer_plan.operation_type == "pull":
+                session.batch_transfer_plan = None
 
         elif isinstance(intent, SetPullTrackOptions):
             session = self.session_service.get_session()
             session.manual_pull_flow.available_tracks = list(intent.tracks)
+            if session.manual_pull_flow.workspace_active:
+                selected_coords = {
+                    track.coord
+                    for track in session.manual_pull_flow.available_tracks
+                }
+                session.manual_pull_flow.selected_source_track_coords = [
+                    coord
+                    for coord in session.manual_pull_flow.selected_source_track_coords
+                    if coord in selected_coords
+                ]
+                if session.manual_pull_flow.active_source_track_coord not in selected_coords:
+                    session.manual_pull_flow.active_source_track_coord = None
+                    session.manual_pull_flow.source_track_coord = None
+                    session.manual_pull_flow.available_events = []
+                    session.manual_pull_flow.selected_ma3_event_ids = []
+                self._rebuild_pull_transfer_plan(timeline, session)
+
+        elif isinstance(intent, SelectPullSourceTracks):
+            session = self.session_service.get_session()
+            available_by_coord = {
+                track.coord: track
+                for track in session.manual_pull_flow.available_tracks
+            }
+            ordered_coords: list[str] = []
+            unknown_coords: list[str] = []
+            for coord in intent.source_track_coords:
+                if coord not in available_by_coord:
+                    unknown_coords.append(coord)
+                    continue
+                if coord not in ordered_coords:
+                    ordered_coords.append(coord)
+            if unknown_coords:
+                raise ValueError(
+                    "SelectPullSourceTracks source_track_coords not found in available_tracks: "
+                    + ", ".join(unknown_coords)
+                )
+            session.manual_pull_flow.selected_source_track_coords = ordered_coords
+            if session.manual_pull_flow.active_source_track_coord not in ordered_coords:
+                active_coord = ordered_coords[0]
+                session.manual_pull_flow.active_source_track_coord = active_coord
+                session.manual_pull_flow.source_track_coord = active_coord
+                session.manual_pull_flow.available_events = self._load_manual_pull_event_options(active_coord)
+                session.manual_pull_flow.selected_ma3_event_ids = list(
+                    session.manual_pull_flow.selected_ma3_event_ids_by_track.get(active_coord, [])
+                )
+                session.manual_pull_flow.target_layer_id = session.manual_pull_flow.target_layer_id_by_source_track.get(
+                    active_coord
+                )
+            session.manual_pull_flow.diff_gate_open = False
+            session.manual_pull_flow.diff_preview = None
+            self._rebuild_pull_transfer_plan(timeline, session)
 
         elif isinstance(intent, SelectPullSourceTrack):
             session = self.session_service.get_session()
@@ -314,11 +392,24 @@ class TimelineOrchestrator:
                 intent.source_track_coord,
                 action_name="SelectPullSourceTrack",
             )
+            if source_track.coord not in session.manual_pull_flow.selected_source_track_coords:
+                session.manual_pull_flow.selected_source_track_coords = [
+                    *session.manual_pull_flow.selected_source_track_coords,
+                    source_track.coord,
+                ]
+            session.manual_pull_flow.active_source_track_coord = source_track.coord
             session.manual_pull_flow.source_track_coord = source_track.coord
             session.manual_pull_flow.available_events = self._load_manual_pull_event_options(source_track.coord)
-            session.manual_pull_flow.selected_ma3_event_ids = []
+            session.manual_pull_flow.selected_ma3_event_ids = list(
+                session.manual_pull_flow.selected_ma3_event_ids_by_track.get(source_track.coord, [])
+            )
+            session.manual_pull_flow.target_layer_id = session.manual_pull_flow.target_layer_id_by_source_track.get(
+                source_track.coord
+            )
             session.manual_pull_flow.diff_gate_open = False
             session.manual_pull_flow.diff_preview = None
+            if session.manual_pull_flow.workspace_active:
+                self._rebuild_pull_transfer_plan(timeline, session)
 
         elif isinstance(intent, SetPullSourceEvents):
             session = self.session_service.get_session()
@@ -341,8 +432,15 @@ class TimelineOrchestrator:
                     + ", ".join(unknown_event_ids)
                 )
             session.manual_pull_flow.selected_ma3_event_ids = list(intent.selected_ma3_event_ids)
+            active_coord = session.manual_pull_flow.active_source_track_coord or session.manual_pull_flow.source_track_coord
+            if active_coord:
+                session.manual_pull_flow.selected_ma3_event_ids_by_track[active_coord] = list(
+                    intent.selected_ma3_event_ids
+                )
             session.manual_pull_flow.diff_gate_open = False
             session.manual_pull_flow.diff_preview = None
+            if session.manual_pull_flow.workspace_active:
+                self._rebuild_pull_transfer_plan(timeline, session)
 
         elif isinstance(intent, SelectPullTargetLayer):
             session = self.session_service.get_session()
@@ -352,8 +450,13 @@ class TimelineOrchestrator:
                 action_name="SelectPullTargetLayer",
             )
             session.manual_pull_flow.target_layer_id = target_layer.layer_id
+            active_coord = session.manual_pull_flow.active_source_track_coord or session.manual_pull_flow.source_track_coord
+            if active_coord:
+                session.manual_pull_flow.target_layer_id_by_source_track[active_coord] = target_layer.layer_id
             session.manual_pull_flow.diff_gate_open = False
             session.manual_pull_flow.diff_preview = None
+            if session.manual_pull_flow.workspace_active:
+                self._rebuild_pull_transfer_plan(timeline, session)
 
         elif isinstance(intent, ConfirmPullFromMA3):
             session = self.session_service.get_session()
@@ -392,9 +495,20 @@ class TimelineOrchestrator:
             )
 
             session.manual_pull_flow.dialog_open = False
+            session.manual_pull_flow.workspace_active = True
+            if source_track.coord not in session.manual_pull_flow.selected_source_track_coords:
+                session.manual_pull_flow.selected_source_track_coords = [
+                    *session.manual_pull_flow.selected_source_track_coords,
+                    source_track.coord,
+                ]
+            session.manual_pull_flow.active_source_track_coord = source_track.coord
             session.manual_pull_flow.source_track_coord = source_track.coord
             session.manual_pull_flow.selected_ma3_event_ids = list(intent.selected_ma3_event_ids)
+            session.manual_pull_flow.selected_ma3_event_ids_by_track[source_track.coord] = list(
+                intent.selected_ma3_event_ids
+            )
             session.manual_pull_flow.target_layer_id = target_layer.layer_id
+            session.manual_pull_flow.target_layer_id_by_source_track[source_track.coord] = target_layer.layer_id
             session.manual_pull_flow.diff_gate_open = True
             session.manual_pull_flow.diff_preview = ManualPullDiffPreview(
                 selected_count=len(intent.selected_ma3_event_ids),
@@ -408,6 +522,8 @@ class TimelineOrchestrator:
                 diff_summary=diff_summary,
                 diff_rows=diff_rows,
             )
+            if session.manual_pull_flow.workspace_active:
+                self._rebuild_pull_transfer_plan(timeline, session)
 
         elif isinstance(intent, ApplyPullFromMA3):
             session = self.session_service.get_session()
@@ -440,6 +556,8 @@ class TimelineOrchestrator:
 
             flow.diff_gate_open = False
             flow.diff_preview = None
+            if flow.workspace_active:
+                self._rebuild_pull_transfer_plan(timeline, session)
 
         session = self.session_service.get_session()
         if session.manual_push_flow.push_mode_active:
@@ -904,6 +1022,88 @@ class TimelineOrchestrator:
             )
 
         rows.sort(key=lambda row: (row.source_label.lower(), row.row_id))
+        return rows
+
+    def _rebuild_pull_transfer_plan(self, timeline: Timeline, session) -> None:
+        rows = self._build_pull_transfer_plan_rows(timeline, session)
+        if not rows:
+            if session.batch_transfer_plan is not None and session.batch_transfer_plan.operation_type == "pull":
+                session.batch_transfer_plan = None
+            return
+
+        ready_count = sum(1 for row in rows if row.status == "ready")
+        blocked_count = sum(1 for row in rows if row.status == "blocked")
+        draft_count = sum(1 for row in rows if row.status == "draft")
+        session.batch_transfer_plan = BatchTransferPlanState(
+            plan_id=f"pull:{timeline.id}",
+            operation_type="pull",
+            rows=rows,
+            draft_count=draft_count,
+            ready_count=ready_count,
+            blocked_count=blocked_count,
+        )
+
+    def _build_pull_transfer_plan_rows(self, timeline: Timeline, session) -> list[BatchTransferPlanRowState]:
+        flow = session.manual_pull_flow
+        if not flow.workspace_active:
+            return []
+
+        tracks_by_coord = {
+            track.coord: track
+            for track in flow.available_tracks
+        }
+        track_order = {
+            track.coord: index
+            for index, track in enumerate(flow.available_tracks)
+        }
+        target_labels = {
+            target.layer_id: target.name
+            for target in flow.available_target_layers
+        }
+        selected_coords = [
+            coord
+            for coord in flow.selected_source_track_coords
+            if coord in tracks_by_coord
+        ]
+        selected_coords.sort(key=lambda coord: (track_order.get(coord, 0), coord))
+
+        rows: list[BatchTransferPlanRowState] = []
+        for coord in selected_coords:
+            track = tracks_by_coord[coord]
+            selected_event_ids = list(flow.selected_ma3_event_ids_by_track.get(coord, []))
+            target_layer_id = flow.target_layer_id_by_source_track.get(coord)
+            if not selected_event_ids and target_layer_id is None:
+                status = "blocked"
+                issue = "Select source events and target layer mapping"
+            elif not selected_event_ids:
+                status = "blocked"
+                issue = "Select source events"
+            elif target_layer_id is None:
+                status = "blocked"
+                issue = "Select target layer mapping"
+            else:
+                status = "ready"
+                issue = None
+            target_label = (
+                target_labels.get(target_layer_id, str(target_layer_id))
+                if target_layer_id is not None
+                else "Unmapped"
+            )
+            rows.append(
+                BatchTransferPlanRowState(
+                    row_id=f"pull:{coord}",
+                    direction="pull",
+                    source_label=f"{track.name} ({track.coord})",
+                    target_label=target_label,
+                    source_track_coord=coord,
+                    target_layer_id=target_layer_id,
+                    selected_ma3_event_ids=selected_event_ids,
+                    selected_count=len(selected_event_ids),
+                    status=status,
+                    issue=issue,
+                )
+            )
+
         return rows
 
     def _selected_event_records_by_layer(self, timeline: Timeline) -> list[tuple[Layer, list[_EventRecord]]]:

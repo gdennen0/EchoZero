@@ -220,6 +220,22 @@ class OpenPullFromMA3Dialog(TimelineIntent):
 
 
 @dataclass(slots=True)
+class ExitPullFromMA3Workspace(TimelineIntent):
+    pass
+
+
+@dataclass(slots=True)
+class SelectPullSourceTracks(TimelineIntent):
+    source_track_coords: list[str]
+
+    def __post_init__(self) -> None:
+        if not self.source_track_coords:
+            raise ValueError("SelectPullSourceTracks requires at least one source_track_coord")
+        if not all(coord and str(coord).strip() for coord in self.source_track_coords):
+            raise ValueError("SelectPullSourceTracks requires non-empty source_track_coords")
+
+
+@dataclass(slots=True)
 class SetPullTrackOptions(TimelineIntent):
     tracks: list[ManualPullTrackOption]
 

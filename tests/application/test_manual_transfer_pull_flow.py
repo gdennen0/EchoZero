@@ -22,8 +22,10 @@ from echozero.application.sync.service import SyncService
 from echozero.application.timeline.intents import (
     ApplyPullFromMA3,
     ConfirmPullFromMA3,
+    ExitPullFromMA3Workspace,
     OpenPullFromMA3Dialog,
     SelectPullSourceEvents,
+    SelectPullSourceTracks,
     SelectPullSourceTrack,
     SelectPullTargetLayer,
     SetPullSourceEvents,
@@ -246,30 +248,42 @@ def test_open_pull_intent_resets_flow_and_hydrates_tracks_and_target_layers():
 
     orchestrator.handle(timeline, OpenPullFromMA3Dialog())
 
-    assert session.manual_pull_flow.dialog_open is True
+    assert session.manual_pull_flow.dialog_open is False
+    assert session.manual_pull_flow.workspace_active is True
     assert session.manual_pull_flow.available_tracks == [
         ManualPullTrackOption(coord="tc1_tg1_tr1", name="Track 1", note="Main", event_count=4)
     ]
+    assert session.manual_pull_flow.selected_source_track_coords == []
+    assert session.manual_pull_flow.active_source_track_coord is None
     assert session.manual_pull_flow.source_track_coord is None
     assert session.manual_pull_flow.available_events == []
     assert session.manual_pull_flow.selected_ma3_event_ids == []
+    assert session.manual_pull_flow.selected_ma3_event_ids_by_track == {}
     assert session.manual_pull_flow.available_target_layers == [
         ManualPullTargetOption(layer_id=LayerId("layer_target"), name="Target Layer")
     ]
     assert session.manual_pull_flow.target_layer_id is None
+    assert session.manual_pull_flow.target_layer_id_by_source_track == {}
     assert session.manual_pull_flow.diff_gate_open is False
     assert session.manual_pull_flow.diff_preview is None
+    assert session.batch_transfer_plan is None
 
 
-def test_pull_selection_intents_update_source_track_events_and_target_layer_state():
+def test_pull_workspace_selection_builds_rows_and_updates_mapping_state():
     orchestrator, timeline, session, _playback_service = _build_orchestrator(
         sync_service=_SyncService(
-            tracks=[ManualPullTrackOption(coord="tc1_tg2_tr3", name="MA3 Track")],
+            tracks=[
+                ManualPullTrackOption(coord="tc1_tg2_tr3", name="MA3 Track"),
+                ManualPullTrackOption(coord="tc1_tg2_tr4", name="MA3 Track 4"),
+            ],
             events_by_track={
                 "tc1_tg2_tr3": [
                     ManualPullEventOption(event_id="ma3_evt_1", label="Cue 1", start=1.0, end=1.5),
                     ManualPullEventOption(event_id="ma3_evt_2", label="Cue 2", start=2.0, end=2.5),
-                ]
+                ],
+                "tc1_tg2_tr4": [
+                    ManualPullEventOption(event_id="ma3_evt_9", label="Cue 9", start=9.0, end=9.5),
+                ],
             },
         )
     )
@@ -277,7 +291,16 @@ def test_pull_selection_intents_update_source_track_events_and_target_layer_stat
     orchestrator.handle(timeline, OpenPullFromMA3Dialog())
     orchestrator.handle(
         timeline,
-        SetPullTrackOptions(tracks=[ManualPullTrackOption(coord="tc1_tg2_tr3", name="MA3 Track")]),
+        SelectPullSourceTracks(source_track_coords=["tc1_tg2_tr3", "tc1_tg2_tr4"]),
+    )
+    orchestrator.handle(
+        timeline,
+        SetPullTrackOptions(
+            tracks=[
+                ManualPullTrackOption(coord="tc1_tg2_tr3", name="MA3 Track"),
+                ManualPullTrackOption(coord="tc1_tg2_tr4", name="MA3 Track 4"),
+            ]
+        ),
     )
     orchestrator.handle(timeline, SelectPullSourceTrack(source_track_coord="tc1_tg2_tr3"))
     orchestrator.handle(
@@ -299,17 +322,75 @@ def test_pull_selection_intents_update_source_track_events_and_target_layer_stat
     )
 
     assert session.manual_pull_flow.available_tracks == [
-        ManualPullTrackOption(coord="tc1_tg2_tr3", name="MA3 Track")
+        ManualPullTrackOption(coord="tc1_tg2_tr3", name="MA3 Track"),
+        ManualPullTrackOption(coord="tc1_tg2_tr4", name="MA3 Track 4"),
     ]
+    assert session.manual_pull_flow.workspace_active is True
+    assert session.manual_pull_flow.selected_source_track_coords == ["tc1_tg2_tr3", "tc1_tg2_tr4"]
+    assert session.manual_pull_flow.active_source_track_coord == "tc1_tg2_tr3"
     assert session.manual_pull_flow.source_track_coord == "tc1_tg2_tr3"
     assert session.manual_pull_flow.available_events == [
         ManualPullEventOption(event_id="ma3_evt_1", label="Cue 1", start=1.0, end=1.5),
         ManualPullEventOption(event_id="ma3_evt_2", label="Cue 2", start=2.0, end=2.5),
     ]
     assert session.manual_pull_flow.selected_ma3_event_ids == ["ma3_evt_1", "ma3_evt_2"]
+    assert session.manual_pull_flow.selected_ma3_event_ids_by_track == {
+        "tc1_tg2_tr3": ["ma3_evt_1", "ma3_evt_2"]
+    }
     assert session.manual_pull_flow.target_layer_id == LayerId("layer_target")
+    assert session.manual_pull_flow.target_layer_id_by_source_track == {
+        "tc1_tg2_tr3": LayerId("layer_target")
+    }
     assert session.manual_pull_flow.diff_gate_open is False
     assert session.manual_pull_flow.diff_preview is None
+    assert session.batch_transfer_plan is not None
+    assert session.batch_transfer_plan.plan_id == "pull:timeline_manual_pull_flow"
+    assert [row.row_id for row in session.batch_transfer_plan.rows] == [
+        "pull:tc1_tg2_tr3",
+        "pull:tc1_tg2_tr4",
+    ]
+    assert session.batch_transfer_plan.rows[0].status == "ready"
+    assert session.batch_transfer_plan.rows[0].target_layer_id == LayerId("layer_target")
+    assert session.batch_transfer_plan.rows[0].selected_ma3_event_ids == ["ma3_evt_1", "ma3_evt_2"]
+    assert session.batch_transfer_plan.rows[1].status == "blocked"
+    assert session.batch_transfer_plan.rows[1].issue == "Select source events and target layer mapping"
+    assert session.batch_transfer_plan.ready_count == 1
+    assert session.batch_transfer_plan.blocked_count == 1
+
+
+def test_exit_pull_workspace_clears_workspace_state_and_pull_plan():
+    orchestrator, timeline, session, _playback_service = _build_orchestrator(
+        sync_service=_SyncService(
+            tracks=[ManualPullTrackOption(coord="tc1_tg2_tr3", name="MA3 Track")],
+            events_by_track={
+                "tc1_tg2_tr3": [ManualPullEventOption(event_id="ma3_evt_1", label="Cue 1")]
+            },
+        )
+    )
+
+    orchestrator.handle(timeline, OpenPullFromMA3Dialog())
+    orchestrator.handle(timeline, SelectPullSourceTrack(source_track_coord="tc1_tg2_tr3"))
+    orchestrator.handle(
+        timeline,
+        SelectPullSourceEvents(selected_ma3_event_ids=["ma3_evt_1"]),
+    )
+    orchestrator.handle(
+        timeline,
+        SelectPullTargetLayer(target_layer_id=LayerId("layer_target")),
+    )
+
+    orchestrator.handle(timeline, ExitPullFromMA3Workspace())
+
+    assert session.manual_pull_flow.workspace_active is False
+    assert session.manual_pull_flow.available_tracks == []
+    assert session.manual_pull_flow.selected_source_track_coords == []
+    assert session.manual_pull_flow.active_source_track_coord is None
+    assert session.manual_pull_flow.available_events == []
+    assert session.manual_pull_flow.selected_ma3_event_ids == []
+    assert session.manual_pull_flow.selected_ma3_event_ids_by_track == {}
+    assert session.manual_pull_flow.available_target_layers == []
+    assert session.manual_pull_flow.target_layer_id_by_source_track == {}
+    assert session.batch_transfer_plan is None
 
 
 def test_confirm_pull_intent_stages_diff_gate_without_immediate_transfer():
@@ -353,6 +434,7 @@ def test_confirm_pull_intent_stages_diff_gate_without_immediate_transfer():
     )
 
     assert session.manual_pull_flow.dialog_open is False
+    assert session.manual_pull_flow.workspace_active is True
     assert session.manual_pull_flow.source_track_coord == "tc1_tg2_tr3"
     assert session.manual_pull_flow.selected_ma3_event_ids == ["ma3_evt_1", "ma3_evt_2"]
     assert session.manual_pull_flow.target_layer_id == LayerId("layer_target")
@@ -395,6 +477,8 @@ def test_confirm_pull_intent_stages_diff_gate_without_immediate_transfer():
         ],
     )
     assert playback_service.update_runtime_calls == 5
+    assert session.batch_transfer_plan is not None
+    assert session.batch_transfer_plan.rows[0].status == "ready"
 
 
 def test_apply_pull_import_creates_new_take_selects_imported_events_and_clears_diff_gate():
@@ -491,6 +575,8 @@ def test_apply_pull_import_creates_new_take_selects_imported_events_and_clears_d
     assert session.manual_pull_flow.diff_preview is None
     assert session.manual_pull_flow.selected_ma3_event_ids == ["ma3_evt_1", "ma3_evt_2", "ma3_evt_3"]
     assert playback_service.update_runtime_calls == 6
+    assert session.batch_transfer_plan is not None
+    assert session.batch_transfer_plan.rows[0].status == "ready"
 
 
 def test_pull_flow_validation_errors_reject_unknown_source_events_and_targets():
@@ -533,6 +619,15 @@ def test_pull_flow_validation_errors_reject_unknown_source_events_and_targets():
         orchestrator.handle(
             timeline,
             SelectPullSourceEvents(selected_ma3_event_ids=["missing_evt"]),
+        )
+
+    with pytest.raises(
+        ValueError,
+        match="SelectPullSourceTracks source_track_coords not found in available_tracks: tc9_tg9_tr9",
+    ):
+        orchestrator.handle(
+            timeline,
+            SelectPullSourceTracks(source_track_coords=["tc9_tg9_tr9"]),
         )
 
     with pytest.raises(

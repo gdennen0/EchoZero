@@ -7,10 +7,12 @@ from echozero.application.timeline.intents import (
     ApplyPullFromMA3,
     ConfirmPullFromMA3,
     ConfirmPushToMA3,
+    ExitPullFromMA3Workspace,
     ExitPushToMA3Mode,
     OpenPullFromMA3Dialog,
     OpenPushToMA3Dialog,
     SelectPullSourceEvents,
+    SelectPullSourceTracks,
     SelectPullSourceTrack,
     SelectPullTargetLayer,
     SelectPushTargetTrack,
@@ -78,6 +80,35 @@ def test_open_pull_from_ma3_dialog_is_constructible():
     intent = OpenPullFromMA3Dialog()
 
     assert isinstance(intent, OpenPullFromMA3Dialog)
+
+
+def test_exit_pull_from_ma3_workspace_is_constructible():
+    intent = ExitPullFromMA3Workspace()
+
+    assert isinstance(intent, ExitPullFromMA3Workspace)
+
+
+def test_select_pull_source_tracks_keeps_source_track_coords():
+    intent = SelectPullSourceTracks(source_track_coords=["tc4_tg5_tr6", "tc4_tg5_tr7"])
+
+    assert intent.source_track_coords == ["tc4_tg5_tr6", "tc4_tg5_tr7"]
+
+
+def test_select_pull_source_tracks_requires_source_track_coords():
+    with pytest.raises(
+        ValueError,
+        match="SelectPullSourceTracks requires at least one source_track_coord",
+    ):
+        SelectPullSourceTracks(source_track_coords=[])
+
+
+@pytest.mark.parametrize("source_track_coords", [[""], ["   "], ["tc4_tg5_tr6", ""]])
+def test_select_pull_source_tracks_requires_non_empty_source_track_coords(source_track_coords):
+    with pytest.raises(
+        ValueError,
+        match="SelectPullSourceTracks requires non-empty source_track_coords",
+    ):
+        SelectPullSourceTracks(source_track_coords=source_track_coords)
 
 
 def test_select_pull_source_track_keeps_source_track_coord():

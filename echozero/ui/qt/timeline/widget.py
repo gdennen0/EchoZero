@@ -26,6 +26,7 @@ from echozero.application.timeline.intents import (
     ConfirmPullFromMA3,
     ConfirmPushToMA3,
     DuplicateSelectedEvents,
+    ExitPullFromMA3Workspace,
     ExitPushToMA3Mode,
     MoveSelectedEvents,
     NudgeSelectedEvents,
@@ -41,6 +42,7 @@ from echozero.application.timeline.intents import (
     SelectEvent,
     SelectLayer,
     SelectPullSourceEvents,
+    SelectPullSourceTracks,
     SelectPullSourceTrack,
     SelectPullTargetLayer,
     SelectPushTargetTrack,
@@ -1544,6 +1546,8 @@ class TimelineWidget(QWidget):
             return
         if action_id == "pull_from_ma3":
             self._dispatch(OpenPullFromMA3Dialog())
+            return
+        if action_id == "select_pull_source_tracks":
             flow = self.presentation.manual_pull_flow
             if not flow.available_tracks:
                 return
@@ -1551,7 +1555,7 @@ class TimelineWidget(QWidget):
             track_labels = [self._manual_pull_track_label(track) for track in flow.available_tracks]
             chosen_track_label, accepted = QInputDialog.getItem(
                 self,
-                "Pull from MA3",
+                "Import from MA3",
                 "Source track",
                 track_labels,
                 0,
@@ -1567,7 +1571,13 @@ class TimelineWidget(QWidget):
             if selected_track is None:
                 return
 
+            next_selected = list(flow.selected_source_track_coords)
+            if selected_track.coord not in next_selected:
+                next_selected.append(selected_track.coord)
+            self._dispatch(SelectPullSourceTracks(source_track_coords=next_selected))
             self._dispatch(SelectPullSourceTrack(source_track_coord=selected_track.coord))
+            return
+        if action_id == "select_pull_source_events":
             flow = self.presentation.manual_pull_flow
             if not flow.available_events:
                 return
@@ -1575,7 +1585,7 @@ class TimelineWidget(QWidget):
             event_labels = ["All events", *[self._manual_pull_event_label(event) for event in flow.available_events]]
             chosen_event_label, accepted = QInputDialog.getItem(
                 self,
-                "Pull from MA3",
+                "Import from MA3",
                 "Source events",
                 event_labels,
                 0,
@@ -1597,6 +1607,8 @@ class TimelineWidget(QWidget):
                 return
 
             self._dispatch(SelectPullSourceEvents(selected_ma3_event_ids=selected_event_ids))
+            return
+        if action_id == "set_pull_target_layer_mapping":
             flow = self.presentation.manual_pull_flow
             if not flow.available_target_layers:
                 return
@@ -1604,7 +1616,7 @@ class TimelineWidget(QWidget):
             target_labels = [self._manual_pull_target_label(target) for target in flow.available_target_layers]
             chosen_target_label, accepted = QInputDialog.getItem(
                 self,
-                "Pull from MA3",
+                "Import from MA3",
                 "Destination EZ layer",
                 target_labels,
                 0,
@@ -1621,11 +1633,27 @@ class TimelineWidget(QWidget):
                 return
 
             self._dispatch(SelectPullTargetLayer(target_layer_id=selected_target.layer_id))
+            return
+        if action_id == "preview_pull_diff":
+            layer_id = params.get("layer_id")
+            if layer_id is None:
+                return
+            row = next(
+                (
+                    candidate
+                    for candidate in (self.presentation.batch_transfer_plan.rows if self.presentation.batch_transfer_plan else [])
+                    if candidate.direction == "pull" and candidate.target_layer_id == layer_id
+                ),
+                None,
+            )
+            if row is None or not row.source_track_coord or not row.target_layer_id or not row.selected_ma3_event_ids:
+                return
+            self._dispatch(SelectPullSourceTrack(source_track_coord=row.source_track_coord))
             self._dispatch(
                 ConfirmPullFromMA3(
-                    source_track_coord=selected_track.coord,
-                    selected_ma3_event_ids=selected_event_ids,
-                    target_layer_id=selected_target.layer_id,
+                    source_track_coord=row.source_track_coord,
+                    selected_ma3_event_ids=list(row.selected_ma3_event_ids),
+                    target_layer_id=row.target_layer_id,
                 )
             )
             flow = self.presentation.manual_pull_flow
@@ -1641,15 +1669,9 @@ class TimelineWidget(QWidget):
                         preview.target_layer_name,
                     ),
                 )
-                apply_reply = QMessageBox.question(
-                    self,
-                    "Apply Pull Import",
-                    "Apply this MA3 pull into the selected layer as a new take?",
-                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-                    QMessageBox.StandardButton.No,
-                )
-                if apply_reply == QMessageBox.StandardButton.Yes:
-                    self._dispatch(ApplyPullFromMA3())
+            return
+        if action_id == "exit_pull_workspace":
+            self._dispatch(ExitPullFromMA3Workspace())
             return
         if action_id:
             layer_id = params.get("layer_id")

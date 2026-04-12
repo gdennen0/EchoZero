@@ -162,6 +162,10 @@ class TimelineAssembler:
             push_selection_count=self._push_selection_count(session, layer),
             push_row_status=self._push_row_status(session, layer),
             push_row_issue=self._push_row_issue(session, layer),
+            pull_target_label=self._pull_target_label(session, layer),
+            pull_selection_count=self._pull_selection_count(session, layer),
+            pull_row_status=self._pull_row_status(session, layer),
+            pull_row_issue=self._pull_row_issue(session, layer),
             color=layer.presentation_hints.color,
             badges=badges,
             playback_source_ref=layer.playback.armed_source_ref,
@@ -318,6 +322,7 @@ class TimelineAssembler:
 
         return ManualPullFlowPresentation(
             dialog_open=flow.dialog_open,
+            workspace_active=flow.workspace_active,
             available_tracks=[
                 ManualPullTrackOptionPresentation(
                     coord=track.coord,
@@ -327,6 +332,8 @@ class TimelineAssembler:
                 )
                 for track in flow.available_tracks
             ],
+            selected_source_track_coords=list(flow.selected_source_track_coords),
+            active_source_track_coord=flow.active_source_track_coord,
             source_track_coord=flow.source_track_coord,
             available_events=[
                 ManualPullEventOptionPresentation(
@@ -338,6 +345,10 @@ class TimelineAssembler:
                 for event in flow.available_events
             ],
             selected_ma3_event_ids=list(flow.selected_ma3_event_ids),
+            selected_ma3_event_ids_by_track={
+                coord: list(event_ids)
+                for coord, event_ids in flow.selected_ma3_event_ids_by_track.items()
+            },
             available_target_layers=[
                 ManualPullTargetOptionPresentation(
                     layer_id=target.layer_id,
@@ -346,6 +357,7 @@ class TimelineAssembler:
                 for target in flow.available_target_layers
             ],
             target_layer_id=flow.target_layer_id,
+            target_layer_id_by_source_track=dict(flow.target_layer_id_by_source_track),
             diff_gate_open=flow.diff_gate_open,
             diff_preview=diff_preview,
         )
@@ -365,8 +377,11 @@ class TimelineAssembler:
                     source_label=row.source_label,
                     target_label=row.target_label,
                     source_layer_id=row.source_layer_id,
+                    source_track_coord=row.source_track_coord,
                     target_track_coord=row.target_track_coord,
+                    target_layer_id=row.target_layer_id,
                     selected_event_ids=list(row.selected_event_ids),
+                    selected_ma3_event_ids=list(row.selected_ma3_event_ids),
                     selected_count=row.selected_count,
                     status=row.status,
                     issue=row.issue,
@@ -463,4 +478,34 @@ class TimelineAssembler:
     @classmethod
     def _push_row_issue(cls, session: Session, layer: Layer) -> str:
         row = cls._push_plan_row(session, layer)
+        return "" if row is None or row.issue is None else row.issue
+
+    @staticmethod
+    def _pull_plan_row(session: Session, layer: Layer):
+        plan = session.batch_transfer_plan
+        if plan is None:
+            return None
+        for row in plan.rows:
+            if row.direction == "pull" and row.target_layer_id == layer.id:
+                return row
+        return None
+
+    @classmethod
+    def _pull_target_label(cls, session: Session, layer: Layer) -> str:
+        row = cls._pull_plan_row(session, layer)
+        return "" if row is None else row.target_label
+
+    @classmethod
+    def _pull_selection_count(cls, session: Session, layer: Layer) -> int:
+        row = cls._pull_plan_row(session, layer)
+        return 0 if row is None else row.selected_count
+
+    @classmethod
+    def _pull_row_status(cls, session: Session, layer: Layer) -> str:
+        row = cls._pull_plan_row(session, layer)
+        return "" if row is None else row.status
+
+    @classmethod
+    def _pull_row_issue(cls, session: Session, layer: Layer) -> str:
+        row = cls._pull_plan_row(session, layer)
         return "" if row is None or row.issue is None else row.issue

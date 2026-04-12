@@ -200,6 +200,17 @@ def _layer_contract(
         )
         if layer.push_row_issue:
             rows.append(InspectorFactRow("push issue", layer.push_row_issue))
+    if presentation.manual_pull_flow.workspace_active:
+        rows.extend(
+            [
+                InspectorFactRow("pull workspace", "active"),
+                InspectorFactRow("pull target", layer.pull_target_label or "none"),
+                InspectorFactRow("pull selection", str(layer.pull_selection_count)),
+                InspectorFactRow("pull row", _pull_row_summary(layer)),
+            ]
+        )
+        if layer.pull_row_issue:
+            rows.append(InspectorFactRow("pull issue", layer.pull_row_issue))
     if presentation.experimental_live_sync_enabled:
         rows.append(InspectorFactRow("live sync state", layer.live_sync_state.value))
         if layer.live_sync_pause_reason:
@@ -401,6 +412,45 @@ def _shared_context_sections(
                     ),
                 ]
             )
+        if presentation.manual_pull_flow.workspace_active:
+            transfer_actions.extend(
+                [
+                    InspectorAction(
+                        action_id="select_pull_source_tracks",
+                        label="Select Pull Source Tracks",
+                        group="transfer",
+                        enabled=bool(presentation.manual_pull_flow.available_tracks),
+                    ),
+                    InspectorAction(
+                        action_id="select_pull_source_events",
+                        label="Select Pull Source Events",
+                        group="transfer",
+                        enabled=bool(
+                            presentation.manual_pull_flow.active_source_track_coord
+                            and presentation.manual_pull_flow.available_events
+                        ),
+                    ),
+                    InspectorAction(
+                        action_id="set_pull_target_layer_mapping",
+                        label="Set Pull Target Layer",
+                        group="transfer",
+                        enabled=bool(presentation.manual_pull_flow.active_source_track_coord),
+                        params={"layer_id": layer.layer_id},
+                    ),
+                    InspectorAction(
+                        action_id="preview_pull_diff",
+                        label="Preview Pull Diff",
+                        group="transfer",
+                        enabled=bool(layer.pull_row_status == "ready"),
+                        params={"layer_id": layer.layer_id},
+                    ),
+                    InspectorAction(
+                        action_id="exit_pull_workspace",
+                        label="Exit Pull Workspace",
+                        group="transfer",
+                    ),
+                ]
+            )
         if has_selected_events:
             transfer_actions.append(
                 InspectorAction(
@@ -424,6 +474,31 @@ def _shared_context_sections(
                 group="transfer",
             )
         ]
+        if presentation.manual_pull_flow.workspace_active:
+            transfer_actions.extend(
+                [
+                    InspectorAction(
+                        action_id="select_pull_source_tracks",
+                        label="Select Pull Source Tracks",
+                        group="transfer",
+                        enabled=bool(presentation.manual_pull_flow.available_tracks),
+                    ),
+                    InspectorAction(
+                        action_id="select_pull_source_events",
+                        label="Select Pull Source Events",
+                        group="transfer",
+                        enabled=bool(
+                            presentation.manual_pull_flow.active_source_track_coord
+                            and presentation.manual_pull_flow.available_events
+                        ),
+                    ),
+                    InspectorAction(
+                        action_id="exit_pull_workspace",
+                        label="Exit Pull Workspace",
+                        group="transfer",
+                    ),
+                ]
+            )
         if has_selected_events:
             transfer_actions.append(
                 InspectorAction(
@@ -652,3 +727,9 @@ def _push_row_summary(layer: LayerPresentation) -> str:
     if not layer.push_row_status:
         return "none"
     return layer.push_row_status
+
+
+def _pull_row_summary(layer: LayerPresentation) -> str:
+    if not layer.pull_row_status:
+        return "none"
+    return layer.pull_row_status
