@@ -255,7 +255,7 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "validate-artifact":
         report = app.validate_artifact(args.artifact_id)
-        print(json.dumps({"ok": report.ok, "errors": report.errors, "warnings": report.warnings}, indent=2))
+        print(json.dumps(report.to_contract_payload(), indent=2))
         return 0
 
     if args.command == "ui":

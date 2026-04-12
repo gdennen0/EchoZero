@@ -42,6 +42,7 @@ class DatasetSample:
     duration_ms: float | None = None
     content_hash: str = ""
     source_provenance: dict[str, Any] = field(default_factory=dict)
+    group_id: str | None = None
     is_synthetic: bool = False
     synthetic_provenance: dict[str, Any] = field(default_factory=dict)
     quality_flags: list[str] = field(default_factory=list)
@@ -144,3 +145,35 @@ class CompatibilityReport:
     warning_details: list[dict[str, Any]] = field(default_factory=list)
     schema: str = "foundry.compatibility_report.v1"
     checked_at: datetime = field(default_factory=lambda: datetime.now(UTC))
+
+    @staticmethod
+    def _normalize_issue_details(
+        issues: list[dict[str, Any]],
+        *,
+        severity: str,
+    ) -> list[dict[str, str]]:
+        normalized: list[dict[str, str]] = []
+        for issue in issues:
+            normalized.append(
+                {
+                    "code": str(issue.get("code", "")),
+                    "path": str(issue.get("path", "")),
+                    "message": str(issue.get("message", "")),
+                    "severity": str(issue.get("severity") or severity),
+                }
+            )
+        return normalized
+
+    def to_contract_payload(self) -> dict[str, Any]:
+        """Serialize the report to the v1 contract payload shape."""
+        return {
+            "schema": self.schema,
+            "artifactId": self.artifact_id,
+            "consumer": self.consumer,
+            "ok": self.ok,
+            "errors": list(self.errors),
+            "warnings": list(self.warnings),
+            "error_details": self._normalize_issue_details(self.error_details, severity="error"),
+            "warning_details": self._normalize_issue_details(self.warning_details, severity="warning"),
+            "checkedAt": self.checked_at.isoformat(),
+        }
