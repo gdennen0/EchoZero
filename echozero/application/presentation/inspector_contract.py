@@ -158,6 +158,7 @@ def _empty_contract(
             take=None,
             hit_target=hit_target,
             has_selected_events=has_selected_events,
+            include_layer_transfer_controls=False,
         ),
     )
 
@@ -185,32 +186,8 @@ def _layer_contract(
         InspectorFactRow("main take", str(layer.main_take_id or "none")),
         InspectorFactRow("takes", str(take_count) if take_count else "none"),
         InspectorFactRow("status flags", ", ".join(flags) if flags else "none"),
-        InspectorFactRow("sync state", _sync_state_label(layer)),
-        InspectorFactRow("sync mapping", layer.sync_target_label or "none"),
-        InspectorFactRow("transfer plan", _transfer_plan_summary(presentation)),
     ]
-    if presentation.manual_push_flow.push_mode_active:
-        rows.extend(
-            [
-                InspectorFactRow("push mode", "active"),
-                InspectorFactRow("push target", layer.push_target_label or "none"),
-                InspectorFactRow("push selection", str(layer.push_selection_count)),
-                InspectorFactRow("push row", _push_row_summary(layer)),
-            ]
-        )
-        if layer.push_row_issue:
-            rows.append(InspectorFactRow("push issue", layer.push_row_issue))
-    if presentation.manual_pull_flow.workspace_active:
-        rows.extend(
-            [
-                InspectorFactRow("pull workspace", "active"),
-                InspectorFactRow("pull target", layer.pull_target_label or "none"),
-                InspectorFactRow("pull selection", str(layer.pull_selection_count)),
-                InspectorFactRow("pull row", _pull_row_summary(layer)),
-            ]
-        )
-        if layer.pull_row_issue:
-            rows.append(InspectorFactRow("pull issue", layer.pull_row_issue))
+    rows.extend(_layer_transfer_rows(presentation, layer))
     if presentation.experimental_live_sync_enabled:
         rows.append(InspectorFactRow("live sync state", layer.live_sync_state.value))
         if layer.live_sync_pause_reason:
@@ -238,6 +215,7 @@ def _layer_contract(
             take=None,
             hit_target=hit_target,
             has_selected_events=bool(presentation.selected_event_ids),
+            include_layer_transfer_controls=True,
         ),
     )
 
@@ -268,6 +246,11 @@ def _take_contract(
                     InspectorFactRow("events", str(len(take.events))),
                 ),
             ),
+            InspectorSection(
+                section_id="take-transfer",
+                label="Sync & Transfer",
+                rows=_layer_transfer_rows(presentation, layer),
+            ),
         ),
         context_sections=_shared_context_sections(
             presentation=presentation,
@@ -275,6 +258,7 @@ def _take_contract(
             take=take,
             hit_target=hit_target,
             has_selected_events=bool(presentation.selected_event_ids),
+            include_layer_transfer_controls=False,
         ),
     )
 
@@ -302,6 +286,11 @@ def _event_contract(
                 InspectorFactRow("take", f"{take_name} ({take_id or 'none'})"),
             ),
         ),
+        InspectorSection(
+            section_id="event-transfer",
+            label="Sync & Transfer",
+            rows=_layer_transfer_rows(presentation, layer),
+        ),
     )
     return InspectorContract(
         title=f"Event {event.label}",
@@ -317,6 +306,7 @@ def _event_contract(
             take=take,
             hit_target=hit_target,
             has_selected_events=bool(presentation.selected_event_ids),
+            include_layer_transfer_controls=False,
         ),
     )
 
@@ -328,11 +318,9 @@ def _shared_context_sections(
     take: TakeLanePresentation | None,
     hit_target: TimelineInspectorHitTarget | None,
     has_selected_events: bool,
+    include_layer_transfer_controls: bool,
 ) -> tuple[InspectorContextSection, ...]:
     sections: list[InspectorContextSection] = []
-    can_save_preset = _can_save_transfer_preset(presentation)
-    can_apply_preset = _can_apply_transfer_preset(presentation)
-    can_delete_preset = bool(presentation.transfer_presets)
 
     if hit_target is not None and hit_target.time_seconds is not None:
         sections.append(
@@ -415,31 +403,7 @@ def _shared_context_sections(
                     ),
                 ]
             )
-        if can_save_preset:
-            transfer_actions.append(
-                InspectorAction(
-                    action_id="save_transfer_preset",
-                    label="Save Transfer Preset",
-                    group="transfer",
-                )
-            )
-        if can_apply_preset:
-            transfer_actions.append(
-                InspectorAction(
-                    action_id="apply_transfer_preset",
-                    label="Apply Transfer Preset",
-                    group="transfer",
-                )
-            )
-        if can_delete_preset:
-            transfer_actions.append(
-                InspectorAction(
-                    action_id="delete_transfer_preset",
-                    label="Delete Transfer Preset",
-                    group="transfer",
-                )
-            )
-        if presentation.manual_push_flow.push_mode_active:
+        if include_layer_transfer_controls and presentation.manual_push_flow.push_mode_active:
             transfer_actions.extend(
                 [
                     InspectorAction(
@@ -463,7 +427,7 @@ def _shared_context_sections(
                     ),
                 ]
             )
-        if presentation.manual_pull_flow.workspace_active:
+        if include_layer_transfer_controls and presentation.manual_pull_flow.workspace_active:
             transfer_actions.extend(
                 [
                     InspectorAction(
@@ -479,6 +443,7 @@ def _shared_context_sections(
                         enabled=bool(
                             presentation.manual_pull_flow.active_source_track_coord
                             and presentation.manual_pull_flow.available_events
+                            and presentation.manual_pull_flow.available_target_layers
                         ),
                     ),
                     InspectorAction(
@@ -549,30 +514,6 @@ def _shared_context_sections(
                     ),
                 ]
             )
-        if can_save_preset:
-            transfer_actions.append(
-                InspectorAction(
-                    action_id="save_transfer_preset",
-                    label="Save Transfer Preset",
-                    group="transfer",
-                )
-            )
-        if can_apply_preset:
-            transfer_actions.append(
-                InspectorAction(
-                    action_id="apply_transfer_preset",
-                    label="Apply Transfer Preset",
-                    group="transfer",
-                )
-            )
-        if can_delete_preset:
-            transfer_actions.append(
-                InspectorAction(
-                    action_id="delete_transfer_preset",
-                    label="Delete Transfer Preset",
-                    group="transfer",
-                )
-            )
         if presentation.manual_pull_flow.workspace_active:
             transfer_actions.extend(
                 [
@@ -589,6 +530,7 @@ def _shared_context_sections(
                         enabled=bool(
                             presentation.manual_pull_flow.active_source_track_coord
                             and presentation.manual_pull_flow.available_events
+                            and presentation.manual_pull_flow.available_target_layers
                         ),
                     ),
                     InspectorAction(
@@ -812,6 +754,30 @@ def _sync_state_label(layer: LayerPresentation) -> str:
     return state.title()
 
 
+def _layer_transfer_rows(
+    presentation: TimelinePresentation,
+    layer: LayerPresentation,
+) -> tuple[InspectorFactRow, ...]:
+    rows = [
+        InspectorFactRow("sync state", _sync_state_label(layer)),
+        InspectorFactRow("sync mapping", layer.sync_target_label or "none"),
+        InspectorFactRow("transfer plan", _transfer_plan_summary(presentation)),
+        InspectorFactRow("push mode", "active" if presentation.manual_push_flow.push_mode_active else "inactive"),
+        InspectorFactRow("push target", layer.push_target_label or "none"),
+        InspectorFactRow("push selection", str(layer.push_selection_count)),
+        InspectorFactRow("push row", _push_row_summary(layer)),
+        InspectorFactRow("pull workspace", "active" if presentation.manual_pull_flow.workspace_active else "inactive"),
+        InspectorFactRow("pull target", layer.pull_target_label or "none"),
+        InspectorFactRow("pull selection", str(layer.pull_selection_count)),
+        InspectorFactRow("pull row", _pull_row_summary(layer)),
+    ]
+    if layer.push_row_issue:
+        rows.append(InspectorFactRow("push issue", layer.push_row_issue))
+    if layer.pull_row_issue:
+        rows.append(InspectorFactRow("pull issue", layer.pull_row_issue))
+    return tuple(rows)
+
+
 def _transfer_plan_summary(presentation: TimelinePresentation) -> str:
     plan = presentation.batch_transfer_plan
     if plan is None:
@@ -846,22 +812,3 @@ def _ready_count_label(count: int) -> str:
     noun = "ready row" if count == 1 else "ready rows"
     return f"{count} {noun}"
 
-
-def _can_save_transfer_preset(presentation: TimelinePresentation) -> bool:
-    if presentation.batch_transfer_plan is not None:
-        return any(
-            (row.direction == "push" and row.target_track_coord)
-            or (row.direction == "pull" and row.target_layer_id is not None)
-            for row in presentation.batch_transfer_plan.rows
-        )
-    if presentation.manual_push_flow.push_mode_active:
-        return any(layer.push_target_label or layer.sync_target_label for layer in presentation.layers)
-    if presentation.manual_pull_flow.workspace_active:
-        return bool(presentation.manual_pull_flow.target_layer_id_by_source_track)
-    return False
-
-
-def _can_apply_transfer_preset(presentation: TimelinePresentation) -> bool:
-    if not presentation.transfer_presets:
-        return False
-    return presentation.manual_push_flow.push_mode_active or presentation.manual_pull_flow.workspace_active

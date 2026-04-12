@@ -7,7 +7,7 @@ from dataclasses import dataclass, replace
 
 from PyQt6.QtCore import QPointF, QRectF, Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QColor, QContextMenuEvent, QPainter, QPen, QWheelEvent
-from PyQt6.QtWidgets import QDoubleSpinBox, QFrame, QGridLayout, QHBoxLayout, QInputDialog, QLabel, QMenu, QMessageBox, QPushButton, QScrollArea, QScrollBar, QSplitter, QToolTip, QVBoxLayout, QWidget
+from PyQt6.QtWidgets import QComboBox, QDialog, QDialogButtonBox, QDoubleSpinBox, QFrame, QGridLayout, QHBoxLayout, QInputDialog, QLabel, QMenu, QMessageBox, QPushButton, QScrollArea, QScrollBar, QSplitter, QToolTip, QVBoxLayout, QWidget
 
 from echozero.application.presentation.inspector_contract import (
     InspectorAction,
@@ -223,6 +223,245 @@ def _parse_time_label_seconds(label: str | None) -> float:
 
 def _format_seconds(value: float) -> str:
     return f"{value:.2f}s"
+
+
+@dataclass(slots=True, frozen=True)
+class ManualPullTimelineSelectionResult:
+    selected_event_ids: list[str]
+    target_layer_id: object
+
+
+class ManualPullTimelineCanvas(QWidget):
+    selection_changed = pyqtSignal(object)
+
+    def __init__(self, events, selected_event_ids: list[str] | None = None, parent=None):
+        super().__init__(parent)
+        self._events = list(events)
+        self._selected_event_ids = list(selected_event_ids or [])
+        self._anchor_index: int | None = self._selected_index() if self._selected_event_ids else None
+        self._rects: list[QRectF] = []
+        self.setMinimumHeight(150)
+
+    def selected_event_ids(self) -> list[str]:
+        ordered_ids = [event.event_id for event in self._events if event.event_id in self._selected_event_ids]
+        return ordered_ids
+
+    def set_selected_event_ids(self, event_ids: list[str]) -> None:
+        self._selected_event_ids = list(dict.fromkeys(event_ids))
+        self._anchor_index = self._selected_index()
+        self.selection_changed.emit(self.selected_event_ids())
+        self.update()
+
+    def mousePressEvent(self, event) -> None:
+        if event.button() != Qt.MouseButton.LeftButton:
+            super().mousePressEvent(event)
+            return
+        index = self._index_at(event.position())
+        if index is None:
+            super().mousePressEvent(event)
+            return
+
+        modifiers = event.modifiers()
+        has_toggle = bool(
+            modifiers & (Qt.KeyboardModifier.ControlModifier | Qt.KeyboardModifier.MetaModifier)
+        )
+        has_shift = bool(modifiers & Qt.KeyboardModifier.ShiftModifier)
+        event_id = self._events[index].event_id
+
+        if has_shift and self._anchor_index is not None:
+            start_index = min(self._anchor_index, index)
+            end_index = max(self._anchor_index, index)
+            self._selected_event_ids = [candidate.event_id for candidate in self._events[start_index : end_index + 1]]
+        elif has_toggle:
+            selected = list(self._selected_event_ids)
+            if event_id in selected:
+                selected.remove(event_id)
+            else:
+                selected.append(event_id)
+            self._selected_event_ids = selected
+            self._anchor_index = index
+        else:
+            self._selected_event_ids = [event_id]
+            self._anchor_index = index
+
+        self.selection_changed.emit(self.selected_event_ids())
+        self.update()
+        event.accept()
+
+    def paintEvent(self, event) -> None:
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        background = QColor("#11161b")
+        painter.fillRect(self.rect(), background)
+
+        track_pen = QPen(QColor("#2b3642"))
+        track_pen.setWidth(1)
+        painter.setPen(track_pen)
+        baseline_y = self.height() * 0.5
+        painter.drawLine(16, int(baseline_y), max(16, self.width() - 16), int(baseline_y))
+
+        self._rects = self._compute_event_rects()
+        for index, (event_model, rect) in enumerate(zip(self._events, self._rects)):
+            is_selected = event_model.event_id in self._selected_event_ids
+            fill = QColor("#5cb2ff" if is_selected else "#475569")
+            stroke = QColor("#d7ebff" if is_selected else "#90a2b5")
+            painter.setPen(QPen(stroke, 1.5))
+            painter.setBrush(fill)
+            painter.drawRoundedRect(rect, 6.0, 6.0)
+
+            label_rect = QRectF(rect.left() + 8.0, rect.top(), max(0.0, rect.width() - 16.0), rect.height())
+            painter.setPen(QColor("#08111a" if is_selected else "#eef4ff"))
+            painter.drawText(label_rect, Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft, event_model.label)
+
+            if event_model.start is not None and event_model.end is not None:
+                painter.setPen(QColor("#c9d6e2"))
+                footer = f"{_format_seconds(event_model.start)}-{_format_seconds(event_model.end)}"
+                painter.drawText(
+                    QRectF(rect.left(), rect.bottom() + 4.0, rect.width(), 14.0),
+                    Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop,
+                    footer,
+                )
+
+    def _selected_index(self) -> int | None:
+        if not self._selected_event_ids:
+            return None
+        first_id = self._selected_event_ids[-1]
+        for index, event in enumerate(self._events):
+            if event.event_id == first_id:
+                return index
+        return None
+
+    def _index_at(self, pos) -> int | None:
+        for index, rect in enumerate(self._rects or self._compute_event_rects()):
+            if rect.contains(pos):
+                return index
+        return None
+
+    def _compute_event_rects(self) -> list[QRectF]:
+        if not self._events:
+            return []
+        left_padding = 16.0
+        right_padding = 16.0
+        top_padding = 18.0
+        lane_height = 34.0
+        bar_height = 24.0
+        content_width = max(120.0, self.width() - left_padding - right_padding)
+        timed = [
+            event for event in self._events
+            if event.start is not None and event.end is not None
+        ]
+        rects: list[QRectF] = []
+        if timed:
+            min_start = min(event.start for event in timed)
+            max_end = max(max(event.end, event.start + 0.25) for event in timed)
+            span = max(0.25, max_end - min_start)
+            for index, event in enumerate(self._events):
+                lane_index = index % 3
+                y = top_padding + (lane_index * lane_height)
+                if event.start is None or event.end is None:
+                    slot_width = content_width / max(1, len(self._events))
+                    x = left_padding + (index * slot_width)
+                    width = max(48.0, slot_width - 10.0)
+                else:
+                    start_ratio = (event.start - min_start) / span
+                    end_ratio = (max(event.end, event.start + 0.25) - min_start) / span
+                    x = left_padding + (start_ratio * content_width)
+                    width = max(44.0, (end_ratio - start_ratio) * content_width)
+                rects.append(QRectF(x, y, width, bar_height))
+            return rects
+
+        slot_width = content_width / max(1, len(self._events))
+        for index, _event in enumerate(self._events):
+            lane_index = index % 3
+            x = left_padding + (index * slot_width) + 4.0
+            y = top_padding + (lane_index * lane_height)
+            rects.append(QRectF(x, y, max(48.0, slot_width - 8.0), bar_height))
+        return rects
+
+
+class ManualPullTimelineDialog(QDialog):
+    def __init__(
+        self,
+        *,
+        source_track_label: str,
+        events,
+        selected_event_ids: list[str] | None,
+        available_targets,
+        selected_target_layer_id,
+        parent=None,
+    ):
+        super().__init__(parent)
+        self.setWindowTitle("Import from MA3")
+        self.resize(760, 320)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(16, 16, 16, 16)
+        layout.setSpacing(10)
+
+        context_label = QLabel(f"Source track: {source_track_label}", self)
+        layout.addWidget(context_label)
+
+        help_label = QLabel(
+            "Select source events on the timeline and choose the destination EZ layer below. "
+            "Click to select. Ctrl/Cmd toggles. Shift selects a range.",
+            self,
+        )
+        help_label.setWordWrap(True)
+        layout.addWidget(help_label)
+
+        self._canvas = ManualPullTimelineCanvas(events, selected_event_ids=selected_event_ids, parent=self)
+        layout.addWidget(self._canvas)
+
+        self._selection_label = QLabel(self)
+        layout.addWidget(self._selection_label)
+
+        target_row = QHBoxLayout()
+        target_row.addWidget(QLabel("Target EZ layer", self))
+        self._target_combo = QComboBox(self)
+        for target in available_targets:
+            self._target_combo.addItem(f"{target.name} ({target.layer_id})", target.layer_id)
+        if selected_target_layer_id is not None:
+            for index in range(self._target_combo.count()):
+                if self._target_combo.itemData(index) == selected_target_layer_id:
+                    self._target_combo.setCurrentIndex(index)
+                    break
+        target_row.addWidget(self._target_combo, 1)
+        layout.addLayout(target_row)
+
+        self._buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel,
+            parent=self,
+        )
+        self._buttons.accepted.connect(self.accept)
+        self._buttons.rejected.connect(self.reject)
+        layout.addWidget(self._buttons)
+
+        self._canvas.selection_changed.connect(self._refresh_state)
+        self._target_combo.currentIndexChanged.connect(self._refresh_state)
+        self._refresh_state()
+
+    def selected_event_ids(self) -> list[str]:
+        return self._canvas.selected_event_ids()
+
+    def selected_target_layer_id(self):
+        return self._target_combo.currentData()
+
+    def accept(self) -> None:
+        if not self.selected_event_ids():
+            QMessageBox.warning(self, "Import from MA3", "Select at least one source event.")
+            return
+        if self.selected_target_layer_id() is None:
+            QMessageBox.warning(self, "Import from MA3", "Select a target EZ layer.")
+            return
+        super().accept()
+
+    def _refresh_state(self, *_args) -> None:
+        selected_count = len(self.selected_event_ids())
+        noun = "event" if selected_count == 1 else "events"
+        self._selection_label.setText(f"Selected: {selected_count} {noun}")
+        ok_button = self._buttons.button(QDialogButtonBox.StandardButton.Ok)
+        if ok_button is not None:
+            ok_button.setEnabled(bool(self.selected_event_ids()) and self.selected_target_layer_id() is not None)
 
 
 class ObjectInfoPanel(QFrame):
@@ -1720,34 +1959,13 @@ class TimelineWidget(QWidget):
             return
         if action_id == "select_pull_source_events":
             flow = self.presentation.manual_pull_flow
-            if not flow.available_events:
+            if not flow.active_source_track_coord or not flow.available_events or not flow.available_target_layers:
                 return
-
-            event_labels = ["All events", *[self._manual_pull_event_label(event) for event in flow.available_events]]
-            chosen_event_label, accepted = QInputDialog.getItem(
-                self,
-                "Import from MA3",
-                "Source events",
-                event_labels,
-                0,
-                False,
-            )
-            if not accepted:
+            selection = self._open_manual_pull_timeline_popup(flow)
+            if selection is None:
                 return
-
-            selected_event_ids = (
-                [event.event_id for event in flow.available_events]
-                if chosen_event_label == "All events"
-                else [
-                    event.event_id
-                    for event, label in zip(flow.available_events, event_labels[1:])
-                    if label == chosen_event_label
-                ]
-            )
-            if not selected_event_ids:
-                return
-
-            self._dispatch(SelectPullSourceEvents(selected_ma3_event_ids=selected_event_ids))
+            self._dispatch(SelectPullSourceEvents(selected_ma3_event_ids=selection.selected_event_ids))
+            self._dispatch(SelectPullTargetLayer(target_layer_id=selection.target_layer_id))
             return
         if action_id == "set_pull_target_layer_mapping":
             flow = self.presentation.manual_pull_flow
@@ -1853,6 +2071,38 @@ class TimelineWidget(QWidget):
         if event.start is not None and event.end is not None:
             parts.append(f"({_format_seconds(event.start)}-{_format_seconds(event.end)})")
         return " ".join(parts)
+
+    def _open_manual_pull_timeline_popup(self, flow) -> ManualPullTimelineSelectionResult | None:
+        source_track = next(
+            (track for track in flow.available_tracks if track.coord == flow.active_source_track_coord),
+            None,
+        )
+        source_track_label = (
+            self._manual_pull_track_label(source_track)
+            if source_track is not None
+            else str(flow.active_source_track_coord)
+        )
+        selected_event_ids = list(
+            flow.selected_ma3_event_ids_by_track.get(flow.active_source_track_coord, flow.selected_ma3_event_ids)
+        )
+        selected_target_layer_id = flow.target_layer_id_by_source_track.get(
+            flow.active_source_track_coord,
+            flow.target_layer_id,
+        )
+        dialog = ManualPullTimelineDialog(
+            source_track_label=source_track_label,
+            events=flow.available_events,
+            selected_event_ids=selected_event_ids,
+            available_targets=flow.available_target_layers,
+            selected_target_layer_id=selected_target_layer_id,
+            parent=self,
+        )
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return None
+        return ManualPullTimelineSelectionResult(
+            selected_event_ids=dialog.selected_event_ids(),
+            target_layer_id=dialog.selected_target_layer_id(),
+        )
 
     @staticmethod
     def _manual_pull_target_label(target) -> str:

@@ -73,7 +73,13 @@ from echozero.application.timeline.intents import (
 from echozero.ui.qt.timeline.demo_app import build_demo_app
 from echozero.ui.qt.timeline.test_harness import build_variant_presentations, estimate_full_window_height
 from echozero.ui.qt.timeline.blocks.ruler import timeline_x_for_time
-from echozero.ui.qt.timeline.widget import TimelineWidget, compute_scroll_bounds, estimate_timeline_span_seconds
+from echozero.ui.qt.timeline.widget import (
+    ManualPullTimelineDialog,
+    ManualPullTimelineSelectionResult,
+    TimelineWidget,
+    compute_scroll_bounds,
+    estimate_timeline_span_seconds,
+)
 
 
 def test_demo_variants_include_take_lanes_open_and_zoom_states():
@@ -1405,6 +1411,72 @@ def test_pull_from_ma3_action_enters_pull_workspace_mode(monkeypatch):
         app.processEvents()
 
 
+def test_select_pull_source_events_action_opens_timeline_popup_and_dispatches_event_and_target_selection(monkeypatch):
+    app = QApplication.instance() or QApplication([])
+    base = replace(
+        _selection_test_presentation(),
+        selected_layer_id=LayerId("layer_kick"),
+        layers=[replace(_selection_test_presentation().layers[0], is_selected=True)],
+    )
+    harness = _ManualPullHarness(base)
+    widget = TimelineWidget(harness.presentation(), on_intent=harness.dispatch)
+    popup_calls: list[str] = []
+    picks = iter([("Track 3 (tc1_tg2_tr3) - Lead [2 events]", True)])
+    monkeypatch.setattr(
+        "echozero.ui.qt.timeline.widget.QInputDialog.getItem",
+        lambda *args, **kwargs: next(picks),
+    )
+    monkeypatch.setattr(
+        TimelineWidget,
+        "_open_manual_pull_timeline_popup",
+        lambda self, flow: (
+            popup_calls.append(flow.active_source_track_coord or "")
+            or ManualPullTimelineSelectionResult(
+                selected_event_ids=["ma3_evt_1", "ma3_evt_2"],
+                target_layer_id=LayerId("layer_kick"),
+            )
+        ),
+    )
+    try:
+        _render_for_hit_testing(widget)
+
+        pull_action = next(
+            action
+            for section in build_timeline_inspector_contract(widget.presentation).context_sections
+            for action in section.actions
+            if action.action_id == "pull_from_ma3"
+        )
+        widget._trigger_contract_action(pull_action)
+        widget._trigger_contract_action(
+            next(
+                action
+                for section in build_timeline_inspector_contract(widget.presentation).context_sections
+                for action in section.actions
+                if action.action_id == "select_pull_source_tracks"
+            )
+        )
+        widget._trigger_contract_action(
+            next(
+                action
+                for section in build_timeline_inspector_contract(widget.presentation).context_sections
+                for action in section.actions
+                if action.action_id == "select_pull_source_events"
+            )
+        )
+
+        assert popup_calls == ["tc1_tg2_tr3"]
+        assert harness.intents == [
+            OpenPullFromMA3Dialog(),
+            SelectPullSourceTracks(source_track_coords=["tc1_tg2_tr3"]),
+            SelectPullSourceTrack(source_track_coord="tc1_tg2_tr3"),
+            SelectPullSourceEvents(selected_ma3_event_ids=["ma3_evt_1", "ma3_evt_2"]),
+            SelectPullTargetLayer(target_layer_id=LayerId("layer_kick")),
+        ]
+    finally:
+        widget.close()
+        app.processEvents()
+
+
 def test_pull_workspace_actions_dispatch_selection_mapping_preview_and_exit(monkeypatch):
     app = QApplication.instance() or QApplication([])
     base = replace(
@@ -1415,16 +1487,18 @@ def test_pull_workspace_actions_dispatch_selection_mapping_preview_and_exit(monk
     harness = _ManualPullHarness(base)
     widget = TimelineWidget(harness.presentation(), on_intent=harness.dispatch)
     summaries: list[tuple[str, str, str]] = []
-    picks = iter(
-        [
-            ("Track 3 (tc1_tg2_tr3) - Lead [2 events]", True),
-            ("All events", True),
-            ("Kick (layer_kick)", True),
-        ]
-    )
+    picks = iter([("Track 3 (tc1_tg2_tr3) - Lead [2 events]", True)])
     monkeypatch.setattr(
         "echozero.ui.qt.timeline.widget.QInputDialog.getItem",
         lambda *args, **kwargs: next(picks),
+    )
+    monkeypatch.setattr(
+        TimelineWidget,
+        "_open_manual_pull_timeline_popup",
+        lambda self, flow: ManualPullTimelineSelectionResult(
+            selected_event_ids=["ma3_evt_1", "ma3_evt_2"],
+            target_layer_id=LayerId("layer_kick"),
+        ),
     )
     monkeypatch.setattr(
         "echozero.ui.qt.timeline.widget.QMessageBox.information",
@@ -1468,7 +1542,6 @@ def test_pull_workspace_actions_dispatch_selection_mapping_preview_and_exit(monk
 
         widget._trigger_contract_action(select_tracks_action)
         widget._trigger_contract_action(select_events_action)
-        widget._trigger_contract_action(set_target_action)
 
         contract = build_timeline_inspector_contract(widget.presentation)
         preview_action = next(
@@ -1528,16 +1601,18 @@ def test_preview_pull_diff_does_not_auto_apply(monkeypatch):
     harness = _ManualPullHarness(base)
     widget = TimelineWidget(harness.presentation(), on_intent=harness.dispatch)
     summaries: list[tuple[str, str, str]] = []
-    picks = iter(
-        [
-            ("Track 3 (tc1_tg2_tr3) - Lead [2 events]", True),
-            ("All events", True),
-            ("Kick (layer_kick)", True),
-        ]
-    )
+    picks = iter([("Track 3 (tc1_tg2_tr3) - Lead [2 events]", True)])
     monkeypatch.setattr(
         "echozero.ui.qt.timeline.widget.QInputDialog.getItem",
         lambda *args, **kwargs: next(picks),
+    )
+    monkeypatch.setattr(
+        TimelineWidget,
+        "_open_manual_pull_timeline_popup",
+        lambda self, flow: ManualPullTimelineSelectionResult(
+            selected_event_ids=["ma3_evt_1", "ma3_evt_2"],
+            target_layer_id=LayerId("layer_kick"),
+        ),
     )
     monkeypatch.setattr(
         "echozero.ui.qt.timeline.widget.QMessageBox.information",
@@ -1568,14 +1643,6 @@ def test_preview_pull_diff_does_not_auto_apply(monkeypatch):
                 for section in build_timeline_inspector_contract(widget.presentation).context_sections
                 for action in section.actions
                 if action.action_id == "select_pull_source_events"
-            )
-        )
-        widget._trigger_contract_action(
-            next(
-                action
-                for section in build_timeline_inspector_contract(widget.presentation).context_sections
-                for action in section.actions
-                if action.action_id == "set_pull_target_layer_mapping"
             )
         )
         widget._trigger_contract_action(
@@ -1869,7 +1936,7 @@ def test_transfer_plan_actions_dispatch_preview_apply_and_cancel(monkeypatch):
         app.processEvents()
 
 
-def test_transfer_preset_actions_dispatch_save_apply_and_delete(monkeypatch):
+def test_transfer_preset_actions_are_hidden_from_primary_transfer_surface(monkeypatch):
     app = QApplication.instance() or QApplication([])
     base = replace(
         _selection_test_presentation(),
@@ -1896,33 +1963,56 @@ def test_transfer_preset_actions_dispatch_save_apply_and_delete(monkeypatch):
     )
     harness = _ManualPushHarness(base)
     widget = TimelineWidget(harness.presentation(), on_intent=harness.dispatch)
-    monkeypatch.setattr(
-        "echozero.ui.qt.timeline.widget.QInputDialog.getText",
-        lambda *args, **kwargs: (" Night Shift ", True),
-    )
-    choices = iter([("Drums (preset-1)", True), ("Drums (preset-1)", True)])
-    monkeypatch.setattr(
-        "echozero.ui.qt.timeline.widget.QInputDialog.getItem",
-        lambda *args, **kwargs: next(choices),
-    )
     try:
         _render_for_hit_testing(widget)
         contract = build_timeline_inspector_contract(widget.presentation)
-        save_action = next(action for section in contract.context_sections for action in section.actions if action.action_id == "save_transfer_preset")
-        apply_action = next(action for section in contract.context_sections for action in section.actions if action.action_id == "apply_transfer_preset")
-        delete_action = next(action for section in contract.context_sections for action in section.actions if action.action_id == "delete_transfer_preset")
+        action_ids = {action.action_id for section in contract.context_sections for action in section.actions}
 
-        widget._trigger_contract_action(save_action)
-        widget._trigger_contract_action(apply_action)
-        widget._trigger_contract_action(delete_action)
-
-        assert harness.intents == [
-            SaveTransferPreset(name="Night Shift"),
-            ApplyTransferPreset(preset_id="preset-1"),
-            DeleteTransferPreset(preset_id="preset-1"),
-        ]
+        assert "save_transfer_preset" not in action_ids
+        assert "apply_transfer_preset" not in action_ids
+        assert "delete_transfer_preset" not in action_ids
+        assert harness.intents == []
     finally:
         widget.close()
+        app.processEvents()
+
+
+def test_manual_pull_timeline_dialog_keeps_target_selection_in_same_popup():
+    app = QApplication.instance() or QApplication([])
+    dialog = ManualPullTimelineDialog(
+        source_track_label="Track 3 (tc1_tg2_tr3)",
+        events=[
+            ManualPullEventOptionPresentation(
+                event_id="ma3_evt_1",
+                label="Cue 1",
+                start=1.0,
+                end=1.5,
+            ),
+            ManualPullEventOptionPresentation(
+                event_id="ma3_evt_2",
+                label="Cue 2",
+                start=2.0,
+                end=2.5,
+            ),
+        ],
+        selected_event_ids=["ma3_evt_2"],
+        available_targets=[
+            ManualPullTargetOptionPresentation(layer_id=LayerId("layer_kick"), name="Kick"),
+            ManualPullTargetOptionPresentation(layer_id=LayerId("layer_new"), name="Create New Layer"),
+        ],
+        selected_target_layer_id=LayerId("layer_new"),
+    )
+    try:
+        assert dialog.selected_event_ids() == ["ma3_evt_2"]
+        assert dialog.selected_target_layer_id() == LayerId("layer_new")
+
+        dialog._canvas.set_selected_event_ids(["ma3_evt_1", "ma3_evt_2"])
+
+        assert dialog.selected_event_ids() == ["ma3_evt_1", "ma3_evt_2"]
+        assert dialog.selected_target_layer_id() == LayerId("layer_new")
+        assert dialog._selection_label.text() == "Selected: 2 events"
+    finally:
+        dialog.close()
         app.processEvents()
 
 

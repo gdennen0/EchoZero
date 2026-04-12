@@ -12,7 +12,6 @@ from echozero.application.presentation.models import (
     TakeLanePresentation,
     TimelinePresentation,
     ManualPullEventOptionPresentation,
-    TransferPresetPresentation,
 )
 from echozero.application.shared.enums import LayerKind
 from echozero.application.shared.ids import EventId, LayerId, TakeId, TimelineId
@@ -117,6 +116,14 @@ def test_inspector_contract_layer_selection_state():
     assert rows["sync state"] == "Off"
     assert rows["sync mapping"] == "tc1_tg2_tr3"
     assert rows["transfer plan"] == "mixed plan_123 (1 rows, ready 1, blocked 0, failed 0)"
+    assert rows["push mode"] == "inactive"
+    assert rows["push target"] == "none"
+    assert rows["push selection"] == "0"
+    assert rows["push row"] == "none"
+    assert rows["pull workspace"] == "inactive"
+    assert rows["pull target"] == "none"
+    assert rows["pull selection"] == "0"
+    assert rows["pull row"] == "none"
     assert {"toggle_mute", "toggle_solo", "gain_down", "gain_unity", "gain_up"} <= set(action_ids)
     assert {
         "pull_from_ma3",
@@ -233,24 +240,18 @@ def test_inspector_contract_pull_workspace_actions_and_facts():
         "cancel_transfer_plan",
     } <= set(action_ids)
 
-
-def test_inspector_contract_includes_transfer_preset_actions_when_context_and_presets_exist():
+def test_inspector_contract_hides_transfer_preset_actions_from_primary_transfer_surface():
     presentation = _contract_test_presentation()
     presentation.selected_layer_id = LayerId("layer_kick")
     presentation.manual_push_flow.push_mode_active = True
     presentation.layers[0].sync_target_label = "tc1_tg2_tr3"
-    presentation.transfer_presets = [
-        TransferPresetPresentation(
-            preset_id="drums",
-            name="Drums",
-            push_target_mapping_by_layer_id={LayerId("layer_kick"): "tc1_tg2_tr3"},
-        )
-    ]
 
     contract = build_timeline_inspector_contract(presentation)
-    action_ids = [action.action_id for section in contract.context_sections for action in section.actions]
+    action_ids = {action.action_id for section in contract.context_sections for action in section.actions}
 
-    assert {"save_transfer_preset", "apply_transfer_preset", "delete_transfer_preset"} <= set(action_ids)
+    assert "save_transfer_preset" not in action_ids
+    assert "apply_transfer_preset" not in action_ids
+    assert "delete_transfer_preset" not in action_ids
 
 
 def test_inspector_contract_live_sync_section_hidden_when_experimental_disabled():
@@ -302,10 +303,16 @@ def test_inspector_contract_main_event_state():
     presentation.selected_layer_id = LayerId("layer_kick")
     presentation.selected_take_id = TakeId("take_main")
     presentation.selected_event_ids = [EventId("main_evt")]
+    presentation.layers[0].sync_target_label = "tc1_tg2_tr3"
+    presentation.manual_pull_flow.workspace_active = True
+    presentation.layers[0].pull_target_label = "Kick"
+    presentation.layers[0].pull_selection_count = 1
+    presentation.layers[0].pull_row_status = "ready"
 
     contract = build_timeline_inspector_contract(presentation)
     rows = _section_rows(contract)
     action_ids = [action.action_id for section in contract.context_sections for action in section.actions]
+    transfer_section = next(section for section in contract.sections if section.section_id == "event-transfer")
 
     assert contract.identity is not None
     assert contract.identity.object_type == "event"
@@ -315,7 +322,17 @@ def test_inspector_contract_main_event_state():
     assert rows["end"] == "1.50s"
     assert rows["duration"] == "0.50s"
     assert rows["take"] == "Main take (take_main)"
-    assert {"push_to_ma3", "pull_from_ma3"} <= set(action_ids)
+    assert rows["sync mapping"] == "tc1_tg2_tr3"
+    assert rows["pull workspace"] == "active"
+    assert rows["pull target"] == "Kick"
+    assert rows["pull selection"] == "1"
+    assert rows["pull row"] == "ready"
+    assert transfer_section.label == "Sync & Transfer"
+    assert {"push_to_ma3", "pull_from_ma3", "open_batch_transfer_workspace"} <= set(action_ids)
+    assert "select_pull_source_events" not in action_ids
+    assert "set_pull_target_layer_mapping" not in action_ids
+    assert "preview_pull_diff" not in action_ids
+    assert "select_push_target_track" not in action_ids
 
 
 def test_inspector_contract_take_event_state():
@@ -336,7 +353,11 @@ def test_inspector_contract_take_event_state():
 
     assert contract.title == "Event Take"
     assert rows["take"] == "Take 2 (take_alt)"
+    assert rows["push mode"] == "inactive"
+    assert rows["pull workspace"] == "inactive"
     assert {"seek_here", "overwrite_main", "merge_main"} <= set(action_ids)
+    assert "select_pull_source_events" not in action_ids
+    assert "select_push_target_track" not in action_ids
 
 
 def test_inspector_contract_no_takes_layer_state():
@@ -383,6 +404,14 @@ def test_inspector_contract_render_text_tracks_selection_transition_sequence():
             "sync state: Off",
             "sync mapping: none",
             "transfer plan: none",
+            "push mode: inactive",
+            "push target: none",
+            "push selection: 0",
+            "push row: none",
+            "pull workspace: inactive",
+            "pull target: none",
+            "pull selection: 0",
+            "pull row: none",
         ]
     )
     assert render_inspector_contract_text(event_contract) == "\n".join(
@@ -394,6 +423,17 @@ def test_inspector_contract_render_text_tracks_selection_transition_sequence():
             "duration: 0.50s",
             "layer: Kick",
             "take: Main take (take_main)",
+            "sync state: Off",
+            "sync mapping: none",
+            "transfer plan: none",
+            "push mode: inactive",
+            "push target: none",
+            "push selection: 0",
+            "push row: none",
+            "pull workspace: inactive",
+            "pull target: none",
+            "pull selection: 0",
+            "pull row: none",
         ]
     )
     assert render_inspector_contract_text(cleared_contract) == "No timeline object selected."
