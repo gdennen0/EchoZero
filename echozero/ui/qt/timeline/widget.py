@@ -44,6 +44,7 @@ from echozero.application.timeline.intents import (
     SetGain,
     SetLayerLiveSyncPauseReason,
     SetLayerLiveSyncState,
+    SetPushTransferMode,
     SelectAllEvents,
     SelectEvent,
     SelectLayer,
@@ -712,6 +713,17 @@ class TimelineCanvas(QWidget):
             return True
         return False
 
+    def _push_outline_active_for_layer(self, layer: LayerPresentation) -> bool:
+        if not self.presentation.manual_push_flow.push_mode_active:
+            return False
+        plan = self.presentation.batch_transfer_plan
+        if plan is None or plan.operation_type not in {"push", "mixed"}:
+            return False
+        return any(
+            row.direction == "push" and row.source_layer_id == layer.layer_id
+            for row in plan.rows
+        )
+
     def set_presentation(self, presentation: TimelinePresentation, *, recompute_layout: bool = True) -> None:
         self.presentation = presentation
         if recompute_layout:
@@ -1050,6 +1062,14 @@ class TimelineCanvas(QWidget):
         if dimmed:
             row_bg = QColor(self._style.canvas.dimmed_row_fill_hex)
         painter.fillRect(layout.row_rect, row_bg)
+        if self._push_outline_active_for_layer(layer):
+            outline_rect = layout.row_rect.adjusted(1.0, 1.0, -1.0, -1.0)
+            outline_color = QColor("#8fd0ff")
+            painter.save()
+            painter.setPen(QPen(outline_color, 2))
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.drawRoundedRect(outline_rect, 8.0, 8.0)
+            painter.restore()
         self._draw_time_grid_band(painter, top=top, row_height=self._main_row_height)
         painter.fillRect(0, top + self._main_row_height - 1, self.width(), 1, QColor(self._style.canvas.row_divider_hex))
 
@@ -1782,9 +1802,31 @@ class TimelineWidget(QWidget):
             return
         if action_id == "push_to_ma3":
             selected_event_ids = list(self.presentation.selected_event_ids)
-            if not selected_event_ids:
-                return
             self._dispatch(OpenPushToMA3Dialog(selection_event_ids=selected_event_ids))
+            return
+        if action_id == "push_select_all_events":
+            self._dispatch(SelectAllEvents())
+            return
+        if action_id == "push_unselect_all_events":
+            self._dispatch(ClearSelection())
+            return
+        if action_id == "set_push_transfer_mode":
+            current_mode = (self.presentation.manual_push_flow.transfer_mode or "merge").strip().lower()
+            mode_labels = ["Merge", "Overwrite"]
+            default_index = 0 if current_mode == "merge" else 1
+            chosen_mode, accepted = QInputDialog.getItem(
+                self,
+                "Push Transfer Mode",
+                "Transfer mode",
+                mode_labels,
+                default_index,
+                False,
+            )
+            if not accepted:
+                return
+            selected_mode = chosen_mode.strip().lower()
+            if selected_mode:
+                self._dispatch(SetPushTransferMode(mode=selected_mode))
             return
         if action_id == "save_transfer_preset":
             preset_name, accepted = QInputDialog.getText(
@@ -1826,6 +1868,8 @@ class TimelineWidget(QWidget):
             plan_id = params.get("plan_id")
             if not isinstance(plan_id, str):
                 return
+            if not self._resolve_blocked_push_rows_for_plan_action(plan_id):
+                return
             self._dispatch(PreviewTransferPlan(plan_id=plan_id))
             plan = self.presentation.batch_transfer_plan
             if plan is not None and plan.plan_id == plan_id:
@@ -1845,6 +1889,8 @@ class TimelineWidget(QWidget):
         if action_id == "apply_transfer_plan":
             plan_id = params.get("plan_id")
             if not isinstance(plan_id, str):
+                return
+            if not self._resolve_blocked_push_rows_for_plan_action(plan_id):
                 return
             self._dispatch(ApplyTransferPlan(plan_id=plan_id))
             plan = self.presentation.batch_transfer_plan
@@ -2046,6 +2092,48 @@ class TimelineWidget(QWidget):
         if track.event_count is not None:
             parts.append(f"[{track.event_count} existing]")
         return " ".join(parts)
+
+    def _resolve_blocked_push_rows_for_plan_action(self, plan_id: str) -> bool:
+        plan = self.presentation.batch_transfer_plan
+        if plan is None or plan.plan_id != plan_id or plan.operation_type not in {"push", "mixed"}:
+            return True
+        blocked_rows = [
+            row
+            for row in plan.rows
+            if row.direction == "push" and not row.target_track_coord
+        ]
+        if not blocked_rows:
+            return True
+        flow = self.presentation.manual_push_flow
+        if not flow.available_tracks:
+            return False
+        labels = [self._manual_push_track_label(track) for track in flow.available_tracks]
+        for row in blocked_rows:
+            chosen_label, accepted = QInputDialog.getItem(
+                self,
+                "Map Push Layer",
+                f"Target MA3 track for {row.source_label}",
+                labels,
+                0,
+                False,
+            )
+            if not accepted:
+                return False
+            selected_track = next(
+                (track for track, label in zip(flow.available_tracks, labels) if label == chosen_label),
+                None,
+            )
+            if selected_track is None:
+                return False
+            self._dispatch(
+                SelectPushTargetTrack(
+                    target_track_coord=selected_track.coord,
+                    layer_id=row.source_layer_id,
+                )
+            )
+            flow = self.presentation.manual_push_flow
+            labels = [self._manual_push_track_label(track) for track in flow.available_tracks]
+        return True
 
     @staticmethod
     def _manual_push_diff_preview_summary(selected_count: int, target_track_name: str, target_track_coord: str) -> str:

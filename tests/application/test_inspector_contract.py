@@ -117,6 +117,7 @@ def test_inspector_contract_layer_selection_state():
     assert rows["sync mapping"] == "tc1_tg2_tr3"
     assert rows["transfer plan"] == "mixed plan_123 (1 rows, ready 1, blocked 0, failed 0)"
     assert rows["push mode"] == "inactive"
+    assert rows["push transfer mode"] == "merge"
     assert rows["push target"] == "none"
     assert rows["push selection"] == "0"
     assert rows["push row"] == "none"
@@ -126,6 +127,7 @@ def test_inspector_contract_layer_selection_state():
     assert rows["pull row"] == "none"
     assert {"toggle_mute", "toggle_solo", "gain_down", "gain_unity", "gain_up"} <= set(action_ids)
     assert {
+        "push_to_ma3",
         "pull_from_ma3",
         "open_batch_transfer_workspace",
         "preview_transfer_plan",
@@ -144,6 +146,7 @@ def test_inspector_contract_push_mode_layer_actions_and_facts():
     presentation = _contract_test_presentation()
     presentation.selected_layer_id = LayerId("layer_kick")
     presentation.manual_push_flow.push_mode_active = True
+    presentation.manual_push_flow.transfer_mode = "overwrite"
     presentation.manual_push_flow.available_tracks = []
     presentation.layers[0].push_target_label = "Track 3 (tc1_tg2_tr3) - Bass"
     presentation.layers[0].push_selection_count = 1
@@ -172,10 +175,15 @@ def test_inspector_contract_push_mode_layer_actions_and_facts():
     action_ids = [action.action_id for section in contract.context_sections for action in section.actions]
 
     assert rows["push mode"] == "active"
+    assert rows["push transfer mode"] == "overwrite"
     assert rows["push target"] == "Track 3 (tc1_tg2_tr3) - Bass"
     assert rows["push selection"] == "1"
     assert rows["push row"] == "ready"
     assert {
+        "push_to_ma3",
+        "push_select_all_events",
+        "push_unselect_all_events",
+        "set_push_transfer_mode",
         "select_push_target_track",
         "preview_push_diff",
         "exit_push_mode",
@@ -405,6 +413,7 @@ def test_inspector_contract_render_text_tracks_selection_transition_sequence():
             "sync mapping: none",
             "transfer plan: none",
             "push mode: inactive",
+            "push transfer mode: merge",
             "push target: none",
             "push selection: 0",
             "push row: none",
@@ -427,6 +436,7 @@ def test_inspector_contract_render_text_tracks_selection_transition_sequence():
             "sync mapping: none",
             "transfer plan: none",
             "push mode: inactive",
+            "push transfer mode: merge",
             "push target: none",
             "push selection: 0",
             "push row: none",

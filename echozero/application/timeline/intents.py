@@ -198,6 +198,17 @@ class SelectPushTargetTrack(TimelineIntent):
 
 
 @dataclass(slots=True)
+class SetPushTransferMode(TimelineIntent):
+    mode: str
+
+    def __post_init__(self) -> None:
+        mode = (self.mode or "").strip().lower()
+        if mode not in {"merge", "overwrite"}:
+            raise ValueError("SetPushTransferMode requires mode 'merge' or 'overwrite'")
+        self.mode = mode
+
+
+@dataclass(slots=True)
 class ExitPushToMA3Mode(TimelineIntent):
     pass
 

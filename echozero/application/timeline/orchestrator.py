@@ -1,5 +1,6 @@
 """Timeline orchestration for the new EchoZero application layer."""
 
+import inspect
 import re
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
@@ -61,6 +62,7 @@ from echozero.application.timeline.intents import (
     Seek,
     SetPullSourceEvents,
     SetPullTrackOptions,
+    SetPushTransferMode,
     SelectPushTargetTrack,
     SetGain,
     SetLayerLiveSyncPauseReason,
@@ -228,6 +230,7 @@ class TimelineOrchestrator:
             session.manual_push_flow.push_mode_active = True
             session.manual_push_flow.selected_event_ids = list(intent.selection_event_ids)
             session.manual_push_flow.target_track_coord = None
+            session.manual_push_flow.transfer_mode = "merge"
             session.manual_push_flow.diff_gate_open = False
             session.manual_push_flow.diff_preview = None
             session.manual_push_flow.available_tracks = self._load_manual_push_track_options()
@@ -239,6 +242,7 @@ class TimelineOrchestrator:
             session.manual_push_flow.push_mode_active = False
             session.manual_push_flow.selected_event_ids = []
             session.manual_push_flow.target_track_coord = None
+            session.manual_push_flow.transfer_mode = "merge"
             session.manual_push_flow.diff_gate_open = False
             session.manual_push_flow.diff_preview = None
             session.batch_transfer_plan = None
@@ -269,6 +273,10 @@ class TimelineOrchestrator:
                 layer.sync.ma3_track_coord = intent.target_track_coord
             if session.manual_push_flow.push_mode_active:
                 self._rebuild_push_transfer_plan(timeline, session)
+
+        elif isinstance(intent, SetPushTransferMode):
+            session = self.session_service.get_session()
+            session.manual_push_flow.transfer_mode = intent.mode
 
         elif isinstance(intent, ConfirmPushToMA3):
             session = self.session_service.get_session()
@@ -1141,14 +1149,16 @@ class TimelineOrchestrator:
         selected_events = self._selected_events_by_ids(timeline, list(row.selected_event_ids))
         apply_push = getattr(self.sync_service, "apply_push_transfer", None)
         if callable(apply_push):
-            apply_push(
+            self._invoke_push_apply(
+                apply_push,
                 target_track_coord=row.target_track_coord,
                 selected_events=selected_events,
             )
             return self._copy_plan_row(row, status="applied", issue=None)
         execute_push = getattr(self.sync_service, "execute_push_transfer", None)
         if callable(execute_push):
-            execute_push(
+            self._invoke_push_apply(
+                execute_push,
                 target_track_coord=row.target_track_coord,
                 selected_events=selected_events,
             )
@@ -1158,6 +1168,22 @@ class TimelineOrchestrator:
             status="failed",
             issue="Push execution endpoint unavailable",
         )
+
+    def _invoke_push_apply(self, callback, *, target_track_coord, selected_events) -> None:
+        kwargs = {
+            "target_track_coord": target_track_coord,
+            "selected_events": selected_events,
+        }
+        transfer_mode = self.session_service.get_session().manual_push_flow.transfer_mode
+        try:
+            parameters = inspect.signature(callback).parameters
+        except (TypeError, ValueError):
+            parameters = {}
+        if "transfer_mode" in parameters:
+            kwargs["transfer_mode"] = transfer_mode
+        elif "mode" in parameters:
+            kwargs["mode"] = transfer_mode
+        callback(**kwargs)
 
     @staticmethod
     def _copy_plan_row(
@@ -1218,6 +1244,7 @@ class TimelineOrchestrator:
         session.manual_push_flow.selected_event_ids = []
         session.manual_push_flow.available_tracks = []
         session.manual_push_flow.target_track_coord = None
+        session.manual_push_flow.transfer_mode = "merge"
         session.manual_push_flow.diff_gate_open = False
         session.manual_push_flow.diff_preview = None
 

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from echozero.application.mixer.models import AudibilityState, MixerState, LayerMixerState
 from echozero.application.mixer.service import MixerService
 from echozero.application.playback.models import PlaybackState
@@ -11,7 +13,7 @@ from echozero.application.shared.ids import EventId, ProjectId, SessionId, SongV
 from echozero.application.sync.diff_service import SyncDiffRow, SyncDiffSummary
 from echozero.application.sync.models import SyncState
 from echozero.application.sync.service import SyncService
-from echozero.application.timeline.intents import ConfirmPushToMA3, OpenPushToMA3Dialog
+from echozero.application.timeline.intents import ConfirmPushToMA3, OpenPushToMA3Dialog, SetPushTransferMode
 from echozero.application.timeline.models import Event, Layer, Take, Timeline
 from echozero.application.timeline.orchestrator import TimelineOrchestrator
 from echozero.application.transport.models import TransportState
@@ -224,20 +226,17 @@ def test_open_push_intent_sets_manual_push_dialog_state():
 
     orchestrator.handle(
         timeline,
-        OpenPushToMA3Dialog(selection_event_ids=[EventId("evt_1"), EventId("evt_2")]),
+        OpenPushToMA3Dialog(selection_event_ids=[]),
     )
 
     assert session.manual_push_flow.dialog_open is True
     assert session.manual_push_flow.push_mode_active is True
-    assert session.manual_push_flow.selected_event_ids == [EventId("evt_1"), EventId("evt_2")]
+    assert session.manual_push_flow.selected_event_ids == []
     assert session.manual_push_flow.target_track_coord is None
+    assert session.manual_push_flow.transfer_mode == "merge"
     assert session.manual_push_flow.diff_gate_open is False
     assert session.manual_push_flow.diff_preview is None
-    assert session.batch_transfer_plan is not None
-    assert session.batch_transfer_plan.operation_type == "push"
-    assert [row.source_label for row in session.batch_transfer_plan.rows] == ["Push Layer"]
-    assert session.batch_transfer_plan.rows[0].status == "blocked"
-    assert session.batch_transfer_plan.rows[0].issue == "Select an MA3 target track"
+    assert session.batch_transfer_plan is None
 
 
 def test_open_push_intent_hydrates_available_tracks_from_sync_service_provider():
@@ -421,3 +420,21 @@ def test_confirm_push_intent_stages_diff_gate_without_immediate_transfer():
     assert session.batch_transfer_plan.rows[0].status == "ready"
     assert session.batch_transfer_plan.ready_count == 1
     assert playback_service.update_runtime_calls == 2
+
+
+def test_set_push_transfer_mode_updates_flow_and_validates():
+    orchestrator, timeline, session, _playback_service = _build_orchestrator()
+
+    orchestrator.handle(
+        timeline,
+        OpenPushToMA3Dialog(selection_event_ids=[]),
+    )
+    orchestrator.handle(
+        timeline,
+        SetPushTransferMode(mode="overwrite"),
+    )
+
+    assert session.manual_push_flow.transfer_mode == "overwrite"
+
+    with pytest.raises(ValueError, match="SetPushTransferMode requires mode 'merge' or 'overwrite'"):
+        SetPushTransferMode(mode="replace")

@@ -36,6 +36,7 @@ class ManualPushFlowState:
     selected_event_ids: list[EventId] = field(default_factory=list)
     available_tracks: list[ManualPushTrackOption] = field(default_factory=list)
     target_track_coord: str | None = None
+    transfer_mode: str = "merge"
     diff_gate_open: bool = False
     diff_preview: ManualPushDiffPreview | None = None
 

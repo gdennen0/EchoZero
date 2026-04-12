@@ -369,6 +369,11 @@ def _shared_context_sections(
     if layer is not None:
         transfer_actions = [
             InspectorAction(
+                action_id="push_to_ma3",
+                label="Push to MA3",
+                group="transfer",
+            ),
+            InspectorAction(
                 action_id="pull_from_ma3",
                 label="Pull from MA3",
                 group="transfer",
@@ -407,10 +412,30 @@ def _shared_context_sections(
             transfer_actions.extend(
                 [
                     InspectorAction(
+                        action_id="push_to_ma3",
+                        label="Push to MA3",
+                        group="transfer",
+                    ),
+                    InspectorAction(
+                        action_id="push_select_all_events",
+                        label="Select All Events",
+                        group="transfer",
+                    ),
+                    InspectorAction(
+                        action_id="push_unselect_all_events",
+                        label="Unselect All Events",
+                        group="transfer",
+                    ),
+                    InspectorAction(
+                        action_id="set_push_transfer_mode",
+                        label="Set Push Transfer Mode",
+                        group="transfer",
+                    ),
+                    InspectorAction(
                         action_id="select_push_target_track",
                         label="Select Push Target Track",
                         group="transfer",
-                        enabled=bool(layer.push_selection_count and presentation.manual_push_flow.available_tracks),
+                        enabled=bool(presentation.manual_push_flow.available_tracks),
                         params={"layer_id": layer.layer_id},
                     ),
                     InspectorAction(
@@ -467,7 +492,7 @@ def _shared_context_sections(
                     ),
                 ]
             )
-        if has_selected_events:
+        if has_selected_events and layer is None:
             transfer_actions.append(
                 InspectorAction(
                     action_id="push_to_ma3",
@@ -763,6 +788,7 @@ def _layer_transfer_rows(
         InspectorFactRow("sync mapping", layer.sync_target_label or "none"),
         InspectorFactRow("transfer plan", _transfer_plan_summary(presentation)),
         InspectorFactRow("push mode", "active" if presentation.manual_push_flow.push_mode_active else "inactive"),
+        InspectorFactRow("push transfer mode", presentation.manual_push_flow.transfer_mode),
         InspectorFactRow("push target", layer.push_target_label or "none"),
         InspectorFactRow("push selection", str(layer.push_selection_count)),
         InspectorFactRow("push row", _push_row_summary(layer)),
@@ -811,4 +837,3 @@ def _apply_transfer_plan_label(plan) -> str:
 def _ready_count_label(count: int) -> str:
     noun = "ready row" if count == 1 else "ready rows"
     return f"{count} {noun}"
-

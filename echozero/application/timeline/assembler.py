@@ -281,6 +281,7 @@ class TimelineAssembler:
 
         return (
             session.manual_push_flow.push_mode_active,
+            session.manual_push_flow.transfer_mode,
             session.manual_pull_flow.workspace_active,
             session.manual_pull_flow.active_source_track_coord,
             session.manual_pull_flow.source_track_coord,
@@ -348,6 +349,7 @@ class TimelineAssembler:
                 for track in flow.available_tracks
             ],
             target_track_coord=flow.target_track_coord,
+            transfer_mode=flow.transfer_mode,
             diff_gate_open=flow.diff_gate_open,
             diff_preview=diff_preview,
         )

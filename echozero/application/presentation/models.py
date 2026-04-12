@@ -87,6 +87,7 @@ class ManualPushFlowPresentation:
     push_mode_active: bool = False
     available_tracks: list[ManualPushTrackOptionPresentation] = field(default_factory=list)
     target_track_coord: str | None = None
+    transfer_mode: str = "merge"
     diff_gate_open: bool = False
     diff_preview: ManualPushDiffPreviewPresentation | None = None
 

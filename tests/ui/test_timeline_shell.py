@@ -7,6 +7,7 @@ from PyQt6.QtGui import QMouseEvent
 from PyQt6.QtWidgets import QApplication, QMessageBox
 
 from echozero.application.presentation.inspector_contract import (
+    InspectorAction,
     TimelineInspectorHitTarget,
     build_timeline_inspector_contract,
     render_inspector_contract_text,
@@ -56,6 +57,7 @@ from echozero.application.timeline.intents import (
     Seek,
     SetLayerLiveSyncPauseReason,
     SetLayerLiveSyncState,
+    SetPushTransferMode,
     SelectAllEvents,
     SelectEvent,
     SelectLayer,
@@ -464,13 +466,16 @@ class _ManualPushHarness:
             )
             return self._presentation
         if isinstance(intent, SelectPushTargetTrack):
+            selected_event_ids = list(self._presentation.selected_event_ids)
+            if not selected_event_ids and self._presentation.batch_transfer_plan is not None:
+                selected_event_ids = list(self._presentation.batch_transfer_plan.rows[0].selected_event_ids)
             self._presentation = replace(
                 self._presentation,
                 layers=[
                     replace(
                         layer,
                         push_target_label="Track 3 (tc1_tg2_tr3) - Bass" if layer.layer_id == self._presentation.selected_layer_id else layer.push_target_label,
-                        push_selection_count=len(self._presentation.selected_event_ids) if layer.layer_id == self._presentation.selected_layer_id else layer.push_selection_count,
+                        push_selection_count=len(selected_event_ids) if layer.layer_id == self._presentation.selected_layer_id else layer.push_selection_count,
                         push_row_status="ready" if layer.layer_id == self._presentation.selected_layer_id else layer.push_row_status,
                         push_row_issue="" if layer.layer_id == self._presentation.selected_layer_id else layer.push_row_issue,
                     )
@@ -491,12 +496,21 @@ class _ManualPushHarness:
                             target_label="Track 3 (tc1_tg2_tr3) - Bass",
                             source_layer_id=LayerId("layer_kick"),
                             target_track_coord=intent.target_track_coord,
-                            selected_event_ids=list(self._presentation.selected_event_ids),
-                            selected_count=len(self._presentation.selected_event_ids),
+                            selected_event_ids=selected_event_ids,
+                            selected_count=len(selected_event_ids),
                             status="ready",
                         )
                     ],
                     ready_count=1,
+                ),
+            )
+            return self._presentation
+        if isinstance(intent, SetPushTransferMode):
+            self._presentation = replace(
+                self._presentation,
+                manual_push_flow=replace(
+                    self._presentation.manual_push_flow,
+                    transfer_mode=intent.mode,
                 ),
             )
             return self._presentation
@@ -1732,12 +1746,11 @@ def test_push_mode_actions_dispatch_target_preview_and_exit(monkeypatch):
     base = replace(
         _selection_test_presentation(),
         selected_layer_id=LayerId("layer_kick"),
-        selected_take_id=TakeId("take_main"),
-        selected_event_ids=[EventId("main_evt")],
+        selected_take_id=None,
+        selected_event_ids=[],
         layers=[
             replace(
                 _selection_test_presentation().layers[0],
-                events=[replace(_selection_test_presentation().layers[0].events[0], is_selected=True)],
                 push_selection_count=1,
             )
         ],
@@ -1972,6 +1985,167 @@ def test_transfer_preset_actions_are_hidden_from_primary_transfer_surface(monkey
         assert "apply_transfer_preset" not in action_ids
         assert "delete_transfer_preset" not in action_ids
         assert harness.intents == []
+    finally:
+        widget.close()
+        app.processEvents()
+
+
+def test_push_mode_contract_actions_dispatch_select_all_unselect_all_and_transfer_mode(monkeypatch):
+    app = QApplication.instance() or QApplication([])
+    base = replace(
+        _selection_test_presentation(),
+        selected_layer_id=LayerId("layer_kick"),
+        manual_push_flow=ManualPushFlowPresentation(
+            push_mode_active=True,
+            transfer_mode="merge",
+            available_tracks=[
+                ManualPushTrackOptionPresentation(coord="tc1_tg2_tr3", name="Track 3", note="Bass"),
+            ],
+        ),
+    )
+    harness = _ManualPushHarness(base)
+    widget = TimelineWidget(harness.presentation(), on_intent=harness.dispatch)
+    monkeypatch.setattr(
+        "echozero.ui.qt.timeline.widget.QInputDialog.getItem",
+        lambda *args, **kwargs: ("Overwrite", True),
+    )
+    try:
+        _render_for_hit_testing(widget)
+        widget._trigger_contract_action(InspectorAction(action_id="push_select_all_events", label="Select All Events"))
+        widget._trigger_contract_action(InspectorAction(action_id="push_unselect_all_events", label="Unselect All Events"))
+        widget._trigger_contract_action(InspectorAction(action_id="set_push_transfer_mode", label="Set Push Transfer Mode"))
+
+        assert harness.intents == [
+            SelectAllEvents(),
+            ClearSelection(),
+            SetPushTransferMode(mode="overwrite"),
+        ]
+    finally:
+        widget.close()
+        app.processEvents()
+
+
+def test_apply_transfer_plan_prompts_for_each_unmapped_push_row_before_dispatch(monkeypatch):
+    app = QApplication.instance() or QApplication([])
+    base = replace(
+        _selection_test_presentation(),
+        selected_layer_id=LayerId("layer_kick"),
+        selected_event_ids=[EventId("main_evt")],
+        manual_push_flow=ManualPushFlowPresentation(
+            push_mode_active=True,
+            available_tracks=[
+                ManualPushTrackOptionPresentation(coord="tc1_tg2_tr3", name="Track 3", note="Bass"),
+                ManualPushTrackOptionPresentation(coord="tc1_tg2_tr4", name="Track 4", note="Lead"),
+            ],
+        ),
+        batch_transfer_plan=BatchTransferPlanPresentation(
+            plan_id="push:timeline_selection",
+            operation_type="push",
+            rows=[
+                BatchTransferPlanRowPresentation(
+                    row_id="push:layer_a",
+                    direction="push",
+                    source_label="A Layer",
+                    source_layer_id=LayerId("layer_a"),
+                    target_label="Unmapped",
+                    selected_event_ids=[EventId("main_evt")],
+                    selected_count=1,
+                    status="blocked",
+                    issue="Select an MA3 target track",
+                ),
+                BatchTransferPlanRowPresentation(
+                    row_id="push:layer_b",
+                    direction="push",
+                    source_label="B Layer",
+                    source_layer_id=LayerId("layer_b"),
+                    target_label="Unmapped",
+                    selected_event_ids=[EventId("main_evt")],
+                    selected_count=1,
+                    status="blocked",
+                    issue="Select an MA3 target track",
+                ),
+            ],
+            blocked_count=2,
+        ),
+    )
+    intents: list[object] = []
+    widget = TimelineWidget(base, on_intent=lambda intent: intents.append(intent) or base)
+    prompts: list[str] = []
+    replies = iter([("Track 3 (tc1_tg2_tr3) - Bass", True), ("Track 4 (tc1_tg2_tr4) - Lead", True)])
+    monkeypatch.setattr(
+        "echozero.ui.qt.timeline.widget.QInputDialog.getItem",
+        lambda _parent, _title, label, *_args: prompts.append(label) or next(replies),
+    )
+    monkeypatch.setattr(
+        "echozero.ui.qt.timeline.widget.QMessageBox.information",
+        lambda *args, **kwargs: None,
+    )
+    try:
+        widget._trigger_contract_action(
+            InspectorAction(
+                action_id="apply_transfer_plan",
+                label="Apply Transfer Plan (0 ready rows)",
+                params={"plan_id": "push:timeline_selection"},
+            )
+        )
+
+        assert prompts == ["Target MA3 track for A Layer", "Target MA3 track for B Layer"]
+        assert intents == [
+            SelectPushTargetTrack(target_track_coord="tc1_tg2_tr3", layer_id=LayerId("layer_a")),
+            SelectPushTargetTrack(target_track_coord="tc1_tg2_tr4", layer_id=LayerId("layer_b")),
+            ApplyTransferPlan(plan_id="push:timeline_selection"),
+        ]
+    finally:
+        widget.close()
+        app.processEvents()
+
+
+def test_apply_transfer_plan_aborts_when_push_mapping_prompt_is_canceled(monkeypatch):
+    app = QApplication.instance() or QApplication([])
+    base = replace(
+        _selection_test_presentation(),
+        selected_layer_id=LayerId("layer_kick"),
+        manual_push_flow=ManualPushFlowPresentation(
+            push_mode_active=True,
+            available_tracks=[
+                ManualPushTrackOptionPresentation(coord="tc1_tg2_tr3", name="Track 3", note="Bass"),
+            ],
+        ),
+        batch_transfer_plan=BatchTransferPlanPresentation(
+            plan_id="push:timeline_selection",
+            operation_type="push",
+            rows=[
+                BatchTransferPlanRowPresentation(
+                    row_id="push:layer_a",
+                    direction="push",
+                    source_label="A Layer",
+                    source_layer_id=LayerId("layer_a"),
+                    target_label="Unmapped",
+                    selected_event_ids=[EventId("main_evt")],
+                    selected_count=1,
+                    status="blocked",
+                    issue="Select an MA3 target track",
+                ),
+            ],
+            blocked_count=1,
+        ),
+    )
+    intents: list[object] = []
+    widget = TimelineWidget(base, on_intent=lambda intent: intents.append(intent) or base)
+    monkeypatch.setattr(
+        "echozero.ui.qt.timeline.widget.QInputDialog.getItem",
+        lambda *args, **kwargs: ("", False),
+    )
+    try:
+        widget._trigger_contract_action(
+            InspectorAction(
+                action_id="apply_transfer_plan",
+                label="Apply Transfer Plan (0 ready rows)",
+                params={"plan_id": "push:timeline_selection"},
+            )
+        )
+
+        assert intents == []
     finally:
         widget.close()
         app.processEvents()

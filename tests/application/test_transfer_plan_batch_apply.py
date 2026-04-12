@@ -27,6 +27,7 @@ from echozero.application.timeline.intents import (
     SelectPullSourceTracks,
     SelectPullTargetLayer,
     SelectPushTargetTrack,
+    SetPushTransferMode,
     SetPullTrackOptions,
 )
 from echozero.application.timeline.models import Event, Layer, Take, Timeline
@@ -137,6 +138,7 @@ class _SyncService(SyncService):
         self._events_by_track = dict(events_by_track or {})
         self._fail_track = fail_track
         self.push_calls: list[tuple[str | None, list[str]]] = []
+        self.push_mode_calls: list[str] = []
 
     def get_state(self) -> SyncState:
         return self._state
@@ -170,6 +172,18 @@ class _SyncService(SyncService):
         self.push_calls.append((target_track_coord, event_ids))
         if self._fail_track is not None and target_track_coord == self._fail_track:
             raise RuntimeError(f"Push apply failed for {target_track_coord}")
+
+
+class _TransferModeSyncService(_SyncService):
+    def apply_push_transfer(self, *, target_track_coord, selected_events, transfer_mode):
+        self.push_mode_calls.append(transfer_mode)
+        super().apply_push_transfer(target_track_coord=target_track_coord, selected_events=selected_events)
+
+
+class _ModeAliasSyncService(_SyncService):
+    def apply_push_transfer(self, *, target_track_coord, selected_events, mode):
+        self.push_mode_calls.append(mode)
+        super().apply_push_transfer(target_track_coord=target_track_coord, selected_events=selected_events)
 
 
 class _NoPushExecutionSyncService(_SyncService):
@@ -386,3 +400,51 @@ def test_transfer_plan_plan_id_mismatch_validation_is_strict():
         match="ApplyTransferPlan plan_id does not match active batch transfer plan: expected push:timeline_transfer_plan_batch, got wrong_plan",
     ):
         orchestrator.handle(timeline, ApplyTransferPlan(plan_id="wrong_plan"))
+
+
+def test_apply_transfer_plan_passes_push_transfer_mode_when_endpoint_supports_transfer_mode():
+    sync_service = _TransferModeSyncService(
+        push_tracks=[ManualPushTrackOption(coord="tc1_tg2_tr3", name="Track 3")]
+    )
+    orchestrator, timeline, _session = _build_orchestrator(sync_service)
+    timeline.selection.selected_layer_id = LayerId("layer_kick")
+    timeline.selection.selected_take_id = TakeId("take_kick")
+    timeline.selection.selected_event_ids = [EventId("kick_evt")]
+
+    orchestrator.handle(
+        timeline,
+        OpenPushToMA3Dialog(selection_event_ids=[EventId("kick_evt")]),
+    )
+    orchestrator.handle(
+        timeline,
+        SelectPushTargetTrack(target_track_coord="tc1_tg2_tr3", layer_id=LayerId("layer_kick")),
+    )
+    orchestrator.handle(timeline, SetPushTransferMode(mode="overwrite"))
+    orchestrator.handle(timeline, ApplyTransferPlan(plan_id=f"push:{timeline.id}"))
+
+    assert sync_service.push_calls == [("tc1_tg2_tr3", ["kick_evt"])]
+    assert sync_service.push_mode_calls == ["overwrite"]
+
+
+def test_apply_transfer_plan_passes_push_transfer_mode_when_endpoint_uses_mode_alias():
+    sync_service = _ModeAliasSyncService(
+        push_tracks=[ManualPushTrackOption(coord="tc1_tg2_tr3", name="Track 3")]
+    )
+    orchestrator, timeline, _session = _build_orchestrator(sync_service)
+    timeline.selection.selected_layer_id = LayerId("layer_kick")
+    timeline.selection.selected_take_id = TakeId("take_kick")
+    timeline.selection.selected_event_ids = [EventId("kick_evt")]
+
+    orchestrator.handle(
+        timeline,
+        OpenPushToMA3Dialog(selection_event_ids=[EventId("kick_evt")]),
+    )
+    orchestrator.handle(
+        timeline,
+        SelectPushTargetTrack(target_track_coord="tc1_tg2_tr3", layer_id=LayerId("layer_kick")),
+    )
+    orchestrator.handle(timeline, SetPushTransferMode(mode="overwrite"))
+    orchestrator.handle(timeline, ApplyTransferPlan(plan_id=f"push:{timeline.id}"))
+
+    assert sync_service.push_calls == [("tc1_tg2_tr3", ["kick_evt"])]
+    assert sync_service.push_mode_calls == ["overwrite"]
