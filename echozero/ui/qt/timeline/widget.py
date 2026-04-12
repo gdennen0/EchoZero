@@ -552,6 +552,8 @@ class ObjectInfoPanel(QFrame):
         layer_actions = QGridLayout()
         layer_actions.setHorizontalSpacing(6)
         layer_actions.setVerticalSpacing(6)
+        self._push_to_ma3_btn = QPushButton("Push to MA3", self)
+        self._pull_from_ma3_btn = QPushButton("Pull from MA3", self)
         self._mute_btn = QPushButton("Mute", self)
         self._solo_btn = QPushButton("Solo", self)
         self._gain_spin = QDoubleSpinBox(self)
@@ -559,10 +561,12 @@ class ObjectInfoPanel(QFrame):
         self._gain_spin.setSingleStep(0.5)
         self._gain_spin.setSuffix(" dB")
         self._gain_apply_btn = QPushButton("Apply Gain", self)
-        layer_actions.addWidget(self._mute_btn, 0, 0)
-        layer_actions.addWidget(self._solo_btn, 0, 1)
-        layer_actions.addWidget(self._gain_spin, 1, 0)
-        layer_actions.addWidget(self._gain_apply_btn, 1, 1)
+        layer_actions.addWidget(self._push_to_ma3_btn, 0, 0)
+        layer_actions.addWidget(self._pull_from_ma3_btn, 0, 1)
+        layer_actions.addWidget(self._mute_btn, 1, 0)
+        layer_actions.addWidget(self._solo_btn, 1, 1)
+        layer_actions.addWidget(self._gain_spin, 2, 0)
+        layer_actions.addWidget(self._gain_apply_btn, 2, 1)
         layout.addLayout(layer_actions)
 
         layout.addStretch(1)
@@ -571,18 +575,22 @@ class ObjectInfoPanel(QFrame):
         self._nudge_left_btn.clicked.connect(lambda: self._emit_contract_action("nudge_left"))
         self._nudge_right_btn.clicked.connect(lambda: self._emit_contract_action("nudge_right"))
         self._duplicate_btn.clicked.connect(lambda: self._emit_contract_action("duplicate"))
+        self._push_to_ma3_btn.clicked.connect(lambda: self._emit_contract_action("push_to_ma3"))
+        self._pull_from_ma3_btn.clicked.connect(lambda: self._emit_contract_action("pull_from_ma3"))
         self._mute_btn.clicked.connect(self._emit_toggle_mute)
         self._solo_btn.clicked.connect(self._emit_toggle_solo)
         self._gain_apply_btn.clicked.connect(self._emit_apply_gain)
 
-        self._set_controls_enabled(has_layer=False, has_event=False)
+        self._set_controls_enabled(has_layer=False, has_event=False, has_transfer=False)
 
-    def _set_controls_enabled(self, *, has_layer: bool, has_event: bool) -> None:
+    def _set_controls_enabled(self, *, has_layer: bool, has_event: bool, has_transfer: bool) -> None:
         self._seek_btn.setEnabled(has_event)
         self._nudge_left_btn.setEnabled(has_event)
         self._nudge_right_btn.setEnabled(has_event)
         self._duplicate_btn.setEnabled(has_event)
 
+        self._push_to_ma3_btn.setEnabled(has_transfer)
+        self._pull_from_ma3_btn.setEnabled(has_transfer)
         self._mute_btn.setEnabled(has_layer)
         self._solo_btn.setEnabled(has_layer)
         self._gain_spin.setEnabled(has_layer)
@@ -637,12 +645,17 @@ class ObjectInfoPanel(QFrame):
 
         has_event = self._find_contract_action("seek_here") is not None
         has_layer = self._find_contract_action("toggle_mute") is not None
-        self._set_controls_enabled(has_layer=has_layer, has_event=has_event)
+        push_action = self._find_contract_action("push_to_ma3")
+        pull_action = self._find_contract_action("pull_from_ma3")
+        has_transfer = push_action is not None and pull_action is not None
+        self._set_controls_enabled(has_layer=has_layer, has_event=has_event, has_transfer=has_transfer)
 
         mute_action = self._find_contract_action("toggle_mute")
         solo_action = self._find_contract_action("toggle_solo")
         self._mute_btn.setText(mute_action.label if mute_action is not None else "Mute")
         self._solo_btn.setText(solo_action.label if solo_action is not None else "Solo")
+        self._push_to_ma3_btn.setText(push_action.label if push_action is not None else "Push to MA3")
+        self._pull_from_ma3_btn.setText(pull_action.label if pull_action is not None else "Pull from MA3")
 
     def contract(self) -> InspectorContract:
         return self._contract
