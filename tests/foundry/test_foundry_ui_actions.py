@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import time
 from pathlib import Path
@@ -234,6 +235,43 @@ def test_foundry_window_latest_artifact_package_reports_missing_path(tmp_path: P
     window._open_latest_artifact_package()
 
     assert "Latest artifact package is missing on disk" in window.status_line.text()
+
+    window.close()
+    qt_app.processEvents()
+
+
+def test_foundry_window_artifact_summary_surfaces_structured_compatibility_diagnostics(tmp_path: Path):
+    window, qt_app = _prepare_completed_run(tmp_path)
+
+    artifact_id = window._artifact_id
+    assert artifact_id is not None
+    artifact = window._app.get_artifact(artifact_id)
+    assert artifact is not None
+
+    manifest = dict(artifact.manifest)
+    manifest["runtime"] = {"consumer": "OtherProcessor", "backend": "pytorch", "device": "cpu"}
+    preprocessing = dict(manifest.get("inferencePreprocessing", {}))
+    preprocessing.pop("hopLength", None)
+    manifest["inferencePreprocessing"] = preprocessing
+    artifact.path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+
+    updated_artifact = type(artifact)(
+        id=artifact.id,
+        run_id=artifact.run_id,
+        artifact_version=artifact.artifact_version,
+        path=artifact.path,
+        sha256=artifact.sha256,
+        manifest=manifest,
+        consumer_hints=artifact.consumer_hints,
+        created_at=artifact.created_at,
+    )
+    window._app.artifacts._artifact_repo.save(updated_artifact)
+
+    summary = window._format_artifact_summary(artifact.id)
+
+    assert "Diagnostics:" in summary
+    assert "[ERROR] missing_preprocessing_keys @ manifest.inferencePreprocessing" in summary
+    assert "[ERROR] runtime_consumer_mismatch @ manifest.runtime.consumer" in summary
 
     window.close()
     qt_app.processEvents()

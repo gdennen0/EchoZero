@@ -1175,6 +1175,7 @@ class FoundryWindow(QMainWindow):
             return f"Artifact not found: {artifact_id}"
 
         validation_note = "Run Validate Selected Artifact to check compatibility."
+        diagnostic_lines: list[str] = []
         report = None
         try:
             report = self._app.artifacts.validate_compatibility(artifact.id)
@@ -1182,18 +1183,53 @@ class FoundryWindow(QMainWindow):
             report = None
         if report is not None:
             validation_note = f"Validation: ok={report.ok}, errors={len(report.errors)}, warnings={len(report.warnings)}"
+            diagnostic_lines = self._format_compatibility_issue_lines(report)
 
-        return "\n".join(
-            [
-                f"Artifact ID: {artifact.id}",
-                f"Run ID: {artifact.run_id}",
-                f"Manifest: {artifact.path}",
-                f"Weights path: {artifact.manifest.get('weightsPath', 'n/a')}",
-                f"Classes: {', '.join(artifact.manifest.get('classes', [])) or '(none)'}",
-                f"Consumer: {artifact.consumer_hints.get('consumer', 'n/a')}",
-                validation_note,
-            ]
-        )
+        lines = [
+            f"Artifact ID: {artifact.id}",
+            f"Run ID: {artifact.run_id}",
+            f"Manifest: {artifact.path}",
+            f"Weights path: {artifact.manifest.get('weightsPath', 'n/a')}",
+            f"Classes: {', '.join(artifact.manifest.get('classes', [])) or '(none)'}",
+            f"Consumer: {artifact.consumer_hints.get('consumer', 'n/a')}",
+            validation_note,
+        ]
+        if diagnostic_lines:
+            lines.append("Diagnostics:")
+            lines.extend(diagnostic_lines)
+        return "\n".join(lines)
+
+    def _format_compatibility_issue_lines(self, report: object) -> list[str]:
+        issues: list[tuple[str, object]] = []
+        issues.extend(("error", detail) for detail in list(getattr(report, "error_details", [])))
+        issues.extend(("warning", detail) for detail in list(getattr(report, "warning_details", [])))
+
+        if not issues:
+            issues.extend(("error", message) for message in list(getattr(report, "errors", [])))
+            issues.extend(("warning", message) for message in list(getattr(report, "warnings", [])))
+
+        lines: list[str] = []
+        for default_severity, issue in issues:
+            if isinstance(issue, dict):
+                severity = str(issue.get("severity") or default_severity).upper()
+                code = str(issue.get("code", ""))
+                path = str(issue.get("path", ""))
+                message = str(issue.get("message", ""))
+            else:
+                severity = default_severity.upper()
+                code = ""
+                path = ""
+                message = str(issue)
+
+            line = f"- [{severity}]"
+            if code:
+                line += f" {code}"
+            if path:
+                line += f" @ {path}"
+            if message:
+                line += f": {message}"
+            lines.append(line)
+        return lines
 
     def _format_eval_summary(self, report: object) -> str:
         metrics = report.metrics or report.aggregate_metrics or {}
