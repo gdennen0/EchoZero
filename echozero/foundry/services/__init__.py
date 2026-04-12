@@ -4,6 +4,7 @@ from .dataset_service import DatasetService
 from .eval_service import EvalService
 from .cnn_trainer import CnnTrainer
 from .crnn_trainer import CrnnTrainer
+from .query_service import FoundryQueryService
 from .run_notification_service import RunNotificationService
 from .run_spec_validator import RunSpecValidator
 from .run_telemetry_service import RunTelemetryService
@@ -18,6 +19,7 @@ __all__ = [
     "EvalService",
     "CnnTrainer",
     "CrnnTrainer",
+    "FoundryQueryService",
     "SplitBalanceService",
     "RunNotificationService",
     "RunSpecValidator",

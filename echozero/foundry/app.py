@@ -17,7 +17,14 @@ from echozero.foundry.persistence import (
     ModelArtifactRepository,
 )
 from echozero.foundry.presentation import FoundryActivityFeed
-from echozero.foundry.services import ArtifactService, DatasetService, EvalService, SplitBalanceService, TrainRunService
+from echozero.foundry.services import (
+    ArtifactService,
+    DatasetService,
+    EvalService,
+    FoundryQueryService,
+    SplitBalanceService,
+    TrainRunService,
+)
 
 
 class FoundryApp:
@@ -39,6 +46,12 @@ class FoundryApp:
         self.eval = EvalService(self._eval_repo)
         self.artifacts = ArtifactService(root, artifact_repository=self._artifact_repo)
         self.runs = TrainRunService(root, eval_service=self.eval, artifact_service=self.artifacts)
+        self.queries = FoundryQueryService(
+            dataset_repo=self._dataset_repo,
+            artifact_repo=self._artifact_repo,
+            eval_repo=self._eval_repo,
+            run_service=self.runs,
+        )
 
         self.activity = FoundryActivityFeed(self.event_bus)
 
@@ -128,19 +141,19 @@ class FoundryApp:
     # ------------------------------------------------------------------
 
     def list_datasets(self):
-        return self._dataset_repo.list()
+        return self.queries.list_datasets()
 
     def list_runs(self):
-        return self.runs.list_runs()
+        return self.queries.list_runs()
 
     def list_artifacts(self):
-        return self._artifact_repo.list()
+        return self.queries.list_artifacts()
 
     def list_artifacts_for_run(self, run_id: str):
-        return self._artifact_repo.list_for_run(run_id)
+        return self.queries.list_artifacts_for_run(run_id)
 
     def get_artifact(self, artifact_id: str):
-        return self._artifact_repo.get(artifact_id)
+        return self.queries.get_artifact(artifact_id)
 
     def list_eval_reports_for_run(self, run_id: str):
-        return self._eval_repo.list_for_run(run_id)
+        return self.queries.list_eval_reports_for_run(run_id)
