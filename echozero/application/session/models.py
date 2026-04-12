@@ -89,6 +89,29 @@ class ManualPullFlowState:
 
 
 @dataclass(slots=True)
+class BatchTransferPlanRowState:
+    row_id: str
+    direction: str
+    source_label: str
+    target_label: str
+    selected_count: int = 0
+    status: str = "draft"
+    issue: str | None = None
+
+
+@dataclass(slots=True)
+class BatchTransferPlanState:
+    plan_id: str
+    operation_type: str
+    rows: list[BatchTransferPlanRowState] = field(default_factory=list)
+    draft_count: int = 0
+    ready_count: int = 0
+    blocked_count: int = 0
+    applied_count: int = 0
+    failed_count: int = 0
+
+
+@dataclass(slots=True)
 class Session:
     id: SessionId
     project_id: ProjectId
@@ -101,4 +124,5 @@ class Session:
     sync_state: SyncState = field(default_factory=SyncState)
     manual_push_flow: ManualPushFlowState = field(default_factory=ManualPushFlowState)
     manual_pull_flow: ManualPullFlowState = field(default_factory=ManualPullFlowState)
+    batch_transfer_plan: BatchTransferPlanState | None = None
     ui_prefs_ref: str | None = None

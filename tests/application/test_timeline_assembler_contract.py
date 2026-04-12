@@ -1,4 +1,8 @@
-from echozero.application.session.models import Session
+from echozero.application.session.models import (
+    BatchTransferPlanRowState,
+    BatchTransferPlanState,
+    Session,
+)
 from echozero.application.shared.enums import LayerKind
 from echozero.application.shared.ids import EventId, LayerId, ProjectId, SessionId, SongId, SongVersionId, TakeId, TimelineId
 from echozero.application.timeline.assembler import TimelineAssembler
@@ -149,3 +153,71 @@ def test_assembler_uses_take_source_ref_when_structured_provenance_is_missing():
     assembled = TimelineAssembler().assemble(timeline, session)
 
     assert assembled.layers[0].status.source_label == "imported-track"
+
+
+def test_assembler_maps_sync_target_and_batch_transfer_plan_to_presentation():
+    main_take = Take(
+        id=TakeId("take_main"),
+        layer_id=LayerId("layer_1"),
+        name="Main",
+        events=[_event("main_a", "take_main", 1.0)],
+    )
+    layer = Layer(
+        id=LayerId("layer_1"),
+        timeline_id=TimelineId("timeline_1"),
+        name="Kick",
+        kind=LayerKind.EVENT,
+        order_index=0,
+        takes=[main_take],
+    )
+    layer.sync.ma3_track_coord = "tc1_tg2_tr3"
+    timeline = Timeline(
+        id=TimelineId("timeline_1"),
+        song_version_id=SongVersionId("version_1"),
+        layers=[layer],
+    )
+    session = Session(
+        id=SessionId("session_1"),
+        project_id=ProjectId("project_1"),
+        active_song_id=SongId("song_1"),
+        active_song_version_id=SongVersionId("version_1"),
+        active_timeline_id=timeline.id,
+        batch_transfer_plan=BatchTransferPlanState(
+            plan_id="plan_123",
+            operation_type="mixed",
+            rows=[
+                BatchTransferPlanRowState(
+                    row_id="row_1",
+                    direction="push",
+                    source_label="Kick",
+                    target_label="Track 3",
+                    selected_count=2,
+                    status="ready",
+                ),
+                BatchTransferPlanRowState(
+                    row_id="row_2",
+                    direction="pull",
+                    source_label="Track 5",
+                    target_label="Snare",
+                    selected_count=1,
+                    status="blocked",
+                    issue="Target layer required",
+                ),
+            ],
+            ready_count=1,
+            blocked_count=1,
+        ),
+    )
+
+    assembled = TimelineAssembler().assemble(timeline, session)
+
+    assert assembled.layers[0].sync_target_label == "tc1_tg2_tr3"
+    assert assembled.batch_transfer_plan is not None
+    assert assembled.batch_transfer_plan.plan_id == "plan_123"
+    assert assembled.batch_transfer_plan.operation_type == "mixed"
+    assert assembled.batch_transfer_plan.ready_count == 1
+    assert assembled.batch_transfer_plan.blocked_count == 1
+    assert assembled.batch_transfer_plan.rows[0].row_id == "row_1"
+    assert assembled.batch_transfer_plan.rows[0].direction == "push"
+    assert assembled.batch_transfer_plan.rows[0].selected_count == 2
+    assert assembled.batch_transfer_plan.rows[1].issue == "Target layer required"

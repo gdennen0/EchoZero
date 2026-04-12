@@ -4,6 +4,8 @@ from echozero.application.presentation.inspector_contract import (
     render_inspector_contract_text,
 )
 from echozero.application.presentation.models import (
+    BatchTransferPlanPresentation,
+    BatchTransferPlanRowPresentation,
     EventPresentation,
     LayerPresentation,
     LayerStatusPresentation,
@@ -81,10 +83,27 @@ def test_inspector_contract_no_selection_state():
 def test_inspector_contract_layer_selection_state():
     presentation = _contract_test_presentation()
     presentation.selected_layer_id = LayerId("layer_kick")
+    presentation.layers[0].sync_target_label = "tc1_tg2_tr3"
+    presentation.batch_transfer_plan = BatchTransferPlanPresentation(
+        plan_id="plan_123",
+        operation_type="mixed",
+        rows=[
+            BatchTransferPlanRowPresentation(
+                row_id="row_1",
+                direction="push",
+                source_label="Kick",
+                target_label="Track 3",
+                selected_count=1,
+                status="ready",
+            )
+        ],
+        ready_count=1,
+    )
 
     contract = build_timeline_inspector_contract(presentation)
     rows = _section_rows(contract)
     action_ids = [action.action_id for section in contract.context_sections for action in section.actions]
+    section_ids = [section.section_id for section in contract.context_sections]
 
     assert contract.identity is not None
     assert contract.identity.object_type == "layer"
@@ -93,7 +112,12 @@ def test_inspector_contract_layer_selection_state():
     assert rows["kind"] == "EVENT"
     assert rows["main take"] == "take_main"
     assert rows["status flags"] == "none"
+    assert rows["sync state"] == "Off"
+    assert rows["sync mapping"] == "tc1_tg2_tr3"
+    assert rows["transfer plan"] == "mixed plan_123 (ready 1, blocked 0, failed 0)"
     assert {"toggle_mute", "toggle_solo", "gain_down", "gain_unity", "gain_up"} <= set(action_ids)
+    assert {"pull_from_ma3", "open_batch_transfer_workspace"} <= set(action_ids)
+    assert "sync-transfer" in section_ids
     assert "live-sync" not in [section.section_id for section in contract.context_sections]
 
 
@@ -224,6 +248,9 @@ def test_inspector_contract_render_text_tracks_selection_transition_sequence():
             "main take: take_main",
             "takes: 2",
             "status flags: none",
+            "sync state: Off",
+            "sync mapping: none",
+            "transfer plan: none",
         ]
     )
     assert render_inspector_contract_text(event_contract) == "\n".join(

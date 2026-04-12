@@ -3,6 +3,8 @@
 from dataclasses import dataclass, field
 
 from echozero.application.presentation.models import (
+    BatchTransferPlanPresentation,
+    BatchTransferPlanRowPresentation,
     EventPresentation,
     LayerPresentation,
     ManualPullDiffPreviewPresentation,
@@ -77,6 +79,7 @@ class TimelineAssembler:
                 experimental_live_sync_enabled=session.sync_state.experimental_live_sync_enabled,
                 manual_push_flow=self._assemble_manual_push_flow(session),
                 manual_pull_flow=self._assemble_manual_pull_flow(session),
+                batch_transfer_plan=self._assemble_batch_transfer_plan(session),
             )
 
     def _assemble_layer(
@@ -153,6 +156,7 @@ class TimelineAssembler:
             live_sync_state=layer.sync.live_sync_state,
             live_sync_pause_reason=layer.sync.live_sync_pause_reason,
             live_sync_divergent=layer.sync.live_sync_divergent,
+            sync_target_label=self._sync_target_label(layer),
             color=layer.presentation_hints.color,
             badges=badges,
             playback_source_ref=layer.playback.armed_source_ref,
@@ -216,6 +220,9 @@ class TimelineAssembler:
                     float(layer.mixer.pan),
                     str(layer.sync.mode),
                     bool(layer.sync.connected),
+                    layer.sync.target_ref,
+                    layer.sync.show_manager_block_id,
+                    layer.sync.ma3_track_coord,
                     str(layer.sync.live_sync_state.value),
                     layer.sync.live_sync_pause_reason,
                     bool(layer.sync.live_sync_divergent),
@@ -338,6 +345,33 @@ class TimelineAssembler:
         )
 
     @staticmethod
+    def _assemble_batch_transfer_plan(session: Session) -> BatchTransferPlanPresentation | None:
+        plan = session.batch_transfer_plan
+        if plan is None:
+            return None
+        return BatchTransferPlanPresentation(
+            plan_id=plan.plan_id,
+            operation_type=plan.operation_type,
+            rows=[
+                BatchTransferPlanRowPresentation(
+                    row_id=row.row_id,
+                    direction=row.direction,
+                    source_label=row.source_label,
+                    target_label=row.target_label,
+                    selected_count=row.selected_count,
+                    status=row.status,
+                    issue=row.issue,
+                )
+                for row in plan.rows
+            ],
+            draft_count=plan.draft_count,
+            ready_count=plan.ready_count,
+            blocked_count=plan.blocked_count,
+            applied_count=plan.applied_count,
+            failed_count=plan.failed_count,
+        )
+
+    @staticmethod
     def _main_take(layer: Layer) -> Take | None:
         if not layer.takes:
             return None
@@ -376,4 +410,16 @@ class TimelineAssembler:
             return f"{layer.provenance.pipeline_id} · {layer.provenance.output_name}"
         if main_take and main_take.source_ref:
             return main_take.source_ref
+        return ""
+
+    @staticmethod
+    def _sync_target_label(layer: Layer) -> str:
+        if layer.sync.ma3_track_coord:
+            return layer.sync.ma3_track_coord
+        if layer.sync.target_ref and layer.sync.show_manager_block_id:
+            return f"{layer.sync.target_ref} · {layer.sync.show_manager_block_id}"
+        if layer.sync.target_ref:
+            return layer.sync.target_ref
+        if layer.sync.show_manager_block_id:
+            return layer.sync.show_manager_block_id
         return ""

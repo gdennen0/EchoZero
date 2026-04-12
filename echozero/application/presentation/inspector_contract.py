@@ -185,6 +185,9 @@ def _layer_contract(
         InspectorFactRow("main take", str(layer.main_take_id or "none")),
         InspectorFactRow("takes", str(take_count) if take_count else "none"),
         InspectorFactRow("status flags", ", ".join(flags) if flags else "none"),
+        InspectorFactRow("sync state", _sync_state_label(layer)),
+        InspectorFactRow("sync mapping", layer.sync_target_label or "none"),
+        InspectorFactRow("transfer plan", _transfer_plan_summary(presentation)),
     ]
     if presentation.experimental_live_sync_enabled:
         rows.append(InspectorFactRow("live sync state", layer.live_sync_state.value))
@@ -350,28 +353,57 @@ def _shared_context_sections(
             )
         )
 
-    transfer_actions = [
-        InspectorAction(
-            action_id="pull_from_ma3",
-            label="Pull from MA3",
-            group="transfer",
-        )
-    ]
-    if has_selected_events:
-        transfer_actions.append(
+    if layer is not None:
+        transfer_actions = [
             InspectorAction(
-                action_id="push_to_ma3",
-                label="Push Selection to MA3",
+                action_id="pull_from_ma3",
+                label="Pull from MA3",
                 group="transfer",
+            ),
+            InspectorAction(
+                action_id="open_batch_transfer_workspace",
+                label="Batch Transfer",
+                group="transfer",
+            ),
+        ]
+        if has_selected_events:
+            transfer_actions.append(
+                InspectorAction(
+                    action_id="push_to_ma3",
+                    label="Push Selection to MA3",
+                    group="transfer",
+                )
+            )
+        sections.append(
+            InspectorContextSection(
+                section_id="sync-transfer",
+                label="Sync & Transfer",
+                actions=tuple(transfer_actions),
             )
         )
-    sections.append(
-        InspectorContextSection(
-            section_id="transfer",
-            label="Transfer",
-            actions=tuple(transfer_actions),
+    else:
+        transfer_actions = [
+            InspectorAction(
+                action_id="pull_from_ma3",
+                label="Pull from MA3",
+                group="transfer",
+            )
+        ]
+        if has_selected_events:
+            transfer_actions.append(
+                InspectorAction(
+                    action_id="push_to_ma3",
+                    label="Push Selection to MA3",
+                    group="transfer",
+                )
+            )
+        sections.append(
+            InspectorContextSection(
+                section_id="transfer",
+                label="Transfer",
+                actions=tuple(transfer_actions),
+            )
         )
-    )
 
     if layer is not None:
         sections.append(
@@ -564,3 +596,18 @@ def _find_selected_event(
 
 def _format_seconds(value: float) -> str:
     return f"{value:.2f}s"
+
+
+def _sync_state_label(layer: LayerPresentation) -> str:
+    state = layer.live_sync_state.value.replace("_", " ")
+    return state.title()
+
+
+def _transfer_plan_summary(presentation: TimelinePresentation) -> str:
+    plan = presentation.batch_transfer_plan
+    if plan is None:
+        return "none"
+    return (
+        f"{plan.operation_type} {plan.plan_id} "
+        f"(ready {plan.ready_count}, blocked {plan.blocked_count}, failed {plan.failed_count})"
+    )

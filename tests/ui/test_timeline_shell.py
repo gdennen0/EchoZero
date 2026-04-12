@@ -12,6 +12,8 @@ from echozero.application.presentation.inspector_contract import (
     render_inspector_contract_text,
 )
 from echozero.application.presentation.models import (
+    BatchTransferPlanPresentation,
+    BatchTransferPlanRowPresentation,
     EventPresentation,
     LayerPresentation,
     ManualPullDiffPreviewPresentation,
@@ -928,6 +930,42 @@ def test_empty_contract_exposes_pull_from_ma3_action():
     contract = build_timeline_inspector_contract(_selection_test_presentation())
     action_ids = [action.action_id for section in contract.context_sections for action in section.actions]
 
+    assert "pull_from_ma3" in action_ids
+
+
+def test_layer_contract_exposes_sync_transfer_section_and_batch_placeholder_action():
+    presentation = replace(
+        _selection_test_presentation(),
+        selected_layer_id=LayerId("layer_kick"),
+        layers=[
+            replace(
+                _selection_test_presentation().layers[0],
+                sync_target_label="tc1_tg2_tr3",
+            )
+        ],
+        batch_transfer_plan=BatchTransferPlanPresentation(
+            plan_id="plan_123",
+            operation_type="push",
+            rows=[
+                BatchTransferPlanRowPresentation(
+                    row_id="row_1",
+                    direction="push",
+                    source_label="Kick",
+                    target_label="Track 3",
+                    selected_count=1,
+                    status="ready",
+                )
+            ],
+            ready_count=1,
+        ),
+    )
+
+    contract = build_timeline_inspector_contract(presentation)
+    section_ids = [section.section_id for section in contract.context_sections]
+    action_ids = [action.action_id for section in contract.context_sections for action in section.actions]
+
+    assert "sync-transfer" in section_ids
+    assert "open_batch_transfer_workspace" in action_ids
     assert "pull_from_ma3" in action_ids
 
 

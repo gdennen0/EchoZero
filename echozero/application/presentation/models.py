@@ -140,6 +140,29 @@ class ManualPullFlowPresentation:
 
 
 @dataclass(slots=True)
+class BatchTransferPlanRowPresentation:
+    row_id: str
+    direction: str
+    source_label: str
+    target_label: str
+    selected_count: int = 0
+    status: str = "draft"
+    issue: str | None = None
+
+
+@dataclass(slots=True)
+class BatchTransferPlanPresentation:
+    plan_id: str
+    operation_type: str
+    rows: list[BatchTransferPlanRowPresentation] = field(default_factory=list)
+    draft_count: int = 0
+    ready_count: int = 0
+    blocked_count: int = 0
+    applied_count: int = 0
+    failed_count: int = 0
+
+
+@dataclass(slots=True)
 class EventPresentation:
     event_id: EventId
     start: float
@@ -179,6 +202,7 @@ class LayerPresentation:
     live_sync_state: LiveSyncState = LiveSyncState.OFF
     live_sync_pause_reason: str | None = None
     live_sync_divergent: bool = False
+    sync_target_label: str = ""
     color: str | None = None
     badges: list[str] = field(default_factory=list)
     waveform_key: str | None = None
@@ -207,3 +231,4 @@ class TimelinePresentation:
     end_time_label: str = "00:00.00"
     manual_push_flow: ManualPushFlowPresentation = field(default_factory=ManualPushFlowPresentation)
     manual_pull_flow: ManualPullFlowPresentation = field(default_factory=ManualPullFlowPresentation)
+    batch_transfer_plan: BatchTransferPlanPresentation | None = None
