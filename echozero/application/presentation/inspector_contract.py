@@ -588,6 +588,16 @@ def _shared_context_sections(
                 label="Layer",
                 actions=(
                     InspectorAction(
+                        action_id="push_to_ma3",
+                        label="Push to MA3",
+                        group="transfer",
+                    ),
+                    InspectorAction(
+                        action_id="pull_from_ma3",
+                        label="Pull from MA3",
+                        group="transfer",
+                    ),
+                    InspectorAction(
                         action_id="toggle_mute",
                         label="Unmute Layer" if layer.muted else "Mute Layer",
                         group="layer",
