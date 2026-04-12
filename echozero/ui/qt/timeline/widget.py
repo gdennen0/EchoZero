@@ -6,7 +6,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, replace
 
 from PyQt6.QtCore import QPointF, QRectF, Qt, QTimer, pyqtSignal
-from PyQt6.QtGui import QColor, QContextMenuEvent, QPainter, QPen, QWheelEvent
+from PyQt6.QtGui import QColor, QContextMenuEvent, QPainter, QPen, QPolygonF, QWheelEvent
 from PyQt6.QtWidgets import QComboBox, QDialog, QDialogButtonBox, QDoubleSpinBox, QFrame, QGridLayout, QHBoxLayout, QInputDialog, QLabel, QMenu, QMessageBox, QPushButton, QScrollArea, QScrollBar, QSplitter, QToolTip, QVBoxLayout, QWidget
 
 from echozero.application.presentation.inspector_contract import (
@@ -364,17 +364,30 @@ class ManualPullTimelineCanvas(QWidget):
         painter.drawLine(int(self._left_padding), int(baseline_y), max(int(self._left_padding), self.width() - int(self._right_padding)), int(baseline_y))
 
         self._rects = self._compute_event_rects()
-        for event_model, rect in zip(self._events, self._rects):
+        metrics = painter.fontMetrics()
+        for index, (event_model, rect) in enumerate(zip(self._events, self._rects)):
             is_selected = event_model.event_id in self._selected_event_ids
             fill = QColor("#5cb2ff" if is_selected else "#475569")
             stroke = QColor("#d7ebff" if is_selected else "#90a2b5")
             painter.setPen(QPen(stroke, 1.5))
             painter.setBrush(fill)
-            painter.drawRoundedRect(rect, 6.0, 6.0)
+            painter.drawPolygon(self._diamond_polygon(rect))
 
-            label_rect = QRectF(rect.left() + 8.0, rect.top(), max(0.0, rect.width() - 16.0), rect.height())
+            next_left = self._rects[index + 1].left() if index + 1 < len(self._rects) else self.width() - self._right_padding
+            label_left = rect.center().x() + (min(rect.width() - 6.0, rect.height()) * 0.5) + 8.0
+            label_width = max(72.0, next_left - label_left - 8.0)
+            label_rect = QRectF(
+                label_left,
+                rect.top() - 2.0,
+                max(0.0, min(label_width, (self.width() - self._right_padding) - label_left)),
+                rect.height() + 4.0,
+            )
             painter.setPen(QColor("#08111a" if is_selected else "#eef4ff"))
-            painter.drawText(label_rect, Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft, event_model.label)
+            painter.drawText(
+                label_rect,
+                Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft,
+                metrics.elidedText(event_model.label, Qt.TextElideMode.ElideRight, int(label_rect.width())),
+            )
 
             if event_model.start is not None and event_model.end is not None:
                 painter.setPen(QColor("#c9d6e2"))
@@ -463,6 +476,21 @@ class ManualPullTimelineCanvas(QWidget):
             x = self._left_padding + (index * slot_width) + 4.0
             rects.append(QRectF(x, y, max(one_shot_width, slot_width - 8.0), self._bar_height))
         return rects
+
+    def _diamond_polygon(self, rect: QRectF) -> QPolygonF:
+        diamond_width = min(rect.width() - 6.0, rect.height())
+        diamond_height = max(10.0, rect.height() - 4.0)
+        half_width = diamond_width * 0.5
+        half_height = diamond_height * 0.5
+        center = rect.center()
+        return QPolygonF(
+            [
+                QPointF(center.x(), center.y() - half_height),
+                QPointF(center.x() + half_width, center.y()),
+                QPointF(center.x(), center.y() + half_height),
+                QPointF(center.x() - half_width, center.y()),
+            ]
+        )
 
 
 class ManualPullTimelineRuler(QWidget):
