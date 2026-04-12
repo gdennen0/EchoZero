@@ -2179,6 +2179,10 @@ def test_manual_pull_timeline_dialog_keeps_target_selection_in_same_popup():
     try:
         assert dialog.selected_event_ids() == ["ma3_evt_2"]
         assert dialog.selected_target_layer_id() == LayerId("layer_new")
+        assert [dialog._target_combo.itemText(index) for index in range(dialog._target_combo.count())] == [
+            "Kick",
+            "Create New Layer",
+        ]
 
         dialog._canvas.set_selected_event_ids(["ma3_evt_1", "ma3_evt_2"])
 

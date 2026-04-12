@@ -251,6 +251,13 @@ def _build_orchestrator(sync_service: SyncService):
     return orchestrator, timeline, session
 
 
+def _pull_target_option_id(session: Session, name: str) -> LayerId:
+    for target in session.manual_pull_flow.available_target_layers:
+        if target.name == name:
+            return target.layer_id
+    raise AssertionError(f"Pull target option not found: {name}")
+
+
 def _stage_pull_plan(orchestrator: TimelineOrchestrator, timeline: Timeline, *, tracks, events_by_track) -> str:
     orchestrator.handle(timeline, OpenPullFromMA3Dialog())
     orchestrator.handle(timeline, SetPullTrackOptions(tracks=tracks))
@@ -322,7 +329,7 @@ def test_apply_transfer_plan_imports_pull_rows_and_marks_applied():
     assert session.batch_transfer_plan.blocked_count == 0
 
 
-def test_apply_transfer_plan_continues_after_row_failure_and_marks_failed_rows():
+def test_apply_transfer_plan_stops_after_row_failure_and_leaves_later_ready_rows_untouched():
     sync_service = _SyncService(
         push_tracks=[
             ManualPushTrackOption(coord="tc1_tg2_tr3", name="Track 3"),
@@ -351,10 +358,142 @@ def test_apply_transfer_plan_continues_after_row_failure_and_marks_failed_rows()
     assert session.batch_transfer_plan.rows[1].issue == "Push apply failed for tc1_tg2_tr4"
     assert session.batch_transfer_plan.applied_count == 1
     assert session.batch_transfer_plan.failed_count == 1
+    assert session.batch_transfer_plan.ready_count == 0
     assert sync_service.push_calls == [
         ("tc1_tg2_tr3", ["kick_evt"]),
         ("tc1_tg2_tr4", ["snare_evt"]),
     ]
+
+
+def test_apply_transfer_plan_fail_fast_leaves_remaining_ready_rows_and_blocked_rows_untouched():
+    sync_service = _SyncService(
+        push_tracks=[
+            ManualPushTrackOption(coord="tc1_tg2_tr3", name="Track 3"),
+            ManualPushTrackOption(coord="tc1_tg2_tr4", name="Track 4"),
+            ManualPushTrackOption(coord="tc1_tg2_tr5", name="Track 5"),
+        ],
+        fail_track="tc1_tg2_tr4",
+    )
+    orchestrator, timeline, session = _build_orchestrator(sync_service)
+    timeline.selection.selected_layer_id = LayerId("layer_kick")
+    timeline.selection.selected_take_id = TakeId("take_kick")
+    timeline.selection.selected_event_ids = [EventId("kick_evt"), EventId("snare_evt")]
+    timeline.layers[0].sync.ma3_track_coord = "tc1_tg2_tr3"
+    timeline.layers[1].sync.ma3_track_coord = "tc1_tg2_tr4"
+
+    third_layer = Layer(
+        id=LayerId("layer_yam"),
+        timeline_id=timeline.id,
+        name="Yam",
+        kind=LayerKind.EVENT,
+        order_index=2,
+        takes=[
+            Take(
+                id=TakeId("take_yam"),
+                layer_id=LayerId("layer_yam"),
+                name="Main",
+                events=[Event(id=EventId("yam_evt"), take_id=TakeId("take_yam"), start=3.0, end=3.5, label="Yam")],
+            )
+        ],
+    )
+    fourth_layer = Layer(
+        id=LayerId("layer_zed"),
+        timeline_id=timeline.id,
+        name="Zed",
+        kind=LayerKind.EVENT,
+        order_index=3,
+        takes=[
+            Take(
+                id=TakeId("take_zed"),
+                layer_id=LayerId("layer_zed"),
+                name="Main",
+                events=[Event(id=EventId("zed_evt"), take_id=TakeId("take_zed"), start=4.0, end=4.5, label="Zed")],
+            )
+        ],
+    )
+    timeline.layers.extend([third_layer, fourth_layer])
+    timeline.selection.selected_event_ids.extend([EventId("yam_evt"), EventId("zed_evt")])
+
+    orchestrator.handle(
+        timeline,
+        OpenPushToMA3Dialog(
+            selection_event_ids=[EventId("kick_evt"), EventId("snare_evt"), EventId("yam_evt"), EventId("zed_evt")]
+        ),
+    )
+    orchestrator.handle(
+        timeline,
+        SelectPushTargetTrack(target_track_coord="tc1_tg2_tr5", layer_id=LayerId("layer_zed")),
+    )
+    orchestrator.handle(
+        timeline,
+        SelectPushTargetTrack(target_track_coord="tc1_tg2_tr4", layer_id=LayerId("layer_snare")),
+    )
+
+    orchestrator.handle(timeline, ApplyTransferPlan(plan_id=f"push:{timeline.id}"))
+
+    assert session.batch_transfer_plan is not None
+    assert [row.row_id for row in session.batch_transfer_plan.rows] == [
+        "push:layer_kick",
+        "push:layer_snare",
+        "push:layer_yam",
+        "push:layer_zed",
+    ]
+    assert [row.status for row in session.batch_transfer_plan.rows] == ["applied", "failed", "blocked", "ready"]
+    assert sync_service.push_calls == [
+        ("tc1_tg2_tr3", ["kick_evt"]),
+        ("tc1_tg2_tr4", ["snare_evt"]),
+    ]
+    assert session.batch_transfer_plan.ready_count == 1
+    assert session.batch_transfer_plan.blocked_count == 1
+    assert session.batch_transfer_plan.applied_count == 1
+    assert session.batch_transfer_plan.failed_count == 1
+
+
+def test_apply_transfer_plan_create_new_layer_per_source_track_creates_distinct_layers():
+    tracks = [
+        ManualPullTrackOption(coord="tc1_tg2_tr3", name="Track 3"),
+        ManualPullTrackOption(coord="tc1_tg2_tr4", name="Track 4"),
+    ]
+    events_by_track = {
+        "tc1_tg2_tr3": [ManualPullEventOption(event_id="ma3_evt_1", label="Cue 1", start=1.0, end=1.5)],
+        "tc1_tg2_tr4": [ManualPullEventOption(event_id="ma3_evt_2", label="Cue 2", start=2.0, end=2.5)],
+    }
+    orchestrator, timeline, session = _build_orchestrator(
+        _SyncService(pull_tracks=tracks, events_by_track=events_by_track)
+    )
+
+    orchestrator.handle(timeline, OpenPullFromMA3Dialog())
+    orchestrator.handle(timeline, SetPullTrackOptions(tracks=tracks))
+    orchestrator.handle(
+        timeline,
+        SelectPullSourceTracks(source_track_coords=["tc1_tg2_tr3", "tc1_tg2_tr4"]),
+    )
+    create_per_source_target_id = _pull_target_option_id(session, "+ Create New Layer Per Source Track...")
+    for track in tracks:
+        orchestrator.handle(timeline, SelectPullSourceTrack(source_track_coord=track.coord))
+        orchestrator.handle(
+            timeline,
+            SelectPullSourceEvents(
+                selected_ma3_event_ids=[event.event_id for event in events_by_track[track.coord]]
+            ),
+        )
+        if track.coord == "tc1_tg2_tr3":
+            orchestrator.handle(
+                timeline,
+                SelectPullTargetLayer(target_layer_id=create_per_source_target_id),
+            )
+
+    orchestrator.handle(timeline, ApplyTransferPlan(plan_id=f"pull:{timeline.id}"))
+
+    created_layers = timeline.layers[2:]
+    assert [layer.name for layer in created_layers] == ["Track 3", "Track 4"]
+    assert len(created_layers) == 2
+    assert created_layers[0].id != created_layers[1].id
+    assert [len(layer.takes) for layer in created_layers] == [2, 2]
+    assert [layer.takes[1].source_ref for layer in created_layers] == ["tc1_tg2_tr3", "tc1_tg2_tr4"]
+    assert session.batch_transfer_plan is not None
+    assert [row.status for row in session.batch_transfer_plan.rows] == ["applied", "applied"]
+    assert session.batch_transfer_plan.applied_count == 2
 
 
 def test_apply_transfer_plan_fails_push_row_when_execution_endpoint_unavailable():

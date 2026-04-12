@@ -217,6 +217,13 @@ def _build_orchestrator(sync_service: SyncService | None = None):
     return orchestrator, timeline, session, playback_service
 
 
+def _pull_target_option_id(session: Session, name: str) -> LayerId:
+    for target in session.manual_pull_flow.available_target_layers:
+        if target.name == name:
+            return target.layer_id
+    raise AssertionError(f"Pull target option not found: {name}")
+
+
 def test_open_pull_intent_resets_flow_and_hydrates_tracks_and_target_layers():
     orchestrator, timeline, session, _playback_service = _build_orchestrator(
         sync_service=_SyncService(
@@ -260,7 +267,12 @@ def test_open_pull_intent_resets_flow_and_hydrates_tracks_and_target_layers():
     assert session.manual_pull_flow.selected_ma3_event_ids == []
     assert session.manual_pull_flow.selected_ma3_event_ids_by_track == {}
     assert session.manual_pull_flow.available_target_layers == [
-        ManualPullTargetOption(layer_id=LayerId("layer_target"), name="Target Layer")
+        ManualPullTargetOption(layer_id=LayerId("layer_target"), name="Target Layer"),
+        ManualPullTargetOption(layer_id=_pull_target_option_id(session, "+ Create New Layer..."), name="+ Create New Layer..."),
+        ManualPullTargetOption(
+            layer_id=_pull_target_option_id(session, "+ Create New Layer Per Source Track..."),
+            name="+ Create New Layer Per Source Track...",
+        ),
     ]
     assert session.manual_pull_flow.target_layer_id is None
     assert session.manual_pull_flow.target_layer_id_by_source_track == {}
@@ -356,6 +368,45 @@ def test_pull_workspace_selection_builds_rows_and_updates_mapping_state():
     assert session.batch_transfer_plan.rows[1].issue == "Select source events and target layer mapping"
     assert session.batch_transfer_plan.ready_count == 1
     assert session.batch_transfer_plan.blocked_count == 1
+
+
+def test_select_pull_target_layer_fans_out_per_source_track_mapping_to_all_selected_tracks():
+    orchestrator, timeline, session, _playback_service = _build_orchestrator(
+        sync_service=_SyncService(
+            tracks=[
+                ManualPullTrackOption(coord="tc1_tg2_tr3", name="Track 3"),
+                ManualPullTrackOption(coord="tc1_tg2_tr4", name="Track 4"),
+            ],
+            events_by_track={
+                "tc1_tg2_tr3": [ManualPullEventOption(event_id="ma3_evt_1", label="Cue 1")],
+                "tc1_tg2_tr4": [ManualPullEventOption(event_id="ma3_evt_2", label="Cue 2")],
+            },
+        )
+    )
+
+    orchestrator.handle(timeline, OpenPullFromMA3Dialog())
+    orchestrator.handle(
+        timeline,
+        SelectPullSourceTracks(source_track_coords=["tc1_tg2_tr3", "tc1_tg2_tr4"]),
+    )
+    orchestrator.handle(timeline, SelectPullSourceTrack(source_track_coord="tc1_tg2_tr3"))
+    orchestrator.handle(timeline, SelectPullSourceEvents(selected_ma3_event_ids=["ma3_evt_1"]))
+
+    per_source_target_id = _pull_target_option_id(session, "+ Create New Layer Per Source Track...")
+    orchestrator.handle(timeline, SelectPullTargetLayer(target_layer_id=per_source_target_id))
+
+    assert session.manual_pull_flow.target_layer_id == per_source_target_id
+    assert session.manual_pull_flow.target_layer_id_by_source_track == {
+        "tc1_tg2_tr3": per_source_target_id,
+        "tc1_tg2_tr4": per_source_target_id,
+    }
+    assert session.batch_transfer_plan is not None
+    assert [row.target_label for row in session.batch_transfer_plan.rows] == [
+        "+ Create New Layer Per Source Track...",
+        "+ Create New Layer Per Source Track...",
+    ]
+    assert [row.status for row in session.batch_transfer_plan.rows] == ["ready", "blocked"]
+    assert [row.issue for row in session.batch_transfer_plan.rows] == [None, "Select source events"]
 
 
 def test_exit_pull_workspace_clears_workspace_state_and_pull_plan():
@@ -577,6 +628,52 @@ def test_apply_pull_import_creates_new_take_selects_imported_events_and_clears_d
     assert playback_service.update_runtime_calls == 6
     assert session.batch_transfer_plan is not None
     assert session.batch_transfer_plan.rows[0].status == "ready"
+
+
+def test_apply_pull_create_new_target_creates_event_layer_and_imports_events():
+    orchestrator, timeline, session, _playback_service = _build_orchestrator(
+        sync_service=_SyncService(
+            tracks=[ManualPullTrackOption(coord="tc1_tg2_tr3", name="Track 3", note="Lead", event_count=2)],
+            events_by_track={
+                "tc1_tg2_tr3": [
+                    ManualPullEventOption(event_id="ma3_evt_1", label="Cue 1", start=1.0, end=1.5),
+                    ManualPullEventOption(event_id="ma3_evt_2", label="Cue 2", start=2.0, end=2.5),
+                ]
+            },
+        )
+    )
+
+    orchestrator.handle(timeline, OpenPullFromMA3Dialog())
+    orchestrator.handle(timeline, SelectPullSourceTrack(source_track_coord="tc1_tg2_tr3"))
+    orchestrator.handle(timeline, SelectPullSourceEvents(selected_ma3_event_ids=["ma3_evt_1", "ma3_evt_2"]))
+    create_new_target_id = _pull_target_option_id(session, "+ Create New Layer...")
+    orchestrator.handle(timeline, SelectPullTargetLayer(target_layer_id=create_new_target_id))
+    orchestrator.handle(
+        timeline,
+        ConfirmPullFromMA3(
+            source_track_coord="tc1_tg2_tr3",
+            selected_ma3_event_ids=["ma3_evt_1", "ma3_evt_2"],
+            target_layer_id=create_new_target_id,
+        ),
+    )
+
+    layer_count_before_apply = len(timeline.layers)
+    orchestrator.handle(timeline, ApplyPullFromMA3())
+
+    assert len(timeline.layers) == layer_count_before_apply + 1
+    created_layer = timeline.layers[-1]
+    assert created_layer.kind is LayerKind.EVENT
+    assert created_layer.order_index == 3
+    assert created_layer.name == "Track 3"
+    assert len(created_layer.takes) == 2
+    assert created_layer.takes[0].name == "Main"
+    imported_take = created_layer.takes[1]
+    assert imported_take.name == "MA3 Pull - Track 3"
+    assert imported_take.source_ref == "tc1_tg2_tr3"
+    assert [event.payload_ref for event in imported_take.events] == ["ma3_evt_1", "ma3_evt_2"]
+    assert timeline.selection.selected_layer_id == created_layer.id
+    assert timeline.selection.selected_take_id == imported_take.id
+    assert timeline.selection.selected_event_ids == [event.id for event in imported_take.events]
 
 
 def test_pull_flow_validation_errors_reject_unknown_source_events_and_targets():

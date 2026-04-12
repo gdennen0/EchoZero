@@ -2,6 +2,7 @@
 
 import inspect
 import re
+import unicodedata
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
@@ -21,6 +22,7 @@ from echozero.application.session.models import (
 )
 from echozero.application.session.service import SessionService
 from echozero.application.shared.enums import LayerKind
+from echozero.application.shared.ids import LayerId, TakeId
 from echozero.application.sync.diff_service import SyncDiffService
 from echozero.application.sync.models import LiveSyncState
 from echozero.application.sync.service import SyncService
@@ -80,6 +82,10 @@ from echozero.application.transport.service import TransportService
 
 _KEYBOARD_STEP_SECONDS = 1.0 / 30.0
 _RECONNECT_REARM_REQUIRED_REASON = "Live sync reconnected; explicit re-arm required"
+_PULL_TARGET_CREATE_NEW_LAYER_ID = LayerId("__manual_pull__:create_new_layer")
+_PULL_TARGET_CREATE_NEW_LAYER_PER_SOURCE_TRACK_ID = LayerId("__manual_pull__:create_new_layer_per_source_track")
+_PULL_TARGET_CREATE_NEW_LAYER_NAME = "+ Create New Layer..."
+_PULL_TARGET_CREATE_NEW_LAYER_PER_SOURCE_TRACK_NAME = "+ Create New Layer Per Source Track..."
 
 
 @dataclass(slots=True)
@@ -467,7 +473,10 @@ class TimelineOrchestrator:
             )
             session.manual_pull_flow.target_layer_id = target_layer.layer_id
             active_coord = session.manual_pull_flow.active_source_track_coord or session.manual_pull_flow.source_track_coord
-            if active_coord:
+            if target_layer.layer_id == _PULL_TARGET_CREATE_NEW_LAYER_PER_SOURCE_TRACK_ID:
+                for coord in session.manual_pull_flow.selected_source_track_coords:
+                    session.manual_pull_flow.target_layer_id_by_source_track[coord] = target_layer.layer_id
+            elif active_coord:
                 session.manual_pull_flow.target_layer_id_by_source_track[active_coord] = target_layer.layer_id
             session.manual_pull_flow.diff_gate_open = False
             session.manual_pull_flow.diff_preview = None
@@ -550,13 +559,17 @@ class TimelineOrchestrator:
             if flow.target_layer_id is None:
                 raise ValueError("ApplyPullFromMA3 requires a selected target_layer_id")
 
-            target_layer = self._find_layer(timeline, flow.target_layer_id)
             source_track = self._manual_pull_track_by_coord(
                 flow.available_tracks,
                 flow.source_track_coord or preview.source_track_coord,
                 action_name="ApplyPullFromMA3",
             )
             selected_events = self._manual_pull_selected_events(flow)
+            target_layer = self._resolve_manual_pull_target_layer(
+                timeline,
+                target_layer_id=flow.target_layer_id,
+                source_track=source_track,
+            )
 
             imported_take = self._build_manual_pull_take(
                 layer=target_layer,
@@ -1053,8 +1066,12 @@ class TimelineOrchestrator:
 
     def _apply_transfer_plan(self, timeline: Timeline, session, plan: BatchTransferPlanState) -> None:
         applied_rows: list[BatchTransferPlanRowState] = []
+        stop_execution = False
         for row in plan.rows:
             if row.status == "blocked":
+                applied_rows.append(self._copy_plan_row(row))
+                continue
+            if stop_execution:
                 applied_rows.append(self._copy_plan_row(row))
                 continue
             if row.status != "ready":
@@ -1062,17 +1079,18 @@ class TimelineOrchestrator:
                 continue
             try:
                 if row.direction == "pull":
-                    applied_rows.append(self._apply_pull_plan_row(timeline, row))
+                    applied_row = self._apply_pull_plan_row(timeline, row)
                 elif row.direction == "push":
-                    applied_rows.append(self._apply_push_plan_row(timeline, row))
+                    applied_row = self._apply_push_plan_row(timeline, row)
                 else:
-                    applied_rows.append(
-                        self._copy_plan_row(
-                            row,
-                            status="failed",
-                            issue=f"Unsupported transfer direction: {row.direction}",
-                        )
+                    applied_row = self._copy_plan_row(
+                        row,
+                        status="failed",
+                        issue=f"Unsupported transfer direction: {row.direction}",
                     )
+                applied_rows.append(applied_row)
+                if applied_row.status == "failed":
+                    stop_execution = True
             except Exception as exc:
                 applied_rows.append(
                     self._copy_plan_row(
@@ -1081,6 +1099,7 @@ class TimelineOrchestrator:
                         issue=self._deterministic_issue_text(exc),
                     )
                 )
+                stop_execution = True
 
         plan.rows = applied_rows
         self._refresh_plan_counters(plan)
@@ -1121,11 +1140,15 @@ class TimelineOrchestrator:
         return self._copy_plan_row(row)
 
     def _apply_pull_plan_row(self, timeline: Timeline, row: BatchTransferPlanRowState) -> BatchTransferPlanRowState:
-        target_layer = self._find_layer(timeline, row.target_layer_id)
         source_track = self._manual_pull_track_by_coord(
             self._load_manual_pull_track_options(),
             row.source_track_coord or "",
             action_name="ApplyTransferPlan",
+        )
+        target_layer = self._resolve_manual_pull_target_layer(
+            timeline,
+            target_layer_id=row.target_layer_id,
+            source_track=source_track,
         )
         selected_events = self._manual_pull_selected_events_by_ids(
             available_events=self._load_manual_pull_event_options(source_track.coord),
@@ -1610,13 +1633,102 @@ class TimelineOrchestrator:
 
     @staticmethod
     def _load_manual_pull_target_options(timeline: Timeline) -> list[ManualPullTargetOption]:
-        return [
+        targets = [
             ManualPullTargetOption(layer_id=layer.id, name=layer.name)
             for layer in sorted(timeline.layers, key=lambda value: value.order_index)
             if layer.kind == LayerKind.EVENT
             and layer.presentation_hints.visible
             and not layer.presentation_hints.locked
         ]
+        targets.extend(
+            [
+                ManualPullTargetOption(
+                    layer_id=_PULL_TARGET_CREATE_NEW_LAYER_ID,
+                    name=_PULL_TARGET_CREATE_NEW_LAYER_NAME,
+                ),
+                ManualPullTargetOption(
+                    layer_id=_PULL_TARGET_CREATE_NEW_LAYER_PER_SOURCE_TRACK_ID,
+                    name=_PULL_TARGET_CREATE_NEW_LAYER_PER_SOURCE_TRACK_NAME,
+                ),
+            ]
+        )
+        return targets
+
+    @staticmethod
+    def _is_manual_pull_synthetic_target(target_layer_id) -> bool:
+        return target_layer_id in {
+            _PULL_TARGET_CREATE_NEW_LAYER_ID,
+            _PULL_TARGET_CREATE_NEW_LAYER_PER_SOURCE_TRACK_ID,
+        }
+
+    def _resolve_manual_pull_target_layer(
+        self,
+        timeline: Timeline,
+        *,
+        target_layer_id,
+        source_track: ManualPullTrackOption,
+    ) -> Layer:
+        if self._is_manual_pull_synthetic_target(target_layer_id):
+            return self._create_manual_pull_target_layer(timeline, source_track=source_track)
+        return self._find_layer(timeline, target_layer_id)
+
+    def _create_manual_pull_target_layer(self, timeline: Timeline, *, source_track: ManualPullTrackOption) -> Layer:
+        layer_name = self._next_manual_pull_layer_name(timeline, source_track.name)
+        layer_id = self._next_manual_pull_layer_id(timeline, source_track)
+        main_take_id = TakeId(f"{layer_id}:main")
+        new_layer = Layer(
+            id=layer_id,
+            timeline_id=timeline.id,
+            name=layer_name,
+            kind=LayerKind.EVENT,
+            order_index=self._next_timeline_layer_order_index(timeline),
+            takes=[
+                Take(
+                    id=main_take_id,
+                    layer_id=layer_id,
+                    name="Main",
+                )
+            ],
+        )
+        timeline.layers.append(new_layer)
+        return new_layer
+
+    @staticmethod
+    def _next_timeline_layer_order_index(timeline: Timeline) -> int:
+        if not timeline.layers:
+            return 0
+        return max(int(layer.order_index) for layer in timeline.layers) + 1
+
+    def _next_manual_pull_layer_id(self, timeline: Timeline, source_track: ManualPullTrackOption):
+        base_slug = self._manual_pull_layer_slug(source_track)
+        existing_ids = {str(layer.id) for layer in timeline.layers}
+        index = 1
+        while True:
+            suffix = "" if index == 1 else f"_{index}"
+            candidate = LayerId(f"layer_ma3_pull_{base_slug}{suffix}")
+            if str(candidate) not in existing_ids:
+                return candidate
+            index += 1
+
+    def _next_manual_pull_layer_name(self, timeline: Timeline, source_name: str) -> str:
+        base_name = source_name.strip() or "Imported Layer"
+        existing_names = {layer.name for layer in timeline.layers}
+        if base_name not in existing_names:
+            return base_name
+        index = 2
+        while True:
+            candidate = f"{base_name} {index}"
+            if candidate not in existing_names:
+                return candidate
+            index += 1
+
+    @staticmethod
+    def _manual_pull_layer_slug(source_track: ManualPullTrackOption) -> str:
+        raw = f"{source_track.name}_{source_track.coord}".strip().lower()
+        normalized = unicodedata.normalize("NFKD", raw)
+        ascii_only = normalized.encode("ascii", "ignore").decode("ascii")
+        slug = re.sub(r"[^a-z0-9]+", "_", ascii_only).strip("_")
+        return slug or "import"
 
     @staticmethod
     def _normalize_manual_push_track_option(raw_track: Any) -> ManualPushTrackOption:

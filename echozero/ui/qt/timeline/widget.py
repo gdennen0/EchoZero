@@ -420,7 +420,7 @@ class ManualPullTimelineDialog(QDialog):
         target_row.addWidget(QLabel("Target EZ layer", self))
         self._target_combo = QComboBox(self)
         for target in available_targets:
-            self._target_combo.addItem(f"{target.name} ({target.layer_id})", target.layer_id)
+            self._target_combo.addItem(target.name, target.layer_id)
         if selected_target_layer_id is not None:
             for index in range(self._target_combo.count()):
                 if self._target_combo.itemData(index) == selected_target_layer_id:
@@ -2194,7 +2194,7 @@ class TimelineWidget(QWidget):
 
     @staticmethod
     def _manual_pull_target_label(target) -> str:
-        return f"{target.name} ({target.layer_id})"
+        return target.name
 
     @staticmethod
     def _manual_pull_diff_preview_summary(
