@@ -659,9 +659,11 @@ class _ContextMenuEntry:
 
 
 class TimelineCanvas(QWidget):
-    layer_clicked = pyqtSignal(object)
+    layer_clicked = pyqtSignal(object, str)
     mute_clicked = pyqtSignal(object)
     solo_clicked = pyqtSignal(object)
+    push_clicked = pyqtSignal(object)
+    pull_clicked = pyqtSignal(object)
     take_toggle_clicked = pyqtSignal(object)
     take_selected = pyqtSignal(object, object)
     event_selected = pyqtSignal(object, object, object, str)
@@ -695,6 +697,8 @@ class TimelineCanvas(QWidget):
         self._toggle_rects: list[tuple[QRectF, object]] = []
         self._mute_rects: list[tuple[QRectF, object]] = []
         self._solo_rects: list[tuple[QRectF, object]] = []
+        self._push_rects: list[tuple[QRectF, object]] = []
+        self._pull_rects: list[tuple[QRectF, object]] = []
         self._event_rects: list[tuple[QRectF, object, object | None, object]] = []
         self._header_select_rects: list[tuple[QRectF, object]] = []
         self._row_body_select_rects: list[tuple[QRectF, object]] = []
@@ -734,6 +738,8 @@ class TimelineCanvas(QWidget):
     def _push_outline_active_for_layer(self, layer: LayerPresentation) -> bool:
         if not self.presentation.manual_push_flow.push_mode_active:
             return False
+        if layer.layer_id in set(self.presentation.manual_push_flow.selected_layer_ids):
+            return True
         plan = self.presentation.batch_transfer_plan
         if plan is None or plan.operation_type not in {"push", "mixed"}:
             return False
@@ -758,6 +764,8 @@ class TimelineCanvas(QWidget):
         self._toggle_rects.clear()
         self._mute_rects.clear()
         self._solo_rects.clear()
+        self._push_rects.clear()
+        self._pull_rects.clear()
         self._event_rects.clear()
         self._header_select_rects.clear()
         self._row_body_select_rects.clear()
@@ -859,6 +867,14 @@ class TimelineCanvas(QWidget):
             if rect.contains(pos):
                 self.solo_clicked.emit(layer_id)
                 return
+        for rect, layer_id in self._push_rects:
+            if rect.contains(pos):
+                self.push_clicked.emit(layer_id)
+                return
+        for rect, layer_id in self._pull_rects:
+            if rect.contains(pos):
+                self.pull_clicked.emit(layer_id)
+                return
         for rect, layer_id, take_id, action_id in self._take_action_rects:
             if rect.contains(pos):
                 self.take_action_selected.emit(layer_id, take_id, action_id)
@@ -898,11 +914,11 @@ class TimelineCanvas(QWidget):
                 return
         for rect, layer_id in self._header_select_rects:
             if rect.contains(pos):
-                self.layer_clicked.emit(layer_id)
+                self.layer_clicked.emit(layer_id, self._layer_selection_mode_for_modifiers(event.modifiers()))
                 return
         for rect, layer_id in self._row_body_select_rects:
             if rect.contains(pos):
-                self.layer_clicked.emit(layer_id)
+                self.layer_clicked.emit(layer_id, self._layer_selection_mode_for_modifiers(event.modifiers()))
                 return
         super().mousePressEvent(event)
 
@@ -1029,6 +1045,14 @@ class TimelineCanvas(QWidget):
             return "toggle"
         return "replace"
 
+    @staticmethod
+    def _layer_selection_mode_for_modifiers(modifiers: Qt.KeyboardModifier) -> str:
+        if modifiers & Qt.KeyboardModifier.ShiftModifier:
+            return "range"
+        if modifiers & Qt.KeyboardModifier.ControlModifier or modifiers & Qt.KeyboardModifier.MetaModifier:
+            return "toggle"
+        return "replace"
+
     def _draw_layers(self, painter: QPainter) -> None:
         y = self._top_padding
         for layer in self.presentation.layers:
@@ -1110,6 +1134,8 @@ class TimelineCanvas(QWidget):
         hit_targets = self._header_block.paint(painter, slots, layer, dimmed=dimmed)
         self._mute_rects.append((hit_targets.mute_rect, layer.layer_id))
         self._solo_rects.append((hit_targets.solo_rect, layer.layer_id))
+        self._push_rects.append((hit_targets.push_rect, layer.layer_id))
+        self._pull_rects.append((hit_targets.pull_rect, layer.layer_id))
 
         painter.save()
         painter.setClipRect(layout.content_rect)
@@ -1443,6 +1469,8 @@ class TimelineWidget(QWidget):
         self._canvas.layer_clicked.connect(self._select_layer)
         self._canvas.mute_clicked.connect(self._toggle_mute)
         self._canvas.solo_clicked.connect(self._toggle_solo)
+        self._canvas.push_clicked.connect(self._open_push_from_layer_action)
+        self._canvas.pull_clicked.connect(self._open_pull_from_layer_action)
         self._canvas.take_toggle_clicked.connect(self._toggle_take_selector)
         self._canvas.take_selected.connect(self._select_take)
         self._canvas.event_selected.connect(self._select_event)
@@ -1670,8 +1698,8 @@ class TimelineWidget(QWidget):
     def _seek(self, position: float) -> None:
         self._dispatch(Seek(position))
 
-    def _select_layer(self, layer_id) -> None:
-        self._dispatch(SelectLayer(layer_id))
+    def _select_layer(self, layer_id, mode: str = "replace") -> None:
+        self._dispatch(SelectLayer(layer_id, mode=mode))
 
     def _toggle_take_selector(self, layer_id) -> None:
         self._dispatch(ToggleLayerExpanded(layer_id))
@@ -1711,6 +1739,40 @@ class TimelineWidget(QWidget):
 
     def _toggle_solo(self, layer_id) -> None:
         self._dispatch(ToggleSolo(layer_id))
+
+    def _open_push_from_layer_action(self, layer_id) -> None:
+        self._focus_layer_for_header_action(layer_id)
+        scoped_event_ids = self._selected_event_ids_for_selected_layers()
+        self._dispatch(OpenPushToMA3Dialog(selection_event_ids=scoped_event_ids))
+
+    def _open_pull_from_layer_action(self, layer_id) -> None:
+        self._focus_layer_for_header_action(layer_id)
+        self._dispatch(OpenPullFromMA3Dialog())
+
+    def _focus_layer_for_header_action(self, layer_id) -> None:
+        selected_layer_ids = set(self.presentation.selected_layer_ids)
+        if not selected_layer_ids and self.presentation.selected_layer_id is not None:
+            selected_layer_ids = {self.presentation.selected_layer_id}
+        if layer_id not in selected_layer_ids:
+            self._dispatch(SelectLayer(layer_id))
+
+    def _selected_event_ids_for_selected_layers(self) -> list:
+        selected_layer_ids = set(self.presentation.selected_layer_ids)
+        if not selected_layer_ids and self.presentation.selected_layer_id is not None:
+            selected_layer_ids = {self.presentation.selected_layer_id}
+        if not selected_layer_ids:
+            return list(self.presentation.selected_event_ids)
+
+        allowed_event_ids: set = set()
+        for layer in self.presentation.layers:
+            if layer.layer_id not in selected_layer_ids:
+                continue
+            for event in layer.events:
+                allowed_event_ids.add(event.event_id)
+            for take in layer.takes:
+                for event in take.events:
+                    allowed_event_ids.add(event.event_id)
+        return [event_id for event_id in self.presentation.selected_event_ids if event_id in allowed_event_ids]
 
     def _preview_active_transfer_plan(self) -> None:
         plan = self.presentation.batch_transfer_plan
@@ -1819,7 +1881,7 @@ class TimelineWidget(QWidget):
                 self._dispatch(ClearLayerLiveSyncPauseReason(layer_id=layer_id))
             return
         if action_id == "push_to_ma3":
-            selected_event_ids = list(self.presentation.selected_event_ids)
+            selected_event_ids = self._selected_event_ids_for_selected_layers()
             self._dispatch(OpenPushToMA3Dialog(selection_event_ids=selected_event_ids))
             return
         if action_id == "push_select_all_events":

@@ -13,7 +13,7 @@ from echozero.application.shared.ids import EventId, ProjectId, SessionId, SongV
 from echozero.application.sync.diff_service import SyncDiffRow, SyncDiffSummary
 from echozero.application.sync.models import SyncState
 from echozero.application.sync.service import SyncService
-from echozero.application.timeline.intents import ConfirmPushToMA3, OpenPushToMA3Dialog, SetPushTransferMode
+from echozero.application.timeline.intents import ConfirmPushToMA3, OpenPushToMA3Dialog, SelectLayer, SetPushTransferMode
 from echozero.application.timeline.models import Event, Layer, Take, Timeline
 from echozero.application.timeline.orchestrator import TimelineOrchestrator
 from echozero.application.transport.models import TransportState
@@ -229,8 +229,9 @@ def test_open_push_intent_sets_manual_push_dialog_state():
         OpenPushToMA3Dialog(selection_event_ids=[]),
     )
 
-    assert session.manual_push_flow.dialog_open is True
+    assert session.manual_push_flow.dialog_open is False
     assert session.manual_push_flow.push_mode_active is True
+    assert session.manual_push_flow.selected_layer_ids == []
     assert session.manual_push_flow.selected_event_ids == []
     assert session.manual_push_flow.target_track_coord is None
     assert session.manual_push_flow.transfer_mode == "merge"
@@ -324,6 +325,91 @@ def test_open_push_intent_builds_rows_grouped_by_selected_source_layer():
     assert session.batch_transfer_plan.rows[1].target_track_coord == "tc1_tg2_tr4"
     assert session.batch_transfer_plan.ready_count == 1
     assert session.batch_transfer_plan.blocked_count == 1
+
+
+def test_layer_selection_supports_replace_toggle_and_range_modes():
+    orchestrator, timeline, _session, _playback_service = _build_orchestrator()
+    timeline.layers.append(
+        Layer(
+            id="layer_snare",
+            timeline_id=timeline.id,
+            name="Snare",
+            kind=LayerKind.EVENT,
+            order_index=1,
+            takes=[Take(id="take_snare", layer_id="layer_snare", name="Main")],
+        )
+    )
+    timeline.layers.append(
+        Layer(
+            id="layer_hat",
+            timeline_id=timeline.id,
+            name="Hat",
+            kind=LayerKind.EVENT,
+            order_index=2,
+            takes=[Take(id="take_hat", layer_id="layer_hat", name="Main")],
+        )
+    )
+
+    orchestrator.handle(timeline, SelectLayer(layer_id=timeline.layers[0].id))
+    orchestrator.handle(timeline, SelectLayer(layer_id=timeline.layers[1].id, mode="toggle"))
+    orchestrator.handle(timeline, SelectLayer(layer_id=timeline.layers[2].id, mode="range"))
+
+    assert timeline.selection.selected_layer_id == timeline.layers[2].id
+    assert timeline.selection.selected_layer_ids == [
+        timeline.layers[0].id,
+        timeline.layers[1].id,
+        timeline.layers[2].id,
+    ]
+
+
+def test_open_push_intent_uses_multi_layer_scope_for_push_plan_rows():
+    orchestrator, timeline, session, _playback_service = _build_orchestrator(
+        sync_service=_PushTrackListingSyncService(
+            tracks=[
+                ManualPushTrackOption(coord="tc1_tg2_tr3", name="Track 3"),
+                ManualPushTrackOption(coord="tc1_tg2_tr4", name="Track 4"),
+            ]
+        )
+    )
+    second_layer = Layer(
+        id="layer_snare",
+        timeline_id=timeline.id,
+        name="Snare",
+        kind=LayerKind.EVENT,
+        order_index=1,
+        takes=[
+            Take(
+                id="take_snare",
+                layer_id="layer_snare",
+                name="Main",
+                events=[
+                    Event(
+                        id=EventId("evt_3"),
+                        take_id="take_snare",
+                        start=3.0,
+                        end=3.5,
+                        label="Cue 3",
+                    )
+                ],
+            )
+        ],
+    )
+    timeline.layers.append(second_layer)
+    timeline.selection.selected_layer_id = timeline.layers[1].id
+    timeline.selection.selected_layer_ids = [timeline.layers[0].id, timeline.layers[1].id]
+    timeline.selection.selected_event_ids = [EventId("evt_1"), EventId("evt_3")]
+
+    orchestrator.handle(
+        timeline,
+        OpenPushToMA3Dialog(selection_event_ids=[EventId("evt_1"), EventId("evt_3")]),
+    )
+
+    assert session.manual_push_flow.selected_layer_ids == [timeline.layers[0].id, timeline.layers[1].id]
+    assert session.batch_transfer_plan is not None
+    assert [row.row_id for row in session.batch_transfer_plan.rows] == [
+        "push:layer_push",
+        "push:layer_snare",
+    ]
 
 
 def test_open_push_intent_maps_legacy_provider_dict_payload_note_and_event_count():

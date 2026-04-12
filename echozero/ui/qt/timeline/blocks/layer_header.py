@@ -24,6 +24,8 @@ class HeaderSlots:
 class HeaderHitTargets:
     mute_rect: QRectF
     solo_rect: QRectF
+    push_rect: QRectF
+    pull_rect: QRectF
 
 
 class LayerHeaderBlock:
@@ -52,8 +54,12 @@ class LayerHeaderBlock:
         self._draw_status_chips(painter, slots.status_rect, layer)
         mute_rect = QRectF(slots.controls_rect.left(), slots.controls_rect.top(), 24, 18)
         solo_rect = QRectF(slots.controls_rect.left() + 28, slots.controls_rect.top(), 24, 18)
+        push_rect = QRectF(slots.controls_rect.left() + 58, slots.controls_rect.top(), 40, 18)
+        pull_rect = QRectF(slots.controls_rect.left() + 102, slots.controls_rect.top(), 40, 18)
         self._draw_ms_button(painter, mute_rect, 'M', active=layer.muted, dimmed=dimmed)
         self._draw_ms_button(painter, solo_rect, 'S', active=layer.soloed, dimmed=dimmed)
+        self._draw_action_button(painter, push_rect, 'Push', dimmed=dimmed)
+        self._draw_action_button(painter, pull_rect, 'Pull', dimmed=dimmed)
 
         if layer.takes:
             painter.setPen(QColor(self.style.toggle_border_hex))
@@ -71,7 +77,12 @@ class LayerHeaderBlock:
                 'v' if layer.is_expanded else '>',
             )
             painter.setFont(prior_font)
-        return HeaderHitTargets(mute_rect=mute_rect, solo_rect=solo_rect)
+        return HeaderHitTargets(
+            mute_rect=mute_rect,
+            solo_rect=solo_rect,
+            push_rect=push_rect,
+            pull_rect=pull_rect,
+        )
 
     def _draw_status_chips(self, painter: QPainter, rect: QRectF, layer: LayerPresentation) -> None:
         x = rect.left()
@@ -107,6 +118,23 @@ class LayerHeaderBlock:
         prior_font = painter.font()
         button_font = QFont(prior_font)
         button_font.setPointSize(button_style.font.point_size)
+        button_font.setBold(button_style.font.bold)
+        painter.setFont(button_font)
+        painter.drawText(rect.adjusted(0, -1, 0, -1), Qt.AlignmentFlag.AlignCenter | Qt.TextFlag.TextSingleLine, label)
+        painter.setFont(prior_font)
+
+    def _draw_action_button(self, painter: QPainter, rect: QRectF, label: str, *, dimmed: bool) -> None:
+        button_style = self.style.mute_solo
+        fill_hex = button_style.inactive.fill_hex
+        if dimmed:
+            fill_hex = button_style.dimmed_inactive_fill_hex
+        painter.setPen(QColor(button_style.border_hex))
+        painter.setBrush(QBrush(QColor(fill_hex)))
+        painter.drawRoundedRect(rect, button_style.corner_radius, button_style.corner_radius)
+        painter.setPen(QColor(button_style.inactive.text_hex))
+        prior_font = painter.font()
+        button_font = QFont(prior_font)
+        button_font.setPointSize(max(7, button_style.font.point_size - 1))
         button_font.setBold(button_style.font.bold)
         painter.setFont(button_font)
         painter.drawText(rect.adjusted(0, -1, 0, -1), Qt.AlignmentFlag.AlignCenter | Qt.TextFlag.TextSingleLine, label)

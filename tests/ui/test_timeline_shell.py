@@ -297,6 +297,46 @@ def _drag_test_presentation() -> TimelinePresentation:
     )
 
 
+def _multi_layer_selection_presentation() -> TimelinePresentation:
+    base = _selection_test_presentation()
+    return replace(
+        base,
+        layers=[
+            base.layers[0],
+            LayerPresentation(
+                layer_id=LayerId("layer_snare"),
+                title="Snare",
+                main_take_id=TakeId("take_snare"),
+                kind=LayerKind.EVENT,
+                events=[
+                    EventPresentation(
+                        event_id=EventId("snare_evt"),
+                        start=3.0,
+                        end=3.5,
+                        label="Snare",
+                    )
+                ],
+                status=LayerStatusPresentation(),
+            ),
+            LayerPresentation(
+                layer_id=LayerId("layer_hat"),
+                title="Hat",
+                main_take_id=TakeId("take_hat"),
+                kind=LayerKind.EVENT,
+                events=[
+                    EventPresentation(
+                        event_id=EventId("hat_evt"),
+                        start=4.0,
+                        end=4.5,
+                        label="Hat",
+                    )
+                ],
+                status=LayerStatusPresentation(),
+            ),
+        ],
+    )
+
+
 def _no_takes_layer_presentation() -> TimelinePresentation:
     return TimelinePresentation(
         timeline_id=TimelineId("timeline_empty"),
@@ -326,13 +366,28 @@ class _SelectionInspectorHarness:
 
     def dispatch(self, intent):
         if isinstance(intent, SelectLayer):
+            selected_ids = [intent.layer_id] if intent.layer_id is not None else []
+            if intent.mode == "toggle" and intent.layer_id is not None:
+                current_ids = list(self._presentation.selected_layer_ids) or (
+                    [self._presentation.selected_layer_id] if self._presentation.selected_layer_id is not None else []
+                )
+                if intent.layer_id in current_ids:
+                    selected_ids = [layer_id for layer_id in current_ids if layer_id != intent.layer_id]
+                else:
+                    selected_ids = [*current_ids, intent.layer_id]
+            elif intent.mode == "range" and intent.layer_id is not None:
+                ordered_ids = [layer.layer_id for layer in self._presentation.layers]
+                anchor_id = self._presentation.selected_layer_id or intent.layer_id
+                low, high = sorted((ordered_ids.index(anchor_id), ordered_ids.index(intent.layer_id)))
+                selected_ids = ordered_ids[low : high + 1]
             self._presentation = replace(
                 self._presentation,
                 layers=[
-                    replace(layer, is_selected=(layer.layer_id == intent.layer_id))
+                    replace(layer, is_selected=(layer.layer_id in selected_ids))
                     for layer in self._presentation.layers
                 ],
-                selected_layer_id=intent.layer_id,
+                selected_layer_id=intent.layer_id if selected_ids else None,
+                selected_layer_ids=selected_ids,
                 selected_take_id=None,
                 selected_event_ids=[],
             )
@@ -380,6 +435,7 @@ class _SelectionInspectorHarness:
                 self._presentation,
                 layers=layers,
                 selected_layer_id=intent.layer_id,
+                selected_layer_ids=[intent.layer_id],
                 selected_take_id=intent.take_id,
                 selected_event_ids=[] if intent.event_id is None else [intent.event_id],
             )
@@ -401,6 +457,7 @@ class _SelectionInspectorHarness:
                     for layer in self._presentation.layers
                 ],
                 selected_layer_id=None,
+                selected_layer_ids=[],
                 selected_take_id=None,
                 selected_event_ids=[],
             )
@@ -432,8 +489,9 @@ class _ManualPushHarness:
                     for layer in self._presentation.layers
                 ],
                 manual_push_flow=ManualPushFlowPresentation(
-                    dialog_open=True,
+                    dialog_open=False,
                     push_mode_active=True,
+                    selected_layer_ids=list(self._presentation.selected_layer_ids) or [LayerId("layer_kick")],
                     available_tracks=[
                         ManualPushTrackOptionPresentation(
                             coord="tc1_tg2_tr3",
@@ -531,6 +589,7 @@ class _ManualPushHarness:
                 manual_push_flow=ManualPushFlowPresentation(
                     dialog_open=False,
                     push_mode_active=True,
+                    selected_layer_ids=list(self._presentation.manual_push_flow.selected_layer_ids),
                     available_tracks=list(self._presentation.manual_push_flow.available_tracks),
                     target_track_coord=intent.target_track_coord,
                     diff_gate_open=True,
@@ -964,9 +1023,9 @@ def _click_event_rect(widget: TimelineWidget, event_id: str, modifiers: Qt.Keybo
     raise AssertionError(f"Missing event rect for {event_id}")
 
 
-def _click_rect(widget: TimelineWidget, rect) -> None:
+def _click_rect(widget: TimelineWidget, rect, modifiers: Qt.KeyboardModifier = Qt.KeyboardModifier.NoModifier) -> None:
     center = rect.center().toPoint()
-    QTest.mouseClick(widget._canvas, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier, QPoint(center.x(), center.y()))
+    QTest.mouseClick(widget._canvas, Qt.MouseButton.LeftButton, modifiers, QPoint(center.x(), center.y()))
     QApplication.processEvents()
 
 
@@ -1812,6 +1871,7 @@ def test_push_to_ma3_action_enters_push_mode_only(monkeypatch):
         assert harness.intents == [
             OpenPushToMA3Dialog(selection_event_ids=[EventId("main_evt")]),
         ]
+        assert widget.presentation.manual_push_flow.dialog_open is False
         assert widget.presentation.manual_push_flow.push_mode_active is True
         assert widget.presentation.manual_push_flow.diff_gate_open is False
         assert widget.presentation.batch_transfer_plan is not None
@@ -1835,7 +1895,7 @@ def test_push_mode_actions_dispatch_target_preview_and_exit(monkeypatch):
             )
         ],
         manual_push_flow=ManualPushFlowPresentation(
-            dialog_open=True,
+            dialog_open=False,
             push_mode_active=True,
             available_tracks=[
                 ManualPushTrackOptionPresentation(
@@ -2465,6 +2525,8 @@ def test_main_rows_expose_mute_solo_hit_targets_without_take_row_duplicates():
 
         assert len(widget._canvas._mute_rects) == len(presentation.layers)
         assert len(widget._canvas._solo_rects) == len(presentation.layers)
+        assert len(widget._canvas._push_rects) == len(presentation.layers)
+        assert len(widget._canvas._pull_rects) == len(presentation.layers)
     finally:
         widget.close()
         app.processEvents()
@@ -2519,6 +2581,78 @@ def test_main_row_mute_and_solo_clicks_dispatch_toggle_intents():
         assert intents == [
             ToggleMute(mute_layer_id),
             ToggleSolo(solo_layer_id),
+        ]
+    finally:
+        widget.close()
+        app.processEvents()
+
+
+def test_layer_header_push_control_dispatches_timeline_push_intent():
+    app = QApplication.instance() or QApplication([])
+    harness = _ManualPushHarness(
+        replace(
+            _selection_test_presentation(),
+            selected_layer_id=LayerId("layer_kick"),
+            selected_layer_ids=[LayerId("layer_kick")],
+            selected_take_id=TakeId("take_main"),
+            selected_event_ids=[EventId("main_evt")],
+        )
+    )
+    widget = TimelineWidget(harness.presentation(), on_intent=harness.dispatch)
+    try:
+        _render_for_hit_testing(widget)
+
+        push_rect, _ = widget._canvas._push_rects[0]
+        _click_rect(widget, push_rect)
+
+        assert harness.intents == [OpenPushToMA3Dialog(selection_event_ids=[EventId("main_evt")])]
+        assert widget.presentation.manual_push_flow.push_mode_active is True
+    finally:
+        widget.close()
+        app.processEvents()
+
+
+def test_layer_header_pull_control_dispatches_pull_workspace_intent():
+    app = QApplication.instance() or QApplication([])
+    intents: list[object] = []
+    presentation = replace(
+        _selection_test_presentation(),
+        selected_layer_id=LayerId("layer_kick"),
+        selected_layer_ids=[LayerId("layer_kick")],
+    )
+    widget = TimelineWidget(presentation, on_intent=lambda intent: intents.append(intent) or presentation)
+    try:
+        _render_for_hit_testing(widget)
+
+        pull_rect, _ = widget._canvas._pull_rects[0]
+        _click_rect(widget, pull_rect)
+
+        assert intents == [OpenPullFromMA3Dialog()]
+    finally:
+        widget.close()
+        app.processEvents()
+
+
+def test_layer_header_click_dispatches_toggle_and_range_selection_modes():
+    app = QApplication.instance() or QApplication([])
+    intents: list[object] = []
+    presentation = _multi_layer_selection_presentation()
+    widget = TimelineWidget(presentation, on_intent=lambda intent: intents.append(intent) or presentation)
+    try:
+        _render_for_hit_testing(widget)
+
+        first_rect, first_layer_id = widget._canvas._header_select_rects[0]
+        second_rect, second_layer_id = widget._canvas._header_select_rects[1]
+        third_rect, third_layer_id = widget._canvas._header_select_rects[2]
+
+        _click_rect(widget, first_rect)
+        _click_rect(widget, second_rect, Qt.KeyboardModifier.ControlModifier)
+        _click_rect(widget, third_rect, Qt.KeyboardModifier.ShiftModifier)
+
+        assert intents == [
+            SelectLayer(first_layer_id, mode="replace"),
+            SelectLayer(second_layer_id, mode="toggle"),
+            SelectLayer(third_layer_id, mode="range"),
         ]
     finally:
         widget.close()

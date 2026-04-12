@@ -20,6 +20,7 @@ class TimelineIntent:
 @dataclass(slots=True)
 class SelectLayer(TimelineIntent):
     layer_id: LayerId | None
+    mode: str = "replace"
 
 
 @dataclass(slots=True)

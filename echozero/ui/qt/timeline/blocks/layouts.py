@@ -29,8 +29,8 @@ class MainRowLayout:
             title_rect=QRectF(14, top + 7, 170, 18),
             subtitle_rect=QRectF(14, top + 24, 0, 0),
             status_rect=QRectF(14, top + 46, 170, 16),
-            controls_rect=QRectF(198, top + 14, 56, 18),
-            toggle_rect=QRectF(278, top + 12, 28, 18),
+            controls_rect=QRectF(144, top + 14, 152, 18),
+            toggle_rect=QRectF(300, top + 12, 28, 18),
             metadata_rect=QRectF(14, top + 28, 170, 14),
         )
 

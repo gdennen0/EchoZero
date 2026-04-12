@@ -217,14 +217,29 @@ class DemoTimelineApp:
                     layers.append(layer)
             self.presentation_state = replace(self.presentation_state, layers=layers)
         elif isinstance(intent, SelectLayer):
+            selected_ids = [intent.layer_id] if intent.layer_id is not None else []
+            if intent.mode == "toggle" and intent.layer_id is not None:
+                current_ids = list(self.presentation_state.selected_layer_ids) or (
+                    [self.presentation_state.selected_layer_id] if self.presentation_state.selected_layer_id is not None else []
+                )
+                if intent.layer_id in current_ids:
+                    selected_ids = [layer_id for layer_id in current_ids if layer_id != intent.layer_id]
+                else:
+                    selected_ids = [*current_ids, intent.layer_id]
+            elif intent.mode == "range" and intent.layer_id is not None:
+                ordered_ids = [layer.layer_id for layer in self.presentation_state.layers]
+                anchor_id = self.presentation_state.selected_layer_id or intent.layer_id
+                low, high = sorted((ordered_ids.index(anchor_id), ordered_ids.index(intent.layer_id)))
+                selected_ids = ordered_ids[low : high + 1]
             layers = [
-                replace(layer, is_selected=(layer.layer_id == intent.layer_id))
+                replace(layer, is_selected=(layer.layer_id in selected_ids))
                 for layer in self.presentation_state.layers
             ]
             self.presentation_state = replace(
                 self.presentation_state,
                 layers=layers,
-                selected_layer_id=intent.layer_id,
+                selected_layer_id=intent.layer_id if selected_ids else None,
+                selected_layer_ids=selected_ids,
                 selected_take_id=None,
                 selected_event_ids=[],
             )
@@ -237,6 +252,7 @@ class DemoTimelineApp:
                 self.presentation_state,
                 layers=layers,
                 selected_layer_id=intent.layer_id,
+                selected_layer_ids=[intent.layer_id],
                 selected_take_id=intent.take_id,
                 selected_event_ids=[],
             )
@@ -252,6 +268,7 @@ class DemoTimelineApp:
                 self.presentation_state,
                 layers=layers,
                 selected_layer_id=intent.layer_id,
+                selected_layer_ids=[intent.layer_id],
                 selected_take_id=intent.take_id,
                 selected_event_ids=selected_ids,
             )
@@ -261,6 +278,7 @@ class DemoTimelineApp:
                 self.presentation_state,
                 layers=layers,
                 selected_layer_id=None,
+                selected_layer_ids=[],
                 selected_take_id=None,
                 selected_event_ids=[],
             )

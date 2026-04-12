@@ -115,6 +115,7 @@ class Layer:
 @dataclass(slots=True)
 class TimelineSelection:
     selected_layer_id: LayerId | None = None
+    selected_layer_ids: list[LayerId] = field(default_factory=list)
     selected_take_id: TakeId | None = None
     selected_event_ids: list[EventId] = field(default_factory=list)
 

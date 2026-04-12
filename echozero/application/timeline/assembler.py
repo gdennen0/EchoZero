@@ -41,6 +41,9 @@ class TimelineAssembler:
     def assemble(self, timeline: Timeline, session: Session) -> TimelinePresentation:
         with timed("timeline.assemble"):
             selected_layer_id = timeline.selection.selected_layer_id
+            selected_layer_ids = list(timeline.selection.selected_layer_ids)
+            if not selected_layer_ids and selected_layer_id is not None:
+                selected_layer_ids = [selected_layer_id]
             selected_take_id = timeline.selection.selected_take_id
             selected_event_ids = set(timeline.selection.selected_event_ids)
 
@@ -49,6 +52,7 @@ class TimelineAssembler:
                 timeline,
                 ordered_layers,
                 selected_layer_id,
+                selected_layer_ids,
                 selected_take_id,
                 selected_event_ids,
                 session,
@@ -58,7 +62,14 @@ class TimelineAssembler:
                 layers = self._last_layers
             else:
                 layers = [
-                    self._assemble_layer(layer, session, selected_layer_id, selected_take_id, selected_event_ids)
+                    self._assemble_layer(
+                        layer,
+                        session,
+                        selected_layer_id,
+                        selected_layer_ids,
+                        selected_take_id,
+                        selected_event_ids,
+                    )
                     for layer in ordered_layers
                 ]
                 self._last_signature = signature
@@ -73,6 +84,7 @@ class TimelineAssembler:
                 loop_region=timeline.loop_region,
                 follow_mode=session.transport_state.follow_mode,
                 selected_layer_id=selected_layer_id,
+                selected_layer_ids=selected_layer_ids,
                 selected_take_id=selected_take_id,
                 selected_event_ids=list(timeline.selection.selected_event_ids),
                 pixels_per_second=timeline.viewport.pixels_per_second,
@@ -90,6 +102,7 @@ class TimelineAssembler:
         layer: Layer,
         session: Session,
         selected_layer_id,
+        selected_layer_ids: list,
         selected_take_id,
         selected_event_ids: set,
     ) -> LayerPresentation:
@@ -143,7 +156,7 @@ class TimelineAssembler:
             title=layer.name,
             subtitle="",
             kind=layer.kind,
-            is_selected=layer.id == selected_layer_id,
+            is_selected=layer.id in selected_layer_ids or (not selected_layer_ids and layer.id == selected_layer_id),
             is_expanded=layer.presentation_hints.expanded,
             events=main_events,
             takes=take_rows,
@@ -180,6 +193,7 @@ class TimelineAssembler:
         timeline: Timeline,
         ordered_layers: list[Layer],
         selected_layer_id,
+        selected_layer_ids: list,
         selected_take_id,
         selected_event_ids: set,
         session: Session,
@@ -247,6 +261,7 @@ class TimelineAssembler:
             str(timeline.id),
             tuple(layer_sigs),
             str(selected_layer_id) if selected_layer_id is not None else None,
+            tuple(str(layer_id) for layer_id in selected_layer_ids),
             str(selected_take_id) if selected_take_id is not None else None,
             tuple(sorted(str(event_id) for event_id in selected_event_ids)),
             TimelineAssembler._session_transfer_signature(session),
@@ -282,6 +297,7 @@ class TimelineAssembler:
 
         return (
             session.manual_push_flow.push_mode_active,
+            tuple(str(layer_id) for layer_id in session.manual_push_flow.selected_layer_ids),
             session.manual_push_flow.transfer_mode,
             session.manual_pull_flow.workspace_active,
             session.manual_pull_flow.active_source_track_coord,
@@ -345,6 +361,7 @@ class TimelineAssembler:
         return ManualPushFlowPresentation(
             dialog_open=flow.dialog_open,
             push_mode_active=flow.push_mode_active,
+            selected_layer_ids=list(flow.selected_layer_ids),
             available_tracks=[
                 ManualPushTrackOptionPresentation(
                     coord=track.coord,

@@ -85,6 +85,7 @@ class ManualPushDiffPreviewPresentation:
 class ManualPushFlowPresentation:
     dialog_open: bool = False
     push_mode_active: bool = False
+    selected_layer_ids: list[LayerId] = field(default_factory=list)
     available_tracks: list[ManualPushTrackOptionPresentation] = field(default_factory=list)
     target_track_coord: str | None = None
     transfer_mode: str = "merge"
@@ -253,6 +254,7 @@ class TimelinePresentation:
     loop_region: TimeRange | None = None
     follow_mode: FollowMode = FollowMode.CENTER
     selected_layer_id: LayerId | None = None
+    selected_layer_ids: list[LayerId] = field(default_factory=list)
     selected_take_id: TakeId | None = None
     selected_event_ids: list[EventId] = field(default_factory=list)
     pixels_per_second: float = 100.0
