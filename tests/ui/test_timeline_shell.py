@@ -2329,6 +2329,15 @@ def test_manual_pull_timeline_dialog_keeps_target_selection_in_same_popup():
             "Import as New Take",
             "Import to Main",
         ]
+        assert dialog._scroll_area.widget() is dialog._canvas
+        assert dialog._zoom_value_label.text() == "100%"
+
+        initial_pps = dialog._canvas.pixels_per_second
+        initial_min_width = dialog._canvas.minimumWidth()
+        dialog._zoom_in_btn.click()
+        app.processEvents()
+        assert dialog._canvas.pixels_per_second > initial_pps
+        assert dialog._canvas.minimumWidth() >= initial_min_width
 
         dialog._canvas.set_selected_event_ids(["ma3_evt_1", "ma3_evt_2"])
 

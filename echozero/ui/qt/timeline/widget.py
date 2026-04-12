@@ -236,6 +236,7 @@ class ManualPullTimelineSelectionResult:
 
 class ManualPullTimelineCanvas(QWidget):
     selection_changed = pyqtSignal(object)
+    zoom_changed = pyqtSignal(float)
 
     def __init__(self, events, selected_event_ids: list[str] | None = None, parent=None):
         super().__init__(parent)
@@ -243,7 +244,40 @@ class ManualPullTimelineCanvas(QWidget):
         self._selected_event_ids = list(selected_event_ids or [])
         self._anchor_index: int | None = self._selected_index() if self._selected_event_ids else None
         self._rects: list[QRectF] = []
+        self._left_padding = 16.0
+        self._right_padding = 16.0
+        self._top_padding = 18.0
+        self._lane_height = 34.0
+        self._bar_height = 24.0
+        self._base_pixels_per_second = 140.0
+        self._zoom_factor = 1.0
         self.setMinimumHeight(150)
+        self._sync_timeline_geometry()
+
+    @property
+    def zoom_factor(self) -> float:
+        return self._zoom_factor
+
+    @property
+    def pixels_per_second(self) -> float:
+        return max(1.0, self._base_pixels_per_second * self._zoom_factor)
+
+    def zoom_in(self) -> None:
+        self.set_zoom_factor(self._zoom_factor * 1.15)
+
+    def zoom_out(self) -> None:
+        self.set_zoom_factor(self._zoom_factor / 1.15)
+
+    def reset_zoom(self) -> None:
+        self.set_zoom_factor(1.0)
+
+    def set_zoom_factor(self, value: float) -> None:
+        bounded = max(0.35, min(4.0, float(value)))
+        if abs(bounded - self._zoom_factor) < 1e-6:
+            return
+        self._zoom_factor = bounded
+        self._sync_timeline_geometry()
+        self.zoom_changed.emit(self._zoom_factor)
 
     def selected_event_ids(self) -> list[str]:
         ordered_ids = [event.event_id for event in self._events if event.event_id in self._selected_event_ids]
@@ -291,6 +325,32 @@ class ManualPullTimelineCanvas(QWidget):
         self.update()
         event.accept()
 
+    def wheelEvent(self, event: QWheelEvent) -> None:
+        delta = event.angleDelta().y()
+        if delta == 0:
+            super().wheelEvent(event)
+            return
+
+        has_primary = bool(
+            event.modifiers() & (Qt.KeyboardModifier.ControlModifier | Qt.KeyboardModifier.MetaModifier)
+        )
+        if has_primary:
+            if delta > 0:
+                self.zoom_in()
+            else:
+                self.zoom_out()
+            event.accept()
+            return
+
+        scroll_area = self._find_scroll_area()
+        if scroll_area is not None:
+            bar = scroll_area.horizontalScrollBar()
+            bar.setValue(bar.value() - delta)
+            event.accept()
+            return
+
+        super().wheelEvent(event)
+
     def paintEvent(self, event) -> None:
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
@@ -301,10 +361,10 @@ class ManualPullTimelineCanvas(QWidget):
         track_pen.setWidth(1)
         painter.setPen(track_pen)
         baseline_y = self.height() * 0.5
-        painter.drawLine(16, int(baseline_y), max(16, self.width() - 16), int(baseline_y))
+        painter.drawLine(int(self._left_padding), int(baseline_y), max(int(self._left_padding), self.width() - int(self._right_padding)), int(baseline_y))
 
         self._rects = self._compute_event_rects()
-        for index, (event_model, rect) in enumerate(zip(self._events, self._rects)):
+        for event_model, rect in zip(self._events, self._rects):
             is_selected = event_model.event_id in self._selected_event_ids
             fill = QColor("#5cb2ff" if is_selected else "#475569")
             stroke = QColor("#d7ebff" if is_selected else "#90a2b5")
@@ -325,6 +385,14 @@ class ManualPullTimelineCanvas(QWidget):
                     footer,
                 )
 
+    def _find_scroll_area(self) -> QScrollArea | None:
+        parent = self.parent()
+        while parent is not None:
+            if isinstance(parent, QScrollArea):
+                return parent
+            parent = parent.parent()
+        return None
+
     def _selected_index(self) -> int | None:
         if not self._selected_event_ids:
             return None
@@ -340,15 +408,31 @@ class ManualPullTimelineCanvas(QWidget):
                 return index
         return None
 
+    def _timeline_bounds(self) -> tuple[float, float]:
+        timed = [
+            event for event in self._events
+            if event.start is not None and event.end is not None
+        ]
+        if not timed:
+            count = max(1, len(self._events))
+            return 0.0, max(1.0, count * 0.75)
+        min_start = min(event.start for event in timed)
+        max_end = max(max(event.end, event.start + 0.25) for event in timed)
+        return min_start, max(max_end, min_start + 0.25)
+
+    def _sync_timeline_geometry(self) -> None:
+        start, end = self._timeline_bounds()
+        span = max(1.0, end - start)
+        content_width = int((span * self.pixels_per_second) + self._left_padding + self._right_padding + 80.0)
+        self.setMinimumWidth(max(640, content_width))
+        self.updateGeometry()
+        self.update()
+
     def _compute_event_rects(self) -> list[QRectF]:
         if not self._events:
             return []
-        left_padding = 16.0
-        right_padding = 16.0
-        top_padding = 18.0
-        lane_height = 34.0
-        bar_height = 24.0
-        content_width = max(120.0, self.width() - left_padding - right_padding)
+
+        content_width = max(120.0, self.width() - self._left_padding - self._right_padding)
         timed = [
             event for event in self._events
             if event.start is not None and event.end is not None
@@ -360,26 +444,57 @@ class ManualPullTimelineCanvas(QWidget):
             span = max(0.25, max_end - min_start)
             for index, event in enumerate(self._events):
                 lane_index = index % 3
-                y = top_padding + (lane_index * lane_height)
+                y = self._top_padding + (lane_index * self._lane_height)
                 if event.start is None or event.end is None:
                     slot_width = content_width / max(1, len(self._events))
-                    x = left_padding + (index * slot_width)
+                    x = self._left_padding + (index * slot_width)
                     width = max(48.0, slot_width - 10.0)
                 else:
                     start_ratio = (event.start - min_start) / span
                     end_ratio = (max(event.end, event.start + 0.25) - min_start) / span
-                    x = left_padding + (start_ratio * content_width)
+                    x = self._left_padding + (start_ratio * content_width)
                     width = max(44.0, (end_ratio - start_ratio) * content_width)
-                rects.append(QRectF(x, y, width, bar_height))
+                rects.append(QRectF(x, y, width, self._bar_height))
             return rects
 
         slot_width = content_width / max(1, len(self._events))
         for index, _event in enumerate(self._events):
             lane_index = index % 3
-            x = left_padding + (index * slot_width) + 4.0
-            y = top_padding + (lane_index * lane_height)
-            rects.append(QRectF(x, y, max(48.0, slot_width - 8.0), bar_height))
+            x = self._left_padding + (index * slot_width) + 4.0
+            y = self._top_padding + (lane_index * self._lane_height)
+            rects.append(QRectF(x, y, max(48.0, slot_width - 8.0), self._bar_height))
         return rects
+
+
+class ManualPullTimelineRuler(QWidget):
+    def __init__(self, canvas: ManualPullTimelineCanvas, scroll_bar: QScrollBar, parent=None):
+        super().__init__(parent)
+        self._canvas = canvas
+        self._scroll_bar = scroll_bar
+        self.setMinimumHeight(24)
+        self.setMaximumHeight(24)
+        self._canvas.zoom_changed.connect(lambda _zoom: self.update())
+        self._scroll_bar.valueChanged.connect(lambda _value: self.update())
+
+    def paintEvent(self, event) -> None:
+        painter = QPainter(self)
+        rect = QRectF(0, 0, self.width(), self.height())
+        painter.fillRect(rect, QColor(TIMELINE_STYLE.ruler.background_hex))
+        painter.fillRect(QRectF(0, rect.bottom() - 1, rect.width(), 1), QColor(TIMELINE_STYLE.ruler.divider_hex))
+
+        scroll_x = float(self._scroll_bar.value())
+        pps = self._canvas.pixels_per_second
+        marks = visible_ruler_seconds(
+            scroll_x=scroll_x,
+            pixels_per_second=pps,
+            content_width=max(1.0, rect.width()),
+            content_start_x=0.0,
+        )
+        for second, x in marks:
+            painter.setPen(QPen(QColor(TIMELINE_STYLE.ruler.tick_hex), 1))
+            painter.drawLine(int(x), int(rect.bottom()) - 8, int(x), int(rect.bottom()))
+            painter.setPen(QColor(TIMELINE_STYLE.ruler.label_hex))
+            painter.drawText(int(x) + 3, int(rect.top()) + 12, f"{second}")
 
 
 class ManualPullTimelineDialog(QDialog):
@@ -396,7 +511,7 @@ class ManualPullTimelineDialog(QDialog):
     ):
         super().__init__(parent)
         self.setWindowTitle("Import from MA3")
-        self.resize(760, 320)
+        self.resize(980, 440)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(16, 16, 16, 16)
@@ -407,14 +522,38 @@ class ManualPullTimelineDialog(QDialog):
 
         help_label = QLabel(
             "Select source events on the timeline and choose the destination EZ layer below. "
-            "Click to select. Ctrl/Cmd toggles. Shift selects a range.",
+            "Click to select. Ctrl/Cmd toggles. Shift selects a range. Ctrl/Cmd + wheel zooms; wheel scrolls timeline.",
             self,
         )
         help_label.setWordWrap(True)
         layout.addWidget(help_label)
 
+        zoom_row = QHBoxLayout()
+        zoom_row.addWidget(QLabel("Zoom", self))
+        self._zoom_out_btn = QPushButton("-", self)
+        self._zoom_in_btn = QPushButton("+", self)
+        self._zoom_reset_btn = QPushButton("Reset", self)
+        self._zoom_value_label = QLabel("100%", self)
+        zoom_row.addWidget(self._zoom_out_btn)
+        zoom_row.addWidget(self._zoom_in_btn)
+        zoom_row.addWidget(self._zoom_reset_btn)
+        zoom_row.addWidget(self._zoom_value_label)
+        zoom_row.addStretch(1)
+        layout.addLayout(zoom_row)
+
         self._canvas = ManualPullTimelineCanvas(events, selected_event_ids=selected_event_ids, parent=self)
-        layout.addWidget(self._canvas)
+        self._scroll_area = QScrollArea(self)
+        self._scroll_area.setWidgetResizable(False)
+        self._scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self._scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self._scroll_area.setWidget(self._canvas)
+        self._scroll_area.setMinimumHeight(180)
+
+        self._timeline_scroll = self._scroll_area.horizontalScrollBar()
+        self._ruler = ManualPullTimelineRuler(self._canvas, self._timeline_scroll, self)
+
+        layout.addWidget(self._ruler)
+        layout.addWidget(self._scroll_area)
 
         self._selection_label = QLabel(self)
         layout.addWidget(self._selection_label)
@@ -452,8 +591,14 @@ class ManualPullTimelineDialog(QDialog):
         self._buttons.rejected.connect(self.reject)
         layout.addWidget(self._buttons)
 
+        self._zoom_out_btn.clicked.connect(self._zoom_out)
+        self._zoom_in_btn.clicked.connect(self._zoom_in)
+        self._zoom_reset_btn.clicked.connect(self._reset_zoom)
+
         self._canvas.selection_changed.connect(self._refresh_state)
         self._target_combo.currentIndexChanged.connect(self._refresh_state)
+        self._canvas.zoom_changed.connect(self._refresh_zoom_label)
+        self._refresh_zoom_label(self._canvas.zoom_factor)
         self._refresh_state()
 
     def selected_event_ids(self) -> list[str]:
@@ -473,6 +618,21 @@ class ManualPullTimelineDialog(QDialog):
             QMessageBox.warning(self, "Import from MA3", "Select a target EZ layer.")
             return
         super().accept()
+
+    def _zoom_in(self) -> None:
+        self._canvas.zoom_in()
+        self._ruler.update()
+
+    def _zoom_out(self) -> None:
+        self._canvas.zoom_out()
+        self._ruler.update()
+
+    def _reset_zoom(self) -> None:
+        self._canvas.reset_zoom()
+        self._ruler.update()
+
+    def _refresh_zoom_label(self, zoom_factor: float) -> None:
+        self._zoom_value_label.setText(f"{int(round(zoom_factor * 100))}%")
 
     def _refresh_state(self, *_args) -> None:
         selected_count = len(self.selected_event_ids())
