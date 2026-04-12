@@ -192,6 +192,8 @@ def test_assembler_maps_sync_target_and_batch_transfer_plan_to_presentation():
             source_track_coord="tc1_tg2_tr5",
             selected_ma3_event_ids=["ma3_evt_1"],
             selected_ma3_event_ids_by_track={"tc1_tg2_tr5": ["ma3_evt_1"]},
+            import_mode="main",
+            import_mode_by_source_track={"tc1_tg2_tr5": "main"},
             target_layer_id_by_source_track={"tc1_tg2_tr5": LayerId("layer_1")},
         ),
         batch_transfer_plan=BatchTransferPlanState(
@@ -216,6 +218,7 @@ def test_assembler_maps_sync_target_and_batch_transfer_plan_to_presentation():
                     target_label="Snare",
                     source_track_coord="tc1_tg2_tr5",
                     target_layer_id=LayerId("layer_1"),
+                    import_mode="main",
                     selected_ma3_event_ids=["ma3_evt_1"],
                     selected_count=1,
                     status="blocked",
@@ -247,5 +250,6 @@ def test_assembler_maps_sync_target_and_batch_transfer_plan_to_presentation():
     assert assembled.batch_transfer_plan.rows[0].selected_count == 2
     assert assembled.batch_transfer_plan.rows[1].source_track_coord == "tc1_tg2_tr5"
     assert assembled.batch_transfer_plan.rows[1].target_layer_id == LayerId("layer_1")
+    assert assembled.batch_transfer_plan.rows[1].import_mode == "main"
     assert assembled.batch_transfer_plan.rows[1].selected_ma3_event_ids == ["ma3_evt_1"]
     assert assembled.batch_transfer_plan.rows[1].issue == "Target layer required"

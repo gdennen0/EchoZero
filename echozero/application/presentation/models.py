@@ -139,6 +139,8 @@ class ManualPullFlowPresentation:
     available_events: list[ManualPullEventOptionPresentation] = field(default_factory=list)
     selected_ma3_event_ids: list[str] = field(default_factory=list)
     selected_ma3_event_ids_by_track: dict[str, list[str]] = field(default_factory=dict)
+    import_mode: str = "new_take"
+    import_mode_by_source_track: dict[str, str] = field(default_factory=dict)
     available_target_layers: list[ManualPullTargetOptionPresentation] = field(default_factory=list)
     target_layer_id: LayerId | None = None
     target_layer_id_by_source_track: dict[str, LayerId] = field(default_factory=dict)
@@ -164,6 +166,7 @@ class BatchTransferPlanRowPresentation:
     source_track_coord: str | None = None
     target_track_coord: str | None = None
     target_layer_id: LayerId | None = None
+    import_mode: str = "new_take"
     selected_event_ids: list[EventId] = field(default_factory=list)
     selected_ma3_event_ids: list[str] = field(default_factory=list)
     selected_count: int = 0

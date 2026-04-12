@@ -28,6 +28,7 @@ from echozero.application.timeline.intents import (
     SelectPullSourceTracks,
     SelectPullSourceTrack,
     SelectPullTargetLayer,
+    SetPullImportMode,
     SetPullSourceEvents,
     SetPullTrackOptions,
 )
@@ -266,6 +267,8 @@ def test_open_pull_intent_resets_flow_and_hydrates_tracks_and_target_layers():
     assert session.manual_pull_flow.available_events == []
     assert session.manual_pull_flow.selected_ma3_event_ids == []
     assert session.manual_pull_flow.selected_ma3_event_ids_by_track == {}
+    assert session.manual_pull_flow.import_mode == "new_take"
+    assert session.manual_pull_flow.import_mode_by_source_track == {}
     assert session.manual_pull_flow.available_target_layers == [
         ManualPullTargetOption(layer_id=LayerId("layer_target"), name="Target Layer"),
         ManualPullTargetOption(layer_id=_pull_target_option_id(session, "+ Create New Layer..."), name="+ Create New Layer..."),
@@ -349,6 +352,8 @@ def test_pull_workspace_selection_builds_rows_and_updates_mapping_state():
     assert session.manual_pull_flow.selected_ma3_event_ids_by_track == {
         "tc1_tg2_tr3": ["ma3_evt_1", "ma3_evt_2"]
     }
+    assert session.manual_pull_flow.import_mode == "new_take"
+    assert session.manual_pull_flow.import_mode_by_source_track == {}
     assert session.manual_pull_flow.target_layer_id == LayerId("layer_target")
     assert session.manual_pull_flow.target_layer_id_by_source_track == {
         "tc1_tg2_tr3": LayerId("layer_target")
@@ -363,6 +368,7 @@ def test_pull_workspace_selection_builds_rows_and_updates_mapping_state():
     ]
     assert session.batch_transfer_plan.rows[0].status == "ready"
     assert session.batch_transfer_plan.rows[0].target_layer_id == LayerId("layer_target")
+    assert session.batch_transfer_plan.rows[0].import_mode == "new_take"
     assert session.batch_transfer_plan.rows[0].selected_ma3_event_ids == ["ma3_evt_1", "ma3_evt_2"]
     assert session.batch_transfer_plan.rows[1].status == "blocked"
     assert session.batch_transfer_plan.rows[1].issue == "Select source events and target layer mapping"
@@ -409,6 +415,42 @@ def test_select_pull_target_layer_fans_out_per_source_track_mapping_to_all_selec
     assert [row.issue for row in session.batch_transfer_plan.rows] == [None, "Select source events"]
 
 
+def test_pull_import_mode_persists_per_source_track_and_rebuilds_rows():
+    orchestrator, timeline, session, _playback_service = _build_orchestrator(
+        sync_service=_SyncService(
+            tracks=[
+                ManualPullTrackOption(coord="tc1_tg2_tr3", name="Track 3"),
+                ManualPullTrackOption(coord="tc1_tg2_tr4", name="Track 4"),
+            ],
+            events_by_track={
+                "tc1_tg2_tr3": [ManualPullEventOption(event_id="ma3_evt_1", label="Cue 1")],
+                "tc1_tg2_tr4": [ManualPullEventOption(event_id="ma3_evt_2", label="Cue 2")],
+            },
+        )
+    )
+
+    orchestrator.handle(timeline, OpenPullFromMA3Dialog())
+    orchestrator.handle(
+        timeline,
+        SelectPullSourceTracks(source_track_coords=["tc1_tg2_tr3", "tc1_tg2_tr4"]),
+    )
+    orchestrator.handle(timeline, SelectPullSourceTrack(source_track_coord="tc1_tg2_tr3"))
+    orchestrator.handle(timeline, SelectPullSourceEvents(selected_ma3_event_ids=["ma3_evt_1"]))
+    orchestrator.handle(timeline, SelectPullTargetLayer(target_layer_id=LayerId("layer_target")))
+    orchestrator.handle(timeline, SetPullImportMode(import_mode="main"))
+
+    assert session.manual_pull_flow.import_mode == "main"
+    assert session.manual_pull_flow.import_mode_by_source_track == {"tc1_tg2_tr3": "main"}
+    assert session.batch_transfer_plan is not None
+    assert session.batch_transfer_plan.rows[0].import_mode == "main"
+
+    orchestrator.handle(timeline, SelectPullSourceTrack(source_track_coord="tc1_tg2_tr4"))
+    assert session.manual_pull_flow.import_mode == "new_take"
+
+    orchestrator.handle(timeline, SelectPullSourceTrack(source_track_coord="tc1_tg2_tr3"))
+    assert session.manual_pull_flow.import_mode == "main"
+
+
 def test_exit_pull_workspace_clears_workspace_state_and_pull_plan():
     orchestrator, timeline, session, _playback_service = _build_orchestrator(
         sync_service=_SyncService(
@@ -439,6 +481,8 @@ def test_exit_pull_workspace_clears_workspace_state_and_pull_plan():
     assert session.manual_pull_flow.available_events == []
     assert session.manual_pull_flow.selected_ma3_event_ids == []
     assert session.manual_pull_flow.selected_ma3_event_ids_by_track == {}
+    assert session.manual_pull_flow.import_mode == "new_take"
+    assert session.manual_pull_flow.import_mode_by_source_track == {}
     assert session.manual_pull_flow.available_target_layers == []
     assert session.manual_pull_flow.target_layer_id_by_source_track == {}
     assert session.batch_transfer_plan is None
@@ -530,6 +574,36 @@ def test_confirm_pull_intent_stages_diff_gate_without_immediate_transfer():
     assert playback_service.update_runtime_calls == 5
     assert session.batch_transfer_plan is not None
     assert session.batch_transfer_plan.rows[0].status == "ready"
+
+
+def test_confirm_pull_intent_preserves_selected_import_mode_in_preview():
+    orchestrator, timeline, session, _playback_service = _build_orchestrator(
+        sync_service=_SyncService(
+            tracks=[ManualPullTrackOption(coord="tc1_tg2_tr3", name="MA3 Track")],
+            events_by_track={
+                "tc1_tg2_tr3": [ManualPullEventOption(event_id="ma3_evt_1", label="Cue 1")]
+            },
+        )
+    )
+
+    orchestrator.handle(timeline, OpenPullFromMA3Dialog())
+    orchestrator.handle(timeline, SelectPullSourceTrack(source_track_coord="tc1_tg2_tr3"))
+    orchestrator.handle(timeline, SelectPullSourceEvents(selected_ma3_event_ids=["ma3_evt_1"]))
+    orchestrator.handle(timeline, SelectPullTargetLayer(target_layer_id=LayerId("layer_target")))
+    orchestrator.handle(timeline, SetPullImportMode(import_mode="main"))
+
+    orchestrator.handle(
+        timeline,
+        ConfirmPullFromMA3(
+            source_track_coord="tc1_tg2_tr3",
+            selected_ma3_event_ids=["ma3_evt_1"],
+            target_layer_id=LayerId("layer_target"),
+            import_mode="main",
+        ),
+    )
+
+    assert session.manual_pull_flow.diff_preview is not None
+    assert session.manual_pull_flow.diff_preview.import_mode == "main"
 
 
 def test_apply_pull_import_creates_new_take_selects_imported_events_and_clears_diff_gate():
@@ -628,6 +702,60 @@ def test_apply_pull_import_creates_new_take_selects_imported_events_and_clears_d
     assert playback_service.update_runtime_calls == 6
     assert session.batch_transfer_plan is not None
     assert session.batch_transfer_plan.rows[0].status == "ready"
+
+
+def test_apply_pull_import_main_mode_appends_into_main_take_and_keeps_unique_ids():
+    orchestrator, timeline, session, _playback_service = _build_orchestrator(
+        sync_service=_SyncService(
+            tracks=[ManualPullTrackOption(coord="tc1_tg2_tr3", name="MA3 Track")],
+            events_by_track={
+                "tc1_tg2_tr3": [
+                    ManualPullEventOption(event_id="ma3_evt_1", label="Cue 1", start=1.0, end=1.5),
+                    ManualPullEventOption(event_id="ma3_evt_2", label="Cue 2", start=0.5, end=0.75),
+                ]
+            },
+        )
+    )
+    target_layer = next(layer for layer in timeline.layers if layer.id == LayerId("layer_target"))
+    main_take = target_layer.takes[0]
+    main_take.events = [
+        Event(
+            id="take_target:ma3:tc1_tg2_tr3:ma3_evt_1:1",
+            take_id=main_take.id,
+            start=0.25,
+            end=0.5,
+            label="Existing",
+            payload_ref="existing_evt",
+        )
+    ]
+
+    orchestrator.handle(timeline, OpenPullFromMA3Dialog())
+    orchestrator.handle(timeline, SelectPullSourceTrack(source_track_coord="tc1_tg2_tr3"))
+    orchestrator.handle(timeline, SelectPullSourceEvents(selected_ma3_event_ids=["ma3_evt_1", "ma3_evt_2"]))
+    orchestrator.handle(timeline, SelectPullTargetLayer(target_layer_id=LayerId("layer_target")))
+    orchestrator.handle(
+        timeline,
+        ConfirmPullFromMA3(
+            source_track_coord="tc1_tg2_tr3",
+            selected_ma3_event_ids=["ma3_evt_1", "ma3_evt_2"],
+            target_layer_id=LayerId("layer_target"),
+            import_mode="main",
+        ),
+    )
+
+    orchestrator.handle(timeline, ApplyPullFromMA3())
+
+    assert len(target_layer.takes) == 1
+    assert [event.id for event in main_take.events] == [
+        "take_target:ma3:tc1_tg2_tr3:ma3_evt_1:1",
+        "take_target:ma3:tc1_tg2_tr3:ma3_evt_2:2",
+        "take_target:ma3:tc1_tg2_tr3:ma3_evt_1:1:2",
+    ]
+    assert timeline.selection.selected_take_id == main_take.id
+    assert timeline.selection.selected_event_ids == [
+        "take_target:ma3:tc1_tg2_tr3:ma3_evt_1:1:2",
+        "take_target:ma3:tc1_tg2_tr3:ma3_evt_2:2",
+    ]
 
 
 def test_apply_pull_create_new_target_creates_event_layer_and_imports_events():

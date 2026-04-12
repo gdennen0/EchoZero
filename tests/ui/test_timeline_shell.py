@@ -55,6 +55,7 @@ from echozero.application.timeline.intents import (
     PreviewTransferPlan,
     SaveTransferPreset,
     Seek,
+    SetPullImportMode,
     SetLayerLiveSyncPauseReason,
     SetLayerLiveSyncState,
     SetPushTransferMode,
@@ -638,6 +639,7 @@ class _ManualPullHarness:
                             event_count=2,
                         )
                     ],
+                    import_mode="new_take",
                     available_target_layers=[
                         ManualPullTargetOptionPresentation(
                             layer_id=LayerId("layer_kick"),
@@ -665,6 +667,7 @@ class _ManualPullHarness:
                             source_label="Track 3 (tc1_tg2_tr3)",
                             target_label="Unmapped",
                             source_track_coord="tc1_tg2_tr3",
+                            import_mode=self._presentation.manual_pull_flow.import_mode,
                             selected_count=0,
                             status="blocked",
                             issue="Select source events and target layer mapping",
@@ -724,6 +727,7 @@ class _ManualPullHarness:
                             source_label="Track 3 (tc1_tg2_tr3)",
                             target_label="Unmapped",
                             source_track_coord="tc1_tg2_tr3",
+                            import_mode=self._presentation.manual_pull_flow.import_mode,
                             selected_ma3_event_ids=list(intent.selected_ma3_event_ids),
                             selected_count=len(intent.selected_ma3_event_ids),
                             status="blocked",
@@ -731,6 +735,69 @@ class _ManualPullHarness:
                         )
                     ],
                     blocked_count=1,
+                ),
+            )
+            return self._presentation
+        if isinstance(intent, SetPullImportMode):
+            active_coord = self._presentation.manual_pull_flow.active_source_track_coord
+            self._presentation = replace(
+                self._presentation,
+                manual_pull_flow=replace(
+                    self._presentation.manual_pull_flow,
+                    import_mode=intent.import_mode,
+                    import_mode_by_source_track=(
+                        self._presentation.manual_pull_flow.import_mode_by_source_track
+                        if active_coord is None
+                        else {
+                            **self._presentation.manual_pull_flow.import_mode_by_source_track,
+                            active_coord: intent.import_mode,
+                        }
+                    ),
+                ),
+                batch_transfer_plan=BatchTransferPlanPresentation(
+                    plan_id="pull:timeline_selection",
+                    operation_type="pull",
+                    rows=[
+                        BatchTransferPlanRowPresentation(
+                            row_id="pull:tc1_tg2_tr3",
+                            direction="pull",
+                            source_label="Track 3 (tc1_tg2_tr3)",
+                            target_label=(
+                                "Kick"
+                                if self._presentation.manual_pull_flow.target_layer_id == LayerId("layer_kick")
+                                else "Unmapped"
+                            ),
+                            source_track_coord="tc1_tg2_tr3",
+                            target_layer_id=self._presentation.manual_pull_flow.target_layer_id,
+                            import_mode=intent.import_mode,
+                            selected_ma3_event_ids=list(self._presentation.manual_pull_flow.selected_ma3_event_ids),
+                            selected_count=len(self._presentation.manual_pull_flow.selected_ma3_event_ids),
+                            status=(
+                                "ready"
+                                if self._presentation.manual_pull_flow.target_layer_id is not None
+                                and self._presentation.manual_pull_flow.selected_ma3_event_ids
+                                else "blocked"
+                            ),
+                            issue=(
+                                None
+                                if self._presentation.manual_pull_flow.target_layer_id is not None
+                                and self._presentation.manual_pull_flow.selected_ma3_event_ids
+                                else "Select target layer mapping"
+                            ),
+                        )
+                    ],
+                    ready_count=(
+                        1
+                        if self._presentation.manual_pull_flow.target_layer_id is not None
+                        and self._presentation.manual_pull_flow.selected_ma3_event_ids
+                        else 0
+                    ),
+                    blocked_count=(
+                        0
+                        if self._presentation.manual_pull_flow.target_layer_id is not None
+                        and self._presentation.manual_pull_flow.selected_ma3_event_ids
+                        else 1
+                    ),
                 ),
             )
             return self._presentation
@@ -770,6 +837,7 @@ class _ManualPullHarness:
                             target_label="Kick",
                             source_track_coord="tc1_tg2_tr3",
                             target_layer_id=intent.target_layer_id,
+                            import_mode=self._presentation.manual_pull_flow.import_mode,
                             selected_ma3_event_ids=list(self._presentation.manual_pull_flow.selected_ma3_event_ids),
                             selected_count=len(self._presentation.manual_pull_flow.selected_ma3_event_ids),
                             status="ready",
@@ -795,6 +863,11 @@ class _ManualPullHarness:
                         **self._presentation.manual_pull_flow.selected_ma3_event_ids_by_track,
                         intent.source_track_coord: list(intent.selected_ma3_event_ids),
                     },
+                    import_mode=intent.import_mode,
+                    import_mode_by_source_track={
+                        **self._presentation.manual_pull_flow.import_mode_by_source_track,
+                        intent.source_track_coord: intent.import_mode,
+                    },
                     available_target_layers=list(self._presentation.manual_pull_flow.available_target_layers),
                     target_layer_id=intent.target_layer_id,
                     target_layer_id_by_source_track={
@@ -810,6 +883,7 @@ class _ManualPullHarness:
                         source_track_event_count=2,
                         target_layer_id=intent.target_layer_id,
                         target_layer_name="Kick",
+                        import_mode=intent.import_mode,
                     ),
                 ),
             )
@@ -1448,6 +1522,7 @@ def test_select_pull_source_events_action_opens_timeline_popup_and_dispatches_ev
             or ManualPullTimelineSelectionResult(
                 selected_event_ids=["ma3_evt_1", "ma3_evt_2"],
                 target_layer_id=LayerId("layer_kick"),
+                import_mode="main",
             )
         ),
     )
@@ -1485,6 +1560,7 @@ def test_select_pull_source_events_action_opens_timeline_popup_and_dispatches_ev
             SelectPullSourceTrack(source_track_coord="tc1_tg2_tr3"),
             SelectPullSourceEvents(selected_ma3_event_ids=["ma3_evt_1", "ma3_evt_2"]),
             SelectPullTargetLayer(target_layer_id=LayerId("layer_kick")),
+            SetPullImportMode(import_mode="main"),
         ]
     finally:
         widget.close()
@@ -1512,6 +1588,7 @@ def test_pull_workspace_actions_dispatch_selection_mapping_preview_and_exit(monk
         lambda self, flow: ManualPullTimelineSelectionResult(
             selected_event_ids=["ma3_evt_1", "ma3_evt_2"],
             target_layer_id=LayerId("layer_kick"),
+            import_mode="main",
         ),
     )
     monkeypatch.setattr(
@@ -1580,11 +1657,13 @@ def test_pull_workspace_actions_dispatch_selection_mapping_preview_and_exit(monk
             SelectPullSourceTrack(source_track_coord="tc1_tg2_tr3"),
             SelectPullSourceEvents(selected_ma3_event_ids=["ma3_evt_1", "ma3_evt_2"]),
             SelectPullTargetLayer(target_layer_id=LayerId("layer_kick")),
+            SetPullImportMode(import_mode="main"),
             SelectPullSourceTrack(source_track_coord="tc1_tg2_tr3"),
             ConfirmPullFromMA3(
                 source_track_coord="tc1_tg2_tr3",
                 selected_ma3_event_ids=["ma3_evt_1", "ma3_evt_2"],
                 target_layer_id=LayerId("layer_kick"),
+                import_mode="main",
             ),
             ExitPullFromMA3Workspace(),
         ]
@@ -1626,6 +1705,7 @@ def test_preview_pull_diff_does_not_auto_apply(monkeypatch):
         lambda self, flow: ManualPullTimelineSelectionResult(
             selected_event_ids=["ma3_evt_1", "ma3_evt_2"],
             target_layer_id=LayerId("layer_kick"),
+            import_mode="new_take",
         ),
     )
     monkeypatch.setattr(
@@ -2175,13 +2255,19 @@ def test_manual_pull_timeline_dialog_keeps_target_selection_in_same_popup():
             ManualPullTargetOptionPresentation(layer_id=LayerId("layer_new"), name="Create New Layer"),
         ],
         selected_target_layer_id=LayerId("layer_new"),
+        selected_import_mode="main",
     )
     try:
         assert dialog.selected_event_ids() == ["ma3_evt_2"]
         assert dialog.selected_target_layer_id() == LayerId("layer_new")
+        assert dialog.selected_import_mode() == "main"
         assert [dialog._target_combo.itemText(index) for index in range(dialog._target_combo.count())] == [
             "Kick",
             "Create New Layer",
+        ]
+        assert [dialog._import_mode_combo.itemText(index) for index in range(dialog._import_mode_combo.count())] == [
+            "Import as New Take",
+            "Import to Main",
         ]
 
         dialog._canvas.set_selected_event_ids(["ma3_evt_1", "ma3_evt_2"])

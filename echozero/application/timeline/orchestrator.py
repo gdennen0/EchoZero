@@ -62,6 +62,7 @@ from echozero.application.timeline.intents import (
     PreviewTransferPlan,
     SaveTransferPreset,
     Seek,
+    SetPullImportMode,
     SetPullSourceEvents,
     SetPullTrackOptions,
     SetPushTransferMode,
@@ -326,6 +327,8 @@ class TimelineOrchestrator:
             session.manual_pull_flow.available_events = []
             session.manual_pull_flow.selected_ma3_event_ids = []
             session.manual_pull_flow.selected_ma3_event_ids_by_track = {}
+            session.manual_pull_flow.import_mode = "new_take"
+            session.manual_pull_flow.import_mode_by_source_track = {}
             session.manual_pull_flow.available_target_layers = self._load_manual_pull_target_options(timeline)
             session.manual_pull_flow.target_layer_id = None
             session.manual_pull_flow.target_layer_id_by_source_track = {}
@@ -344,6 +347,8 @@ class TimelineOrchestrator:
             session.manual_pull_flow.available_events = []
             session.manual_pull_flow.selected_ma3_event_ids = []
             session.manual_pull_flow.selected_ma3_event_ids_by_track = {}
+            session.manual_pull_flow.import_mode = "new_take"
+            session.manual_pull_flow.import_mode_by_source_track = {}
             session.manual_pull_flow.available_target_layers = []
             session.manual_pull_flow.target_layer_id = None
             session.manual_pull_flow.target_layer_id_by_source_track = {}
@@ -370,6 +375,7 @@ class TimelineOrchestrator:
                     session.manual_pull_flow.source_track_coord = None
                     session.manual_pull_flow.available_events = []
                     session.manual_pull_flow.selected_ma3_event_ids = []
+                    session.manual_pull_flow.import_mode = "new_take"
                 self._rebuild_pull_transfer_plan(timeline, session)
 
         elif isinstance(intent, SelectPullSourceTracks):
@@ -400,6 +406,10 @@ class TimelineOrchestrator:
                 session.manual_pull_flow.selected_ma3_event_ids = list(
                     session.manual_pull_flow.selected_ma3_event_ids_by_track.get(active_coord, [])
                 )
+                session.manual_pull_flow.import_mode = session.manual_pull_flow.import_mode_by_source_track.get(
+                    active_coord,
+                    "new_take",
+                )
                 session.manual_pull_flow.target_layer_id = session.manual_pull_flow.target_layer_id_by_source_track.get(
                     active_coord
                 )
@@ -424,6 +434,10 @@ class TimelineOrchestrator:
             session.manual_pull_flow.available_events = self._load_manual_pull_event_options(source_track.coord)
             session.manual_pull_flow.selected_ma3_event_ids = list(
                 session.manual_pull_flow.selected_ma3_event_ids_by_track.get(source_track.coord, [])
+            )
+            session.manual_pull_flow.import_mode = session.manual_pull_flow.import_mode_by_source_track.get(
+                source_track.coord,
+                "new_take",
             )
             session.manual_pull_flow.target_layer_id = session.manual_pull_flow.target_layer_id_by_source_track.get(
                 source_track.coord
@@ -483,6 +497,17 @@ class TimelineOrchestrator:
             if session.manual_pull_flow.workspace_active:
                 self._rebuild_pull_transfer_plan(timeline, session)
 
+        elif isinstance(intent, SetPullImportMode):
+            session = self.session_service.get_session()
+            session.manual_pull_flow.import_mode = intent.import_mode
+            active_coord = session.manual_pull_flow.active_source_track_coord or session.manual_pull_flow.source_track_coord
+            if active_coord:
+                session.manual_pull_flow.import_mode_by_source_track[active_coord] = intent.import_mode
+            session.manual_pull_flow.diff_gate_open = False
+            session.manual_pull_flow.diff_preview = None
+            if session.manual_pull_flow.workspace_active:
+                self._rebuild_pull_transfer_plan(timeline, session)
+
         elif isinstance(intent, ConfirmPullFromMA3):
             session = self.session_service.get_session()
             source_track = self._manual_pull_track_by_coord(
@@ -532,6 +557,8 @@ class TimelineOrchestrator:
             session.manual_pull_flow.selected_ma3_event_ids_by_track[source_track.coord] = list(
                 intent.selected_ma3_event_ids
             )
+            session.manual_pull_flow.import_mode = intent.import_mode
+            session.manual_pull_flow.import_mode_by_source_track[source_track.coord] = intent.import_mode
             session.manual_pull_flow.target_layer_id = target_layer.layer_id
             session.manual_pull_flow.target_layer_id_by_source_track[source_track.coord] = target_layer.layer_id
             session.manual_pull_flow.diff_gate_open = True
@@ -570,18 +597,16 @@ class TimelineOrchestrator:
                 target_layer_id=flow.target_layer_id,
                 source_track=source_track,
             )
-
-            imported_take = self._build_manual_pull_take(
-                layer=target_layer,
+            selected_take_id, selected_event_ids = self._apply_manual_pull_import(
+                target_layer=target_layer,
                 source_track=source_track,
                 selected_events=selected_events,
+                import_mode=preview.import_mode,
             )
-            target_layer.takes.append(imported_take)
-            self._sort_take_events(imported_take)
 
             timeline.selection.selected_layer_id = target_layer.id
-            timeline.selection.selected_take_id = imported_take.id
-            timeline.selection.selected_event_ids = [event.id for event in imported_take.events]
+            timeline.selection.selected_take_id = selected_take_id
+            timeline.selection.selected_event_ids = selected_event_ids
 
             flow.diff_gate_open = False
             flow.diff_preview = None
@@ -1001,12 +1026,14 @@ class TimelineOrchestrator:
         selected_events: list[ManualPullEventOption],
     ) -> Take:
         take_id = self._next_manual_pull_take_id(layer)
+        existing_event_ids: set[str] = set()
         imported_events = [
             self._build_manual_pull_event(
                 take_id=take_id,
                 source_track=source_track,
                 source_event=source_event,
                 order_index=index,
+                existing_event_ids=existing_event_ids,
             )
             for index, source_event in enumerate(selected_events, start=1)
         ]
@@ -1025,16 +1052,46 @@ class TimelineOrchestrator:
         source_track: ManualPullTrackOption,
         source_event: ManualPullEventOption,
         order_index: int,
+        existing_event_ids: set[str] | None = None,
     ) -> Event:
         start, end = self.diff_service.resolve_pull_event_range(source_event, order_index=order_index)
+        event_id = self._next_manual_pull_event_id(
+            take_id=take_id,
+            source_track_coord=source_track.coord,
+            source_event_id=source_event.event_id,
+            order_index=order_index,
+            existing_event_ids=existing_event_ids,
+        )
         return Event(
-            id=f"{take_id}:ma3:{source_track.coord}:{source_event.event_id}:{order_index}",
+            id=event_id,
             take_id=take_id,
             start=start,
             end=end,
             label=source_event.label,
             payload_ref=source_event.event_id,
         )
+
+    @staticmethod
+    def _next_manual_pull_event_id(
+        *,
+        take_id,
+        source_track_coord: str,
+        source_event_id: str,
+        order_index: int,
+        existing_event_ids: set[str] | None,
+    ) -> str:
+        reserved = existing_event_ids if existing_event_ids is not None else set()
+        base_id = f"{take_id}:ma3:{source_track_coord}:{source_event_id}:{order_index}"
+        if base_id not in reserved:
+            reserved.add(base_id)
+            return base_id
+        suffix = 2
+        while True:
+            candidate = f"{base_id}:{suffix}"
+            if candidate not in reserved:
+                reserved.add(candidate)
+                return candidate
+            suffix += 1
 
     def _require_active_transfer_plan(self, session, plan_id: str, *, action_name: str) -> BatchTransferPlanState:
         plan = session.batch_transfer_plan
@@ -1155,17 +1212,16 @@ class TimelineOrchestrator:
             selected_ids=list(row.selected_ma3_event_ids),
             action_name="ApplyTransferPlan",
         )
-        imported_take = self._build_manual_pull_take(
-            layer=target_layer,
+        selected_take_id, selected_event_ids = self._apply_manual_pull_import(
+            target_layer=target_layer,
             source_track=source_track,
             selected_events=selected_events,
+            import_mode=row.import_mode,
         )
-        target_layer.takes.append(imported_take)
-        self._sort_take_events(imported_take)
 
         timeline.selection.selected_layer_id = target_layer.id
-        timeline.selection.selected_take_id = imported_take.id
-        timeline.selection.selected_event_ids = [event.id for event in imported_take.events]
+        timeline.selection.selected_take_id = selected_take_id
+        timeline.selection.selected_event_ids = selected_event_ids
         return self._copy_plan_row(row, status="applied", issue=None)
 
     def _apply_push_plan_row(self, timeline: Timeline, row: BatchTransferPlanRowState) -> BatchTransferPlanRowState:
@@ -1224,6 +1280,7 @@ class TimelineOrchestrator:
             source_track_coord=row.source_track_coord,
             target_track_coord=row.target_track_coord,
             target_layer_id=row.target_layer_id,
+            import_mode=row.import_mode,
             selected_event_ids=list(row.selected_event_ids),
             selected_ma3_event_ids=list(row.selected_ma3_event_ids),
             selected_count=row.selected_count,
@@ -1282,6 +1339,8 @@ class TimelineOrchestrator:
         session.manual_pull_flow.available_events = []
         session.manual_pull_flow.selected_ma3_event_ids = []
         session.manual_pull_flow.selected_ma3_event_ids_by_track = {}
+        session.manual_pull_flow.import_mode = "new_take"
+        session.manual_pull_flow.import_mode_by_source_track = {}
         session.manual_pull_flow.available_target_layers = []
         session.manual_pull_flow.target_layer_id = None
         session.manual_pull_flow.target_layer_id_by_source_track = {}
@@ -1512,6 +1571,7 @@ class TimelineOrchestrator:
             track = tracks_by_coord[coord]
             selected_event_ids = list(flow.selected_ma3_event_ids_by_track.get(coord, []))
             target_layer_id = flow.target_layer_id_by_source_track.get(coord)
+            import_mode = flow.import_mode_by_source_track.get(coord, flow.import_mode or "new_take")
             if not selected_event_ids and target_layer_id is None:
                 status = "blocked"
                 issue = "Select source events and target layer mapping"
@@ -1537,6 +1597,7 @@ class TimelineOrchestrator:
                     target_label=target_label,
                     source_track_coord=coord,
                     target_layer_id=target_layer_id,
+                    import_mode=import_mode,
                     selected_ma3_event_ids=selected_event_ids,
                     selected_count=len(selected_event_ids),
                     status=status,
@@ -1586,6 +1647,53 @@ class TimelineOrchestrator:
             if candidate not in existing_ids:
                 return candidate
             index += 1
+
+    def _apply_manual_pull_import(
+        self,
+        *,
+        target_layer: Layer,
+        source_track: ManualPullTrackOption,
+        selected_events: list[ManualPullEventOption],
+        import_mode: str,
+    ) -> tuple[TakeId, list]:
+        if import_mode == "main":
+            target_take = self._resolve_or_create_manual_pull_main_take(target_layer)
+            existing_event_ids = {str(event.id) for event in target_take.events}
+            imported_events = [
+                self._build_manual_pull_event(
+                    take_id=target_take.id,
+                    source_track=source_track,
+                    source_event=source_event,
+                    order_index=index,
+                    existing_event_ids=existing_event_ids,
+                )
+                for index, source_event in enumerate(selected_events, start=1)
+            ]
+            target_take.events.extend(imported_events)
+            self._sort_take_events(target_take)
+            return target_take.id, [event.id for event in imported_events]
+
+        imported_take = self._build_manual_pull_take(
+            layer=target_layer,
+            source_track=source_track,
+            selected_events=selected_events,
+        )
+        target_layer.takes.append(imported_take)
+        self._sort_take_events(imported_take)
+        return imported_take.id, [event.id for event in imported_take.events]
+
+    @staticmethod
+    def _resolve_or_create_manual_pull_main_take(layer: Layer) -> Take:
+        main_take = TimelineOrchestrator._main_take(layer)
+        if main_take is not None:
+            return main_take
+        main_take = Take(
+            id=TakeId(f"{layer.id}:main"),
+            layer_id=layer.id,
+            name="Main",
+        )
+        layer.takes.insert(0, main_take)
+        return main_take
 
     def _load_manual_push_track_options(self) -> list[ManualPushTrackOption]:
         provider = self.sync_service

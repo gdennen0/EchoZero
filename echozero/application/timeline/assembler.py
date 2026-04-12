@@ -268,6 +268,7 @@ class TimelineAssembler:
                         row.source_track_coord,
                         row.target_track_coord,
                         str(row.target_layer_id) if row.target_layer_id is not None else None,
+                        row.import_mode,
                         tuple(str(event_id) for event_id in row.selected_event_ids),
                         tuple(row.selected_ma3_event_ids),
                         row.selected_count,
@@ -289,6 +290,11 @@ class TimelineAssembler:
             tuple(
                 (coord, tuple(event_ids))
                 for coord, event_ids in sorted(session.manual_pull_flow.selected_ma3_event_ids_by_track.items())
+            ),
+            session.manual_pull_flow.import_mode,
+            tuple(
+                (coord, mode)
+                for coord, mode in sorted(session.manual_pull_flow.import_mode_by_source_track.items())
             ),
             tuple(
                 (coord, str(layer_id))
@@ -400,6 +406,8 @@ class TimelineAssembler:
                 coord: list(event_ids)
                 for coord, event_ids in flow.selected_ma3_event_ids_by_track.items()
             },
+            import_mode=flow.import_mode,
+            import_mode_by_source_track=dict(flow.import_mode_by_source_track),
             available_target_layers=[
                 ManualPullTargetOptionPresentation(
                     layer_id=target.layer_id,
@@ -431,6 +439,7 @@ class TimelineAssembler:
                     source_track_coord=row.source_track_coord,
                     target_track_coord=row.target_track_coord,
                     target_layer_id=row.target_layer_id,
+                    import_mode=row.import_mode,
                     selected_event_ids=list(row.selected_event_ids),
                     selected_ma3_event_ids=list(row.selected_ma3_event_ids),
                     selected_count=row.selected_count,

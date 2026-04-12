@@ -286,6 +286,17 @@ class SelectPullTargetLayer(TimelineIntent):
 
 
 @dataclass(slots=True)
+class SetPullImportMode(TimelineIntent):
+    import_mode: str
+
+    def __post_init__(self) -> None:
+        import_mode = (self.import_mode or "").strip().lower()
+        if import_mode not in {"new_take", "main"}:
+            raise ValueError("SetPullImportMode requires import_mode 'new_take' or 'main'")
+        self.import_mode = import_mode
+
+
+@dataclass(slots=True)
 class ConfirmPullFromMA3(TimelineIntent):
     source_track_coord: str
     selected_ma3_event_ids: list[str]
@@ -301,6 +312,10 @@ class ConfirmPullFromMA3(TimelineIntent):
             raise ValueError("ConfirmPullFromMA3 requires non-empty selected_ma3_event_ids")
         if self.target_layer_id is None or not str(self.target_layer_id).strip():
             raise ValueError("ConfirmPullFromMA3 requires a non-empty target_layer_id")
+        import_mode = (self.import_mode or "").strip().lower()
+        if import_mode not in {"new_take", "main"}:
+            raise ValueError("ConfirmPullFromMA3 requires import_mode 'new_take' or 'main'")
+        self.import_mode = import_mode
 
 
 @dataclass(slots=True)

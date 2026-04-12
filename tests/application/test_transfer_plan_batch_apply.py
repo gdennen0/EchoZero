@@ -27,6 +27,7 @@ from echozero.application.timeline.intents import (
     SelectPullSourceTracks,
     SelectPullTargetLayer,
     SelectPushTargetTrack,
+    SetPullImportMode,
     SetPushTransferMode,
     SetPullTrackOptions,
 )
@@ -327,6 +328,43 @@ def test_apply_transfer_plan_imports_pull_rows_and_marks_applied():
     assert session.batch_transfer_plan.failed_count == 0
     assert session.batch_transfer_plan.ready_count == 0
     assert session.batch_transfer_plan.blocked_count == 0
+
+
+def test_apply_transfer_plan_imports_pull_row_into_main_when_row_mode_is_main():
+    tracks = [ManualPullTrackOption(coord="tc1_tg2_tr3", name="Track 3")]
+    events_by_track = {
+        "tc1_tg2_tr3": [
+            ManualPullEventOption(event_id="ma3_evt_1", label="Cue 1", start=1.0, end=1.5),
+            ManualPullEventOption(event_id="ma3_evt_2", label="Cue 2", start=0.5, end=0.75),
+        ],
+    }
+    orchestrator, timeline, session = _build_orchestrator(
+        _SyncService(pull_tracks=tracks, events_by_track=events_by_track)
+    )
+    plan_id = _stage_pull_plan(orchestrator, timeline, tracks=tracks, events_by_track=events_by_track)
+    target_layer = next(layer for layer in timeline.layers if layer.id == LayerId("layer_kick"))
+    target_layer.takes[0].events = [
+        Event(
+            id=EventId("take_kick:ma3:tc1_tg2_tr3:ma3_evt_1:1"),
+            take_id=TakeId("take_kick"),
+            start=0.25,
+            end=0.5,
+            label="Existing",
+        )
+    ]
+    orchestrator.handle(timeline, SelectPullSourceTrack(source_track_coord="tc1_tg2_tr3"))
+    orchestrator.handle(timeline, SetPullImportMode(import_mode="main"))
+
+    orchestrator.handle(timeline, ApplyTransferPlan(plan_id=plan_id))
+
+    assert len(target_layer.takes) == 1
+    assert [str(event.id) for event in target_layer.takes[0].events] == [
+        "take_kick:ma3:tc1_tg2_tr3:ma3_evt_1:1",
+        "take_kick:ma3:tc1_tg2_tr3:ma3_evt_2:2",
+        "take_kick:ma3:tc1_tg2_tr3:ma3_evt_1:1:2",
+    ]
+    assert session.batch_transfer_plan is not None
+    assert session.batch_transfer_plan.rows[0].status == "applied"
 
 
 def test_apply_transfer_plan_stops_after_row_failure_and_leaves_later_ready_rows_untouched():

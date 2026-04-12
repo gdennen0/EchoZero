@@ -44,6 +44,7 @@ from echozero.application.timeline.intents import (
     SetGain,
     SetLayerLiveSyncPauseReason,
     SetLayerLiveSyncState,
+    SetPullImportMode,
     SetPushTransferMode,
     SelectAllEvents,
     SelectEvent,
@@ -230,6 +231,7 @@ def _format_seconds(value: float) -> str:
 class ManualPullTimelineSelectionResult:
     selected_event_ids: list[str]
     target_layer_id: object
+    import_mode: str = "new_take"
 
 
 class ManualPullTimelineCanvas(QWidget):
@@ -389,6 +391,7 @@ class ManualPullTimelineDialog(QDialog):
         selected_event_ids: list[str] | None,
         available_targets,
         selected_target_layer_id,
+        selected_import_mode: str = "new_take",
         parent=None,
     ):
         super().__init__(parent)
@@ -429,6 +432,18 @@ class ManualPullTimelineDialog(QDialog):
         target_row.addWidget(self._target_combo, 1)
         layout.addLayout(target_row)
 
+        import_row = QHBoxLayout()
+        import_row.addWidget(QLabel("Import mode", self))
+        self._import_mode_combo = QComboBox(self)
+        self._import_mode_combo.addItem("Import as New Take", "new_take")
+        self._import_mode_combo.addItem("Import to Main", "main")
+        for index in range(self._import_mode_combo.count()):
+            if self._import_mode_combo.itemData(index) == selected_import_mode:
+                self._import_mode_combo.setCurrentIndex(index)
+                break
+        import_row.addWidget(self._import_mode_combo, 1)
+        layout.addLayout(import_row)
+
         self._buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel,
             parent=self,
@@ -446,6 +461,9 @@ class ManualPullTimelineDialog(QDialog):
 
     def selected_target_layer_id(self):
         return self._target_combo.currentData()
+
+    def selected_import_mode(self) -> str:
+        return str(self._import_mode_combo.currentData() or "new_take")
 
     def accept(self) -> None:
         if not self.selected_event_ids():
@@ -2012,6 +2030,7 @@ class TimelineWidget(QWidget):
                 return
             self._dispatch(SelectPullSourceEvents(selected_ma3_event_ids=selection.selected_event_ids))
             self._dispatch(SelectPullTargetLayer(target_layer_id=selection.target_layer_id))
+            self._dispatch(SetPullImportMode(import_mode=selection.import_mode))
             return
         if action_id == "set_pull_target_layer_mapping":
             flow = self.presentation.manual_pull_flow
@@ -2059,6 +2078,7 @@ class TimelineWidget(QWidget):
                     source_track_coord=row.source_track_coord,
                     selected_ma3_event_ids=list(row.selected_ma3_event_ids),
                     target_layer_id=row.target_layer_id,
+                    import_mode=row.import_mode,
                 )
             )
             flow = self.presentation.manual_pull_flow
@@ -2183,6 +2203,10 @@ class TimelineWidget(QWidget):
             selected_event_ids=selected_event_ids,
             available_targets=flow.available_target_layers,
             selected_target_layer_id=selected_target_layer_id,
+            selected_import_mode=flow.import_mode_by_source_track.get(
+                flow.active_source_track_coord,
+                flow.import_mode,
+            ),
             parent=self,
         )
         if dialog.exec() != QDialog.DialogCode.Accepted:
@@ -2190,6 +2214,7 @@ class TimelineWidget(QWidget):
         return ManualPullTimelineSelectionResult(
             selected_event_ids=dialog.selected_event_ids(),
             target_layer_id=dialog.selected_target_layer_id(),
+            import_mode=dialog.selected_import_mode(),
         )
 
     @staticmethod
