@@ -167,6 +167,10 @@ Add transfer commands:
 - Disabling the experimental flag must reset per-layer live-sync guardrail state back to the safe baseline.
 - Entering `armed_write` requires explicit user confirmation in the UI before the state is applied.
 
+### Next evolution — Batch transfer UX
+- Multi-layer/multi-track transfer UX is specified in:
+  - `docs/MA3-BATCH-TRANSFER-UX-SPEC.md`
+
 ---
 
 ## 7) Acceptance Criteria
