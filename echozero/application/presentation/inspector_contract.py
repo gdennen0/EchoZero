@@ -189,6 +189,17 @@ def _layer_contract(
         InspectorFactRow("sync mapping", layer.sync_target_label or "none"),
         InspectorFactRow("transfer plan", _transfer_plan_summary(presentation)),
     ]
+    if presentation.manual_push_flow.push_mode_active:
+        rows.extend(
+            [
+                InspectorFactRow("push mode", "active"),
+                InspectorFactRow("push target", layer.push_target_label or "none"),
+                InspectorFactRow("push selection", str(layer.push_selection_count)),
+                InspectorFactRow("push row", _push_row_summary(layer)),
+            ]
+        )
+        if layer.push_row_issue:
+            rows.append(InspectorFactRow("push issue", layer.push_row_issue))
     if presentation.experimental_live_sync_enabled:
         rows.append(InspectorFactRow("live sync state", layer.live_sync_state.value))
         if layer.live_sync_pause_reason:
@@ -366,6 +377,30 @@ def _shared_context_sections(
                 group="transfer",
             ),
         ]
+        if presentation.manual_push_flow.push_mode_active:
+            transfer_actions.extend(
+                [
+                    InspectorAction(
+                        action_id="select_push_target_track",
+                        label="Select Push Target Track",
+                        group="transfer",
+                        enabled=bool(layer.push_selection_count and presentation.manual_push_flow.available_tracks),
+                        params={"layer_id": layer.layer_id},
+                    ),
+                    InspectorAction(
+                        action_id="preview_push_diff",
+                        label="Preview Push Diff",
+                        group="transfer",
+                        enabled=bool(layer.push_selection_count and (layer.push_target_label or layer.sync_target_label)),
+                        params={"layer_id": layer.layer_id},
+                    ),
+                    InspectorAction(
+                        action_id="exit_push_mode",
+                        label="Exit Push Mode",
+                        group="transfer",
+                    ),
+                ]
+            )
         if has_selected_events:
             transfer_actions.append(
                 InspectorAction(
@@ -611,3 +646,9 @@ def _transfer_plan_summary(presentation: TimelinePresentation) -> str:
         f"{plan.operation_type} {plan.plan_id} "
         f"(ready {plan.ready_count}, blocked {plan.blocked_count}, failed {plan.failed_count})"
     )
+
+
+def _push_row_summary(layer: LayerPresentation) -> str:
+    if not layer.push_row_status:
+        return "none"
+    return layer.push_row_status

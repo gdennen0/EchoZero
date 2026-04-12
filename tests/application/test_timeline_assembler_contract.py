@@ -1,6 +1,7 @@
 from echozero.application.session.models import (
     BatchTransferPlanRowState,
     BatchTransferPlanState,
+    ManualPushFlowState,
     Session,
 )
 from echozero.application.shared.enums import LayerKind
@@ -182,6 +183,7 @@ def test_assembler_maps_sync_target_and_batch_transfer_plan_to_presentation():
         active_song_id=SongId("song_1"),
         active_song_version_id=SongVersionId("version_1"),
         active_timeline_id=timeline.id,
+        manual_push_flow=ManualPushFlowState(push_mode_active=True),
         batch_transfer_plan=BatchTransferPlanState(
             plan_id="plan_123",
             operation_type="mixed",
@@ -191,6 +193,9 @@ def test_assembler_maps_sync_target_and_batch_transfer_plan_to_presentation():
                     direction="push",
                     source_label="Kick",
                     target_label="Track 3",
+                    source_layer_id=LayerId("layer_1"),
+                    target_track_coord="tc1_tg2_tr3",
+                    selected_event_ids=[EventId("main_a"), EventId("main_b")],
                     selected_count=2,
                     status="ready",
                 ),
@@ -212,6 +217,9 @@ def test_assembler_maps_sync_target_and_batch_transfer_plan_to_presentation():
     assembled = TimelineAssembler().assemble(timeline, session)
 
     assert assembled.layers[0].sync_target_label == "tc1_tg2_tr3"
+    assert assembled.layers[0].push_target_label == "Track 3"
+    assert assembled.layers[0].push_selection_count == 2
+    assert assembled.layers[0].push_row_status == "ready"
     assert assembled.batch_transfer_plan is not None
     assert assembled.batch_transfer_plan.plan_id == "plan_123"
     assert assembled.batch_transfer_plan.operation_type == "mixed"
@@ -219,5 +227,6 @@ def test_assembler_maps_sync_target_and_batch_transfer_plan_to_presentation():
     assert assembled.batch_transfer_plan.blocked_count == 1
     assert assembled.batch_transfer_plan.rows[0].row_id == "row_1"
     assert assembled.batch_transfer_plan.rows[0].direction == "push"
+    assert assembled.batch_transfer_plan.rows[0].source_layer_id == LayerId("layer_1")
     assert assembled.batch_transfer_plan.rows[0].selected_count == 2
     assert assembled.batch_transfer_plan.rows[1].issue == "Target layer required"

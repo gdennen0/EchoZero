@@ -7,6 +7,8 @@ from echozero.application.mixer.service import MixerService
 from echozero.application.playback.service import PlaybackService
 from echozero.application.presentation.models import TimelinePresentation
 from echozero.application.session.models import (
+    BatchTransferPlanRowState,
+    BatchTransferPlanState,
     ManualPullDiffPreview,
     ManualPullEventOption,
     ManualPullTargetOption,
@@ -42,6 +44,7 @@ from echozero.application.timeline.intents import (
     SelectPullTargetLayer,
     SelectTake,
     EnableSync,
+    ExitPushToMA3Mode,
     OpenPushToMA3Dialog,
     Play,
     Pause,
@@ -210,16 +213,31 @@ class TimelineOrchestrator:
 
         elif isinstance(intent, OpenPushToMA3Dialog):
             session = self.session_service.get_session()
+            timeline.selection.selected_event_ids = list(intent.selection_event_ids)
             session.manual_push_flow.dialog_open = True
+            session.manual_push_flow.push_mode_active = True
             session.manual_push_flow.selected_event_ids = list(intent.selection_event_ids)
             session.manual_push_flow.target_track_coord = None
             session.manual_push_flow.diff_gate_open = False
             session.manual_push_flow.diff_preview = None
             session.manual_push_flow.available_tracks = self._load_manual_push_track_options()
+            self._rebuild_push_transfer_plan(timeline, session)
+
+        elif isinstance(intent, ExitPushToMA3Mode):
+            session = self.session_service.get_session()
+            session.manual_push_flow.dialog_open = False
+            session.manual_push_flow.push_mode_active = False
+            session.manual_push_flow.selected_event_ids = []
+            session.manual_push_flow.target_track_coord = None
+            session.manual_push_flow.diff_gate_open = False
+            session.manual_push_flow.diff_preview = None
+            session.batch_transfer_plan = None
 
         elif isinstance(intent, SetPushTrackOptions):
             session = self.session_service.get_session()
             session.manual_push_flow.available_tracks = list(intent.tracks)
+            if session.manual_push_flow.push_mode_active:
+                self._rebuild_push_transfer_plan(timeline, session)
 
         elif isinstance(intent, SelectPushTargetTrack):
             session = self.session_service.get_session()
@@ -233,6 +251,14 @@ class TimelineOrchestrator:
                     f"{intent.target_track_coord}"
                 )
             session.manual_push_flow.target_track_coord = intent.target_track_coord
+            if intent.layer_id is not None:
+                layer = self._find_layer(timeline, intent.layer_id)
+                layer.sync.ma3_track_coord = intent.target_track_coord
+            elif timeline.selection.selected_layer_id is not None and session.manual_push_flow.push_mode_active:
+                layer = self._find_layer(timeline, timeline.selection.selected_layer_id)
+                layer.sync.ma3_track_coord = intent.target_track_coord
+            if session.manual_push_flow.push_mode_active:
+                self._rebuild_push_transfer_plan(timeline, session)
 
         elif isinstance(intent, ConfirmPushToMA3):
             session = self.session_service.get_session()
@@ -240,6 +266,9 @@ class TimelineOrchestrator:
                 session.manual_push_flow.available_tracks,
                 intent.target_track_coord,
             )
+            if session.manual_push_flow.push_mode_active and timeline.selection.selected_layer_id is not None:
+                layer = self._find_layer(timeline, timeline.selection.selected_layer_id)
+                layer.sync.ma3_track_coord = target_track.coord
             selected_events = self._selected_events_by_ids(timeline, intent.selected_event_ids)
             diff_summary, diff_rows = self.diff_service.build_push_preview_rows(
                 selected_events=selected_events,
@@ -259,6 +288,8 @@ class TimelineOrchestrator:
                 diff_summary=diff_summary,
                 diff_rows=diff_rows,
             )
+            if session.manual_push_flow.push_mode_active:
+                self._rebuild_push_transfer_plan(timeline, session)
 
         elif isinstance(intent, OpenPullFromMA3Dialog):
             session = self.session_service.get_session()
@@ -411,6 +442,9 @@ class TimelineOrchestrator:
             flow.diff_preview = None
 
         session = self.session_service.get_session()
+        if session.manual_push_flow.push_mode_active:
+            session.manual_push_flow.selected_event_ids = list(timeline.selection.selected_event_ids)
+            self._rebuild_push_transfer_plan(timeline, session)
         audibility = self.mixer_service.resolve_audibility(timeline.layers)
         self.playback_service.update_runtime(
             timeline=timeline,
@@ -814,6 +848,94 @@ class TimelineOrchestrator:
             label=source_event.label,
             payload_ref=source_event.event_id,
         )
+
+    def _rebuild_push_transfer_plan(self, timeline: Timeline, session) -> None:
+        rows = self._build_push_transfer_plan_rows(timeline)
+        if not rows:
+            session.batch_transfer_plan = None
+            return
+
+        ready_count = sum(1 for row in rows if row.status == "ready")
+        blocked_count = sum(1 for row in rows if row.status == "blocked")
+        session.batch_transfer_plan = BatchTransferPlanState(
+            plan_id=f"push:{timeline.id}",
+            operation_type="push",
+            rows=rows,
+            ready_count=ready_count,
+            blocked_count=blocked_count,
+        )
+
+    def _build_push_transfer_plan_rows(self, timeline: Timeline) -> list[BatchTransferPlanRowState]:
+        grouped_records = self._selected_event_records_by_layer(timeline)
+        if not grouped_records:
+            return []
+
+        available_tracks = self._load_manual_push_track_options()
+        rows: list[BatchTransferPlanRowState] = []
+        for layer, records in grouped_records:
+            selected_event_ids = [record.event.id for record in records]
+            target_track_coord = layer.sync.ma3_track_coord
+            target_track = None
+            if target_track_coord:
+                target_track = self._manual_push_track_option_by_coord(
+                    available_tracks,
+                    target_track_coord,
+                )
+            status = "ready" if target_track_coord else "blocked"
+            issue = None if target_track_coord else "Select an MA3 target track"
+            target_label = (
+                self._format_manual_push_target_label(target_track)
+                if target_track is not None
+                else (target_track_coord or "Unmapped")
+            )
+            rows.append(
+                BatchTransferPlanRowState(
+                    row_id=f"push:{layer.id}",
+                    direction="push",
+                    source_label=layer.name,
+                    target_label=target_label,
+                    source_layer_id=layer.id,
+                    target_track_coord=target_track_coord,
+                    selected_event_ids=selected_event_ids,
+                    selected_count=len(selected_event_ids),
+                    status=status,
+                    issue=issue,
+                )
+            )
+
+        rows.sort(key=lambda row: (row.source_label.lower(), row.row_id))
+        return rows
+
+    def _selected_event_records_by_layer(self, timeline: Timeline) -> list[tuple[Layer, list[_EventRecord]]]:
+        records = self._selected_event_records(timeline, list(timeline.selection.selected_event_ids))
+        grouped: dict[object, list[TimelineOrchestrator._EventRecord]] = {}
+        layer_order: dict[object, int] = {}
+        for index, layer in enumerate(sorted(timeline.layers, key=lambda value: value.order_index)):
+            layer_order[layer.id] = index
+        layer_lookup: dict[object, Layer] = {}
+        for record in records:
+            layer_lookup[record.layer.id] = record.layer
+            grouped.setdefault(record.layer.id, []).append(record)
+        ordered_layer_ids = sorted(grouped.keys(), key=lambda layer_id: layer_order.get(layer_id, 0))
+        return [(layer_lookup[layer_id], grouped[layer_id]) for layer_id in ordered_layer_ids]
+
+    @staticmethod
+    def _manual_push_track_option_by_coord(
+        available_tracks: list[ManualPushTrackOption],
+        target_track_coord: str | None,
+    ) -> ManualPushTrackOption | None:
+        if not target_track_coord:
+            return None
+        for track in available_tracks:
+            if track.coord == target_track_coord:
+                return track
+        return None
+
+    @staticmethod
+    def _format_manual_push_target_label(track: ManualPushTrackOption) -> str:
+        if track.note:
+            return f"{track.name} ({track.coord}) - {track.note}"
+        return f"{track.name} ({track.coord})"
 
     @staticmethod
     def _next_manual_pull_take_id(layer: Layer):

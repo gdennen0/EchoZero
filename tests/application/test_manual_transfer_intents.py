@@ -7,11 +7,13 @@ from echozero.application.timeline.intents import (
     ApplyPullFromMA3,
     ConfirmPullFromMA3,
     ConfirmPushToMA3,
+    ExitPushToMA3Mode,
     OpenPullFromMA3Dialog,
     OpenPushToMA3Dialog,
     SelectPullSourceEvents,
     SelectPullSourceTrack,
     SelectPullTargetLayer,
+    SelectPushTargetTrack,
 )
 
 
@@ -31,6 +33,22 @@ def test_confirm_push_to_ma3_captures_target_track_and_selected_events():
 
     assert intent.target_track_coord == "tc1_tg2_tr3"
     assert intent.selected_event_ids == [EventId("evt_1")]
+
+
+def test_select_push_target_track_keeps_optional_layer_id():
+    intent = SelectPushTargetTrack(
+        target_track_coord="tc1_tg2_tr3",
+        layer_id=LayerId("layer_kick"),
+    )
+
+    assert intent.target_track_coord == "tc1_tg2_tr3"
+    assert intent.layer_id == LayerId("layer_kick")
+
+
+def test_exit_push_to_ma3_mode_is_constructible():
+    intent = ExitPushToMA3Mode()
+
+    assert isinstance(intent, ExitPushToMA3Mode)
 
 
 @pytest.mark.parametrize("target_track_coord", ["", "   "])

@@ -121,6 +121,44 @@ def test_inspector_contract_layer_selection_state():
     assert "live-sync" not in [section.section_id for section in contract.context_sections]
 
 
+def test_inspector_contract_push_mode_layer_actions_and_facts():
+    presentation = _contract_test_presentation()
+    presentation.selected_layer_id = LayerId("layer_kick")
+    presentation.manual_push_flow.push_mode_active = True
+    presentation.manual_push_flow.available_tracks = []
+    presentation.layers[0].push_target_label = "Track 3 (tc1_tg2_tr3) - Bass"
+    presentation.layers[0].push_selection_count = 1
+    presentation.layers[0].push_row_status = "ready"
+    presentation.batch_transfer_plan = BatchTransferPlanPresentation(
+        plan_id="push:timeline_contract",
+        operation_type="push",
+        rows=[
+            BatchTransferPlanRowPresentation(
+                row_id="push:layer_kick",
+                direction="push",
+                source_label="Kick",
+                target_label="Track 3 (tc1_tg2_tr3) - Bass",
+                source_layer_id=LayerId("layer_kick"),
+                target_track_coord="tc1_tg2_tr3",
+                selected_event_ids=[EventId("main_evt")],
+                selected_count=1,
+                status="ready",
+            )
+        ],
+        ready_count=1,
+    )
+
+    contract = build_timeline_inspector_contract(presentation)
+    rows = _section_rows(contract)
+    action_ids = [action.action_id for section in contract.context_sections for action in section.actions]
+
+    assert rows["push mode"] == "active"
+    assert rows["push target"] == "Track 3 (tc1_tg2_tr3) - Bass"
+    assert rows["push selection"] == "1"
+    assert rows["push row"] == "ready"
+    assert {"select_push_target_track", "preview_push_diff", "exit_push_mode"} <= set(action_ids)
+
+
 def test_inspector_contract_live_sync_section_hidden_when_experimental_disabled():
     presentation = _contract_test_presentation()
     presentation.selected_layer_id = LayerId("layer_kick")

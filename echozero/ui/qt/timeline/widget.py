@@ -26,6 +26,7 @@ from echozero.application.timeline.intents import (
     ConfirmPullFromMA3,
     ConfirmPushToMA3,
     DuplicateSelectedEvents,
+    ExitPushToMA3Mode,
     MoveSelectedEvents,
     NudgeSelectedEvents,
     OpenPullFromMA3Dialog,
@@ -1482,14 +1483,16 @@ class TimelineWidget(QWidget):
             if not selected_event_ids:
                 return
             self._dispatch(OpenPushToMA3Dialog(selection_event_ids=selected_event_ids))
+            return
+        if action_id == "select_push_target_track":
             flow = self.presentation.manual_push_flow
-            if not flow.available_tracks:
+            layer_id = params.get("layer_id")
+            if layer_id is None or not flow.available_tracks:
                 return
-
             labels = [self._manual_push_track_label(track) for track in flow.available_tracks]
             chosen_label, accepted = QInputDialog.getItem(
                 self,
-                "Push Selection to MA3",
+                "Select Push Target Track",
                 "Target track",
                 labels,
                 0,
@@ -1505,11 +1508,26 @@ class TimelineWidget(QWidget):
             if selected_track is None:
                 return
 
-            self._dispatch(SelectPushTargetTrack(target_track_coord=selected_track.coord))
+            self._dispatch(SelectPushTargetTrack(target_track_coord=selected_track.coord, layer_id=layer_id))
+            return
+        if action_id == "preview_push_diff":
+            layer_id = params.get("layer_id")
+            if layer_id is None:
+                return
+            row = next(
+                (
+                    candidate
+                    for candidate in (self.presentation.batch_transfer_plan.rows if self.presentation.batch_transfer_plan else [])
+                    if candidate.direction == "push" and candidate.source_layer_id == layer_id
+                ),
+                None,
+            )
+            if row is None or not row.target_track_coord or not row.selected_event_ids:
+                return
             self._dispatch(
                 ConfirmPushToMA3(
-                    target_track_coord=selected_track.coord,
-                    selected_event_ids=selected_event_ids,
+                    target_track_coord=row.target_track_coord,
+                    selected_event_ids=list(row.selected_event_ids),
                 )
             )
             flow = self.presentation.manual_push_flow
@@ -1520,6 +1538,9 @@ class TimelineWidget(QWidget):
                     "Push Diff Preview",
                     self._manual_push_diff_preview_summary(preview.selected_count, preview.target_track_name, preview.target_track_coord),
                 )
+            return
+        if action_id == "exit_push_mode":
+            self._dispatch(ExitPushToMA3Mode())
             return
         if action_id == "pull_from_ma3":
             self._dispatch(OpenPullFromMA3Dialog())

@@ -56,7 +56,7 @@ class TimelineAssembler:
                 layers = self._last_layers
             else:
                 layers = [
-                    self._assemble_layer(layer, selected_layer_id, selected_take_id, selected_event_ids)
+                    self._assemble_layer(layer, session, selected_layer_id, selected_take_id, selected_event_ids)
                     for layer in ordered_layers
                 ]
                 self._last_signature = signature
@@ -85,6 +85,7 @@ class TimelineAssembler:
     def _assemble_layer(
         self,
         layer: Layer,
+        session: Session,
         selected_layer_id,
         selected_take_id,
         selected_event_ids: set,
@@ -157,6 +158,10 @@ class TimelineAssembler:
             live_sync_pause_reason=layer.sync.live_sync_pause_reason,
             live_sync_divergent=layer.sync.live_sync_divergent,
             sync_target_label=self._sync_target_label(layer),
+            push_target_label=self._push_target_label(session, layer),
+            push_selection_count=self._push_selection_count(session, layer),
+            push_row_status=self._push_row_status(session, layer),
+            push_row_issue=self._push_row_issue(session, layer),
             color=layer.presentation_hints.color,
             badges=badges,
             playback_source_ref=layer.playback.armed_source_ref,
@@ -279,6 +284,7 @@ class TimelineAssembler:
 
         return ManualPushFlowPresentation(
             dialog_open=flow.dialog_open,
+            push_mode_active=flow.push_mode_active,
             available_tracks=[
                 ManualPushTrackOptionPresentation(
                     coord=track.coord,
@@ -358,6 +364,9 @@ class TimelineAssembler:
                     direction=row.direction,
                     source_label=row.source_label,
                     target_label=row.target_label,
+                    source_layer_id=row.source_layer_id,
+                    target_track_coord=row.target_track_coord,
+                    selected_event_ids=list(row.selected_event_ids),
                     selected_count=row.selected_count,
                     status=row.status,
                     issue=row.issue,
@@ -423,3 +432,35 @@ class TimelineAssembler:
         if layer.sync.show_manager_block_id:
             return layer.sync.show_manager_block_id
         return ""
+
+    @staticmethod
+    def _push_plan_row(session: Session, layer: Layer):
+        plan = session.batch_transfer_plan
+        if plan is None:
+            return None
+        for row in plan.rows:
+            if row.direction == "push" and row.source_layer_id == layer.id:
+                return row
+        return None
+
+    @classmethod
+    def _push_target_label(cls, session: Session, layer: Layer) -> str:
+        row = cls._push_plan_row(session, layer)
+        if row is not None and row.target_label:
+            return row.target_label
+        return cls._sync_target_label(layer)
+
+    @classmethod
+    def _push_selection_count(cls, session: Session, layer: Layer) -> int:
+        row = cls._push_plan_row(session, layer)
+        return 0 if row is None else row.selected_count
+
+    @classmethod
+    def _push_row_status(cls, session: Session, layer: Layer) -> str:
+        row = cls._push_plan_row(session, layer)
+        return "" if row is None else row.status
+
+    @classmethod
+    def _push_row_issue(cls, session: Session, layer: Layer) -> str:
+        row = cls._push_plan_row(session, layer)
+        return "" if row is None or row.issue is None else row.issue

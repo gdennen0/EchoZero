@@ -190,10 +190,16 @@ class SetPushTrackOptions(TimelineIntent):
 @dataclass(slots=True)
 class SelectPushTargetTrack(TimelineIntent):
     target_track_coord: str
+    layer_id: LayerId | None = None
 
     def __post_init__(self) -> None:
         if not self.target_track_coord or not self.target_track_coord.strip():
             raise ValueError("SelectPushTargetTrack requires a non-empty target_track_coord")
+
+
+@dataclass(slots=True)
+class ExitPushToMA3Mode(TimelineIntent):
+    pass
 
 
 @dataclass(slots=True)

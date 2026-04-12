@@ -228,10 +228,16 @@ def test_open_push_intent_sets_manual_push_dialog_state():
     )
 
     assert session.manual_push_flow.dialog_open is True
+    assert session.manual_push_flow.push_mode_active is True
     assert session.manual_push_flow.selected_event_ids == [EventId("evt_1"), EventId("evt_2")]
     assert session.manual_push_flow.target_track_coord is None
     assert session.manual_push_flow.diff_gate_open is False
     assert session.manual_push_flow.diff_preview is None
+    assert session.batch_transfer_plan is not None
+    assert session.batch_transfer_plan.operation_type == "push"
+    assert [row.source_label for row in session.batch_transfer_plan.rows] == ["Push Layer"]
+    assert session.batch_transfer_plan.rows[0].status == "blocked"
+    assert session.batch_transfer_plan.rows[0].issue == "Select an MA3 target track"
 
 
 def test_open_push_intent_hydrates_available_tracks_from_sync_service_provider():
@@ -263,6 +269,62 @@ def test_open_push_intent_hydrates_available_tracks_from_sync_service_provider()
         ),
         ManualPushTrackOption(coord="tc1_tg1_tr2", name="Track 2"),
     ]
+
+
+def test_open_push_intent_builds_rows_grouped_by_selected_source_layer():
+    orchestrator, timeline, session, _playback_service = _build_orchestrator(
+        sync_service=_PushTrackListingSyncService(
+            tracks=[
+                ManualPushTrackOption(coord="tc1_tg2_tr3", name="Track 3", note="Bass"),
+                ManualPushTrackOption(coord="tc1_tg2_tr4", name="Track 4", note="Lead"),
+            ]
+        )
+    )
+    other_layer = Layer(
+        id="layer_snare",
+        timeline_id=TimelineId("timeline_manual_push_flow"),
+        name="Snare",
+        kind=LayerKind.EVENT,
+        order_index=1,
+        takes=[
+            Take(
+                id="take_snare",
+                layer_id="layer_snare",
+                name="Main",
+                events=[
+                    Event(
+                        id=EventId("evt_3"),
+                        take_id="take_snare",
+                        start=3.0,
+                        end=3.5,
+                        label="Cue 3",
+                    )
+                ],
+            )
+        ],
+    )
+    other_layer.sync.ma3_track_coord = "tc1_tg2_tr4"
+    timeline.layers.append(other_layer)
+    timeline.selection.selected_layer_id = timeline.layers[0].id
+    timeline.selection.selected_take_id = timeline.layers[0].takes[0].id
+    timeline.selection.selected_event_ids = [EventId("evt_1"), EventId("evt_3")]
+
+    orchestrator.handle(
+        timeline,
+        OpenPushToMA3Dialog(selection_event_ids=[EventId("evt_1"), EventId("evt_3")]),
+    )
+
+    assert session.batch_transfer_plan is not None
+    assert [row.row_id for row in session.batch_transfer_plan.rows] == [
+        "push:layer_push",
+        "push:layer_snare",
+    ]
+    assert session.batch_transfer_plan.rows[0].status == "blocked"
+    assert session.batch_transfer_plan.rows[0].issue == "Select an MA3 target track"
+    assert session.batch_transfer_plan.rows[1].status == "ready"
+    assert session.batch_transfer_plan.rows[1].target_track_coord == "tc1_tg2_tr4"
+    assert session.batch_transfer_plan.ready_count == 1
+    assert session.batch_transfer_plan.blocked_count == 1
 
 
 def test_open_push_intent_maps_legacy_provider_dict_payload_note_and_event_count():
@@ -308,6 +370,9 @@ def test_confirm_push_intent_stages_diff_gate_without_immediate_transfer():
         )
     )
 
+    timeline.selection.selected_layer_id = timeline.layers[0].id
+    timeline.selection.selected_take_id = timeline.layers[0].takes[0].id
+    timeline.selection.selected_event_ids = [EventId("evt_1")]
     orchestrator.handle(
         timeline,
         OpenPushToMA3Dialog(selection_event_ids=[EventId("evt_1")]),
@@ -322,6 +387,7 @@ def test_confirm_push_intent_stages_diff_gate_without_immediate_transfer():
     )
 
     assert session.manual_push_flow.dialog_open is False
+    assert session.manual_push_flow.push_mode_active is True
     assert session.manual_push_flow.selected_event_ids == [EventId("evt_1")]
     assert session.manual_push_flow.target_track_coord == "tc1_tg2_tr3"
     assert session.manual_push_flow.diff_gate_open is True
@@ -350,4 +416,8 @@ def test_confirm_push_intent_stages_diff_gate_without_immediate_transfer():
             )
         ],
     )
+    assert session.batch_transfer_plan is not None
+    assert session.batch_transfer_plan.rows[0].target_track_coord == "tc1_tg2_tr3"
+    assert session.batch_transfer_plan.rows[0].status == "ready"
+    assert session.batch_transfer_plan.ready_count == 1
     assert playback_service.update_runtime_calls == 2

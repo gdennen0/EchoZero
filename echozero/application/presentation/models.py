@@ -84,6 +84,7 @@ class ManualPushDiffPreviewPresentation:
 @dataclass(slots=True)
 class ManualPushFlowPresentation:
     dialog_open: bool = False
+    push_mode_active: bool = False
     available_tracks: list[ManualPushTrackOptionPresentation] = field(default_factory=list)
     target_track_coord: str | None = None
     diff_gate_open: bool = False
@@ -145,6 +146,9 @@ class BatchTransferPlanRowPresentation:
     direction: str
     source_label: str
     target_label: str
+    source_layer_id: LayerId | None = None
+    target_track_coord: str | None = None
+    selected_event_ids: list[EventId] = field(default_factory=list)
     selected_count: int = 0
     status: str = "draft"
     issue: str | None = None
@@ -203,6 +207,10 @@ class LayerPresentation:
     live_sync_pause_reason: str | None = None
     live_sync_divergent: bool = False
     sync_target_label: str = ""
+    push_target_label: str = ""
+    push_selection_count: int = 0
+    push_row_status: str = ""
+    push_row_issue: str = ""
     color: str | None = None
     badges: list[str] = field(default_factory=list)
     waveform_key: str | None = None

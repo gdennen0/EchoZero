@@ -38,6 +38,7 @@ from echozero.application.timeline.intents import (
     ConfirmPullFromMA3,
     ConfirmPushToMA3,
     DuplicateSelectedEvents,
+    ExitPushToMA3Mode,
     MoveSelectedEvents,
     NudgeSelectedEvents,
     OpenPullFromMA3Dialog,
@@ -403,8 +404,18 @@ class _ManualPushHarness:
         if isinstance(intent, OpenPushToMA3Dialog):
             self._presentation = replace(
                 self._presentation,
+                layers=[
+                    replace(
+                        layer,
+                        push_selection_count=len(self._presentation.selected_event_ids) if layer.layer_id == self._presentation.selected_layer_id else 0,
+                        push_row_status="blocked" if layer.layer_id == self._presentation.selected_layer_id else "",
+                        push_row_issue="Select an MA3 target track" if layer.layer_id == self._presentation.selected_layer_id else "",
+                    )
+                    for layer in self._presentation.layers
+                ],
                 manual_push_flow=ManualPushFlowPresentation(
                     dialog_open=True,
+                    push_mode_active=True,
                     available_tracks=[
                         ManualPushTrackOptionPresentation(
                             coord="tc1_tg2_tr3",
@@ -417,22 +428,79 @@ class _ManualPushHarness:
                     diff_gate_open=False,
                     diff_preview=None,
                 ),
+                batch_transfer_plan=BatchTransferPlanPresentation(
+                    plan_id="push:timeline_selection",
+                    operation_type="push",
+                    rows=[
+                        BatchTransferPlanRowPresentation(
+                            row_id="push:layer_kick",
+                            direction="push",
+                            source_label="Kick",
+                            target_label="Unmapped",
+                            source_layer_id=LayerId("layer_kick"),
+                            selected_event_ids=list(self._presentation.selected_event_ids),
+                            selected_count=len(self._presentation.selected_event_ids),
+                            status="blocked",
+                            issue="Select an MA3 target track",
+                        )
+                    ],
+                    blocked_count=1,
+                ),
             )
             return self._presentation
         if isinstance(intent, SelectPushTargetTrack):
             self._presentation = replace(
                 self._presentation,
+                layers=[
+                    replace(
+                        layer,
+                        push_target_label="Track 3 (tc1_tg2_tr3) - Bass" if layer.layer_id == self._presentation.selected_layer_id else layer.push_target_label,
+                        push_selection_count=len(self._presentation.selected_event_ids) if layer.layer_id == self._presentation.selected_layer_id else layer.push_selection_count,
+                        push_row_status="ready" if layer.layer_id == self._presentation.selected_layer_id else layer.push_row_status,
+                        push_row_issue="" if layer.layer_id == self._presentation.selected_layer_id else layer.push_row_issue,
+                    )
+                    for layer in self._presentation.layers
+                ],
                 manual_push_flow=replace(
                     self._presentation.manual_push_flow,
                     target_track_coord=intent.target_track_coord,
+                ),
+                batch_transfer_plan=BatchTransferPlanPresentation(
+                    plan_id="push:timeline_selection",
+                    operation_type="push",
+                    rows=[
+                        BatchTransferPlanRowPresentation(
+                            row_id="push:layer_kick",
+                            direction="push",
+                            source_label="Kick",
+                            target_label="Track 3 (tc1_tg2_tr3) - Bass",
+                            source_layer_id=LayerId("layer_kick"),
+                            target_track_coord=intent.target_track_coord,
+                            selected_event_ids=list(self._presentation.selected_event_ids),
+                            selected_count=len(self._presentation.selected_event_ids),
+                            status="ready",
+                        )
+                    ],
+                    ready_count=1,
                 ),
             )
             return self._presentation
         if isinstance(intent, ConfirmPushToMA3):
             self._presentation = replace(
                 self._presentation,
+                layers=[
+                    replace(
+                        layer,
+                        push_target_label="Track 3 (tc1_tg2_tr3) - Bass" if layer.layer_id == self._presentation.selected_layer_id else layer.push_target_label,
+                        push_selection_count=len(intent.selected_event_ids) if layer.layer_id == self._presentation.selected_layer_id else layer.push_selection_count,
+                        push_row_status="ready" if layer.layer_id == self._presentation.selected_layer_id else layer.push_row_status,
+                        push_row_issue="" if layer.layer_id == self._presentation.selected_layer_id else layer.push_row_issue,
+                    )
+                    for layer in self._presentation.layers
+                ],
                 manual_push_flow=ManualPushFlowPresentation(
                     dialog_open=False,
+                    push_mode_active=True,
                     available_tracks=list(self._presentation.manual_push_flow.available_tracks),
                     target_track_coord=intent.target_track_coord,
                     diff_gate_open=True,
@@ -444,6 +512,13 @@ class _ManualPushHarness:
                         target_track_event_count=8,
                     ),
                 ),
+            )
+            return self._presentation
+        if isinstance(intent, ExitPushToMA3Mode):
+            self._presentation = replace(
+                self._presentation,
+                manual_push_flow=ManualPushFlowPresentation(),
+                batch_transfer_plan=None,
             )
             return self._presentation
         return self._presentation
@@ -1219,7 +1294,7 @@ def test_pull_from_ma3_action_keeps_staging_only_when_confirmation_declined(monk
         app.processEvents()
 
 
-def test_push_to_ma3_action_dispatches_open_select_confirm_and_shows_diff_preview(monkeypatch):
+def test_push_to_ma3_action_enters_push_mode_only(monkeypatch):
     app = QApplication.instance() or QApplication([])
     base = replace(
         _selection_test_presentation(),
@@ -1240,15 +1315,6 @@ def test_push_to_ma3_action_dispatches_open_select_confirm_and_shows_diff_previe
     )
     harness = _ManualPushHarness(base)
     widget = TimelineWidget(harness.presentation(), on_intent=harness.dispatch)
-    summaries: list[tuple[str, str, str]] = []
-    monkeypatch.setattr(
-        "echozero.ui.qt.timeline.widget.QInputDialog.getItem",
-        lambda *args, **kwargs: ("Track 3 (tc1_tg2_tr3) - Bass [8 existing]", True),
-    )
-    monkeypatch.setattr(
-        "echozero.ui.qt.timeline.widget.QMessageBox.information",
-        lambda parent, title, text: summaries.append((parent.__class__.__name__, title, text)),
-    )
     try:
         _render_for_hit_testing(widget)
 
@@ -1264,20 +1330,107 @@ def test_push_to_ma3_action_dispatches_open_select_confirm_and_shows_diff_previe
 
         assert harness.intents == [
             OpenPushToMA3Dialog(selection_event_ids=[EventId("main_evt")]),
-            SelectPushTargetTrack(target_track_coord="tc1_tg2_tr3"),
+        ]
+        assert widget.presentation.manual_push_flow.push_mode_active is True
+        assert widget.presentation.manual_push_flow.diff_gate_open is False
+        assert widget.presentation.batch_transfer_plan is not None
+        assert widget.presentation.batch_transfer_plan.rows[0].status == "blocked"
+    finally:
+        widget.close()
+        app.processEvents()
+
+
+def test_push_mode_actions_dispatch_target_preview_and_exit(monkeypatch):
+    app = QApplication.instance() or QApplication([])
+    base = replace(
+        _selection_test_presentation(),
+        selected_layer_id=LayerId("layer_kick"),
+        selected_take_id=TakeId("take_main"),
+        selected_event_ids=[EventId("main_evt")],
+        layers=[
+            replace(
+                _selection_test_presentation().layers[0],
+                events=[replace(_selection_test_presentation().layers[0].events[0], is_selected=True)],
+                push_selection_count=1,
+            )
+        ],
+        manual_push_flow=ManualPushFlowPresentation(
+            dialog_open=True,
+            push_mode_active=True,
+            available_tracks=[
+                ManualPushTrackOptionPresentation(
+                    coord="tc1_tg2_tr3",
+                    name="Track 3",
+                    note="Bass",
+                    event_count=8,
+                )
+            ],
+        ),
+        batch_transfer_plan=BatchTransferPlanPresentation(
+            plan_id="push:timeline_selection",
+            operation_type="push",
+            rows=[
+                BatchTransferPlanRowPresentation(
+                    row_id="push:layer_kick",
+                    direction="push",
+                    source_label="Kick",
+                    target_label="Unmapped",
+                    source_layer_id=LayerId("layer_kick"),
+                    selected_event_ids=[EventId("main_evt")],
+                    selected_count=1,
+                    status="blocked",
+                    issue="Select an MA3 target track",
+                )
+            ],
+            blocked_count=1,
+        ),
+    )
+    harness = _ManualPushHarness(base)
+    widget = TimelineWidget(harness.presentation(), on_intent=harness.dispatch)
+    summaries: list[tuple[str, str, str]] = []
+    monkeypatch.setattr(
+        "echozero.ui.qt.timeline.widget.QInputDialog.getItem",
+        lambda *args, **kwargs: ("Track 3 (tc1_tg2_tr3) - Bass [8 existing]", True),
+    )
+    monkeypatch.setattr(
+        "echozero.ui.qt.timeline.widget.QMessageBox.information",
+        lambda parent, title, text: summaries.append((parent.__class__.__name__, title, text)),
+    )
+    try:
+        _render_for_hit_testing(widget)
+        contract = build_timeline_inspector_contract(widget.presentation)
+        select_action = next(
+            action
+            for section in contract.context_sections
+            for action in section.actions
+            if action.action_id == "select_push_target_track"
+        )
+        exit_action = next(
+            action
+            for section in contract.context_sections
+            for action in section.actions
+            if action.action_id == "exit_push_mode"
+        )
+
+        widget._trigger_contract_action(select_action)
+        contract = build_timeline_inspector_contract(widget.presentation)
+        preview_action = next(
+            action
+            for section in contract.context_sections
+            for action in section.actions
+            if action.action_id == "preview_push_diff"
+        )
+        widget._trigger_contract_action(preview_action)
+        widget._trigger_contract_action(exit_action)
+
+        assert harness.intents == [
+            SelectPushTargetTrack(target_track_coord="tc1_tg2_tr3", layer_id=LayerId("layer_kick")),
             ConfirmPushToMA3(
                 target_track_coord="tc1_tg2_tr3",
                 selected_event_ids=[EventId("main_evt")],
             ),
+            ExitPushToMA3Mode(),
         ]
-        assert widget.presentation.manual_push_flow.diff_gate_open is True
-        assert widget.presentation.manual_push_flow.diff_preview == ManualPushDiffPreviewPresentation(
-            selected_count=1,
-            target_track_coord="tc1_tg2_tr3",
-            target_track_name="Track 3",
-            target_track_note="Bass",
-            target_track_event_count=8,
-        )
         assert summaries == [
             (
                 "TimelineWidget",
@@ -1287,6 +1440,7 @@ def test_push_to_ma3_action_dispatches_open_select_confirm_and_shows_diff_previe
                 "No MA3 transfer has been started in this step.",
             )
         ]
+        assert widget.presentation.manual_push_flow.push_mode_active is False
     finally:
         widget.close()
         app.processEvents()

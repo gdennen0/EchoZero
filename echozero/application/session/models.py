@@ -32,6 +32,7 @@ class ManualPushDiffPreview:
 @dataclass(slots=True)
 class ManualPushFlowState:
     dialog_open: bool = False
+    push_mode_active: bool = False
     selected_event_ids: list[EventId] = field(default_factory=list)
     available_tracks: list[ManualPushTrackOption] = field(default_factory=list)
     target_track_coord: str | None = None
@@ -94,6 +95,9 @@ class BatchTransferPlanRowState:
     direction: str
     source_label: str
     target_label: str
+    source_layer_id: LayerId | None = None
+    target_track_coord: str | None = None
+    selected_event_ids: list[EventId] = field(default_factory=list)
     selected_count: int = 0
     status: str = "draft"
     issue: str | None = None
