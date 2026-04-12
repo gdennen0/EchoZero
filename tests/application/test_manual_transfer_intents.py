@@ -5,15 +5,18 @@ import pytest
 from echozero.application.shared.ids import EventId, LayerId
 from echozero.application.timeline.intents import (
     ApplyPullFromMA3,
+    ApplyTransferPreset,
     ApplyTransferPlan,
     CancelTransferPlan,
     ConfirmPullFromMA3,
     ConfirmPushToMA3,
+    DeleteTransferPreset,
     ExitPullFromMA3Workspace,
     ExitPushToMA3Mode,
     OpenPullFromMA3Dialog,
     OpenPushToMA3Dialog,
     PreviewTransferPlan,
+    SaveTransferPreset,
     SelectPullSourceEvents,
     SelectPullSourceTracks,
     SelectPullSourceTrack,
@@ -247,6 +250,16 @@ def test_transfer_plan_intents_keep_plan_id():
     assert cancel_intent.plan_id == "plan_123"
 
 
+def test_transfer_preset_intents_keep_validated_fields():
+    save_intent = SaveTransferPreset(name=" My Preset ")
+    apply_intent = ApplyTransferPreset(preset_id=" preset_123 ")
+    delete_intent = DeleteTransferPreset(preset_id=" preset_123 ")
+
+    assert save_intent.name == "My Preset"
+    assert apply_intent.preset_id == "preset_123"
+    assert delete_intent.preset_id == "preset_123"
+
+
 @pytest.mark.parametrize(
     ("intent_type", "message"),
     [
@@ -258,3 +271,16 @@ def test_transfer_plan_intents_keep_plan_id():
 def test_transfer_plan_intents_require_non_empty_plan_id(intent_type, message):
     with pytest.raises(ValueError, match=message):
         intent_type(plan_id="   ")
+
+
+@pytest.mark.parametrize(
+    ("intent_type", "field_name", "message"),
+    [
+        (SaveTransferPreset, "name", "SaveTransferPreset requires a non-empty name"),
+        (ApplyTransferPreset, "preset_id", "ApplyTransferPreset requires a non-empty preset_id"),
+        (DeleteTransferPreset, "preset_id", "DeleteTransferPreset requires a non-empty preset_id"),
+    ],
+)
+def test_transfer_preset_intents_require_non_empty_identifiers(intent_type, field_name, message):
+    with pytest.raises(ValueError, match=message):
+        intent_type(**{field_name: "   "})

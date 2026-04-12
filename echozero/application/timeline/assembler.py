@@ -16,6 +16,7 @@ from echozero.application.presentation.models import (
     ManualPushDiffPreviewPresentation,
     ManualPushFlowPresentation,
     ManualPushTrackOptionPresentation,
+    TransferPresetPresentation,
     TakeActionPresentation,
     TakeLanePresentation,
     SyncDiffRowPresentation,
@@ -50,6 +51,7 @@ class TimelineAssembler:
                 selected_layer_id,
                 selected_take_id,
                 selected_event_ids,
+                session,
             )
 
             if signature == self._last_signature and self._last_layers is not None:
@@ -80,6 +82,7 @@ class TimelineAssembler:
                 manual_push_flow=self._assemble_manual_push_flow(session),
                 manual_pull_flow=self._assemble_manual_pull_flow(session),
                 batch_transfer_plan=self._assemble_batch_transfer_plan(session),
+                transfer_presets=self._assemble_transfer_presets(session),
             )
 
     def _assemble_layer(
@@ -179,6 +182,7 @@ class TimelineAssembler:
         selected_layer_id,
         selected_take_id,
         selected_event_ids: set,
+        session: Session,
     ) -> tuple:
         def _events_sig(events: list[Event]) -> tuple:
             return (
@@ -245,6 +249,51 @@ class TimelineAssembler:
             str(selected_layer_id) if selected_layer_id is not None else None,
             str(selected_take_id) if selected_take_id is not None else None,
             tuple(sorted(str(event_id) for event_id in selected_event_ids)),
+            TimelineAssembler._session_transfer_signature(session),
+        )
+
+    @staticmethod
+    def _session_transfer_signature(session: Session) -> tuple:
+        plan = session.batch_transfer_plan
+        plan_sig = None
+        if plan is not None:
+            plan_sig = (
+                plan.plan_id,
+                plan.operation_type,
+                tuple(
+                    (
+                        row.row_id,
+                        row.direction,
+                        str(row.source_layer_id) if row.source_layer_id is not None else None,
+                        row.source_track_coord,
+                        row.target_track_coord,
+                        str(row.target_layer_id) if row.target_layer_id is not None else None,
+                        tuple(str(event_id) for event_id in row.selected_event_ids),
+                        tuple(row.selected_ma3_event_ids),
+                        row.selected_count,
+                        row.status,
+                        row.issue,
+                        row.target_label,
+                    )
+                    for row in plan.rows
+                ),
+            )
+
+        return (
+            session.manual_push_flow.push_mode_active,
+            session.manual_pull_flow.workspace_active,
+            session.manual_pull_flow.active_source_track_coord,
+            session.manual_pull_flow.source_track_coord,
+            tuple(session.manual_pull_flow.selected_source_track_coords),
+            tuple(
+                (coord, tuple(event_ids))
+                for coord, event_ids in sorted(session.manual_pull_flow.selected_ma3_event_ids_by_track.items())
+            ),
+            tuple(
+                (coord, str(layer_id))
+                for coord, layer_id in sorted(session.manual_pull_flow.target_layer_id_by_source_track.items())
+            ),
+            plan_sig,
         )
 
     @staticmethod
@@ -394,6 +443,18 @@ class TimelineAssembler:
             applied_count=plan.applied_count,
             failed_count=plan.failed_count,
         )
+
+    @staticmethod
+    def _assemble_transfer_presets(session: Session) -> list[TransferPresetPresentation]:
+        return [
+            TransferPresetPresentation(
+                preset_id=preset.preset_id,
+                name=preset.name,
+                push_target_mapping_by_layer_id=dict(preset.push_target_mapping_by_layer_id),
+                pull_target_mapping_by_source_track=dict(preset.pull_target_mapping_by_source_track),
+            )
+            for preset in session.transfer_presets
+        ]
 
     @staticmethod
     def _main_take(layer: Layer) -> Take | None:

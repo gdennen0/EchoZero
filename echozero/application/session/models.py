@@ -95,6 +95,14 @@ class ManualPullFlowState:
 
 
 @dataclass(slots=True)
+class TransferPresetState:
+    preset_id: str
+    name: str
+    push_target_mapping_by_layer_id: dict[LayerId, str] = field(default_factory=dict)
+    pull_target_mapping_by_source_track: dict[str, LayerId] = field(default_factory=dict)
+
+
+@dataclass(slots=True)
 class BatchTransferPlanRowState:
     row_id: str
     direction: str
@@ -137,4 +145,5 @@ class Session:
     manual_push_flow: ManualPushFlowState = field(default_factory=ManualPushFlowState)
     manual_pull_flow: ManualPullFlowState = field(default_factory=ManualPullFlowState)
     batch_transfer_plan: BatchTransferPlanState | None = None
+    transfer_presets: list[TransferPresetState] = field(default_factory=list)
     ui_prefs_ref: str | None = None

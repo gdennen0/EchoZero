@@ -21,12 +21,14 @@ from echozero.application.shared.enums import FollowMode
 from echozero.application.sync.models import LiveSyncState
 from echozero.application.timeline.intents import (
     ApplyPullFromMA3,
+    ApplyTransferPreset,
     ApplyTransferPlan,
     CancelTransferPlan,
     ClearLayerLiveSyncPauseReason,
     ClearSelection,
     ConfirmPullFromMA3,
     ConfirmPushToMA3,
+    DeleteTransferPreset,
     DuplicateSelectedEvents,
     ExitPullFromMA3Workspace,
     ExitPushToMA3Mode,
@@ -37,6 +39,7 @@ from echozero.application.timeline.intents import (
     Pause,
     Play,
     PreviewTransferPlan,
+    SaveTransferPreset,
     Seek,
     SetGain,
     SetLayerLiveSyncPauseReason,
@@ -414,6 +417,9 @@ class TimelineCanvas(QWidget):
     select_all_requested = pyqtSignal()
     nudge_requested = pyqtSignal(int, int)
     duplicate_requested = pyqtSignal(int)
+    preview_transfer_plan_requested = pyqtSignal()
+    apply_transfer_plan_requested = pyqtSignal()
+    cancel_transfer_plan_requested = pyqtSignal()
 
     def __init__(self, presentation: TimelinePresentation, parent=None):
         super().__init__(parent)
@@ -700,9 +706,22 @@ class TimelineCanvas(QWidget):
             modifiers & Qt.KeyboardModifier.ControlModifier
             or modifiers & Qt.KeyboardModifier.MetaModifier
         )
+        has_shift = bool(modifiers & Qt.KeyboardModifier.ShiftModifier)
         steps = 10 if modifiers & Qt.KeyboardModifier.ShiftModifier else 1
         if event.key() == Qt.Key.Key_Escape:
             self.clear_selection_requested.emit()
+            event.accept()
+            return
+        if has_primary and has_shift and event.key() == Qt.Key.Key_P:
+            self.preview_transfer_plan_requested.emit()
+            event.accept()
+            return
+        if has_primary and has_shift and event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+            self.apply_transfer_plan_requested.emit()
+            event.accept()
+            return
+        if has_primary and has_shift and event.key() == Qt.Key.Key_Backspace:
+            self.cancel_transfer_plan_requested.emit()
             event.accept()
             return
         if event.key() == Qt.Key.Key_A and has_primary:
@@ -1160,6 +1179,9 @@ class TimelineWidget(QWidget):
         self._canvas.select_all_requested.connect(self._select_all_events)
         self._canvas.nudge_requested.connect(self._nudge_selected_events)
         self._canvas.duplicate_requested.connect(self._duplicate_selected_events)
+        self._canvas.preview_transfer_plan_requested.connect(self._preview_active_transfer_plan)
+        self._canvas.apply_transfer_plan_requested.connect(self._apply_active_transfer_plan)
+        self._canvas.cancel_transfer_plan_requested.connect(self._cancel_active_transfer_plan)
         self._ruler.seek_requested.connect(self._seek)
         self._scroll.setWidget(self._canvas)
         self.setFocusProxy(self._canvas)
@@ -1413,6 +1435,42 @@ class TimelineWidget(QWidget):
     def _toggle_solo(self, layer_id) -> None:
         self._dispatch(ToggleSolo(layer_id))
 
+    def _preview_active_transfer_plan(self) -> None:
+        plan = self.presentation.batch_transfer_plan
+        if plan is None:
+            return
+        self._trigger_contract_action(
+            InspectorAction(
+                action_id="preview_transfer_plan",
+                label=_preview_transfer_plan_label(plan),
+                params={"plan_id": plan.plan_id},
+            )
+        )
+
+    def _apply_active_transfer_plan(self) -> None:
+        plan = self.presentation.batch_transfer_plan
+        if plan is None:
+            return
+        self._trigger_contract_action(
+            InspectorAction(
+                action_id="apply_transfer_plan",
+                label=_apply_transfer_plan_label(plan),
+                params={"plan_id": plan.plan_id},
+            )
+        )
+
+    def _cancel_active_transfer_plan(self) -> None:
+        plan = self.presentation.batch_transfer_plan
+        if plan is None:
+            return
+        self._trigger_contract_action(
+            InspectorAction(
+                action_id="cancel_transfer_plan",
+                label="Cancel Transfer Plan",
+                params={"plan_id": plan.plan_id},
+            )
+        )
+
     def _trigger_contract_action(self, action: InspectorAction) -> None:
         params = action.params
         action_id = action.action_id
@@ -1489,6 +1547,42 @@ class TimelineWidget(QWidget):
                 return
             self._dispatch(OpenPushToMA3Dialog(selection_event_ids=selected_event_ids))
             return
+        if action_id == "save_transfer_preset":
+            preset_name, accepted = QInputDialog.getText(
+                self,
+                "Save Transfer Preset",
+                "Preset name",
+            )
+            if not accepted or not preset_name.strip():
+                return
+            self._dispatch(SaveTransferPreset(name=preset_name))
+            return
+        if action_id in {"apply_transfer_preset", "delete_transfer_preset"}:
+            if not self.presentation.transfer_presets:
+                return
+            labels = [self._transfer_preset_label(preset) for preset in self.presentation.transfer_presets]
+            title = "Apply Transfer Preset" if action_id == "apply_transfer_preset" else "Delete Transfer Preset"
+            chosen_label, accepted = QInputDialog.getItem(
+                self,
+                title,
+                "Preset",
+                labels,
+                0,
+                False,
+            )
+            if not accepted:
+                return
+            selected_preset = next(
+                (preset for preset, label in zip(self.presentation.transfer_presets, labels) if label == chosen_label),
+                None,
+            )
+            if selected_preset is None:
+                return
+            if action_id == "apply_transfer_preset":
+                self._dispatch(ApplyTransferPreset(preset_id=selected_preset.preset_id))
+            else:
+                self._dispatch(DeleteTransferPreset(preset_id=selected_preset.preset_id))
+            return
         if action_id == "preview_transfer_plan":
             plan_id = params.get("plan_id")
             if not isinstance(plan_id, str):
@@ -1500,6 +1594,8 @@ class TimelineWidget(QWidget):
                     self,
                     "Transfer Plan Preview",
                     self._transfer_plan_preview_summary(
+                        operation_type=plan.operation_type,
+                        total_rows=len(plan.rows),
                         ready_count=plan.ready_count,
                         blocked_count=plan.blocked_count,
                         applied_count=plan.applied_count,
@@ -1518,6 +1614,8 @@ class TimelineWidget(QWidget):
                     self,
                     "Transfer Plan Results",
                     self._transfer_plan_apply_summary(
+                        operation_type=plan.operation_type,
+                        total_rows=len(plan.rows),
                         applied_count=plan.applied_count,
                         failed_count=plan.failed_count,
                         blocked_count=plan.blocked_count,
@@ -1778,13 +1876,16 @@ class TimelineWidget(QWidget):
     @staticmethod
     def _transfer_plan_preview_summary(
         *,
+        operation_type: str,
+        total_rows: int,
         ready_count: int,
         blocked_count: int,
         applied_count: int,
         failed_count: int,
     ) -> str:
         return (
-            f"Preview complete.\n\n"
+            f"{_transfer_plan_operation_label(operation_type)} plan preview complete.\n\n"
+            f"Rows: {total_rows}\n"
             f"Ready: {ready_count}\n"
             f"Blocked: {blocked_count}\n"
             f"Applied: {applied_count}\n"
@@ -1794,16 +1895,23 @@ class TimelineWidget(QWidget):
     @staticmethod
     def _transfer_plan_apply_summary(
         *,
+        operation_type: str,
+        total_rows: int,
         applied_count: int,
         failed_count: int,
         blocked_count: int,
     ) -> str:
         return (
-            f"Apply complete.\n\n"
+            f"{_transfer_plan_operation_label(operation_type)} plan apply complete.\n\n"
+            f"Rows: {total_rows}\n"
             f"Applied: {applied_count}\n"
             f"Failed: {failed_count}\n"
             f"Blocked: {blocked_count}"
         )
+
+    @staticmethod
+    def _transfer_preset_label(preset) -> str:
+        return f"{preset.name} ({preset.preset_id})"
 
 
 def _format_time_label(seconds: float) -> str:
@@ -1812,3 +1920,21 @@ def _format_time_label(seconds: float) -> str:
     return f"{mins:02d}:{secs:05.2f}"
 
 
+def _transfer_plan_operation_label(operation_type: str) -> str:
+    return (operation_type or "mixed").strip().capitalize()
+
+
+def _ready_count_label(count: int) -> str:
+    noun = "ready row" if count == 1 else "ready rows"
+    return f"{count} {noun}"
+
+
+def _preview_transfer_plan_label(plan) -> str:
+    return f"Preview Transfer Plan ({_ready_count_label(plan.ready_count)})"
+
+
+def _apply_transfer_plan_label(plan) -> str:
+    return f"Apply Transfer Plan ({_ready_count_label(plan.ready_count)})"
+
+
+    DeleteTransferPreset,

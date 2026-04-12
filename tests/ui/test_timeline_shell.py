@@ -27,18 +27,21 @@ from echozero.application.presentation.models import (
     LayerStatusPresentation,
     TakeLanePresentation,
     TimelinePresentation,
+    TransferPresetPresentation,
 )
 from echozero.application.shared.enums import LayerKind
 from echozero.application.shared.ids import EventId, LayerId, TakeId, TimelineId
 from echozero.application.sync.models import LiveSyncState
 from echozero.application.timeline.intents import (
     ApplyPullFromMA3,
+    ApplyTransferPreset,
     ApplyTransferPlan,
     CancelTransferPlan,
     ClearLayerLiveSyncPauseReason,
     ClearSelection,
     ConfirmPullFromMA3,
     ConfirmPushToMA3,
+    DeleteTransferPreset,
     DuplicateSelectedEvents,
     ExitPullFromMA3Workspace,
     ExitPushToMA3Mode,
@@ -49,6 +52,7 @@ from echozero.application.timeline.intents import (
     Pause,
     Play,
     PreviewTransferPlan,
+    SaveTransferPreset,
     Seek,
     SetLayerLiveSyncPauseReason,
     SetLayerLiveSyncState,
@@ -517,6 +521,32 @@ class _ManualPushHarness:
                         target_track_event_count=8,
                     ),
                 ),
+            )
+            return self._presentation
+        if isinstance(intent, SaveTransferPreset):
+            next_index = len(self._presentation.transfer_presets) + 1
+            self._presentation = replace(
+                self._presentation,
+                transfer_presets=[
+                    *self._presentation.transfer_presets,
+                    TransferPresetPresentation(
+                        preset_id=f"preset-{next_index}",
+                        name=intent.name,
+                        push_target_mapping_by_layer_id={LayerId("layer_kick"): "tc1_tg2_tr3"},
+                    ),
+                ],
+            )
+            return self._presentation
+        if isinstance(intent, ApplyTransferPreset):
+            return self._presentation
+        if isinstance(intent, DeleteTransferPreset):
+            self._presentation = replace(
+                self._presentation,
+                transfer_presets=[
+                    preset
+                    for preset in self._presentation.transfer_presets
+                    if preset.preset_id != intent.preset_id
+                ],
             )
             return self._presentation
         if isinstance(intent, PreviewTransferPlan):
@@ -1825,15 +1855,166 @@ def test_transfer_plan_actions_dispatch_preview_apply_and_cancel(monkeypatch):
             (
                 "TimelineWidget",
                 "Transfer Plan Preview",
-                "Preview complete.\n\nReady: 1\nBlocked: 0\nApplied: 0\nFailed: 0",
+                "Push plan preview complete.\n\nRows: 1\nReady: 1\nBlocked: 0\nApplied: 0\nFailed: 0",
             ),
             (
                 "TimelineWidget",
                 "Transfer Plan Results",
-                "Apply complete.\n\nApplied: 1\nFailed: 0\nBlocked: 0",
+                "Push plan apply complete.\n\nRows: 1\nApplied: 1\nFailed: 0\nBlocked: 0",
             ),
         ]
         assert widget.presentation.batch_transfer_plan is None
+    finally:
+        widget.close()
+        app.processEvents()
+
+
+def test_transfer_preset_actions_dispatch_save_apply_and_delete(monkeypatch):
+    app = QApplication.instance() or QApplication([])
+    base = replace(
+        _selection_test_presentation(),
+        selected_layer_id=LayerId("layer_kick"),
+        selected_take_id=TakeId("take_main"),
+        selected_event_ids=[EventId("main_evt")],
+        layers=[
+            replace(
+                _selection_test_presentation().layers[0],
+                sync_target_label="tc1_tg2_tr3",
+            )
+        ],
+        manual_push_flow=ManualPushFlowPresentation(
+            dialog_open=False,
+            push_mode_active=True,
+        ),
+        transfer_presets=[
+            TransferPresetPresentation(
+                preset_id="preset-1",
+                name="Drums",
+                push_target_mapping_by_layer_id={LayerId("layer_kick"): "tc1_tg2_tr3"},
+            )
+        ],
+    )
+    harness = _ManualPushHarness(base)
+    widget = TimelineWidget(harness.presentation(), on_intent=harness.dispatch)
+    monkeypatch.setattr(
+        "echozero.ui.qt.timeline.widget.QInputDialog.getText",
+        lambda *args, **kwargs: (" Night Shift ", True),
+    )
+    choices = iter([("Drums (preset-1)", True), ("Drums (preset-1)", True)])
+    monkeypatch.setattr(
+        "echozero.ui.qt.timeline.widget.QInputDialog.getItem",
+        lambda *args, **kwargs: next(choices),
+    )
+    try:
+        _render_for_hit_testing(widget)
+        contract = build_timeline_inspector_contract(widget.presentation)
+        save_action = next(action for section in contract.context_sections for action in section.actions if action.action_id == "save_transfer_preset")
+        apply_action = next(action for section in contract.context_sections for action in section.actions if action.action_id == "apply_transfer_preset")
+        delete_action = next(action for section in contract.context_sections for action in section.actions if action.action_id == "delete_transfer_preset")
+
+        widget._trigger_contract_action(save_action)
+        widget._trigger_contract_action(apply_action)
+        widget._trigger_contract_action(delete_action)
+
+        assert harness.intents == [
+            SaveTransferPreset(name="Night Shift"),
+            ApplyTransferPreset(preset_id="preset-1"),
+            DeleteTransferPreset(preset_id="preset-1"),
+        ]
+    finally:
+        widget.close()
+        app.processEvents()
+
+
+def test_batch_plan_shortcuts_dispatch_preview_apply_and_cancel(monkeypatch):
+    app = QApplication.instance() or QApplication([])
+    base = replace(
+        _selection_test_presentation(),
+        selected_layer_id=LayerId("layer_kick"),
+        selected_take_id=TakeId("take_main"),
+        selected_event_ids=[EventId("main_evt")],
+        manual_push_flow=ManualPushFlowPresentation(push_mode_active=True),
+        batch_transfer_plan=BatchTransferPlanPresentation(
+            plan_id="push:timeline_selection",
+            operation_type="push",
+            rows=[
+                BatchTransferPlanRowPresentation(
+                    row_id="push:layer_kick",
+                    direction="push",
+                    source_label="Kick",
+                    target_label="Track 3 (tc1_tg2_tr3) - Bass",
+                    source_layer_id=LayerId("layer_kick"),
+                    target_track_coord="tc1_tg2_tr3",
+                    selected_event_ids=[EventId("main_evt")],
+                    selected_count=1,
+                    status="ready",
+                )
+            ],
+            ready_count=1,
+        ),
+    )
+    harness = _ManualPushHarness(base)
+    widget = TimelineWidget(harness.presentation(), on_intent=harness.dispatch)
+    monkeypatch.setattr(
+        "echozero.ui.qt.timeline.widget.QMessageBox.information",
+        lambda *args, **kwargs: None,
+    )
+    try:
+        _render_for_hit_testing(widget)
+
+        QTest.keyClick(
+            widget._canvas,
+            Qt.Key.Key_P,
+            Qt.KeyboardModifier.ControlModifier | Qt.KeyboardModifier.ShiftModifier,
+        )
+        QTest.keyClick(
+            widget._canvas,
+            Qt.Key.Key_Return,
+            Qt.KeyboardModifier.ControlModifier | Qt.KeyboardModifier.ShiftModifier,
+        )
+        QTest.keyClick(
+            widget._canvas,
+            Qt.Key.Key_Backspace,
+            Qt.KeyboardModifier.ControlModifier | Qt.KeyboardModifier.ShiftModifier,
+        )
+        QApplication.processEvents()
+
+        assert harness.intents == [
+            PreviewTransferPlan(plan_id="push:timeline_selection"),
+            ApplyTransferPlan(plan_id="push:timeline_selection"),
+            CancelTransferPlan(plan_id="push:timeline_selection"),
+        ]
+    finally:
+        widget.close()
+        app.processEvents()
+
+
+def test_batch_plan_shortcuts_noop_without_active_plan():
+    app = QApplication.instance() or QApplication([])
+    intents: list[object] = []
+    presentation = _selection_test_presentation()
+    widget = TimelineWidget(presentation, on_intent=lambda intent: intents.append(intent) or presentation)
+    try:
+        _render_for_hit_testing(widget)
+
+        QTest.keyClick(
+            widget._canvas,
+            Qt.Key.Key_P,
+            Qt.KeyboardModifier.ControlModifier | Qt.KeyboardModifier.ShiftModifier,
+        )
+        QTest.keyClick(
+            widget._canvas,
+            Qt.Key.Key_Return,
+            Qt.KeyboardModifier.ControlModifier | Qt.KeyboardModifier.ShiftModifier,
+        )
+        QTest.keyClick(
+            widget._canvas,
+            Qt.Key.Key_Backspace,
+            Qt.KeyboardModifier.ControlModifier | Qt.KeyboardModifier.ShiftModifier,
+        )
+        QApplication.processEvents()
+
+        assert intents == []
     finally:
         widget.close()
         app.processEvents()
@@ -2241,3 +2422,4 @@ def test_dragging_selected_event_over_other_event_layer_dispatches_transfer_targ
     finally:
         widget.close()
         app.processEvents()
+    DeleteTransferPreset,

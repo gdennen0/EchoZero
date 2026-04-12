@@ -298,6 +298,39 @@ class ApplyPullFromMA3(TimelineIntent):
 
 
 @dataclass(slots=True)
+class SaveTransferPreset(TimelineIntent):
+    name: str
+
+    def __post_init__(self) -> None:
+        name = self.name.strip()
+        if not name:
+            raise ValueError("SaveTransferPreset requires a non-empty name")
+        self.name = name
+
+
+@dataclass(slots=True)
+class ApplyTransferPreset(TimelineIntent):
+    preset_id: str
+
+    def __post_init__(self) -> None:
+        preset_id = self.preset_id.strip()
+        if not preset_id:
+            raise ValueError("ApplyTransferPreset requires a non-empty preset_id")
+        self.preset_id = preset_id
+
+
+@dataclass(slots=True)
+class DeleteTransferPreset(TimelineIntent):
+    preset_id: str
+
+    def __post_init__(self) -> None:
+        preset_id = self.preset_id.strip()
+        if not preset_id:
+            raise ValueError("DeleteTransferPreset requires a non-empty preset_id")
+        self.preset_id = preset_id
+
+
+@dataclass(slots=True)
 class PreviewTransferPlan(TimelineIntent):
     plan_id: str
 

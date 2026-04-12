@@ -12,6 +12,7 @@ from echozero.application.presentation.models import (
     TakeLanePresentation,
     TimelinePresentation,
     ManualPullEventOptionPresentation,
+    TransferPresetPresentation,
 )
 from echozero.application.shared.enums import LayerKind
 from echozero.application.shared.ids import EventId, LayerId, TakeId, TimelineId
@@ -115,7 +116,7 @@ def test_inspector_contract_layer_selection_state():
     assert rows["status flags"] == "none"
     assert rows["sync state"] == "Off"
     assert rows["sync mapping"] == "tc1_tg2_tr3"
-    assert rows["transfer plan"] == "mixed plan_123 (ready 1, blocked 0, failed 0)"
+    assert rows["transfer plan"] == "mixed plan_123 (1 rows, ready 1, blocked 0, failed 0)"
     assert {"toggle_mute", "toggle_solo", "gain_down", "gain_unity", "gain_up"} <= set(action_ids)
     assert {
         "pull_from_ma3",
@@ -124,6 +125,10 @@ def test_inspector_contract_layer_selection_state():
         "apply_transfer_plan",
         "cancel_transfer_plan",
     } <= set(action_ids)
+    preview_action = next(action for section in contract.context_sections for action in section.actions if action.action_id == "preview_transfer_plan")
+    apply_action = next(action for section in contract.context_sections for action in section.actions if action.action_id == "apply_transfer_plan")
+    assert preview_action.label == "Preview Transfer Plan (1 ready row)"
+    assert apply_action.label == "Apply Transfer Plan (1 ready row)"
     assert "sync-transfer" in section_ids
     assert "live-sync" not in [section.section_id for section in contract.context_sections]
 
@@ -227,6 +232,25 @@ def test_inspector_contract_pull_workspace_actions_and_facts():
         "apply_transfer_plan",
         "cancel_transfer_plan",
     } <= set(action_ids)
+
+
+def test_inspector_contract_includes_transfer_preset_actions_when_context_and_presets_exist():
+    presentation = _contract_test_presentation()
+    presentation.selected_layer_id = LayerId("layer_kick")
+    presentation.manual_push_flow.push_mode_active = True
+    presentation.layers[0].sync_target_label = "tc1_tg2_tr3"
+    presentation.transfer_presets = [
+        TransferPresetPresentation(
+            preset_id="drums",
+            name="Drums",
+            push_target_mapping_by_layer_id={LayerId("layer_kick"): "tc1_tg2_tr3"},
+        )
+    ]
+
+    contract = build_timeline_inspector_contract(presentation)
+    action_ids = [action.action_id for section in contract.context_sections for action in section.actions]
+
+    assert {"save_transfer_preset", "apply_transfer_preset", "delete_transfer_preset"} <= set(action_ids)
 
 
 def test_inspector_contract_live_sync_section_hidden_when_experimental_disabled():

@@ -146,6 +146,14 @@ class ManualPullFlowPresentation:
 
 
 @dataclass(slots=True)
+class TransferPresetPresentation:
+    preset_id: str
+    name: str
+    push_target_mapping_by_layer_id: dict[LayerId, str] = field(default_factory=dict)
+    pull_target_mapping_by_source_track: dict[str, LayerId] = field(default_factory=dict)
+
+
+@dataclass(slots=True)
 class BatchTransferPlanRowPresentation:
     row_id: str
     direction: str
@@ -252,3 +260,4 @@ class TimelinePresentation:
     manual_push_flow: ManualPushFlowPresentation = field(default_factory=ManualPushFlowPresentation)
     manual_pull_flow: ManualPullFlowPresentation = field(default_factory=ManualPullFlowPresentation)
     batch_transfer_plan: BatchTransferPlanPresentation | None = None
+    transfer_presets: list[TransferPresetPresentation] = field(default_factory=list)

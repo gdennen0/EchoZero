@@ -330,6 +330,9 @@ def _shared_context_sections(
     has_selected_events: bool,
 ) -> tuple[InspectorContextSection, ...]:
     sections: list[InspectorContextSection] = []
+    can_save_preset = _can_save_transfer_preset(presentation)
+    can_apply_preset = _can_apply_transfer_preset(presentation)
+    can_delete_preset = bool(presentation.transfer_presets)
 
     if hit_target is not None and hit_target.time_seconds is not None:
         sections.append(
@@ -393,13 +396,13 @@ def _shared_context_sections(
                 [
                     InspectorAction(
                         action_id="preview_transfer_plan",
-                        label="Preview Transfer Plan",
+                        label=_preview_transfer_plan_label(presentation.batch_transfer_plan),
                         group="transfer",
                         params={"plan_id": presentation.batch_transfer_plan.plan_id},
                     ),
                     InspectorAction(
                         action_id="apply_transfer_plan",
-                        label="Apply Transfer Plan",
+                        label=_apply_transfer_plan_label(presentation.batch_transfer_plan),
                         enabled=presentation.batch_transfer_plan.ready_count > 0,
                         group="transfer",
                         params={"plan_id": presentation.batch_transfer_plan.plan_id},
@@ -411,6 +414,30 @@ def _shared_context_sections(
                         params={"plan_id": presentation.batch_transfer_plan.plan_id},
                     ),
                 ]
+            )
+        if can_save_preset:
+            transfer_actions.append(
+                InspectorAction(
+                    action_id="save_transfer_preset",
+                    label="Save Transfer Preset",
+                    group="transfer",
+                )
+            )
+        if can_apply_preset:
+            transfer_actions.append(
+                InspectorAction(
+                    action_id="apply_transfer_preset",
+                    label="Apply Transfer Preset",
+                    group="transfer",
+                )
+            )
+        if can_delete_preset:
+            transfer_actions.append(
+                InspectorAction(
+                    action_id="delete_transfer_preset",
+                    label="Delete Transfer Preset",
+                    group="transfer",
+                )
             )
         if presentation.manual_push_flow.push_mode_active:
             transfer_actions.extend(
@@ -503,13 +530,13 @@ def _shared_context_sections(
                 [
                     InspectorAction(
                         action_id="preview_transfer_plan",
-                        label="Preview Transfer Plan",
+                        label=_preview_transfer_plan_label(presentation.batch_transfer_plan),
                         group="transfer",
                         params={"plan_id": presentation.batch_transfer_plan.plan_id},
                     ),
                     InspectorAction(
                         action_id="apply_transfer_plan",
-                        label="Apply Transfer Plan",
+                        label=_apply_transfer_plan_label(presentation.batch_transfer_plan),
                         enabled=presentation.batch_transfer_plan.ready_count > 0,
                         group="transfer",
                         params={"plan_id": presentation.batch_transfer_plan.plan_id},
@@ -521,6 +548,30 @@ def _shared_context_sections(
                         params={"plan_id": presentation.batch_transfer_plan.plan_id},
                     ),
                 ]
+            )
+        if can_save_preset:
+            transfer_actions.append(
+                InspectorAction(
+                    action_id="save_transfer_preset",
+                    label="Save Transfer Preset",
+                    group="transfer",
+                )
+            )
+        if can_apply_preset:
+            transfer_actions.append(
+                InspectorAction(
+                    action_id="apply_transfer_preset",
+                    label="Apply Transfer Preset",
+                    group="transfer",
+                )
+            )
+        if can_delete_preset:
+            transfer_actions.append(
+                InspectorAction(
+                    action_id="delete_transfer_preset",
+                    label="Delete Transfer Preset",
+                    group="transfer",
+                )
             )
         if presentation.manual_pull_flow.workspace_active:
             transfer_actions.extend(
@@ -767,7 +818,7 @@ def _transfer_plan_summary(presentation: TimelinePresentation) -> str:
         return "none"
     return (
         f"{plan.operation_type} {plan.plan_id} "
-        f"(ready {plan.ready_count}, blocked {plan.blocked_count}, failed {plan.failed_count})"
+        f"({len(plan.rows)} rows, ready {plan.ready_count}, blocked {plan.blocked_count}, failed {plan.failed_count})"
     )
 
 
@@ -781,3 +832,36 @@ def _pull_row_summary(layer: LayerPresentation) -> str:
     if not layer.pull_row_status:
         return "none"
     return layer.pull_row_status
+
+
+def _preview_transfer_plan_label(plan) -> str:
+    return f"Preview Transfer Plan ({_ready_count_label(plan.ready_count)})"
+
+
+def _apply_transfer_plan_label(plan) -> str:
+    return f"Apply Transfer Plan ({_ready_count_label(plan.ready_count)})"
+
+
+def _ready_count_label(count: int) -> str:
+    noun = "ready row" if count == 1 else "ready rows"
+    return f"{count} {noun}"
+
+
+def _can_save_transfer_preset(presentation: TimelinePresentation) -> bool:
+    if presentation.batch_transfer_plan is not None:
+        return any(
+            (row.direction == "push" and row.target_track_coord)
+            or (row.direction == "pull" and row.target_layer_id is not None)
+            for row in presentation.batch_transfer_plan.rows
+        )
+    if presentation.manual_push_flow.push_mode_active:
+        return any(layer.push_target_label or layer.sync_target_label for layer in presentation.layers)
+    if presentation.manual_pull_flow.workspace_active:
+        return bool(presentation.manual_pull_flow.target_layer_id_by_source_track)
+    return False
+
+
+def _can_apply_transfer_preset(presentation: TimelinePresentation) -> bool:
+    if not presentation.transfer_presets:
+        return False
+    return presentation.manual_push_flow.push_mode_active or presentation.manual_pull_flow.workspace_active
