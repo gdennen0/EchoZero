@@ -1,0 +1,388 @@
+from __future__ import annotations
+
+import pytest
+
+from echozero.application.mixer.models import AudibilityState, LayerMixerState, MixerState
+from echozero.application.mixer.service import MixerService
+from echozero.application.playback.models import PlaybackState
+from echozero.application.playback.service import PlaybackService
+from echozero.application.session.models import (
+    ManualPullEventOption,
+    ManualPullTrackOption,
+    ManualPushTrackOption,
+    Session,
+)
+from echozero.application.session.service import SessionService
+from echozero.application.shared.enums import LayerKind
+from echozero.application.shared.ids import EventId, LayerId, ProjectId, SessionId, SongVersionId, TakeId, TimelineId
+from echozero.application.sync.models import SyncState
+from echozero.application.sync.service import SyncService
+from echozero.application.timeline.intents import (
+    ApplyTransferPlan,
+    OpenPullFromMA3Dialog,
+    OpenPushToMA3Dialog,
+    PreviewTransferPlan,
+    SelectPullSourceEvents,
+    SelectPullSourceTrack,
+    SelectPullSourceTracks,
+    SelectPullTargetLayer,
+    SelectPushTargetTrack,
+    SetPullTrackOptions,
+)
+from echozero.application.timeline.models import Event, Layer, Take, Timeline
+from echozero.application.timeline.orchestrator import TimelineOrchestrator
+from echozero.application.transport.models import TransportState
+from echozero.application.transport.service import TransportService
+
+
+class _SessionService(SessionService):
+    def __init__(self, session: Session):
+        self._session = session
+
+    def get_session(self) -> Session:
+        return self._session
+
+    def set_active_song(self, song_id):
+        self._session.active_song_id = song_id
+        return self._session
+
+    def set_active_song_version(self, song_version_id):
+        self._session.active_song_version_id = song_version_id
+        return self._session
+
+    def set_active_timeline(self, timeline_id):
+        self._session.active_timeline_id = timeline_id
+        return self._session
+
+
+class _TransportService(TransportService):
+    def __init__(self):
+        self._state = TransportState()
+
+    def get_state(self) -> TransportState:
+        return self._state
+
+    def play(self) -> TransportState:
+        self._state.is_playing = True
+        return self._state
+
+    def pause(self) -> TransportState:
+        self._state.is_playing = False
+        return self._state
+
+    def stop(self) -> TransportState:
+        self._state.is_playing = False
+        self._state.playhead = 0.0
+        return self._state
+
+    def seek(self, position: float) -> TransportState:
+        self._state.playhead = max(0.0, position)
+        return self._state
+
+    def set_loop(self, loop_region, enabled: bool = True) -> TransportState:
+        self._state.loop_region = loop_region
+        self._state.loop_enabled = enabled
+        return self._state
+
+
+class _MixerService(MixerService):
+    def __init__(self):
+        self._state = MixerState()
+
+    def get_state(self) -> MixerState:
+        return self._state
+
+    def set_layer_state(self, layer_id, state: LayerMixerState) -> MixerState:
+        self._state.layer_states[layer_id] = state
+        return self._state
+
+    def set_mute(self, layer_id, muted: bool) -> MixerState:
+        return self._state
+
+    def set_solo(self, layer_id, soloed: bool) -> MixerState:
+        return self._state
+
+    def set_gain(self, layer_id, gain_db: float) -> MixerState:
+        return self._state
+
+    def set_pan(self, layer_id, pan: float) -> MixerState:
+        return self._state
+
+    def resolve_audibility(self, layers: list) -> list[AudibilityState]:
+        return []
+
+
+class _PlaybackService(PlaybackService):
+    def __init__(self):
+        self._state = PlaybackState()
+
+    def get_state(self) -> PlaybackState:
+        return self._state
+
+    def prepare(self, timeline: Timeline) -> PlaybackState:
+        return self._state
+
+    def update_runtime(self, timeline, transport, audibility, sync) -> PlaybackState:
+        return self._state
+
+    def stop(self) -> PlaybackState:
+        return self._state
+
+
+class _SyncService(SyncService):
+    def __init__(self, *, push_tracks=None, pull_tracks=None, events_by_track=None, fail_track: str | None = None):
+        self._state = SyncState()
+        self._push_tracks = list(push_tracks or [])
+        self._pull_tracks = list(pull_tracks or [])
+        self._events_by_track = dict(events_by_track or {})
+        self._fail_track = fail_track
+        self.push_calls: list[tuple[str | None, list[str]]] = []
+
+    def get_state(self) -> SyncState:
+        return self._state
+
+    def set_mode(self, mode):
+        self._state.mode = mode
+        return self._state
+
+    def connect(self):
+        self._state.connected = True
+        return self._state
+
+    def disconnect(self):
+        self._state.connected = False
+        return self._state
+
+    def align_transport(self, transport: TransportState) -> TransportState:
+        return transport
+
+    def list_push_track_options(self):
+        return list(self._push_tracks)
+
+    def list_pull_track_options(self):
+        return list(self._pull_tracks)
+
+    def list_pull_source_events(self, source_track_coord: str):
+        return list(self._events_by_track.get(source_track_coord, []))
+
+    def apply_push_transfer(self, *, target_track_coord, selected_events):
+        event_ids = [str(event.id) for event in selected_events]
+        self.push_calls.append((target_track_coord, event_ids))
+        if self._fail_track is not None and target_track_coord == self._fail_track:
+            raise RuntimeError(f"Push apply failed for {target_track_coord}")
+
+
+class _NoPushExecutionSyncService(_SyncService):
+    apply_push_transfer = None
+
+
+class _Assembler:
+    def assemble(self, timeline, session):
+        return timeline
+
+
+def _build_orchestrator(sync_service: SyncService):
+    session = Session(
+        id=SessionId("session_transfer_plan_batch"),
+        project_id=ProjectId("project_transfer_plan_batch"),
+        active_timeline_id=TimelineId("timeline_transfer_plan_batch"),
+    )
+    kick_layer = Layer(
+        id=LayerId("layer_kick"),
+        timeline_id=TimelineId("timeline_transfer_plan_batch"),
+        name="Kick",
+        kind=LayerKind.EVENT,
+        order_index=0,
+        takes=[
+            Take(
+                id=TakeId("take_kick"),
+                layer_id=LayerId("layer_kick"),
+                name="Main",
+                events=[
+                    Event(id=EventId("kick_evt"), take_id=TakeId("take_kick"), start=1.0, end=1.5, label="Kick"),
+                ],
+            )
+        ],
+    )
+    snare_layer = Layer(
+        id=LayerId("layer_snare"),
+        timeline_id=TimelineId("timeline_transfer_plan_batch"),
+        name="Snare",
+        kind=LayerKind.EVENT,
+        order_index=1,
+        takes=[
+            Take(
+                id=TakeId("take_snare"),
+                layer_id=LayerId("layer_snare"),
+                name="Main",
+                events=[
+                    Event(id=EventId("snare_evt"), take_id=TakeId("take_snare"), start=2.0, end=2.5, label="Snare"),
+                ],
+            )
+        ],
+    )
+    timeline = Timeline(
+        id=TimelineId("timeline_transfer_plan_batch"),
+        song_version_id=SongVersionId("song_version_transfer_plan_batch"),
+        layers=[kick_layer, snare_layer],
+    )
+    orchestrator = TimelineOrchestrator(
+        session_service=_SessionService(session),
+        transport_service=_TransportService(),
+        mixer_service=_MixerService(),
+        playback_service=_PlaybackService(),
+        sync_service=sync_service,
+        assembler=_Assembler(),
+    )
+    return orchestrator, timeline, session
+
+
+def _stage_pull_plan(orchestrator: TimelineOrchestrator, timeline: Timeline, *, tracks, events_by_track) -> str:
+    orchestrator.handle(timeline, OpenPullFromMA3Dialog())
+    orchestrator.handle(timeline, SetPullTrackOptions(tracks=tracks))
+    orchestrator.handle(
+        timeline,
+        SelectPullSourceTracks(source_track_coords=[track.coord for track in tracks]),
+    )
+    for track in tracks:
+        orchestrator.handle(timeline, SelectPullSourceTrack(source_track_coord=track.coord))
+        selected_event_ids = [event.event_id for event in events_by_track.get(track.coord, [])]
+        if selected_event_ids:
+            orchestrator.handle(
+                timeline,
+                SelectPullSourceEvents(selected_ma3_event_ids=selected_event_ids),
+            )
+        target_layer_id = LayerId("layer_kick") if track.coord.endswith("tr3") else None
+        if target_layer_id is not None:
+            orchestrator.handle(timeline, SelectPullTargetLayer(target_layer_id=target_layer_id))
+    return f"pull:{timeline.id}"
+
+
+def test_preview_transfer_plan_keeps_mixed_ready_and_blocked_rows_deterministic():
+    tracks = [
+        ManualPullTrackOption(coord="tc1_tg2_tr3", name="Track 3"),
+        ManualPullTrackOption(coord="tc1_tg2_tr4", name="Track 4"),
+    ]
+    events_by_track = {
+        "tc1_tg2_tr3": [ManualPullEventOption(event_id="ma3_evt_1", label="Cue 1", start=1.0, end=1.5)],
+        "tc1_tg2_tr4": [],
+    }
+    orchestrator, timeline, session = _build_orchestrator(
+        _SyncService(pull_tracks=tracks, events_by_track=events_by_track)
+    )
+    plan_id = _stage_pull_plan(orchestrator, timeline, tracks=tracks, events_by_track=events_by_track)
+
+    orchestrator.handle(timeline, PreviewTransferPlan(plan_id=plan_id))
+
+    assert session.batch_transfer_plan is not None
+    assert [row.row_id for row in session.batch_transfer_plan.rows] == ["pull:tc1_tg2_tr3", "pull:tc1_tg2_tr4"]
+    assert [row.status for row in session.batch_transfer_plan.rows] == ["ready", "blocked"]
+    assert session.batch_transfer_plan.ready_count == 1
+    assert session.batch_transfer_plan.blocked_count == 1
+    assert session.batch_transfer_plan.applied_count == 0
+    assert session.batch_transfer_plan.failed_count == 0
+
+
+def test_apply_transfer_plan_imports_pull_rows_and_marks_applied():
+    tracks = [ManualPullTrackOption(coord="tc1_tg2_tr3", name="Track 3")]
+    events_by_track = {
+        "tc1_tg2_tr3": [
+            ManualPullEventOption(event_id="ma3_evt_1", label="Cue 1", start=1.0, end=1.5),
+            ManualPullEventOption(event_id="ma3_evt_2", label="Cue 2", start=2.0, end=2.5),
+        ],
+    }
+    orchestrator, timeline, session = _build_orchestrator(
+        _SyncService(pull_tracks=tracks, events_by_track=events_by_track)
+    )
+    plan_id = _stage_pull_plan(orchestrator, timeline, tracks=tracks, events_by_track=events_by_track)
+
+    orchestrator.handle(timeline, ApplyTransferPlan(plan_id=plan_id))
+
+    target_layer = next(layer for layer in timeline.layers if layer.id == LayerId("layer_kick"))
+    assert len(target_layer.takes) == 2
+    assert session.batch_transfer_plan is not None
+    assert session.batch_transfer_plan.rows[0].status == "applied"
+    assert session.batch_transfer_plan.applied_count == 1
+    assert session.batch_transfer_plan.failed_count == 0
+    assert session.batch_transfer_plan.ready_count == 0
+    assert session.batch_transfer_plan.blocked_count == 0
+
+
+def test_apply_transfer_plan_continues_after_row_failure_and_marks_failed_rows():
+    sync_service = _SyncService(
+        push_tracks=[
+            ManualPushTrackOption(coord="tc1_tg2_tr3", name="Track 3"),
+            ManualPushTrackOption(coord="tc1_tg2_tr4", name="Track 4"),
+        ],
+        fail_track="tc1_tg2_tr4",
+    )
+    orchestrator, timeline, session = _build_orchestrator(sync_service)
+    timeline.selection.selected_layer_id = LayerId("layer_kick")
+    timeline.selection.selected_take_id = TakeId("take_kick")
+    timeline.selection.selected_event_ids = [EventId("kick_evt"), EventId("snare_evt")]
+    timeline.layers[0].sync.ma3_track_coord = "tc1_tg2_tr3"
+    timeline.layers[1].sync.ma3_track_coord = "tc1_tg2_tr4"
+
+    orchestrator.handle(
+        timeline,
+        OpenPushToMA3Dialog(selection_event_ids=[EventId("kick_evt"), EventId("snare_evt")]),
+    )
+    plan_id = f"push:{timeline.id}"
+
+    orchestrator.handle(timeline, ApplyTransferPlan(plan_id=plan_id))
+
+    assert session.batch_transfer_plan is not None
+    assert [row.row_id for row in session.batch_transfer_plan.rows] == ["push:layer_kick", "push:layer_snare"]
+    assert [row.status for row in session.batch_transfer_plan.rows] == ["applied", "failed"]
+    assert session.batch_transfer_plan.rows[1].issue == "Push apply failed for tc1_tg2_tr4"
+    assert session.batch_transfer_plan.applied_count == 1
+    assert session.batch_transfer_plan.failed_count == 1
+    assert sync_service.push_calls == [
+        ("tc1_tg2_tr3", ["kick_evt"]),
+        ("tc1_tg2_tr4", ["snare_evt"]),
+    ]
+
+
+def test_apply_transfer_plan_fails_push_row_when_execution_endpoint_unavailable():
+    orchestrator, timeline, session = _build_orchestrator(
+        _NoPushExecutionSyncService(
+            push_tracks=[ManualPushTrackOption(coord="tc1_tg2_tr3", name="Track 3")]
+        )
+    )
+    timeline.selection.selected_layer_id = LayerId("layer_kick")
+    timeline.selection.selected_take_id = TakeId("take_kick")
+    timeline.selection.selected_event_ids = [EventId("kick_evt")]
+
+    orchestrator.handle(
+        timeline,
+        OpenPushToMA3Dialog(selection_event_ids=[EventId("kick_evt")]),
+    )
+    orchestrator.handle(
+        timeline,
+        SelectPushTargetTrack(target_track_coord="tc1_tg2_tr3", layer_id=LayerId("layer_kick")),
+    )
+    plan_id = f"push:{timeline.id}"
+
+    orchestrator.handle(timeline, ApplyTransferPlan(plan_id=plan_id))
+
+    assert session.batch_transfer_plan is not None
+    assert session.batch_transfer_plan.rows[0].status == "failed"
+    assert session.batch_transfer_plan.rows[0].issue == "Push execution endpoint unavailable"
+    assert session.batch_transfer_plan.failed_count == 1
+
+
+def test_transfer_plan_plan_id_mismatch_validation_is_strict():
+    orchestrator, timeline, _session = _build_orchestrator(_SyncService())
+    timeline.selection.selected_layer_id = LayerId("layer_kick")
+    timeline.selection.selected_take_id = TakeId("take_kick")
+    timeline.selection.selected_event_ids = [EventId("kick_evt")]
+    orchestrator.handle(
+        timeline,
+        OpenPushToMA3Dialog(selection_event_ids=[EventId("kick_evt")]),
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="ApplyTransferPlan plan_id does not match active batch transfer plan: expected push:timeline_transfer_plan_batch, got wrong_plan",
+    ):
+        orchestrator.handle(timeline, ApplyTransferPlan(plan_id="wrong_plan"))

@@ -21,6 +21,8 @@ from echozero.application.shared.enums import FollowMode
 from echozero.application.sync.models import LiveSyncState
 from echozero.application.timeline.intents import (
     ApplyPullFromMA3,
+    ApplyTransferPlan,
+    CancelTransferPlan,
     ClearLayerLiveSyncPauseReason,
     ClearSelection,
     ConfirmPullFromMA3,
@@ -34,6 +36,7 @@ from echozero.application.timeline.intents import (
     OpenPushToMA3Dialog,
     Pause,
     Play,
+    PreviewTransferPlan,
     Seek,
     SetGain,
     SetLayerLiveSyncPauseReason,
@@ -1486,6 +1489,46 @@ class TimelineWidget(QWidget):
                 return
             self._dispatch(OpenPushToMA3Dialog(selection_event_ids=selected_event_ids))
             return
+        if action_id == "preview_transfer_plan":
+            plan_id = params.get("plan_id")
+            if not isinstance(plan_id, str):
+                return
+            self._dispatch(PreviewTransferPlan(plan_id=plan_id))
+            plan = self.presentation.batch_transfer_plan
+            if plan is not None and plan.plan_id == plan_id:
+                QMessageBox.information(
+                    self,
+                    "Transfer Plan Preview",
+                    self._transfer_plan_preview_summary(
+                        ready_count=plan.ready_count,
+                        blocked_count=plan.blocked_count,
+                        applied_count=plan.applied_count,
+                        failed_count=plan.failed_count,
+                    ),
+                )
+            return
+        if action_id == "apply_transfer_plan":
+            plan_id = params.get("plan_id")
+            if not isinstance(plan_id, str):
+                return
+            self._dispatch(ApplyTransferPlan(plan_id=plan_id))
+            plan = self.presentation.batch_transfer_plan
+            if plan is not None and plan.plan_id == plan_id:
+                QMessageBox.information(
+                    self,
+                    "Transfer Plan Results",
+                    self._transfer_plan_apply_summary(
+                        applied_count=plan.applied_count,
+                        failed_count=plan.failed_count,
+                        blocked_count=plan.blocked_count,
+                    ),
+                )
+            return
+        if action_id == "cancel_transfer_plan":
+            plan_id = params.get("plan_id")
+            if isinstance(plan_id, str):
+                self._dispatch(CancelTransferPlan(plan_id=plan_id))
+            return
         if action_id == "select_push_target_track":
             flow = self.presentation.manual_push_flow
             layer_id = params.get("layer_id")
@@ -1730,6 +1773,36 @@ class TimelineWidget(QWidget):
             f"Source track: {source_track_name} ({source_track_coord})\n"
             f"Target layer: {target_layer_name}\n"
             f"No MA3 import has been started in this step."
+        )
+
+    @staticmethod
+    def _transfer_plan_preview_summary(
+        *,
+        ready_count: int,
+        blocked_count: int,
+        applied_count: int,
+        failed_count: int,
+    ) -> str:
+        return (
+            f"Preview complete.\n\n"
+            f"Ready: {ready_count}\n"
+            f"Blocked: {blocked_count}\n"
+            f"Applied: {applied_count}\n"
+            f"Failed: {failed_count}"
+        )
+
+    @staticmethod
+    def _transfer_plan_apply_summary(
+        *,
+        applied_count: int,
+        failed_count: int,
+        blocked_count: int,
+    ) -> str:
+        return (
+            f"Apply complete.\n\n"
+            f"Applied: {applied_count}\n"
+            f"Failed: {failed_count}\n"
+            f"Blocked: {blocked_count}"
         )
 
 

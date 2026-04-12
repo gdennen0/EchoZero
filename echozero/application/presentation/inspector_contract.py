@@ -388,6 +388,30 @@ def _shared_context_sections(
                 group="transfer",
             ),
         ]
+        if presentation.batch_transfer_plan is not None:
+            transfer_actions.extend(
+                [
+                    InspectorAction(
+                        action_id="preview_transfer_plan",
+                        label="Preview Transfer Plan",
+                        group="transfer",
+                        params={"plan_id": presentation.batch_transfer_plan.plan_id},
+                    ),
+                    InspectorAction(
+                        action_id="apply_transfer_plan",
+                        label="Apply Transfer Plan",
+                        enabled=presentation.batch_transfer_plan.ready_count > 0,
+                        group="transfer",
+                        params={"plan_id": presentation.batch_transfer_plan.plan_id},
+                    ),
+                    InspectorAction(
+                        action_id="cancel_transfer_plan",
+                        label="Cancel Transfer Plan",
+                        group="transfer",
+                        params={"plan_id": presentation.batch_transfer_plan.plan_id},
+                    ),
+                ]
+            )
         if presentation.manual_push_flow.push_mode_active:
             transfer_actions.extend(
                 [
@@ -474,6 +498,30 @@ def _shared_context_sections(
                 group="transfer",
             )
         ]
+        if presentation.batch_transfer_plan is not None:
+            transfer_actions.extend(
+                [
+                    InspectorAction(
+                        action_id="preview_transfer_plan",
+                        label="Preview Transfer Plan",
+                        group="transfer",
+                        params={"plan_id": presentation.batch_transfer_plan.plan_id},
+                    ),
+                    InspectorAction(
+                        action_id="apply_transfer_plan",
+                        label="Apply Transfer Plan",
+                        enabled=presentation.batch_transfer_plan.ready_count > 0,
+                        group="transfer",
+                        params={"plan_id": presentation.batch_transfer_plan.plan_id},
+                    ),
+                    InspectorAction(
+                        action_id="cancel_transfer_plan",
+                        label="Cancel Transfer Plan",
+                        group="transfer",
+                        params={"plan_id": presentation.batch_transfer_plan.plan_id},
+                    ),
+                ]
+            )
         if presentation.manual_pull_flow.workspace_active:
             transfer_actions.extend(
                 [

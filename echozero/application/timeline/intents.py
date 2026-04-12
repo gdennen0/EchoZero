@@ -295,3 +295,36 @@ class ConfirmPullFromMA3(TimelineIntent):
 @dataclass(slots=True)
 class ApplyPullFromMA3(TimelineIntent):
     pass
+
+
+@dataclass(slots=True)
+class PreviewTransferPlan(TimelineIntent):
+    plan_id: str
+
+    def __post_init__(self) -> None:
+        plan_id = self.plan_id.strip()
+        if not plan_id:
+            raise ValueError("PreviewTransferPlan requires a non-empty plan_id")
+        self.plan_id = plan_id
+
+
+@dataclass(slots=True)
+class ApplyTransferPlan(TimelineIntent):
+    plan_id: str
+
+    def __post_init__(self) -> None:
+        plan_id = self.plan_id.strip()
+        if not plan_id:
+            raise ValueError("ApplyTransferPlan requires a non-empty plan_id")
+        self.plan_id = plan_id
+
+
+@dataclass(slots=True)
+class CancelTransferPlan(TimelineIntent):
+    plan_id: str
+
+    def __post_init__(self) -> None:
+        plan_id = self.plan_id.strip()
+        if not plan_id:
+            raise ValueError("CancelTransferPlan requires a non-empty plan_id")
+        self.plan_id = plan_id

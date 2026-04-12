@@ -5,12 +5,15 @@ import pytest
 from echozero.application.shared.ids import EventId, LayerId
 from echozero.application.timeline.intents import (
     ApplyPullFromMA3,
+    ApplyTransferPlan,
+    CancelTransferPlan,
     ConfirmPullFromMA3,
     ConfirmPushToMA3,
     ExitPullFromMA3Workspace,
     ExitPushToMA3Mode,
     OpenPullFromMA3Dialog,
     OpenPushToMA3Dialog,
+    PreviewTransferPlan,
     SelectPullSourceEvents,
     SelectPullSourceTracks,
     SelectPullSourceTrack,
@@ -232,3 +235,26 @@ def test_apply_pull_from_ma3_is_constructible():
     intent = ApplyPullFromMA3()
 
     assert isinstance(intent, ApplyPullFromMA3)
+
+
+def test_transfer_plan_intents_keep_plan_id():
+    preview_intent = PreviewTransferPlan(plan_id="plan_123")
+    apply_intent = ApplyTransferPlan(plan_id="plan_123")
+    cancel_intent = CancelTransferPlan(plan_id="plan_123")
+
+    assert preview_intent.plan_id == "plan_123"
+    assert apply_intent.plan_id == "plan_123"
+    assert cancel_intent.plan_id == "plan_123"
+
+
+@pytest.mark.parametrize(
+    ("intent_type", "message"),
+    [
+        (PreviewTransferPlan, "PreviewTransferPlan requires a non-empty plan_id"),
+        (ApplyTransferPlan, "ApplyTransferPlan requires a non-empty plan_id"),
+        (CancelTransferPlan, "CancelTransferPlan requires a non-empty plan_id"),
+    ],
+)
+def test_transfer_plan_intents_require_non_empty_plan_id(intent_type, message):
+    with pytest.raises(ValueError, match=message):
+        intent_type(plan_id="   ")

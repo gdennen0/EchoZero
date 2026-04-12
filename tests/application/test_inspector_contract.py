@@ -117,7 +117,13 @@ def test_inspector_contract_layer_selection_state():
     assert rows["sync mapping"] == "tc1_tg2_tr3"
     assert rows["transfer plan"] == "mixed plan_123 (ready 1, blocked 0, failed 0)"
     assert {"toggle_mute", "toggle_solo", "gain_down", "gain_unity", "gain_up"} <= set(action_ids)
-    assert {"pull_from_ma3", "open_batch_transfer_workspace"} <= set(action_ids)
+    assert {
+        "pull_from_ma3",
+        "open_batch_transfer_workspace",
+        "preview_transfer_plan",
+        "apply_transfer_plan",
+        "cancel_transfer_plan",
+    } <= set(action_ids)
     assert "sync-transfer" in section_ids
     assert "live-sync" not in [section.section_id for section in contract.context_sections]
 
@@ -157,7 +163,14 @@ def test_inspector_contract_push_mode_layer_actions_and_facts():
     assert rows["push target"] == "Track 3 (tc1_tg2_tr3) - Bass"
     assert rows["push selection"] == "1"
     assert rows["push row"] == "ready"
-    assert {"select_push_target_track", "preview_push_diff", "exit_push_mode"} <= set(action_ids)
+    assert {
+        "select_push_target_track",
+        "preview_push_diff",
+        "exit_push_mode",
+        "preview_transfer_plan",
+        "apply_transfer_plan",
+        "cancel_transfer_plan",
+    } <= set(action_ids)
 
 
 def test_inspector_contract_pull_workspace_actions_and_facts():
@@ -210,6 +223,9 @@ def test_inspector_contract_pull_workspace_actions_and_facts():
         "set_pull_target_layer_mapping",
         "preview_pull_diff",
         "exit_pull_workspace",
+        "preview_transfer_plan",
+        "apply_transfer_plan",
+        "cancel_transfer_plan",
     } <= set(action_ids)
 
 

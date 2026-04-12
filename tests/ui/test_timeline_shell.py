@@ -33,6 +33,8 @@ from echozero.application.shared.ids import EventId, LayerId, TakeId, TimelineId
 from echozero.application.sync.models import LiveSyncState
 from echozero.application.timeline.intents import (
     ApplyPullFromMA3,
+    ApplyTransferPlan,
+    CancelTransferPlan,
     ClearLayerLiveSyncPauseReason,
     ClearSelection,
     ConfirmPullFromMA3,
@@ -46,6 +48,7 @@ from echozero.application.timeline.intents import (
     OpenPushToMA3Dialog,
     Pause,
     Play,
+    PreviewTransferPlan,
     Seek,
     SetLayerLiveSyncPauseReason,
     SetLayerLiveSyncState,
@@ -516,6 +519,41 @@ class _ManualPushHarness:
                 ),
             )
             return self._presentation
+        if isinstance(intent, PreviewTransferPlan):
+            return self._presentation
+        if isinstance(intent, ApplyTransferPlan):
+            plan = self._presentation.batch_transfer_plan
+            rows = [] if plan is None else [
+                replace(
+                    row,
+                    status="applied" if row.status == "ready" else row.status,
+                    issue=None if row.status == "ready" else row.issue,
+                )
+                for row in plan.rows
+            ]
+            self._presentation = replace(
+                self._presentation,
+                batch_transfer_plan=(
+                    None
+                    if plan is None
+                    else replace(
+                        plan,
+                        rows=rows,
+                        ready_count=0,
+                        applied_count=sum(1 for row in rows if row.status == "applied"),
+                        failed_count=sum(1 for row in rows if row.status == "failed"),
+                        blocked_count=sum(1 for row in rows if row.status == "blocked"),
+                    )
+                ),
+            )
+            return self._presentation
+        if isinstance(intent, CancelTransferPlan):
+            self._presentation = replace(
+                self._presentation,
+                manual_push_flow=ManualPushFlowPresentation(),
+                batch_transfer_plan=None,
+            )
+            return self._presentation
         if isinstance(intent, ExitPushToMA3Mode):
             self._presentation = replace(
                 self._presentation,
@@ -724,6 +762,41 @@ class _ManualPullHarness:
                         target_layer_name="Kick",
                     ),
                 ),
+            )
+            return self._presentation
+        if isinstance(intent, PreviewTransferPlan):
+            return self._presentation
+        if isinstance(intent, ApplyTransferPlan):
+            plan = self._presentation.batch_transfer_plan
+            rows = [] if plan is None else [
+                replace(
+                    row,
+                    status="applied" if row.status == "ready" else row.status,
+                    issue=None if row.status == "ready" else row.issue,
+                )
+                for row in plan.rows
+            ]
+            self._presentation = replace(
+                self._presentation,
+                batch_transfer_plan=(
+                    None
+                    if plan is None
+                    else replace(
+                        plan,
+                        rows=rows,
+                        ready_count=0,
+                        applied_count=sum(1 for row in rows if row.status == "applied"),
+                        failed_count=sum(1 for row in rows if row.status == "failed"),
+                        blocked_count=sum(1 for row in rows if row.status == "blocked"),
+                    )
+                ),
+            )
+            return self._presentation
+        if isinstance(intent, CancelTransferPlan):
+            self._presentation = replace(
+                self._presentation,
+                manual_pull_flow=ManualPullFlowPresentation(),
+                batch_transfer_plan=None,
             )
             return self._presentation
         if isinstance(intent, ApplyPullFromMA3):
@@ -1154,6 +1227,7 @@ def test_layer_contract_exposes_sync_transfer_section_and_batch_placeholder_acti
     assert "sync-transfer" in section_ids
     assert "open_batch_transfer_workspace" in action_ids
     assert "pull_from_ma3" in action_ids
+    assert {"preview_transfer_plan", "apply_transfer_plan", "cancel_transfer_plan"} <= set(action_ids)
 
 
 def test_live_sync_actions_hidden_when_experimental_flag_disabled():
@@ -1657,6 +1731,109 @@ def test_push_mode_actions_dispatch_target_preview_and_exit(monkeypatch):
             )
         ]
         assert widget.presentation.manual_push_flow.push_mode_active is False
+    finally:
+        widget.close()
+        app.processEvents()
+
+
+def test_transfer_plan_actions_dispatch_preview_apply_and_cancel(monkeypatch):
+    app = QApplication.instance() or QApplication([])
+    base = replace(
+        _selection_test_presentation(),
+        selected_layer_id=LayerId("layer_kick"),
+        selected_take_id=TakeId("take_main"),
+        selected_event_ids=[EventId("main_evt")],
+        layers=[
+            replace(
+                _selection_test_presentation().layers[0],
+                events=[replace(_selection_test_presentation().layers[0].events[0], is_selected=True)],
+                push_selection_count=1,
+                push_row_status="ready",
+            )
+        ],
+        manual_push_flow=ManualPushFlowPresentation(
+            dialog_open=False,
+            push_mode_active=True,
+            available_tracks=[
+                ManualPushTrackOptionPresentation(
+                    coord="tc1_tg2_tr3",
+                    name="Track 3",
+                    note="Bass",
+                    event_count=8,
+                )
+            ],
+            target_track_coord="tc1_tg2_tr3",
+        ),
+        batch_transfer_plan=BatchTransferPlanPresentation(
+            plan_id="push:timeline_selection",
+            operation_type="push",
+            rows=[
+                BatchTransferPlanRowPresentation(
+                    row_id="push:layer_kick",
+                    direction="push",
+                    source_label="Kick",
+                    target_label="Track 3 (tc1_tg2_tr3) - Bass",
+                    source_layer_id=LayerId("layer_kick"),
+                    target_track_coord="tc1_tg2_tr3",
+                    selected_event_ids=[EventId("main_evt")],
+                    selected_count=1,
+                    status="ready",
+                )
+            ],
+            ready_count=1,
+        ),
+    )
+    harness = _ManualPushHarness(base)
+    widget = TimelineWidget(harness.presentation(), on_intent=harness.dispatch)
+    summaries: list[tuple[str, str, str]] = []
+    monkeypatch.setattr(
+        "echozero.ui.qt.timeline.widget.QMessageBox.information",
+        lambda parent, title, text: summaries.append((parent.__class__.__name__, title, text)),
+    )
+    try:
+        _render_for_hit_testing(widget)
+        contract = build_timeline_inspector_contract(widget.presentation)
+        preview_action = next(
+            action
+            for section in contract.context_sections
+            for action in section.actions
+            if action.action_id == "preview_transfer_plan"
+        )
+        apply_action = next(
+            action
+            for section in contract.context_sections
+            for action in section.actions
+            if action.action_id == "apply_transfer_plan"
+        )
+        cancel_action = next(
+            action
+            for section in contract.context_sections
+            for action in section.actions
+            if action.action_id == "cancel_transfer_plan"
+        )
+
+        widget._trigger_contract_action(preview_action)
+        widget._trigger_contract_action(apply_action)
+        widget._trigger_contract_action(cancel_action)
+
+        assert harness.intents == [
+            PreviewTransferPlan(plan_id="push:timeline_selection"),
+            ApplyTransferPlan(plan_id="push:timeline_selection"),
+            CancelTransferPlan(plan_id="push:timeline_selection"),
+        ]
+        assert summaries == [
+            (
+                "TimelineWidget",
+                "Transfer Plan Preview",
+                "Preview complete.\n\nReady: 1\nBlocked: 0\nApplied: 0\nFailed: 0",
+            ),
+            (
+                "TimelineWidget",
+                "Transfer Plan Results",
+                "Apply complete.\n\nApplied: 1\nFailed: 0\nBlocked: 0",
+            ),
+        ]
+        assert widget.presentation.batch_transfer_plan is None
     finally:
         widget.close()
         app.processEvents()

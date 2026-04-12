@@ -25,6 +25,8 @@ if TYPE_CHECKING:
     from echozero.application.timeline.assembler import TimelineAssembler
 from echozero.application.timeline.intents import (
     ApplyPullFromMA3,
+    ApplyTransferPlan,
+    CancelTransferPlan,
     ClearLayerLiveSyncPauseReason,
     ClearSelection,
     ConfirmPullFromMA3,
@@ -48,8 +50,9 @@ from echozero.application.timeline.intents import (
     EnableSync,
     ExitPushToMA3Mode,
     OpenPushToMA3Dialog,
-    Play,
     Pause,
+    Play,
+    PreviewTransferPlan,
     Seek,
     SetPullSourceEvents,
     SetPullTrackOptions,
@@ -559,10 +562,38 @@ class TimelineOrchestrator:
             if flow.workspace_active:
                 self._rebuild_pull_transfer_plan(timeline, session)
 
+        elif isinstance(intent, PreviewTransferPlan):
+            session = self.session_service.get_session()
+            plan = self._require_active_transfer_plan(
+                session,
+                intent.plan_id,
+                action_name="PreviewTransferPlan",
+            )
+            self._preview_transfer_plan(timeline, session, plan)
+
+        elif isinstance(intent, ApplyTransferPlan):
+            session = self.session_service.get_session()
+            plan = self._require_active_transfer_plan(
+                session,
+                intent.plan_id,
+                action_name="ApplyTransferPlan",
+            )
+            self._apply_transfer_plan(timeline, session, plan)
+
+        elif isinstance(intent, CancelTransferPlan):
+            session = self.session_service.get_session()
+            plan = self._require_active_transfer_plan(
+                session,
+                intent.plan_id,
+                action_name="CancelTransferPlan",
+            )
+            self._cancel_transfer_plan(session, plan)
+
         session = self.session_service.get_session()
         if session.manual_push_flow.push_mode_active:
             session.manual_push_flow.selected_event_ids = list(timeline.selection.selected_event_ids)
-            self._rebuild_push_transfer_plan(timeline, session)
+            if not self._plan_counters_locked(session.batch_transfer_plan):
+                self._rebuild_push_transfer_plan(timeline, session)
         audibility = self.mixer_service.resolve_audibility(timeline.layers)
         self.playback_service.update_runtime(
             timeline=timeline,
@@ -966,6 +997,229 @@ class TimelineOrchestrator:
             label=source_event.label,
             payload_ref=source_event.event_id,
         )
+
+    def _require_active_transfer_plan(self, session, plan_id: str, *, action_name: str) -> BatchTransferPlanState:
+        plan = session.batch_transfer_plan
+        if plan is None:
+            raise ValueError(f"{action_name} requires an active batch transfer plan")
+        if plan.plan_id != plan_id:
+            raise ValueError(
+                f"{action_name} plan_id does not match active batch transfer plan: "
+                f"expected {plan.plan_id}, got {plan_id}"
+            )
+        return plan
+
+    def _preview_transfer_plan(self, timeline: Timeline, session, plan: BatchTransferPlanState) -> None:
+        preview_rows: list[BatchTransferPlanRowState] = []
+        for row in plan.rows:
+            if row.status == "blocked":
+                preview_rows.append(self._copy_plan_row(row))
+                continue
+            if row.direction == "push":
+                preview_rows.append(self._preview_push_plan_row(timeline, row))
+                continue
+            if row.direction == "pull":
+                preview_rows.append(self._preview_pull_plan_row(row))
+                continue
+            preview_rows.append(self._copy_plan_row(row, issue=f"Unsupported transfer direction: {row.direction}"))
+
+        plan.rows = preview_rows
+        self._refresh_plan_counters(plan)
+
+    def _apply_transfer_plan(self, timeline: Timeline, session, plan: BatchTransferPlanState) -> None:
+        applied_rows: list[BatchTransferPlanRowState] = []
+        for row in plan.rows:
+            if row.status == "blocked":
+                applied_rows.append(self._copy_plan_row(row))
+                continue
+            if row.status != "ready":
+                applied_rows.append(self._copy_plan_row(row))
+                continue
+            try:
+                if row.direction == "pull":
+                    applied_rows.append(self._apply_pull_plan_row(timeline, row))
+                elif row.direction == "push":
+                    applied_rows.append(self._apply_push_plan_row(timeline, row))
+                else:
+                    applied_rows.append(
+                        self._copy_plan_row(
+                            row,
+                            status="failed",
+                            issue=f"Unsupported transfer direction: {row.direction}",
+                        )
+                    )
+            except Exception as exc:
+                applied_rows.append(
+                    self._copy_plan_row(
+                        row,
+                        status="failed",
+                        issue=self._deterministic_issue_text(exc),
+                    )
+                )
+
+        plan.rows = applied_rows
+        self._refresh_plan_counters(plan)
+        self._clear_plan_diff_gates(session)
+
+    def _cancel_transfer_plan(self, session, plan: BatchTransferPlanState) -> None:
+        if plan.operation_type in {"push", "mixed"}:
+            self._reset_manual_push_flow(session)
+        if plan.operation_type in {"pull", "mixed"}:
+            self._reset_manual_pull_flow(session)
+        session.batch_transfer_plan = None
+
+    def _preview_push_plan_row(self, timeline: Timeline, row: BatchTransferPlanRowState) -> BatchTransferPlanRowState:
+        target_track = self._manual_push_track_by_coord(
+            self._load_manual_push_track_options(),
+            row.target_track_coord or "",
+        )
+        selected_events = self._selected_events_by_ids(timeline, list(row.selected_event_ids))
+        self.diff_service.build_push_preview_rows(
+            selected_events=selected_events,
+            target_track_name=target_track.name,
+            target_track_coord=target_track.coord,
+        )
+        return self._copy_plan_row(row)
+
+    def _preview_pull_plan_row(self, row: BatchTransferPlanRowState) -> BatchTransferPlanRowState:
+        if row.target_layer_id is None:
+            return self._copy_plan_row(row)
+        selected_events = self._manual_pull_selected_events_by_ids(
+            available_events=self._load_manual_pull_event_options(row.source_track_coord or ""),
+            selected_ids=list(row.selected_ma3_event_ids),
+            action_name="PreviewTransferPlan",
+        )
+        self.diff_service.build_pull_preview_rows(
+            selected_events=selected_events,
+            target_layer_name=str(row.target_label or row.target_layer_id),
+        )
+        return self._copy_plan_row(row)
+
+    def _apply_pull_plan_row(self, timeline: Timeline, row: BatchTransferPlanRowState) -> BatchTransferPlanRowState:
+        target_layer = self._find_layer(timeline, row.target_layer_id)
+        source_track = self._manual_pull_track_by_coord(
+            self._load_manual_pull_track_options(),
+            row.source_track_coord or "",
+            action_name="ApplyTransferPlan",
+        )
+        selected_events = self._manual_pull_selected_events_by_ids(
+            available_events=self._load_manual_pull_event_options(source_track.coord),
+            selected_ids=list(row.selected_ma3_event_ids),
+            action_name="ApplyTransferPlan",
+        )
+        imported_take = self._build_manual_pull_take(
+            layer=target_layer,
+            source_track=source_track,
+            selected_events=selected_events,
+        )
+        target_layer.takes.append(imported_take)
+        self._sort_take_events(imported_take)
+
+        timeline.selection.selected_layer_id = target_layer.id
+        timeline.selection.selected_take_id = imported_take.id
+        timeline.selection.selected_event_ids = [event.id for event in imported_take.events]
+        return self._copy_plan_row(row, status="applied", issue=None)
+
+    def _apply_push_plan_row(self, timeline: Timeline, row: BatchTransferPlanRowState) -> BatchTransferPlanRowState:
+        selected_events = self._selected_events_by_ids(timeline, list(row.selected_event_ids))
+        apply_push = getattr(self.sync_service, "apply_push_transfer", None)
+        if callable(apply_push):
+            apply_push(
+                target_track_coord=row.target_track_coord,
+                selected_events=selected_events,
+            )
+            return self._copy_plan_row(row, status="applied", issue=None)
+        execute_push = getattr(self.sync_service, "execute_push_transfer", None)
+        if callable(execute_push):
+            execute_push(
+                target_track_coord=row.target_track_coord,
+                selected_events=selected_events,
+            )
+            return self._copy_plan_row(row, status="applied", issue=None)
+        return self._copy_plan_row(
+            row,
+            status="failed",
+            issue="Push execution endpoint unavailable",
+        )
+
+    @staticmethod
+    def _copy_plan_row(
+        row: BatchTransferPlanRowState,
+        *,
+        status: str | None = None,
+        issue: str | None = ...,
+    ) -> BatchTransferPlanRowState:
+        copied = BatchTransferPlanRowState(
+            row_id=row.row_id,
+            direction=row.direction,
+            source_label=row.source_label,
+            target_label=row.target_label,
+            source_layer_id=row.source_layer_id,
+            source_track_coord=row.source_track_coord,
+            target_track_coord=row.target_track_coord,
+            target_layer_id=row.target_layer_id,
+            selected_event_ids=list(row.selected_event_ids),
+            selected_ma3_event_ids=list(row.selected_ma3_event_ids),
+            selected_count=row.selected_count,
+            status=row.status if status is None else status,
+            issue=row.issue,
+        )
+        if issue is not ...:
+            copied.issue = issue
+        return copied
+
+    @staticmethod
+    def _refresh_plan_counters(plan: BatchTransferPlanState) -> None:
+        plan.draft_count = sum(1 for row in plan.rows if row.status == "draft")
+        plan.ready_count = sum(1 for row in plan.rows if row.status == "ready")
+        plan.blocked_count = sum(1 for row in plan.rows if row.status == "blocked")
+        plan.applied_count = sum(1 for row in plan.rows if row.status == "applied")
+        plan.failed_count = sum(1 for row in plan.rows if row.status == "failed")
+
+    @staticmethod
+    def _deterministic_issue_text(exc: Exception) -> str:
+        message = str(exc).strip()
+        return message or exc.__class__.__name__
+
+    @staticmethod
+    def _plan_counters_locked(plan: BatchTransferPlanState | None) -> bool:
+        if plan is None:
+            return False
+        return (plan.applied_count + plan.failed_count) > 0
+
+    @staticmethod
+    def _clear_plan_diff_gates(session) -> None:
+        session.manual_push_flow.diff_gate_open = False
+        session.manual_push_flow.diff_preview = None
+        session.manual_pull_flow.diff_gate_open = False
+        session.manual_pull_flow.diff_preview = None
+
+    @staticmethod
+    def _reset_manual_push_flow(session) -> None:
+        session.manual_push_flow.dialog_open = False
+        session.manual_push_flow.push_mode_active = False
+        session.manual_push_flow.selected_event_ids = []
+        session.manual_push_flow.available_tracks = []
+        session.manual_push_flow.target_track_coord = None
+        session.manual_push_flow.diff_gate_open = False
+        session.manual_push_flow.diff_preview = None
+
+    @staticmethod
+    def _reset_manual_pull_flow(session) -> None:
+        session.manual_pull_flow.dialog_open = False
+        session.manual_pull_flow.workspace_active = False
+        session.manual_pull_flow.available_tracks = []
+        session.manual_pull_flow.selected_source_track_coords = []
+        session.manual_pull_flow.active_source_track_coord = None
+        session.manual_pull_flow.source_track_coord = None
+        session.manual_pull_flow.available_events = []
+        session.manual_pull_flow.selected_ma3_event_ids = []
+        session.manual_pull_flow.selected_ma3_event_ids_by_track = {}
+        session.manual_pull_flow.available_target_layers = []
+        session.manual_pull_flow.target_layer_id = None
+        session.manual_pull_flow.target_layer_id_by_source_track = {}
+        session.manual_pull_flow.diff_gate_open = False
+        session.manual_pull_flow.diff_preview = None
 
     def _rebuild_push_transfer_plan(self, timeline: Timeline, session) -> None:
         rows = self._build_push_transfer_plan_rows(timeline)
