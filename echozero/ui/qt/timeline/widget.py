@@ -433,6 +433,10 @@ class ManualPullTimelineCanvas(QWidget):
             return []
 
         content_width = max(120.0, self.width() - self._left_padding - self._right_padding)
+        one_shot_seconds = 0.30
+        one_shot_width = max(44.0, self.pixels_per_second * one_shot_seconds)
+        y = max(self._top_padding, (self.height() * 0.5) - (self._bar_height * 0.5))
+
         timed = [
             event for event in self._events
             if event.start is not None and event.end is not None
@@ -440,29 +444,24 @@ class ManualPullTimelineCanvas(QWidget):
         rects: list[QRectF] = []
         if timed:
             min_start = min(event.start for event in timed)
-            max_end = max(max(event.end, event.start + 0.25) for event in timed)
-            span = max(0.25, max_end - min_start)
+            max_start = max(event.start for event in timed)
+            span = max(one_shot_seconds, (max_start - min_start) + one_shot_seconds)
+            max_x = self._left_padding + content_width - one_shot_width
             for index, event in enumerate(self._events):
-                lane_index = index % 3
-                y = self._top_padding + (lane_index * self._lane_height)
-                if event.start is None or event.end is None:
+                if event.start is None:
                     slot_width = content_width / max(1, len(self._events))
                     x = self._left_padding + (index * slot_width)
-                    width = max(48.0, slot_width - 10.0)
                 else:
                     start_ratio = (event.start - min_start) / span
-                    end_ratio = (max(event.end, event.start + 0.25) - min_start) / span
                     x = self._left_padding + (start_ratio * content_width)
-                    width = max(44.0, (end_ratio - start_ratio) * content_width)
-                rects.append(QRectF(x, y, width, self._bar_height))
+                x = min(x, max_x)
+                rects.append(QRectF(x, y, one_shot_width, self._bar_height))
             return rects
 
         slot_width = content_width / max(1, len(self._events))
         for index, _event in enumerate(self._events):
-            lane_index = index % 3
             x = self._left_padding + (index * slot_width) + 4.0
-            y = self._top_padding + (lane_index * self._lane_height)
-            rects.append(QRectF(x, y, max(48.0, slot_width - 8.0), self._bar_height))
+            rects.append(QRectF(x, y, max(one_shot_width, slot_width - 8.0), self._bar_height))
         return rects
 
 
