@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import tempfile
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -146,12 +147,13 @@ def _install_launcher_fakes(monkeypatch, *, exec_result: int = 0, exec_error: Ex
     )
     build_calls: list[dict[str, object]] = []
 
-    def fake_build_app_shell(*, use_demo_fixture=False, sync_bridge=None, sync_service=None):
+    def fake_build_app_shell(*, use_demo_fixture=False, sync_bridge=None, sync_service=None, working_dir_root=None):
         build_calls.append(
             {
                 "use_demo_fixture": use_demo_fixture,
                 "sync_bridge": sync_bridge,
                 "sync_service": sync_service,
+                "working_dir_root": working_dir_root,
             }
         )
         return demo
@@ -171,7 +173,14 @@ def test_run_echozero_main_wires_widget_and_smoke_timer(monkeypatch):
 
     widget = FakeWidget.instances[0]
     assert result == 27
-    assert build_calls == [{"use_demo_fixture": False, "sync_bridge": None, "sync_service": None}]
+    assert build_calls == [
+        {
+            "use_demo_fixture": False,
+            "sync_bridge": None,
+            "sync_service": None,
+            "working_dir_root": Path(tempfile.gettempdir()) / "EchoZero" / "smoke-working",
+        }
+    ]
     assert widget.window_titles == ["EchoZero"]
     assert widget.resize_calls == [(1440, 720)]
     assert widget.show_calls == 1
@@ -185,7 +194,7 @@ def test_run_echozero_main_wires_widget_and_smoke_timer(monkeypatch):
     milliseconds, callback = FakeQTimer.shots[0]
     assert milliseconds == 1250
     callback()
-    assert widget.close_calls == 1
+    assert widget.close_calls == 0
     assert FakeQApplication.quit_calls == 1
     assert runtime_audio.shutdown_calls == 1
 
@@ -197,7 +206,14 @@ def test_run_echozero_main_skips_timer_when_not_requested(monkeypatch):
 
     widget = FakeWidget.instances[0]
     assert result == 5
-    assert build_calls == [{"use_demo_fixture": False, "sync_bridge": None, "sync_service": None}]
+    assert build_calls == [
+        {
+            "use_demo_fixture": False,
+            "sync_bridge": None,
+            "sync_service": None,
+            "working_dir_root": None,
+        }
+    ]
     assert widget.window_titles == ["EchoZero"]
     assert widget.resize_calls == [(1440, 720)]
     assert widget.show_calls == 1
@@ -215,7 +231,14 @@ def test_run_echozero_main_shuts_down_audio_on_exec_failure(monkeypatch):
     else:
         raise AssertionError("expected RuntimeError")
 
-    assert build_calls == [{"use_demo_fixture": False, "sync_bridge": None, "sync_service": None}]
+    assert build_calls == [
+        {
+            "use_demo_fixture": False,
+            "sync_bridge": None,
+            "sync_service": None,
+            "working_dir_root": None,
+        }
+    ]
     assert runtime_audio.shutdown_calls == 1
 
 
@@ -225,7 +248,14 @@ def test_run_echozero_main_passes_demo_fixture_flag(monkeypatch):
     result = run_echozero.main(["--use-demo-fixture"])
 
     assert result == 9
-    assert build_calls == [{"use_demo_fixture": True, "sync_bridge": None, "sync_service": None}]
+    assert build_calls == [
+        {
+            "use_demo_fixture": True,
+            "sync_bridge": None,
+            "sync_service": None,
+            "working_dir_root": None,
+        }
+    ]
     assert runtime_audio.shutdown_calls == 1
 
 

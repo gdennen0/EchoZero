@@ -4,6 +4,20 @@ _Last updated: 2026-04-12_
 
 This plan defines how EchoZero moves to a canonical app workflow with deterministic packaging and release validation.
 
+## Current Status (2026-04-13)
+
+Complete now:
+- canonical launcher + compatibility delegate are in place
+- app shell runtime lifecycle, launcher commands, and unsaved-close guard are implemented
+- built-in appflow lanes now cover `appflow`, `appflow-sync`, `appflow-osc`, `appflow-protocol`, and `appflow-all`
+- deterministic MA3 simulator and OSC loopback coverage are in place for Tier A/B app-flow validation
+- protocol fixtures and receive-path integration tests are in place for Tier C validation
+- release build, packaged smoke, and one-command local gate scripts are in place
+
+Remaining:
+- manual UX QA walkthrough on milestone checkpoints
+- validation against real MA3 hardware before final release signoff
+
 If this document conflicts with first-principles or sync safety contracts, those higher-order contracts win:
 - `docs/UNIFIED-IMPLEMENTATION-PLAN.md`
 - `docs/architecture/TIMELINE-FIRST-PRINCIPLES-2026-04-02.md`
@@ -144,13 +158,10 @@ A test release can ship only if all are true:
 
 ---
 
-## 7) Near-Term Backlog (Execution Order)
+## 7) Remaining Backlog
 
-1. Add `run_echozero.py` as the canonical launcher
-2. Keep `run_timeline_demo.py` as a compatibility delegate
-3. Add `scripts/build-test-release.ps1`
-4. Add `scripts/smoke-test-release.ps1`
-5. Expand app-flow coverage behind the canonical launcher
+1. Complete manual UX QA walkthrough against the packaged app path
+2. Validate transfer and receive flows against real MA3 hardware
 
 ---
 

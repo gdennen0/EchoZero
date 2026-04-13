@@ -97,7 +97,13 @@ def purge_old_logs(log_folder: str = None, keep: int = 10):
     # Keep only the last 'keep' logs:
     logs_to_remove = all_logs[:-keep]  # all but the last 'keep' logs
     for old_file in logs_to_remove:
-        os.remove(os.path.join(log_folder, old_file))
+        old_path = os.path.join(log_folder, old_file)
+        try:
+            os.remove(old_path)
+        except OSError:
+            # Ignore locked or concurrently removed log files so logger init
+            # never breaks app startup or test collection.
+            continue
 class ColorFormatter(logging.Formatter):
     """
     A formatter that colorizes log level names using colorama.
@@ -149,16 +155,21 @@ def init_logger(
             log_folder = create_log_directory(log_folder)
             purge_old_logs(log_folder, keep=10)
             log_file_path = get_log_file_path(log_folder)
-            file_handler = logging.FileHandler(log_file_path, encoding="utf-8")
-            file_handler.setLevel(level)
-            
-            # Configure file format
-            file_formatter = logging.Formatter(
-                fmt="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
-                datefmt="%Y-%m-%d %H:%M:%S"
-            )
-            file_handler.setFormatter(file_formatter)
-            logger.addHandler(file_handler)
+            try:
+                file_handler = logging.FileHandler(log_file_path, encoding="utf-8")
+            except OSError:
+                file_handler = None
+
+            if file_handler is not None:
+                file_handler.setLevel(level)
+
+                # Configure file format
+                file_formatter = logging.Formatter(
+                    fmt="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
+                    datefmt="%Y-%m-%d %H:%M:%S"
+                )
+                file_handler.setFormatter(file_formatter)
+                logger.addHandler(file_handler)
 
         # Console Handler
         if console_logging:

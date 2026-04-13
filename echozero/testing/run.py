@@ -28,6 +28,19 @@ LANES: dict[str, list[str]] = {
         "tests/unit/test_ma3_receive_path_integration.py",
         "tests/unit/test_ma3_event_contract.py",
     ],
+    "appflow-all": [
+        "tests/testing/test_app_flow_harness.py",
+        "tests/testing/test_app_shell_profiles.py",
+        "tests/testing/test_simulated_ma3_bridge.py",
+        "tests/unit/test_ma3_communication_service_protocol.py",
+        "tests/unit/test_ma3_receive_path_integration.py",
+        "tests/unit/test_ma3_event_contract.py",
+        "tests/ui/test_run_echozero_launcher.py",
+        "tests/ui/test_app_shell_runtime_flow.py",
+        "tests/ui/test_timeline_shell.py",
+        "tests/application/test_manual_transfer_pull_flow.py",
+        "tests/application/test_manual_transfer_push_flow.py",
+    ],
 }
 
 

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import sys
+import tempfile
 from pathlib import Path
 
 from PyQt6.QtCore import QTimer
@@ -156,10 +157,22 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="Boot the legacy demo fixture path instead of the canonical app shell path.",
     )
+    parser.add_argument(
+        "--working-dir-root",
+        type=Path,
+        default=None,
+        help="Override the project working-directory root used by the app shell runtime.",
+    )
     parsed, qt_args = parser.parse_known_args(list(argv) if argv is not None else sys.argv[1:])
 
     app = QApplication.instance() or QApplication([sys.argv[0], *qt_args])
-    demo = build_app_shell(use_demo_fixture=parsed.use_demo_fixture)
+    working_dir_root = parsed.working_dir_root
+    if working_dir_root is None and parsed.smoke_exit_seconds is not None and parsed.smoke_exit_seconds > 0:
+        working_dir_root = Path(tempfile.gettempdir()) / "EchoZero" / "smoke-working"
+    demo = build_app_shell(
+        use_demo_fixture=parsed.use_demo_fixture,
+        working_dir_root=working_dir_root,
+    )
     widget = TimelineWidget(
         demo.presentation(),
         on_intent=demo.dispatch,
@@ -174,7 +187,6 @@ def main(argv: list[str] | None = None) -> int:
     smoke_exit_seconds = parsed.smoke_exit_seconds
     if smoke_exit_seconds is not None and smoke_exit_seconds > 0:
         def _smoke_shutdown() -> None:
-            widget.close()
             app.quit()
 
         QTimer.singleShot(int(smoke_exit_seconds * 1000), _smoke_shutdown)

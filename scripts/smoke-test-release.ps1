@@ -8,15 +8,17 @@ $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
 
 $repoRoot = Split-Path -Parent $PSScriptRoot
-$releasesRoot = Join-Path $repoRoot "build/test-release/releases/test"
+$releasesRoot = Join-Path $repoRoot "artifacts/releases/test"
+$fallbackReleasesRoot = Join-Path $repoRoot "build/test-release/releases/test"
 
 if (-not $ReleaseFolder) {
-    if (-not (Test-Path $releasesRoot)) {
-        throw "Release root not found: $releasesRoot"
+    if (-not (Test-Path $releasesRoot) -and -not (Test-Path $fallbackReleasesRoot)) {
+        throw "Release root not found: $releasesRoot or $fallbackReleasesRoot"
     }
-    $latest = Get-ChildItem -Path $releasesRoot -Directory | Sort-Object Name -Descending | Select-Object -First 1
+    $searchRoot = if (Test-Path $releasesRoot) { $releasesRoot } else { $fallbackReleasesRoot }
+    $latest = Get-ChildItem -Path $searchRoot -Directory | Sort-Object Name -Descending | Select-Object -First 1
     if ($null -eq $latest) {
-        throw "No test release folders found under $releasesRoot"
+        throw "No test release folders found under $searchRoot"
     }
     $ReleaseFolder = $latest.FullName
 }
@@ -24,6 +26,7 @@ if (-not $ReleaseFolder) {
 $appDir = Join-Path $ReleaseFolder "EchoZeroTest"
 $exePath = Join-Path $appDir "EchoZeroTest.exe"
 $reportPath = Join-Path $ReleaseFolder "smoke-report.json"
+$smokeWorkingRoot = Join-Path $ReleaseFolder "smoke-working"
 $timestamp = Get-Date -Format "yyyy-MM-ddTHH:mm:ssK"
 $status = "failed"
 $exitCode = $null
@@ -44,8 +47,10 @@ if (-not (Test-Path $exePath)) {
     exit 1
 }
 
+New-Item -ItemType Directory -Path $smokeWorkingRoot -Force | Out-Null
+
 $stopwatch = [System.Diagnostics.Stopwatch]::StartNew()
-$process = Start-Process -FilePath $exePath -ArgumentList "--smoke-exit-seconds", "6" -PassThru
+$process = Start-Process -FilePath $exePath -ArgumentList "--smoke-exit-seconds", "6", "--working-dir-root", $smokeWorkingRoot -PassThru
 
 try {
     $exited = $process.WaitForExit($TimeoutSeconds * 1000)
@@ -88,6 +93,7 @@ $report = [ordered]@{
     timestamp = $timestamp
     release_folder = $ReleaseFolder
     exe_path = $exePath
+    working_dir_root = $smokeWorkingRoot
     timeout_seconds = $TimeoutSeconds
 }
 $report | ConvertTo-Json -Depth 4 | Set-Content -Encoding utf8 $reportPath
