@@ -310,10 +310,20 @@ class GuiLaneBRunner:
             runtime.extract_stems(str(params["layer_id"]))
             harness.widget.set_presentation(harness.presentation())
         elif action == "extract_drum_events":
+            layer_id = str(params["layer_id"])
+            if not any(str(layer.layer_id) == layer_id for layer in harness.presentation().layers):
+                raise RuntimeError(f"Lane B could not find layer_id '{layer_id}' for extract_drum_events")
+            harness.widget.set_presentation(harness.presentation())
+        elif action == "classify_drum_events":
+            model_path = str(params.get("model_path", "")).strip()
+            if not model_path:
+                raise RuntimeError(
+                    "Lane B classify_drum_events requires params.model_path so the classifier model path is explicit."
+                )
             runtime = harness.runtime
-            if not callable(getattr(runtime, "extract_drum_events", None)):
-                raise RuntimeError("Lane B runtime does not support extract_drum_events")
-            runtime.extract_drum_events(str(params["layer_id"]))
+            if not callable(getattr(runtime, "classify_drum_events", None)):
+                raise RuntimeError("Lane B runtime does not support classify_drum_events")
+            runtime.classify_drum_events(str(params["layer_id"]), model_path)
             harness.widget.set_presentation(harness.presentation())
         elif action == "trigger_action":
             harness.trigger_action(str(params["action_id"]))

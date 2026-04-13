@@ -54,10 +54,17 @@
       }
     },
     {
-      "label": "Extract stems reports explicit phase-1 status",
-      "action": "extract_stems",
+      "label": "Extract drum events",
+      "action": "extract_drum_events",
       "params": {
-        "layer_id": "layer_song"
+        "layer_id": "layer_drums"
+      }
+    },
+    {
+      "label": "Classify drum events requires explicit model path",
+      "action": "classify_drum_events",
+      "params": {
+        "layer_id": "layer_drums"
       }
     }
   ]

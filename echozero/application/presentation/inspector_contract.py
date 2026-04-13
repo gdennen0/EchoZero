@@ -633,24 +633,7 @@ def _shared_context_sections(
                 params={"layer_id": layer.layer_id, "gain_db": 6.0},
             ),
         ]
-        if _is_stem_capable_layer(layer):
-            layer_actions.append(
-                InspectorAction(
-                    action_id="extract_stems",
-                    label="Extract Stems",
-                    group="pipeline",
-                    params={"layer_id": layer.layer_id},
-                )
-            )
-        if _is_drum_stem_layer(layer):
-            layer_actions.append(
-                InspectorAction(
-                    action_id="extract_drum_events",
-                    label="Extract Drum Events",
-                    group="pipeline",
-                    params={"layer_id": layer.layer_id},
-                )
-            )
+        layer_actions.extend(_pipeline_actions_for_layer(layer))
         sections.append(
             InspectorContextSection(
                 section_id="layer-mix",
@@ -812,16 +795,48 @@ def _format_seconds(value: float) -> str:
     return f"{value:.2f}s"
 
 
+def _pipeline_actions_for_layer(layer: LayerPresentation) -> tuple[InspectorAction, ...]:
+    actions: list[InspectorAction] = []
+    if _is_stem_capable_layer(layer):
+        actions.append(
+            InspectorAction(
+                action_id="extract_stems",
+                label="Extract Stems",
+                group="pipeline",
+                params={"layer_id": layer.layer_id},
+            )
+        )
+    if _is_drum_capable_layer(layer):
+        actions.append(
+            InspectorAction(
+                action_id="extract_drum_events",
+                label="Extract Drum Events",
+                group="pipeline",
+                params={"layer_id": layer.layer_id},
+            )
+        )
+        actions.append(
+            InspectorAction(
+                action_id="classify_drum_events",
+                label="Classify Drum Events",
+                group="pipeline",
+                params={"layer_id": layer.layer_id},
+            )
+        )
+    return tuple(actions)
+
+
 def _is_stem_capable_layer(layer: LayerPresentation) -> bool:
     return layer.kind.name == "AUDIO"
 
 
-def _is_drum_stem_layer(layer: LayerPresentation) -> bool:
+def _is_drum_capable_layer(layer: LayerPresentation) -> bool:
     if not _is_stem_capable_layer(layer):
         return False
     title = layer.title.strip().lower()
     badges = {str(badge).strip().lower() for badge in layer.badges}
-    return "drum" in title or "drums" in badges
+    source_label = (layer.status.source_label if layer.status is not None else "").strip().lower()
+    return "drum" in title or "drums" in badges or "drum" in source_label
 
 
 def _sync_state_label(layer: LayerPresentation) -> str:

@@ -89,6 +89,28 @@ class _MockDetectOnsetsExecutor:
         )
 
 
+class _MockClassifyExecutor:
+    def execute(self, _block_id: str, context: ExecutionContext):
+        event_data = context.get_input(_block_id, "events_in", EventData)
+        assert event_data is not None
+        classified_layers: list[DomainLayer] = []
+        for layer in event_data.layers:
+            classified_events: list[DomainEvent] = []
+            for event in layer.events:
+                classified_events.append(
+                    DomainEvent(
+                        id=event.id,
+                        time=event.time,
+                        duration=event.duration,
+                        classifications={"class": "kick", "confidence": "0.99"},
+                        metadata={**event.metadata, "classified": True},
+                        origin="classify",
+                    )
+                )
+            classified_layers.append(DomainLayer(id=layer.id, name="Kick", events=tuple(classified_events)))
+        return ok(EventData(layers=tuple(classified_layers)))
+
+
 def _mock_stem_analysis_service() -> AnalysisService:
     return AnalysisService(
         get_registry(),
@@ -96,6 +118,7 @@ def _mock_stem_analysis_service() -> AnalysisService:
             "LoadAudio": _MockLoadAudioExecutor(),
             "SeparateAudio": _MockSeparateAudioExecutor(),
             "DetectOnsets": _MockDetectOnsetsExecutor(),
+            "PyTorchAudioClassify": _MockClassifyExecutor(),
         },
     )
 
@@ -321,6 +344,63 @@ def test_app_shell_runtime_extract_drum_events_rejects_non_drum_audio_layers():
             assert "drum-derived audio layers" in str(exc)
         else:
             raise AssertionError("Expected extract_drum_events to reject non-drum audio layers")
+    finally:
+        runtime.shutdown()
+        shutil.rmtree(temp_root, ignore_errors=True)
+
+
+def test_app_shell_runtime_classify_drum_events_persists_classified_layers():
+    temp_root = _repo_local_temp_root()
+    runtime = build_app_shell(
+        working_dir_root=temp_root / "working",
+        analysis_service=_mock_stem_analysis_service(),
+    )
+
+    assert isinstance(runtime, AppShellRuntime)
+
+    try:
+        audio_path = _write_test_wav(temp_root / "fixtures" / "import.wav")
+        model_path = (temp_root / "fixtures" / "drum-model.pth")
+        model_path.write_bytes(b"fake-model")
+        runtime.add_song_from_path("Imported Song", audio_path)
+        after_stems = runtime.extract_stems("source_audio")
+        drums_layer = next(layer for layer in after_stems.layers if layer.title == "Drums")
+
+        presentation = runtime.classify_drum_events(drums_layer.layer_id, model_path)
+
+        event_layers = [layer for layer in presentation.layers if layer.kind.name == "EVENT"]
+        assert event_layers
+        assert any("drum" in layer.title.lower() and "classified" in layer.title.lower() for layer in event_layers)
+        assert any(layer.events and layer.events[0].label == "Kick" for layer in event_layers)
+        assert any((layer.status.source_label or "").startswith("drum_classification") for layer in event_layers)
+        assert runtime.is_dirty is True
+    finally:
+        runtime.shutdown()
+        shutil.rmtree(temp_root, ignore_errors=True)
+
+
+def test_app_shell_runtime_classify_drum_events_rejects_missing_model_path():
+    temp_root = _repo_local_temp_root()
+    runtime = build_app_shell(
+        working_dir_root=temp_root / "working",
+        analysis_service=_mock_stem_analysis_service(),
+    )
+
+    assert isinstance(runtime, AppShellRuntime)
+
+    try:
+        audio_path = _write_test_wav(temp_root / "fixtures" / "import.wav")
+        runtime.add_song_from_path("Imported Song", audio_path)
+        after_stems = runtime.extract_stems("source_audio")
+        drums_layer = next(layer for layer in after_stems.layers if layer.title == "Drums")
+
+        missing_model = temp_root / "fixtures" / "missing-model.pth"
+        try:
+            runtime.classify_drum_events(drums_layer.layer_id, missing_model)
+        except FileNotFoundError as exc:
+            assert "existing model path" in str(exc)
+        else:
+            raise AssertionError("Expected classify_drum_events to reject a missing model path")
     finally:
         runtime.shutdown()
         shutil.rmtree(temp_root, ignore_errors=True)

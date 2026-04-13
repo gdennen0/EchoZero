@@ -8,6 +8,7 @@ from typing import Any
 
 SUPPORTED_ACTIONS = {
     "add_song_from_path",
+    "classify_drum_events",
     "extract_drum_events",
     "extract_stems",
     "trigger_action",
@@ -81,7 +82,7 @@ def _validate_step(*, action: str, params: dict[str, Any], step_index: int) -> N
     if action == "add_song_from_path":
         _require_string(params, "title", step_index=step_index)
         _require_string(params, "audio_path", step_index=step_index)
-    elif action in {"extract_stems", "extract_drum_events"}:
+    elif action in {"extract_stems", "extract_drum_events", "classify_drum_events"}:
         _require_string(params, "layer_id", step_index=step_index)
     elif action == "trigger_action":
         value = params.get("action_id")

@@ -37,7 +37,7 @@ from echozero.domain.types import AudioData, EventData, Event as DomainEvent
 from echozero.persistence.audio import resolve_audio_path
 from echozero.persistence.session import ProjectStorage
 from echozero.pipelines.registry import get_registry
-from echozero.processors import DetectOnsetsProcessor, LoadAudioProcessor, SeparateAudioProcessor
+from echozero.processors import DetectOnsetsProcessor, LoadAudioProcessor, PyTorchAudioClassifyProcessor, SeparateAudioProcessor
 from echozero.result import is_err
 from echozero.services.orchestrator import AnalysisService
 from echozero.ui.qt.timeline.demo_app import DemoTimelineApp, build_demo_app
@@ -208,32 +208,48 @@ class AppShellRuntime:
 
     def extract_drum_events(self, layer_id) -> TimelinePresentation:
         layer = self._require_layer(layer_id)
-        if self.session.active_song_version_id is None:
-            raise RuntimeError("extract_drum_events requires an active song version.")
-        if layer.kind is not LayerKind.AUDIO:
-            raise ValueError(
-                f"extract_drum_events requires an audio layer, got {layer.kind.name.lower()}."
-            )
-        if not layer.source_audio_path:
-            raise RuntimeError("extract_drum_events requires a source audio path on the selected layer.")
-
-        title_lower = layer.title.lower()
-        source_label = (layer.status.source_label if layer.status is not None else "")
-        source_label_lower = source_label.lower()
-        if "drum" not in title_lower and "drum" not in source_label_lower:
-            raise NotImplementedError(
-                "extract_drum_events currently runs only from drum-derived audio layers. "
-                "Select a drums layer produced by stem separation."
-            )
+        song_version_id = self._require_active_song_version_id("extract_drum_events")
+        self._validate_drum_derived_audio_layer(layer, action_name="extract_drum_events")
 
         result = self._analysis_service.analyze(
             self.project_storage,
-            str(self.session.active_song_version_id),
+            song_version_id,
             "onset_detection",
             bindings={"audio_file": layer.source_audio_path},
         )
         if is_err(result):
             raise RuntimeError(f"extract_drum_events failed: {result.error}")
+        self._refresh_from_storage(
+            active_song_id=self.session.active_song_id,
+            active_song_version_id=self.session.active_song_version_id,
+        )
+        self._is_dirty = True
+        return self.presentation()
+
+    def classify_drum_events(self, layer_id, model_path: str | Path) -> TimelinePresentation:
+        layer = self._require_layer(layer_id)
+        song_version_id = self._require_active_song_version_id("classify_drum_events")
+        self._validate_drum_derived_audio_layer(layer, action_name="classify_drum_events")
+
+        resolved_model_path = Path(model_path)
+        if not str(resolved_model_path).strip():
+            raise ValueError("classify_drum_events requires a non-empty model path.")
+        if not resolved_model_path.exists():
+            raise FileNotFoundError(
+                f"classify_drum_events requires an existing model path. Missing: {resolved_model_path}"
+            )
+
+        result = self._analysis_service.analyze(
+            self.project_storage,
+            song_version_id,
+            "drum_classification",
+            bindings={
+                "audio_file": layer.source_audio_path,
+                "classify_model_path": str(resolved_model_path),
+            },
+        )
+        if is_err(result):
+            raise RuntimeError(f"classify_drum_events failed: {result.error}")
         self._refresh_from_storage(
             active_song_id=self.session.active_song_id,
             active_song_version_id=self.session.active_song_version_id,
@@ -321,6 +337,31 @@ class AppShellRuntime:
                 return layer
         raise ValueError(f"Unknown layer_id: {layer_id}")
 
+    def _require_active_song_version_id(self, action_name: str) -> str:
+        song_version_id = self.session.active_song_version_id
+        if song_version_id is None:
+            raise RuntimeError(f"{action_name} requires an active song version.")
+        return str(song_version_id)
+
+    @staticmethod
+    def _validate_drum_derived_audio_layer(layer: LayerPresentation, *, action_name: str) -> None:
+        if layer.kind is not LayerKind.AUDIO:
+            raise ValueError(
+                f"{action_name} requires an audio layer, got {layer.kind.name.lower()}."
+            )
+        if not layer.source_audio_path:
+            raise RuntimeError(f"{action_name} requires a source audio path on the selected layer.")
+
+        title_lower = layer.title.lower()
+        source_label = (layer.status.source_label if layer.status is not None else "")
+        source_label_lower = source_label.lower()
+        badges = {str(badge).strip().lower() for badge in layer.badges}
+        if "drum" not in title_lower and "drums" not in badges and "drum" not in source_label_lower:
+            raise NotImplementedError(
+                f"{action_name} currently runs only from drum-derived audio layers. "
+                "Select a drums layer produced by stem separation."
+            )
+
 
 def build_app_shell(
     *,
@@ -355,6 +396,7 @@ def _build_runtime_analysis_service() -> AnalysisService:
             "LoadAudio": LoadAudioProcessor(),
             "SeparateAudio": SeparateAudioProcessor(),
             "DetectOnsets": DetectOnsetsProcessor(),
+            "PyTorchAudioClassify": PyTorchAudioClassifyProcessor(),
         },
     )
 

@@ -2147,7 +2147,7 @@ class TimelineWidget(QWidget):
             return self._handle_transfer_preset_action(action_id)
         if action_id in {"preview_transfer_plan", "apply_transfer_plan", "cancel_transfer_plan"}:
             return self._handle_transfer_plan_action(action_id, params)
-        if action_id in {"extract_stems", "extract_drum_events"}:
+        if action_id in {"extract_stems", "extract_drum_events", "classify_drum_events"}:
             return self._handle_runtime_pipeline_action(action_id, params)
         if action_id in {
             "select_push_target_track",
@@ -2220,8 +2220,19 @@ class TimelineWidget(QWidget):
                 f"'{action_id}' requires a target layer.",
             )
             return True
+        call_args: list[object] = [layer_id]
+        if action_id == "classify_drum_events":
+            model_path, _ = QFileDialog.getOpenFileName(
+                self,
+                "Select Drum Classifier Model",
+                "",
+                "PyTorch Models (*.pth);;All Files (*)",
+            )
+            if not model_path:
+                return True
+            call_args.append(model_path)
         try:
-            updated = getattr(runtime, method_name)(layer_id)
+            updated = getattr(runtime, method_name)(*call_args)
         except NotImplementedError as exc:
             QMessageBox.warning(self, "Pipeline Action", str(exc))
             return True

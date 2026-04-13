@@ -52,6 +52,10 @@ def test_load_scenario_parses_real_input_pipeline_actions(tmp_path):
                         "action": "extract_drum_events",
                         "params": {"layer_id": "layer_drums"},
                     },
+                    {
+                        "action": "classify_drum_events",
+                        "params": {"layer_id": "layer_drums"},
+                    },
                 ],
             }
         ),
@@ -64,6 +68,7 @@ def test_load_scenario_parses_real_input_pipeline_actions(tmp_path):
         "add_song_from_path",
         "extract_stems",
         "extract_drum_events",
+        "classify_drum_events",
     ]
 
 

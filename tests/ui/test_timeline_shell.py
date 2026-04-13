@@ -314,8 +314,10 @@ def test_pipeline_context_actions_include_phase1_ids():
     assert "add_song_from_path" in empty_action_ids
     assert "extract_stems" in song_action_ids
     assert "extract_drum_events" not in song_action_ids
+    assert "classify_drum_events" not in song_action_ids
     assert "extract_stems" in drums_action_ids
     assert "extract_drum_events" in drums_action_ids
+    assert "classify_drum_events" in drums_action_ids
 
 
 def test_contract_add_song_action_calls_runtime(monkeypatch):
@@ -390,6 +392,44 @@ def test_contract_extract_pipeline_action_warns_when_not_implemented(monkeypatch
 
         assert handled is True
         assert warnings == ["extract_stems pending for layer_song"]
+    finally:
+        widget.close()
+        app.processEvents()
+
+
+def test_contract_classify_pipeline_action_prompts_for_model_and_calls_runtime(monkeypatch):
+    app = QApplication.instance() or QApplication([])
+
+    class _Runtime:
+        def __init__(self):
+            self.runtime_audio = None
+            self._presentation = _audio_pipeline_presentation()
+            self.calls: list[tuple[object, str]] = []
+
+        def presentation(self):
+            return self._presentation
+
+        def dispatch(self, intent):
+            return self._presentation
+
+        def classify_drum_events(self, layer_id, model_path):
+            self.calls.append((layer_id, model_path))
+            return self._presentation
+
+    runtime = _Runtime()
+    monkeypatch.setattr(
+        "echozero.ui.qt.timeline.widget.QFileDialog.getOpenFileName",
+        lambda *args, **kwargs: ("C:/models/drums.pth", "PyTorch Models"),
+    )
+    widget = TimelineWidget(runtime.presentation(), on_intent=runtime.dispatch)
+    try:
+        handled = widget._handle_runtime_pipeline_action(
+            "classify_drum_events",
+            {"layer_id": LayerId("layer_drums")},
+        )
+
+        assert handled is True
+        assert runtime.calls == [(LayerId("layer_drums"), "C:/models/drums.pth")]
     finally:
         widget.close()
         app.processEvents()
