@@ -423,17 +423,37 @@ class ManualPullTimelineCanvas(QWidget):
                 return index
         return None
 
+    @staticmethod
+    def _is_timed_event(event) -> bool:
+        return event.start is not None
+
+    def _timed_events(self) -> list:
+        return [event for event in self._events if self._is_timed_event(event)]
+
+    @staticmethod
+    def _one_shot_seconds() -> float:
+        return 0.30
+
+    def _timed_event_axis(self) -> tuple[list, float, float]:
+        timed = self._timed_events()
+        if not timed:
+            return [], 0.0, self._one_shot_seconds()
+        min_start = min(event.start for event in timed)
+        max_start = max(event.start for event in timed)
+        span = max(self._one_shot_seconds(), (max_start - min_start) + self._one_shot_seconds())
+        return timed, min_start, span
+
     def _timeline_bounds(self) -> tuple[float, float]:
-        timed = [
-            event for event in self._events
-            if event.start is not None
-        ]
+        timed, min_start, _span = self._timed_event_axis()
         if not timed:
             count = max(1, len(self._events))
             return 0.0, max(1.0, count * 0.75)
-        min_start = min(event.start for event in timed)
-        max_end = max(max(event.end if event.end is not None else event.start, event.start + 0.25) for event in timed)
-        return min_start, max(max_end, min_start + 0.25)
+        one_shot_seconds = self._one_shot_seconds()
+        max_end = max(
+            max(event.end if event.end is not None else event.start, event.start + one_shot_seconds)
+            for event in timed
+        )
+        return min_start, max(max_end, min_start + one_shot_seconds)
 
     def _sync_timeline_geometry(self) -> None:
         start, end = self._timeline_bounds()
@@ -448,22 +468,16 @@ class ManualPullTimelineCanvas(QWidget):
             return []
 
         content_width = max(120.0, self.width() - self._left_padding - self._right_padding)
-        one_shot_seconds = 0.30
+        one_shot_seconds = self._one_shot_seconds()
         one_shot_width = max(44.0, self.pixels_per_second * one_shot_seconds)
         y = max(self._top_padding, (self.height() * 0.5) - (self._bar_height * 0.5))
 
-        timed = [
-            event for event in self._events
-            if event.start is not None
-        ]
+        timed, min_start, span = self._timed_event_axis()
         rects: list[QRectF] = []
         if timed:
-            min_start = min(event.start for event in timed)
-            max_start = max(event.start for event in timed)
-            span = max(one_shot_seconds, (max_start - min_start) + one_shot_seconds)
             max_x = self._left_padding + content_width - one_shot_width
             for index, event in enumerate(self._events):
-                if event.start is None:
+                if not self._is_timed_event(event):
                     slot_width = content_width / max(1, len(self._events))
                     x = self._left_padding + (index * slot_width)
                 else:
@@ -2079,16 +2093,25 @@ class TimelineWidget(QWidget):
             if layer_id is not None:
                 self._dispatch(ClearLayerLiveSyncPauseReason(layer_id=layer_id))
             return
+        if self._handle_transfer_action(action_id, params):
+            return
+        if action_id:
+            layer_id = params.get("layer_id")
+            take_id = params.get("take_id")
+            if layer_id is not None and take_id is not None:
+                self._dispatch(TriggerTakeAction(layer_id, take_id, action_id))
+
+    def _handle_transfer_action(self, action_id: str, params: dict[str, object]) -> bool:
         if action_id == "push_to_ma3":
             selected_event_ids = self._selected_event_ids_for_selected_layers()
             self._dispatch(OpenPushToMA3Dialog(selection_event_ids=selected_event_ids))
-            return
+            return True
         if action_id == "push_select_all_events":
             self._dispatch(SelectAllEvents())
-            return
+            return True
         if action_id == "push_unselect_all_events":
             self._dispatch(ClearSelection())
-            return
+            return True
         if action_id == "set_push_transfer_mode":
             current_mode = (self.presentation.manual_push_flow.transfer_mode or "merge").strip().lower()
             mode_labels = ["Merge", "Overwrite"]
@@ -2102,11 +2125,11 @@ class TimelineWidget(QWidget):
                 False,
             )
             if not accepted:
-                return
+                return True
             selected_mode = chosen_mode.strip().lower()
             if selected_mode:
                 self._dispatch(SetPushTransferMode(mode=selected_mode))
-            return
+            return True
         if action_id == "save_transfer_preset":
             preset_name, accepted = QInputDialog.getText(
                 self,
@@ -2114,41 +2137,65 @@ class TimelineWidget(QWidget):
                 "Preset name",
             )
             if not accepted or not preset_name.strip():
-                return
+                return True
             self._dispatch(SaveTransferPreset(name=preset_name))
-            return
+            return True
         if action_id in {"apply_transfer_preset", "delete_transfer_preset"}:
-            if not self.presentation.transfer_presets:
-                return
-            labels = [self._transfer_preset_label(preset) for preset in self.presentation.transfer_presets]
-            title = "Apply Transfer Preset" if action_id == "apply_transfer_preset" else "Delete Transfer Preset"
-            chosen_label, accepted = QInputDialog.getItem(
-                self,
-                title,
-                "Preset",
-                labels,
-                0,
-                False,
-            )
-            if not accepted:
-                return
-            selected_preset = next(
-                (preset for preset, label in zip(self.presentation.transfer_presets, labels) if label == chosen_label),
-                None,
-            )
-            if selected_preset is None:
-                return
-            if action_id == "apply_transfer_preset":
-                self._dispatch(ApplyTransferPreset(preset_id=selected_preset.preset_id))
-            else:
-                self._dispatch(DeleteTransferPreset(preset_id=selected_preset.preset_id))
-            return
+            return self._handle_transfer_preset_action(action_id)
+        if action_id in {"preview_transfer_plan", "apply_transfer_plan", "cancel_transfer_plan"}:
+            return self._handle_transfer_plan_action(action_id, params)
+        if action_id in {
+            "select_push_target_track",
+            "preview_push_diff",
+            "exit_push_mode",
+            "pull_from_ma3",
+            "select_pull_source_tracks",
+            "select_pull_source_events",
+            "set_pull_target_layer_mapping",
+            "preview_pull_diff",
+            "exit_pull_workspace",
+        }:
+            return self._handle_manual_transfer_workspace_action(action_id, params)
+        return False
+
+    def _handle_transfer_preset_action(self, action_id: str) -> bool:
+        if not self.presentation.transfer_presets:
+            return True
+        labels = [self._transfer_preset_label(preset) for preset in self.presentation.transfer_presets]
+        title = "Apply Transfer Preset" if action_id == "apply_transfer_preset" else "Delete Transfer Preset"
+        chosen_label, accepted = QInputDialog.getItem(
+            self,
+            title,
+            "Preset",
+            labels,
+            0,
+            False,
+        )
+        if not accepted:
+            return True
+        selected_preset = next(
+            (preset for preset, label in zip(self.presentation.transfer_presets, labels) if label == chosen_label),
+            None,
+        )
+        if selected_preset is None:
+            return True
+        if action_id == "apply_transfer_preset":
+            self._dispatch(ApplyTransferPreset(preset_id=selected_preset.preset_id))
+        else:
+            self._dispatch(DeleteTransferPreset(preset_id=selected_preset.preset_id))
+        return True
+
+    def _handle_transfer_plan_action(self, action_id: str, params: dict[str, object]) -> bool:
+        plan_id = params.get("plan_id")
+        if action_id == "cancel_transfer_plan":
+            if isinstance(plan_id, str):
+                self._dispatch(CancelTransferPlan(plan_id=plan_id))
+            return True
+        if not isinstance(plan_id, str):
+            return True
+        if not self._resolve_blocked_push_rows_for_plan_action(plan_id):
+            return True
         if action_id == "preview_transfer_plan":
-            plan_id = params.get("plan_id")
-            if not isinstance(plan_id, str):
-                return
-            if not self._resolve_blocked_push_rows_for_plan_action(plan_id):
-                return
             self._dispatch(PreviewTransferPlan(plan_id=plan_id))
             plan = self.presentation.batch_transfer_plan
             if plan is not None and plan.plan_id == plan_id:
@@ -2164,13 +2211,8 @@ class TimelineWidget(QWidget):
                         failed_count=plan.failed_count,
                     ),
                 )
-            return
+            return True
         if action_id == "apply_transfer_plan":
-            plan_id = params.get("plan_id")
-            if not isinstance(plan_id, str):
-                return
-            if not self._resolve_blocked_push_rows_for_plan_action(plan_id):
-                return
             self._dispatch(ApplyTransferPlan(plan_id=plan_id))
             plan = self.presentation.batch_transfer_plan
             if plan is not None and plan.plan_id == plan_id:
@@ -2185,17 +2227,15 @@ class TimelineWidget(QWidget):
                         blocked_count=plan.blocked_count,
                     ),
                 )
-            return
-        if action_id == "cancel_transfer_plan":
-            plan_id = params.get("plan_id")
-            if isinstance(plan_id, str):
-                self._dispatch(CancelTransferPlan(plan_id=plan_id))
-            return
+            return True
+        return False
+
+    def _handle_manual_transfer_workspace_action(self, action_id: str, params: dict[str, object]) -> bool:
         if action_id == "select_push_target_track":
             flow = self.presentation.manual_push_flow
             layer_id = params.get("layer_id")
             if layer_id is None or not flow.available_tracks:
-                return
+                return True
             labels = [self._manual_push_track_label(track) for track in flow.available_tracks]
             chosen_label, accepted = QInputDialog.getItem(
                 self,
@@ -2206,21 +2246,21 @@ class TimelineWidget(QWidget):
                 False,
             )
             if not accepted:
-                return
+                return True
 
             selected_track = next(
                 (track for track, label in zip(flow.available_tracks, labels) if label == chosen_label),
                 None,
             )
             if selected_track is None:
-                return
+                return True
 
             self._dispatch(SelectPushTargetTrack(target_track_coord=selected_track.coord, layer_id=layer_id))
-            return
+            return True
         if action_id == "preview_push_diff":
             layer_id = params.get("layer_id")
             if layer_id is None:
-                return
+                return True
             row = next(
                 (
                     candidate
@@ -2230,7 +2270,7 @@ class TimelineWidget(QWidget):
                 None,
             )
             if row is None or not row.target_track_coord or not row.selected_event_ids:
-                return
+                return True
             self._dispatch(
                 ConfirmPushToMA3(
                     target_track_coord=row.target_track_coord,
@@ -2245,17 +2285,17 @@ class TimelineWidget(QWidget):
                     "Push Diff Preview",
                     self._manual_push_diff_preview_summary(preview.selected_count, preview.target_track_name, preview.target_track_coord),
                 )
-            return
+            return True
         if action_id == "exit_push_mode":
             self._dispatch(ExitPushToMA3Mode())
-            return
+            return True
         if action_id == "pull_from_ma3":
             self._dispatch(OpenPullFromMA3Dialog())
-            return
+            return True
         if action_id == "select_pull_source_tracks":
             flow = self.presentation.manual_pull_flow
             if not flow.available_tracks:
-                return
+                return True
 
             track_labels = [self._manual_pull_track_label(track) for track in flow.available_tracks]
             chosen_track_label, accepted = QInputDialog.getItem(
@@ -2267,36 +2307,36 @@ class TimelineWidget(QWidget):
                 False,
             )
             if not accepted:
-                return
+                return True
 
             selected_track = next(
                 (track for track, label in zip(flow.available_tracks, track_labels) if label == chosen_track_label),
                 None,
             )
             if selected_track is None:
-                return
+                return True
 
             next_selected = list(flow.selected_source_track_coords)
             if selected_track.coord not in next_selected:
                 next_selected.append(selected_track.coord)
             self._dispatch(SelectPullSourceTracks(source_track_coords=next_selected))
             self._dispatch(SelectPullSourceTrack(source_track_coord=selected_track.coord))
-            return
+            return True
         if action_id == "select_pull_source_events":
             flow = self.presentation.manual_pull_flow
             if not flow.active_source_track_coord or not flow.available_events or not flow.available_target_layers:
-                return
+                return True
             selection = self._open_manual_pull_timeline_popup(flow)
             if selection is None:
-                return
+                return True
             self._dispatch(SelectPullSourceEvents(selected_ma3_event_ids=selection.selected_event_ids))
             self._dispatch(SelectPullTargetLayer(target_layer_id=selection.target_layer_id))
             self._dispatch(SetPullImportMode(import_mode=selection.import_mode))
-            return
+            return True
         if action_id == "set_pull_target_layer_mapping":
             flow = self.presentation.manual_pull_flow
             if not flow.available_target_layers:
-                return
+                return True
 
             target_labels = [self._manual_pull_target_label(target) for target in flow.available_target_layers]
             chosen_target_label, accepted = QInputDialog.getItem(
@@ -2308,21 +2348,21 @@ class TimelineWidget(QWidget):
                 False,
             )
             if not accepted:
-                return
+                return True
 
             selected_target = next(
                 (target for target, label in zip(flow.available_target_layers, target_labels) if label == chosen_target_label),
                 None,
             )
             if selected_target is None:
-                return
+                return True
 
             self._dispatch(SelectPullTargetLayer(target_layer_id=selected_target.layer_id))
-            return
+            return True
         if action_id == "preview_pull_diff":
             layer_id = params.get("layer_id")
             if layer_id is None:
-                return
+                return True
             row = next(
                 (
                     candidate
@@ -2332,7 +2372,7 @@ class TimelineWidget(QWidget):
                 None,
             )
             if row is None or not row.source_track_coord or not row.target_layer_id or not row.selected_ma3_event_ids:
-                return
+                return True
             self._dispatch(SelectPullSourceTrack(source_track_coord=row.source_track_coord))
             self._dispatch(
                 ConfirmPullFromMA3(
@@ -2355,15 +2395,11 @@ class TimelineWidget(QWidget):
                         preview.target_layer_name,
                     ),
                 )
-            return
+            return True
         if action_id == "exit_pull_workspace":
             self._dispatch(ExitPullFromMA3Workspace())
-            return
-        if action_id:
-            layer_id = params.get("layer_id")
-            take_id = params.get("take_id")
-            if layer_id is not None and take_id is not None:
-                self._dispatch(TriggerTakeAction(layer_id, take_id, action_id))
+            return True
+        return False
 
     @staticmethod
     def _manual_push_track_label(track) -> str:
