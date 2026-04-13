@@ -47,7 +47,9 @@ def main(argv: list[str] | None = None) -> int:
     try:
         return app.exec()
     finally:
-        if demo.runtime_audio is not None:
+        if hasattr(demo, "shutdown"):
+            demo.shutdown()
+        elif demo.runtime_audio is not None:
             demo.runtime_audio.shutdown()
 
 

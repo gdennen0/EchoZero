@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import json
 import shutil
-import tempfile
+import uuid
 import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
@@ -99,7 +99,8 @@ def unpack_ez(ez_path: Path, working_dir: Path) -> dict:
     parent = working_dir.parent
     parent.mkdir(parents=True, exist_ok=True)
 
-    tmp_dir = Path(tempfile.mkdtemp(dir=parent))
+    tmp_dir = parent / f"tmp_unpack_{uuid.uuid4().hex}"
+    tmp_dir.mkdir(parents=True, exist_ok=False)
     try:
         with zipfile.ZipFile(ez_path, "r") as zf:
             # Validate manifest exists
