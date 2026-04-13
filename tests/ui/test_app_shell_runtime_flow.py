@@ -4,6 +4,7 @@ import shutil
 import uuid
 from pathlib import Path
 
+from echozero.application.timeline.intents import Seek, ToggleLayerExpanded
 from echozero.application.presentation.inspector_contract import (
     TimelineInspectorHitTarget,
     build_timeline_inspector_contract,
@@ -33,15 +34,35 @@ def test_app_shell_runtime_new_save_open_reopen_flow():
     try:
         assert runtime.project_storage.project.name == "Runtime Flow"
         assert runtime.project_path is None
+        assert runtime.is_dirty is False
+
+        runtime.dispatch(Seek(1.25))
+        assert runtime.is_dirty is False
+
+        layer_id = runtime.presentation().layers[0].layer_id
+        runtime.dispatch(ToggleLayerExpanded(layer_id))
+        assert runtime.is_dirty is True
 
         runtime.new_project("Second Runtime Flow")
         assert runtime.project_storage.project.name == "Second Runtime Flow"
         assert runtime.project_path is None
+        assert runtime.is_dirty is False
+
+        layer_id = runtime.presentation().layers[0].layer_id
+        runtime.dispatch(ToggleLayerExpanded(layer_id))
+        assert runtime.is_dirty is True
 
         returned_path = runtime.save_project_as(save_path)
         assert returned_path == save_path
         assert save_path.exists()
         assert runtime.project_path == save_path
+        assert runtime.is_dirty is False
+
+        runtime.dispatch(ToggleLayerExpanded(layer_id))
+        assert runtime.is_dirty is True
+        saved_path = runtime.save_project()
+        assert saved_path == save_path
+        assert runtime.is_dirty is False
 
         runtime.open_project(save_path)
         assert runtime.project_path == save_path
@@ -52,6 +73,7 @@ def test_app_shell_runtime_new_save_open_reopen_flow():
         assert runtime.session.active_song_version_id is None
         assert runtime.session.active_timeline_id == runtime.presentation().timeline_id
         assert runtime.presentation().title == "Second Runtime Flow"
+        assert runtime.is_dirty is False
 
         runtime.open_project(save_path)
         assert runtime.project_path == save_path

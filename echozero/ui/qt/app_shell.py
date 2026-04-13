@@ -12,9 +12,47 @@ from echozero.application.sync.adapters import InMemorySyncService, MA3SyncAdapt
 from echozero.application.sync.models import SyncState
 from echozero.application.sync.service import SyncService
 from echozero.application.transport.models import TransportState
+from echozero.application.timeline.intents import (
+    ApplyPullFromMA3,
+    ApplyTransferPlan,
+    ConfirmPullFromMA3,
+    ConfirmPushToMA3,
+    DuplicateSelectedEvents,
+    MoveEvent,
+    MoveSelectedEvents,
+    NudgeSelectedEvents,
+    SetGain,
+    SetLayerLiveSyncPauseReason,
+    SetLayerLiveSyncState,
+    ToggleLayerExpanded,
+    ToggleMute,
+    ToggleSolo,
+    TriggerTakeAction,
+    TrimEvent,
+)
 from echozero.persistence.session import ProjectStorage
 from echozero.ui.qt.timeline.demo_app import DemoTimelineApp, build_demo_app
 from echozero.ui.qt.timeline.fixture_loader import load_realistic_timeline_fixture
+
+
+_DIRTYING_INTENT_TYPES = (
+    ApplyPullFromMA3,
+    ApplyTransferPlan,
+    ConfirmPullFromMA3,
+    ConfirmPushToMA3,
+    DuplicateSelectedEvents,
+    MoveEvent,
+    MoveSelectedEvents,
+    NudgeSelectedEvents,
+    SetGain,
+    SetLayerLiveSyncPauseReason,
+    SetLayerLiveSyncState,
+    ToggleLayerExpanded,
+    ToggleMute,
+    ToggleSolo,
+    TriggerTakeAction,
+    TrimEvent,
+)
 
 
 class AppShellRuntime:
@@ -28,6 +66,7 @@ class AppShellRuntime:
     ) -> None:
         self._sync_bridge = sync_bridge
         self._sync_service_override = sync_service
+        self._is_dirty = False
         self._app = self._build_runtime_app(
             project_storage=project_storage,
             sync_bridge=sync_bridge,
@@ -48,11 +87,18 @@ class AppShellRuntime:
     def session(self) -> Session:
         return self._app.session
 
+    @property
+    def is_dirty(self) -> bool:
+        return self._is_dirty or self.project_storage.is_dirty()
+
     def presentation(self):
         return self._app.presentation()
 
     def dispatch(self, intent):
-        return self._app.dispatch(intent)
+        presentation = self._app.dispatch(intent)
+        if isinstance(intent, _DIRTYING_INTENT_TYPES):
+            self._is_dirty = True
+        return presentation
 
     def new_project(self, name: str = "EchoZero Project") -> None:
         working_dir_root = self.project_storage.working_dir.parent
@@ -70,12 +116,19 @@ class AppShellRuntime:
             sync_service=self._sync_service_override,
             runtime_audio=runtime_audio,
         )
+        self._is_dirty = False
 
     def save_project_as(self, path: str | Path) -> Path:
         target_path = Path(path)
         self.project_storage.save_as(target_path)
         self.project_path = target_path
+        self._is_dirty = False
         return target_path
+
+    def save_project(self) -> Path:
+        if self.project_path is None:
+            raise RuntimeError("save_project requires an existing project_path")
+        return self.save_project_as(self.project_path)
 
     def open_project(self, path: str | Path) -> None:
         target_path = Path(path)
@@ -94,6 +147,7 @@ class AppShellRuntime:
             sync_service=self._sync_service_override,
             runtime_audio=runtime_audio,
         )
+        self._is_dirty = False
 
     def shutdown(self) -> None:
         if self.runtime_audio is not None:
