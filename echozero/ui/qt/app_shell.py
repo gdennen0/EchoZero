@@ -37,7 +37,7 @@ from echozero.domain.types import AudioData, EventData, Event as DomainEvent
 from echozero.persistence.audio import resolve_audio_path
 from echozero.persistence.session import ProjectStorage
 from echozero.pipelines.registry import get_registry
-from echozero.processors import LoadAudioProcessor, SeparateAudioProcessor
+from echozero.processors import DetectOnsetsProcessor, LoadAudioProcessor, SeparateAudioProcessor
 from echozero.result import is_err
 from echozero.services.orchestrator import AnalysisService
 from echozero.ui.qt.timeline.demo_app import DemoTimelineApp, build_demo_app
@@ -207,11 +207,39 @@ class AppShellRuntime:
         return self.presentation()
 
     def extract_drum_events(self, layer_id) -> TimelinePresentation:
-        self._require_layer(layer_id)
-        raise NotImplementedError(
-            "extract_drum_events is not wired to the canonical app-shell runtime yet. "
-            "Next hook should execute drum-event extraction from the active drums stem layer."
+        layer = self._require_layer(layer_id)
+        if self.session.active_song_version_id is None:
+            raise RuntimeError("extract_drum_events requires an active song version.")
+        if layer.kind is not LayerKind.AUDIO:
+            raise ValueError(
+                f"extract_drum_events requires an audio layer, got {layer.kind.name.lower()}."
+            )
+        if not layer.source_audio_path:
+            raise RuntimeError("extract_drum_events requires a source audio path on the selected layer.")
+
+        title_lower = layer.title.lower()
+        source_label = (layer.status.source_label if layer.status is not None else "")
+        source_label_lower = source_label.lower()
+        if "drum" not in title_lower and "drum" not in source_label_lower:
+            raise NotImplementedError(
+                "extract_drum_events currently runs only from drum-derived audio layers. "
+                "Select a drums layer produced by stem separation."
+            )
+
+        result = self._analysis_service.analyze(
+            self.project_storage,
+            str(self.session.active_song_version_id),
+            "onset_detection",
+            bindings={"audio_file": layer.source_audio_path},
         )
+        if is_err(result):
+            raise RuntimeError(f"extract_drum_events failed: {result.error}")
+        self._refresh_from_storage(
+            active_song_id=self.session.active_song_id,
+            active_song_version_id=self.session.active_song_version_id,
+        )
+        self._is_dirty = True
+        return self.presentation()
 
     def shutdown(self) -> None:
         if self.runtime_audio is not None:
@@ -326,6 +354,7 @@ def _build_runtime_analysis_service() -> AnalysisService:
         {
             "LoadAudio": LoadAudioProcessor(),
             "SeparateAudio": SeparateAudioProcessor(),
+            "DetectOnsets": DetectOnsetsProcessor(),
         },
     )
 

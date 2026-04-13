@@ -7,7 +7,7 @@ from pathlib import Path
 
 import echozero.pipelines.templates  # noqa: F401
 from echozero.application.timeline.intents import Seek, ToggleLayerExpanded
-from echozero.domain.types import AudioData
+from echozero.domain.types import AudioData, Event as DomainEvent, EventData, Layer as DomainLayer
 from echozero.execution import ExecutionContext
 from echozero.application.presentation.inspector_contract import (
     TimelineInspectorHitTarget,
@@ -66,12 +66,36 @@ class _MockSeparateAudioExecutor:
         return ok(stems)
 
 
+class _MockDetectOnsetsExecutor:
+    def execute(self, _block_id: str, _context: ExecutionContext):
+        event = DomainEvent(
+            id="evt_1",
+            time=0.25,
+            duration=0.05,
+            classifications={"namespace:onset": "hit"},
+            metadata={},
+            origin="detect_onsets",
+        )
+        return ok(
+            EventData(
+                layers=(
+                    DomainLayer(
+                        id="layer_onsets",
+                        name="Onsets",
+                        events=(event,),
+                    ),
+                )
+            )
+        )
+
+
 def _mock_stem_analysis_service() -> AnalysisService:
     return AnalysisService(
         get_registry(),
         {
             "LoadAudio": _MockLoadAudioExecutor(),
             "SeparateAudio": _MockSeparateAudioExecutor(),
+            "DetectOnsets": _MockDetectOnsetsExecutor(),
         },
     )
 
@@ -244,6 +268,59 @@ def test_app_shell_runtime_extract_stems_from_derived_audio_layer_is_deferred():
             assert "imported song layer" in str(exc)
         else:
             raise AssertionError("Expected extract_stems on a derived layer to remain deferred")
+    finally:
+        runtime.shutdown()
+        shutil.rmtree(temp_root, ignore_errors=True)
+
+
+def test_app_shell_runtime_extract_drum_events_persists_event_layers_from_drums_stem():
+    temp_root = _repo_local_temp_root()
+    runtime = build_app_shell(
+        working_dir_root=temp_root / "working",
+        analysis_service=_mock_stem_analysis_service(),
+    )
+
+    assert isinstance(runtime, AppShellRuntime)
+
+    try:
+        audio_path = _write_test_wav(temp_root / "fixtures" / "import.wav")
+        runtime.add_song_from_path("Imported Song", audio_path)
+        after_stems = runtime.extract_stems("source_audio")
+        drums_layer = next(layer for layer in after_stems.layers if layer.title == "Drums")
+
+        presentation = runtime.extract_drum_events(drums_layer.layer_id)
+
+        event_layers = [layer for layer in presentation.layers if layer.kind.name == "EVENT"]
+        assert event_layers
+        assert any(layer.events for layer in event_layers)
+        assert any((layer.status.source_label or "").startswith("onset_detection") for layer in event_layers)
+        assert runtime.is_dirty is True
+    finally:
+        runtime.shutdown()
+        shutil.rmtree(temp_root, ignore_errors=True)
+
+
+def test_app_shell_runtime_extract_drum_events_rejects_non_drum_audio_layers():
+    temp_root = _repo_local_temp_root()
+    runtime = build_app_shell(
+        working_dir_root=temp_root / "working",
+        analysis_service=_mock_stem_analysis_service(),
+    )
+
+    assert isinstance(runtime, AppShellRuntime)
+
+    try:
+        audio_path = _write_test_wav(temp_root / "fixtures" / "import.wav")
+        runtime.add_song_from_path("Imported Song", audio_path)
+        after_stems = runtime.extract_stems("source_audio")
+        bass_layer = next(layer for layer in after_stems.layers if layer.title == "Bass")
+
+        try:
+            runtime.extract_drum_events(bass_layer.layer_id)
+        except NotImplementedError as exc:
+            assert "drum-derived audio layers" in str(exc)
+        else:
+            raise AssertionError("Expected extract_drum_events to reject non-drum audio layers")
     finally:
         runtime.shutdown()
         shutil.rmtree(temp_root, ignore_errors=True)

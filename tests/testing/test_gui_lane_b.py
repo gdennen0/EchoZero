@@ -29,7 +29,12 @@ def test_lane_b_runner_executes_starter_scenario_and_writes_trace():
         assert trace
         assert [step["status"] for step in trace[:-1]] == ["passed"] * (len(trace) - 1)
         assert trace[-1]["status"] == "failed"
-        assert "extract_stems is not wired" in (trace[-1]["error"] or "")
+        error_text = trace[-1]["error"] or ""
+        assert "extract_stems" in error_text
+        assert (
+            "imported song layer" in error_text
+            or "not wired" in error_text
+        )
 
         push_step = next(step for step in trace if step["action"] == "open_push_surface")
         pull_step = next(step for step in trace if step["action"] == "open_pull_surface")
