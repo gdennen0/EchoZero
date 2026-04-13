@@ -1,0 +1,59 @@
+{
+  "timecode_no": 101,
+  "messages": {
+    "trackgroups.list": "type=trackgroups|change=list|timestamp=1712860800|tc=101|count=2|trackgroups=[{\"no\":1,\"name\":\"Drums\",\"track_count\":2},{\"no\":2,\"name\":\"FX\",\"track_count\":1}]",
+    "tracks.list": "type=tracks|change=list|timestamp=1712860800|tc=101|tg=1|count=2|tracks=[{\"no\":1,\"name\":\"Kick Layer\",\"event_count\":3,\"sequence_no\":12,\"note\":\"ez:kick_layer\"},{\"no\":2,\"name\":\"Snare Layer\",\"event_count\":1,\"sequence_no\":null,\"note\":\"\"}]",
+    "events.list": "type=events|change=list|timestamp=1712860800|tc=101|tg=1|track=1|request_id=7|count=2|events=[{\"idx\":1,\"time\":1.25,\"name\":\"Kick\",\"cmd\":\"Go+\",\"tc\":101,\"tg\":1,\"track\":1},{\"idx\":2,\"time\":2.5,\"name\":\"Kick Accent\",\"cmd\":\"Go+ Sequence 12\",\"tc\":101,\"tg\":1,\"track\":1}]",
+    "track.changed": "type=track|change=changed|timestamp=1712860800|tc=101|tg=1|track=1|count=3|events=[{\"idx\":1,\"time\":1.25,\"name\":\"Kick\",\"cmd\":\"Go+ | Cue 5\",\"tc\":101,\"tg\":1,\"track\":1}]|changes={\"added\":1,\"modified\":0,\"deleted\":0,\"moved\":0}|added=[{fingerprint:0.409233|Kick|Go+|Cue 5}]|deleted=[]|moved=[]"
+  },
+  "expected": {
+    "trackgroups": [
+      {
+        "no": 1,
+        "name": "Drums",
+        "track_count": 2
+      },
+      {
+        "no": 2,
+        "name": "FX",
+        "track_count": 1
+      }
+    ],
+    "tracks": [
+      {
+        "no": 1,
+        "name": "Kick Layer",
+        "event_count": 3,
+        "sequence_no": 12,
+        "note": "ez:kick_layer"
+      },
+      {
+        "no": 2,
+        "name": "Snare Layer",
+        "event_count": 1,
+        "sequence_no": null,
+        "note": ""
+      }
+    ],
+    "events": [
+      {
+        "idx": 1,
+        "time": 1.25,
+        "name": "Kick",
+        "cmd": "Go+",
+        "tc": 101,
+        "tg": 1,
+        "track": 1
+      },
+      {
+        "idx": 2,
+        "time": 2.5,
+        "name": "Kick Accent",
+        "cmd": "Go+ Sequence 12",
+        "tc": 101,
+        "tg": 1,
+        "track": 1
+      }
+    ]
+  }
+}

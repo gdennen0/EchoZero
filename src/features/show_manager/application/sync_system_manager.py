@@ -457,11 +457,22 @@ class SyncSystemManager(QObject):
             elif type_key == "tracks.list":
                 tc = message.get('tc', 0)
                 tg = message.get('tg', 0)
-                tracks = parser.parse_tracks(message)
-                tracks_data = [
-                    {'no': track.no, 'name': track.name or f"Track {track.no}", 'event_count': 0}
-                    for track in tracks
-                ]
+                raw_tracks = message.data.get('tracks', []) if hasattr(message, 'data') else []
+                tracks = raw_tracks if isinstance(raw_tracks, list) else []
+                tracks_data = []
+                for track in tracks:
+                    if not isinstance(track, dict):
+                        continue
+                    track_no = track.get('no', 0)
+                    tracks_data.append(
+                        {
+                            'no': track_no,
+                            'name': track.get('name') or f"Track {track_no}",
+                            'event_count': track.get('event_count', 0),
+                            'sequence_no': track.get('sequence_no'),
+                            'note': track.get('note', ''),
+                        }
+                    )
                 self.on_tracks_received(tc, tg, tracks_data)
             
             elif type_key in ("events.list", "events.all"):

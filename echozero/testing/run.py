@@ -23,6 +23,11 @@ LANES: dict[str, list[str]] = {
         "-k",
         "osc",
     ],
+    "appflow-protocol": [
+        "tests/unit/test_ma3_communication_service_protocol.py",
+        "tests/unit/test_ma3_receive_path_integration.py",
+        "tests/unit/test_ma3_event_contract.py",
+    ],
 }
 
 
