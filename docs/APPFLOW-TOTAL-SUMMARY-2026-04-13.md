@@ -27,3 +27,15 @@
 
 - manual UX QA walkthrough in the packaged app flow
 - real MA3 hardware validation before release signoff
+
+## Alpha Roadmap Pointers
+
+- Gap matrix: `docs/ALPHA-GAP-MATRIX-2026-04-13.md`
+- Execution plan: `docs/ALPHA-EXECUTION-PLAN-2026-04-13.md`
+- Tranche 1 landed in the canonical runtime:
+  - source-song `Extract Stems` now persists derived audio layers/takes through `EchoZero/ui/qt/app_shell.py`
+  - focused proof lives in `tests/ui/test_app_shell_runtime_flow.py`
+- Next alpha-critical slices:
+  - canonical `Extract Drum Events`
+  - Lane B green-path extraction proof
+  - sync end-to-end main-only proof closure

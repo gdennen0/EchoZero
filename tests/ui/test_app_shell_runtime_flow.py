@@ -5,11 +5,17 @@ import uuid
 import wave
 from pathlib import Path
 
+import echozero.pipelines.templates  # noqa: F401
 from echozero.application.timeline.intents import Seek, ToggleLayerExpanded
+from echozero.domain.types import AudioData
+from echozero.execution import ExecutionContext
 from echozero.application.presentation.inspector_contract import (
     TimelineInspectorHitTarget,
     build_timeline_inspector_contract,
 )
+from echozero.result import ok
+from echozero.services.orchestrator import AnalysisService
+from echozero.pipelines.registry import get_registry
 from echozero.ui.qt.app_shell import AppShellRuntime, build_app_shell
 from echozero.ui.qt.timeline.demo_app import DemoTimelineApp
 
@@ -28,6 +34,46 @@ def _write_test_wav(path: Path, *, frames: int = 4410, sample_rate: int = 44100)
         handle.setframerate(sample_rate)
         handle.writeframes(b"\x00\x00" * frames)
     return path
+
+
+class _MockLoadAudioExecutor:
+    def execute(self, block_id: str, context: ExecutionContext):
+        block = context.graph.blocks[block_id]
+        return ok(
+            AudioData(
+                sample_rate=44100,
+                duration=0.1,
+                file_path=str(block.settings["file_path"]),
+                channel_count=1,
+            )
+        )
+
+
+class _MockSeparateAudioExecutor:
+    def execute(self, block_id: str, context: ExecutionContext):
+        audio = context.get_input(block_id, "audio_in", AudioData)
+        assert audio is not None
+        base = Path(audio.file_path).parent
+        stems = {}
+        for name in ("drums", "bass", "vocals", "other"):
+            stem_path = _write_test_wav(base / f"{name}.wav")
+            stems[f"{name}_out"] = AudioData(
+                sample_rate=44100,
+                duration=0.1,
+                file_path=str(stem_path),
+                channel_count=1,
+            )
+        return ok(stems)
+
+
+def _mock_stem_analysis_service() -> AnalysisService:
+    return AnalysisService(
+        get_registry(),
+        {
+            "LoadAudio": _MockLoadAudioExecutor(),
+            "SeparateAudio": _MockSeparateAudioExecutor(),
+        },
+    )
 
 
 def test_app_shell_runtime_new_save_open_reopen_flow():
@@ -141,6 +187,63 @@ def test_app_shell_runtime_add_song_from_path_updates_presentation():
         assert presentation.layers[0].source_audio_path
         assert presentation.end_time_label == "00:00.10"
         assert runtime.is_dirty is True
+    finally:
+        runtime.shutdown()
+        shutil.rmtree(temp_root, ignore_errors=True)
+
+
+def test_app_shell_runtime_extract_stems_persists_audio_layers_and_takes():
+    temp_root = _repo_local_temp_root()
+    runtime = build_app_shell(
+        working_dir_root=temp_root / "working",
+        analysis_service=_mock_stem_analysis_service(),
+    )
+
+    assert isinstance(runtime, AppShellRuntime)
+
+    try:
+        audio_path = _write_test_wav(temp_root / "fixtures" / "import.wav")
+        runtime.add_song_from_path("Imported Song", audio_path)
+
+        presentation = runtime.extract_stems("source_audio")
+        titles = [layer.title for layer in presentation.layers]
+
+        assert titles[:5] == ["Imported Song", "Drums", "Bass", "Vocals", "Other"]
+        assert runtime.session.active_song_version_id is not None
+        assert runtime.is_dirty is True
+
+        stem_layers = presentation.layers[1:5]
+        for layer in stem_layers:
+            assert layer.kind.name == "AUDIO"
+            assert layer.main_take_id is not None
+            assert layer.source_audio_path
+            assert layer.status.source_label.startswith("stem_separation")
+    finally:
+        runtime.shutdown()
+        shutil.rmtree(temp_root, ignore_errors=True)
+
+
+def test_app_shell_runtime_extract_stems_from_derived_audio_layer_is_deferred():
+    temp_root = _repo_local_temp_root()
+    runtime = build_app_shell(
+        working_dir_root=temp_root / "working",
+        analysis_service=_mock_stem_analysis_service(),
+    )
+
+    assert isinstance(runtime, AppShellRuntime)
+
+    try:
+        audio_path = _write_test_wav(temp_root / "fixtures" / "import.wav")
+        runtime.add_song_from_path("Imported Song", audio_path)
+        presentation = runtime.extract_stems("source_audio")
+        drums_layer = next(layer for layer in presentation.layers if layer.title == "Drums")
+
+        try:
+            runtime.extract_stems(drums_layer.layer_id)
+        except NotImplementedError as exc:
+            assert "imported song layer" in str(exc)
+        else:
+            raise AssertionError("Expected extract_stems on a derived layer to remain deferred")
     finally:
         runtime.shutdown()
         shutil.rmtree(temp_root, ignore_errors=True)

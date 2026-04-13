@@ -3,6 +3,7 @@ from __future__ import annotations
 from enum import Enum
 from pathlib import Path
 
+import echozero.pipelines.templates  # noqa: F401
 from echozero.application.presentation.models import EventPresentation, LayerStatusPresentation, TakeActionPresentation, TakeLanePresentation
 from echozero.application.presentation.models import LayerPresentation, TimelinePresentation
 from echozero.application.mixer.models import MixerState
@@ -35,6 +36,10 @@ from echozero.application.timeline.intents import (
 from echozero.domain.types import AudioData, EventData, Event as DomainEvent
 from echozero.persistence.audio import resolve_audio_path
 from echozero.persistence.session import ProjectStorage
+from echozero.pipelines.registry import get_registry
+from echozero.processors import LoadAudioProcessor, SeparateAudioProcessor
+from echozero.result import is_err
+from echozero.services.orchestrator import AnalysisService
 from echozero.ui.qt.timeline.demo_app import DemoTimelineApp, build_demo_app
 from echozero.ui.qt.timeline.fixture_loader import load_realistic_timeline_fixture  # noqa: F401
 from echozero.ui.qt.timeline.style import TIMELINE_STYLE
@@ -75,9 +80,11 @@ class AppShellRuntime:
         project_path: Path | None = None,
         sync_bridge: MA3SyncBridge | None = None,
         sync_service: SyncService | None = None,
+        analysis_service: AnalysisService | None = None,
     ) -> None:
         self._sync_bridge = sync_bridge
         self._sync_service_override = sync_service
+        self._analysis_service = analysis_service or _build_runtime_analysis_service()
         self._is_dirty = False
         self._app = self._build_runtime_app(
             project_storage=project_storage,
@@ -175,11 +182,29 @@ class AppShellRuntime:
         return self.presentation()
 
     def extract_stems(self, layer_id) -> TimelinePresentation:
-        self._require_layer(layer_id)
-        raise NotImplementedError(
-            "extract_stems is not wired to the canonical app-shell runtime yet. "
-            "Next hook should execute the real stem-separation pipeline from the active song version."
+        layer = self._require_layer(layer_id)
+        if self.session.active_song_version_id is None:
+            raise RuntimeError("extract_stems requires an active song version.")
+        if layer.kind is not LayerKind.AUDIO:
+            raise ValueError(f"extract_stems requires an audio layer, got {layer.kind.name.lower()}.")
+        if str(layer.layer_id) != "source_audio":
+            raise NotImplementedError(
+                "extract_stems currently runs only from the imported song layer. "
+                "Derived-audio reruns are deferred until arbitrary-layer pipeline input is wired."
+            )
+        result = self._analysis_service.analyze(
+            self.project_storage,
+            str(self.session.active_song_version_id),
+            "stem_separation",
         )
+        if is_err(result):
+            raise RuntimeError(f"extract_stems failed: {result.error}")
+        self._refresh_from_storage(
+            active_song_id=self.session.active_song_id,
+            active_song_version_id=self.session.active_song_version_id,
+        )
+        self._is_dirty = True
+        return self.presentation()
 
     def extract_drum_events(self, layer_id) -> TimelinePresentation:
         self._require_layer(layer_id)
@@ -275,6 +300,7 @@ def build_app_shell(
     use_demo_fixture: bool = False,
     sync_bridge: MA3SyncBridge | None = None,
     sync_service: SyncService | None = None,
+    analysis_service: AnalysisService | None = None,
     working_dir_root: Path | None = None,
     initial_project_name: str = "EchoZero Project",
 ) -> DemoTimelineApp | AppShellRuntime:
@@ -290,6 +316,17 @@ def build_app_shell(
         ),
         sync_bridge=sync_bridge,
         sync_service=sync_service,
+        analysis_service=analysis_service,
+    )
+
+
+def _build_runtime_analysis_service() -> AnalysisService:
+    return AnalysisService(
+        get_registry(),
+        {
+            "LoadAudio": LoadAudioProcessor(),
+            "SeparateAudio": SeparateAudioProcessor(),
+        },
     )
 
 
