@@ -62,3 +62,42 @@ def test_app_flow_harness_sync_with_simulated_ma3_connects_bridge():
     finally:
         harness.shutdown()
         shutil.rmtree(temp_root, ignore_errors=True)
+
+
+def test_app_flow_harness_osc_loopback_helpers():
+    temp_root = _repo_local_temp_root()
+    harness = AppFlowHarness(simulate_ma3_osc=True, working_dir_root=temp_root / "working-osc")
+
+    try:
+        harness.send_ma3_osc("/ma3/exec", 7, "flash")
+        capture = harness.wait_for_ma3_osc("/ma3/exec", timeout=1.0)
+
+        assert harness.ma3_osc_loopback is not None
+        assert harness.ma3_osc_loopback.is_running is True
+        assert capture is not None
+        assert capture.args == (7, "flash")
+        assert [message.path for message in harness.ma3_osc_messages()] == ["/ma3/exec"]
+
+        harness.clear_ma3_osc()
+        assert harness.ma3_osc_messages() == []
+    finally:
+        harness.shutdown()
+        shutil.rmtree(temp_root, ignore_errors=True)
+
+
+def test_app_flow_harness_shutdown_stops_osc_loopback():
+    temp_root = _repo_local_temp_root()
+    harness = AppFlowHarness(simulate_ma3_osc=True, working_dir_root=temp_root / "working-osc-stop")
+
+    loopback = harness.ma3_osc_loopback
+    assert loopback is not None
+    thread = loopback.thread
+
+    harness.shutdown()
+
+    try:
+        assert loopback.is_running is False
+        assert thread is not None
+        assert thread.is_alive() is False
+    finally:
+        shutil.rmtree(temp_root, ignore_errors=True)

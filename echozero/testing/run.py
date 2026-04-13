@@ -17,6 +17,12 @@ LANES: dict[str, list[str]] = {
         "-k",
         "sync",
     ],
+    "appflow-osc": [
+        "tests/testing/test_ma3_osc_loopback.py",
+        "tests/testing/test_app_flow_harness.py",
+        "-k",
+        "osc",
+    ],
 }
 
 

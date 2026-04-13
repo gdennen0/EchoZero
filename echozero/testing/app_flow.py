@@ -8,7 +8,7 @@ from pathlib import Path
 from PyQt6.QtWidgets import QApplication
 
 from echozero.application.shared.enums import SyncMode
-from echozero.testing.ma3 import SimulatedMA3Bridge
+from echozero.testing.ma3 import OSCLoopback, OSCMessageCapture, SimulatedMA3Bridge
 from echozero.ui.qt.app_shell import AppRuntimeProfile, AppShellRuntime, build_app_shell
 from echozero.ui.qt.timeline.widget import TimelineWidget
 from run_echozero import LauncherController
@@ -21,6 +21,7 @@ class AppFlowHarness:
         self,
         *,
         simulate_ma3: bool = False,
+        simulate_ma3_osc: bool = False,
         working_dir_root: Path | None = None,
         initial_project_name: str = "EchoZero Test Project",
     ) -> None:
@@ -38,6 +39,7 @@ class AppFlowHarness:
         self._working_dir_root.mkdir(parents=True, exist_ok=True)
         self._dialog_root = self._working_dir_root.parent
         self.ma3_bridge = SimulatedMA3Bridge() if simulate_ma3 else None
+        self.ma3_osc_loopback = OSCLoopback().start() if simulate_ma3_osc else None
         runtime = build_app_shell(
             profile=AppRuntimeProfile.TEST,
             sync_bridge=self.ma3_bridge,
@@ -104,6 +106,26 @@ class AppFlowHarness:
         self._app.processEvents()
         return state
 
+    def send_ma3_osc(self, path: str, *args: object) -> None:
+        if self.ma3_osc_loopback is None:
+            raise RuntimeError("MA3 OSC loopback is not enabled")
+        self.ma3_osc_loopback.send(path, *args)
+
+    def wait_for_ma3_osc(self, path: str, timeout: float = 1.0) -> OSCMessageCapture | None:
+        if self.ma3_osc_loopback is None:
+            raise RuntimeError("MA3 OSC loopback is not enabled")
+        return self.ma3_osc_loopback.wait_for(path, timeout=timeout)
+
+    def ma3_osc_messages(self) -> list[OSCMessageCapture]:
+        if self.ma3_osc_loopback is None:
+            raise RuntimeError("MA3 OSC loopback is not enabled")
+        return self.ma3_osc_loopback.captures()
+
+    def clear_ma3_osc(self) -> None:
+        if self.ma3_osc_loopback is None:
+            raise RuntimeError("MA3 OSC loopback is not enabled")
+        self.ma3_osc_loopback.clear()
+
     @property
     def project_path(self) -> Path | None:
         return self.runtime.project_path
@@ -117,11 +139,15 @@ class AppFlowHarness:
         self._app.processEvents()
 
     def shutdown(self) -> None:
-        self.close()
-        self.runtime.shutdown()
-        if self._temp_root_handle is not None:
-            self._temp_root_handle.cleanup()
-            self._temp_root_handle = None
+        try:
+            self.close()
+            self.runtime.shutdown()
+        finally:
+            if self.ma3_osc_loopback is not None:
+                self.ma3_osc_loopback.stop()
+            if self._temp_root_handle is not None:
+                self._temp_root_handle.cleanup()
+                self._temp_root_handle = None
 
     def _choose_open_path(self) -> Path | None:
         if self._open_paths:
