@@ -46,9 +46,9 @@ if (-not $repoRunFolder) {
 }
 
 $stagedRunFolder = ""
-$repoTmpRoot = Join-Path $repoRoot ".openclaw\workspace\tmp"
-if (Test-Path $repoTmpRoot) {
-    $stagedRoot = Join-Path $repoTmpRoot "demo-suite"
+$workspaceTmpRoot = Join-Path $HOME ".openclaw\workspace\tmp"
+if (Test-Path $workspaceTmpRoot) {
+    $stagedRoot = Join-Path $workspaceTmpRoot "demo-suite"
     New-Item -ItemType Directory -Path $stagedRoot -Force | Out-Null
     $runId = Split-Path $repoRunFolder -Leaf
     $stagedRunFolder = Join-Path $stagedRoot $runId
