@@ -253,6 +253,148 @@ def _selection_test_presentation() -> TimelinePresentation:
     )
 
 
+def _audio_pipeline_presentation() -> TimelinePresentation:
+    return TimelinePresentation(
+        timeline_id=TimelineId("timeline_audio_pipeline"),
+        title="Audio Pipeline",
+        layers=[
+            LayerPresentation(
+                layer_id=LayerId("layer_song"),
+                title="Song",
+                main_take_id=TakeId("take_song"),
+                kind=LayerKind.AUDIO,
+                is_selected=True,
+                badges=["main", "audio"],
+                status=LayerStatusPresentation(),
+            ),
+            LayerPresentation(
+                layer_id=LayerId("layer_drums"),
+                title="Drums",
+                main_take_id=TakeId("take_drums"),
+                kind=LayerKind.AUDIO,
+                badges=["main", "audio", "drums"],
+                status=LayerStatusPresentation(),
+            ),
+        ],
+        selected_layer_id=LayerId("layer_song"),
+        selected_layer_ids=[LayerId("layer_song")],
+        end_time_label="00:05.00",
+    )
+
+
+def test_pipeline_context_actions_include_phase1_ids():
+    presentation = _audio_pipeline_presentation()
+
+    empty_contract = build_timeline_inspector_contract(presentation)
+    song_contract = build_timeline_inspector_contract(
+        presentation,
+        hit_target=TimelineInspectorHitTarget(kind="layer", layer_id=LayerId("layer_song")),
+    )
+    drums_contract = build_timeline_inspector_contract(
+        presentation,
+        hit_target=TimelineInspectorHitTarget(kind="layer", layer_id=LayerId("layer_drums")),
+    )
+
+    empty_action_ids = {
+        action.action_id
+        for section in empty_contract.context_sections
+        for action in section.actions
+    }
+    song_action_ids = {
+        action.action_id
+        for section in song_contract.context_sections
+        for action in section.actions
+    }
+    drums_action_ids = {
+        action.action_id
+        for section in drums_contract.context_sections
+        for action in section.actions
+    }
+
+    assert "add_song_from_path" in empty_action_ids
+    assert "extract_stems" in song_action_ids
+    assert "extract_drum_events" not in song_action_ids
+    assert "extract_stems" in drums_action_ids
+    assert "extract_drum_events" in drums_action_ids
+
+
+def test_contract_add_song_action_calls_runtime(monkeypatch):
+    app = QApplication.instance() or QApplication([])
+
+    class _Runtime:
+        def __init__(self):
+            self.calls: list[tuple[str, str]] = []
+            self._presentation = _audio_pipeline_presentation()
+            self.runtime_audio = None
+
+        def presentation(self):
+            return self._presentation
+
+        def dispatch(self, intent):
+            return self._presentation
+
+        def add_song_from_path(self, title: str, audio_path: str):
+            self.calls.append((title, audio_path))
+            self._presentation = replace(self._presentation, title=title)
+            return self._presentation
+
+    runtime = _Runtime()
+    monkeypatch.setattr(
+        "echozero.ui.qt.timeline.widget.QInputDialog.getText",
+        lambda *args, **kwargs: ("Imported Song", True),
+    )
+    monkeypatch.setattr(
+        "echozero.ui.qt.timeline.widget.QFileDialog.getOpenFileName",
+        lambda *args, **kwargs: ("C:/audio/import.wav", "Audio Files"),
+    )
+    widget = TimelineWidget(runtime.presentation(), on_intent=runtime.dispatch)
+    try:
+        widget._trigger_contract_action(InspectorAction(action_id="add_song_from_path", label="Add Song From Path"))
+
+        assert runtime.calls == [("Imported Song", "C:/audio/import.wav")]
+        assert widget.presentation.title == "Imported Song"
+    finally:
+        widget.close()
+        app.processEvents()
+
+
+def test_contract_extract_pipeline_action_warns_when_not_implemented(monkeypatch):
+    app = QApplication.instance() or QApplication([])
+
+    class _Runtime:
+        def __init__(self):
+            self.runtime_audio = None
+            self._presentation = _audio_pipeline_presentation()
+
+        def presentation(self):
+            return self._presentation
+
+        def dispatch(self, intent):
+            return self._presentation
+
+        def extract_stems(self, layer_id):
+            raise NotImplementedError(f"extract_stems pending for {layer_id}")
+
+    warnings: list[str] = []
+    monkeypatch.setattr(
+        "echozero.ui.qt.timeline.widget.QMessageBox.warning",
+        lambda _parent, _title, message: warnings.append(message),
+    )
+    runtime = _Runtime()
+    widget = TimelineWidget(runtime.presentation(), on_intent=runtime.dispatch)
+    try:
+        handled = widget._handle_runtime_pipeline_action(
+            "extract_stems",
+            {"layer_id": LayerId("layer_song")},
+        )
+
+        assert handled is True
+        assert warnings == ["extract_stems pending for layer_song"]
+    finally:
+        widget.close()
+        app.processEvents()
+
+
 def _no_takes_presentation() -> TimelinePresentation:
     base = _selection_test_presentation()
     layer = base.layers[0]

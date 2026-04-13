@@ -7,6 +7,9 @@ from typing import Any
 
 
 SUPPORTED_ACTIONS = {
+    "add_song_from_path",
+    "extract_drum_events",
+    "extract_stems",
     "trigger_action",
     "select_first_event",
     "nudge_selected_events",
@@ -75,7 +78,12 @@ def _require_string(payload: dict[str, Any], key: str, *, step_index: int | None
 
 
 def _validate_step(*, action: str, params: dict[str, Any], step_index: int) -> None:
-    if action == "trigger_action":
+    if action == "add_song_from_path":
+        _require_string(params, "title", step_index=step_index)
+        _require_string(params, "audio_path", step_index=step_index)
+    elif action in {"extract_stems", "extract_drum_events"}:
+        _require_string(params, "layer_id", step_index=step_index)
+    elif action == "trigger_action":
         value = params.get("action_id")
         if value not in {"new", "open", "save", "save_as"}:
             raise ValueError(f"Step {step_index} trigger_action requires params.action_id in new/open/save/save_as")

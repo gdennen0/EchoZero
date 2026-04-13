@@ -30,6 +30,43 @@ def test_load_scenario_parses_valid_json(tmp_path):
     assert [step.action for step in scenario.steps] == ["select_first_event", "enable_sync"]
 
 
+def test_load_scenario_parses_real_input_pipeline_actions(tmp_path):
+    scenario_path = tmp_path / "pipeline_actions.json"
+    scenario_path.write_text(
+        json.dumps(
+            {
+                "name": "Pipeline Actions",
+                "steps": [
+                    {
+                        "action": "add_song_from_path",
+                        "params": {
+                            "title": "Test Song",
+                            "audio_path": "C:/audio/test.wav",
+                        },
+                    },
+                    {
+                        "action": "extract_stems",
+                        "params": {"layer_id": "layer_song"},
+                    },
+                    {
+                        "action": "extract_drum_events",
+                        "params": {"layer_id": "layer_drums"},
+                    },
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    scenario = load_scenario(scenario_path)
+
+    assert [step.action for step in scenario.steps] == [
+        "add_song_from_path",
+        "extract_stems",
+        "extract_drum_events",
+    ]
+
+
 def test_load_scenario_rejects_unsupported_action(tmp_path):
     scenario_path = tmp_path / "bad_action.json"
     scenario_path.write_text(
@@ -59,4 +96,20 @@ def test_load_scenario_rejects_missing_required_fields(tmp_path):
     )
 
     with pytest.raises(ValueError, match="action_id"):
+        load_scenario(scenario_path)
+
+
+def test_load_scenario_rejects_missing_pipeline_action_fields(tmp_path):
+    scenario_path = tmp_path / "missing_pipeline_fields.json"
+    scenario_path.write_text(
+        json.dumps(
+            {
+                "name": "Missing Pipeline Fields",
+                "steps": [{"action": "extract_stems", "params": {}}],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="layer_id"):
         load_scenario(scenario_path)

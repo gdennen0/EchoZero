@@ -322,6 +322,20 @@ def _shared_context_sections(
 ) -> tuple[InspectorContextSection, ...]:
     sections: list[InspectorContextSection] = []
 
+    sections.append(
+        InspectorContextSection(
+            section_id="tools",
+            label="Tools",
+            actions=(
+                InspectorAction(
+                    action_id="add_song_from_path",
+                    label="Add Song From Path",
+                    group="tools",
+                ),
+            ),
+        )
+    )
+
     if hit_target is not None and hit_target.time_seconds is not None:
         sections.append(
             InspectorContextSection(
@@ -577,52 +591,71 @@ def _shared_context_sections(
         )
 
     if layer is not None:
+        layer_actions = [
+            InspectorAction(
+                action_id="push_to_ma3",
+                label="Push to MA3",
+                group="transfer",
+            ),
+            InspectorAction(
+                action_id="pull_from_ma3",
+                label="Pull from MA3",
+                group="transfer",
+            ),
+            InspectorAction(
+                action_id="toggle_mute",
+                label="Unmute Layer" if layer.muted else "Mute Layer",
+                group="layer",
+                params={"layer_id": layer.layer_id},
+            ),
+            InspectorAction(
+                action_id="toggle_solo",
+                label="Unsolo Layer" if layer.soloed else "Solo Layer",
+                group="layer",
+                params={"layer_id": layer.layer_id},
+            ),
+            InspectorAction(
+                action_id="gain_down",
+                label="Set Gain -6 dB",
+                group="gain",
+                params={"layer_id": layer.layer_id, "gain_db": -6.0},
+            ),
+            InspectorAction(
+                action_id="gain_unity",
+                label="Set Gain 0 dB",
+                group="gain",
+                params={"layer_id": layer.layer_id, "gain_db": 0.0},
+            ),
+            InspectorAction(
+                action_id="gain_up",
+                label="Set Gain +6 dB",
+                group="gain",
+                params={"layer_id": layer.layer_id, "gain_db": 6.0},
+            ),
+        ]
+        if _is_stem_capable_layer(layer):
+            layer_actions.append(
+                InspectorAction(
+                    action_id="extract_stems",
+                    label="Extract Stems",
+                    group="pipeline",
+                    params={"layer_id": layer.layer_id},
+                )
+            )
+        if _is_drum_stem_layer(layer):
+            layer_actions.append(
+                InspectorAction(
+                    action_id="extract_drum_events",
+                    label="Extract Drum Events",
+                    group="pipeline",
+                    params={"layer_id": layer.layer_id},
+                )
+            )
         sections.append(
             InspectorContextSection(
                 section_id="layer-mix",
                 label="Layer",
-                actions=(
-                    InspectorAction(
-                        action_id="push_to_ma3",
-                        label="Push to MA3",
-                        group="transfer",
-                    ),
-                    InspectorAction(
-                        action_id="pull_from_ma3",
-                        label="Pull from MA3",
-                        group="transfer",
-                    ),
-                    InspectorAction(
-                        action_id="toggle_mute",
-                        label="Unmute Layer" if layer.muted else "Mute Layer",
-                        group="layer",
-                        params={"layer_id": layer.layer_id},
-                    ),
-                    InspectorAction(
-                        action_id="toggle_solo",
-                        label="Unsolo Layer" if layer.soloed else "Solo Layer",
-                        group="layer",
-                        params={"layer_id": layer.layer_id},
-                    ),
-                    InspectorAction(
-                        action_id="gain_down",
-                        label="Set Gain -6 dB",
-                        group="gain",
-                        params={"layer_id": layer.layer_id, "gain_db": -6.0},
-                    ),
-                    InspectorAction(
-                        action_id="gain_unity",
-                        label="Set Gain 0 dB",
-                        group="gain",
-                        params={"layer_id": layer.layer_id, "gain_db": 0.0},
-                    ),
-                    InspectorAction(
-                        action_id="gain_up",
-                        label="Set Gain +6 dB",
-                        group="gain",
-                        params={"layer_id": layer.layer_id, "gain_db": 6.0},
-                    ),
-                ),
+                actions=tuple(layer_actions),
             )
         )
 
@@ -777,6 +810,18 @@ def _find_selected_event(
 
 def _format_seconds(value: float) -> str:
     return f"{value:.2f}s"
+
+
+def _is_stem_capable_layer(layer: LayerPresentation) -> bool:
+    return layer.kind.name == "AUDIO"
+
+
+def _is_drum_stem_layer(layer: LayerPresentation) -> bool:
+    if not _is_stem_capable_layer(layer):
+        return False
+    title = layer.title.strip().lower()
+    badges = {str(badge).strip().lower() for badge in layer.badges}
+    return "drum" in title or "drums" in badges
 
 
 def _sync_state_label(layer: LayerPresentation) -> str:

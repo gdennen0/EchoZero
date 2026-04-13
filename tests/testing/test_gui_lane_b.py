@@ -27,7 +27,9 @@ def test_lane_b_runner_executes_starter_scenario_and_writes_trace():
         )
 
         assert trace
-        assert all(step["status"] == "passed" for step in trace)
+        assert [step["status"] for step in trace[:-1]] == ["passed"] * (len(trace) - 1)
+        assert trace[-1]["status"] == "failed"
+        assert "extract_stems is not wired" in (trace[-1]["error"] or "")
 
         push_step = next(step for step in trace if step["action"] == "open_push_surface")
         pull_step = next(step for step in trace if step["action"] == "open_pull_surface")

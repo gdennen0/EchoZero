@@ -7,7 +7,7 @@ from dataclasses import dataclass, replace
 
 from PyQt6.QtCore import QPointF, QRectF, Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QColor, QContextMenuEvent, QPainter, QPen, QPolygonF, QWheelEvent
-from PyQt6.QtWidgets import QComboBox, QDialog, QDialogButtonBox, QDoubleSpinBox, QFrame, QGridLayout, QHBoxLayout, QInputDialog, QLabel, QMenu, QMessageBox, QPushButton, QScrollArea, QScrollBar, QSplitter, QToolTip, QVBoxLayout, QWidget
+from PyQt6.QtWidgets import QComboBox, QDialog, QDialogButtonBox, QDoubleSpinBox, QFileDialog, QFrame, QGridLayout, QHBoxLayout, QInputDialog, QLabel, QMenu, QMessageBox, QPushButton, QScrollArea, QScrollBar, QSplitter, QToolTip, QVBoxLayout, QWidget
 
 from echozero.application.presentation.inspector_contract import (
     InspectorAction,
@@ -2040,6 +2040,9 @@ class TimelineWidget(QWidget):
         if action_id == "duplicate":
             self._dispatch(DuplicateSelectedEvents(steps=int(params.get("steps", 1))))
             return
+        if action_id == "add_song_from_path":
+            self._run_add_song_from_path_action()
+            return
         if action_id == "toggle_mute":
             layer_id = params.get("layer_id")
             if layer_id is not None:
@@ -2144,6 +2147,8 @@ class TimelineWidget(QWidget):
             return self._handle_transfer_preset_action(action_id)
         if action_id in {"preview_transfer_plan", "apply_transfer_plan", "cancel_transfer_plan"}:
             return self._handle_transfer_plan_action(action_id, params)
+        if action_id in {"extract_stems", "extract_drum_events"}:
+            return self._handle_runtime_pipeline_action(action_id, params)
         if action_id in {
             "select_push_target_track",
             "preview_push_diff",
@@ -2157,6 +2162,74 @@ class TimelineWidget(QWidget):
         }:
             return self._handle_manual_transfer_workspace_action(action_id, params)
         return False
+
+    def _resolve_runtime_shell(self):
+        owner = getattr(self._on_intent, "__self__", None)
+        if owner is not None and all(
+            hasattr(owner, method_name)
+            for method_name in ("presentation",)
+        ):
+            return owner
+        runtime = getattr(owner, "runtime", None)
+        if runtime is not None and hasattr(runtime, "presentation"):
+            return runtime
+        return None
+
+    def _run_add_song_from_path_action(self) -> None:
+        runtime = self._resolve_runtime_shell()
+        if runtime is None or not callable(getattr(runtime, "add_song_from_path", None)):
+            QMessageBox.warning(
+                self,
+                "Add Song",
+                "This runtime does not support adding songs from a path.",
+            )
+            return
+        title, accepted = QInputDialog.getText(self, "Add Song", "Song title")
+        if not accepted or not title.strip():
+            return
+        audio_path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Select Audio File",
+            "",
+            "Audio Files (*.wav *.mp3 *.flac *.aiff *.aif *.ogg);;All Files (*)",
+        )
+        if not audio_path:
+            return
+        try:
+            updated = runtime.add_song_from_path(title.strip(), audio_path)
+        except Exception as exc:
+            QMessageBox.warning(self, "Add Song", str(exc))
+            return
+        self.set_presentation(updated if updated is not None else runtime.presentation())
+
+    def _handle_runtime_pipeline_action(self, action_id: str, params: dict[str, object]) -> bool:
+        runtime = self._resolve_runtime_shell()
+        method_name = action_id
+        layer_id = params.get("layer_id")
+        if runtime is None or not callable(getattr(runtime, method_name, None)):
+            QMessageBox.warning(
+                self,
+                "Pipeline Action",
+                f"This runtime does not support '{action_id}'.",
+            )
+            return True
+        if layer_id is None:
+            QMessageBox.warning(
+                self,
+                "Pipeline Action",
+                f"'{action_id}' requires a target layer.",
+            )
+            return True
+        try:
+            updated = getattr(runtime, method_name)(layer_id)
+        except NotImplementedError as exc:
+            QMessageBox.warning(self, "Pipeline Action", str(exc))
+            return True
+        except Exception as exc:
+            QMessageBox.warning(self, "Pipeline Action", str(exc))
+            return True
+        self.set_presentation(updated if updated is not None else runtime.presentation())
+        return True
 
     def _handle_transfer_preset_action(self, action_id: str) -> bool:
         if not self.presentation.transfer_presets:

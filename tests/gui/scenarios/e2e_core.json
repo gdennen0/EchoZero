@@ -52,6 +52,13 @@
       "params": {
         "filename": "lane-b-final.png"
       }
+    },
+    {
+      "label": "Extract stems reports explicit phase-1 status",
+      "action": "extract_stems",
+      "params": {
+        "layer_id": "layer_song"
+      }
     }
   ]
 }

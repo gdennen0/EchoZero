@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import shutil
 import uuid
+import wave
 from pathlib import Path
 
 from echozero.application.timeline.intents import Seek, ToggleLayerExpanded
@@ -17,6 +18,16 @@ def _repo_local_temp_root() -> Path:
     root = Path("C:/Users/griff/.codex/memories/test_app_shell_runtime_flow") / uuid.uuid4().hex
     root.mkdir(parents=True, exist_ok=True)
     return root.resolve()
+
+
+def _write_test_wav(path: Path, *, frames: int = 4410, sample_rate: int = 44100) -> Path:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with wave.open(str(path), "wb") as handle:
+        handle.setnchannels(1)
+        handle.setsampwidth(2)
+        handle.setframerate(sample_rate)
+        handle.writeframes(b"\x00\x00" * frames)
+    return path
 
 
 def test_app_shell_runtime_new_save_open_reopen_flow():
@@ -106,6 +117,30 @@ def test_app_shell_runtime_exposes_transfer_surface_actions():
 
         assert "push_to_ma3" in action_ids
         assert "pull_from_ma3" in action_ids
+        assert "add_song_from_path" in action_ids
+    finally:
+        runtime.shutdown()
+        shutil.rmtree(temp_root, ignore_errors=True)
+
+
+def test_app_shell_runtime_add_song_from_path_updates_presentation():
+    temp_root = _repo_local_temp_root()
+    runtime = build_app_shell(working_dir_root=temp_root / "working")
+
+    assert isinstance(runtime, AppShellRuntime)
+
+    try:
+        audio_path = _write_test_wav(temp_root / "fixtures" / "import.wav")
+
+        presentation = runtime.add_song_from_path("Imported Song", audio_path)
+
+        assert runtime.session.active_song_id is not None
+        assert runtime.session.active_song_version_id is not None
+        assert presentation.layers[0].title == "Imported Song"
+        assert presentation.layers[0].kind.name == "AUDIO"
+        assert presentation.layers[0].source_audio_path
+        assert presentation.end_time_label == "00:00.10"
+        assert runtime.is_dirty is True
     finally:
         runtime.shutdown()
         shutil.rmtree(temp_root, ignore_errors=True)

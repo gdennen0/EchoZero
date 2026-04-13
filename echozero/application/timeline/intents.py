@@ -60,6 +60,40 @@ class TriggerTakeAction(TimelineIntent):
 
 
 @dataclass(slots=True)
+class AddSongFromPath(TimelineIntent):
+    title: str
+    audio_path: str
+
+    def __post_init__(self) -> None:
+        title = (self.title or "").strip()
+        audio_path = (self.audio_path or "").strip()
+        if not title:
+            raise ValueError("AddSongFromPath requires a non-empty title")
+        if not audio_path:
+            raise ValueError("AddSongFromPath requires a non-empty audio_path")
+        self.title = title
+        self.audio_path = audio_path
+
+
+@dataclass(slots=True)
+class ExtractStems(TimelineIntent):
+    layer_id: LayerId
+
+    def __post_init__(self) -> None:
+        if self.layer_id is None or not str(self.layer_id).strip():
+            raise ValueError("ExtractStems requires a non-empty layer_id")
+
+
+@dataclass(slots=True)
+class ExtractDrumEvents(TimelineIntent):
+    layer_id: LayerId
+
+    def __post_init__(self) -> None:
+        if self.layer_id is None or not str(self.layer_id).strip():
+            raise ValueError("ExtractDrumEvents requires a non-empty layer_id")
+
+
+@dataclass(slots=True)
 class MoveEvent(TimelineIntent):
     event_id: EventId
     new_start: float

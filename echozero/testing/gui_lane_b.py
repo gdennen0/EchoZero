@@ -297,7 +297,25 @@ class GuiLaneBRunner:
             harness.shutdown()
 
     def _execute_step(self, harness: AppFlowHarness, *, action: str, params: dict[str, object]) -> None:
-        if action == "trigger_action":
+        if action == "add_song_from_path":
+            runtime = harness.runtime
+            if not callable(getattr(runtime, "add_song_from_path", None)):
+                raise RuntimeError("Lane B runtime does not support add_song_from_path")
+            runtime.add_song_from_path(str(params["title"]), str(params["audio_path"]))
+            harness.widget.set_presentation(harness.presentation())
+        elif action == "extract_stems":
+            runtime = harness.runtime
+            if not callable(getattr(runtime, "extract_stems", None)):
+                raise RuntimeError("Lane B runtime does not support extract_stems")
+            runtime.extract_stems(str(params["layer_id"]))
+            harness.widget.set_presentation(harness.presentation())
+        elif action == "extract_drum_events":
+            runtime = harness.runtime
+            if not callable(getattr(runtime, "extract_drum_events", None)):
+                raise RuntimeError("Lane B runtime does not support extract_drum_events")
+            runtime.extract_drum_events(str(params["layer_id"]))
+            harness.widget.set_presentation(harness.presentation())
+        elif action == "trigger_action":
             harness.trigger_action(str(params["action_id"]))
         elif action == "select_first_event":
             _click_first_event(harness, layer_id=str(params["layer_id"]) if "layer_id" in params else None)
