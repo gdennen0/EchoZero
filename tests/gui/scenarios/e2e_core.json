@@ -1,0 +1,57 @@
+{
+  "name": "Lane B Core Flow",
+  "seed": 7,
+  "steps": [
+    {
+      "label": "Select first kick event",
+      "action": "select_first_event",
+      "params": {
+        "layer_id": "layer_kick"
+      }
+    },
+    {
+      "label": "Nudge selection right",
+      "action": "nudge_selected_events",
+      "params": {
+        "direction": "right",
+        "steps": 1
+      }
+    },
+    {
+      "label": "Duplicate selection",
+      "action": "duplicate_selected_events",
+      "params": {
+        "steps": 1
+      }
+    },
+    {
+      "label": "Open push surface",
+      "action": "open_push_surface",
+      "params": {
+        "layer_id": "layer_kick"
+      }
+    },
+    {
+      "label": "Enable sync",
+      "action": "enable_sync"
+    },
+    {
+      "label": "Disable sync",
+      "action": "disable_sync"
+    },
+    {
+      "label": "Open pull surface",
+      "action": "open_pull_surface",
+      "params": {
+        "layer_id": "layer_kick"
+      }
+    },
+    {
+      "label": "Capture screenshot",
+      "action": "screenshot",
+      "params": {
+        "filename": "lane-b-final.png"
+      }
+    }
+  ]
+}

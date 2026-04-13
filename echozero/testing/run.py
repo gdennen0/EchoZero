@@ -41,6 +41,10 @@ LANES: dict[str, list[str]] = {
         "tests/application/test_manual_transfer_pull_flow.py",
         "tests/application/test_manual_transfer_push_flow.py",
     ],
+    "gui-lane-b": [
+        "tests/testing/test_gui_dsl.py",
+        "tests/testing/test_gui_lane_b.py",
+    ],
 }
 
 
