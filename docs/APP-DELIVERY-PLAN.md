@@ -2,7 +2,7 @@
 
 _Last updated: 2026-04-12_
 
-This plan defines how EchoZero moves from timeline-demo driven development to a real app workflow with deterministic packaging and release validation.
+This plan defines how EchoZero moves to a canonical app workflow with deterministic packaging and release validation.
 
 If this document conflicts with first-principles or sync safety contracts, those higher-order contracts win:
 - `docs/UNIFIED-IMPLEMENTATION-PLAN.md`
@@ -38,7 +38,7 @@ Make EchoZero operate as a production app, not a demo surface:
    - No test release unless packaged-build smoke lane passes.
 
 5. **Demo demotion**
-   - `run_timeline_demo.py` and related scripts are dev tools, not primary validation.
+   - `run_timeline_demo.py` remains a compatibility shim, not the primary validation path.
 
 ---
 
@@ -52,8 +52,7 @@ Make EchoZero operate as a production app, not a demo surface:
 
 ## Smoke packaged build
 - `powershell -File scripts/smoke-test-release.ps1`
-
-These commands become the required operator surface for day-to-day and release checks.
+These are the canonical operator commands for local run, packaging, and packaged smoke validation.
 
 ---
 
@@ -62,14 +61,12 @@ These commands become the required operator surface for day-to-day and release c
 ## Phase A — App Entry + Lifecycle Baseline
 
 Deliverables:
-- `run_echozero.py` canonical launcher
-- Main window boot path wired to real project/session lifecycle
-- New/Open/Save/Save As/Exit and recent projects baseline
-- Autosave + crash recovery hook (initial baseline)
+- `run_echozero.py` canonical launcher for the current Stage Zero shell flow
+- Stable launcher contract for local run and packaged smoke
 
 Exit criteria:
-- App boots from canonical command without demo harness dependency
-- Basic project lifecycle flow is functional
+- App boots from `run_echozero.py`
+- Legacy `run_timeline_demo.py` delegates without changing behavior
 
 ## Phase B — App-Flow Test Harness
 
@@ -90,9 +87,9 @@ Exit criteria:
 ## Phase C — Packaging Baseline
 
 Deliverables:
-- deterministic packaging script (`build-test-release.ps1`)
-- stable output directory/versioning conventions
-- release artifact bundling (zip + metadata)
+- deterministic packaging script (`scripts/build-test-release.ps1`)
+- stable output directory/versioning conventions under `artifacts/releases/test/`
+- release artifact bundling (copied app folder, zip, metadata JSON)
 
 Exit criteria:
 - Repeatable test build artifact generation on dev machine
@@ -100,15 +97,13 @@ Exit criteria:
 ## Phase D — Packaged Smoke Lane
 
 Deliverables:
-- packaged app smoke script (`smoke-test-release.ps1`)
-- pass/fail JSON summary + logs bundle
+- packaged app smoke script (`scripts/smoke-test-release.ps1`)
+- pass/fail JSON summary in the release folder
 
 Required smoke checks:
 - launch packaged app
-- create/open project
-- save and reopen
-- open transfer surfaces (push/pull)
-- clean shutdown
+- auto-exit via `--smoke-exit-seconds`
+- clean shutdown with exit code `0`
 
 Exit criteria:
 - Packaged smoke lane is green and documented
@@ -151,11 +146,11 @@ A test release can ship only if all are true:
 
 ## 7) Near-Term Backlog (Execution Order)
 
-1. Add `run_echozero.py` and wire main shell lifecycle
-2. Add app-flow harness + first 5 core flow tests
-3. Add packaging script baseline
-4. Add packaged smoke script + machine-readable report
-5. Move demo scripts to explicitly non-primary docs/workflow
+1. Add `run_echozero.py` as the canonical launcher
+2. Keep `run_timeline_demo.py` as a compatibility delegate
+3. Add `scripts/build-test-release.ps1`
+4. Add `scripts/smoke-test-release.ps1`
+5. Expand app-flow coverage behind the canonical launcher
 
 ---
 

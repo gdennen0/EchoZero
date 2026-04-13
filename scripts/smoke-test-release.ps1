@@ -1,0 +1,96 @@
+[CmdletBinding()]
+param(
+    [string]$ReleaseFolder,
+    [int]$TimeoutSeconds = 30
+)
+
+$ErrorActionPreference = "Stop"
+Set-StrictMode -Version Latest
+
+$repoRoot = Split-Path -Parent $PSScriptRoot
+$releasesRoot = Join-Path $repoRoot "artifacts/releases/test"
+
+if (-not $ReleaseFolder) {
+    if (-not (Test-Path $releasesRoot)) {
+        throw "Release root not found: $releasesRoot"
+    }
+    $latest = Get-ChildItem -Path $releasesRoot -Directory | Sort-Object Name -Descending | Select-Object -First 1
+    if ($null -eq $latest) {
+        throw "No test release folders found under $releasesRoot"
+    }
+    $ReleaseFolder = $latest.FullName
+}
+
+$appDir = Join-Path $ReleaseFolder "EchoZeroTest"
+$exePath = Join-Path $appDir "EchoZeroTest.exe"
+$reportPath = Join-Path $ReleaseFolder "smoke-report.json"
+$timestamp = Get-Date -Format "yyyy-MM-ddTHH:mm:ssK"
+$status = "failed"
+$exitCode = $null
+$durationSeconds = 0.0
+
+if (-not (Test-Path $exePath)) {
+    $report = [ordered]@{
+        status = "failed"
+        exit_code = $null
+        duration_seconds = 0.0
+        timestamp = $timestamp
+        release_folder = $ReleaseFolder
+        exe_path = $exePath
+        reason = "missing_executable"
+    }
+    $report | ConvertTo-Json -Depth 4 | Set-Content -Encoding utf8 $reportPath
+    Write-Host "SMOKE FAIL: executable not found at $exePath"
+    exit 1
+}
+
+$stopwatch = [System.Diagnostics.Stopwatch]::StartNew()
+$process = Start-Process -FilePath $exePath -ArgumentList "--smoke-exit-seconds", "6" -PassThru
+
+try {
+    $exited = $process.WaitForExit($TimeoutSeconds * 1000)
+    $stopwatch.Stop()
+    $durationSeconds = [math]::Round($stopwatch.Elapsed.TotalSeconds, 3)
+
+    if (-not $exited) {
+        try {
+            Stop-Process -Id $process.Id -Force
+        } catch {
+        }
+        $status = "timeout"
+        $exitCode = $null
+        Write-Host "SMOKE FAIL: process did not exit within $TimeoutSeconds seconds"
+        $scriptExit = 1
+    } else {
+        $exitCode = $process.ExitCode
+        if ($exitCode -eq 0) {
+            $status = "passed"
+            Write-Host "SMOKE PASS: process exited with code 0 in $durationSeconds seconds"
+            $scriptExit = 0
+        } else {
+            $status = "failed"
+            Write-Host "SMOKE FAIL: process exited with code $exitCode in $durationSeconds seconds"
+            $scriptExit = 1
+        }
+    }
+}
+finally {
+    if ($stopwatch.IsRunning) {
+        $stopwatch.Stop()
+        $durationSeconds = [math]::Round($stopwatch.Elapsed.TotalSeconds, 3)
+    }
+}
+
+$report = [ordered]@{
+    status = $status
+    exit_code = $exitCode
+    duration_seconds = $durationSeconds
+    timestamp = $timestamp
+    release_folder = $ReleaseFolder
+    exe_path = $exePath
+    timeout_seconds = $TimeoutSeconds
+}
+$report | ConvertTo-Json -Depth 4 | Set-Content -Encoding utf8 $reportPath
+
+Write-Host "report=$reportPath"
+exit $scriptExit
