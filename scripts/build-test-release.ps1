@@ -11,10 +11,11 @@ $pythonExe = "C:/Users/griff/EchoZero/.venv/Scripts/python.exe"
 $timestamp = Get-Date -Format "yyyyMMdd-HHmmss"
 $buildRoot = Join-Path $repoRoot "build/test-release"
 $distRoot = Join-Path $repoRoot "dist/test-release"
-$artifactsRoot = Join-Path $repoRoot "artifacts/releases/test"
+$artifactsRoot = Join-Path $repoRoot "build/test-release/releases/test"
 $releaseRoot = Join-Path $artifactsRoot $timestamp
 $releaseAppDir = Join-Path $releaseRoot "EchoZeroTest"
 $zipPath = "$releaseRoot.zip"
+$timelineFixtureDir = Join-Path $repoRoot "echozero/ui/qt/timeline/fixtures"
 
 New-Item -ItemType Directory -Path $buildRoot -Force | Out-Null
 New-Item -ItemType Directory -Path $distRoot -Force | Out-Null
@@ -34,11 +35,13 @@ $pyInstallerArgs = @(
     $buildRoot,
     "--distpath",
     $distRoot,
+    "--add-data",
+    "${timelineFixtureDir};echozero/ui/qt/timeline/fixtures",
     "run_echozero.py"
 )
 
 if ($Clean) {
-    $pyInstallerArgs = @("-m", "PyInstaller", "--noconfirm", "--clean", "--windowed", "--name", "EchoZeroTest", "--workpath", $buildRoot, "--specpath", $buildRoot, "--distpath", $distRoot, "run_echozero.py")
+    $pyInstallerArgs = @("-m", "PyInstaller", "--noconfirm", "--clean", "--windowed", "--name", "EchoZeroTest", "--workpath", $buildRoot, "--specpath", $buildRoot, "--distpath", $distRoot, "--add-data", "${timelineFixtureDir};echozero/ui/qt/timeline/fixtures", "run_echozero.py")
 }
 
 Write-Host "Building EchoZero test release..."

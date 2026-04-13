@@ -8,7 +8,7 @@ $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
 
 $repoRoot = Split-Path -Parent $PSScriptRoot
-$releasesRoot = Join-Path $repoRoot "artifacts/releases/test"
+$releasesRoot = Join-Path $repoRoot "build/test-release/releases/test"
 
 if (-not $ReleaseFolder) {
     if (-not (Test-Path $releasesRoot)) {
