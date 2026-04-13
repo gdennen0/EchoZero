@@ -291,23 +291,26 @@ class TimelineOrchestrator:
                 session.manual_push_flow.available_tracks,
                 intent.target_track_coord,
             )
+            selected_events = self._selected_events_by_ids(timeline, intent.selected_event_ids)
+            selected_event_ids = [event.id for event in selected_events]
+            selected_event_lookup = set(selected_event_ids)
             if session.manual_push_flow.push_mode_active:
                 for layer_id in self._selected_layer_scope(timeline):
                     layer = self._find_layer(timeline, layer_id)
-                    if any(event.id in set(intent.selected_event_ids) for take in layer.takes for event in take.events):
+                    main_take = self._main_take(layer)
+                    if main_take is not None and any(event.id in selected_event_lookup for event in main_take.events):
                         layer.sync.ma3_track_coord = target_track.coord
-            selected_events = self._selected_events_by_ids(timeline, intent.selected_event_ids)
             diff_summary, diff_rows = self.diff_service.build_push_preview_rows(
                 selected_events=selected_events,
                 target_track_name=target_track.name,
                 target_track_coord=target_track.coord,
             )
             session.manual_push_flow.dialog_open = False
-            session.manual_push_flow.selected_event_ids = list(intent.selected_event_ids)
+            session.manual_push_flow.selected_event_ids = selected_event_ids
             session.manual_push_flow.target_track_coord = intent.target_track_coord
             session.manual_push_flow.diff_gate_open = True
             session.manual_push_flow.diff_preview = ManualPushDiffPreview(
-                selected_count=len(intent.selected_event_ids),
+                selected_count=len(selected_event_ids),
                 target_track_coord=target_track.coord,
                 target_track_name=target_track.name,
                 target_track_note=target_track.note,
@@ -1026,10 +1029,12 @@ class TimelineOrchestrator:
         }
         selected: list[Event] = []
         for layer in timeline.layers:
-            for take in layer.takes:
-                for event in take.events:
-                    if event.id in selected_lookup:
-                        selected.append(event)
+            main_take = TimelineOrchestrator._main_take(layer)
+            if main_take is None:
+                continue
+            for event in main_take.events:
+                if event.id in selected_lookup:
+                    selected.append(event)
 
         selected.sort(key=lambda event: selected_order[str(event.id)])
         return selected

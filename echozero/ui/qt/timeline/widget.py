@@ -389,9 +389,11 @@ class ManualPullTimelineCanvas(QWidget):
                 metrics.elidedText(event_model.label, Qt.TextElideMode.ElideRight, int(label_rect.width())),
             )
 
-            if event_model.start is not None and event_model.end is not None:
+            if event_model.start is not None:
                 painter.setPen(QColor("#c9d6e2"))
-                footer = f"{_format_seconds(event_model.start)}-{_format_seconds(event_model.end)}"
+                footer = _format_seconds(event_model.start)
+                if event_model.end is not None:
+                    footer = f"{footer}-{_format_seconds(event_model.end)}"
                 painter.drawText(
                     QRectF(rect.left(), rect.bottom() + 4.0, rect.width(), 14.0),
                     Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop,
@@ -424,13 +426,13 @@ class ManualPullTimelineCanvas(QWidget):
     def _timeline_bounds(self) -> tuple[float, float]:
         timed = [
             event for event in self._events
-            if event.start is not None and event.end is not None
+            if event.start is not None
         ]
         if not timed:
             count = max(1, len(self._events))
             return 0.0, max(1.0, count * 0.75)
         min_start = min(event.start for event in timed)
-        max_end = max(max(event.end, event.start + 0.25) for event in timed)
+        max_end = max(max(event.end if event.end is not None else event.start, event.start + 0.25) for event in timed)
         return min_start, max(max_end, min_start + 0.25)
 
     def _sync_timeline_geometry(self) -> None:
@@ -452,7 +454,7 @@ class ManualPullTimelineCanvas(QWidget):
 
         timed = [
             event for event in self._events
-            if event.start is not None and event.end is not None
+            if event.start is not None
         ]
         rects: list[QRectF] = []
         if timed:
@@ -1969,9 +1971,6 @@ class TimelineWidget(QWidget):
                 continue
             for event in layer.events:
                 allowed_event_ids.add(event.event_id)
-            for take in layer.takes:
-                for event in take.events:
-                    allowed_event_ids.add(event.event_id)
         return [event_id for event_id in self.presentation.selected_event_ids if event_id in allowed_event_ids]
 
     def _preview_active_transfer_plan(self) -> None:

@@ -412,11 +412,6 @@ def _shared_context_sections(
             transfer_actions.extend(
                 [
                     InspectorAction(
-                        action_id="push_to_ma3",
-                        label="Push to MA3",
-                        group="transfer",
-                    ),
-                    InspectorAction(
                         action_id="push_select_all_events",
                         label="Select All Events",
                         group="transfer",
