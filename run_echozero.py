@@ -20,7 +20,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     parsed, qt_args = parser.parse_known_args(list(argv) if argv is not None else sys.argv[1:])
 
-    app = QApplication([sys.argv[0], *qt_args])
+    app = QApplication.instance() or QApplication([sys.argv[0], *qt_args])
     demo = build_demo_app()
     widget = TimelineWidget(
         demo.presentation(),
