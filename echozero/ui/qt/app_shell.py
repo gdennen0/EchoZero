@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from enum import Enum
 from pathlib import Path
 
 from echozero.application.presentation.models import LayerPresentation, TimelinePresentation
@@ -53,6 +54,12 @@ _DIRTYING_INTENT_TYPES = (
     TriggerTakeAction,
     TrimEvent,
 )
+
+
+class AppRuntimeProfile(str, Enum):
+    PRODUCTION = "production"
+    TEST = "test"
+    DEMO = "demo"
 
 
 class AppShellRuntime:
@@ -154,6 +161,16 @@ class AppShellRuntime:
             self.runtime_audio.shutdown()
         self.project_storage.close()
 
+    def enable_sync(self, mode: SyncMode = SyncMode.MA3) -> SyncState:
+        state = self._app.enable_sync(mode)
+        self.session.sync_state = state
+        return state
+
+    def disable_sync(self) -> SyncState:
+        state = self._app.disable_sync()
+        self.session.sync_state = state
+        return state
+
     @staticmethod
     def _build_runtime_app(
         *,
@@ -200,13 +217,16 @@ class AppShellRuntime:
 
 def build_app_shell(
     *,
+    profile: AppRuntimeProfile = AppRuntimeProfile.PRODUCTION,
     use_demo_fixture: bool = False,
     sync_bridge: MA3SyncBridge | None = None,
     sync_service: SyncService | None = None,
     working_dir_root: Path | None = None,
     initial_project_name: str = "EchoZero Project",
 ) -> DemoTimelineApp | AppShellRuntime:
-    if use_demo_fixture:
+    effective_profile = AppRuntimeProfile.DEMO if use_demo_fixture else profile
+
+    if effective_profile == AppRuntimeProfile.DEMO:
         return build_demo_app(sync_bridge=sync_bridge, sync_service=sync_service)
 
     return AppShellRuntime(
