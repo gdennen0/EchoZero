@@ -48,6 +48,10 @@ def test_app_shell_runtime_new_save_open_reopen_flow():
         assert runtime.project_storage.working_dir.exists()
         assert runtime.project_storage.project.name == "Second Runtime Flow"
         assert runtime.session.project_id == runtime.project_storage.project.id
+        assert runtime.session.active_song_id is None
+        assert runtime.session.active_song_version_id is None
+        assert runtime.session.active_timeline_id == runtime.presentation().timeline_id
+        assert runtime.presentation().title == "Second Runtime Flow"
 
         runtime.open_project(save_path)
         assert runtime.project_path == save_path
@@ -80,6 +84,48 @@ def test_app_shell_runtime_exposes_transfer_surface_actions():
 
         assert "push_to_ma3" in action_ids
         assert "pull_from_ma3" in action_ids
+    finally:
+        runtime.shutdown()
+        shutil.rmtree(temp_root, ignore_errors=True)
+
+
+def test_app_shell_runtime_canonical_build_does_not_depend_on_fixture_loader(monkeypatch):
+    temp_root = _repo_local_temp_root()
+    working_root = temp_root / "working"
+
+    def fail_fixture_load():
+        raise AssertionError("fixture loader should not be called for canonical app shell")
+
+    monkeypatch.setattr(
+        "echozero.ui.qt.app_shell.load_realistic_timeline_fixture",
+        fail_fixture_load,
+    )
+
+    runtime = build_app_shell(
+        use_demo_fixture=False,
+        working_dir_root=working_root,
+        initial_project_name="Native Baseline",
+    )
+
+    assert isinstance(runtime, AppShellRuntime)
+
+    try:
+        presentation = runtime.presentation()
+
+        assert presentation.title == "Native Baseline"
+        assert presentation.timeline_id == f"timeline_{runtime.project_storage.project.id}"
+        assert runtime.session.project_id == runtime.project_storage.project.id
+        assert runtime.session.active_song_id is None
+        assert runtime.session.active_song_version_id is None
+        assert runtime.session.active_timeline_id == presentation.timeline_id
+        assert len(presentation.layers) == 1
+        assert presentation.layers[0].events == []
+        assert presentation.layers[0].takes == []
+        assert all(not layer.events for layer in presentation.layers)
+        assert all(not layer.takes for layer in presentation.layers)
+        assert presentation.playhead == 0.0
+        assert presentation.current_time_label == "00:00.00"
+        assert presentation.end_time_label == "00:00.00"
     finally:
         runtime.shutdown()
         shutil.rmtree(temp_root, ignore_errors=True)

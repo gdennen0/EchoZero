@@ -2,11 +2,12 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from echozero.application.presentation.models import LayerPresentation, TimelinePresentation
 from echozero.application.mixer.models import MixerState
 from echozero.application.playback.models import PlaybackState
 from echozero.application.session.models import Session
 from echozero.application.shared.enums import PlaybackStatus, SyncMode
-from echozero.application.shared.ids import ProjectId, SessionId, SongId, SongVersionId
+from echozero.application.shared.ids import LayerId, ProjectId, SessionId, TimelineId
 from echozero.application.sync.adapters import InMemorySyncService, MA3SyncAdapter, MA3SyncBridge
 from echozero.application.sync.models import SyncState
 from echozero.application.sync.service import SyncService
@@ -107,12 +108,12 @@ class AppShellRuntime:
         sync_service: SyncService | None,
         runtime_audio=None,
     ) -> DemoTimelineApp:
-        presentation = load_realistic_timeline_fixture()
+        presentation = _build_project_native_baseline_presentation(project_storage)
         session = Session(
             id=SessionId(f"session_{project_storage.project.id}"),
             project_id=ProjectId(project_storage.project.id),
-            active_song_id=SongId("song_demo"),
-            active_song_version_id=SongVersionId("song_version_demo"),
+            active_song_id=None,
+            active_song_version_id=None,
             active_timeline_id=presentation.timeline_id,
             transport_state=TransportState(
                 is_playing=presentation.is_playing,
@@ -161,4 +162,25 @@ def build_app_shell(
         ),
         sync_bridge=sync_bridge,
         sync_service=sync_service,
+    )
+
+
+def _build_project_native_baseline_presentation(project_storage: ProjectStorage) -> TimelinePresentation:
+    project = project_storage.project
+    timeline_id = TimelineId(f"timeline_{project.id}")
+    default_layer_id = LayerId(f"layer_{project.id}_default")
+    default_layer = LayerPresentation(
+        layer_id=default_layer_id,
+        title="Layer 1",
+        is_selected=True,
+        is_expanded=True,
+    )
+    return TimelinePresentation(
+        timeline_id=timeline_id,
+        title=project.name,
+        layers=[default_layer],
+        selected_layer_id=default_layer_id,
+        selected_layer_ids=[default_layer_id],
+        current_time_label="00:00.00",
+        end_time_label="00:00.00",
     )
