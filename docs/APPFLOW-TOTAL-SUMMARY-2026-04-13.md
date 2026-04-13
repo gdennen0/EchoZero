@@ -15,6 +15,10 @@
   - `C:/Users/griff/EchoZero/.venv/Scripts/python.exe -m pytest tests/testing tests/unit/test_ma3_communication_service_protocol.py tests/unit/test_ma3_receive_path_integration.py tests/unit/test_ma3_event_contract.py tests/ui/test_run_echozero_launcher.py tests/ui/test_app_shell_runtime_flow.py tests/ui/test_timeline_shell.py tests/application/test_manual_transfer_pull_flow.py tests/application/test_manual_transfer_push_flow.py -q`
 - One-command local appflow gate:
   - `powershell -File scripts/run-appflow-gates.ps1`
+- Full demo suite command:
+  - `powershell -File scripts/run-full-demo-suite.ps1`
+  - optional audio path:
+    - `powershell -File scripts/run-full-demo-suite.ps1 -AudioPath "C:/path/song.wav"`
 - Individual release steps:
   - `powershell -File scripts/build-test-release.ps1`
   - `powershell -File scripts/smoke-test-release.ps1`
