@@ -37,7 +37,15 @@ from echozero.serialization import deserialize_graph, serialize_graph
 
 logger = logging.getLogger(__name__)
 
-WORKING_DIR_ROOT: Path = Path.home() / ".echozero" / "working"
+def _default_working_dir_root() -> Path:
+    """Resolve canonical working-dir root for local app data."""
+    local_app_data = os.getenv("LOCALAPPDATA")
+    if local_app_data:
+        return Path(local_app_data) / "EchoZero" / "working"
+    return Path.home() / ".echozero" / "working"
+
+
+WORKING_DIR_ROOT: Path = _default_working_dir_root()
 
 
 def _is_pid_alive(pid: int) -> bool:
