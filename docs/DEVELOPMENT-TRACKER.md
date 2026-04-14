@@ -15,9 +15,10 @@ If this tracker conflicts with the canonical implementation plan, update this tr
 - UI contract is becoming explicit and shared
 - Real-data playback is part of verification (not mock-only)
 
-**Readiness to add features:** Phase 3 sync receive hardening in progress
+**Readiness to add features:** Contract gates green, alpha signoff closure in progress
 - P0 contract + hygiene gate is green.
-- Phase 3 sync receive protocol gate is now the active gate before feature expansion re-opens.
+- Phase 3 sync receive protocol gate is complete and remains required for sync-affecting merges.
+- Remaining alpha claim blockers: packaged manual QA evidence, real MA3 hardware validation evidence, and one visible operator E2E proof sequence.
 
 ---
 
@@ -31,7 +32,7 @@ Reference baseline: `docs/DISTILLATION-CONFORMANCE-AUDIT-2026-04-04.md`
 | A7 | FEEL contract drift / magic numbers | Red | Closed (baseline) | `tests/ui/test_timeline_feel_contract.py` green | keep FEEL as required gate for UI changes |
 | A9 | Legacy terminology drift (now standardizing on Take) | Red | Closed | Documentation updated to use Take terminology for timeline variation model | keep this as an ongoing docs hygiene check |
 | A5 | SongVersion rebuild_plan persistence | Yellow | Closed | schema v4 + repo persistence + session update path + round-trip test (`tests/test_song_version_rebuild_plan.py`) | none |
-| A6 | Sync boundary (main-only) proof | Yellow | Closed | Sync harness covers apply/push path (`tests/unit/test_ma3_event_contract.py`), pull/reconnect divergence state handling (`tests/unit/test_multitrack_sync_coalesce.py`), and external MA3 fixture replay at app boundary (`tests/unit/test_ma3_fixture_replay.py`) | keep live-console soak as non-blocking operational verification |
+| A6 | Sync boundary (main-only) proof | Yellow | Closed | Sync harness covers apply/push path (`tests/unit/test_ma3_event_contract.py`), pull/reconnect divergence state handling (`tests/unit/test_multitrack_sync_coalesce.py`), and external MA3 fixture replay at app boundary (`tests/unit/test_ma3_fixture_replay.py`) | keep automated A6 gates required; track packaged manual QA + real MA3 hardware as release-signoff blockers |
 | A10 | Real-data stems progression | Yellow | Operational | real-data runs + visual proof loops active | continue during new feature work |
 
 ---

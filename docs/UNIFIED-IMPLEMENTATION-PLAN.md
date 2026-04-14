@@ -110,10 +110,10 @@ If any other plan doc conflicts with this file, this file wins.
 - A9 terminology drift (closed)
 - Repo hygiene + CI guardrails + PR traceability (closed)
 
-### Open
-- **A6 main-only sync proof (end-to-end)**
-  - Contract-level tests exist for payload normalization and metadata enforcement.
-  - Still need full fixture/harness proof that non-main data never crosses sync boundary in end-to-end flows.
+### Closed (with release-signoff follow-through)
+- **A6 main-only sync proof (automated end-to-end)**
+  - Contract/unit/appflow/protocol evidence is green for main-only guardrails.
+  - Remaining alpha claim work is operational signoff: packaged manual QA + real MA3 hardware validation + one visible operator E2E proof sequence.
 
 ### Operational but still maturing
 - Real-data stems/classifier flow is running, but classifier-in-place behavior still needs stronger production-model parity evidence.
@@ -126,16 +126,17 @@ If any other plan doc conflicts with this file, this file wins.
 Goal: finish architecture debt before feature expansion.
 
 Tasks:
-1. Complete A6 end-to-end sync harness:
+1. Keep A6 automated end-to-end proof green:
    - main vs non-main fixture matrix
    - push, pull, divergence, reconnect, empty-state behaviors
    - assertion that only main-authorized events produce MA3 write commands
-2. Add failure-mode tests for malformed sync payloads and mixed metadata quality.
-3. Keep timeline/sync feature freeze active until A6 is green.
+2. Maintain failure-mode tests for malformed sync payloads and mixed metadata quality.
+3. Keep timeline/sync feature freeze active until release-signoff checklist items are closed.
 
 Exit criteria:
-- A6 marked closed in tracker.
+- A6 remains closed in tracker and unified plan.
 - Sync contract lane green and required in CI.
+- Remaining alpha signoff work is explicitly tracked (packaged manual QA + real MA3 hardware + visible operator E2E proof).
 
 ## Phase 1 — Consolidate Sync Surface
 Goal: reduce split-brain between app contract and legacy implementation.
