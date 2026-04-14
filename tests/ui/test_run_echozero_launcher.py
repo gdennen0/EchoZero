@@ -158,16 +158,23 @@ def _install_launcher_fakes(monkeypatch, *, exec_result: int = 0, exec_error: Ex
         )
         return demo
 
+    log_calls: list[Path | None] = []
+
     monkeypatch.setattr(run_echozero, "build_app_shell", fake_build_app_shell)
     monkeypatch.setattr(run_echozero, "TimelineWidget", FakeWidget)
     monkeypatch.setattr(run_echozero, "QApplication", FakeQApplication)
     monkeypatch.setattr(run_echozero, "QTimer", FakeQTimer)
     monkeypatch.setattr(run_echozero, "QAction", FakeAction)
-    return demo, runtime_audio, build_calls
+    monkeypatch.setattr(
+        run_echozero,
+        "install_runtime_logging",
+        lambda log_dir=None: log_calls.append(log_dir) or Path("C:/logs/session.log"),
+    )
+    return demo, runtime_audio, build_calls, log_calls
 
 
 def test_run_echozero_main_wires_widget_and_smoke_timer(monkeypatch):
-    _, runtime_audio, build_calls = _install_launcher_fakes(monkeypatch, exec_result=27)
+    _, runtime_audio, build_calls, log_calls = _install_launcher_fakes(monkeypatch, exec_result=27)
 
     result = run_echozero.main(["--smoke-exit-seconds", "1.25", "--style", "fusion"])
 
@@ -181,6 +188,7 @@ def test_run_echozero_main_wires_widget_and_smoke_timer(monkeypatch):
             "working_dir_root": Path(tempfile.gettempdir()) / "EchoZero" / "smoke-working",
         }
     ]
+    assert log_calls == [None]
     assert widget.window_titles == ["EchoZero"]
     assert widget.resize_calls == [(1440, 720)]
     assert widget.show_calls == 1
@@ -200,7 +208,7 @@ def test_run_echozero_main_wires_widget_and_smoke_timer(monkeypatch):
 
 
 def test_run_echozero_main_skips_timer_when_not_requested(monkeypatch):
-    _, runtime_audio, build_calls = _install_launcher_fakes(monkeypatch, exec_result=5)
+    _, runtime_audio, build_calls, log_calls = _install_launcher_fakes(monkeypatch, exec_result=5)
 
     result = run_echozero.main([])
 
@@ -214,6 +222,7 @@ def test_run_echozero_main_skips_timer_when_not_requested(monkeypatch):
             "working_dir_root": None,
         }
     ]
+    assert log_calls == [None]
     assert widget.window_titles == ["EchoZero"]
     assert widget.resize_calls == [(1440, 720)]
     assert widget.show_calls == 1
@@ -222,7 +231,7 @@ def test_run_echozero_main_skips_timer_when_not_requested(monkeypatch):
 
 
 def test_run_echozero_main_shuts_down_audio_on_exec_failure(monkeypatch):
-    _, runtime_audio, build_calls = _install_launcher_fakes(monkeypatch, exec_error=RuntimeError("boom"))
+    _, runtime_audio, build_calls, log_calls = _install_launcher_fakes(monkeypatch, exec_error=RuntimeError("boom"))
 
     try:
         run_echozero.main([])
@@ -239,11 +248,12 @@ def test_run_echozero_main_shuts_down_audio_on_exec_failure(monkeypatch):
             "working_dir_root": None,
         }
     ]
+    assert log_calls == [None]
     assert runtime_audio.shutdown_calls == 1
 
 
 def test_run_echozero_main_passes_demo_fixture_flag(monkeypatch):
-    _, runtime_audio, build_calls = _install_launcher_fakes(monkeypatch, exec_result=9)
+    _, runtime_audio, build_calls, log_calls = _install_launcher_fakes(monkeypatch, exec_result=9)
 
     result = run_echozero.main(["--use-demo-fixture"])
 
@@ -256,6 +266,7 @@ def test_run_echozero_main_passes_demo_fixture_flag(monkeypatch):
             "working_dir_root": None,
         }
     ]
+    assert log_calls == [None]
     assert runtime_audio.shutdown_calls == 1
 
 

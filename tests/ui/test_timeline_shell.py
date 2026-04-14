@@ -1494,6 +1494,27 @@ def test_no_takes_layer_has_no_toggle_takes_intent_path():
     assert intents == []
 
 
+def test_timeline_background_right_click_does_not_crash(monkeypatch):
+    app = QApplication.instance() or QApplication([])
+    widget = TimelineWidget(_selection_test_presentation())
+    try:
+        _render_for_hit_testing(widget)
+
+        monkeypatch.setattr(
+            "echozero.ui.qt.timeline.widget.QMenu.exec",
+            lambda self, *_args, **_kwargs: None,
+        )
+
+        shown = widget._canvas._show_context_menu(
+            QPointF(widget._canvas._header_width + 120.0, widget._canvas._top_padding + 6.0)
+        )
+
+        assert isinstance(shown, bool)
+    finally:
+        widget.close()
+        app.processEvents()
+
+
 def test_context_menu_uses_contract_actions_for_take_event_hit_target():
     app = QApplication.instance() or QApplication([])
     widget = TimelineWidget(_selection_test_presentation())

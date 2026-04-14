@@ -10,6 +10,7 @@ from PyQt6.QtGui import QAction, QKeySequence
 from PyQt6.QtWidgets import QApplication, QFileDialog, QMessageBox
 
 from echozero.ui.qt.app_shell import build_app_shell
+from echozero.ui.qt.runtime_logging import install_runtime_logging
 from echozero.ui.qt.timeline.widget import TimelineWidget
 
 
@@ -163,7 +164,15 @@ def main(argv: list[str] | None = None) -> int:
         default=None,
         help="Override the project working-directory root used by the app shell runtime.",
     )
+    parser.add_argument(
+        "--log-dir",
+        type=Path,
+        default=None,
+        help="Optional override for runtime log output directory.",
+    )
     parsed, qt_args = parser.parse_known_args(list(argv) if argv is not None else sys.argv[1:])
+
+    install_runtime_logging(parsed.log_dir)
 
     app = QApplication.instance() or QApplication([sys.argv[0], *qt_args])
     working_dir_root = parsed.working_dir_root

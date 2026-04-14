@@ -1139,19 +1139,26 @@ class TimelineCanvas(QWidget):
         super().mousePressEvent(event)
 
     def contextMenuEvent(self, event: QContextMenuEvent) -> None:
-        hit_target = self._hit_target_for_position(event.position())
+        if not self._show_context_menu(event.position(), global_pos=event.globalPos()):
+            event.ignore()
+            return
+        event.accept()
+
+    def _show_context_menu(self, pos: QPointF, *, global_pos=None) -> bool:
+        hit_target = self._hit_target_for_position(pos)
         contract = build_timeline_inspector_contract(self.presentation, hit_target=hit_target)
         menu = self._build_context_menu(contract)
         if menu.isEmpty():
-            event.ignore()
-            return
-        chosen = menu.exec(event.globalPos())
+            return False
+        if global_pos is None:
+            global_pos = self.mapToGlobal(pos.toPoint())
+        chosen = menu.exec(global_pos)
         if chosen is None:
-            return
+            return True
         payload = chosen.data()
         if isinstance(payload, InspectorAction):
             self.contract_action_selected.emit(payload)
-            event.accept()
+        return True
 
     def _build_context_menu(self, contract: InspectorContract) -> QMenu:
         menu = QMenu(self)
