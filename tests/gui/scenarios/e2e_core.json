@@ -18,10 +18,24 @@
       }
     },
     {
+      "label": "Capture post-stems checkpoint",
+      "action": "screenshot",
+      "params": {
+        "filename": "lane-b-post-stems.png"
+      }
+    },
+    {
       "label": "Extract drum events from drums stem",
       "action": "extract_drum_events",
       "params": {
         "layer_title": "Drums"
+      }
+    },
+    {
+      "label": "Capture post-drum-events checkpoint",
+      "action": "screenshot",
+      "params": {
+        "filename": "lane-b-post-drum-events.png"
       }
     },
     {
@@ -30,6 +44,13 @@
       "params": {
         "layer_title": "Drums",
         "model_path": "__RUN_TEMP__/fixtures/drum-model.pth"
+      }
+    },
+    {
+      "label": "Capture post-classification checkpoint",
+      "action": "screenshot",
+      "params": {
+        "filename": "lane-b-post-classification.png"
       }
     },
     {
@@ -62,6 +83,17 @@
       }
     },
     {
+      "label": "Apply push transfer plan",
+      "action": "apply_transfer_plan"
+    },
+    {
+      "label": "Capture post-push-apply checkpoint",
+      "action": "screenshot",
+      "params": {
+        "filename": "lane-b-post-push-apply.png"
+      }
+    },
+    {
       "label": "Enable sync",
       "action": "enable_sync"
     },
@@ -75,6 +107,10 @@
       "params": {
         "layer_title": "Drum_Classified_Events"
       }
+    },
+    {
+      "label": "Apply pull transfer plan",
+      "action": "apply_transfer_plan"
     },
     {
       "label": "Capture screenshot",

@@ -19,6 +19,7 @@ SUPPORTED_ACTIONS = {
     "duplicate_selected_events",
     "open_push_surface",
     "open_pull_surface",
+    "apply_transfer_plan",
     "enable_sync",
     "disable_sync",
     "screenshot",

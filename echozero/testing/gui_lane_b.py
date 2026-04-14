@@ -10,7 +10,7 @@ from PyQt6.QtCore import QPoint, Qt
 from PyQt6.QtTest import QTest
 from PyQt6.QtWidgets import QApplication
 
-from echozero.application.timeline.intents import OpenPullFromMA3Dialog, OpenPushToMA3Dialog, SelectLayer
+from echozero.application.timeline.intents import ApplyTransferPlan, OpenPullFromMA3Dialog, OpenPushToMA3Dialog, SelectLayer
 from echozero.application.session.models import ManualPullEventOption, ManualPullTrackOption, ManualPushTrackOption
 from echozero.application.presentation.inspector_contract import (
     InspectorAction,
@@ -203,6 +203,12 @@ class GuiLaneBRunner:
                 raise RuntimeError("open_pull_surface requires params.layer_id or params.layer_title.")
             harness.widget._dispatch(SelectLayer(layer.layer_id))
             harness.widget._dispatch(OpenPullFromMA3Dialog())
+        elif action == "apply_transfer_plan":
+            plan = harness.presentation().batch_transfer_plan
+            if plan is None:
+                raise RuntimeError("Lane B apply_transfer_plan requires an active batch transfer plan.")
+            harness.widget._dispatch(ApplyTransferPlan(plan_id=plan.plan_id))
+            QApplication.processEvents()
         elif action == "enable_sync":
             harness.enable_sync()
         elif action == "disable_sync":
