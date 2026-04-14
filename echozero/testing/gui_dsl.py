@@ -9,8 +9,10 @@ from typing import Any
 SUPPORTED_ACTIONS = {
     "add_song_from_path",
     "classify_drum_events",
+    "duplicate",
     "extract_drum_events",
     "extract_stems",
+    "nudge",
     "trigger_action",
     "select_first_event",
     "nudge_selected_events",
@@ -82,25 +84,34 @@ def _validate_step(*, action: str, params: dict[str, Any], step_index: int) -> N
     if action == "add_song_from_path":
         _require_string(params, "title", step_index=step_index)
         _require_string(params, "audio_path", step_index=step_index)
-    elif action in {"extract_stems", "extract_drum_events", "classify_drum_events"}:
-        _require_string(params, "layer_id", step_index=step_index)
+    elif action in {"extract_stems", "extract_drum_events", "classify_drum_events", "select_first_event", "open_push_surface", "open_pull_surface"}:
+        _require_layer_target(params, step_index=step_index, action=action)
+        if action == "classify_drum_events":
+            _require_string(params, "model_path", step_index=step_index)
     elif action == "trigger_action":
         value = params.get("action_id")
         if value not in {"new", "open", "save", "save_as"}:
             raise ValueError(f"Step {step_index} trigger_action requires params.action_id in new/open/save/save_as")
-    elif action == "select_first_event":
-        if "layer_id" in params and not isinstance(params["layer_id"], str):
-            raise ValueError(f"Step {step_index} select_first_event params.layer_id must be a string")
-    elif action == "nudge_selected_events":
+    elif action in {"nudge", "nudge_selected_events"}:
         if params.get("direction") not in {"left", "right"}:
-            raise ValueError(f"Step {step_index} nudge_selected_events requires params.direction in left/right")
+            raise ValueError(f"Step {step_index} {action} requires params.direction in left/right")
         if "steps" in params and (not isinstance(params["steps"], int) or int(params["steps"]) < 1):
-            raise ValueError(f"Step {step_index} nudge_selected_events params.steps must be an integer >= 1")
-    elif action == "duplicate_selected_events":
+            raise ValueError(f"Step {step_index} {action} params.steps must be an integer >= 1")
+    elif action in {"duplicate", "duplicate_selected_events"}:
         if "steps" in params and (not isinstance(params["steps"], int) or int(params["steps"]) < 1):
-            raise ValueError(f"Step {step_index} duplicate_selected_events params.steps must be an integer >= 1")
-    elif action in {"open_push_surface", "open_pull_surface"}:
-        if "layer_id" in params and not isinstance(params["layer_id"], str):
-            raise ValueError(f"Step {step_index} {action} params.layer_id must be a string")
+            raise ValueError(f"Step {step_index} {action} params.steps must be an integer >= 1")
     elif action == "screenshot":
         _require_string(params, "filename", step_index=step_index)
+
+
+def _require_layer_target(params: dict[str, Any], *, step_index: int, action: str) -> None:
+    layer_id = params.get("layer_id")
+    layer_title = params.get("layer_title")
+    has_layer_id = isinstance(layer_id, str) and bool(layer_id.strip())
+    has_layer_title = isinstance(layer_title, str) and bool(layer_title.strip())
+    if not has_layer_id and not has_layer_title:
+        raise ValueError(f"Step {step_index} {action} requires params.layer_id or params.layer_title")
+    if layer_id is not None and not isinstance(layer_id, str):
+        raise ValueError(f"Step {step_index} {action} params.layer_id must be a string")
+    if layer_title is not None and not isinstance(layer_title, str):
+        raise ValueError(f"Step {step_index} {action} params.layer_title must be a string")

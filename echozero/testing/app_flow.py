@@ -8,6 +8,8 @@ from pathlib import Path
 from PyQt6.QtWidgets import QApplication
 
 from echozero.application.shared.enums import SyncMode
+from echozero.application.sync.service import SyncService
+from echozero.services.orchestrator import AnalysisService
 from echozero.testing.ma3 import OSCLoopback, OSCMessageCapture, SimulatedMA3Bridge
 from echozero.ui.qt.app_shell import AppRuntimeProfile, AppShellRuntime, build_app_shell
 from echozero.ui.qt.timeline.widget import TimelineWidget
@@ -24,6 +26,8 @@ class AppFlowHarness:
         simulate_ma3_osc: bool = False,
         working_dir_root: Path | None = None,
         initial_project_name: str = "EchoZero Test Project",
+        analysis_service: AnalysisService | None = None,
+        sync_service: SyncService | None = None,
     ) -> None:
         os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
         self._app = QApplication.instance() or QApplication([])
@@ -43,8 +47,10 @@ class AppFlowHarness:
         runtime = build_app_shell(
             profile=AppRuntimeProfile.TEST,
             sync_bridge=self.ma3_bridge,
+            sync_service=sync_service,
             working_dir_root=self._working_dir_root,
             initial_project_name=initial_project_name,
+            analysis_service=analysis_service,
         )
         if not isinstance(runtime, AppShellRuntime):
             raise TypeError("AppFlowHarness requires canonical AppShellRuntime")

@@ -50,11 +50,11 @@ def test_load_scenario_parses_real_input_pipeline_actions(tmp_path):
                     },
                     {
                         "action": "extract_drum_events",
-                        "params": {"layer_id": "layer_drums"},
+                        "params": {"layer_title": "Drums"},
                     },
                     {
                         "action": "classify_drum_events",
-                        "params": {"layer_id": "layer_drums"},
+                        "params": {"layer_title": "Drums", "model_path": "C:/models/drums.pth"},
                     },
                 ],
             }
@@ -117,4 +117,49 @@ def test_load_scenario_rejects_missing_pipeline_action_fields(tmp_path):
     )
 
     with pytest.raises(ValueError, match="layer_id"):
+        load_scenario(scenario_path)
+
+
+def test_load_scenario_accepts_layer_title_targets_and_action_aliases(tmp_path):
+    scenario_path = tmp_path / "layer_title.json"
+    scenario_path.write_text(
+        json.dumps(
+            {
+                "name": "Layer Titles",
+                "steps": [
+                    {"action": "select_first_event", "params": {"layer_title": "Kick"}},
+                    {"action": "open_push_surface", "params": {"layer_title": "Kick"}},
+                    {"action": "nudge", "params": {"direction": "right", "steps": 1}},
+                    {"action": "duplicate", "params": {"steps": 1}},
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    scenario = load_scenario(scenario_path)
+
+    assert [step.action for step in scenario.steps] == [
+        "select_first_event",
+        "open_push_surface",
+        "nudge",
+        "duplicate",
+    ]
+
+
+def test_load_scenario_rejects_classify_without_model_path(tmp_path):
+    scenario_path = tmp_path / "classify_missing_model.json"
+    scenario_path.write_text(
+        json.dumps(
+            {
+                "name": "Missing Model",
+                "steps": [
+                    {"action": "classify_drum_events", "params": {"layer_title": "Drums"}},
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="model_path"):
         load_scenario(scenario_path)

@@ -1,0 +1,114 @@
+from __future__ import annotations
+
+import wave
+from pathlib import Path
+
+import echozero.pipelines.templates  # noqa: F401
+from echozero.domain.types import AudioData, Event as DomainEvent, EventData, Layer as DomainLayer
+from echozero.execution import ExecutionContext
+from echozero.pipelines.registry import get_registry
+from echozero.result import ok
+from echozero.services.orchestrator import AnalysisService
+
+
+def write_test_wav(path: Path, frames: int = 4410, sample_rate: int = 44100) -> Path:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with wave.open(str(path), "wb") as handle:
+        handle.setnchannels(1)
+        handle.setsampwidth(2)
+        handle.setframerate(sample_rate)
+        handle.writeframes(b"\x00\x00" * frames)
+    return path
+
+
+def write_test_model(path: Path) -> Path:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(b"fake-model")
+    return path
+
+
+class _MockLoadAudioExecutor:
+    def execute(self, block_id: str, context: ExecutionContext):
+        block = context.graph.blocks[block_id]
+        return ok(
+            AudioData(
+                sample_rate=44100,
+                duration=0.1,
+                file_path=str(block.settings["file_path"]),
+                channel_count=1,
+            )
+        )
+
+
+class _MockSeparateAudioExecutor:
+    def execute(self, block_id: str, context: ExecutionContext):
+        audio = context.get_input(block_id, "audio_in", AudioData)
+        assert audio is not None
+        base = Path(audio.file_path).parent
+        stems = {}
+        for name in ("drums", "bass", "vocals", "other"):
+            stem_path = write_test_wav(base / f"{name}.wav")
+            stems[f"{name}_out"] = AudioData(
+                sample_rate=44100,
+                duration=0.1,
+                file_path=str(stem_path),
+                channel_count=1,
+            )
+        return ok(stems)
+
+
+class _MockDetectOnsetsExecutor:
+    def execute(self, _block_id: str, _context: ExecutionContext):
+        event = DomainEvent(
+            id="evt_1",
+            time=0.25,
+            duration=0.05,
+            classifications={"namespace:onset": "hit"},
+            metadata={},
+            origin="detect_onsets",
+        )
+        return ok(
+            EventData(
+                layers=(
+                    DomainLayer(
+                        id="layer_onsets",
+                        name="Onsets",
+                        events=(event,),
+                    ),
+                )
+            )
+        )
+
+
+class _MockClassifyExecutor:
+    def execute(self, block_id: str, context: ExecutionContext):
+        event_data = context.get_input(block_id, "events_in", EventData)
+        assert event_data is not None
+        classified_layers: list[DomainLayer] = []
+        for layer in event_data.layers:
+            classified_events: list[DomainEvent] = []
+            for event in layer.events:
+                classified_events.append(
+                    DomainEvent(
+                        id=event.id,
+                        time=event.time,
+                        duration=event.duration,
+                        classifications={"class": "kick", "confidence": "0.99"},
+                        metadata={**event.metadata, "classified": True},
+                        origin="classify",
+                    )
+                )
+            classified_layers.append(DomainLayer(id=layer.id, name="Kick", events=tuple(classified_events)))
+        return ok(EventData(layers=tuple(classified_layers)))
+
+
+def build_mock_analysis_service() -> AnalysisService:
+    return AnalysisService(
+        get_registry(),
+        {
+            "LoadAudio": _MockLoadAudioExecutor(),
+            "SeparateAudio": _MockSeparateAudioExecutor(),
+            "DetectOnsets": _MockDetectOnsetsExecutor(),
+            "PyTorchAudioClassify": _MockClassifyExecutor(),
+        },
+    )

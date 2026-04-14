@@ -12,7 +12,20 @@ from echozero.application.mixer.models import AudibilityState, MixerState, Layer
 from echozero.application.mixer.service import MixerService
 from echozero.application.playback.models import PlaybackState
 from echozero.application.playback.service import PlaybackService
-from echozero.application.presentation.models import EventPresentation, LayerPresentation, LayerStatusPresentation, TimelinePresentation
+from echozero.application.presentation.models import (
+    BatchTransferPlanPresentation,
+    BatchTransferPlanRowPresentation,
+    EventPresentation,
+    LayerPresentation,
+    LayerStatusPresentation,
+    ManualPullEventOptionPresentation,
+    ManualPullFlowPresentation,
+    ManualPullTargetOptionPresentation,
+    ManualPullTrackOptionPresentation,
+    ManualPushFlowPresentation,
+    ManualPushTrackOptionPresentation,
+    TimelinePresentation,
+)
 from echozero.application.session.models import Session
 from echozero.application.session.service import SessionService
 from echozero.application.shared.enums import FollowMode, PlaybackStatus, SyncMode
@@ -22,6 +35,10 @@ from echozero.application.sync.models import SyncState
 from echozero.application.sync.service import SyncService
 from echozero.application.timeline.intents import (
     ClearSelection,
+    DuplicateSelectedEvents,
+    NudgeSelectedEvents,
+    OpenPullFromMA3Dialog,
+    OpenPushToMA3Dialog,
     Pause,
     Play,
     Seek,
@@ -287,6 +304,28 @@ class DemoTimelineApp:
                 self.presentation_state,
                 layers=_apply_take_action(self.presentation_state.layers, intent.layer_id, intent.take_id, intent.action_id),
             )
+        elif isinstance(intent, NudgeSelectedEvents):
+            self.presentation_state = _nudge_selected_events(
+                self.presentation_state,
+                direction=int(intent.direction),
+                steps=int(intent.steps),
+            )
+        elif isinstance(intent, DuplicateSelectedEvents):
+            self.presentation_state = _duplicate_selected_events(
+                self.presentation_state,
+                steps=int(intent.steps),
+            )
+        elif isinstance(intent, OpenPushToMA3Dialog):
+            self.presentation_state = _open_push_workspace(
+                self.presentation_state,
+                self.sync_service,
+                selected_event_ids=list(intent.selection_event_ids),
+            )
+        elif isinstance(intent, OpenPullFromMA3Dialog):
+            self.presentation_state = _open_pull_workspace(
+                self.presentation_state,
+                self.sync_service,
+            )
         if self.runtime_audio is not None:
             # Keep UI transport state in lockstep with the runtime audio clock so
             # layer mix actions (mute/solo) do not snap playhead backward.
@@ -316,6 +355,172 @@ def _fmt_time(seconds: float) -> str:
     mins = int(seconds // 60)
     secs = seconds - mins * 60
     return f"{mins:02d}:{secs:05.2f}"
+
+
+def _nudge_selected_events(
+    presentation: TimelinePresentation,
+    *,
+    direction: int,
+    steps: int,
+) -> TimelinePresentation:
+    delta = 0.01 * max(1, steps) * (-1 if direction < 0 else 1)
+    selected_ids = set(presentation.selected_event_ids)
+    layers: list[LayerPresentation] = []
+    for layer in presentation.layers:
+        updated_events = []
+        for event in layer.events:
+            if event.event_id in selected_ids:
+                start = max(0.0, event.start + delta)
+                duration = max(event.duration, 0.01)
+                updated_events.append(replace(event, start=start, end=start + duration))
+            else:
+                updated_events.append(event)
+        layers.append(replace(layer, events=updated_events))
+    return replace(presentation, layers=layers)
+
+
+def _duplicate_selected_events(
+    presentation: TimelinePresentation,
+    *,
+    steps: int,
+) -> TimelinePresentation:
+    selected_ids = set(presentation.selected_event_ids)
+    if not selected_ids:
+        return presentation
+    delta = 0.05 * max(1, steps)
+    layers: list[LayerPresentation] = []
+    for layer in presentation.layers:
+        next_events = list(layer.events)
+        for index, event in enumerate(layer.events, start=1):
+            if event.event_id not in selected_ids:
+                continue
+            duration = max(event.duration, 0.01)
+            clone_start = event.start + delta
+            next_events.append(
+                replace(
+                    event,
+                    event_id=EventId(f"{event.event_id}_dup_{index}_{steps}"),
+                    start=clone_start,
+                    end=clone_start + duration,
+                    is_selected=False,
+                )
+            )
+        next_events.sort(key=lambda candidate: (candidate.start, candidate.end, str(candidate.event_id)))
+        layers.append(replace(layer, events=next_events))
+    return replace(presentation, layers=layers)
+
+
+def _open_push_workspace(
+    presentation: TimelinePresentation,
+    sync_service: SyncService,
+    *,
+    selected_event_ids: list[EventId],
+) -> TimelinePresentation:
+    selected_layer_ids = list(presentation.selected_layer_ids) or (
+        [presentation.selected_layer_id] if presentation.selected_layer_id is not None else []
+    )
+    track_options = [
+        ManualPushTrackOptionPresentation(
+            coord=str(option.coord),
+            name=str(option.name),
+            note=option.note,
+            event_count=option.event_count,
+        )
+        for option in _sync_list(sync_service, "list_push_track_options")
+    ]
+    target_layer_id = presentation.selected_layer_id
+    layers: list[LayerPresentation] = []
+    for layer in presentation.layers:
+        if layer.layer_id == target_layer_id:
+            layers.append(
+                replace(
+                    layer,
+                    push_selection_count=len(selected_event_ids),
+                    push_row_status="blocked",
+                    push_row_issue="Select an MA3 target track",
+                )
+            )
+        else:
+            layers.append(layer)
+    batch_plan = BatchTransferPlanPresentation(
+        plan_id="push:timeline_selection",
+        operation_type="push",
+        rows=[
+            BatchTransferPlanRowPresentation(
+                row_id=f"push:{target_layer_id}",
+                direction="push",
+                source_label=next((layer.title for layer in layers if layer.layer_id == target_layer_id), "Selection"),
+                target_label="Unmapped",
+                source_layer_id=target_layer_id,
+                selected_event_ids=list(selected_event_ids),
+                selected_count=len(selected_event_ids),
+                status="blocked",
+                issue="Select an MA3 target track",
+            )
+        ] if target_layer_id is not None else [],
+        blocked_count=1 if target_layer_id is not None else 0,
+    )
+    return replace(
+        presentation,
+        layers=layers,
+        manual_push_flow=ManualPushFlowPresentation(
+            dialog_open=False,
+            push_mode_active=True,
+            selected_layer_ids=selected_layer_ids,
+            available_tracks=track_options,
+            transfer_mode="merge",
+        ),
+        batch_transfer_plan=batch_plan,
+    )
+
+
+def _open_pull_workspace(
+    presentation: TimelinePresentation,
+    sync_service: SyncService,
+) -> TimelinePresentation:
+    track_options = [
+        ManualPullTrackOptionPresentation(
+            coord=str(option.coord),
+            name=str(option.name),
+            note=option.note,
+            event_count=option.event_count,
+        )
+        for option in _sync_list(sync_service, "list_pull_track_options")
+    ]
+    target_options = [
+        ManualPullTargetOptionPresentation(layer_id=layer.layer_id, name=layer.title)
+        for layer in presentation.layers
+        if layer.kind.name == "EVENT"
+    ]
+    return replace(
+        presentation,
+        manual_pull_flow=ManualPullFlowPresentation(
+            dialog_open=False,
+            workspace_active=True,
+            available_tracks=track_options,
+            available_events=[
+                ManualPullEventOptionPresentation(
+                    event_id=str(option.event_id),
+                    label=str(option.label),
+                    start=option.start,
+                    end=option.end,
+                )
+                for option in _sync_list(sync_service, "list_pull_source_events", "tc1_tg2_tr3")
+            ] if track_options else [],
+            available_target_layers=target_options,
+        ),
+        batch_transfer_plan=BatchTransferPlanPresentation(
+            plan_id="pull:timeline_selection",
+            operation_type="pull",
+        ),
+    )
+
+
+def _sync_list(sync_service: SyncService, method_name: str, *args):
+    method = getattr(sync_service, method_name, None)
+    if not callable(method):
+        return []
+    return list(method(*args))
 
 
 def _apply_take_action(

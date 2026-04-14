@@ -1,32 +1,29 @@
 from __future__ import annotations
 
 import json
-from dataclasses import asdict, dataclass, replace
+import tempfile
+from dataclasses import asdict, dataclass
 from pathlib import Path
+from unittest.mock import patch
 
 from PyQt6.QtCore import QPoint, Qt
 from PyQt6.QtTest import QTest
 from PyQt6.QtWidgets import QApplication
 
-from echozero.application.mixer.models import AudibilityState, LayerMixerState, MixerState
-from echozero.application.mixer.service import MixerService
-from echozero.application.playback.models import PlaybackState
-from echozero.application.playback.service import PlaybackService
-from echozero.application.presentation.models import TimelinePresentation
-from echozero.application.session.models import ManualPullEventOption, ManualPullTrackOption, ManualPushTrackOption, Session
-from echozero.application.session.service import SessionService
-from echozero.application.shared.enums import PlaybackStatus, SyncMode
-from echozero.application.shared.ids import EventId, LayerId, ProjectId, SessionId, SongId, SongVersionId, TakeId, TimelineId
+from echozero.application.timeline.intents import OpenPullFromMA3Dialog, OpenPushToMA3Dialog, SelectLayer
+from echozero.application.session.models import ManualPullEventOption, ManualPullTrackOption, ManualPushTrackOption
+from echozero.application.presentation.inspector_contract import (
+    InspectorAction,
+    TimelineInspectorHitTarget,
+    build_timeline_inspector_contract,
+)
+from echozero.application.shared.enums import SyncMode
 from echozero.application.sync.models import SyncState
 from echozero.application.sync.service import SyncService
-from echozero.application.timeline.assembler import TimelineAssembler
-from echozero.application.timeline.models import Event, Layer, LayerPresentationHints, LayerStatus, LayerSyncState, Take, Timeline, TimelineSelection, TimelineViewport
-from echozero.application.timeline.orchestrator import TimelineOrchestrator
 from echozero.application.transport.models import TransportState
-from echozero.application.transport.service import TransportService
+from echozero.testing.analysis_mocks import build_mock_analysis_service, write_test_model, write_test_wav
 from echozero.testing.app_flow import AppFlowHarness
 from echozero.testing.gui_dsl import GuiScenario, load_scenario
-from echozero.ui.qt.timeline.fixture_loader import load_realistic_timeline_fixture
 
 
 @dataclass(slots=True)
@@ -37,106 +34,6 @@ class StepTrace:
     status: str
     snapshot: dict[str, object]
     error: str | None = None
-
-
-class _SessionService(SessionService):
-    def __init__(self, session: Session):
-        self._session = session
-
-    def get_session(self) -> Session:
-        return self._session
-
-    def set_active_song(self, song_id):
-        self._session.active_song_id = song_id
-        return self._session
-
-    def set_active_song_version(self, song_version_id):
-        self._session.active_song_version_id = song_version_id
-        return self._session
-
-    def set_active_timeline(self, timeline_id):
-        self._session.active_timeline_id = timeline_id
-        return self._session
-
-
-class _TransportService(TransportService):
-    def __init__(self, state: TransportState):
-        self._state = state
-
-    def get_state(self) -> TransportState:
-        return self._state
-
-    def play(self) -> TransportState:
-        self._state.is_playing = True
-        return self._state
-
-    def pause(self) -> TransportState:
-        self._state.is_playing = False
-        return self._state
-
-    def stop(self) -> TransportState:
-        self._state.is_playing = False
-        self._state.playhead = 0.0
-        return self._state
-
-    def seek(self, position: float) -> TransportState:
-        self._state.playhead = max(0.0, float(position))
-        return self._state
-
-    def set_loop(self, loop_region, enabled: bool = True) -> TransportState:
-        self._state.loop_region = loop_region
-        self._state.loop_enabled = enabled
-        return self._state
-
-
-class _MixerService(MixerService):
-    def __init__(self, state: MixerState):
-        self._state = state
-
-    def get_state(self) -> MixerState:
-        return self._state
-
-    def set_layer_state(self, layer_id, state: LayerMixerState) -> MixerState:
-        self._state.layer_states[layer_id] = state
-        return self._state
-
-    def set_mute(self, layer_id, muted: bool) -> MixerState:
-        self._state.layer_states.setdefault(layer_id, LayerMixerState()).mute = muted
-        return self._state
-
-    def set_solo(self, layer_id, soloed: bool) -> MixerState:
-        self._state.layer_states.setdefault(layer_id, LayerMixerState()).solo = soloed
-        return self._state
-
-    def set_gain(self, layer_id, gain_db: float) -> MixerState:
-        self._state.layer_states.setdefault(layer_id, LayerMixerState()).gain_db = gain_db
-        return self._state
-
-    def set_pan(self, layer_id, pan: float) -> MixerState:
-        self._state.layer_states.setdefault(layer_id, LayerMixerState()).pan = pan
-        return self._state
-
-    def resolve_audibility(self, layers: list[Layer]) -> list[AudibilityState]:
-        return [AudibilityState(layer_id=layer.id, is_audible=not layer.mixer.mute, reason="normal") for layer in layers]
-
-
-class _PlaybackService(PlaybackService):
-    def __init__(self, state: PlaybackState):
-        self._state = state
-
-    def get_state(self) -> PlaybackState:
-        return self._state
-
-    def prepare(self, timeline: Timeline) -> PlaybackState:
-        return self._state
-
-    def update_runtime(self, timeline, transport, audibility, sync) -> PlaybackState:
-        self._state.status = PlaybackStatus.PLAYING if transport.is_playing else PlaybackStatus.STOPPED
-        return self._state
-
-    def stop(self) -> PlaybackState:
-        self._state.status = PlaybackStatus.STOPPED
-        return self._state
 
 
 class _LaneBSyncService(SyncService):
@@ -193,72 +90,22 @@ class _LaneBSyncService(SyncService):
         return list(self._pull_events.get(source_track_coord, []))
 
 
-class _LaneBApp:
-    def __init__(self, *, project_name: str):
-        self._project_name = project_name
-        self.timeline = _build_timeline_from_fixture()
-        self.session = Session(
-            id=SessionId("session_lane_b"),
-            project_id=ProjectId("project_lane_b"),
-            active_song_id=SongId("song_lane_b"),
-            active_song_version_id=SongVersionId("song_version_lane_b"),
-            active_timeline_id=self.timeline.id,
-            transport_state=TransportState(is_playing=False, playhead=0.0),
-            mixer_state=MixerState(),
-            playback_state=PlaybackState(status=PlaybackStatus.STOPPED, backend_name="lane_b"),
-            sync_state=SyncState(mode=SyncMode.NONE, connected=False, target_ref="lane_b"),
-        )
-        self.runtime_audio = None
-        self._sync_service = _LaneBSyncService(self.session.sync_state)
-        self._assembler = TimelineAssembler()
-        self._orchestrator = TimelineOrchestrator(
-            session_service=_SessionService(self.session),
-            transport_service=_TransportService(self.session.transport_state),
-            mixer_service=_MixerService(self.session.mixer_state),
-            playback_service=_PlaybackService(self.session.playback_state),
-            sync_service=self._sync_service,
-            assembler=self._assembler,
-        )
-
-    def presentation(self) -> TimelinePresentation:
-        return replace(self._assembler.assemble(self.timeline, self.session), title=self._project_name)
-
-    def dispatch(self, intent) -> TimelinePresentation:
-        return replace(self._orchestrator.handle(self.timeline, intent), title=self._project_name)
-
-    def enable_sync(self, mode: SyncMode = SyncMode.MA3) -> SyncState:
-        self._sync_service.set_mode(mode)
-        state = self._sync_service.connect()
-        self.session.sync_state = state
-        for layer in self.timeline.layers:
-            if layer.kind.value == "event":
-                layer.sync.connected = True
-                layer.sync.mode = mode.value
-        return state
-
-    def disable_sync(self) -> SyncState:
-        state = self._sync_service.disconnect()
-        self.session.sync_state = state
-        for layer in self.timeline.layers:
-            layer.sync.connected = False
-            layer.sync.mode = SyncMode.NONE.value
-        return state
-
-
 class GuiLaneBRunner:
     def __init__(self, *, scenario: GuiScenario, output_dir: Path | None = None):
         self._scenario = scenario
         self._output_dir = output_dir
+        base_root = output_dir.parent if output_dir is not None else Path(tempfile.gettempdir()) / "EchoZero"
+        self._run_temp_root = base_root.resolve()
 
     def run(self) -> list[dict[str, object]]:
         trace: list[dict[str, object]] = []
-        harness_root = (self._output_dir.parent if self._output_dir is not None else Path("C:/Users/griff/AppData/Local/Temp")) / "gui-lane-b-working"
+        self._run_temp_root.mkdir(parents=True, exist_ok=True)
         harness = AppFlowHarness(
             initial_project_name=self._scenario.name,
-            working_dir_root=harness_root,
+            working_dir_root=self._run_temp_root / "gui-lane-b-working",
+            analysis_service=build_mock_analysis_service(),
+            sync_service=_LaneBSyncService(),
         )
-        harness.runtime._app = _LaneBApp(project_name=self._scenario.name)  # type: ignore[attr-defined]
-        harness.widget.set_presentation(harness.presentation())
         _render_for_hit_testing(harness)
 
         try:
@@ -268,7 +115,7 @@ class GuiLaneBRunner:
             for index, step in enumerate(self._scenario.steps):
                 label = step.label or step.action
                 try:
-                    self._execute_step(harness, action=step.action, params=step.params)
+                    self._execute_step(harness, action=step.action, params=self._resolve_step_params(step.params))
                     status = "passed"
                     error = None
                 except Exception as exc:
@@ -294,49 +141,48 @@ class GuiLaneBRunner:
             return trace
         finally:
             harness.runtime._is_dirty = False  # type: ignore[attr-defined]
+            harness.launcher.confirm_close = lambda: True  # type: ignore[method-assign]
             harness.shutdown()
 
     def _execute_step(self, harness: AppFlowHarness, *, action: str, params: dict[str, object]) -> None:
         if action == "add_song_from_path":
-            runtime = harness.runtime
-            if not callable(getattr(runtime, "add_song_from_path", None)):
-                raise RuntimeError("Lane B runtime does not support add_song_from_path")
-            runtime.add_song_from_path(str(params["title"]), str(params["audio_path"]))
-            harness.widget.set_presentation(harness.presentation())
+            self._ensure_test_asset(Path(str(params["audio_path"])))
+            with patch(
+                "echozero.ui.qt.timeline.widget.QInputDialog.getText",
+                return_value=(str(params["title"]), True),
+            ), patch(
+                "echozero.ui.qt.timeline.widget.QFileDialog.getOpenFileName",
+                return_value=(str(params["audio_path"]), "Audio Files"),
+            ):
+                _trigger_global_contract_action(harness, "add_song_from_path")
         elif action == "extract_stems":
-            runtime = harness.runtime
-            if not callable(getattr(runtime, "extract_stems", None)):
-                raise RuntimeError("Lane B runtime does not support extract_stems")
-            runtime.extract_stems(str(params["layer_id"]))
-            harness.widget.set_presentation(harness.presentation())
+            layer = _resolve_layer(harness, params)
+            _trigger_layer_contract_action(harness, layer.layer_id, "extract_stems")
         elif action == "extract_drum_events":
-            layer_id = str(params["layer_id"])
-            if not any(str(layer.layer_id) == layer_id for layer in harness.presentation().layers):
-                raise RuntimeError(f"Lane B could not find layer_id '{layer_id}' for extract_drum_events")
-            harness.widget.set_presentation(harness.presentation())
+            layer = _resolve_layer(harness, params)
+            _trigger_layer_contract_action(harness, layer.layer_id, "extract_drum_events")
         elif action == "classify_drum_events":
-            model_path = str(params.get("model_path", "")).strip()
-            if not model_path:
-                raise RuntimeError(
-                    "Lane B classify_drum_events requires params.model_path so the classifier model path is explicit."
-                )
-            runtime = harness.runtime
-            if not callable(getattr(runtime, "classify_drum_events", None)):
-                raise RuntimeError("Lane B runtime does not support classify_drum_events")
-            runtime.classify_drum_events(str(params["layer_id"]), model_path)
-            harness.widget.set_presentation(harness.presentation())
+            layer = _resolve_layer(harness, params)
+            model_path = Path(str(params["model_path"]))
+            self._ensure_test_asset(model_path)
+            with patch(
+                "echozero.ui.qt.timeline.widget.QFileDialog.getOpenFileName",
+                return_value=(str(model_path), "PyTorch Models"),
+            ):
+                _trigger_layer_contract_action(harness, layer.layer_id, "classify_drum_events")
         elif action == "trigger_action":
             harness.trigger_action(str(params["action_id"]))
         elif action == "select_first_event":
-            _click_first_event(harness, layer_id=str(params["layer_id"]) if "layer_id" in params else None)
-        elif action == "nudge_selected_events":
+            layer = _resolve_layer(harness, params) if "layer_id" in params or "layer_title" in params else None
+            _click_first_event(harness, layer_id=None if layer is None else str(layer.layer_id))
+        elif action in {"nudge", "nudge_selected_events"}:
             direction = str(params["direction"])
             steps = int(params.get("steps", 1))
             modifiers = Qt.KeyboardModifier.ShiftModifier if steps >= 10 else Qt.KeyboardModifier.NoModifier
             key = Qt.Key.Key_Left if direction == "left" else Qt.Key.Key_Right
             QTest.keyClick(harness.widget._canvas, key, modifiers)
             QApplication.processEvents()
-        elif action == "duplicate_selected_events":
+        elif action in {"duplicate", "duplicate_selected_events"}:
             steps = int(params.get("steps", 1))
             modifiers = Qt.KeyboardModifier.ControlModifier
             if steps >= 10:
@@ -344,9 +190,19 @@ class GuiLaneBRunner:
             QTest.keyClick(harness.widget._canvas, Qt.Key.Key_D, modifiers)
             QApplication.processEvents()
         elif action == "open_push_surface":
-            _click_layer_surface(harness, surface="push", layer_id=str(params["layer_id"]) if "layer_id" in params else None)
+            layer = _resolve_layer(harness, params) if "layer_id" in params or "layer_title" in params else None
+            if layer is None:
+                raise RuntimeError("open_push_surface requires params.layer_id or params.layer_title.")
+            harness.widget._dispatch(SelectLayer(layer.layer_id))
+            harness.widget._dispatch(
+                OpenPushToMA3Dialog(selection_event_ids=harness.widget._selected_event_ids_for_selected_layers())
+            )
         elif action == "open_pull_surface":
-            _click_layer_surface(harness, surface="pull", layer_id=str(params["layer_id"]) if "layer_id" in params else None)
+            layer = _resolve_layer(harness, params) if "layer_id" in params or "layer_title" in params else None
+            if layer is None:
+                raise RuntimeError("open_pull_surface requires params.layer_id or params.layer_title.")
+            harness.widget._dispatch(SelectLayer(layer.layer_id))
+            harness.widget._dispatch(OpenPullFromMA3Dialog())
         elif action == "enable_sync":
             harness.enable_sync()
         elif action == "disable_sync":
@@ -360,113 +216,31 @@ class GuiLaneBRunner:
                 raise RuntimeError(f"Failed to save screenshot: {screenshot_path}")
         else:
             raise ValueError(f"Unsupported action: {action}")
+        _render_for_hit_testing(harness)
+
+    def _resolve_step_params(self, params: dict[str, object]) -> dict[str, object]:
+        resolved: dict[str, object] = {}
+        for key, value in params.items():
+            if isinstance(value, str):
+                resolved[key] = value.replace("__RUN_TEMP__", self._run_temp_root.as_posix())
+            else:
+                resolved[key] = value
+        return resolved
+
+    @staticmethod
+    def _ensure_test_asset(path: Path) -> None:
+        if path.exists():
+            return
+        if path.suffix.lower() == ".wav":
+            write_test_wav(path)
+        elif path.suffix.lower() == ".pth":
+            write_test_model(path)
 
 
 def run_scenario_file(*, scenario_path: str | Path, output_dir: str | Path | None = None) -> list[dict[str, object]]:
     scenario = load_scenario(scenario_path)
     resolved_output = None if output_dir is None else Path(output_dir)
     return GuiLaneBRunner(scenario=scenario, output_dir=resolved_output).run()
-
-
-def _build_timeline_from_fixture() -> Timeline:
-    presentation = load_realistic_timeline_fixture()
-    layers: list[Layer] = []
-    for order_index, layer_presentation in enumerate(presentation.layers):
-        layer_id = LayerId(str(layer_presentation.layer_id))
-        main_take_id = layer_presentation.main_take_id or TakeId(f"{layer_id}:main")
-        takes = [
-            Take(
-                id=TakeId(str(main_take_id)),
-                layer_id=layer_id,
-                name="Main",
-                events=[
-                    Event(
-                        id=EventId(str(event.event_id)),
-                        take_id=TakeId(str(main_take_id)),
-                        start=float(event.start),
-                        end=float(event.end),
-                        label=event.label,
-                        color=event.color,
-                        muted=bool(event.muted),
-                    )
-                    for event in layer_presentation.events
-                ],
-            )
-        ]
-        for take_presentation in layer_presentation.takes:
-            take_id = TakeId(str(take_presentation.take_id))
-            takes.append(
-                Take(
-                    id=take_id,
-                    layer_id=layer_id,
-                    name=take_presentation.name,
-                    source_ref=take_presentation.source_ref,
-                    events=[
-                        Event(
-                            id=EventId(str(event.event_id)),
-                            take_id=take_id,
-                            start=float(event.start),
-                            end=float(event.end),
-                            label=event.label,
-                            color=event.color,
-                            muted=bool(event.muted),
-                        )
-                        for event in take_presentation.events
-                    ],
-                )
-            )
-        layers.append(
-            Layer(
-                id=layer_id,
-                timeline_id=TimelineId(str(presentation.timeline_id)),
-                name=layer_presentation.title,
-                kind=layer_presentation.kind,
-                order_index=order_index,
-                takes=takes,
-                mixer=LayerMixerState(
-                    mute=layer_presentation.muted,
-                    solo=layer_presentation.soloed,
-                    gain_db=layer_presentation.gain_db,
-                    pan=layer_presentation.pan,
-                ),
-                sync=LayerSyncState(
-                    mode=layer_presentation.sync_mode.value,
-                    connected=layer_presentation.sync_connected,
-                    target_ref=layer_presentation.sync_target_label or None,
-                    ma3_track_coord=layer_presentation.sync_target_label or None,
-                    live_sync_state=layer_presentation.live_sync_state,
-                    live_sync_pause_reason=layer_presentation.live_sync_pause_reason or None,
-                    live_sync_divergent=layer_presentation.live_sync_divergent,
-                ),
-                status=LayerStatus(
-                    stale=layer_presentation.status.stale,
-                    manually_modified=layer_presentation.status.manually_modified,
-                    stale_reason=layer_presentation.status.stale_reason or None,
-                ),
-                presentation_hints=LayerPresentationHints(
-                    visible=layer_presentation.visible,
-                    locked=layer_presentation.locked,
-                    expanded=layer_presentation.is_expanded,
-                    color=layer_presentation.color,
-                ),
-            )
-        )
-    return Timeline(
-        id=TimelineId(str(presentation.timeline_id)),
-        song_version_id=SongVersionId("song_version_lane_b"),
-        layers=layers,
-        selection=TimelineSelection(
-            selected_layer_id=LayerId(str(presentation.selected_layer_id)) if presentation.selected_layer_id is not None else None,
-            selected_layer_ids=[LayerId(str(layer_id)) for layer_id in presentation.selected_layer_ids],
-            selected_take_id=TakeId(str(presentation.selected_take_id)) if presentation.selected_take_id is not None else None,
-            selected_event_ids=[EventId(str(event_id)) for event_id in presentation.selected_event_ids],
-        ),
-        viewport=TimelineViewport(
-            pixels_per_second=presentation.pixels_per_second,
-            scroll_x=presentation.scroll_x,
-            scroll_y=presentation.scroll_y,
-        ),
-    )
 
 
 def _render_for_hit_testing(harness: AppFlowHarness) -> None:
@@ -507,17 +281,73 @@ def _click_layer_surface(harness: AppFlowHarness, *, surface: str, layer_id: str
     raise AssertionError(f"No {surface} rect found for layer_id={layer_id}")
 
 
+def _resolve_layer(harness: AppFlowHarness, params: dict[str, object]):
+    presentation = harness.presentation()
+    layer_id = params.get("layer_id")
+    layer_title = params.get("layer_title")
+    if isinstance(layer_id, str) and layer_id.strip():
+        for layer in presentation.layers:
+            if str(layer.layer_id) == layer_id.strip():
+                return layer
+        raise RuntimeError(f"Lane B could not find layer_id '{layer_id}'.")
+    if isinstance(layer_title, str) and layer_title.strip():
+        wanted = layer_title.strip().casefold()
+        matches = [layer for layer in presentation.layers if layer.title.strip().casefold() == wanted]
+        if len(matches) == 1:
+            return matches[0]
+        if not matches:
+            raise RuntimeError(f"Lane B could not find layer_title '{layer_title}'.")
+        raise RuntimeError(f"Lane B found multiple layers matching layer_title '{layer_title}'.")
+    raise RuntimeError("Lane B action requires params.layer_id or params.layer_title.")
+
+
+def _trigger_global_contract_action(harness: AppFlowHarness, action_id: str) -> None:
+    contract = build_timeline_inspector_contract(harness.presentation())
+    harness.widget._trigger_contract_action(_find_contract_action(contract.context_sections, action_id))
+    QApplication.processEvents()
+
+
+def _trigger_layer_contract_action(harness: AppFlowHarness, layer_id, action_id: str) -> None:
+    contract = build_timeline_inspector_contract(
+        harness.presentation(),
+        hit_target=TimelineInspectorHitTarget(kind="layer", layer_id=layer_id),
+    )
+    harness.widget._trigger_contract_action(_find_contract_action(contract.context_sections, action_id))
+    QApplication.processEvents()
+
+
+def _find_contract_action(context_sections, action_id: str) -> InspectorAction:
+    for section in context_sections:
+        for action in section.actions:
+            if action.action_id == action_id:
+                return action
+    raise RuntimeError(f"Lane B could not find inspector action '{action_id}'.")
+
+
 def _snapshot_harness(harness: AppFlowHarness) -> dict[str, object]:
     presentation = harness.presentation()
-    event_counts = {str(layer.layer_id): len(layer.events) for layer in presentation.layers}
     return {
         "selected_layer_id": None if presentation.selected_layer_id is None else str(presentation.selected_layer_id),
         "selected_take_id": None if presentation.selected_take_id is None else str(presentation.selected_take_id),
         "selected_event_ids": [str(event_id) for event_id in presentation.selected_event_ids],
-        "event_counts": event_counts,
         "push_mode_active": bool(presentation.manual_push_flow.push_mode_active),
         "pull_workspace_active": bool(presentation.manual_pull_flow.workspace_active),
         "batch_transfer_plan_id": None if presentation.batch_transfer_plan is None else presentation.batch_transfer_plan.plan_id,
         "sync_connected": bool(harness.runtime.session.sync_state.connected),
         "sync_mode": harness.runtime.session.sync_state.mode.value,
+        "layers": [
+            {
+                "layer_id": str(layer.layer_id),
+                "title": layer.title,
+                "kind": layer.kind.value,
+                "event_count": len(layer.events),
+                "push_target_label": layer.push_target_label,
+                "push_row_status": layer.push_row_status,
+                "pull_target_label": layer.pull_target_label,
+                "pull_row_status": layer.pull_row_status,
+                "sync_target_label": layer.sync_target_label,
+                "sync_connected": bool(layer.sync_connected),
+            }
+            for layer in presentation.layers
+        ],
     }

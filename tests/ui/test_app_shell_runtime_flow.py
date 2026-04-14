@@ -2,125 +2,22 @@ from __future__ import annotations
 
 import shutil
 import uuid
-import wave
 from pathlib import Path
 
-import echozero.pipelines.templates  # noqa: F401
 from echozero.application.timeline.intents import Seek, ToggleLayerExpanded
-from echozero.domain.types import AudioData, Event as DomainEvent, EventData, Layer as DomainLayer
-from echozero.execution import ExecutionContext
 from echozero.application.presentation.inspector_contract import (
     TimelineInspectorHitTarget,
     build_timeline_inspector_contract,
 )
-from echozero.result import ok
-from echozero.services.orchestrator import AnalysisService
-from echozero.pipelines.registry import get_registry
 from echozero.ui.qt.app_shell import AppShellRuntime, build_app_shell
 from echozero.ui.qt.timeline.demo_app import DemoTimelineApp
+from echozero.testing.analysis_mocks import build_mock_analysis_service, write_test_model, write_test_wav
 
 
 def _repo_local_temp_root() -> Path:
     root = Path("C:/Users/griff/.codex/memories/test_app_shell_runtime_flow") / uuid.uuid4().hex
     root.mkdir(parents=True, exist_ok=True)
     return root.resolve()
-
-
-def _write_test_wav(path: Path, *, frames: int = 4410, sample_rate: int = 44100) -> Path:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with wave.open(str(path), "wb") as handle:
-        handle.setnchannels(1)
-        handle.setsampwidth(2)
-        handle.setframerate(sample_rate)
-        handle.writeframes(b"\x00\x00" * frames)
-    return path
-
-
-class _MockLoadAudioExecutor:
-    def execute(self, block_id: str, context: ExecutionContext):
-        block = context.graph.blocks[block_id]
-        return ok(
-            AudioData(
-                sample_rate=44100,
-                duration=0.1,
-                file_path=str(block.settings["file_path"]),
-                channel_count=1,
-            )
-        )
-
-
-class _MockSeparateAudioExecutor:
-    def execute(self, block_id: str, context: ExecutionContext):
-        audio = context.get_input(block_id, "audio_in", AudioData)
-        assert audio is not None
-        base = Path(audio.file_path).parent
-        stems = {}
-        for name in ("drums", "bass", "vocals", "other"):
-            stem_path = _write_test_wav(base / f"{name}.wav")
-            stems[f"{name}_out"] = AudioData(
-                sample_rate=44100,
-                duration=0.1,
-                file_path=str(stem_path),
-                channel_count=1,
-            )
-        return ok(stems)
-
-
-class _MockDetectOnsetsExecutor:
-    def execute(self, _block_id: str, _context: ExecutionContext):
-        event = DomainEvent(
-            id="evt_1",
-            time=0.25,
-            duration=0.05,
-            classifications={"namespace:onset": "hit"},
-            metadata={},
-            origin="detect_onsets",
-        )
-        return ok(
-            EventData(
-                layers=(
-                    DomainLayer(
-                        id="layer_onsets",
-                        name="Onsets",
-                        events=(event,),
-                    ),
-                )
-            )
-        )
-
-
-class _MockClassifyExecutor:
-    def execute(self, _block_id: str, context: ExecutionContext):
-        event_data = context.get_input(_block_id, "events_in", EventData)
-        assert event_data is not None
-        classified_layers: list[DomainLayer] = []
-        for layer in event_data.layers:
-            classified_events: list[DomainEvent] = []
-            for event in layer.events:
-                classified_events.append(
-                    DomainEvent(
-                        id=event.id,
-                        time=event.time,
-                        duration=event.duration,
-                        classifications={"class": "kick", "confidence": "0.99"},
-                        metadata={**event.metadata, "classified": True},
-                        origin="classify",
-                    )
-                )
-            classified_layers.append(DomainLayer(id=layer.id, name="Kick", events=tuple(classified_events)))
-        return ok(EventData(layers=tuple(classified_layers)))
-
-
-def _mock_stem_analysis_service() -> AnalysisService:
-    return AnalysisService(
-        get_registry(),
-        {
-            "LoadAudio": _MockLoadAudioExecutor(),
-            "SeparateAudio": _MockSeparateAudioExecutor(),
-            "DetectOnsets": _MockDetectOnsetsExecutor(),
-            "PyTorchAudioClassify": _MockClassifyExecutor(),
-        },
-    )
 
 
 def test_app_shell_runtime_new_save_open_reopen_flow():
@@ -223,7 +120,7 @@ def test_app_shell_runtime_add_song_from_path_updates_presentation():
     assert isinstance(runtime, AppShellRuntime)
 
     try:
-        audio_path = _write_test_wav(temp_root / "fixtures" / "import.wav")
+        audio_path = write_test_wav(temp_root / "fixtures" / "import.wav")
 
         presentation = runtime.add_song_from_path("Imported Song", audio_path)
 
@@ -243,13 +140,13 @@ def test_app_shell_runtime_extract_stems_persists_audio_layers_and_takes():
     temp_root = _repo_local_temp_root()
     runtime = build_app_shell(
         working_dir_root=temp_root / "working",
-        analysis_service=_mock_stem_analysis_service(),
+        analysis_service=build_mock_analysis_service(),
     )
 
     assert isinstance(runtime, AppShellRuntime)
 
     try:
-        audio_path = _write_test_wav(temp_root / "fixtures" / "import.wav")
+        audio_path = write_test_wav(temp_root / "fixtures" / "import.wav")
         runtime.add_song_from_path("Imported Song", audio_path)
 
         presentation = runtime.extract_stems("source_audio")
@@ -274,13 +171,13 @@ def test_app_shell_runtime_extract_stems_from_derived_audio_layer_is_deferred():
     temp_root = _repo_local_temp_root()
     runtime = build_app_shell(
         working_dir_root=temp_root / "working",
-        analysis_service=_mock_stem_analysis_service(),
+        analysis_service=build_mock_analysis_service(),
     )
 
     assert isinstance(runtime, AppShellRuntime)
 
     try:
-        audio_path = _write_test_wav(temp_root / "fixtures" / "import.wav")
+        audio_path = write_test_wav(temp_root / "fixtures" / "import.wav")
         runtime.add_song_from_path("Imported Song", audio_path)
         presentation = runtime.extract_stems("source_audio")
         drums_layer = next(layer for layer in presentation.layers if layer.title == "Drums")
@@ -300,13 +197,13 @@ def test_app_shell_runtime_extract_drum_events_persists_event_layers_from_drums_
     temp_root = _repo_local_temp_root()
     runtime = build_app_shell(
         working_dir_root=temp_root / "working",
-        analysis_service=_mock_stem_analysis_service(),
+        analysis_service=build_mock_analysis_service(),
     )
 
     assert isinstance(runtime, AppShellRuntime)
 
     try:
-        audio_path = _write_test_wav(temp_root / "fixtures" / "import.wav")
+        audio_path = write_test_wav(temp_root / "fixtures" / "import.wav")
         runtime.add_song_from_path("Imported Song", audio_path)
         after_stems = runtime.extract_stems("source_audio")
         drums_layer = next(layer for layer in after_stems.layers if layer.title == "Drums")
@@ -327,13 +224,13 @@ def test_app_shell_runtime_extract_drum_events_rejects_non_drum_audio_layers():
     temp_root = _repo_local_temp_root()
     runtime = build_app_shell(
         working_dir_root=temp_root / "working",
-        analysis_service=_mock_stem_analysis_service(),
+        analysis_service=build_mock_analysis_service(),
     )
 
     assert isinstance(runtime, AppShellRuntime)
 
     try:
-        audio_path = _write_test_wav(temp_root / "fixtures" / "import.wav")
+        audio_path = write_test_wav(temp_root / "fixtures" / "import.wav")
         runtime.add_song_from_path("Imported Song", audio_path)
         after_stems = runtime.extract_stems("source_audio")
         bass_layer = next(layer for layer in after_stems.layers if layer.title == "Bass")
@@ -353,15 +250,14 @@ def test_app_shell_runtime_classify_drum_events_persists_classified_layers():
     temp_root = _repo_local_temp_root()
     runtime = build_app_shell(
         working_dir_root=temp_root / "working",
-        analysis_service=_mock_stem_analysis_service(),
+        analysis_service=build_mock_analysis_service(),
     )
 
     assert isinstance(runtime, AppShellRuntime)
 
     try:
-        audio_path = _write_test_wav(temp_root / "fixtures" / "import.wav")
-        model_path = (temp_root / "fixtures" / "drum-model.pth")
-        model_path.write_bytes(b"fake-model")
+        audio_path = write_test_wav(temp_root / "fixtures" / "import.wav")
+        model_path = write_test_model(temp_root / "fixtures" / "drum-model.pth")
         runtime.add_song_from_path("Imported Song", audio_path)
         after_stems = runtime.extract_stems("source_audio")
         drums_layer = next(layer for layer in after_stems.layers if layer.title == "Drums")
@@ -383,13 +279,13 @@ def test_app_shell_runtime_classify_drum_events_rejects_missing_model_path():
     temp_root = _repo_local_temp_root()
     runtime = build_app_shell(
         working_dir_root=temp_root / "working",
-        analysis_service=_mock_stem_analysis_service(),
+        analysis_service=build_mock_analysis_service(),
     )
 
     assert isinstance(runtime, AppShellRuntime)
 
     try:
-        audio_path = _write_test_wav(temp_root / "fixtures" / "import.wav")
+        audio_path = write_test_wav(temp_root / "fixtures" / "import.wav")
         runtime.add_song_from_path("Imported Song", audio_path)
         after_stems = runtime.extract_stems("source_audio")
         drums_layer = next(layer for layer in after_stems.layers if layer.title == "Drums")

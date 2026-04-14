@@ -27,17 +27,13 @@ def test_lane_b_runner_executes_starter_scenario_and_writes_trace():
         )
 
         assert trace
-        assert [step["status"] for step in trace[:-1]] == ["passed"] * (len(trace) - 1)
-        assert trace[-1]["status"] == "failed"
-        error_text = trace[-1]["error"] or ""
-        assert "classify_drum_events" in trace[-1]["action"]
-        assert "params.model_path" in error_text
-        assert "classifier model path is explicit" in error_text
+        assert [step["status"] for step in trace] == ["passed"] * len(trace)
 
         push_step = next(step for step in trace if step["action"] == "open_push_surface")
         pull_step = next(step for step in trace if step["action"] == "open_pull_surface")
         enable_step = next(step for step in trace if step["action"] == "enable_sync")
         disable_step = next(step for step in trace if step["action"] == "disable_sync")
+        classify_step = next(step for step in trace if step["action"] == "classify_drum_events")
 
         assert push_step["snapshot"]["push_mode_active"] is True
         assert push_step["snapshot"]["batch_transfer_plan_id"] is not None
@@ -47,6 +43,8 @@ def test_lane_b_runner_executes_starter_scenario_and_writes_trace():
         assert enable_step["snapshot"]["sync_mode"] == "ma3"
         assert disable_step["snapshot"]["sync_connected"] is False
         assert disable_step["snapshot"]["sync_mode"] == "none"
+        assert any(layer["title"] == "Drums" for layer in classify_step["snapshot"]["layers"])
+        assert any(layer["title"] == "Drum_Classified_Events" for layer in classify_step["snapshot"]["layers"])
 
         trace_path = output_dir / "trace.json"
         screenshot_path = output_dir / "lane-b-final.png"
