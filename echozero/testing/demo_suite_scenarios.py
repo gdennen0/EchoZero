@@ -26,6 +26,7 @@ from echozero.application.shared.enums import SyncMode
 from echozero.application.sync.models import LiveSyncState
 from echozero.application.timeline.intents import Pause, Play, Seek, SelectEvent, SelectLayer, Stop, ToggleLayerExpanded
 from echozero.ui.qt.app_shell import AppRuntimeProfile, AppShellRuntime, build_app_shell
+from echozero.ui.qt.font_bootstrap import ensure_qt_fonts_available
 from echozero.ui.qt.timeline.demo_app import build_demo_app, build_real_data_demo_app
 from echozero.ui.qt.timeline.test_harness import estimate_full_window_height
 from echozero.ui.qt.timeline.widget import TimelineWidget
@@ -45,7 +46,9 @@ class ScenarioResult:
 def _app() -> QApplication:
     os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
     os.environ.setdefault("QT_OPENGL", "software")
-    return QApplication.instance() or QApplication([])
+    app = QApplication.instance() or QApplication([])
+    ensure_qt_fonts_available(app)
+    return app
 
 
 def _relative_path(path: Path, root: Path) -> str:

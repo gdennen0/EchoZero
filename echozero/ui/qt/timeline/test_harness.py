@@ -9,6 +9,7 @@ from PyQt6.QtWidgets import QApplication
 
 from echozero.application.presentation.models import TimelinePresentation
 from echozero.application.timeline.intents import Pause, Seek, ToggleLayerExpanded
+from echozero.ui.qt.font_bootstrap import ensure_qt_fonts_available
 from echozero.ui.qt.timeline.demo_app import build_demo_app
 from echozero.ui.qt.timeline.widget import TimelineWidget
 
@@ -68,6 +69,7 @@ def capture_presentation_screenshot(
     height: int | None = None,
 ) -> Path:
     app = QApplication.instance() or QApplication([])
+    ensure_qt_fonts_available(app)
     widget = TimelineWidget(presentation)
     target_height = estimate_full_window_height(presentation) if height is None else height
     widget.resize(width, target_height)
