@@ -625,3 +625,130 @@ def test_apply_transfer_plan_passes_push_transfer_mode_when_endpoint_uses_mode_a
 
     assert sync_service.push_calls == [("tc1_tg2_tr3", ["kick_evt"])]
     assert sync_service.push_mode_calls == ["overwrite"]
+
+
+
+def test_open_push_plan_blocks_rows_when_selection_is_non_main_only():
+    sync_service = _SyncService(
+        push_tracks=[ManualPushTrackOption(coord="tc1_tg2_tr3", name="Track 3")]
+    )
+    orchestrator, timeline, session = _build_orchestrator(sync_service)
+    kick_layer = next(layer for layer in timeline.layers if layer.id == LayerId("layer_kick"))
+    kick_layer.sync.ma3_track_coord = "tc1_tg2_tr3"
+    kick_layer.takes.append(
+        Take(
+            id=TakeId("take_kick_alt"),
+            layer_id=LayerId("layer_kick"),
+            name="Alt",
+            events=[
+                Event(
+                    id=EventId("kick_alt_evt"),
+                    take_id=TakeId("take_kick_alt"),
+                    start=1.25,
+                    end=1.75,
+                    label="Kick Alt",
+                )
+            ],
+        )
+    )
+
+    timeline.selection.selected_layer_id = LayerId("layer_kick")
+    timeline.selection.selected_take_id = TakeId("take_kick_alt")
+    timeline.selection.selected_event_ids = [EventId("kick_alt_evt")]
+
+    orchestrator.handle(
+        timeline,
+        OpenPushToMA3Dialog(selection_event_ids=[EventId("kick_alt_evt")]),
+    )
+
+    assert session.batch_transfer_plan is not None
+    row = session.batch_transfer_plan.rows[0]
+    assert row.status == "blocked"
+    assert row.issue == "Select main-take events to push"
+    assert row.selected_count == 0
+    assert row.selected_event_ids == []
+
+
+def test_apply_transfer_plan_does_not_push_non_main_only_rows():
+    sync_service = _SyncService(
+        push_tracks=[ManualPushTrackOption(coord="tc1_tg2_tr3", name="Track 3")]
+    )
+    orchestrator, timeline, session = _build_orchestrator(sync_service)
+    kick_layer = next(layer for layer in timeline.layers if layer.id == LayerId("layer_kick"))
+    kick_layer.sync.ma3_track_coord = "tc1_tg2_tr3"
+    kick_layer.takes.append(
+        Take(
+            id=TakeId("take_kick_alt"),
+            layer_id=LayerId("layer_kick"),
+            name="Alt",
+            events=[
+                Event(
+                    id=EventId("kick_alt_evt"),
+                    take_id=TakeId("take_kick_alt"),
+                    start=1.25,
+                    end=1.75,
+                    label="Kick Alt",
+                )
+            ],
+        )
+    )
+
+    timeline.selection.selected_layer_id = LayerId("layer_kick")
+    timeline.selection.selected_take_id = TakeId("take_kick_alt")
+    timeline.selection.selected_event_ids = [EventId("kick_alt_evt")]
+
+    orchestrator.handle(
+        timeline,
+        OpenPushToMA3Dialog(selection_event_ids=[EventId("kick_alt_evt")]),
+    )
+    orchestrator.handle(timeline, ApplyTransferPlan(plan_id=f"push:{timeline.id}"))
+
+    assert sync_service.push_calls == []
+    assert session.batch_transfer_plan is not None
+    assert session.batch_transfer_plan.rows[0].status == "blocked"
+    assert session.batch_transfer_plan.blocked_count == 1
+
+
+def test_apply_transfer_plan_pushes_only_main_events_when_selection_is_mixed():
+    sync_service = _SyncService(
+        push_tracks=[ManualPushTrackOption(coord="tc1_tg2_tr3", name="Track 3")]
+    )
+    orchestrator, timeline, session = _build_orchestrator(sync_service)
+    kick_layer = next(layer for layer in timeline.layers if layer.id == LayerId("layer_kick"))
+    kick_layer.sync.ma3_track_coord = "tc1_tg2_tr3"
+    kick_layer.takes.append(
+        Take(
+            id=TakeId("take_kick_alt"),
+            layer_id=LayerId("layer_kick"),
+            name="Alt",
+            events=[
+                Event(
+                    id=EventId("kick_alt_evt"),
+                    take_id=TakeId("take_kick_alt"),
+                    start=1.25,
+                    end=1.75,
+                    label="Kick Alt",
+                )
+            ],
+        )
+    )
+
+    timeline.selection.selected_layer_id = LayerId("layer_kick")
+    timeline.selection.selected_take_id = TakeId("take_kick_alt")
+    timeline.selection.selected_event_ids = [EventId("kick_evt"), EventId("kick_alt_evt")]
+
+    orchestrator.handle(
+        timeline,
+        OpenPushToMA3Dialog(selection_event_ids=[EventId("kick_evt"), EventId("kick_alt_evt")]),
+    )
+
+    assert session.batch_transfer_plan is not None
+    row = session.batch_transfer_plan.rows[0]
+    assert row.status == "ready"
+    assert [str(event_id) for event_id in row.selected_event_ids] == ["kick_evt"]
+
+    orchestrator.handle(timeline, ApplyTransferPlan(plan_id=f"push:{timeline.id}"))
+
+    assert sync_service.push_calls == [("tc1_tg2_tr3", ["kick_evt"])]
+    assert session.batch_transfer_plan is not None
+    assert session.batch_transfer_plan.rows[0].status == "applied"

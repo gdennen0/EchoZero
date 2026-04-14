@@ -1282,6 +1282,12 @@ class TimelineOrchestrator:
 
     def _apply_push_plan_row(self, timeline: Timeline, row: BatchTransferPlanRowState) -> BatchTransferPlanRowState:
         selected_events = self._selected_events_by_ids(timeline, list(row.selected_event_ids))
+        if not selected_events:
+            return self._copy_plan_row(
+                row,
+                status="failed",
+                issue="No main-take events selected for push",
+            )
         apply_push = getattr(self.sync_service, "apply_push_transfer", None)
         if callable(apply_push):
             self._invoke_push_apply(
@@ -1548,7 +1554,16 @@ class TimelineOrchestrator:
         available_tracks = self._load_manual_push_track_options()
         rows: list[BatchTransferPlanRowState] = []
         for layer, records in grouped_records:
-            selected_event_ids = [record.event.id for record in records]
+            main_take = self._main_take(layer)
+            main_event_ids = {
+                event.id
+                for event in (main_take.events if main_take is not None else [])
+            }
+            selected_event_ids = [
+                record.event.id
+                for record in records
+                if record.event.id in main_event_ids
+            ]
             target_track_coord = layer.sync.ma3_track_coord
             target_track = None
             if target_track_coord:
@@ -1556,8 +1571,15 @@ class TimelineOrchestrator:
                     available_tracks,
                     target_track_coord,
                 )
-            status = "ready" if target_track_coord else "blocked"
-            issue = None if target_track_coord else "Select an MA3 target track"
+            if not selected_event_ids:
+                status = "blocked"
+                issue = "Select main-take events to push"
+            elif not target_track_coord:
+                status = "blocked"
+                issue = "Select an MA3 target track"
+            else:
+                status = "ready"
+                issue = None
             target_label = (
                 self._format_manual_push_target_label(target_track)
                 if target_track is not None
