@@ -457,20 +457,12 @@ def _build_project_native_baseline_presentation(
 def _build_empty_project_presentation(project_storage: ProjectStorage) -> TimelinePresentation:
     project = project_storage.project
     timeline_id = TimelineId(f"timeline_{project.id}")
-    default_layer_id = LayerId(f"layer_{project.id}_default")
     return TimelinePresentation(
         timeline_id=timeline_id,
         title=project.name,
-        layers=[
-            LayerPresentation(
-                layer_id=default_layer_id,
-                title="Layer 1",
-                is_selected=True,
-                is_expanded=True,
-            )
-        ],
-        selected_layer_id=default_layer_id,
-        selected_layer_ids=[default_layer_id],
+        layers=[],
+        selected_layer_id=None,
+        selected_layer_ids=[],
         current_time_label="00:00.00",
         end_time_label="00:00.00",
     )

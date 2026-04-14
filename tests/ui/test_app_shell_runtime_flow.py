@@ -36,9 +36,14 @@ def test_app_shell_runtime_new_save_open_reopen_flow():
         assert runtime.project_storage.project.name == "Runtime Flow"
         assert runtime.project_path is None
         assert runtime.is_dirty is False
+        assert runtime.presentation().layers == []
 
         runtime.dispatch(Seek(1.25))
         assert runtime.is_dirty is False
+
+        first_audio = write_test_wav(temp_root / "fixtures" / "runtime-flow-1.wav")
+        runtime.add_song_from_path("Runtime Flow Song", first_audio)
+        assert runtime.is_dirty is True
 
         layer_id = runtime.presentation().layers[0].layer_id
         runtime.dispatch(ToggleLayerExpanded(layer_id))
@@ -48,6 +53,11 @@ def test_app_shell_runtime_new_save_open_reopen_flow():
         assert runtime.project_storage.project.name == "Second Runtime Flow"
         assert runtime.project_path is None
         assert runtime.is_dirty is False
+        assert runtime.presentation().layers == []
+
+        second_audio = write_test_wav(temp_root / "fixtures" / "runtime-flow-2.wav")
+        runtime.add_song_from_path("Second Runtime Song", second_audio)
+        assert runtime.is_dirty is True
 
         layer_id = runtime.presentation().layers[0].layer_id
         runtime.dispatch(ToggleLayerExpanded(layer_id))
@@ -70,10 +80,11 @@ def test_app_shell_runtime_new_save_open_reopen_flow():
         assert runtime.project_storage.working_dir.exists()
         assert runtime.project_storage.project.name == "Second Runtime Flow"
         assert runtime.session.project_id == runtime.project_storage.project.id
-        assert runtime.session.active_song_id is None
-        assert runtime.session.active_song_version_id is None
+        assert runtime.session.active_song_id is not None
+        assert runtime.session.active_song_version_id is not None
         assert runtime.session.active_timeline_id == runtime.presentation().timeline_id
         assert runtime.presentation().title == "Second Runtime Flow"
+        assert runtime.presentation().layers[0].title == "Second Runtime Song"
         assert runtime.is_dirty is False
 
         runtime.open_project(save_path)
@@ -93,21 +104,35 @@ def test_app_shell_runtime_exposes_transfer_surface_actions():
 
     try:
         presentation = runtime.presentation()
+        assert presentation.layers == []
+
+        empty_contract = build_timeline_inspector_contract(
+            presentation,
+            hit_target=TimelineInspectorHitTarget(kind="timeline", time_seconds=1.0),
+        )
+        empty_action_ids = {
+            action.action_id
+            for section in empty_contract.context_sections
+            for action in section.actions
+        }
+        assert "add_song_from_path" in empty_action_ids
+
+        audio_path = write_test_wav(temp_root / "fixtures" / "transfer-actions.wav")
+        presentation = runtime.add_song_from_path("Transfer Song", audio_path)
         first_layer = presentation.layers[0]
-        contract = build_timeline_inspector_contract(
+        layer_contract = build_timeline_inspector_contract(
             presentation,
             hit_target=TimelineInspectorHitTarget(kind="layer", layer_id=first_layer.layer_id),
         )
 
-        action_ids = {
+        layer_action_ids = {
             action.action_id
-            for section in contract.context_sections
+            for section in layer_contract.context_sections
             for action in section.actions
         }
 
-        assert "push_to_ma3" in action_ids
-        assert "pull_from_ma3" in action_ids
-        assert "add_song_from_path" in action_ids
+        assert "push_to_ma3" in layer_action_ids
+        assert "pull_from_ma3" in layer_action_ids
     finally:
         runtime.shutdown()
         shutil.rmtree(temp_root, ignore_errors=True)
@@ -331,11 +356,9 @@ def test_app_shell_runtime_canonical_build_does_not_depend_on_fixture_loader(mon
         assert runtime.session.active_song_id is None
         assert runtime.session.active_song_version_id is None
         assert runtime.session.active_timeline_id == presentation.timeline_id
-        assert len(presentation.layers) == 1
-        assert presentation.layers[0].events == []
-        assert presentation.layers[0].takes == []
-        assert all(not layer.events for layer in presentation.layers)
-        assert all(not layer.takes for layer in presentation.layers)
+        assert presentation.layers == []
+        assert presentation.selected_layer_id is None
+        assert presentation.selected_layer_ids == []
         assert presentation.playhead == 0.0
         assert presentation.current_time_label == "00:00.00"
         assert presentation.end_time_label == "00:00.00"

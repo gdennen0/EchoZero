@@ -1147,7 +1147,7 @@ class TimelineCanvas(QWidget):
     def _show_context_menu(self, pos: QPointF, *, global_pos=None) -> bool:
         hit_target = self._hit_target_for_position(pos)
         contract = build_timeline_inspector_contract(self.presentation, hit_target=hit_target)
-        menu = self._build_context_menu(contract)
+        menu = self._build_context_menu(contract, hit_kind=hit_target.kind)
         if menu.isEmpty():
             return False
         if global_pos is None:
@@ -1160,18 +1160,45 @@ class TimelineCanvas(QWidget):
             self.contract_action_selected.emit(payload)
         return True
 
-    def _build_context_menu(self, contract: InspectorContract) -> QMenu:
+    def _build_context_menu(self, contract: InspectorContract, *, hit_kind: str | None = None) -> QMenu:
         menu = QMenu(self)
         first_section = True
+        seen_action_ids: set[str] = set()
         for section in contract.context_sections:
+            visible_actions: list[InspectorAction] = []
+            for action in section.actions:
+                if hit_kind is not None and not self._context_action_visible_for_hit_kind(action, hit_kind):
+                    continue
+                if hit_kind is not None and action.action_id in seen_action_ids:
+                    continue
+                visible_actions.append(action)
+                if hit_kind is not None:
+                    seen_action_ids.add(action.action_id)
+            if not visible_actions:
+                continue
             if not first_section:
                 menu.addSeparator()
             first_section = False
-            for action in section.actions:
+            for action in visible_actions:
                 qt_action = menu.addAction(action.label)
                 qt_action.setEnabled(action.enabled)
                 qt_action.setData(action)
         return menu
+
+    @staticmethod
+    def _context_action_visible_for_hit_kind(action: InspectorAction, hit_kind: str) -> bool:
+        group = (action.group or "").strip().lower()
+        kind = (hit_kind or "").strip().lower()
+        allowed_groups_by_kind = {
+            "timeline": {"tools", "transport"},
+            "layer": {"layer", "gain", "pipeline", "transfer", "live_sync", "transport"},
+            "take": {"take", "transport"},
+            "event": {"selection", "take", "transport"},
+        }
+        allowed = allowed_groups_by_kind.get(kind)
+        if allowed is None:
+            return True
+        return group in allowed
 
     def mouseReleaseEvent(self, event) -> None:
         if event.button() == Qt.MouseButton.LeftButton:

@@ -1547,6 +1547,117 @@ def test_context_menu_uses_contract_actions_for_take_event_hit_target():
         app.processEvents()
 
 
+def test_context_menu_timeline_hit_is_scoped_to_timeline_actions():
+    app = QApplication.instance() or QApplication([])
+    widget = TimelineWidget(_selection_test_presentation())
+    try:
+        _render_for_hit_testing(widget)
+
+        contract = build_timeline_inspector_contract(
+            widget.presentation,
+            hit_target=TimelineInspectorHitTarget(kind="timeline", time_seconds=1.25),
+        )
+        menu = widget._canvas._build_context_menu(contract, hit_kind="timeline")
+        labels = [action.text() for action in menu.actions() if not action.isSeparator()]
+
+        assert "Add Song From Path" in labels
+        assert any(label.startswith("Seek to") for label in labels)
+        assert "Push to MA3" not in labels
+        assert "Mute Layer" not in labels
+        assert "Overwrite Main" not in labels
+    finally:
+        widget.close()
+        app.processEvents()
+
+
+def test_context_menu_layer_hit_is_scoped_to_layer_actions():
+    app = QApplication.instance() or QApplication([])
+    widget = TimelineWidget(_selection_test_presentation())
+    try:
+        _render_for_hit_testing(widget)
+
+        contract = build_timeline_inspector_contract(
+            widget.presentation,
+            hit_target=TimelineInspectorHitTarget(kind="layer", layer_id=LayerId("layer_kick"), time_seconds=1.0),
+        )
+        menu = widget._canvas._build_context_menu(contract, hit_kind="layer")
+        labels = [action.text() for action in menu.actions() if not action.isSeparator()]
+
+        assert "Push to MA3" in labels
+        assert "Pull from MA3" in labels
+        assert "Mute Layer" in labels
+        assert "Add Song From Path" not in labels
+        assert "Nudge Left" not in labels
+        assert "Overwrite Main" not in labels
+    finally:
+        widget.close()
+        app.processEvents()
+
+
+def test_context_menu_take_hit_is_scoped_to_take_actions():
+    app = QApplication.instance() or QApplication([])
+    widget = TimelineWidget(_selection_test_presentation())
+    try:
+        _render_for_hit_testing(widget)
+
+        contract = build_timeline_inspector_contract(
+            widget.presentation,
+            hit_target=TimelineInspectorHitTarget(
+                kind="take",
+                layer_id=LayerId("layer_kick"),
+                take_id=TakeId("take_alt"),
+                time_seconds=2.0,
+            ),
+        )
+        menu = widget._canvas._build_context_menu(contract, hit_kind="take")
+        labels = [action.text() for action in menu.actions() if not action.isSeparator()]
+
+        assert "Overwrite Main" in labels
+        assert "Merge Main" in labels
+        assert "Push to MA3" not in labels
+        assert "Mute Layer" not in labels
+        assert "Add Song From Path" not in labels
+    finally:
+        widget.close()
+        app.processEvents()
+
+
+def test_context_menu_event_hit_is_scoped_to_event_selection_actions():
+    app = QApplication.instance() or QApplication([])
+    selected = replace(
+        _selection_test_presentation(),
+        selected_layer_id=LayerId("layer_kick"),
+        selected_take_id=TakeId("take_main"),
+        selected_event_ids=[EventId("main_evt")],
+    )
+    widget = TimelineWidget(selected)
+    try:
+        _render_for_hit_testing(widget)
+
+        contract = build_timeline_inspector_contract(
+            widget.presentation,
+            hit_target=TimelineInspectorHitTarget(
+                kind="event",
+                layer_id=LayerId("layer_kick"),
+                take_id=TakeId("take_main"),
+                event_id=EventId("main_evt"),
+                time_seconds=1.0,
+            ),
+        )
+        menu = widget._canvas._build_context_menu(contract, hit_kind="event")
+        labels = [action.text() for action in menu.actions() if not action.isSeparator()]
+
+        assert "Nudge Left" in labels
+        assert "Nudge Right" in labels
+        assert "Duplicate" in labels
+        assert "Push to MA3" not in labels
+        assert "Mute Layer" not in labels
+        assert "Add Song From Path" not in labels
+    finally:
+        widget.close()
+        app.processEvents()
+
+
 def test_selection_contract_exposes_push_to_ma3_action():
     presentation = replace(
         _selection_test_presentation(),
