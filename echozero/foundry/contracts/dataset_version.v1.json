@@ -34,6 +34,7 @@
           "label": { "type": "string" },
           "content_hash": { "type": "string" },
           "source_provenance": { "type": "object" },
+          "group_id": { "type": ["string", "null"] },
           "is_synthetic": { "type": "boolean" },
           "synthetic_provenance": { "type": "object" },
           "quality_flags": { "type": "array", "items": { "type": "string" } },

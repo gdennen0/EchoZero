@@ -15,6 +15,12 @@ from sklearn.metrics import accuracy_score, confusion_matrix, log_loss, precisio
 
 from echozero.foundry.domain import DatasetSample, DatasetVersion, TrainRun
 from echozero.foundry.services.baseline_trainer import BaselineTrainer, BaselineTrainingResult, RunCanceledError
+from echozero.foundry.services.training_runtime import (
+    compute_config_fingerprint,
+    configure_reproducibility,
+    ensure_finite_array,
+    ensure_finite_tensor,
+)
 
 
 class _SimpleCnn(torch.nn.Module):
@@ -68,14 +74,25 @@ class CnnTrainer:
         batch_size = int(training_spec.get("batchSize", 16))
         learning_rate = float(training_spec["learningRate"])
         seed = int(training_spec.get("seed", 17))
+        deterministic = bool(training_spec.get("deterministic", True))
         synthetic_mix_spec = training_spec.get("syntheticMix") or {}
         gradient_clip_norm = float(training_spec.get("gradientClipNorm", 1.0))
         weight_decay = float(training_spec.get("weightDecay", 0.0001))
         early_stopping_patience = training_spec.get("earlyStoppingPatience")
         min_epochs = int(training_spec.get("minEpochs", 1))
 
+        reproducibility = configure_reproducibility(seed, deterministic=deterministic)
+        config_fingerprint = compute_config_fingerprint(
+            {
+                "schema": "foundry.training_fingerprint.v1",
+                "runSpec": run.spec,
+                "datasetVersionId": dataset_version.id,
+                "datasetManifestHash": dataset_version.manifest_hash,
+                "classMap": list(dataset_version.class_map),
+            }
+        )
+
         rng = np.random.default_rng(seed)
-        torch.manual_seed(seed)
 
         sample_by_id = {sample.sample_id: sample for sample in dataset_version.samples}
         split_plan = dataset_version.split_plan or {}
@@ -148,6 +165,11 @@ class CnnTrainer:
             cancel_event=cancel_event,
         )
 
+        ensure_finite_array("cnn/train_x", train_ds.x, context="dataset_build")
+        ensure_finite_array("cnn/val_x", val_ds.x, context="dataset_build")
+        ensure_finite_array("cnn/eval_x", eval_ds.x, context="dataset_build")
+        ensure_finite_array("cnn/synth_eval_x", synthetic_eval_ds.x, context="dataset_build")
+
         model = _SimpleCnn(num_classes=len(class_names))
         optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate, weight_decay=weight_decay)
         criterion = torch.nn.CrossEntropyLoss()
@@ -166,19 +188,23 @@ class CnnTrainer:
             permutation = rng.permutation(len(train_ds.y))
             total_loss = 0.0
             sample_count = 0
-            for start in range(0, len(permutation), max(1, batch_size)):
+            for batch_index, start in enumerate(range(0, len(permutation), max(1, batch_size)), start=1):
                 idx = permutation[start : start + max(1, batch_size)]
                 xb = torch.from_numpy(train_ds.x[idx])
                 yb = torch.from_numpy(train_ds.y[idx])
+                ensure_finite_tensor("cnn/train_batch", xb, context=f"epoch={epoch},batch={batch_index}")
                 optimizer.zero_grad(set_to_none=True)
                 logits = model(xb)
+                ensure_finite_tensor("cnn/logits", logits, context=f"epoch={epoch},batch={batch_index}")
                 loss = criterion(logits, yb)
-                if not torch.isfinite(loss):
-                    raise ValueError(f"cnn trainer encountered non-finite loss at epoch {epoch}")
+                ensure_finite_tensor("cnn/loss", loss, context=f"epoch={epoch},batch={batch_index}")
                 loss.backward()
+                self._ensure_gradients_finite(model, epoch=epoch, batch_index=batch_index)
                 if gradient_clip_norm > 0:
-                    torch.nn.utils.clip_grad_norm_(model.parameters(), gradient_clip_norm)
+                    grad_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), gradient_clip_norm)
+                    ensure_finite_tensor("cnn/grad_norm", grad_norm, context=f"epoch={epoch},batch={batch_index}")
                 optimizer.step()
+                self._ensure_parameters_finite(model, epoch=epoch, batch_index=batch_index)
                 total_loss += float(loss.item()) * len(idx)
                 sample_count += len(idx)
 
@@ -258,6 +284,8 @@ class CnnTrainer:
                     "learningRate": learning_rate,
                     "batchSize": batch_size,
                     "seed": seed,
+                    "deterministic": deterministic,
+                    "configFingerprint": config_fingerprint,
                     "syntheticMix": synthetic_mix,
                 },
                 "metrics": final_eval["metrics"],
@@ -280,6 +308,10 @@ class CnnTrainer:
                 "syntheticMix": synthetic_mix,
                 "gradientClipNorm": gradient_clip_norm,
                 "weightDecay": weight_decay,
+            },
+            "reproducibility": {
+                **reproducibility,
+                "configFingerprint": config_fingerprint,
             },
         }
         if synthetic_eval is not None:
@@ -304,6 +336,10 @@ class CnnTrainer:
             "bestCheckpointMetric": best_primary_metric if best_epoch else None,
             "bestCheckpointSplit": best_split_name if best_epoch else None,
             "syntheticMix": synthetic_mix,
+            "reproducibility": {
+                **reproducibility,
+                "configFingerprint": config_fingerprint,
+            },
         }
         if synthetic_eval is not None:
             run_summary_payload["syntheticEval"] = {
@@ -336,6 +372,10 @@ class CnnTrainer:
                 "completed_epochs": len(checkpoint_metrics),
                 "checkpoint_epoch": best_epoch or len(checkpoint_metrics),
                 "synthetic_mix": synthetic_mix,
+                "reproducibility": {
+                    **reproducibility,
+                    "config_fingerprint": config_fingerprint,
+                },
             },
             artifact_manifest={
                 "weightsPath": model_path.name,
@@ -363,6 +403,10 @@ class CnnTrainer:
                     "syntheticMix": synthetic_mix,
                     "gradientClipNorm": gradient_clip_norm,
                     "weightDecay": weight_decay,
+                    "reproducibility": {
+                        **reproducibility,
+                        "configFingerprint": config_fingerprint,
+                    },
                 },
             },
             model_path=model_path,
@@ -371,6 +415,27 @@ class CnnTrainer:
             eval_split_name=eval_split_name,
             synthetic_eval=synthetic_eval,
         )
+
+    @staticmethod
+    def _ensure_gradients_finite(model: _SimpleCnn, *, epoch: int, batch_index: int) -> None:
+        for name, parameter in model.named_parameters():
+            grad = parameter.grad
+            if grad is None:
+                continue
+            ensure_finite_tensor(
+                f"cnn/gradient:{name}",
+                grad,
+                context=f"epoch={epoch},batch={batch_index}",
+            )
+
+    @staticmethod
+    def _ensure_parameters_finite(model: _SimpleCnn, *, epoch: int, batch_index: int) -> None:
+        for name, parameter in model.named_parameters():
+            ensure_finite_tensor(
+                f"cnn/parameter:{name}",
+                parameter,
+                context=f"epoch={epoch},batch={batch_index}",
+            )
 
     def _build_dataset(
         self,
@@ -407,6 +472,7 @@ class CnnTrainer:
                 power=2.0,
             )
             mel_db = librosa.power_to_db(mel + 1e-10, ref=np.max).astype(np.float32)
+            ensure_finite_array("cnn/mel_db", mel_db, context=f"sample_id={sample.sample_id}")
             mel_mean = float(np.mean(mel_db))
             mel_std = float(np.std(mel_db))
             if mel_std > 0:
@@ -419,7 +485,9 @@ class CnnTrainer:
             elif mel_db.shape[1] < target_frames:
                 mel_db = np.pad(mel_db, ((0, 0), (0, target_frames - mel_db.shape[1])))
 
-            features.append(mel_db[np.newaxis, :, :])
+            feature = mel_db[np.newaxis, :, :]
+            ensure_finite_array("cnn/feature", feature, context=f"sample_id={sample.sample_id}")
+            features.append(feature)
             labels.append(label_to_index[sample.label])
 
         return _TensorDataset(
@@ -440,7 +508,9 @@ class CnnTrainer:
         model.eval()
         with torch.no_grad():
             logits = model(torch.from_numpy(dataset.x))
+            ensure_finite_tensor("cnn/eval_logits", logits, context="eval")
             probabilities = torch.softmax(logits, dim=1).cpu().numpy()
+        ensure_finite_array("cnn/probabilities", probabilities, context="eval")
 
         predictions = probabilities.argmax(axis=1)
         labels = np.arange(len(class_names), dtype=np.int64)

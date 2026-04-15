@@ -10,6 +10,8 @@ from echozero.foundry.app import FoundryApp
 from echozero.foundry.domain import DatasetSample, TrainRunStatus
 from echozero.foundry.persistence import DatasetVersionRepository, ModelArtifactRepository, TrainRunRepository
 from echozero.foundry.services import TrainRunService
+from echozero.foundry.services.dataset_service import DatasetService
+from echozero.foundry.services.split_balance_service import SplitBalanceService
 from tests.foundry.audio_fixtures import write_percussion_dataset
 
 
@@ -68,6 +70,7 @@ def _mark_train_samples_synthetic(root: Path, version_id: str) -> tuple[object, 
             duration_ms=sample.duration_ms,
             content_hash=sample.content_hash,
             source_provenance=sample.source_provenance,
+            group_id=sample.group_id,
             is_synthetic=sample.sample_id in synthetic_id_set,
             synthetic_provenance=(
                 {
@@ -89,11 +92,19 @@ def _mark_train_samples_synthetic(root: Path, version_id: str) -> tuple[object, 
         "real_sample_count": sum(1 for sample in version.samples if not sample.is_synthetic),
         "synthetic_sample_count": sum(1 for sample in version.samples if sample.is_synthetic),
     }
+    version.manifest_hash = DatasetService.compute_manifest_hash(version.samples)
     version.manifest = {
         **version.manifest,
         "synthetic_sample_ids": synthetic_ids,
         "real_sample_ids": [sample.sample_id for sample in version.samples if not sample.is_synthetic],
     }
+    splitter = SplitBalanceService()
+    version.split_plan = splitter.plan_splits(
+        version,
+        validation_split=float(version.split_plan.get("validation_split", 0.2)),
+        test_split=float(version.split_plan.get("test_split", 0.2)),
+        seed=int(version.split_plan.get("seed", 42)),
+    )
     return repo.save(version), synthetic_ids
 
 
@@ -277,6 +288,13 @@ def test_create_run_requires_dataset_planning_and_matching_spec(tmp_path: Path):
     app.plan_version(version.id, validation_split=0.2, test_split=0.2, seed=3, balance_strategy="none")
     with pytest.raises(ValueError, match="datasetVersionId"):
         svc.create_run(version.id, _run_spec("dsv_other"))
+
+    drifted = app.datasets.get_version(version.id)
+    assert drifted is not None
+    drifted.manifest_hash = "stale-manifest"
+    DatasetVersionRepository(tmp_path).save(drifted)
+    with pytest.raises(ValueError, match="integrity check failed"):
+        svc.create_run(version.id, _run_spec(version.id))
 
 
 def test_next_level_training_options_persist_into_eval_baseline(tmp_path: Path):

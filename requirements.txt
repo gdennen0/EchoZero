@@ -12,7 +12,9 @@ soxr>=0.3.7                  # High-quality audio resampling
 # ==============================================================================
 # Note Transcription
 # ==============================================================================
-basic-pitch>=0.4.0           # Neural network polyphonic pitch detection
+# basic-pitch is optional (TranscribeNote block). Not listed here: on Python 3.11+
+# it pulls tensorflow<2.15.1, which has no wheels for Python 3.12. Install in a
+# Python 3.11 venv if you need it: pip install "basic-pitch>=0.4.0"
 
 # ==============================================================================
 # Audio Source Separation
@@ -25,12 +27,8 @@ demucs>=4.0.0                # Hybrid Transformer source separation (vocals/drum
 torch>=2.2.0                 # PyTorch for neural network models
 torchaudio>=2.2.0            # Audio processing for PyTorch
 
-# TensorFlow 2.15.0 - uses Keras 2.x (compatible with SavedModel format)
-# Must be <=2.15.0 to avoid Keras 3 compatibility issues with SavedModel format
-# TensorFlow 2.16+ uses Keras 3 which causes 'add_slot' errors with SavedModel
-# Note: Use tf.keras (bundled with TensorFlow), not standalone keras package
-tensorflow==2.15.0           # Pinned to 2.15.0 for SavedModel compatibility
-protobuf==3.20.3             # TensorFlow 2.15 compatibility (avoids MessageFactory API removal)
+# TensorFlow is optional: install separately if you use TensorFlowClassify / Keras SavedModel
+# (e.g. pip install tensorflow). Older SavedModel stacks may need Python 3.11 and a matching TF pin.
 
 # ==============================================================================
 # Scientific Computing

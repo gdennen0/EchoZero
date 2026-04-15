@@ -7,6 +7,7 @@ from uuid import uuid4
 
 from echozero.foundry.domain import CurationState, Dataset, DatasetSample, DatasetVersion
 from echozero.foundry.persistence import DatasetRepository, DatasetVersionRepository
+from echozero.foundry.services.split_balance_service import SplitBalanceService
 
 
 class DatasetService:
@@ -83,6 +84,7 @@ class DatasetService:
                             "filename": file.name,
                             "label_from_path": label,
                         },
+                        group_id=f"content:{content_hash}",
                         is_synthetic=False,
                         synthetic_provenance={},
                         curation_state=CurationState.UNKNOWN,
@@ -95,22 +97,7 @@ class DatasetService:
         existing = self._versions.list_for_dataset(dataset_id)
         next_version_num = (existing[-1].version + 1) if existing else 1
 
-        manifest = [
-            {
-                "sample_id": s.sample_id,
-                "audio_ref": s.audio_ref,
-                "label": s.label,
-                "content_hash": s.content_hash,
-                "source_provenance": s.source_provenance,
-                "is_synthetic": s.is_synthetic,
-                "synthetic_provenance": s.synthetic_provenance,
-                "quality_flags": s.quality_flags,
-                "split_assignment": s.split_assignment,
-                "curation_state": s.curation_state.value,
-            }
-            for s in samples
-        ]
-        manifest_hash = hashlib.sha256(json.dumps(manifest, sort_keys=True).encode("utf-8")).hexdigest()
+        manifest_hash = self.compute_manifest_hash(samples)
         class_map = sorted({s.label for s in samples})
         resolved_taxonomy = taxonomy or {
             "schema": "foundry.taxonomy.v1",
@@ -189,6 +176,7 @@ class DatasetService:
                 duration_ms=sample.duration_ms,
                 content_hash=sample.content_hash,
                 source_provenance=sample.source_provenance,
+                group_id=sample.group_id,
                 is_synthetic=sample.is_synthetic,
                 synthetic_provenance=sample.synthetic_provenance,
                 quality_flags=sample.quality_flags,
@@ -217,6 +205,7 @@ class DatasetService:
                     duration_ms=sample.duration_ms,
                     content_hash=sample.content_hash,
                     source_provenance=sample.source_provenance,
+                    group_id=sample.group_id,
                     is_synthetic=sample.is_synthetic,
                     synthetic_provenance=sample.synthetic_provenance,
                     quality_flags=sample.quality_flags,
@@ -229,19 +218,7 @@ class DatasetService:
         existing = self._versions.list_for_dataset(version.dataset_id)
         next_version_num = (existing[-1].version + 1) if existing else (version.version + 1)
 
-        manifest = [
-            {
-                "sample_id": s.sample_id,
-                "label": s.label,
-                "content_hash": s.content_hash,
-                "is_synthetic": s.is_synthetic,
-                "synthetic_provenance": s.synthetic_provenance,
-                "split_assignment": s.split_assignment,
-                "curation_state": s.curation_state.value,
-            }
-            for s in accepted
-        ]
-        manifest_hash = hashlib.sha256(json.dumps(manifest, sort_keys=True).encode("utf-8")).hexdigest()
+        manifest_hash = self.compute_manifest_hash(accepted)
         accepted_ids = {sample.sample_id for sample in accepted}
         split_plan = self._filter_split_plan(version.split_plan, accepted_ids)
 
@@ -308,3 +285,81 @@ class DatasetService:
             sample_id for sample_id in manifest.get("real_sample_ids", []) if sample_id in accepted_ids
         ]
         return curated_manifest
+
+    @classmethod
+    def compute_manifest_hash(cls, samples: list[DatasetSample]) -> str:
+        manifest = cls._canonical_manifest_rows(samples)
+        return hashlib.sha256(json.dumps(manifest, sort_keys=True).encode("utf-8")).hexdigest()
+
+    @classmethod
+    def validate_version_integrity(cls, version: DatasetVersion) -> dict:
+        errors: list[str] = []
+        warnings: list[str] = []
+        sample_ids = [sample.sample_id for sample in version.samples]
+        sample_id_set = set(sample_ids)
+        class_map = sorted({sample.label for sample in version.samples})
+        class_counts = {
+            label: sum(1 for sample in version.samples if sample.label == label)
+            for label in class_map
+        }
+        expected_manifest_hash = cls.compute_manifest_hash(version.samples)
+
+        if expected_manifest_hash != version.manifest_hash:
+            errors.append("dataset version manifest_hash does not match samples")
+        if sorted(version.class_map) != class_map:
+            errors.append("dataset version class_map does not match samples")
+        if version.stats.get("sample_count") not in {None, len(version.samples)}:
+            errors.append("dataset version stats.sample_count does not match samples")
+        if version.stats.get("class_counts") not in ({}, None, class_counts):
+            errors.append("dataset version stats.class_counts does not match samples")
+
+        manifest = version.manifest or {}
+        if manifest:
+            if manifest.get("deterministic_order") not in (None, sample_ids):
+                errors.append("dataset manifest deterministic_order does not match sample ordering")
+            declared_content_groups = {
+                key: sorted(ids) for key, ids in manifest.get("content_groups", {}).items()
+            }
+            actual_content_groups: dict[str, list[str]] = {}
+            for sample in version.samples:
+                if not sample.content_hash:
+                    continue
+                actual_content_groups.setdefault(sample.content_hash, []).append(sample.sample_id)
+            actual_content_groups = {key: sorted(ids) for key, ids in sorted(actual_content_groups.items())}
+            if declared_content_groups and declared_content_groups != actual_content_groups:
+                errors.append("dataset manifest content_groups do not match samples")
+            for field in ("synthetic_sample_ids", "real_sample_ids"):
+                declared_ids = set(manifest.get(field, []))
+                if not declared_ids.issubset(sample_id_set):
+                    errors.append(f"dataset manifest {field} references unknown sample ids")
+
+        split_plan = version.split_plan or {}
+        split_validation = SplitBalanceService.validate_split_plan(version, split_plan) if split_plan else {"ok": True, "errors": [], "warnings": []}
+        if not split_validation["ok"]:
+            errors.extend(split_validation["errors"])
+        warnings.extend(split_validation.get("warnings", []))
+
+        return {
+            "ok": not errors,
+            "errors": errors,
+            "warnings": warnings,
+            "expected_manifest_hash": expected_manifest_hash,
+        }
+
+    @staticmethod
+    def _canonical_manifest_rows(samples: list[DatasetSample]) -> list[dict]:
+        return [
+            {
+                "sample_id": sample.sample_id,
+                "audio_ref": sample.audio_ref,
+                "label": sample.label,
+                "content_hash": sample.content_hash,
+                "source_provenance": sample.source_provenance,
+                "group_id": sample.group_id,
+                "is_synthetic": sample.is_synthetic,
+                "synthetic_provenance": sample.synthetic_provenance,
+                "quality_flags": sample.quality_flags,
+                "curation_state": sample.curation_state.value,
+            }
+            for sample in samples
+        ]

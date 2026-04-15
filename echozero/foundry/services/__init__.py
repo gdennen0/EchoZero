@@ -11,6 +11,7 @@ from .run_telemetry_service import RunTelemetryService
 from .split_balance_service import SplitBalanceService
 from .train_run_service import TrainRunService
 from .trainer_backend_factory import TrainerBackendFactory
+from .training_runtime import TrainingNumericsError
 
 __all__ = [
     "ArtifactService",
@@ -20,10 +21,11 @@ __all__ = [
     "CnnTrainer",
     "CrnnTrainer",
     "FoundryQueryService",
-    "SplitBalanceService",
     "RunNotificationService",
     "RunSpecValidator",
     "RunTelemetryService",
+    "SplitBalanceService",
     "TrainRunService",
     "TrainerBackendFactory",
+    "TrainingNumericsError",
 ]

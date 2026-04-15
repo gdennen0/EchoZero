@@ -11,6 +11,8 @@ from echozero.foundry.persistence import (
     TrainRunRepository,
 )
 from echozero.foundry.services import ArtifactService, EvalService, TrainRunService
+from echozero.foundry.services.dataset_service import DatasetService
+from echozero.foundry.services.split_balance_service import SplitBalanceService
 from tests.foundry.audio_fixtures import write_percussion_dataset
 
 
@@ -116,6 +118,7 @@ def test_synthetic_provenance_persisted_and_surfaced(tmp_path: Path):
             duration_ms=sample.duration_ms,
             content_hash=sample.content_hash,
             source_provenance=sample.source_provenance,
+            group_id=sample.group_id,
             is_synthetic=sample.sample_id == synthetic_id,
             synthetic_provenance=(
                 {
@@ -137,11 +140,18 @@ def test_synthetic_provenance_persisted_and_surfaced(tmp_path: Path):
         "real_sample_count": sum(1 for sample in version.samples if not sample.is_synthetic),
         "synthetic_sample_count": sum(1 for sample in version.samples if sample.is_synthetic),
     }
+    version.manifest_hash = DatasetService.compute_manifest_hash(version.samples)
     version.manifest = {
         **version.manifest,
         "synthetic_sample_ids": [synthetic_id],
         "real_sample_ids": [sample.sample_id for sample in version.samples if not sample.is_synthetic],
     }
+    version.split_plan = SplitBalanceService().plan_splits(
+        version,
+        validation_split=float(version.split_plan.get("validation_split", 0.25)),
+        test_split=float(version.split_plan.get("test_split", 0.25)),
+        seed=int(version.split_plan.get("seed", 42)),
+    )
     version_repo.save(version)
 
     persisted_version = version_repo.get(version.id)

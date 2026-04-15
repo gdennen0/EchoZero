@@ -16,6 +16,11 @@ from sklearn.metrics import accuracy_score, confusion_matrix, log_loss, precisio
 from sklearn.preprocessing import StandardScaler
 
 from echozero.foundry.domain import DatasetSample, DatasetVersion, TrainRun
+from echozero.foundry.services.training_runtime import (
+    compute_config_fingerprint,
+    configure_reproducibility,
+    ensure_finite_array,
+)
 
 
 class RunCanceledError(RuntimeError):
@@ -61,7 +66,19 @@ class BaselineTrainer:
         epochs = int(training_spec["epochs"])
         learning_rate = float(training_spec["learningRate"])
         random_seed = int(training_spec.get("seed", 17))
+        deterministic = bool(training_spec.get("deterministic", True))
         batch_size = int(training_spec.get("batchSize", 16))
+
+        reproducibility = configure_reproducibility(random_seed, deterministic=deterministic)
+        config_fingerprint = compute_config_fingerprint(
+            {
+                "schema": "foundry.training_fingerprint.v1",
+                "runSpec": run.spec,
+                "datasetVersionId": dataset_version.id,
+                "datasetManifestHash": dataset_version.manifest_hash,
+                "classMap": list(dataset_version.class_map),
+            }
+        )
 
         options = self._resolve_training_options(training_spec)
         rng = np.random.default_rng(random_seed)
@@ -144,11 +161,15 @@ class BaselineTrainer:
             strategy=options["rebalance_strategy"],
             rng=rng,
         )
+        ensure_finite_array("baseline/train_x", train_x, context="post_rebalance")
 
         scaler = StandardScaler()
         train_x_scaled = scaler.fit_transform(train_x)
         val_x_scaled = scaler.transform(val_x) if len(val_x) else np.empty((0, train_x_scaled.shape[1]), dtype=np.float32)
         eval_x_scaled = scaler.transform(eval_x) if len(eval_x) else np.empty((0, train_x_scaled.shape[1]), dtype=np.float32)
+        ensure_finite_array("baseline/train_x_scaled", train_x_scaled, context="scaler.fit_transform")
+        ensure_finite_array("baseline/val_x_scaled", val_x_scaled, context="scaler.transform")
+        ensure_finite_array("baseline/eval_x_scaled", eval_x_scaled, context="scaler.transform")
 
         classes = np.arange(len(class_names), dtype=np.int64)
         class_weight = self._compute_class_weight(train_y_raw, classes=classes, mode=options["class_weighting"])
@@ -180,6 +201,7 @@ class BaselineTrainer:
                 enabled=options["augment_train"],
                 rng=rng,
             )
+            ensure_finite_array("baseline/epoch_x", epoch_x, context=f"epoch={epoch}")
             classifier.partial_fit(epoch_x, epoch_y, classes=classes)
             train_epoch = self._evaluate_split(classifier, train_x_scaled, train_y, class_names)
             val_epoch = self._evaluate_split(classifier, val_x_scaled, val_y, class_names) if len(val_y) else {}
@@ -267,6 +289,8 @@ class BaselineTrainer:
                     "learningRate": learning_rate,
                     "batchSize": batch_size,
                     "seed": random_seed,
+                    "deterministic": deterministic,
+                    "configFingerprint": config_fingerprint,
                     "trainerProfile": options["trainer_profile"],
                     "optimizer": options["optimizer"],
                     "regularizationAlpha": options["regularization_alpha"],
@@ -308,6 +332,10 @@ class BaselineTrainer:
                 "augmentGainJitter": options["augment_gain_jitter"],
                 "syntheticMix": synthetic_mix,
             },
+            "reproducibility": {
+                **reproducibility,
+                "configFingerprint": config_fingerprint,
+            },
         }
         if synthetic_eval is not None:
             metrics_payload["syntheticEval"] = synthetic_eval
@@ -337,6 +365,10 @@ class BaselineTrainer:
             "bestCheckpointMetric": best_primary_metric if best_epoch else None,
             "bestCheckpointSplit": best_split_name if best_epoch else None,
             "syntheticMix": synthetic_mix,
+            "reproducibility": {
+                **reproducibility,
+                "configFingerprint": config_fingerprint,
+            },
         }
         if synthetic_eval is not None:
             run_summary_payload["syntheticEval"] = {
@@ -379,6 +411,10 @@ class BaselineTrainer:
                 "augment_noise_std": options["augment_noise_std"],
                 "augment_gain_jitter": options["augment_gain_jitter"],
                 "synthetic_mix": synthetic_mix,
+                "reproducibility": {
+                    **reproducibility,
+                    "config_fingerprint": config_fingerprint,
+                },
             },
             artifact_manifest={
                 "weightsPath": model_path.name,
@@ -408,6 +444,10 @@ class BaselineTrainer:
                     "rebalanceStrategy": options["rebalance_strategy"],
                     "augmentTrain": options["augment_train"],
                     "syntheticMix": synthetic_mix,
+                    "reproducibility": {
+                        **reproducibility,
+                        "configFingerprint": config_fingerprint,
+                    },
                 },
             },
             model_path=model_path,
@@ -640,6 +680,7 @@ class BaselineTrainer:
                 power=2.0,
             )
             mel_db = librosa.power_to_db(mel + 1e-10, ref=np.max)
+            ensure_finite_array("baseline/mel_db", mel_db, context=f"sample_id={sample.sample_id}")
             pooled = np.concatenate(
                 [
                     mel_db.mean(axis=1),
@@ -647,6 +688,7 @@ class BaselineTrainer:
                     mel_db.max(axis=1),
                 ]
             ).astype(np.float32)
+            ensure_finite_array("baseline/pooled", pooled, context=f"sample_id={sample.sample_id}")
             features.append(pooled)
             labels.append(label_to_index[sample.label])
 
@@ -671,7 +713,9 @@ class BaselineTrainer:
         peak = float(np.max(np.abs(audio))) if len(audio) else 0.0
         if peak > 0:
             audio = audio / peak
-        return audio.astype(np.float32)
+        audio = audio.astype(np.float32)
+        ensure_finite_array("baseline/audio", audio, context=str(path))
+        return audio
 
     @staticmethod
     def _evaluate_split(
@@ -684,6 +728,7 @@ class BaselineTrainer:
             return {}
 
         probabilities = classifier.predict_proba(x)
+        ensure_finite_array("baseline/probabilities", probabilities, context="eval")
         predictions = probabilities.argmax(axis=1)
         labels = np.arange(len(class_names), dtype=np.int64)
         precision, recall, f1, support = precision_recall_fscore_support(
