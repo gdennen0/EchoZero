@@ -77,6 +77,7 @@ data/datasets/
 # User settings (may contain paths)
 data/settings.json
 data/recent_projects.json
+data/echozero.db
 
 # PyQt compiled files
 *.qmlc
@@ -131,9 +132,4 @@ artifacts/foundry-ui-polish/
 artifacts/timeline-real-data-runtime/
 foundry/runs/
 foundry/state/
-foundry/tracking/batches/
-foundry/tracking/exports/
-foundry/tracking/model_cards/
-foundry/tracking/snapshots/
-foundry/tracking/training_index.json
-foundry/tracking/notification_state.json
+foundry/tracking/

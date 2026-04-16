@@ -7,7 +7,6 @@ This directory contains grandMA3 Lua plugins for EchoZero integration.
 1. **API Reference**: `docs/MA3_LUA_API_REFERENCE.md` - Complete Lua API organized by purpose
 2. **Learnings**: `docs/MA3_LEARNINGS.md` - Practical gotchas and patterns discovered
 3. **Plugin Guide**: `docs/MA3_PLUGIN_DEVELOPMENT_GUIDE.md` - Full development guide
-4. **Show Manager Sync**: `docs/show_manager_sync_system.md` - EchoZero-MA3 sync architecture
 
 ## Directory Structure
 

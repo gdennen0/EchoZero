@@ -117,7 +117,7 @@ echozero/
 │                        (in development)               │
 ├──────────────────────────────────────────────────────┤
 │  5. Application Layer  Project class                  │
-│                        main.py bootstrap              │
+│                        run_echozero.py launcher       │
 ├──────────────────────────────────────────────────────┤
 │  4. Services Layer     Orchestrator                   │
 │                        SetlistProcessor               │

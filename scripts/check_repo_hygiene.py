@@ -14,17 +14,8 @@ FORBIDDEN_PREFIXES = (
     "artifacts/",
     "foundry/runs/",
     "foundry/state/",
-    "foundry/tracking/batches/",
-    "foundry/tracking/exports/",
-    "foundry/tracking/model_cards/",
-    "foundry/tracking/snapshots/",
+    "foundry/tracking/",
 )
-
-# Keep curated top-level docs in tracking area; block noisy machine outputs only.
-FORBIDDEN_EXACT = {
-    "foundry/tracking/training_index.json",
-    "foundry/tracking/notification_state.json",
-}
 
 
 def _git_ls_files(repo_root: Path) -> list[str]:
@@ -44,9 +35,6 @@ def main() -> int:
     offenders: list[str] = []
     for path in tracked:
         normalized = path.replace("\\", "/")
-        if normalized in FORBIDDEN_EXACT:
-            offenders.append(normalized)
-            continue
         if normalized.startswith(FORBIDDEN_PREFIXES):
             offenders.append(normalized)
 

@@ -5,10 +5,13 @@ Audio analysis workstation for live lighting design.
 ## Quick Links
 
 - [Getting Started](GETTING-STARTED.md) — Set up your dev environment
+- [Agent Context](AGENT-CONTEXT.md) — Compact orientation for coding agents
+- [Unified Plan](UNIFIED-IMPLEMENTATION-PLAN.md) — Canonical implementation direction
 - [Architecture](ARCHITECTURE.md) — System design and structure  
 - [Project Class](PROJECT-CLASS.md) — The UI developer's API guide
 - [Entity Model](architecture/ENTITY-MODEL.md) — Data relationships
 - [LD Workflow](LD-WORKFLOW.md) — How lighting designers use EchoZero
+- [Cleanup Map](EZ2-CODEBASE-CLEANUP-MAP.md) — Current keep/remove posture
 
 ## What is EchoZero?
 
@@ -16,11 +19,10 @@ EchoZero analyzes music and extracts time-stamped events (beats, onsets, classif
 
 ## Current Status
 
-- **Engine:** Complete (1523 tests passing)
-- **Persistence:** Complete (SQLite + WAL + .ez archives)  
-- **Processors:** 13 block types (audio loading, onset detection, stem separation, filtering, export, classification)
-- **Application Layer:** Complete (Project class bridges everything)
-- **UI:** PyQt6 Stage Zero Editor (in development)
+- **Canonical app:** `run_echozero.py` launches the active EZ2 desktop shell
+- **Core runtime:** `echozero/` contains the engine, application layer, UI, and Foundry code
+- **Docs set:** trimmed to active architecture, delivery, and MA3/Foundry context
+- **Repo posture:** legacy EZ1 code and historical doc surfaces have been removed from this branch
 
 ## Tech Stack
 

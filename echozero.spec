@@ -1,5 +1,5 @@
 # -*- mode: python ; coding: utf-8 -*-
-# EchoZero PyInstaller spec - production packaging
+# EchoZero PyInstaller spec - EZ2 production packaging
 # Build: pyinstaller echozero.spec   or: python scripts/build_app.py
 # Output: dist/EchoZero/ (one-folder); on macOS also dist/EchoZero.app
 
@@ -48,6 +48,11 @@ bundled_config = os.path.join(SPEC_DIR, 'build', 'bundled_config.env')
 if os.path.isfile(bundled_config):
     datas.append((bundled_config, '.'))
 
+# Bundle timeline fixtures used by the EZ2 shell/demo paths
+timeline_fixture_dir = os.path.join(SPEC_DIR, 'echozero', 'ui', 'qt', 'timeline', 'fixtures')
+if os.path.isdir(timeline_fixture_dir):
+    datas.append((timeline_fixture_dir, os.path.join('echozero', 'ui', 'qt', 'timeline', 'fixtures')))
+
 # Ensure these packages are bundled as data so they are always found at runtime
 for _pkg_name, _bundle_name in [('dotenv', 'dotenv'), ('httpx', 'httpx')]:
     try:
@@ -60,20 +65,18 @@ for _pkg_name, _bundle_name in [('dotenv', 'dotenv'), ('httpx', 'httpx')]:
 
 # Hidden imports
 hiddenimports = (
-    collect_submodules('src')
-    + collect_submodules('ui')
+    collect_submodules('echozero')
     + [
         'dotenv',
         'httpx',
         'PyQt6.QtCore',
         'PyQt6.QtGui',
         'PyQt6.QtWidgets',
-        'PyQt6Ads',
     ]
 )
 
 a = Analysis(
-    [os.path.join(SPEC_DIR, 'main_qt.py')],
+    [os.path.join(SPEC_DIR, 'run_echozero.py')],
     pathex=[SPEC_DIR],
     binaries=[],
     datas=datas,

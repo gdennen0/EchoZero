@@ -10,8 +10,6 @@ Invariants:
 3. Take IDs are globally unique and never reused.
 4. Sync only reads/writes the Take where is_main=True.
 5. Undo always restores a previous valid TakeLayer state.
-
-See: sass/seminars/echozero-take-system/synthesis.md
 """
 
 from __future__ import annotations

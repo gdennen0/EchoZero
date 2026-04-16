@@ -457,7 +457,6 @@ class TestCancellation:
 # ---------------------------------------------------------------------------
 # OverrideStore has been replaced by the Take System (echozero.takes).
 # Override reconciliation tests were removed as part of that migration.
-# See: sass/seminars/echozero-take-system/synthesis.md
 
 
 # ---------------------------------------------------------------------------
@@ -594,7 +593,6 @@ class TestMultiPortOutput:
         assert consumer.received is not None
         assert isinstance(consumer.received, AudioData)
         assert consumer.received.sample_rate == 48000
-
 
 
 

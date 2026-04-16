@@ -1,5 +1,10 @@
 """
-UI package: PySide6 desktop interface for EchoZero (D245).
-Separate process from Core engine. Communicates via HTTP + WebSocket API (D244).
-No domain logic here — UI is a pure API client. Engine Ignorance (FP7) applies in reverse.
+EZ2 desktop UI package.
+
+This repo's active UI surfaces are in-process PyQt6 desktop shells:
+- `echozero.ui.qt.timeline` for the Stage Zero app shell
+- shared shell style/tokens used by Foundry
+
+This package is no longer described by the older PySide6 + HTTP/WebSocket client
+model that some legacy docs still reference.
 """

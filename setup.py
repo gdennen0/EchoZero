@@ -6,8 +6,8 @@ Installation:
     pip install .             # Regular install
 
 After installation, run with:
-    echozero                  # If entry point is configured
-    python -m src.main        # Or directly
+    echozero                  # Canonical EZ2 desktop shell
+    echozero-foundry          # Foundry desktop UI
 """
 from setuptools import setup, find_packages
 from pathlib import Path
@@ -31,32 +31,41 @@ if requirements_file.exists():
 
 setup(
     name="echozero",
-    version="0.1.0",
-    description="EchoZero Audio Processing Application",
+    version="2.0.0-dev",
+    description="EchoZero 2 desktop audio analysis workstation",
     long_description=long_description,
     long_description_content_type="text/markdown",
-    author="EchoZero",
-    author_email="",
-    url="https://github.com/yourusername/echozero",
-    packages=find_packages(where="src"),
-    package_dir={"": "src"},
-    python_requires=">=3.10",
+    author="Griffin Dennen",
+    author_email="griffin@813creative.net",
+    packages=find_packages(include=["echozero", "echozero.*"]),
+    py_modules=["run_echozero", "run_timeline_demo"],
+    python_requires=">=3.11",
     install_requires=install_requires,
-    entry_points={
-        "console_scripts": [
-            "echozero=main:main",
+    extras_require={
+        "core": [],
+        "dev": [
+            "pytest>=7.4",
+            "pytest-cov>=4.1",
+            "pytest-timeout>=2.2",
+            "mypy>=1.5",
+            "black>=23.7",
+            "isort>=5.12",
         ],
     },
-    py_modules=["main"],  # Include main.py as a module
+    entry_points={
+        "console_scripts": [
+            "echozero=run_echozero:main",
+            "echozero-demo=run_timeline_demo:main",
+            "echozero-foundry=echozero.foundry.ui.main_window:run_foundry_ui",
+        ],
+    },
     classifiers=[
         "Development Status :: 3 - Alpha",
         "Intended Audience :: Developers",
         "Topic :: Multimedia :: Sound/Audio",
         "Programming Language :: Python :: 3",
-        "Programming Language :: Python :: 3.10",
         "Programming Language :: Python :: 3.11",
         "Programming Language :: Python :: 3.12",
     ],
     include_package_data=True,
 )
-

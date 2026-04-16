@@ -1,6 +1,6 @@
 # EchoZero Unified Implementation Plan (Canonical)
 
-_Last updated: 2026-04-08_
+_Last updated: 2026-04-15_
 
 This is the single source-of-truth implementation plan for current EchoZero development.
 
@@ -21,7 +21,7 @@ If any other plan doc conflicts with this file, this file wins.
 
 1. **Original distillation intent**
    - Upstream authority: `memory/echozero-distillation/DISTILLATION.md` (not vendored in this repo)
-   - Local proxy: `docs/DISTILLATION-CONFORMANCE-AUDIT-2026-04-04.md`
+   - Branch interpretation is captured in `docs/architecture/DECISIONS.md` and this file.
 
 2. **First principles**
    - `docs/architecture/TIMELINE-FIRST-PRINCIPLES-2026-04-02.md`
@@ -36,12 +36,13 @@ If any other plan doc conflicts with this file, this file wins.
      - `echozero/application/timeline/repository.py`
    - Sync contract + implementation boundary:
      - `echozero/application/sync/service.py` (contract)
-     - `src/features/show_manager/application/sync_system_manager.py` (current concrete path)
+     - `echozero/application/sync/adapters.py` (current app-layer concrete path)
+     - `echozero/infrastructure/sync/ma3_adapter.py` (current infrastructure bridge placeholder)
 
 4. **UX contract**
-   - `docs/UI-INTERACTION-CLOSURE-PLAN-2026-04-05.md`
-   - `docs/UI-VERIFICATION-AND-ACCEPTANCE-PLAN-2026-04-05.md`
-   - `docs/OBJECT-INSPECTOR-MILESTONE-PLAN-2026-04-06.md`
+   - `docs/ARCHITECTURE.md`
+   - `docs/PROJECT-CLASS.md`
+   - `docs/APP-DELIVERY-PLAN.md`
 
 5. **FEEL contract (visual + interaction constants)**
    - `echozero/ui/FEEL.py`
@@ -51,9 +52,9 @@ If any other plan doc conflicts with this file, this file wins.
    - DAW precedent used in existing planning: Ableton / Bitwig / REAPER / Logic / Pro Tools
 
 7. **Evidence/audits (informing, not authoritative)**
-   - `docs/DISTILLATION-CONFORMANCE-AUDIT-2026-04-04.md`
-   - `docs/UI-CONTRACT-AUDIT-2026-04-03.md`
-   - `docs/architecture/UI-BLOCK-AUDIT-2026-04-02.md`
+   - `tests/application/**`
+   - `tests/ui/**`
+   - `tests/testing/**`
 
 ---
 

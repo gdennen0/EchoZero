@@ -243,7 +243,7 @@ Rex recommended subprocess isolation for ML inference blocks (Demucs, etc.) rath
 D1 replaces `metadata: Dict` with typed settings. Open question: does ANY block type need an extensible/untyped escape hatch, or can every block's config be fully typed?
 
 ### Universal Observability
-Designed (see OBSERVABILITY.md) but implementation details depend on command bus/event bus decisions.
+A legacy observability proposal existed before the EZ2 cleanup, but the dedicated doc was removed with the EZ1 historical-doc purge. Any future observability work should derive from the current EZ2 architecture and implementation plans instead.
 
 ### Undo for Workspace Blocks
 Workspace blocks (Editor) need real undo for user edits. Undo stack scope confirmed global (D33), but Editor-specific undo interactions (layer edits, event classification changes, group operations) need detailed design.
@@ -532,7 +532,7 @@ Where does execution time history come from for weighting? Need `execution_histo
 - Block-specific designs (CommandSequencer, AudioPlayer, ShowManager)
 
 ### Universal Observability (Finalization)
-OBSERVABILITY.md designed. Now that event bus (D35-D38) and progress channel (D53) are decided, finalize how observability layers onto both.
+A legacy observability proposal existed before the EZ2 cleanup. Now that event bus (D35-D38) and progress channel (D53) are decided, finalize observability directly against the surviving EZ2 architecture docs.
 
 ### Q5: Disconnection Behavior
 How downstream blocks behave when connections are removed. Stale cascade? Data retention? User notification?
@@ -3302,7 +3302,6 @@ Output auto-splits into one layer per classification label. "kicks" layer, "snar
 ---
 
 ## Reference Documents
-- `SPEC.md` - Behavioral specification (from legacy codebase)
-- `docs/architecture/ARCHITECTURE.md` - Vertical feature module architecture
-- `docs/architecture/OBSERVABILITY.md` - Universal observability design
-- `sass/seminars/` - S.A.S.S. panel analyses and syntheses
+- `docs/UNIFIED-IMPLEMENTATION-PLAN.md` - Canonical EZ2 implementation authority
+- `docs/ARCHITECTURE.md` - Current EZ2 system architecture
+- `docs/APP-DELIVERY-PLAN.md` - Canonical app workflow and release contract

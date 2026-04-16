@@ -48,20 +48,25 @@ markdown_extensions:
 
 nav:
   - Home: index.md
+  - Agent Context: AGENT-CONTEXT.md
   - Getting Started: GETTING-STARTED.md
+  - Unified Plan: UNIFIED-IMPLEMENTATION-PLAN.md
+  - App Delivery: APP-DELIVERY-PLAN.md
   - Architecture: ARCHITECTURE.md
   - Project Class: PROJECT-CLASS.md
   - Entity Model: architecture/ENTITY-MODEL.md
+  - Timeline First Principles: architecture/TIMELINE-FIRST-PRINCIPLES-2026-04-02.md
   - LD Workflow: LD-WORKFLOW.md
+  - Dev Lanes: DEV-LANES.md
+  - Cleanup Map: EZ2-CODEBASE-CLEANUP-MAP.md
   - Decisions:
     - Architecture Decisions: architecture/DECISIONS.md
     - Pipeline Config: architecture/PIPELINE-CONFIG-REDESIGN.md
-  - Audits:
-    - UI Readiness: audits/ui-readiness-audit-2026-03-30.md
-    - Architecture Audit: audits/architecture-audit-2026-03-30.md
-    - Codebase Audit: audits/codebase-audit-2026-03-30.md
-    - Codebase Audit Part 2: audits/codebase-audit-2026-03-30-part2.md
-    - Audio Engine: audits/audio-engine-audit.md
-    - Model Registry: audits/model-registry-audit.md
+    - Contract Guardrails: architecture/CONTRACT-EVOLUTION-GUARDRAILS.md
+  - MA3:
+    - Batch Transfer UX: MA3-BATCH-TRANSFER-UX-SPEC.md
+    - Manual Push/Pull: MA3-MANUAL-PUSH-PULL-IMPLEMENTATION-PLAN.md
+  - Foundry: FOUNDRY-TRAINING.md
+  - Perf Guardrails: PERF-GUARDRAILS.md
   - Packaging: packaging/PACKAGING.md
-  - Spec: SPEC.md
+  - Contributing: CONTRIBUTING.md

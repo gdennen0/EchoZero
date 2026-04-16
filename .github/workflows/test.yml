@@ -58,10 +58,11 @@ jobs:
           PYTHONPATH: ${{ github.workspace }}
         run: |
           pytest -q \
-            tests/unit/test_ma3_communication_service_protocol.py \
-            tests/unit/test_ma3_event_handler.py \
-            tests/unit/test_ma3_event_contract.py \
-            tests/unit/test_ma3_fixture_replay.py
+            tests/application/test_sync_adapters.py \
+            tests/application/test_live_sync_guardrail_contracts.py \
+            tests/application/test_live_sync_guardrail_orchestrator.py \
+            tests/testing/test_simulated_ma3_bridge.py \
+            tests/testing/test_ma3_osc_loopback.py
 
   perf-guardrails:
     runs-on: ubuntu-latest

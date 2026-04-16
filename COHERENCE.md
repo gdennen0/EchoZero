@@ -70,14 +70,16 @@
 
 | Concept | Authoritative Source | References |
 |---------|---------------------|------------|
-| Block types and schemas | `docs/architecture/DISTILLATION.md` Part 2 | domain.py, STYLE.md, GLOSSARY.md |
-| API endpoints | `docs/architecture/API-CONTRACT.md` | Core server, UI client |
-| Architecture decisions | `docs/architecture/DECISIONS.md` | DISTILLATION.md (summary), panel transcripts |
-| UI behavior constants | `echozero/ui/FEEL.py` | Qt implementation, behavioral spec |
-| User-facing terminology | `GLOSSARY.md` | UI strings, website copy, docs |
-| Build patterns | `COHERENCE.md` (this file) | Work unit specs, agent context |
+| Agent onboarding / compact context | `AGENTS.md`, `docs/AGENT-CONTEXT.md` | README, docs index, work-unit context |
+| Timeline truth model | `docs/architecture/TIMELINE-FIRST-PRINCIPLES-2026-04-02.md` | `docs/UNIFIED-IMPLEMENTATION-PLAN.md`, timeline app/UI code |
+| Architecture decisions | `docs/architecture/DECISIONS.md` | unified plan, architecture docs |
+| App delivery and release gates | `docs/APP-DELIVERY-PLAN.md` | `echozero/testing/run.py`, `.github/workflows/test.yml` |
+| UI behavior constants | `echozero/ui/FEEL.py` | Qt implementation, UI tests |
+| User-facing terminology | `GLOSSARY.md` | UI strings, docs, code review |
 | Code style | `STYLE.md` | Every agent session |
-| First Principles (FP1-7) | `docs/architecture/DISTILLATION.md` Part 2 | STYLE.md, DECISIONS.md |
+| Repo cleanup / keep boundaries | `docs/EZ2-CODEBASE-CLEANUP-MAP.md` | README, hygiene decisions |
+| Foundry workflow | `docs/FOUNDRY-TRAINING.md` | `echozero/foundry/*` |
+| MA3 reference / pitfalls | `MA3/README.md`, `MA3/MA3_INTEGRATION_PITFALLS.md` | `MA3/docs/*`, sync work |
 
 ---
 
