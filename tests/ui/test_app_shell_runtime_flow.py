@@ -4,7 +4,8 @@ import shutil
 import uuid
 from pathlib import Path
 
-from echozero.application.timeline.intents import Seek, ToggleLayerExpanded
+from echozero.application.shared.enums import LayerKind
+from echozero.application.timeline.intents import Play, Seek, ToggleLayerExpanded
 from echozero.application.presentation.inspector_contract import (
     TimelineInspectorHitTarget,
     build_timeline_inspector_contract,
@@ -12,6 +13,41 @@ from echozero.application.presentation.inspector_contract import (
 from echozero.ui.qt.app_shell import AppShellRuntime, build_app_shell
 from echozero.ui.qt.timeline.demo_app import DemoTimelineApp
 from echozero.testing.analysis_mocks import build_mock_analysis_service, write_test_model, write_test_wav
+
+
+class _CountedRuntimeAudio:
+    def __init__(self):
+        self.build_calls = 0
+        self.play_calls = 0
+        self.is_playing_state = False
+
+    def build_for_presentation(self, _presentation) -> None:
+        self.build_calls += 1
+
+    def apply_mix_state(self, _presentation) -> None:
+        return None
+
+    def play(self) -> None:
+        self.play_calls += 1
+        self.is_playing_state = True
+
+    def pause(self) -> None:
+        self.is_playing_state = False
+
+    def stop(self) -> None:
+        self.is_playing_state = False
+
+    def seek(self, _position_seconds: float) -> None:
+        return None
+
+    def current_time_seconds(self) -> float:
+        return 0.0
+
+    def is_playing(self) -> bool:
+        return self.is_playing_state
+
+    def shutdown(self) -> None:
+        return None
 
 
 def _repo_local_temp_root() -> Path:
@@ -131,8 +167,8 @@ def test_app_shell_runtime_exposes_transfer_surface_actions():
             for action in section.actions
         }
 
-        assert "push_to_ma3" in layer_action_ids
-        assert "pull_from_ma3" in layer_action_ids
+        assert "push_to_ma3" not in layer_action_ids
+        assert "pull_from_ma3" not in layer_action_ids
     finally:
         runtime.shutdown()
         shutil.rmtree(temp_root, ignore_errors=True)
@@ -322,6 +358,71 @@ def test_app_shell_runtime_classify_drum_events_rejects_missing_model_path():
             assert "existing model path" in str(exc)
         else:
             raise AssertionError("Expected classify_drum_events to reject a missing model path")
+    finally:
+        runtime.shutdown()
+        shutil.rmtree(temp_root, ignore_errors=True)
+
+
+def test_app_shell_runtime_add_song_from_path_builds_runtime_audio():
+    temp_root = _repo_local_temp_root()
+    runtime = build_app_shell(working_dir_root=temp_root / "working")
+
+    assert isinstance(runtime, AppShellRuntime)
+
+    counted = _CountedRuntimeAudio()
+    runtime.runtime_audio = counted
+
+    try:
+        assert counted.build_calls == 0
+
+        runtime.add_song_from_path("Imported Song", write_test_wav(temp_root / "fixtures" / "import.wav"))
+
+        assert counted.build_calls == 1
+        assert runtime.presentation().layers[0].title == "Imported Song"
+    finally:
+        runtime.shutdown()
+        shutil.rmtree(temp_root, ignore_errors=True)
+
+
+def test_app_shell_runtime_add_layer_after_song_rebuilds_runtime_audio():
+    temp_root = _repo_local_temp_root()
+    runtime = build_app_shell(working_dir_root=temp_root / "working")
+
+    assert isinstance(runtime, AppShellRuntime)
+
+    counted = _CountedRuntimeAudio()
+    runtime.runtime_audio = counted
+
+    try:
+        runtime.add_song_from_path("Imported Song", write_test_wav(temp_root / "fixtures" / "import.wav"))
+        counted.build_calls = 0
+
+        runtime.add_layer(LayerKind.EVENT, "Event Layer")
+
+        assert counted.build_calls == 1
+        assert any(layer.title == "Event Layer" for layer in runtime.presentation().layers)
+    finally:
+        runtime.shutdown()
+        shutil.rmtree(temp_root, ignore_errors=True)
+
+
+def test_app_shell_runtime_play_dispatch_rebuilds_runtime_audio():
+    temp_root = _repo_local_temp_root()
+    runtime = build_app_shell(working_dir_root=temp_root / "working")
+
+    assert isinstance(runtime, AppShellRuntime)
+
+    counted = _CountedRuntimeAudio()
+    runtime.runtime_audio = counted
+
+    try:
+        runtime.add_song_from_path("Imported Song", write_test_wav(temp_root / "fixtures" / "import.wav"))
+        counted.build_calls = 0
+        runtime.dispatch(Play())
+        assert counted.build_calls == 1
+        assert counted.play_calls == 1
+        assert runtime.presentation().is_playing is True
+        assert runtime.session.transport_state.is_playing is True
     finally:
         runtime.shutdown()
         shutil.rmtree(temp_root, ignore_errors=True)

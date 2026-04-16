@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import uuid
+from dataclasses import replace
 from enum import Enum
 from pathlib import Path
 
@@ -112,6 +114,43 @@ class AppShellRuntime:
 
     def presentation(self):
         return self._app.presentation()
+
+    def add_layer(self, kind: LayerKind, title: str | None = None) -> TimelinePresentation:
+        layer_kind = kind
+        if not isinstance(layer_kind, LayerKind):
+            try:
+                layer_kind = LayerKind(str(layer_kind))
+            except ValueError as exc:
+                raise ValueError(f"Unsupported layer kind '{kind}'.") from exc
+
+        layer_title = (title or "").strip()
+        if not layer_title:
+            layer_title = f"{layer_kind.value.title()} Layer"
+
+        new_layer_id = LayerId(f"layer_{uuid.uuid4().hex[:12]}")
+        presentation = self.presentation()
+        updated_layers = [replace(layer, is_selected=False) for layer in presentation.layers]
+        updated_layers.append(
+            LayerPresentation(
+                layer_id=new_layer_id,
+                title=layer_title,
+                kind=layer_kind,
+                subtitle=f"{layer_kind.value.title()} layer",
+                is_selected=True,
+                status=LayerStatusPresentation(source_label=f"Created {layer_kind.value} layer"),
+            )
+        )
+        self._app.presentation_state = replace(
+            self._app.presentation_state,
+            layers=updated_layers,
+            selected_layer_id=new_layer_id,
+            selected_layer_ids=[new_layer_id],
+            selected_take_id=None,
+            selected_event_ids=[],
+        )
+        self._sync_runtime_audio_from_presentation(self._app.presentation_state)
+        self._is_dirty = True
+        return self.presentation()
 
     def dispatch(self, intent):
         presentation = self._app.dispatch(intent)
@@ -324,12 +363,21 @@ class AppShellRuntime:
         active_song_version_id: SongVersionId | None = None,
     ) -> None:
         presentation, resolved_song_id, resolved_song_version_id = _build_project_native_baseline_presentation(
-            self.project_storage
+            self.project_storage,
+            active_song_id=active_song_id,
+            active_song_version_id=active_song_version_id,
         )
         self._app.presentation_state = presentation
         self.session.active_song_id = active_song_id or resolved_song_id
         self.session.active_song_version_id = active_song_version_id or resolved_song_version_id
         self.session.active_timeline_id = presentation.timeline_id
+        self._sync_runtime_audio_from_presentation(presentation)
+
+    def _sync_runtime_audio_from_presentation(self, presentation: TimelinePresentation) -> None:
+        runtime_audio = self.runtime_audio
+        if runtime_audio is None:
+            return
+        runtime_audio.build_for_presentation(presentation)
 
     def _require_layer(self, layer_id) -> LayerPresentation:
         for layer in self.presentation().layers:
@@ -403,14 +451,37 @@ def _build_runtime_analysis_service() -> AnalysisService:
 
 def _build_project_native_baseline_presentation(
     project_storage: ProjectStorage,
+    *,
+    active_song_id: SongId | None = None,
+    active_song_version_id: SongVersionId | None = None,
 ) -> tuple[TimelinePresentation, SongId | None, SongVersionId | None]:
     project = project_storage.project
     songs = project_storage.songs.list_by_project(project.id)
-    active_song = next((song for song in songs if song.active_version_id), None)
+    requested_song_id = str(active_song_id) if active_song_id is not None else None
+    requested_version_id = str(active_song_version_id) if active_song_version_id is not None else None
+
+    active_song = None
+    active_version = None
+    if requested_version_id is not None:
+        active_version = project_storage.song_versions.get(requested_version_id)
+        if active_version is not None:
+            active_song = project_storage.songs.get(active_version.song_id)
+    if active_song is None and requested_song_id is not None:
+        active_song = next((song for song in songs if song.id == requested_song_id), None)
+    if active_song is None:
+        active_song = next((song for song in songs if song.active_version_id), None)
+    if active_song is not None and active_version is None:
+        if active_song.active_version_id is not None:
+            active_version = project_storage.song_versions.get(active_song.active_version_id)
+
+    # If requested IDs refer to a version for which no song is currently linked,
+    # continue with project ordering to avoid breaking baseline startup flow.
     if active_song is None:
         return _build_empty_project_presentation(project_storage), None, None
 
-    version = project_storage.song_versions.get(active_song.active_version_id)
+    version = active_version
+    if version is None and active_song.active_version_id is not None:
+        version = project_storage.song_versions.get(active_song.active_version_id)
     if version is None:
         return _build_empty_project_presentation(project_storage), SongId(active_song.id), None
 
