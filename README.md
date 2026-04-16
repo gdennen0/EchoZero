@@ -10,10 +10,17 @@ The canonical app surfaces in this repo are:
 ## Quick Start
 
 ```bash
+python3 --version
 python3 -m venv .venv
 source .venv/bin/activate
+python -m pip install --upgrade pip setuptools wheel
 pip install -e .
 ```
+
+EchoZero requires Python 3.11 or newer. On older macOS installs, `python3`
+may still point to 3.9. If it does, install Python 3.11+ and create the venv
+with that interpreter instead, for example `python3.11 -m venv .venv`.
+On macOS, the quickest fix is usually `brew install python@3.11`.
 
 Run the canonical EZ2 app shell:
 
@@ -24,7 +31,14 @@ python run_echozero.py
 Run Foundry:
 
 ```bash
+pip install -e ".[ml]"
 python -m echozero.foundry.cli --root . ui
+```
+
+Install the full local environment, including ML and packaging tools:
+
+```bash
+pip install -r requirements.txt
 ```
 
 Run a small validation slice:

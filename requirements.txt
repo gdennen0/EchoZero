@@ -1,84 +1,15 @@
-# EchoZero Dependencies
-# Audio processing DAW with AI-powered source separation and classification
+# Full local EchoZero environment.
+#
+# This installs:
+# - the EZ2 package itself
+# - development and test tools
+# - optional ML/foundry dependencies
+# - packaging/build dependencies
+#
+# Minimal app-shell install:
+#   pip install -e .
+#
+# Focused dev install:
+#   pip install -e ".[dev]"
 
-# ==============================================================================
-# Core Audio Processing
-# ==============================================================================
-librosa>=0.10.1              # Audio analysis: onset detection, tempo, pitch
-soundfile>=0.12.1            # Audio file I/O (WAV, FLAC, OGG)
-audioread>=3.0.1             # Audio file reading backend for librosa
-soxr>=0.3.7                  # High-quality audio resampling
-
-# ==============================================================================
-# Note Transcription
-# ==============================================================================
-# basic-pitch is optional (TranscribeNote block). Not listed here: on Python 3.11+
-# it pulls tensorflow<2.15.1, which has no wheels for Python 3.12. Install in a
-# Python 3.11 venv if you need it: pip install "basic-pitch>=0.4.0"
-
-# ==============================================================================
-# Audio Source Separation
-# ==============================================================================
-demucs>=4.0.0                # Hybrid Transformer source separation (vocals/drums/bass)
-
-# ==============================================================================
-# Machine Learning
-# ==============================================================================
-torch>=2.2.0                 # PyTorch for neural network models
-torchaudio>=2.2.0            # Audio processing for PyTorch
-
-# TensorFlow is optional: install separately if you use TensorFlowClassify / Keras SavedModel
-# (e.g. pip install tensorflow). Older SavedModel stacks may need Python 3.11 and a matching TF pin.
-
-# ==============================================================================
-# Scientific Computing
-# ==============================================================================
-numpy>=1.26.0                # Numerical arrays and operations
-scipy>=1.14.0                # Signal processing (used by librosa)
-scikit-learn>=1.3.0          # Machine learning utilities
-
-# ==============================================================================
-# Performance Acceleration
-# ==============================================================================
-joblib>=1.4.0                # Parallel processing (librosa dependency)
-numba>=0.59.0                # JIT compilation for onset detection acceleration
-
-# ==============================================================================
-# CLI Interface
-# ==============================================================================
-colorama>=0.4.6              # Cross-platform colored terminal output
-
-# ==============================================================================
-# GUI Framework
-# ==============================================================================
-PyQt6>=6.5.3                 # Qt6 Python bindings (main window, dialogs)
-PyQt6Ads>=4.5.0              # Advanced Docking System (VSCode-style panels)
-
-# ==============================================================================
-# Authentication
-# ==============================================================================
-httpx>=0.27.0                # HTTP client for auth verification proxy
-python-dotenv>=1.0.0         # Load .env file for configuration
-
-# ==============================================================================
-# Network / SSL
-# ==============================================================================
-certifi>=2023.0.0            # SSL certificates for model downloads
-netifaces>=0.11.0            # Cross-platform network interface discovery
-
-# ==============================================================================
-# OSC Communication (MA3 Integration)
-# ==============================================================================
-python-osc>=1.8.0            # OSC protocol for grandMA3 communication
-
-# ==============================================================================
-# Deployment
-# ==============================================================================
-pyinstaller>=6.18.0          # Application packaging and distribution
-pyinstaller-hooks-contrib   # PyQt6, Qt framework hooks for macOS bundle
-
-# ==============================================================================
-# Development / Testing
-# ==============================================================================
-pytest>=7.4.0                # Test framework
-pytest-cov>=4.1.0            # Test coverage reporting
+.[dev,ml,packaging]

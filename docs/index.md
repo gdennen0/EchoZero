@@ -6,6 +6,9 @@ Audio analysis workstation for live lighting design.
 
 - [Getting Started](GETTING-STARTED.md) — Set up your dev environment
 - [Agent Context](AGENT-CONTEXT.md) — Compact orientation for coding agents
+- [Worker Roles](WORKER-ROLES.md) — `lead-dev` and disposable worker contract
+- [Testing](TESTING.md) — Verification lanes and proof map
+- [Release Checklist](RELEASE-CHECKLIST.md) — Release signoff checklist
 - [Unified Plan](UNIFIED-IMPLEMENTATION-PLAN.md) — Canonical implementation direction
 - [Architecture](ARCHITECTURE.md) — System design and structure  
 - [Project Class](PROJECT-CLASS.md) — The UI developer's API guide

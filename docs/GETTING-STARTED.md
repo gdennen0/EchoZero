@@ -29,8 +29,13 @@ cd EchoZero
 ### 2. Create a virtual environment
 
 ```bash
-python -m venv .venv
+python3 --version
+python3 -m venv .venv
 ```
+
+EchoZero requires Python 3.11+. If your machine reports an older version,
+install Python 3.11 or 3.12 and create the venv with that interpreter instead.
+On macOS, the quickest fix is usually `brew install python@3.11`.
 
 **Windows (PowerShell):**
 ```powershell
@@ -40,6 +45,7 @@ python -m venv .venv
 **macOS / Linux:**
 ```bash
 source .venv/bin/activate
+python -m pip install --upgrade pip setuptools wheel
 ```
 
 ### 3. Install dependencies
@@ -48,9 +54,14 @@ source .venv/bin/activate
 pip install -e ".[dev]"
 ```
 
-If you don't need ML processors (faster install):
+If you only want the minimal EZ2 app shell:
 ```bash
-pip install -e ".[core]"
+pip install -e .
+```
+
+If you want the full local environment, including optional ML processors and packaging tools:
+```bash
+pip install -r requirements.txt
 ```
 
 ---
@@ -221,6 +232,6 @@ if ProjectStorage.check_recovery(Path("my_show.ez")):
 ## Development Tips
 
 - **Test isolation:** Use `Project.create()` directly with mock executors — don't use `main.py` in tests.
-- **No Qt needed:** All core functionality works without PyQt6 installed.
+- **Headless core work:** You can exercise many core APIs without launching the Qt shell, but the default app install path includes PyQt6.
 - **Pipeline templates:** Register templates via `@pipeline_template` decorator in `pipelines/templates/`.
 - **Logging:** Set `ECHOZERO_LOG_LEVEL=DEBUG` to see execution traces.

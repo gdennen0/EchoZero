@@ -7,15 +7,27 @@ Use these install and launch paths as canonical:
 ## Install
 
 ```bash
+python3 --version
 python3 -m venv .venv
 source .venv/bin/activate
+python -m pip install --upgrade pip setuptools wheel
 pip install -e .
 ```
+
+EchoZero requires Python 3.11 or newer. If your Mac still resolves `python3`
+to 3.9, install a newer Python and use that exact binary when creating the venv.
+The quickest macOS path is usually `brew install python@3.11`.
 
 If you want the broader dev toolchain too:
 
 ```bash
 pip install -e ".[dev]"
+```
+
+If you want the full local environment, including optional ML processors and packaging tools:
+
+```bash
+pip install -r requirements.txt
 ```
 
 ## Run The EZ2 App
@@ -27,6 +39,7 @@ python run_echozero.py
 ## Run Foundry
 
 ```bash
+pip install -e ".[ml]"
 python -m echozero.foundry.cli --root . ui
 ```
 

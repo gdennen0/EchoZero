@@ -58,6 +58,10 @@ def _check_build_deps() -> bool:
     """Ensure required packages are available so the frozen app has them."""
     missing = []
     try:
+        import PyInstaller  # noqa: F401
+    except ImportError:
+        missing.append("PyInstaller")
+    try:
         import dotenv  # noqa: F401
     except ImportError:
         missing.append("python-dotenv")
@@ -81,7 +85,7 @@ def _run_env_smoke_check(project_root: Path) -> bool:
         print("Warning: scripts/verify_env.py not found; skipping environment smoke check.")
         return True
 
-    cmd = [sys.executable, str(verify_script), "--quiet"]
+    cmd = [sys.executable, str(verify_script), "--quiet", "--build"]
     result = subprocess.run(cmd, cwd=str(project_root))
     if result.returncode != 0:
         print(

@@ -10,11 +10,13 @@ Production packaging is driven by a single spec and a JSON config so version and
 
 ## Build (from project root)
 
-Use the same Python environment you use to run EchoZero (venv with `requirements.txt` installed):
+Use a Python 3.11+ environment. The simplest full build environment is:
 
 ```bash
-# Activate your venv, then:
-pip install pyinstaller   # if not already in requirements
+# Activate your venv, then install either the focused packaging env:
+pip install -e ".[packaging]"
+# Or the full local environment:
+# pip install -r requirements.txt
 python scripts/build_app.py
 # Or: pyinstaller echozero.spec
 ```
@@ -35,7 +37,7 @@ python scripts/build_app.py --clean
 | Field | Purpose |
 |-------|--------|
 | app_name | Display name and executable name |
-| version | CFBundleShortVersionString / CFBundleVersion on macOS; keep in sync with setup.py for releases |
+| version | CFBundleShortVersionString / CFBundleVersion on macOS; keep in sync with `pyproject.toml` for releases |
 | bundle_identifier | macOS bundle id (e.g. dev.speedoflight.echozero) |
 | company | Used in copyright / plist |
 | copyright | NSHumanReadableCopyright in Info.plist |
@@ -105,10 +107,11 @@ For zero-config builds, no README is required for auth. For builds without bundl
 The app is crashing on launch.
 
 **SIGSEGV in CFBundleCopyBundleURL / QLibraryInfoPrivate (crash report)**  
-PyQt6 6.5+ has a known issue with PyInstaller on macOS: Qt's framework bundles are not preserved correctly, causing a crash during initialization. Pin PyQt6 to 6.4.x in requirements.txt (`PyQt6>=6.4.0,<6.5.0`). See pyinstaller/pyinstaller#7789. Common causes:
+Some macOS PyInstaller and Qt combinations can crash during Qt initialization. If you hit this, rebuild from a clean Python 3.11+ venv first, then try a dedicated packaging venv with a narrower local PyQt6 pin only as a fallback workaround. Common causes:
 
 1. **Missing dependencies in the bundle** – Build with a full environment: `pip install -r requirements.txt` then run `python scripts/build_app.py`. The build script warns if `python-dotenv` or `httpx` are missing; the spec bundles them when present.
-2. **Run from Terminal to see the error:**  
+2. **A local Qt/PyInstaller compatibility mismatch** – Try a clean packaging env with `pip install -e ".[packaging]"`, and if the crash persists on macOS, test a dedicated local pin such as `pip install "PyQt6>=6.4,<6.5"` before rerunning `python scripts/build_app.py --clean`.
+3. **Run from Terminal to see the error:**  
    `./dist/EchoZero.app/Contents/MacOS/EchoZero`  
    or  
    `open -a dist/EchoZero.app` then check Console.app for "EchoZero" crash logs.
@@ -120,7 +123,7 @@ That icon usually means either (1) the app crashed on launch (fix the crash firs
 
 When cutting a release:
 
-1. Bump `version` in `setup.py` and in `packaging_config.json`.
+1. Bump `version` in `pyproject.toml` and in `packaging_config.json`.
 2. Run `python scripts/build_app.py --clean`.
 3. Sign and notarize the macOS .app if distributing outside the team (see Apple docs).
 4. Distribute `dist/EchoZero.app` (macOS) or `dist/EchoZero/` (Windows/Linux).
