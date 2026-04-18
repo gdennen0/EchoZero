@@ -4,8 +4,8 @@ import tempfile
 from pathlib import Path
 from types import SimpleNamespace
 
+import echozero.ui.qt.launcher_surface as launcher_surface
 import run_echozero
-import run_timeline_demo
 from PyQt6.QtWidgets import QMessageBox
 
 
@@ -129,6 +129,30 @@ class FakeQApplication:
         type(self).quit_calls += 1
 
 
+class FakeAutomationBridgeServer:
+    instances: list["FakeAutomationBridgeServer"] = []
+
+    def __init__(self, *, runtime, widget, launcher, app, port: int) -> None:
+        self.runtime = runtime
+        self.widget = widget
+        self.launcher = launcher
+        self.app = app
+        self.port = port
+        self.started = False
+        self.stopped = False
+        type(self).instances.append(self)
+
+    @property
+    def address(self) -> tuple[str, int]:
+        return ("127.0.0.1", 43210 if self.port == 0 else self.port)
+
+    def start(self) -> None:
+        self.started = True
+
+    def stop(self) -> None:
+        self.stopped = True
+
+
 def _install_launcher_fakes(monkeypatch, *, exec_result: int = 0, exec_error: Exception | None = None):
     FakeWidget.instances = []
     FakeQTimer.shots = []
@@ -138,39 +162,49 @@ def _install_launcher_fakes(monkeypatch, *, exec_result: int = 0, exec_error: Ex
     FakeQApplication.exec_error = exec_error
     FakeQApplication.instance_calls = 0
     FakeQApplication.quit_calls = 0
+    FakeAutomationBridgeServer.instances = []
 
     runtime_audio = FakeRuntimeAudio()
-    demo = SimpleNamespace(
+    runtime = SimpleNamespace(
         presentation=lambda: "presentation",
         dispatch=lambda intent: intent,
         runtime_audio=runtime_audio,
+        shutdown=lambda: runtime_audio.shutdown(),
     )
     build_calls: list[dict[str, object]] = []
 
-    def fake_build_app_shell(*, use_demo_fixture=False, sync_bridge=None, sync_service=None, working_dir_root=None):
+    def fake_build_launcher_surface(*, working_dir_root=None, **_kwargs):
         build_calls.append(
             {
-                "use_demo_fixture": use_demo_fixture,
-                "sync_bridge": sync_bridge,
-                "sync_service": sync_service,
                 "working_dir_root": working_dir_root,
             }
         )
-        return demo
+        widget = FakeWidget(runtime.presentation(), on_intent=runtime.dispatch, runtime_audio=runtime.runtime_audio)
+        widget.resize(1440, 720)
+        widget.setWindowTitle("EchoZero")
+        launcher = SimpleNamespace(
+            actions={
+                "new_project": object(),
+                "open_project": object(),
+                "save_project": object(),
+                "save_project_as": object(),
+            }
+        )
+        widget._launcher_actions = launcher.actions
+        return SimpleNamespace(runtime=runtime, widget=widget, controller=launcher)
 
     log_calls: list[Path | None] = []
 
-    monkeypatch.setattr(run_echozero, "build_app_shell", fake_build_app_shell)
-    monkeypatch.setattr(run_echozero, "TimelineWidget", FakeWidget)
+    monkeypatch.setattr(run_echozero, "build_launcher_surface", fake_build_launcher_surface)
     monkeypatch.setattr(run_echozero, "QApplication", FakeQApplication)
     monkeypatch.setattr(run_echozero, "QTimer", FakeQTimer)
-    monkeypatch.setattr(run_echozero, "QAction", FakeAction)
+    monkeypatch.setattr(run_echozero, "AutomationBridgeServer", FakeAutomationBridgeServer)
     monkeypatch.setattr(
         run_echozero,
         "install_runtime_logging",
         lambda log_dir=None: log_calls.append(log_dir) or Path("C:/logs/session.log"),
     )
-    return demo, runtime_audio, build_calls, log_calls
+    return runtime, runtime_audio, build_calls, log_calls
 
 
 def test_run_echozero_main_wires_widget_and_smoke_timer(monkeypatch):
@@ -182,9 +216,6 @@ def test_run_echozero_main_wires_widget_and_smoke_timer(monkeypatch):
     assert result == 27
     assert build_calls == [
         {
-            "use_demo_fixture": False,
-            "sync_bridge": None,
-            "sync_service": None,
             "working_dir_root": Path(tempfile.gettempdir()) / "EchoZero" / "smoke-working",
         }
     ]
@@ -216,9 +247,6 @@ def test_run_echozero_main_skips_timer_when_not_requested(monkeypatch):
     assert result == 5
     assert build_calls == [
         {
-            "use_demo_fixture": False,
-            "sync_bridge": None,
-            "sync_service": None,
             "working_dir_root": None,
         }
     ]
@@ -242,9 +270,6 @@ def test_run_echozero_main_shuts_down_audio_on_exec_failure(monkeypatch):
 
     assert build_calls == [
         {
-            "use_demo_fixture": False,
-            "sync_bridge": None,
-            "sync_service": None,
             "working_dir_root": None,
         }
     ]
@@ -252,22 +277,31 @@ def test_run_echozero_main_shuts_down_audio_on_exec_failure(monkeypatch):
     assert runtime_audio.shutdown_calls == 1
 
 
-def test_run_echozero_main_passes_demo_fixture_flag(monkeypatch):
-    _, runtime_audio, build_calls, log_calls = _install_launcher_fakes(monkeypatch, exec_result=9)
+def test_run_echozero_main_starts_and_stops_automation_bridge(monkeypatch, capsys):
+    _, runtime_audio, build_calls, log_calls = _install_launcher_fakes(monkeypatch, exec_result=11)
 
-    result = run_echozero.main(["--use-demo-fixture"])
+    result = run_echozero.main(["--automation-port", "0"])
 
-    assert result == 9
-    assert build_calls == [
-        {
-            "use_demo_fixture": True,
-            "sync_bridge": None,
-            "sync_service": None,
-            "working_dir_root": None,
-        }
-    ]
+    assert result == 11
+    assert build_calls == [{"working_dir_root": None}]
     assert log_calls == [None]
     assert runtime_audio.shutdown_calls == 1
+    assert len(FakeAutomationBridgeServer.instances) == 1
+    bridge = FakeAutomationBridgeServer.instances[0]
+    assert bridge.port == 0
+    assert bridge.started is True
+    assert bridge.stopped is True
+    assert "automation_bridge=http://127.0.0.1:43210" in capsys.readouterr().out
+
+
+def test_run_echozero_main_writes_automation_info_file(monkeypatch, tmp_path):
+    _, _, _, _ = _install_launcher_fakes(monkeypatch, exec_result=0)
+    info_path = tmp_path / "automation" / "bridge.txt"
+
+    result = run_echozero.main(["--automation-port", "0", "--automation-info-file", str(info_path)])
+
+    assert result == 0
+    assert info_path.read_text(encoding="utf-8").strip() == "http://127.0.0.1:43210"
 
 
 def test_launcher_actions_invoke_canonical_runtime_methods(monkeypatch):
@@ -306,14 +340,14 @@ def test_launcher_actions_invoke_canonical_runtime_methods(monkeypatch):
     runtime.save_project = save_project
     runtime.save_project_as = save_project_as
 
-    monkeypatch.setattr(run_echozero, "QAction", FakeAction)
+    monkeypatch.setattr(launcher_surface, "QAction", FakeAction)
     monkeypatch.setattr(
-        run_echozero.QFileDialog,
+        launcher_surface.QFileDialog,
         "getOpenFileName",
         lambda *args, **kwargs: ("C:/projects/opened.ez", run_echozero.PROJECT_FILE_FILTER),
     )
     monkeypatch.setattr(
-        run_echozero.QFileDialog,
+        launcher_surface.QFileDialog,
         "getSaveFileName",
         lambda *args, **kwargs: ("C:/projects/saved-as.ez", run_echozero.PROJECT_FILE_FILTER),
     )
@@ -345,9 +379,9 @@ def test_launcher_close_prompt_cancel_prevents_close(monkeypatch):
     runtime.dispatch = lambda intent: intent
     runtime.save_project = lambda: None
 
-    monkeypatch.setattr(run_echozero, "QAction", FakeAction)
+    monkeypatch.setattr(launcher_surface, "QAction", FakeAction)
     monkeypatch.setattr(
-        run_echozero.QMessageBox,
+        launcher_surface.QMessageBox,
         "question",
         lambda *args, **kwargs: QMessageBox.StandardButton.Cancel,
     )
@@ -371,9 +405,9 @@ def test_launcher_close_prompt_save_uses_current_path(monkeypatch):
     runtime.dispatch = lambda intent: intent
     runtime.save_project = lambda: calls.append("save_project")
 
-    monkeypatch.setattr(run_echozero, "QAction", FakeAction)
+    monkeypatch.setattr(launcher_surface, "QAction", FakeAction)
     monkeypatch.setattr(
-        run_echozero.QMessageBox,
+        launcher_surface.QMessageBox,
         "question",
         lambda *args, **kwargs: QMessageBox.StandardButton.Save,
     )
@@ -396,9 +430,9 @@ def test_launcher_close_prompt_discard_closes(monkeypatch):
     runtime.presentation = lambda: "presentation"
     runtime.dispatch = lambda intent: intent
 
-    monkeypatch.setattr(run_echozero, "QAction", FakeAction)
+    monkeypatch.setattr(launcher_surface, "QAction", FakeAction)
     monkeypatch.setattr(
-        run_echozero.QMessageBox,
+        launcher_surface.QMessageBox,
         "question",
         lambda *args, **kwargs: QMessageBox.StandardButton.Discard,
     )
@@ -424,7 +458,7 @@ def test_launcher_demo_mode_actions_noop_safely(monkeypatch):
     )
     widget = FakeWidget(runtime.presentation(), on_intent=runtime.dispatch, runtime_audio=runtime.runtime_audio)
 
-    monkeypatch.setattr(run_echozero, "QAction", FakeAction)
+    monkeypatch.setattr(launcher_surface, "QAction", FakeAction)
 
     launcher = run_echozero.LauncherController(runtime=runtime, widget=widget)
     launcher.install()
@@ -433,33 +467,3 @@ def test_launcher_demo_mode_actions_noop_safely(monkeypatch):
     assert widget._launcher_actions["open_project"].trigger() is None
     assert widget._launcher_actions["save_project"].trigger() is None
     assert widget._launcher_actions["save_project_as"].trigger() is None
-
-
-def test_run_timeline_demo_delegates_to_run_echozero_main_with_demo_fixture_flag(monkeypatch):
-    forwarded_args: list[list[str]] = []
-
-    def fake_main(argv):
-        forwarded_args.append(list(argv))
-        return 17
-
-    monkeypatch.setattr(run_timeline_demo, "_run_echozero_main", fake_main)
-
-    result = run_timeline_demo.main(["--style", "fusion"])
-
-    assert result == 17
-    assert forwarded_args == [["--style", "fusion", "--use-demo-fixture"]]
-
-
-def test_run_timeline_demo_does_not_duplicate_demo_fixture_flag(monkeypatch):
-    forwarded_args: list[list[str]] = []
-
-    def fake_main(argv):
-        forwarded_args.append(list(argv))
-        return 23
-
-    monkeypatch.setattr(run_timeline_demo, "_run_echozero_main", fake_main)
-
-    result = run_timeline_demo.main(["--use-demo-fixture", "--style", "fusion"])
-
-    assert result == 23
-    assert forwarded_args == [["--use-demo-fixture", "--style", "fusion"]]

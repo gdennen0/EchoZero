@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from collections.abc import Callable
 from dataclasses import dataclass, replace
 
@@ -17,6 +18,7 @@ from echozero.application.presentation.inspector_contract import (
     render_inspector_contract_text,
 )
 from echozero.application.presentation.models import TimelinePresentation, LayerPresentation, TakeLanePresentation
+from echozero.models.paths import ensure_installed_models_dir
 from echozero.application.shared.enums import FollowMode
 from echozero.application.sync.models import LiveSyncState
 from echozero.application.timeline.intents import (
@@ -42,6 +44,7 @@ from echozero.application.timeline.intents import (
     SaveTransferPreset,
     Seek,
     SetGain,
+    SetActivePlaybackTarget,
     SetLayerLiveSyncPauseReason,
     SetLayerLiveSyncState,
     SetPullImportMode,
@@ -56,8 +59,6 @@ from echozero.application.timeline.intents import (
     SelectPushTargetTrack,
     SelectTake,
     Stop,
-    ToggleMute,
-    ToggleSolo,
     ToggleLayerExpanded,
     TriggerTakeAction,
 )
@@ -92,7 +93,7 @@ from echozero.ui.qt.timeline.blocks.ruler import (
 from echozero.ui.qt.timeline.blocks.take_row import TakeRowBlock
 from echozero.ui.qt.timeline.blocks.transport_bar import TransportLayout
 from echozero.ui.qt.timeline.blocks.transport_bar_block import TransportBarBlock
-from echozero.ui.qt.timeline.runtime_audio import TimelineRuntimeAudioController
+from echozero.ui.qt.timeline.runtime_audio import RuntimeAudioTimingSnapshot, TimelineRuntimeAudioController
 from echozero.ui.qt.timeline.style import (
     TIMELINE_STYLE,
     TimelineShellStyle,
@@ -182,8 +183,8 @@ def compute_follow_scroll_x(
     elif presentation.follow_mode == FollowMode.CENTER:
         target = max(0.0, timeline_x - (content_width * 0.5))
     elif presentation.follow_mode == FollowMode.SMOOTH:
-        # Match EZ1 semantics: keep playhead around 75% of the viewport
-        # rather than centered, reducing forward-jump feel.
+        # Keep the playhead around 75% of the viewport rather than centered
+        # to reduce forward-jump feel during follow mode.
         target = max(0.0, timeline_x - (content_width * 0.75))
 
     _, max_scroll = compute_scroll_bounds(presentation, viewport, header_width=header_width)
@@ -757,8 +758,7 @@ class ObjectInfoPanel(QFrame):
         layer_actions.setVerticalSpacing(6)
         self._push_to_ma3_btn = QPushButton("Push to MA3", self)
         self._pull_from_ma3_btn = QPushButton("Pull from MA3", self)
-        self._mute_btn = QPushButton("Mute", self)
-        self._solo_btn = QPushButton("Solo", self)
+        self._route_audio_btn = QPushButton("Route Audio", self)
         self._gain_spin = QDoubleSpinBox(self)
         self._gain_spin.setRange(-60.0, 12.0)
         self._gain_spin.setSingleStep(0.5)
@@ -766,8 +766,7 @@ class ObjectInfoPanel(QFrame):
         self._gain_apply_btn = QPushButton("Apply Gain", self)
         layer_actions.addWidget(self._push_to_ma3_btn, 0, 0)
         layer_actions.addWidget(self._pull_from_ma3_btn, 0, 1)
-        layer_actions.addWidget(self._mute_btn, 1, 0)
-        layer_actions.addWidget(self._solo_btn, 1, 1)
+        layer_actions.addWidget(self._route_audio_btn, 1, 0, 1, 2)
         layer_actions.addWidget(self._gain_spin, 2, 0)
         layer_actions.addWidget(self._gain_apply_btn, 2, 1)
         layout.addLayout(layer_actions)
@@ -780,8 +779,7 @@ class ObjectInfoPanel(QFrame):
         self._duplicate_btn.clicked.connect(lambda: self._emit_contract_action("duplicate"))
         self._push_to_ma3_btn.clicked.connect(lambda: self._emit_contract_action("push_to_ma3"))
         self._pull_from_ma3_btn.clicked.connect(lambda: self._emit_contract_action("pull_from_ma3"))
-        self._mute_btn.clicked.connect(self._emit_toggle_mute)
-        self._solo_btn.clicked.connect(self._emit_toggle_solo)
+        self._route_audio_btn.clicked.connect(self._emit_route_audio)
         self._gain_apply_btn.clicked.connect(self._emit_apply_gain)
 
         self._set_controls_enabled(has_layer=False, has_event=False, has_transfer=False)
@@ -794,8 +792,7 @@ class ObjectInfoPanel(QFrame):
 
         self._push_to_ma3_btn.setEnabled(has_transfer)
         self._pull_from_ma3_btn.setEnabled(has_transfer)
-        self._mute_btn.setEnabled(has_layer)
-        self._solo_btn.setEnabled(has_layer)
+        self._route_audio_btn.setEnabled(has_layer)
         self._gain_spin.setEnabled(has_layer)
         self._gain_apply_btn.setEnabled(has_layer)
 
@@ -819,14 +816,11 @@ class ObjectInfoPanel(QFrame):
     def _emit_seek_selected_event(self) -> None:
         self._emit_contract_action("seek_here")
 
-    def _emit_toggle_mute(self) -> None:
-        self._emit_contract_action("toggle_mute")
-
-    def _emit_toggle_solo(self) -> None:
-        self._emit_contract_action("toggle_solo")
+    def _emit_route_audio(self) -> None:
+        self._emit_contract_action("set_active_playback_target")
 
     def _emit_apply_gain(self) -> None:
-        layer_action = self._find_contract_action("toggle_mute")
+        layer_action = self._find_contract_action("set_active_playback_target")
         layer_id = layer_action.params.get("layer_id") if layer_action is not None else None
         if layer_id is None:
             return
@@ -847,16 +841,14 @@ class ObjectInfoPanel(QFrame):
         self._kind.setText(object_type.capitalize())
 
         has_event = self._find_contract_action("seek_here") is not None
-        has_layer = self._find_contract_action("toggle_mute") is not None
+        has_layer = self._find_contract_action("set_active_playback_target") is not None
         push_action = self._find_contract_action("push_to_ma3")
         pull_action = self._find_contract_action("pull_from_ma3")
         has_transfer = push_action is not None and pull_action is not None
         self._set_controls_enabled(has_layer=has_layer, has_event=has_event, has_transfer=has_transfer)
 
-        mute_action = self._find_contract_action("toggle_mute")
-        solo_action = self._find_contract_action("toggle_solo")
-        self._mute_btn.setText(mute_action.label if mute_action is not None else "Mute")
-        self._solo_btn.setText(solo_action.label if solo_action is not None else "Solo")
+        route_action = self._find_contract_action("set_active_playback_target")
+        self._route_audio_btn.setText(route_action.label if route_action is not None else "Route Audio")
         self._push_to_ma3_btn.setText(push_action.label if push_action is not None else "Push to MA3")
         self._pull_from_ma3_btn.setText(pull_action.label if pull_action is not None else "Pull from MA3")
 
@@ -876,8 +868,7 @@ class _ContextMenuEntry:
 
 class TimelineCanvas(QWidget):
     layer_clicked = pyqtSignal(object, str)
-    mute_clicked = pyqtSignal(object)
-    solo_clicked = pyqtSignal(object)
+    active_clicked = pyqtSignal(object)
     push_clicked = pyqtSignal(object)
     pull_clicked = pyqtSignal(object)
     take_toggle_clicked = pyqtSignal(object)
@@ -886,7 +877,7 @@ class TimelineCanvas(QWidget):
     move_selected_events_requested = pyqtSignal(float, object)
     take_action_selected = pyqtSignal(object, object, str)
     contract_action_selected = pyqtSignal(object)
-    horizontal_scroll_requested = pyqtSignal(int)
+    horizontal_scroll_requested = pyqtSignal(float)
     zoom_requested = pyqtSignal(int, float)
     playhead_drag_requested = pyqtSignal(float)
     clear_selection_requested = pyqtSignal()
@@ -911,8 +902,7 @@ class TimelineCanvas(QWidget):
         self._take_action_rects: list[tuple[QRectF, object, object, str]] = []
         self._open_take_options: set[tuple[object, object]] = set()
         self._toggle_rects: list[tuple[QRectF, object]] = []
-        self._mute_rects: list[tuple[QRectF, object]] = []
-        self._solo_rects: list[tuple[QRectF, object]] = []
+        self._active_rects: list[tuple[QRectF, object]] = []
         self._push_rects: list[tuple[QRectF, object]] = []
         self._pull_rects: list[tuple[QRectF, object]] = []
         self._event_rects: list[tuple[QRectF, object, object | None, object]] = []
@@ -941,14 +931,7 @@ class TimelineCanvas(QWidget):
                 height += len(layer.takes) * self._take_row_height
         self.setMinimumHeight(max(320, height + 12))
 
-    def _any_solo(self) -> bool:
-        return any(layer.soloed for layer in self.presentation.layers)
-
     def _layer_dimmed(self, layer: LayerPresentation) -> bool:
-        if layer.muted:
-            return True
-        if self._any_solo() and not layer.soloed:
-            return True
         return False
 
     def _push_outline_active_for_layer(self, layer: LayerPresentation) -> bool:
@@ -978,8 +961,7 @@ class TimelineCanvas(QWidget):
         self._take_option_rects.clear()
         self._take_action_rects.clear()
         self._toggle_rects.clear()
-        self._mute_rects.clear()
-        self._solo_rects.clear()
+        self._active_rects.clear()
         self._push_rects.clear()
         self._pull_rects.clear()
         self._event_rects.clear()
@@ -1075,13 +1057,9 @@ class TimelineCanvas(QWidget):
             self.playhead_drag_requested.emit(self._seek_time_at_x(pos.x()))
             event.accept()
             return
-        for rect, layer_id in self._mute_rects:
+        for rect, layer_id in self._active_rects:
             if rect.contains(pos):
-                self.mute_clicked.emit(layer_id)
-                return
-        for rect, layer_id in self._solo_rects:
-            if rect.contains(pos):
-                self.solo_clicked.emit(layer_id)
+                self.active_clicked.emit(layer_id)
                 return
         for rect, layer_id in self._push_rects:
             if rect.contains(pos):
@@ -1227,13 +1205,27 @@ class TimelineCanvas(QWidget):
                 event.accept()
                 return
 
-        if event.modifiers() & Qt.KeyboardModifier.ShiftModifier:
-            delta = event.angleDelta().y() or event.angleDelta().x()
-            if delta:
-                self.horizontal_scroll_requested.emit(-delta)
-                event.accept()
-                return
+        horizontal_delta = self._horizontal_pan_delta(event)
+        if horizontal_delta:
+            self.horizontal_scroll_requested.emit(horizontal_delta)
+            event.accept()
+            return
         super().wheelEvent(event)
+
+    @staticmethod
+    def _horizontal_pan_delta(event: QWheelEvent) -> float:
+        pixel_delta = event.pixelDelta()
+        if pixel_delta.x():
+            return float(-pixel_delta.x())
+
+        angle_delta = event.angleDelta()
+        if event.modifiers() & Qt.KeyboardModifier.ShiftModifier:
+            delta = angle_delta.y() or angle_delta.x()
+            return float(-delta) if delta else 0.0
+
+        if abs(angle_delta.x()) > abs(angle_delta.y()) and angle_delta.x():
+            return float(-angle_delta.x())
+        return 0.0
 
     def keyPressEvent(self, event) -> None:
         modifiers = event.modifiers()
@@ -1382,10 +1374,13 @@ class TimelineCanvas(QWidget):
         if layer.kind.name == 'EVENT':
             self._event_drop_rects.append((layout.content_rect, layer.layer_id))
         hit_targets = self._header_block.paint(painter, slots, layer, dimmed=dimmed)
-        self._mute_rects.append((hit_targets.mute_rect, layer.layer_id))
-        self._solo_rects.append((hit_targets.solo_rect, layer.layer_id))
-        self._push_rects.append((hit_targets.push_rect, layer.layer_id))
-        self._pull_rects.append((hit_targets.pull_rect, layer.layer_id))
+        for control_id, rect in hit_targets.control_rects:
+            if control_id == "set_active_playback_target":
+                self._active_rects.append((rect, layer.layer_id))
+            elif control_id == "push_to_ma3":
+                self._push_rects.append((rect, layer.layer_id))
+            elif control_id == "pull_from_ma3":
+                self._pull_rects.append((rect, layer.layer_id))
 
         painter.save()
         painter.setClipRect(layout.content_rect)
@@ -1693,6 +1688,7 @@ class TimelineWidget(QWidget):
         self._runtime_audio = runtime_audio
         self._runtime_source_signature: tuple[tuple[str, str], ...] | None = None
         self._runtime_playhead_floor: float | None = None
+        self._runtime_timing_snapshot: RuntimeAudioTimingSnapshot | None = None
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.setWindowTitle(self._style.window_title)
 
@@ -1717,8 +1713,7 @@ class TimelineWidget(QWidget):
         self._scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self._scroll.setStyleSheet(f"background: {SHELL_TOKENS.canvas_bg}; border: none;")
         self._canvas.layer_clicked.connect(self._select_layer)
-        self._canvas.mute_clicked.connect(self._toggle_mute)
-        self._canvas.solo_clicked.connect(self._toggle_solo)
+        self._canvas.active_clicked.connect(self._set_active_playback_target)
         self._canvas.push_clicked.connect(self._open_push_from_layer_action)
         self._canvas.pull_clicked.connect(self._open_pull_from_layer_action)
         self._canvas.take_toggle_clicked.connect(self._toggle_take_selector)
@@ -1777,16 +1772,20 @@ class TimelineWidget(QWidget):
         )
         self.presentation = replace(presentation, scroll_x=followed)
         self._update_horizontal_scroll_bounds(sync_bar_value=True)
+        self._reset_scroll_area_horizontal_offset()
         self._transport.set_presentation(self.presentation)
         self._object_info.set_contract(build_timeline_inspector_contract(self.presentation))
         self._ruler.set_presentation(self.presentation)
         self._canvas.set_presentation(self.presentation)
         if self._runtime_audio is not None:
-            runtime_signature = tuple(
-                (str(layer.layer_id), layer.source_audio_path or "")
-                for layer in self.presentation.layers
-                if layer.source_audio_path
-            )
+            if hasattr(self._runtime_audio, "presentation_signature"):
+                runtime_signature = self._runtime_audio.presentation_signature(self.presentation)
+            else:
+                runtime_signature = tuple(
+                    (str(layer.layer_id), layer.source_audio_path or "")
+                    for layer in self.presentation.layers
+                    if layer.source_audio_path
+                )
             if runtime_signature != self._runtime_source_signature:
                 self._runtime_audio.build_for_presentation(self.presentation)
                 self._runtime_source_signature = runtime_signature
@@ -1819,15 +1818,28 @@ class TimelineWidget(QWidget):
         if abs(next_scroll - self.presentation.scroll_x) < 0.5:
             return
         self.presentation = replace(self.presentation, scroll_x=next_scroll)
+        self._reset_scroll_area_horizontal_offset()
         self._ruler.set_presentation(self.presentation)
         self._canvas.set_presentation(self.presentation, recompute_layout=False)
 
-    def _scroll_horizontally_by_steps(self, delta: int) -> None:
+    def _scroll_horizontally_by_steps(self, delta: float) -> None:
         if delta == 0:
             return
-        notches = max(-6, min(6, int(delta / 120) if abs(delta) >= 120 else (1 if delta > 0 else -1)))
-        next_value = self._hscroll.value() + (notches * self._hscroll.singleStep())
+        if abs(delta) >= 120.0:
+            notches = max(-6, min(6, int(delta / 120)))
+            scroll_delta = float(notches * self._hscroll.singleStep())
+        else:
+            scroll_delta = delta
+        next_value = int(round(self._hscroll.value() + scroll_delta))
         self._hscroll.setValue(max(self._hscroll.minimum(), min(self._hscroll.maximum(), next_value)))
+
+    def _reset_scroll_area_horizontal_offset(self) -> None:
+        bar = self._scroll.horizontalScrollBar()
+        if bar.value() == 0:
+            return
+        bar.blockSignals(True)
+        bar.setValue(0)
+        bar.blockSignals(False)
 
     def _zoom_from_input(self, delta: int, anchor_x: float) -> None:
         if delta == 0:
@@ -1876,13 +1888,14 @@ class TimelineWidget(QWidget):
                 pixels_per_second=self.presentation.pixels_per_second,
             )
             if self._runtime_audio is not None:
-                runtime_time = self._runtime_audio.current_time_seconds()
-                runtime_playing = self._runtime_audio.is_playing()
+                runtime_time, runtime_playing = self._sample_runtime_playhead()
                 if isinstance(intent, Seek):
                     runtime_time = max(0.0, float(intent.position))
+                    self._runtime_timing_snapshot = None
                     self._runtime_playhead_floor = runtime_time if runtime_playing else None
                 elif isinstance(intent, Stop):
                     runtime_time = 0.0
+                    self._runtime_timing_snapshot = None
                     self._runtime_playhead_floor = None
                 else:
                     runtime_time = self._stabilize_runtime_playhead(runtime_time, playing=runtime_playing)
@@ -1898,11 +1911,8 @@ class TimelineWidget(QWidget):
         if self._runtime_audio is None:
             return
 
-        playing = self._runtime_audio.is_playing()
-        current_time = self._stabilize_runtime_playhead(
-            self._runtime_audio.current_time_seconds(),
-            playing=playing,
-        )
+        current_time, playing = self._sample_runtime_playhead()
+        current_time = self._stabilize_runtime_playhead(current_time, playing=playing)
         current_label = _format_time_label(current_time)
         if (
             abs(current_time - self.presentation.playhead) < 0.001
@@ -1927,6 +1937,35 @@ class TimelineWidget(QWidget):
         self._transport.set_presentation(self.presentation)
         self._ruler.set_presentation(self.presentation)
         self._canvas.set_presentation(self.presentation, recompute_layout=False)
+
+    def _sample_runtime_playhead(self) -> tuple[float, bool]:
+        snapshot = self._current_runtime_timing_snapshot()
+        playing = snapshot.is_playing if snapshot is not None else self._runtime_audio.is_playing()
+        current_time = self._resolve_runtime_time(snapshot)
+        if snapshot is None:
+            current_time = max(0.0, float(self._runtime_audio.current_time_seconds()))
+        return current_time, playing
+
+    def _current_runtime_timing_snapshot(self) -> RuntimeAudioTimingSnapshot | None:
+        if self._runtime_audio is None or not hasattr(self._runtime_audio, "timing_snapshot"):
+            self._runtime_timing_snapshot = None
+            return None
+        snapshot = self._runtime_audio.timing_snapshot()
+        if not isinstance(snapshot, RuntimeAudioTimingSnapshot):
+            self._runtime_timing_snapshot = None
+            return None
+        self._runtime_timing_snapshot = snapshot
+        return snapshot
+
+    @staticmethod
+    def _resolve_runtime_time(snapshot: RuntimeAudioTimingSnapshot | None) -> float:
+        if snapshot is None:
+            return 0.0
+        base_time = max(0.0, float(snapshot.audible_time_seconds))
+        if not snapshot.is_playing or snapshot.snapshot_monotonic_seconds is None:
+            return base_time
+        elapsed = max(0.0, time.monotonic() - float(snapshot.snapshot_monotonic_seconds))
+        return max(0.0, min(float(snapshot.clock_time_seconds), base_time + elapsed))
 
     def _stabilize_runtime_playhead(self, runtime_time: float, *, playing: bool) -> float:
         next_time = max(0.0, float(runtime_time))
@@ -1984,11 +2023,8 @@ class TimelineWidget(QWidget):
     def _move_selected_events(self, delta_seconds: float, target_layer_id) -> None:
         self._dispatch(MoveSelectedEvents(delta_seconds=delta_seconds, target_layer_id=target_layer_id))
 
-    def _toggle_mute(self, layer_id) -> None:
-        self._dispatch(ToggleMute(layer_id))
-
-    def _toggle_solo(self, layer_id) -> None:
-        self._dispatch(ToggleSolo(layer_id))
+    def _set_active_playback_target(self, layer_id) -> None:
+        self._dispatch(SetActivePlaybackTarget(layer_id=layer_id, take_id=None))
 
     def _open_push_from_layer_action(self, layer_id) -> None:
         self._focus_layer_for_header_action(layer_id)
@@ -2000,10 +2036,7 @@ class TimelineWidget(QWidget):
         self._dispatch(OpenPullFromMA3Dialog())
 
     def _focus_layer_for_header_action(self, layer_id) -> None:
-        selected_layer_ids = set(self.presentation.selected_layer_ids)
-        if not selected_layer_ids and self.presentation.selected_layer_id is not None:
-            selected_layer_ids = {self.presentation.selected_layer_id}
-        if layer_id not in selected_layer_ids:
+        if self.presentation.selected_layer_id != layer_id:
             self._dispatch(SelectLayer(layer_id))
 
     def _selected_event_ids_for_selected_layers(self) -> list:
@@ -2077,15 +2110,10 @@ class TimelineWidget(QWidget):
         if action_id == "add_song_from_path":
             self._run_add_song_from_path_action()
             return
-        if action_id == "toggle_mute":
+        if action_id == "set_active_playback_target":
             layer_id = params.get("layer_id")
             if layer_id is not None:
-                self._dispatch(ToggleMute(layer_id))
-            return
-        if action_id == "toggle_solo":
-            layer_id = params.get("layer_id")
-            if layer_id is not None:
-                self._dispatch(ToggleSolo(layer_id))
+                self._dispatch(SetActivePlaybackTarget(layer_id=layer_id, take_id=None))
             return
         if action_id in {"gain_down", "gain_unity", "gain_up", "set_gain_custom"}:
             layer_id = params.get("layer_id")
@@ -2181,7 +2209,7 @@ class TimelineWidget(QWidget):
             return self._handle_transfer_preset_action(action_id)
         if action_id in {"preview_transfer_plan", "apply_transfer_plan", "cancel_transfer_plan"}:
             return self._handle_transfer_plan_action(action_id, params)
-        if action_id in {"extract_stems", "extract_drum_events", "classify_drum_events"}:
+        if action_id in {"extract_stems", "extract_drum_events", "classify_drum_events", "extract_classified_drums"}:
             return self._handle_runtime_pipeline_action(action_id, params)
         if action_id in {
             "select_push_target_track",
@@ -2256,11 +2284,12 @@ class TimelineWidget(QWidget):
             return True
         call_args: list[object] = [layer_id]
         if action_id == "classify_drum_events":
+            models_dir = ensure_installed_models_dir()
             model_path, _ = QFileDialog.getOpenFileName(
                 self,
                 "Select Drum Classifier Model",
-                "",
-                "PyTorch Models (*.pth);;All Files (*)",
+                str(models_dir),
+                "Runtime Models (*.pth *.manifest.json);;PyTorch Models (*.pth);;Artifact Manifests (*.manifest.json);;All Files (*)",
             )
             if not model_path:
                 return True

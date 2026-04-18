@@ -113,6 +113,7 @@ def test_inspector_contract_layer_selection_state():
     assert rows["kind"] == "EVENT"
     assert rows["main take"] == "take_main"
     assert rows["status flags"] == "none"
+    assert rows["playback state"] == "Set Active"
     assert rows["sync state"] == "Off"
     assert rows["sync mapping"] == "tc1_tg2_tr3"
     assert rows["transfer plan"] == "mixed plan_123 (1 rows, ready 1, blocked 0, failed 0)"
@@ -125,7 +126,9 @@ def test_inspector_contract_layer_selection_state():
     assert rows["pull target"] == "none"
     assert rows["pull selection"] == "0"
     assert rows["pull row"] == "none"
-    assert {"toggle_mute", "toggle_solo", "gain_down", "gain_unity", "gain_up"} <= set(action_ids)
+    assert rows["selected identity"] == "Layer Kick (layer_kick)"
+    assert rows["playback target"] == "none"
+    assert {"set_active_playback_target", "gain_down", "gain_unity", "gain_up"} <= set(action_ids)
     assert {
         "push_to_ma3",
         "pull_from_ma3",
@@ -179,6 +182,8 @@ def test_inspector_contract_push_mode_layer_actions_and_facts():
     assert rows["push target"] == "Track 3 (tc1_tg2_tr3) - Bass"
     assert rows["push selection"] == "1"
     assert rows["push row"] == "ready"
+    assert rows["selected identity"] == "Layer Kick (layer_kick)"
+    assert rows["playback target"] == "none"
     assert {
         "push_to_ma3",
         "push_select_all_events",
@@ -330,11 +335,14 @@ def test_inspector_contract_main_event_state():
     assert rows["end"] == "1.50s"
     assert rows["duration"] == "0.50s"
     assert rows["take"] == "Main take (take_main)"
+    assert rows["playback state"] == "Set Active"
     assert rows["sync mapping"] == "tc1_tg2_tr3"
     assert rows["pull workspace"] == "active"
     assert rows["pull target"] == "Kick"
     assert rows["pull selection"] == "1"
     assert rows["pull row"] == "ready"
+    assert rows["selected identity"] == "Event Main (main_evt) on Kick / Main take (take_main)"
+    assert rows["playback target"] == "none"
     assert transfer_section.label == "Sync & Transfer"
     assert {"push_to_ma3", "pull_from_ma3", "open_batch_transfer_workspace"} <= set(action_ids)
     assert "select_pull_source_events" not in action_ids
@@ -345,6 +353,8 @@ def test_inspector_contract_main_event_state():
 
 def test_inspector_contract_take_event_state():
     presentation = _contract_test_presentation()
+    presentation.active_playback_layer_id = LayerId("layer_kick")
+    presentation.active_playback_take_id = TakeId("take_alt")
 
     contract = build_timeline_inspector_contract(
         presentation,
@@ -361,8 +371,11 @@ def test_inspector_contract_take_event_state():
 
     assert contract.title == "Event Take"
     assert rows["take"] == "Take 2 (take_alt)"
+    assert rows["playback state"] == "Active"
     assert rows["push mode"] == "inactive"
     assert rows["pull workspace"] == "inactive"
+    assert rows["selected identity"] == "none"
+    assert rows["playback target"] == "Active Kick / Take 2 (take_alt)"
     assert {"seek_here", "overwrite_main", "merge_main"} <= set(action_ids)
     assert "select_pull_source_events" not in action_ids
     assert "select_push_target_track" not in action_ids
@@ -409,6 +422,7 @@ def test_inspector_contract_render_text_tracks_selection_transition_sequence():
             "main take: take_main",
             "takes: 2",
             "status flags: none",
+            "playback state: Set Active",
             "sync state: Off",
             "sync mapping: none",
             "transfer plan: none",
@@ -421,6 +435,8 @@ def test_inspector_contract_render_text_tracks_selection_transition_sequence():
             "pull target: none",
             "pull selection: 0",
             "pull row: none",
+            "selected identity: Layer Kick (layer_kick)",
+            "playback target: none",
         ]
     )
     assert render_inspector_contract_text(event_contract) == "\n".join(
@@ -432,6 +448,7 @@ def test_inspector_contract_render_text_tracks_selection_transition_sequence():
             "duration: 0.50s",
             "layer: Kick",
             "take: Main take (take_main)",
+            "playback state: Set Active",
             "sync state: Off",
             "sync mapping: none",
             "transfer plan: none",
@@ -444,9 +461,32 @@ def test_inspector_contract_render_text_tracks_selection_transition_sequence():
             "pull target: none",
             "pull selection: 0",
             "pull row: none",
+            "selected identity: Event Main (main_evt) on Kick / Main take (take_main)",
+            "playback target: none",
         ]
     )
     assert render_inspector_contract_text(cleared_contract) == "No timeline object selected."
+
+
+def test_inspector_contract_empty_state_with_playback_target_shows_target_separately():
+    presentation = _contract_test_presentation()
+    presentation.active_playback_layer_id = LayerId("layer_kick")
+    presentation.active_playback_take_id = TakeId("take_main")
+
+    contract = build_timeline_inspector_contract(presentation)
+    rows = _section_rows(contract)
+
+    assert contract.identity is None
+    assert contract.title == "Timeline"
+    assert rows["selected identity"] == "none"
+    assert rows["playback target"] == "Active Kick / Main take (take_main)"
+    assert render_inspector_contract_text(contract) == "\n".join(
+        [
+            "Timeline",
+            "selected identity: none",
+            "playback target: Active Kick / Main take (take_main)",
+        ]
+    )
 
 
 def test_inspector_contract_no_takes_hit_target_excludes_take_actions():

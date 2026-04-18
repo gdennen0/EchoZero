@@ -17,7 +17,6 @@ The repo now contains three different categories of code:
 1. **Canonical EZ2**
    - `echozero/**`
    - `run_echozero.py`
-   - `run_timeline_demo.py` as compatibility shim only
    - `tests/application/**`
    - `tests/ui/**`
    - `tests/testing/**`
@@ -58,7 +57,6 @@ Keep these as the branch source of truth:
 - `echozero/testing/**`
 - `echozero/ui/**`
 - `run_echozero.py`
-- `run_timeline_demo.py`
 - EZ2-facing docs and release scripts
 
 Keep generated outputs local only:

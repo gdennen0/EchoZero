@@ -217,6 +217,29 @@ EchoZero uses a **working directory** pattern:
 - **NOT deleted on close** — enables crash recovery
 - On next open, EchoZero detects the stale dir and can recover
 
+## Installed Models
+
+EchoZero now uses a canonical local models folder:
+
+```text
+~/.echozero/models
+```
+
+This folder is part of the app-managed install surface.
+It is the canonical place for:
+
+- runtime classification bundles the app should see
+- future in-app model service downloads and installs
+- manually dropped Foundry export bundles for local runtime use
+
+Recommended contents:
+
+- Foundry export folders containing `model.pth` plus `*.manifest.json`
+- standalone `*.manifest.json` files beside their referenced `model.pth`
+- raw `model.pth` files only when you intentionally bypass artifact-style packaging
+
+The classify-drum-events file picker opens to this folder by default.
+
 Check for recovery:
 ```python
 from pathlib import Path
@@ -231,7 +254,7 @@ if ProjectStorage.check_recovery(Path("my_show.ez")):
 
 ## Development Tips
 
-- **Test isolation:** Use `Project.create()` directly with mock executors — don't use `main.py` in tests.
+- **Test isolation:** Use `Project.create()` directly with mock executors — don't boot the desktop launcher path when you only need core/application tests.
 - **Headless core work:** You can exercise many core APIs without launching the Qt shell, but the default app install path includes PyQt6.
 - **Pipeline templates:** Register templates via `@pipeline_template` decorator in `pipelines/templates/`.
 - **Logging:** Set `ECHOZERO_LOG_LEVEL=DEBUG` to see execution traces.

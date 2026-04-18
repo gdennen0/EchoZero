@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from PyQt6.QtCore import QRectF, Qt
 from PyQt6.QtGui import QColor, QPainter, QBrush, QFont
 
-from echozero.application.presentation.models import LayerPresentation
+from echozero.application.presentation.models import LayerHeaderControlPresentation, LayerPresentation
 from echozero.ui.qt.timeline.style import LayerHeaderStyle, StatusChipStyle, TIMELINE_STYLE
 
 
@@ -22,10 +22,7 @@ class HeaderSlots:
 
 @dataclass(slots=True)
 class HeaderHitTargets:
-    mute_rect: QRectF
-    solo_rect: QRectF
-    push_rect: QRectF
-    pull_rect: QRectF
+    control_rects: tuple[tuple[str, QRectF], ...]
 
 
 class LayerHeaderBlock:
@@ -52,14 +49,12 @@ class LayerHeaderBlock:
         painter.drawText(slots.title_rect, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, layer.title)
 
         self._draw_status_chips(painter, slots.status_rect, layer)
-        mute_rect = QRectF(slots.controls_rect.left(), slots.controls_rect.top(), 24, 18)
-        solo_rect = QRectF(slots.controls_rect.left() + 28, slots.controls_rect.top(), 24, 18)
-        push_rect = QRectF(slots.controls_rect.left() + 58, slots.controls_rect.top(), 40, 18)
-        pull_rect = QRectF(slots.controls_rect.left() + 102, slots.controls_rect.top(), 40, 18)
-        self._draw_ms_button(painter, mute_rect, 'M', active=layer.muted, dimmed=dimmed)
-        self._draw_ms_button(painter, solo_rect, 'S', active=layer.soloed, dimmed=dimmed)
-        self._draw_action_button(painter, push_rect, 'Push', dimmed=dimmed)
-        self._draw_action_button(painter, pull_rect, 'Pull', dimmed=dimmed)
+        control_rects = self._draw_header_controls(
+            painter,
+            slots.controls_rect,
+            layer.header_controls,
+            dimmed=dimmed,
+        )
 
         if layer.takes:
             painter.setPen(QColor(self.style.toggle_border_hex))
@@ -77,12 +72,45 @@ class LayerHeaderBlock:
                 'v' if layer.is_expanded else '>',
             )
             painter.setFont(prior_font)
-        return HeaderHitTargets(
-            mute_rect=mute_rect,
-            solo_rect=solo_rect,
-            push_rect=push_rect,
-            pull_rect=pull_rect,
-        )
+        return HeaderHitTargets(control_rects=tuple(control_rects))
+
+    def _draw_header_controls(
+        self,
+        painter: QPainter,
+        controls_rect: QRectF,
+        controls: list[LayerHeaderControlPresentation],
+        *,
+        dimmed: bool,
+    ) -> list[tuple[str, QRectF]]:
+        control_rects: list[tuple[str, QRectF]] = []
+        x = controls_rect.left()
+        for control in controls:
+            width = self._control_width(control)
+            rect = QRectF(x, controls_rect.top(), width, 18)
+            if control.kind == "toggle":
+                self._draw_active_button(
+                    painter,
+                    rect,
+                    active=control.active,
+                    dimmed=dimmed,
+                    label=control.label,
+                )
+            else:
+                self._draw_action_button(
+                    painter,
+                    rect,
+                    control.label,
+                    dimmed=dimmed or not control.enabled,
+                )
+            control_rects.append((control.control_id, rect))
+            x += width + 6
+        return control_rects
+
+    @staticmethod
+    def _control_width(control: LayerHeaderControlPresentation) -> float:
+        if control.kind == "toggle":
+            return 52.0
+        return max(40.0, 10.0 + (len(control.label) * 7.0))
 
     def _draw_status_chips(self, painter: QPainter, rect: QRectF, layer: LayerPresentation) -> None:
         x = rect.left()
@@ -105,7 +133,15 @@ class LayerHeaderBlock:
         painter.setFont(prior_font)
         return rect.right()
 
-    def _draw_ms_button(self, painter: QPainter, rect: QRectF, label: str, *, active: bool, dimmed: bool) -> None:
+    def _draw_active_button(
+        self,
+        painter: QPainter,
+        rect: QRectF,
+        *,
+        active: bool,
+        dimmed: bool,
+        label: str = "ACTIVE",
+    ) -> None:
         button_style = self.style.mute_solo
         state_style = button_style.active if active else button_style.inactive
         fill_hex = state_style.fill_hex
@@ -120,7 +156,11 @@ class LayerHeaderBlock:
         button_font.setPointSize(button_style.font.point_size)
         button_font.setBold(button_style.font.bold)
         painter.setFont(button_font)
-        painter.drawText(rect.adjusted(0, -1, 0, -1), Qt.AlignmentFlag.AlignCenter | Qt.TextFlag.TextSingleLine, label)
+        painter.drawText(
+            rect.adjusted(0, -1, 0, -1),
+            Qt.AlignmentFlag.AlignCenter | Qt.TextFlag.TextSingleLine,
+            label,
+        )
         painter.setFont(prior_font)
 
     def _draw_action_button(self, painter: QPainter, rect: QRectF, label: str, *, dimmed: bool) -> None:

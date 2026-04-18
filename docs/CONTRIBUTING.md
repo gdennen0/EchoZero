@@ -32,6 +32,30 @@ This repo uses a **branch + PR publish workflow**. Treat `origin/main` as the so
 4. **Open PR: `<ticket-or-topic>` -> `main`**
    - Merge through PR (no direct push from local `main`).
 
+## Workspace bootstrap
+
+Use the scripted bootstrap instead of ad hoc setup:
+
+```bash
+python3 scripts/dev_bootstrap.py
+```
+
+Optional stacks:
+
+```bash
+python3 scripts/dev_bootstrap.py --extras ml packaging
+```
+
+Recommended local hooks:
+
+```bash
+.venv/bin/pre-commit install
+```
+
+Use `.work/` for temporary notes, logs, generated diffs, and throwaway artifacts.
+Use [docs/agent-task-template.md](docs/agent-task-template.md) when handing work to
+another agent or a separate worktree.
+
 ## Pre-push checklist (exact commands)
 
 Run these before any branch push:

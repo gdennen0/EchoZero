@@ -2,11 +2,8 @@
 
 from __future__ import annotations
 
-import sys
 from dataclasses import dataclass, replace
 from pathlib import Path
-
-from PyQt6.QtWidgets import QApplication
 
 from echozero.application.mixer.models import AudibilityState, MixerState, LayerMixerState
 from echozero.application.mixer.service import MixerService
@@ -36,6 +33,7 @@ from echozero.application.sync.service import SyncService
 from echozero.application.timeline.intents import (
     ClearSelection,
     DuplicateSelectedEvents,
+    MoveSelectedEvents,
     NudgeSelectedEvents,
     OpenPullFromMA3Dialog,
     OpenPushToMA3Dialog,
@@ -45,11 +43,10 @@ from echozero.application.timeline.intents import (
     SelectEvent,
     SelectLayer,
     SelectTake,
+    SetActivePlaybackTarget,
     Stop,
     TimelineIntent,
     ToggleLayerExpanded,
-    ToggleMute,
-    ToggleSolo,
     SetGain,
     TriggerTakeAction,
 )
@@ -57,7 +54,6 @@ from echozero.application.transport.models import TransportState
 from echozero.application.transport.service import TransportService
 from echozero.ui.qt.timeline.fixture_loader import load_realistic_timeline_fixture
 from echozero.ui.qt.timeline.runtime_audio import TimelineRuntimeAudioController
-from echozero.ui.qt.timeline.widget import TimelineWidget
 
 
 class DemoSessionService(SessionService):
@@ -143,7 +139,7 @@ class DemoMixerService(MixerService):
     def resolve_audibility(self, layers) -> list[AudibilityState]:
         resolved: list[AudibilityState] = []
         for layer in layers:
-            resolved.append(AudibilityState(layer_id=layer.layer_id, is_audible=not layer.muted, reason='normal'))
+            resolved.append(AudibilityState(layer_id=layer.layer_id, is_audible=True, reason='normal'))
         return resolved
 
 
@@ -176,6 +172,13 @@ class DemoTimelineApp:
     def presentation(self) -> TimelinePresentation:
         return self.presentation_state
 
+    def _sync_runtime_state(self) -> None:
+        if self.runtime_audio is not None:
+            self.session.transport_state.playhead = self.runtime_audio.current_time_seconds()
+            self.session.transport_state.is_playing = self.runtime_audio.is_playing()
+            if hasattr(self.runtime_audio, "snapshot_state"):
+                self.session.playback_state = self.runtime_audio.snapshot_state(self.presentation_state)
+
     def dispatch(self, intent: TimelineIntent) -> TimelinePresentation:
         if isinstance(intent, Pause):
             self.session.transport_state.is_playing = False
@@ -195,26 +198,6 @@ class DemoTimelineApp:
             if self.runtime_audio is not None:
                 self.runtime_audio.seek(intent.position)
             self.session.transport_state.playhead = max(0.0, intent.position)
-        elif isinstance(intent, ToggleMute):
-            layers = []
-            for layer in self.presentation_state.layers:
-                if layer.layer_id == intent.layer_id:
-                    layers.append(replace(layer, muted=not layer.muted))
-                else:
-                    layers.append(layer)
-            self.presentation_state = replace(self.presentation_state, layers=layers)
-            if self.runtime_audio is not None:
-                self.runtime_audio.apply_mix_state(self.presentation_state)
-        elif isinstance(intent, ToggleSolo):
-            layers = []
-            for layer in self.presentation_state.layers:
-                if layer.layer_id == intent.layer_id:
-                    layers.append(replace(layer, soloed=not layer.soloed))
-                else:
-                    layers.append(layer)
-            self.presentation_state = replace(self.presentation_state, layers=layers)
-            if self.runtime_audio is not None:
-                self.runtime_audio.apply_mix_state(self.presentation_state)
         elif isinstance(intent, SetGain):
             layers = []
             for layer in self.presentation_state.layers:
@@ -273,6 +256,14 @@ class DemoTimelineApp:
                 selected_take_id=intent.take_id,
                 selected_event_ids=[],
             )
+        elif isinstance(intent, SetActivePlaybackTarget):
+            self.presentation_state = replace(
+                self.presentation_state,
+                active_playback_layer_id=intent.layer_id,
+                active_playback_take_id=intent.take_id,
+            )
+            if self.runtime_audio is not None:
+                self.runtime_audio.apply_mix_state(self.presentation_state)
         elif isinstance(intent, SelectEvent):
             layers = _select_event(
                 self.presentation_state.layers,
@@ -310,6 +301,12 @@ class DemoTimelineApp:
                 direction=int(intent.direction),
                 steps=int(intent.steps),
             )
+        elif isinstance(intent, MoveSelectedEvents):
+            self.presentation_state = _move_selected_events(
+                self.presentation_state,
+                delta_seconds=float(intent.delta_seconds),
+                target_layer_id=intent.target_layer_id,
+            )
         elif isinstance(intent, DuplicateSelectedEvents):
             self.presentation_state = _duplicate_selected_events(
                 self.presentation_state,
@@ -326,11 +323,7 @@ class DemoTimelineApp:
                 self.presentation_state,
                 self.sync_service,
             )
-        if self.runtime_audio is not None:
-            # Keep UI transport state in lockstep with the runtime audio clock so
-            # layer mix actions (mute/solo) do not snap playhead backward.
-            self.session.transport_state.playhead = self.runtime_audio.current_time_seconds()
-            self.session.transport_state.is_playing = self.runtime_audio.is_playing()
+        self._sync_runtime_state()
 
         self.presentation_state = replace(
             self.presentation_state,
@@ -408,6 +401,52 @@ def _duplicate_selected_events(
         next_events.sort(key=lambda candidate: (candidate.start, candidate.end, str(candidate.event_id)))
         layers.append(replace(layer, events=next_events))
     return replace(presentation, layers=layers)
+
+
+def _move_selected_events(
+    presentation: TimelinePresentation,
+    *,
+    delta_seconds: float,
+    target_layer_id,
+) -> TimelinePresentation:
+    selected_ids = set(presentation.selected_event_ids)
+    if not selected_ids:
+        return presentation
+
+    source_layer_id = presentation.selected_layer_id
+    updated_layers: list[LayerPresentation] = []
+    moved_events: list[EventPresentation] = []
+
+    for layer in presentation.layers:
+        next_events: list[EventPresentation] = []
+        for event in layer.events:
+            if event.event_id not in selected_ids:
+                next_events.append(event)
+                continue
+            duration = max(event.duration, 0.01)
+            moved_events.append(
+                replace(
+                    event,
+                    start=max(0.0, event.start + delta_seconds),
+                    end=max(0.0, event.start + delta_seconds) + duration,
+                    is_selected=True,
+                )
+            )
+        if target_layer_id is not None and layer.layer_id == target_layer_id:
+            next_events.extend(moved_events)
+            next_events.sort(key=lambda candidate: (candidate.start, candidate.end, str(candidate.event_id)))
+        elif target_layer_id is None and layer.layer_id == source_layer_id:
+            next_events.extend(moved_events)
+            next_events.sort(key=lambda candidate: (candidate.start, candidate.end, str(candidate.event_id)))
+        updated_layers.append(replace(layer, events=next_events))
+
+    selected_layer_id = target_layer_id if target_layer_id is not None else source_layer_id
+    return replace(
+        presentation,
+        layers=updated_layers,
+        selected_layer_id=selected_layer_id,
+        selected_layer_ids=[] if selected_layer_id is None else [selected_layer_id],
+    )
 
 
 def _open_push_workspace(
@@ -681,24 +720,3 @@ def build_real_data_demo_app(
     app.runtime_audio = runtime_audio or TimelineRuntimeAudioController()
     app.runtime_audio.build_for_presentation(presentation)
     return app, summary
-
-
-def main() -> int:
-    app = QApplication(sys.argv)
-    demo = build_demo_app()
-    widget = TimelineWidget(
-        demo.presentation(),
-        on_intent=demo.dispatch,
-        runtime_audio=demo.runtime_audio,
-    )
-    widget.resize(1440, 720)
-    widget.show()
-    try:
-        return app.exec()
-    finally:
-        if demo.runtime_audio is not None:
-            demo.runtime_audio.shutdown()
-
-
-if __name__ == '__main__':
-    raise SystemExit(main())

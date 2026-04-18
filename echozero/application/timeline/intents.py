@@ -30,6 +30,12 @@ class SelectTake(TimelineIntent):
 
 
 @dataclass(slots=True)
+class SetActivePlaybackTarget(TimelineIntent):
+    layer_id: LayerId | None
+    take_id: TakeId | None = None
+
+
+@dataclass(slots=True)
 class SelectEvent(TimelineIntent):
     layer_id: LayerId
     take_id: TakeId | None
@@ -140,16 +146,6 @@ class Stop(TimelineIntent):
 @dataclass(slots=True)
 class Seek(TimelineIntent):
     position: float
-
-
-@dataclass(slots=True)
-class ToggleMute(TimelineIntent):
-    layer_id: LayerId
-
-
-@dataclass(slots=True)
-class ToggleSolo(TimelineIntent):
-    layer_id: LayerId
 
 
 @dataclass(slots=True)

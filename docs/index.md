@@ -11,6 +11,11 @@ Audio analysis workstation for live lighting design.
 - [Release Checklist](RELEASE-CHECKLIST.md) — Release signoff checklist
 - [Unified Plan](UNIFIED-IMPLEMENTATION-PLAN.md) — Canonical implementation direction
 - [Architecture](ARCHITECTURE.md) — System design and structure  
+- [UI Standard](UI-STANDARD.md) — North Star for desktop UI design and implementation
+- [UI Automation Plan](UI-AUTOMATION-PLAN.md) — Make the desktop app controllable by OpenClaw and agents
+- [UI Automation Library Plan](UI-AUTOMATION-LIBRARY-PLAN.md) — Separate reusable desktop app-control library plan
+- [UI Cleanup Map](UI-CLEANUP-MAP.md) — Preserve/extract/delete/prove-next for the UI stack
+- [UI Engine Redevelopment Plan](UI-ENGINE-REDEVELOPMENT-PLAN.md) — Reusable UI engine extraction and rebuild path
 - [Project Class](PROJECT-CLASS.md) — The UI developer's API guide
 - [Entity Model](architecture/ENTITY-MODEL.md) — Data relationships
 - [LD Workflow](LD-WORKFLOW.md) — How lighting designers use EchoZero

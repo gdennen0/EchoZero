@@ -30,10 +30,13 @@ from echozero.ui.qt.font_bootstrap import ensure_qt_fonts_available
 from echozero.ui.qt.timeline.demo_app import build_demo_app, build_real_data_demo_app
 from echozero.ui.qt.timeline.test_harness import estimate_full_window_height
 from echozero.ui.qt.timeline.widget import TimelineWidget
+from echozero.testing.analysis_mocks import write_test_wav
 
 
 DEFAULT_REFERENCE_ROOT = Path("C:/Users/griff/.openclaw/workspace/tmp/timeline-demo")
 DEFAULT_RELEASES_ROOT = Path("artifacts/releases/test")
+
+
 @dataclass(slots=True)
 class ScenarioResult:
     group: str
@@ -333,9 +336,9 @@ def canonical_app_lifecycle(*, run_folder: Path, record: bool, fps: int, **_: ob
     scenario_root = run_folder / "canonical_app_lifecycle"
     working_root = scenario_root / "working"
     project_path = scenario_root / "real-app-demo.ez"
+    audio_path = write_test_wav(scenario_root / "fixtures" / "canonical-app-demo.wav")
     runtime = build_app_shell(
         profile=AppRuntimeProfile.PRODUCTION,
-        use_demo_fixture=False,
         working_dir_root=working_root,
         initial_project_name="EchoZero Demo Suite",
     )
@@ -359,11 +362,16 @@ def canonical_app_lifecycle(*, run_folder: Path, record: bool, fps: int, **_: ob
                 name=name,
                 record=record,
                 fps=fps,
-                notes=notes,
+                notes=(notes or [])
+                + [
+                    "App-path shell proof surface only; capture is not a human-path operator demo.",
+                    "Artifact shows runtime state after canonical app actions, not live operator interaction replay.",
+                ],
             )
         )
 
     try:
+        runtime.add_song_from_path("Demo Suite Song", audio_path)
         capture_current("baseline")
 
         runtime.save_project_as(project_path)
@@ -422,7 +430,11 @@ def fixture_rich_editing_flow(*, run_folder: Path, record: bool, fps: int, **_: 
                 name=name,
                 record=record,
                 fps=fps,
-                notes=notes,
+                notes=(notes or [])
+                + [
+                    "Fixture-driven presentation proof only; not valid as human-path playback evidence.",
+                    "Selection and transport snapshots may include direct presentation shaping for deterministic coverage.",
+                ],
             )
         )
 
@@ -518,7 +530,10 @@ def real_data_scenario(
                 name=name,
                 record=record,
                 fps=fps,
-                notes=notes,
+                notes=(notes or [])
+                + [
+                    "Uses a real audio asset on the app path, but screenshots/video here remain capture artifacts, not operator-demo proof.",
+                ],
             )
         )
 

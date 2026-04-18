@@ -1,9 +1,10 @@
 from dataclasses import replace
+from pathlib import Path
 
-from PyQt6.QtCore import QPoint, QPointF, QEvent
+from PyQt6.QtCore import QPoint, QPointF, QEvent, QRectF
 from PyQt6.QtTest import QTest
 from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QMouseEvent
+from PyQt6.QtGui import QColor, QImage, QMouseEvent, QPainter
 from PyQt6.QtWidgets import QApplication, QMessageBox
 
 from echozero.application.presentation.inspector_contract import (
@@ -16,6 +17,7 @@ from echozero.application.presentation.models import (
     BatchTransferPlanPresentation,
     BatchTransferPlanRowPresentation,
     EventPresentation,
+    LayerHeaderControlPresentation,
     LayerPresentation,
     ManualPullDiffPreviewPresentation,
     ManualPullEventOptionPresentation,
@@ -55,6 +57,7 @@ from echozero.application.timeline.intents import (
     PreviewTransferPlan,
     SaveTransferPreset,
     Seek,
+    SetActivePlaybackTarget,
     SetPullImportMode,
     SetLayerLiveSyncPauseReason,
     SetLayerLiveSyncState,
@@ -69,11 +72,10 @@ from echozero.application.timeline.intents import (
     SelectPushTargetTrack,
     Stop,
     ToggleLayerExpanded,
-    ToggleMute,
-    ToggleSolo,
     SetGain,
 )
 from echozero.ui.qt.timeline.demo_app import build_demo_app
+from echozero.ui.qt.timeline.blocks.layer_header import HeaderSlots, LayerHeaderBlock
 from echozero.ui.qt.timeline.test_harness import build_variant_presentations, estimate_full_window_height
 from echozero.ui.qt.timeline.blocks.ruler import timeline_x_for_time
 from echozero.ui.qt.timeline.widget import (
@@ -142,11 +144,11 @@ def test_toggle_layer_expansion_round_trips():
     assert collapsed_song.is_expanded is False
 
 
-def test_fixture_has_muted_and_soloed_layers_for_daw_state_rendering():
+def test_fixture_has_selected_layer_for_daw_style_audio_routing():
     demo = build_demo_app()
     presentation = demo.presentation()
-    assert any(layer.muted for layer in presentation.layers)
-    assert any(layer.soloed for layer in presentation.layers)
+    assert presentation.selected_layer_id is not None
+    assert any(layer.is_selected for layer in presentation.layers)
 
 
 def test_timeline_span_estimate_uses_events_and_end_label():
@@ -316,6 +318,7 @@ def test_pipeline_context_actions_include_phase1_ids():
     assert "extract_drum_events" not in song_action_ids
     assert "classify_drum_events" not in song_action_ids
     assert "extract_stems" in drums_action_ids
+    assert "extract_classified_drums" in drums_action_ids
     assert "extract_drum_events" in drums_action_ids
     assert "classify_drum_events" in drums_action_ids
 
@@ -417,9 +420,19 @@ def test_contract_classify_pipeline_action_prompts_for_model_and_calls_runtime(m
             return self._presentation
 
     runtime = _Runtime()
+    recorded_args: list[tuple[object, ...]] = []
+
+    def _pick(*args, **kwargs):
+        recorded_args.append(args)
+        return ("C:/models/art_demo.manifest.json", "Artifact Manifests")
+
+    monkeypatch.setattr(
+        "echozero.ui.qt.timeline.widget.ensure_installed_models_dir",
+        lambda: Path("C:/Users/griff/.echozero/models"),
+    )
     monkeypatch.setattr(
         "echozero.ui.qt.timeline.widget.QFileDialog.getOpenFileName",
-        lambda *args, **kwargs: ("C:/models/drums.pth", "PyTorch Models"),
+        _pick,
     )
     widget = TimelineWidget(runtime.presentation(), on_intent=runtime.dispatch)
     try:
@@ -429,7 +442,43 @@ def test_contract_classify_pipeline_action_prompts_for_model_and_calls_runtime(m
         )
 
         assert handled is True
-        assert runtime.calls == [(LayerId("layer_drums"), "C:/models/drums.pth")]
+        assert runtime.calls == [(LayerId("layer_drums"), "C:/models/art_demo.manifest.json")]
+        assert recorded_args
+        assert recorded_args[0][2] == "C:/Users/griff/.echozero/models"
+    finally:
+        widget.close()
+        app.processEvents()
+
+
+def test_contract_extract_classified_drums_calls_runtime_without_picker(monkeypatch):
+    app = QApplication.instance() or QApplication([])
+
+    class _Runtime:
+        def __init__(self):
+            self.runtime_audio = None
+            self._presentation = _audio_pipeline_presentation()
+            self.calls: list[object] = []
+
+        def presentation(self):
+            return self._presentation
+
+        def dispatch(self, intent):
+            return self._presentation
+
+        def extract_classified_drums(self, layer_id):
+            self.calls.append(layer_id)
+            return self._presentation
+
+    runtime = _Runtime()
+    widget = TimelineWidget(runtime.presentation(), on_intent=runtime.dispatch)
+    try:
+        handled = widget._handle_runtime_pipeline_action(
+            "extract_classified_drums",
+            {"layer_id": LayerId("layer_drums")},
+        )
+
+        assert handled is True
+        assert runtime.calls == [LayerId("layer_drums")]
     finally:
         widget.close()
         app.processEvents()
@@ -1322,6 +1371,9 @@ def test_object_info_panel_updates_for_layer_selection():
         assert "main take: take_main" in info
         assert "takes: 2" in info
         assert "status flags: none" in info
+        assert "playback state: Set Active" in info
+        assert "selected identity: Layer Kick (layer_kick)" in info
+        assert "playback target: none" in info
     finally:
         widget.close()
         app.processEvents()
@@ -1343,6 +1395,9 @@ def test_object_info_panel_updates_for_main_lane_event_selection():
         assert "duration: 0.50s" in info
         assert "layer: Kick" in info
         assert "take: Main take (take_main)" in info
+        assert "playback state: Set Active" in info
+        assert "selected identity: Event Main (main_evt) on Kick / Main take (take_main)" in info
+        assert "playback target: none" in info
     finally:
         widget.close()
         app.processEvents()
@@ -1385,6 +1440,33 @@ def test_object_info_panel_updates_for_take_lane_event_selection():
         assert "duration: 0.50s" in info
         assert "layer: Kick" in info
         assert "take: Take 2 (take_alt)" in info
+        assert "playback state: Set Active" in info
+        assert "selected identity: Event Take (take_evt) on Kick / Take 2 (take_alt)" in info
+        assert "playback target: none" in info
+    finally:
+        widget.close()
+        app.processEvents()
+
+
+def test_object_info_panel_shows_playback_target_separately_when_nothing_is_selected():
+    app = QApplication.instance() or QApplication([])
+    presentation = replace(
+        _selection_test_presentation(),
+        active_playback_layer_id=LayerId("layer_kick"),
+        active_playback_take_id=TakeId("take_main"),
+    )
+    widget = TimelineWidget(presentation)
+    try:
+        _render_for_hit_testing(widget)
+
+        info = widget._object_info.text()
+        assert info == "\n".join(
+            [
+                "Timeline",
+                "selected identity: none",
+                "playback target: Active Kick / Main take (take_main)",
+            ]
+        )
     finally:
         widget.close()
         app.processEvents()
@@ -1563,7 +1645,7 @@ def test_context_menu_timeline_hit_is_scoped_to_timeline_actions():
         assert "Add Song From Path" in labels
         assert any(label.startswith("Seek to") for label in labels)
         assert "Push to MA3" not in labels
-        assert "Mute Layer" not in labels
+        assert "Route Audio to Master" not in labels
         assert "Overwrite Main" not in labels
     finally:
         widget.close()
@@ -1585,7 +1667,7 @@ def test_context_menu_layer_hit_is_scoped_to_layer_actions():
 
         assert "Push to MA3" in labels
         assert "Pull from MA3" in labels
-        assert "Mute Layer" in labels
+        assert "Route Audio to Master" in labels
         assert "Add Song From Path" not in labels
         assert "Nudge Left" not in labels
         assert "Overwrite Main" not in labels
@@ -1615,7 +1697,7 @@ def test_context_menu_take_hit_is_scoped_to_take_actions():
         assert "Overwrite Main" in labels
         assert "Merge Main" in labels
         assert "Push to MA3" not in labels
-        assert "Mute Layer" not in labels
+        assert "Route Audio to Master" not in labels
         assert "Add Song From Path" not in labels
     finally:
         widget.close()
@@ -1651,7 +1733,7 @@ def test_context_menu_event_hit_is_scoped_to_event_selection_actions():
         assert "Nudge Right" in labels
         assert "Duplicate" in labels
         assert "Push to MA3" not in labels
-        assert "Mute Layer" not in labels
+        assert "Route Audio to Master" not in labels
         assert "Add Song From Path" not in labels
     finally:
         widget.close()
@@ -2839,20 +2921,55 @@ def test_row_empty_space_click_dispatches_layer_selection_not_seek():
         app.processEvents()
 
 
-def test_main_rows_expose_mute_solo_hit_targets_without_take_row_duplicates():
+def test_main_rows_expose_active_hit_targets_without_take_row_duplicates():
     app = QApplication.instance() or QApplication([])
     presentation = _selection_test_presentation()
     widget = TimelineWidget(presentation, on_intent=lambda intent: presentation)
     try:
         _render_for_hit_testing(widget)
 
-        assert len(widget._canvas._mute_rects) == len(presentation.layers)
-        assert len(widget._canvas._solo_rects) == len(presentation.layers)
-        assert len(widget._canvas._push_rects) == len(presentation.layers)
-        assert len(widget._canvas._pull_rects) == len(presentation.layers)
+        assert len(widget._canvas._active_rects) == len(presentation.layers)
+        assert len(widget._canvas._push_rects) == len(
+            [layer for layer in presentation.layers if layer.kind is LayerKind.EVENT and layer.main_take_id is not None]
+        )
+        assert len(widget._canvas._pull_rects) == len(
+            [layer for layer in presentation.layers if layer.kind is LayerKind.EVENT and layer.main_take_id is not None]
+        )
     finally:
         widget.close()
         app.processEvents()
+
+
+def test_audio_layer_header_hides_transfer_hit_targets():
+    app = QApplication.instance() or QApplication([])
+    presentation = _audio_pipeline_presentation()
+    widget = TimelineWidget(presentation, on_intent=lambda intent: presentation)
+    try:
+        _render_for_hit_testing(widget)
+
+        assert len(widget._canvas._active_rects) == len(presentation.layers)
+        assert widget._canvas._push_rects == []
+        assert widget._canvas._pull_rects == []
+    finally:
+        widget.close()
+        app.processEvents()
+
+
+def test_layer_presentation_declares_header_controls():
+    presentation = _selection_test_presentation()
+    layer = presentation.layers[0]
+
+    layer.header_controls = [
+        LayerHeaderControlPresentation(control_id="set_active_playback_target", label="ACTIVE", kind="toggle"),
+        LayerHeaderControlPresentation(control_id="push_to_ma3", label="Push"),
+        LayerHeaderControlPresentation(control_id="pull_from_ma3", label="Pull"),
+    ]
+
+    assert [control.control_id for control in layer.header_controls] == [
+        "set_active_playback_target",
+        "push_to_ma3",
+        "pull_from_ma3",
+    ]
 
 
 def test_ruler_click_dispatches_seek():
@@ -2887,27 +3004,107 @@ def test_ruler_click_dispatches_seek_using_scroll_offset():
         app.processEvents()
 
 
-def test_main_row_mute_and_solo_clicks_dispatch_toggle_intents():
+def test_main_row_active_click_dispatches_playback_target_intent_only():
     app = QApplication.instance() or QApplication([])
     intents: list[object] = []
-    presentation = _selection_test_presentation()
+    presentation = replace(
+        _selection_test_presentation(),
+        selected_layer_id=LayerId("layer_kick"),
+        selected_layer_ids=[LayerId("layer_kick")],
+        selected_take_id=TakeId("take_alt"),
+        layers=[
+            replace(
+                _selection_test_presentation().layers[0],
+                is_selected=True,
+                is_playback_active=False,
+            )
+        ],
+    )
     widget = TimelineWidget(presentation, on_intent=lambda intent: intents.append(intent) or presentation)
     try:
         _render_for_hit_testing(widget)
 
-        mute_rect, mute_layer_id = widget._canvas._mute_rects[0]
-        solo_rect, solo_layer_id = widget._canvas._solo_rects[0]
+        active_rect, active_layer_id = widget._canvas._active_rects[0]
 
-        _click_rect(widget, mute_rect)
-        _click_rect(widget, solo_rect)
+        _click_rect(widget, active_rect)
 
         assert intents == [
-            ToggleMute(mute_layer_id),
-            ToggleSolo(solo_layer_id),
+            SetActivePlaybackTarget(layer_id=active_layer_id, take_id=None),
         ]
     finally:
         widget.close()
         app.processEvents()
+
+
+def test_layer_header_renders_selection_background_and_active_button_independently():
+    app = QApplication.instance() or QApplication([])
+    base = _selection_test_presentation()
+    selected_layer = replace(
+        base.layers[0],
+        is_selected=True,
+        is_playback_active=False,
+    )
+    playback_layer = replace(
+        base.layers[0],
+        layer_id=LayerId("layer_snare"),
+        title="Snare",
+        is_selected=False,
+        is_playback_active=True,
+    )
+    header_controls = [
+        LayerHeaderControlPresentation(
+            control_id="set_active_playback_target",
+            label="ACTIVE",
+            kind="toggle",
+            active=False,
+        ),
+        LayerHeaderControlPresentation(control_id="push_to_ma3", label="Push"),
+        LayerHeaderControlPresentation(control_id="pull_from_ma3", label="Pull"),
+    ]
+    selected_layer = replace(selected_layer, header_controls=header_controls)
+    playback_layer = replace(
+        playback_layer,
+        header_controls=[
+            replace(header_controls[0], active=True),
+            header_controls[1],
+            header_controls[2],
+        ],
+    )
+    slots = HeaderSlots(
+        rect=QRectF(0, 0, 320, 72),
+        title_rect=QRectF(16, 8, 140, 20),
+        subtitle_rect=QRectF(16, 30, 140, 16),
+        status_rect=QRectF(16, 50, 120, 16),
+        controls_rect=QRectF(160, 8, 144, 18),
+        toggle_rect=QRectF(292, 50, 16, 16),
+        metadata_rect=QRectF(0, 0, 0, 0),
+    )
+
+    selected_image = QImage(320, 72, QImage.Format.Format_ARGB32)
+    selected_image.fill(QColor("#000000"))
+    playback_image = QImage(320, 72, QImage.Format.Format_ARGB32)
+    playback_image.fill(QColor("#000000"))
+
+    selected_painter = QPainter(selected_image)
+    selected_hit_targets = LayerHeaderBlock().paint(selected_painter, slots, selected_layer)
+    selected_painter.end()
+
+    playback_painter = QPainter(playback_image)
+    playback_hit_targets = LayerHeaderBlock().paint(playback_painter, slots, playback_layer)
+    playback_painter.end()
+
+    selected_header_color = selected_image.pixelColor(12, 12)
+    playback_header_color = playback_image.pixelColor(12, 12)
+    selected_active_rect = dict(selected_hit_targets.control_rects)["set_active_playback_target"]
+    playback_active_rect = dict(playback_hit_targets.control_rects)["set_active_playback_target"]
+    selected_button_color = selected_image.pixelColor(int(selected_active_rect.left()) + 3, int(selected_active_rect.top()) + 9)
+    playback_button_color = playback_image.pixelColor(int(playback_active_rect.left()) + 3, int(playback_active_rect.top()) + 9)
+
+    assert selected_header_color.name() == "#202833"
+    assert playback_header_color.name() == "#1b212a"
+    assert selected_button_color.name() == "#18202a"
+    assert playback_button_color.name() == "#2b6bf0"
+    app.processEvents()
 
 
 def test_layer_header_push_control_dispatches_timeline_push_intent():
@@ -2942,6 +3139,7 @@ def test_layer_header_pull_control_dispatches_pull_workspace_intent():
         _selection_test_presentation(),
         selected_layer_id=LayerId("layer_kick"),
         selected_layer_ids=[LayerId("layer_kick")],
+        layers=[replace(_selection_test_presentation().layers[0], is_selected=True)],
     )
     widget = TimelineWidget(presentation, on_intent=lambda intent: intents.append(intent) or presentation)
     try:

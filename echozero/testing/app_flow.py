@@ -5,15 +5,15 @@ import tempfile
 from collections import deque
 from pathlib import Path
 
+import numpy as np
 from PyQt6.QtWidgets import QApplication
 
 from echozero.application.shared.enums import SyncMode
 from echozero.application.sync.service import SyncService
 from echozero.services.orchestrator import AnalysisService
 from echozero.testing.ma3 import OSCLoopback, OSCMessageCapture, SimulatedMA3Bridge
-from echozero.ui.qt.app_shell import AppRuntimeProfile, AppShellRuntime, build_app_shell
-from echozero.ui.qt.timeline.widget import TimelineWidget
-from run_echozero import LauncherController
+from echozero.ui.qt.app_shell import AppRuntimeProfile, AppShellRuntime
+from echozero.ui.qt.launcher_surface import build_launcher_surface
 
 _APPFLOW_TEMP_ROOT = Path("C:/Users/griff/.codex/memories/echozero_appflow")
 
@@ -44,7 +44,7 @@ class AppFlowHarness:
         self._dialog_root = self._working_dir_root.parent
         self.ma3_bridge = SimulatedMA3Bridge() if simulate_ma3 else None
         self.ma3_osc_loopback = OSCLoopback().start() if simulate_ma3_osc else None
-        runtime = build_app_shell(
+        surface = build_launcher_surface(
             profile=AppRuntimeProfile.TEST,
             sync_bridge=self.ma3_bridge,
             sync_service=sync_service,
@@ -52,17 +52,11 @@ class AppFlowHarness:
             initial_project_name=initial_project_name,
             analysis_service=analysis_service,
         )
-        if not isinstance(runtime, AppShellRuntime):
+        if not isinstance(surface.runtime, AppShellRuntime):
             raise TypeError("AppFlowHarness requires canonical AppShellRuntime")
-        self.runtime = runtime
-        self.widget = TimelineWidget(
-            self.runtime.presentation(),
-            on_intent=self.runtime.dispatch,
-            runtime_audio=self.runtime.runtime_audio,
-        )
-        self.widget.resize(1440, 720)
-        self.launcher = LauncherController(runtime=self.runtime, widget=self.widget)
-        self.launcher.install()
+        self.runtime = surface.runtime
+        self.widget = surface.widget
+        self.launcher = surface.controller
         self._open_paths: deque[Path] = deque()
         self._save_paths: deque[Path] = deque()
         self.launcher._choose_open_path = self._choose_open_path  # type: ignore[method-assign]
@@ -112,6 +106,27 @@ class AppFlowHarness:
         self._app.processEvents()
         return state
 
+    def install_runtime_audio(self, runtime_audio) -> None:
+        previous_runtime_audio = self.runtime.runtime_audio
+        if previous_runtime_audio is not None and previous_runtime_audio is not runtime_audio:
+            previous_runtime_audio.shutdown()
+        self.runtime.runtime_audio = runtime_audio
+        self.widget._runtime_audio = runtime_audio
+        runtime_audio.build_for_presentation(self.presentation())
+        self._app.processEvents()
+
+    def advance_playback(self, *, frames: int = 256, iterations: int = 1) -> None:
+        runtime_audio = self.runtime.runtime_audio
+        engine = getattr(runtime_audio, "engine", None)
+        if runtime_audio is None or engine is None:
+            raise RuntimeError("advance_playback requires runtime audio with an engine")
+        channels = max(1, int(getattr(engine, "_channels", 1)))
+        for _ in range(max(1, iterations)):
+            outdata = np.zeros((frames, channels), dtype=np.float32)
+            engine._audio_callback(outdata, frames, None, None)
+            self.widget._on_runtime_tick()
+            self._app.processEvents()
+
     def send_ma3_osc(self, path: str, *args: object) -> None:
         if self.ma3_osc_loopback is None:
             raise RuntimeError("MA3 OSC loopback is not enabled")
@@ -141,7 +156,13 @@ class AppFlowHarness:
         return self.runtime.is_dirty
 
     def close(self) -> None:
-        self.widget.close()
+        runtime_audio = getattr(self.widget, "_runtime_audio", None)
+        if runtime_audio is not None and hasattr(runtime_audio, "stop"):
+            runtime_audio.stop()
+        if hasattr(self.widget, "_runtime_timer"):
+            self.widget._runtime_timer.stop()
+        self.widget.hide()
+        self.widget.deleteLater()
         self._app.processEvents()
 
     def shutdown(self) -> None:

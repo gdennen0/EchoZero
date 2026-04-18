@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import shutil
+import subprocess
 import tempfile
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -21,6 +23,7 @@ from echozero.application.shared.enums import SyncMode
 from echozero.application.sync.models import SyncState
 from echozero.application.sync.service import SyncService
 from echozero.application.transport.models import TransportState
+from echozero.services.orchestrator import AnalysisService
 from echozero.testing.analysis_mocks import build_mock_analysis_service, write_test_model, write_test_wav
 from echozero.testing.app_flow import AppFlowHarness
 from echozero.testing.gui_dsl import GuiScenario, load_scenario
@@ -34,6 +37,35 @@ class StepTrace:
     status: str
     snapshot: dict[str, object]
     error: str | None = None
+
+
+@dataclass(slots=True)
+class _GuiLaneBVideoRecorder:
+    output_dir: Path
+    fps: int
+    frame_paths: list[Path]
+
+    @classmethod
+    def create(cls, output_dir: Path, *, fps: int) -> "_GuiLaneBVideoRecorder":
+        return cls(output_dir=output_dir, fps=max(1, fps), frame_paths=[])
+
+    def capture(self, harness: AppFlowHarness, name: str) -> Path:
+        frames_dir = self.output_dir / "frames"
+        frames_dir.mkdir(parents=True, exist_ok=True)
+        frame_path = frames_dir / f"{len(self.frame_paths):03d}-{_slugify(name)}.png"
+        if not harness.widget.grab().save(str(frame_path)):
+            raise RuntimeError(f"Failed to save frame: {frame_path}")
+        self.frame_paths.append(frame_path)
+        return frame_path
+
+    def finalize(self) -> Path | None:
+        if not self.frame_paths:
+            return None
+        return _write_frame_video(
+            self.frame_paths,
+            self.output_dir / "gui-lane-b-simulated.mp4",
+            fps=self.fps,
+        )
 
 
 class _LaneBSyncService(SyncService):
@@ -91,9 +123,22 @@ class _LaneBSyncService(SyncService):
 
 
 class GuiLaneBRunner:
-    def __init__(self, *, scenario: GuiScenario, output_dir: Path | None = None):
+    def __init__(
+        self,
+        *,
+        scenario: GuiScenario,
+        output_dir: Path | None = None,
+        record_video: bool = False,
+        fps: int = 8,
+        analysis_service: AnalysisService | None = None,
+        use_mock_analysis: bool = True,
+    ):
         self._scenario = scenario
         self._output_dir = output_dir
+        self._record_video = record_video
+        self._fps = max(1, fps)
+        self._analysis_service = analysis_service
+        self._use_mock_analysis = use_mock_analysis
         base_root = output_dir.parent if output_dir is not None else Path(tempfile.gettempdir()) / "EchoZero"
         self._run_temp_root = base_root.resolve()
 
@@ -103,14 +148,20 @@ class GuiLaneBRunner:
         harness = AppFlowHarness(
             initial_project_name=self._scenario.name,
             working_dir_root=self._run_temp_root / "gui-lane-b-working",
-            analysis_service=build_mock_analysis_service(),
+            analysis_service=self._resolved_analysis_service(),
             sync_service=_LaneBSyncService(),
         )
         _render_for_hit_testing(harness)
+        recorder = None if self._output_dir is None or not self._record_video else _GuiLaneBVideoRecorder.create(
+            self._output_dir,
+            fps=self._fps,
+        )
 
         try:
             if self._output_dir is not None:
                 self._output_dir.mkdir(parents=True, exist_ok=True)
+            if recorder is not None:
+                recorder.capture(harness, "initial")
 
             for index, step in enumerate(self._scenario.steps):
                 label = step.label or step.action
@@ -133,16 +184,43 @@ class GuiLaneBRunner:
                         )
                     )
                 )
+                if recorder is not None:
+                    recorder.capture(harness, f"{index:03d}-{label}")
                 if status == "failed":
                     break
 
             if self._output_dir is not None:
                 (self._output_dir / "trace.json").write_text(json.dumps(trace, indent=2), encoding="utf-8")
+                if recorder is not None:
+                    video_path = recorder.finalize()
+                    if video_path is not None:
+                        (self._output_dir / "artifacts.json").write_text(
+                            json.dumps(
+                                {
+                                    "scenario": self._scenario.name,
+                                    "trace": "trace.json",
+                                    "video": video_path.name,
+                                    "frame_count": len(recorder.frame_paths),
+                                    "proof_classification": "simulated_gui_capture",
+                                    "operator_demo_valid": False,
+                                    "analysis_mode": "mock" if self._use_mock_analysis else "runtime",
+                                },
+                                indent=2,
+                            ),
+                            encoding="utf-8",
+                        )
             return trace
         finally:
             harness.runtime._is_dirty = False  # type: ignore[attr-defined]
             harness.launcher.confirm_close = lambda: True  # type: ignore[method-assign]
             harness.shutdown()
+
+    def _resolved_analysis_service(self) -> AnalysisService | None:
+        if self._analysis_service is not None:
+            return self._analysis_service
+        if self._use_mock_analysis:
+            return build_mock_analysis_service()
+        return None
 
     def _execute_step(self, harness: AppFlowHarness, *, action: str, params: dict[str, object]) -> None:
         if action == "add_song_from_path":
@@ -243,10 +321,25 @@ class GuiLaneBRunner:
             write_test_model(path)
 
 
-def run_scenario_file(*, scenario_path: str | Path, output_dir: str | Path | None = None) -> list[dict[str, object]]:
+def run_scenario_file(
+    *,
+    scenario_path: str | Path,
+    output_dir: str | Path | None = None,
+    record_video: bool = False,
+    fps: int = 8,
+    analysis_service: AnalysisService | None = None,
+    use_mock_analysis: bool = True,
+) -> list[dict[str, object]]:
     scenario = load_scenario(scenario_path)
     resolved_output = None if output_dir is None else Path(output_dir)
-    return GuiLaneBRunner(scenario=scenario, output_dir=resolved_output).run()
+    return GuiLaneBRunner(
+        scenario=scenario,
+        output_dir=resolved_output,
+        record_video=record_video,
+        fps=fps,
+        analysis_service=analysis_service,
+        use_mock_analysis=use_mock_analysis,
+    ).run()
 
 
 def _render_for_hit_testing(harness: AppFlowHarness) -> None:
@@ -258,6 +351,55 @@ def _render_for_hit_testing(harness: AppFlowHarness) -> None:
     QApplication.processEvents()
     harness.widget._canvas.repaint()
     QApplication.processEvents()
+
+
+def _slugify(value: str) -> str:
+    cleaned = "".join(ch.lower() if ch.isalnum() else "-" for ch in value.strip())
+    while "--" in cleaned:
+        cleaned = cleaned.replace("--", "-")
+    return cleaned.strip("-") or "frame"
+
+
+def _ffmpeg_exe() -> str | None:
+    for candidate in ("ffmpeg", "/opt/homebrew/bin/ffmpeg", "C:/ffmpeg/bin/ffmpeg.exe"):
+        resolved = shutil.which(candidate)
+        if resolved is not None:
+            return resolved
+        if Path(candidate).exists():
+            return candidate
+    return None
+
+
+def _write_frame_video(frame_paths: list[Path], output_path: Path, *, fps: int) -> Path | None:
+    ffmpeg = _ffmpeg_exe()
+    if ffmpeg is None or not frame_paths:
+        return None
+
+    concat_path = output_path.with_suffix(".ffconcat")
+    concat_lines: list[str] = ["ffconcat version 1.0"]
+    frame_duration = 0.75
+    for frame_path in frame_paths:
+        concat_lines.append(f"file '{frame_path.resolve().as_posix()}'")
+        concat_lines.append(f"duration {frame_duration:.2f}")
+    concat_lines.append(f"file '{frame_paths[-1].resolve().as_posix()}'")
+    concat_path.write_text("\n".join(concat_lines) + "\n", encoding="utf-8")
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    command = [
+        ffmpeg,
+        "-y",
+        "-f",
+        "concat",
+        "-safe",
+        "0",
+        "-i",
+        str(concat_path),
+        "-vf",
+        f"fps={max(1, fps)},format=yuv420p",
+        str(output_path),
+    ]
+    subprocess.run(command, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    return output_path.resolve()
 
 
 def _click_rect(widget, rect) -> None:

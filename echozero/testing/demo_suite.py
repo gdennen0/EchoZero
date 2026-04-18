@@ -63,6 +63,11 @@ def build_manifest(*, run_id: str, run_folder: Path, scenario_results: list[Scen
             "total": len(scenario_results),
             "artifacts": artifact_count,
         },
+        "proof_contract": {
+            "app_path_required_for_completion": True,
+            "operator_demo_validity": "Only human-path captures using real launcher/runtime actions and real inputs qualify.",
+            "simulated_artifacts_must_be_labeled": True,
+        },
     }
 
 

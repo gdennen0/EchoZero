@@ -7,10 +7,27 @@ on:
     branches: [main]
 
 jobs:
+  pr-requirements:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Validate PR proof requirements
+        run: python scripts/check_pr_requirements.py
+
   hygiene:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - uses: actions/setup-python@v5
         with:
@@ -18,6 +35,14 @@ jobs:
 
       - name: Repo hygiene guardrails
         run: python scripts/check_repo_hygiene.py
+
+      - name: Changed-file style guardrails
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            python scripts/check_changed_python_style.py "${{ github.event.pull_request.base.sha }}" "${{ github.event.pull_request.head.sha }}"
+          else
+            python scripts/check_changed_python_style.py "${{ github.event.before }}" "${{ github.sha }}"
+          fi
 
   test:
     runs-on: ubuntu-latest
@@ -102,7 +127,7 @@ jobs:
           python-version: "3.11"
 
       - name: Install lint tools
-        run: pip install black isort mypy
+        run: pip install black isort mypy pre-commit
 
       - name: Check formatting (black)
         run: black --check echozero tests
@@ -112,3 +137,6 @@ jobs:
 
       - name: Type checking (mypy)
         run: mypy echozero --strict
+
+      - name: Validate pre-commit hooks
+        run: pre-commit validate-config

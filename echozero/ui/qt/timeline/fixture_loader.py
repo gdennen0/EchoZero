@@ -65,8 +65,6 @@ def _parse_layer(data: dict) -> LayerPresentation:
         takes=[_parse_take(take, default_color=resolved_color) for take in data.get("takes", [])],
         visible=bool(data.get("visible", True)),
         locked=bool(data.get("locked", False)),
-        muted=bool(data.get("muted", False)),
-        soloed=bool(data.get("soloed", False)),
         gain_db=float(data.get("gain_db", 0.0)),
         pan=float(data.get("pan", 0.0)),
         color=resolved_color,

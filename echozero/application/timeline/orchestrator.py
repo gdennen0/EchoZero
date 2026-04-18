@@ -68,14 +68,13 @@ from echozero.application.timeline.intents import (
     SetPushTransferMode,
     SelectPushTargetTrack,
     SetGain,
+    SetActivePlaybackTarget,
     SetLayerLiveSyncPauseReason,
     SetLayerLiveSyncState,
     SetPushTrackOptions,
     Stop,
     TimelineIntent,
     ToggleLayerExpanded,
-    ToggleMute,
-    ToggleSolo,
     TriggerTakeAction,
 )
 from echozero.application.timeline.models import Timeline, Layer, Take, Event
@@ -107,6 +106,13 @@ class TimelineOrchestrator:
 
         elif isinstance(intent, SelectTake):
             self._handle_select_take(timeline, intent.layer_id, intent.take_id)
+
+        elif isinstance(intent, SetActivePlaybackTarget):
+            self._handle_set_active_playback_target(
+                timeline,
+                layer_id=intent.layer_id,
+                take_id=intent.take_id,
+            )
 
         elif isinstance(intent, SelectEvent):
             self._handle_select_event(
@@ -164,16 +170,6 @@ class TimelineOrchestrator:
 
         elif isinstance(intent, Seek):
             self.transport_service.seek(intent.position)
-
-        elif isinstance(intent, ToggleMute):
-            layer = self._find_layer(timeline, intent.layer_id)
-            self.mixer_service.set_mute(intent.layer_id, not layer.mixer.mute)
-            layer.mixer.mute = not layer.mixer.mute
-
-        elif isinstance(intent, ToggleSolo):
-            layer = self._find_layer(timeline, intent.layer_id)
-            self.mixer_service.set_solo(intent.layer_id, not layer.mixer.solo)
-            layer.mixer.solo = not layer.mixer.solo
 
         elif isinstance(intent, SetGain):
             layer = self._find_layer(timeline, intent.layer_id)
@@ -715,11 +711,25 @@ class TimelineOrchestrator:
 
     def _handle_select_take(self, timeline: Timeline, layer_id, take_id) -> None:
         # Selection only. Selecting a take must never change timeline truth.
-        self._find_layer(timeline, layer_id)
+        layer = self._find_layer(timeline, layer_id)
+        if take_id is not None:
+            self._find_take(layer, take_id)
         timeline.selection.selected_layer_id = layer_id
         timeline.selection.selected_layer_ids = [layer_id]
         timeline.selection.selected_take_id = take_id
         timeline.selection.selected_event_ids = []
+
+    def _handle_set_active_playback_target(self, timeline: Timeline, layer_id, take_id) -> None:
+        if layer_id is None:
+            timeline.playback_target.layer_id = None
+            timeline.playback_target.take_id = None
+            return
+
+        layer = self._find_layer(timeline, layer_id)
+        if take_id is not None:
+            self._find_take(layer, take_id)
+        timeline.playback_target.layer_id = layer.id
+        timeline.playback_target.take_id = take_id
 
     def _handle_select_event(self, timeline: Timeline, layer_id, take_id, event_id, mode: str) -> None:
         layer = self._find_layer(timeline, layer_id)

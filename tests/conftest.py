@@ -6,13 +6,24 @@ All fixtures follow pytest conventions — import-free via conftest auto-discove
 
 from __future__ import annotations
 
+import os
 import sqlite3
+import sys
 import tempfile
 from pathlib import Path
 from typing import Generator
 
 import numpy as np
 import pytest
+
+
+# Qt widget tests need a deterministic headless backend in automation runs.
+os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+
+
+_UI_AUTOMATION_SRC = Path(__file__).resolve().parents[1] / "packages" / "ui_automation" / "src"
+if _UI_AUTOMATION_SRC.exists():
+    sys.path.insert(0, str(_UI_AUTOMATION_SRC))
 
 
 @pytest.fixture

@@ -20,6 +20,8 @@ class TakeLanePresentation:
     name: str
     is_main: bool = False
     kind: LayerKind = LayerKind.EVENT
+    is_selected: bool = False
+    is_playback_active: bool = False
     events: list['EventPresentation'] = field(default_factory=list)
     source_ref: str | None = None
     waveform_key: str | None = None
@@ -40,6 +42,45 @@ class LayerStatusPresentation:
     pipeline_id: str = ""
     output_name: str = ""
     source_run_id: str = ""
+
+
+@dataclass(slots=True)
+class LayerHeaderControlPresentation:
+    control_id: str
+    label: str
+    kind: str = "action"
+    enabled: bool = True
+    active: bool = False
+
+
+def default_layer_header_controls(
+    *,
+    kind: LayerKind,
+    main_take_id: TakeId | None,
+    is_playback_active: bool,
+) -> list[LayerHeaderControlPresentation]:
+    controls = [
+        LayerHeaderControlPresentation(
+            control_id="set_active_playback_target",
+            label="ACTIVE",
+            kind="toggle",
+            active=is_playback_active,
+        )
+    ]
+    if kind is LayerKind.EVENT and main_take_id is not None:
+        controls.extend(
+            [
+                LayerHeaderControlPresentation(
+                    control_id="push_to_ma3",
+                    label="Push",
+                ),
+                LayerHeaderControlPresentation(
+                    control_id="pull_from_ma3",
+                    label="Pull",
+                ),
+            ]
+        )
+    return controls
 
 
 @dataclass(slots=True)
@@ -211,13 +252,12 @@ class LayerPresentation:
     subtitle: str = ""
     kind: LayerKind = LayerKind.EVENT
     is_selected: bool = False
+    is_playback_active: bool = False
     is_expanded: bool = False
     events: list[EventPresentation] = field(default_factory=list)
     takes: list[TakeLanePresentation] = field(default_factory=list)
     visible: bool = True
     locked: bool = False
-    muted: bool = False
-    soloed: bool = False
     gain_db: float = 0.0
     pan: float = 0.0
     playback_mode: PlaybackMode = PlaybackMode.NONE
@@ -238,10 +278,19 @@ class LayerPresentation:
     pull_row_issue: str = ""
     color: str | None = None
     badges: list[str] = field(default_factory=list)
+    header_controls: list[LayerHeaderControlPresentation] = field(default_factory=list)
     waveform_key: str | None = None
     source_audio_path: str | None = None
     playback_source_ref: str | None = None
     status: LayerStatusPresentation = field(default_factory=LayerStatusPresentation)
+
+    def __post_init__(self) -> None:
+        if not self.header_controls:
+            self.header_controls = default_layer_header_controls(
+                kind=self.kind,
+                main_take_id=self.main_take_id,
+                is_playback_active=self.is_playback_active,
+            )
 
 
 @dataclass(slots=True)
@@ -256,6 +305,8 @@ class TimelinePresentation:
     selected_layer_id: LayerId | None = None
     selected_layer_ids: list[LayerId] = field(default_factory=list)
     selected_take_id: TakeId | None = None
+    active_playback_layer_id: LayerId | None = None
+    active_playback_take_id: TakeId | None = None
     selected_event_ids: list[EventId] = field(default_factory=list)
     pixels_per_second: float = 100.0
     scroll_x: float = 0.0

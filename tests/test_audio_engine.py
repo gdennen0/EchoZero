@@ -22,7 +22,7 @@ from echozero.audio.crossfade import CrossfadeBuffer, build_equal_power_curves
 from echozero.audio.transport import Transport, TransportState
 from echozero.audio.layer import AudioLayer, resample_buffer
 from echozero.audio.mixer import Mixer
-from echozero.audio.engine import AudioEngine
+from echozero.audio.engine import AudioEngine, _resolve_output_defaults, _resolve_stream_defaults
 
 
 # ---------------------------------------------------------------------------
@@ -646,6 +646,56 @@ class TestAudioEngine:
         assert engine.buffer_size == 256
         assert not engine.is_active
 
+    def test_resolve_output_defaults_keeps_legacy_defaults_for_injected_streams(self) -> None:
+        sample_rate, channels = _resolve_output_defaults(fake_stream_factory)
+        assert sample_rate == 44100
+        assert channels == 1
+
+    def test_resolve_output_defaults_prefers_default_output_device(self, monkeypatch) -> None:
+        class _FakeSoundDevice:
+            default = type("_Default", (), {"device": [0, 1]})()
+
+            @staticmethod
+            def query_devices(index):
+                assert index == 1
+                return {
+                    "default_samplerate": 48000.0,
+                    "max_output_channels": 2,
+                }
+
+        monkeypatch.setitem(__import__("sys").modules, "sounddevice", _FakeSoundDevice())
+
+        sample_rate, channels = _resolve_output_defaults(None)
+
+        assert sample_rate == 48000
+        assert channels == 2
+
+    def test_resolve_stream_defaults_keeps_aggressive_injected_stream_behavior(self) -> None:
+        blocksize, latency, prime_output = _resolve_stream_defaults(
+            fake_stream_factory,
+            buffer_size=256,
+            blocksize=None,
+            latency=None,
+            prime_output_buffers_using_stream_callback=True,
+        )
+
+        assert blocksize == 0
+        assert latency == "low"
+        assert prime_output is True
+
+    def test_resolve_stream_defaults_prefers_stable_real_device_behavior(self) -> None:
+        blocksize, latency, prime_output = _resolve_stream_defaults(
+            None,
+            buffer_size=256,
+            blocksize=None,
+            latency=None,
+            prime_output_buffers_using_stream_callback=True,
+        )
+
+        assert blocksize == 256
+        assert latency == "high"
+        assert prime_output is True
+
     def test_play_opens_stream(self) -> None:
         engine = AudioEngine(stream_factory=fake_stream_factory)
         engine.play()
@@ -665,6 +715,61 @@ class TestAudioEngine:
         assert engine.transport.is_paused
         engine.play()
         assert engine.transport.is_playing
+
+    def test_extract_output_latency_seconds_from_callback_time_info(self) -> None:
+        latency = AudioEngine._extract_output_latency_seconds(
+            {
+                "currentTime": 10.0,
+                "outputBufferDacTime": 10.125,
+            }
+        )
+
+        assert latency == pytest.approx(0.125)
+
+    def test_audible_time_seconds_extrapolates_between_callbacks(self, monkeypatch) -> None:
+        engine = AudioEngine(stream_factory=fake_stream_factory)
+        buf = _sine(4000)
+        engine.add_layer("l1", buf, 44100)
+        engine.play()
+
+        monotonic_now = {"value": 100.0}
+        monkeypatch.setattr("echozero.audio.engine.time.monotonic", lambda: monotonic_now["value"])
+
+        outdata = np.zeros((256, 1), dtype=np.float32)
+        engine._audio_callback(
+            outdata,
+            256,
+            {"currentTime": 5.0, "outputBufferDacTime": 5.1},
+            None,
+        )
+
+        snapshot_time = engine.audible_time_seconds
+        monotonic_now["value"] = 100.03
+        later_time = engine.audible_time_seconds
+
+        assert later_time > snapshot_time
+        assert later_time <= engine.clock.position_seconds
+
+    def test_callback_resamples_source_and_duplicates_to_stereo_output(self) -> None:
+        engine = AudioEngine(sample_rate=48000, channels=2, stream_factory=fake_stream_factory)
+        buf = _sine(4410, sr=44100)
+        layer = engine.add_layer("l1", buf, 44100)
+
+        assert layer.original_sample_rate == 44100
+        assert layer.sample_rate == 48000
+
+        engine.play()
+        outdata = np.zeros((256, 2), dtype=np.float32)
+        engine._audio_callback(
+            outdata,
+            256,
+            {"currentTime": 1.0, "outputBufferDacTime": 1.01},
+            None,
+        )
+
+        assert np.all(np.isfinite(outdata))
+        assert np.max(np.abs(outdata)) > 0.0
+        np.testing.assert_allclose(outdata[:, 0], outdata[:, 1])
 
     def test_add_and_remove_layer(self) -> None:
         engine = AudioEngine(stream_factory=fake_stream_factory)
@@ -858,6 +963,26 @@ class TestAudioEngine:
 
         assert np.max(outdata) <= 1.0
 
+    def test_callback_sanitizes_non_finite_output(self) -> None:
+        """Non-finite layer samples should not reach the device buffer."""
+        engine = AudioEngine(stream_factory=fake_stream_factory)
+        buf = np.zeros(512, dtype=np.float32)
+        buf[0] = np.nan
+        buf[1] = np.inf
+        buf[2] = -np.inf
+        buf[3] = 0.25
+        engine.add_layer("l1", buf, 44100)
+        engine.play()
+
+        outdata = np.zeros((256, 1), dtype=np.float32)
+        engine._audio_callback(outdata, 256, None, None)
+
+        assert np.all(np.isfinite(outdata))
+        assert outdata[0, 0] == 0.0
+        assert outdata[1, 0] == 1.0
+        assert outdata[2, 0] == -1.0
+        assert outdata[3, 0] == pytest.approx(0.25)
+
 
 # ===========================================================================
 # Crossfade tests
@@ -1023,6 +1148,31 @@ class TestBatch1Fixes:
         # All output should be within [-1, 1]
         assert np.all(outdata >= -1.0)
         assert np.all(outdata <= 1.0)
+
+    def test_loop_wrap_sanitizes_non_finite_output(self) -> None:
+        """Loop-wrap path should sanitize NaN/inf before writing to the device."""
+        engine = AudioEngine(stream_factory=fake_stream_factory)
+        buf = np.zeros(2000, dtype=np.float32)
+        buf[995] = np.nan
+        buf[996] = np.inf
+        buf[997] = -np.inf
+        buf[998] = 0.5
+        buf[0] = np.nan
+        buf[1] = np.inf
+        buf[2] = -np.inf
+        buf[3] = -0.5
+        engine.add_layer("l1", buf, 44100)
+        engine.clock.set_loop(0, 1000)
+        engine.clock.loop_enabled = True
+        engine.play()
+
+        engine.seek(990)
+        outdata = np.zeros((32, 1), dtype=np.float32)
+        engine._audio_callback(outdata, 32, None, None)
+
+        assert np.all(np.isfinite(outdata))
+        assert np.max(outdata) <= 1.0
+        assert np.min(outdata) >= -1.0
 
     # -- A4: Buffer size > loop length (tiling) --
     def test_buffer_larger_than_loop_tiling(self) -> None:
