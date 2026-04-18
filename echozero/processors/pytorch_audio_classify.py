@@ -13,7 +13,7 @@ from typing import Any, Callable
 from echozero.domain.types import AudioData, Event, EventData, Layer
 from echozero.errors import ExecutionError, ValidationError
 from echozero.execution import ExecutionContext
-from echozero.inference_eval.runtime_preflight import run_runtime_preflight
+from echozero.inference_eval.runtime_preflight import resolve_runtime_model_path, run_runtime_preflight
 from echozero.progress import ProgressReport
 from echozero.result import Result, err, ok
 
@@ -51,12 +51,12 @@ def _default_classify(
         )
 
     # Load model
-    model_path = Path(model_path)
+    model_path = resolve_runtime_model_path(model_path)
     if not model_path.exists():
         raise ExecutionError(f"Model file not found: {model_path}")
 
     if not str(model_path).endswith(".pth"):
-        raise ValidationError(f"Model file must be .pth format, got {model_path}")
+        raise ValidationError(f"Resolved model file must be .pth format, got {model_path}")
 
     try:
         # Load model state and config — weights_only=True prevents arbitrary code execution
@@ -338,4 +338,3 @@ class PyTorchAudioClassifyProcessor:
         )
 
         return ok(EventData(layers=tuple(output_layers)))
-

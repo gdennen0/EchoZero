@@ -38,7 +38,9 @@ python -m echozero.testing.run --lane appflow-sync
 python -m echozero.testing.run --lane appflow-osc
 python -m echozero.testing.run --lane appflow-protocol
 python -m echozero.testing.run --lane appflow-all
+python -m echozero.testing.run --lane ui-automation
 python -m echozero.testing.run --lane gui-lane-b
+python -m echozero.testing.run --lane humanflow-all
 ```
 
 Repo hygiene:
@@ -88,7 +90,15 @@ Run:
 
 1. targeted pytest slice
 2. `python -m echozero.testing.run --lane appflow`
-3. `python -m echozero.testing.run --lane gui-lane-b` when visible timeline behavior changed
+3. `python -m echozero.testing.run --lane ui-automation` when the goal is canonical app automation coverage through the shared client and live bridge surfaces
+4. `python -m echozero.testing.run --lane gui-lane-b` when visible timeline behavior changed and you need deterministic simulated GUI regression coverage
+5. `python -m echozero.testing.run --lane humanflow-all` when the goal is broad human-task automation coverage across launcher, shell, and app contracts
+
+Lane meaning:
+
+- `ui-automation` is the canonical app automation lane. It covers the shared automation client, the in-process harness-backed backend, and the live bridge.
+- `gui-lane-b` is a simulated GUI regression lane. Recorded artifacts from this lane are useful for coverage and review, but they are not human-path demo proof.
+- `humanflow-all` is the broad app-path automation lane. It excludes `gui-lane-b`, but playback/demo claims still require real launcher/runtime actions, real inputs, and no simulated analysis or audio injection.
 
 ### Release-affecting change
 
@@ -100,6 +110,15 @@ Also run the packaging path documented in `docs/APP-DELIVERY-PLAN.md`.
 - App-facing changes are not done until proven through the app path.
 - Main-only sync boundaries must stay provable.
 - When a test cannot be run, state why and name the next best proof lane.
+
+## Human-Path Demo Rule
+
+- Demo videos and non-deterministic functional tests must use real human paths only.
+- For these flows, do not use mock analysis services, fake audio streams, direct audio-callback driving, or widget state injection.
+- Use the canonical launcher/app shell, real EZ runtime actions, real files, real waits, and real UI automation when simulating an operator.
+- If a test or capture uses simulation for determinism, label it as simulated proof and do not present it as a human-path demo.
+- Playback capture helpers under `echozero/testing` are simulated proof unless a lane explicitly documents otherwise.
+- Screenshot bundles, looped MP4s, and trace videos are review surfaces, not operator-demo validity by themselves.
 
 ## Reporting Contract
 

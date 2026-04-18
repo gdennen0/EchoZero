@@ -2,21 +2,18 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import replace
-from enum import Enum
 from pathlib import Path
 
 import echozero.pipelines.templates  # noqa: F401
 from echozero.application.presentation.models import EventPresentation, LayerStatusPresentation, TakeActionPresentation, TakeLanePresentation
-from echozero.application.presentation.models import LayerPresentation, TimelinePresentation
-from echozero.application.mixer.models import MixerState
-from echozero.application.playback.models import PlaybackState
+from echozero.application.presentation.models import TimelinePresentation
 from echozero.application.session.models import Session
 from echozero.application.shared.enums import LayerKind, PlaybackStatus, SyncMode
-from echozero.application.shared.ids import EventId, LayerId, ProjectId, SessionId, SongId, SongVersionId, TakeId, TimelineId
-from echozero.application.sync.adapters import InMemorySyncService, MA3SyncAdapter, MA3SyncBridge
+from echozero.application.shared.ids import LayerId, ProjectId, SessionId, SongId, SongVersionId
+from echozero.application.sync.adapters import MA3SyncBridge
 from echozero.application.sync.models import SyncState
 from echozero.application.sync.service import SyncService
-from echozero.application.transport.models import TransportState
+from echozero.application.timeline.app import TimelineApplication
 from echozero.application.timeline.intents import (
     ApplyPullFromMA3,
     ApplyTransferPlan,
@@ -30,22 +27,32 @@ from echozero.application.timeline.intents import (
     SetLayerLiveSyncPauseReason,
     SetLayerLiveSyncState,
     ToggleLayerExpanded,
-    ToggleMute,
-    ToggleSolo,
     TriggerTakeAction,
     TrimEvent,
 )
-from echozero.domain.types import AudioData, EventData, Event as DomainEvent
-from echozero.persistence.audio import resolve_audio_path
+from echozero.application.timeline.models import Layer, LayerPresentationHints, LayerProvenance, LayerStatus, LayerSyncState, Timeline
+from echozero.domain.types import AudioData
 from echozero.persistence.session import ProjectStorage
+from echozero.inference_eval.runtime_preflight import resolve_runtime_model_path
+from echozero.models.paths import ensure_installed_models_dir
+from echozero.models.runtime_bundle_selection import resolve_installed_binary_drum_bundles
 from echozero.pipelines.registry import get_registry
 from echozero.processors import DetectOnsetsProcessor, LoadAudioProcessor, PyTorchAudioClassifyProcessor, SeparateAudioProcessor
+from echozero.processors.binary_drum_classify import BinaryDrumClassifyProcessor
 from echozero.result import is_err
+from echozero.runtime_models.bundle_compat import upgrade_installed_runtime_bundles
 from echozero.services.orchestrator import AnalysisService
-from echozero.ui.qt.timeline.demo_app import DemoTimelineApp, build_demo_app
 from echozero.ui.qt.timeline.fixture_loader import load_realistic_timeline_fixture  # noqa: F401
+from echozero.ui.qt.app_shell_runtime_services import build_runtime_timeline_application
+from echozero.ui.qt.app_shell_project_timeline import (
+    AudioPresentationFields as _AudioPresentationFields,
+    TimelinePresentationOverlay as _TimelinePresentationOverlay,
+    apply_timeline_presentation_overlay as _apply_timeline_presentation_overlay,
+    build_project_native_baseline_timeline as _build_project_native_baseline_timeline,
+    format_time as _format_time,
+)
+from echozero.ui.qt.timeline.runtime_audio import TimelineRuntimeAudioController
 from echozero.ui.qt.timeline.style import TIMELINE_STYLE
-from echozero.ui.qt.timeline.waveform_cache import register_waveform_from_audio_file
 
 
 _DIRTYING_INTENT_TYPES = (
@@ -61,19 +68,9 @@ _DIRTYING_INTENT_TYPES = (
     SetLayerLiveSyncPauseReason,
     SetLayerLiveSyncState,
     ToggleLayerExpanded,
-    ToggleMute,
-    ToggleSolo,
     TriggerTakeAction,
     TrimEvent,
 )
-
-
-class AppRuntimeProfile(str, Enum):
-    PRODUCTION = "production"
-    TEST = "test"
-    DEMO = "demo"
-
-
 class AppShellRuntime:
     def __init__(
         self,
@@ -128,27 +125,27 @@ class AppShellRuntime:
             layer_title = f"{layer_kind.value.title()} Layer"
 
         new_layer_id = LayerId(f"layer_{uuid.uuid4().hex[:12]}")
-        presentation = self.presentation()
-        updated_layers = [replace(layer, is_selected=False) for layer in presentation.layers]
-        updated_layers.append(
-            LayerPresentation(
-                layer_id=new_layer_id,
-                title=layer_title,
+        timeline = self._app.timeline
+        timeline.layers.append(
+            Layer(
+                id=new_layer_id,
+                timeline_id=timeline.id,
+                name=layer_title,
                 kind=layer_kind,
-                subtitle=f"{layer_kind.value.title()} layer",
-                is_selected=True,
-                status=LayerStatusPresentation(source_label=f"Created {layer_kind.value} layer"),
+                order_index=len(timeline.layers),
+                status=LayerStatus(),
+                provenance=LayerProvenance(),
+                presentation_hints=LayerPresentationHints(),
+                sync=LayerSyncState(),
             )
         )
-        self._app.presentation_state = replace(
-            self._app.presentation_state,
-            layers=updated_layers,
-            selected_layer_id=new_layer_id,
-            selected_layer_ids=[new_layer_id],
-            selected_take_id=None,
-            selected_event_ids=[],
-        )
-        self._sync_runtime_audio_from_presentation(self._app.presentation_state)
+        timeline.selection.selected_layer_id = new_layer_id
+        timeline.selection.selected_layer_ids = [new_layer_id]
+        timeline.selection.selected_take_id = None
+        timeline.selection.selected_event_ids = []
+        timeline.playback_target.layer_id = new_layer_id
+        timeline.playback_target.take_id = None
+        self._sync_runtime_audio_from_presentation(self.presentation())
         self._is_dirty = True
         return self.presentation()
 
@@ -192,6 +189,7 @@ class AppShellRuntime:
         target_path = Path(path)
         working_dir_root = self.project_storage.working_dir.parent
         runtime_audio = self.runtime_audio
+        prior_presentation = self.presentation()
         self.project_storage.close()
         project_storage = ProjectStorage.open(
             target_path,
@@ -205,17 +203,89 @@ class AppShellRuntime:
             sync_service=self._sync_service_override,
             runtime_audio=runtime_audio,
         )
+        self._restore_timeline_targets(prior_presentation)
         self._is_dirty = False
 
     def add_song_from_path(self, title: str, audio_path: str | Path) -> TimelinePresentation:
         song, version = self.project_storage.import_song(
             title=title,
             audio_source=Path(audio_path),
-            default_templates=[],
         )
         self._refresh_from_storage(
             active_song_id=SongId(song.id),
             active_song_version_id=SongVersionId(version.id),
+        )
+        self._is_dirty = True
+        return self.presentation()
+
+    def select_song(self, song_id: str | SongId) -> TimelinePresentation:
+        song_record = self.project_storage.songs.get(str(song_id))
+        if song_record is None:
+            raise ValueError(f"SongRecord not found: {song_id}")
+
+        active_version_id = (
+            SongVersionId(song_record.active_version_id)
+            if song_record.active_version_id is not None
+            else None
+        )
+        self._refresh_from_storage(
+            active_song_id=SongId(song_record.id),
+            active_song_version_id=active_version_id,
+        )
+        return self.presentation()
+
+    def switch_song_version(self, song_version_id: str | SongVersionId) -> TimelinePresentation:
+        version_record = self.project_storage.song_versions.get(str(song_version_id))
+        if version_record is None:
+            raise ValueError(f"SongVersionRecord not found: {song_version_id}")
+
+        song_record = self.project_storage.songs.get(version_record.song_id)
+        if song_record is None:
+            raise RuntimeError(
+                f"SongRecord not found for SongVersionRecord '{version_record.id}'"
+            )
+
+        if song_record.active_version_id != version_record.id:
+            self.project_storage.songs.update(
+                replace(song_record, active_version_id=version_record.id)
+            )
+            self.project_storage.commit()
+            self.project_storage.dirty_tracker.mark_dirty(song_record.id)
+            self._is_dirty = True
+
+        self._refresh_from_storage(
+            active_song_id=SongId(song_record.id),
+            active_song_version_id=SongVersionId(version_record.id),
+        )
+        return self.presentation()
+
+    def add_song_version(
+        self,
+        song_id: str | SongId,
+        audio_path: str | Path,
+        *,
+        label: str | None = None,
+        activate: bool = True,
+    ) -> TimelinePresentation:
+        song_record = self.project_storage.songs.get(str(song_id))
+        if song_record is None:
+            raise ValueError(f"SongRecord not found: {song_id}")
+
+        version = self.project_storage.add_song_version(
+            song_record.id,
+            Path(audio_path),
+            label=label,
+            activate=activate,
+        )
+        updated_song = self.project_storage.songs.get(song_record.id)
+        active_version_id = (
+            SongVersionId(updated_song.active_version_id)
+            if updated_song is not None and updated_song.active_version_id is not None
+            else SongVersionId(version.id)
+        )
+        self._refresh_from_storage(
+            active_song_id=SongId(song_record.id),
+            active_song_version_id=active_version_id,
         )
         self._is_dirty = True
         return self.presentation()
@@ -270,13 +340,9 @@ class AppShellRuntime:
         song_version_id = self._require_active_song_version_id("classify_drum_events")
         self._validate_drum_derived_audio_layer(layer, action_name="classify_drum_events")
 
-        resolved_model_path = Path(model_path)
+        resolved_model_path = resolve_runtime_model_path(model_path)
         if not str(resolved_model_path).strip():
             raise ValueError("classify_drum_events requires a non-empty model path.")
-        if not resolved_model_path.exists():
-            raise FileNotFoundError(
-                f"classify_drum_events requires an existing model path. Missing: {resolved_model_path}"
-            )
 
         result = self._analysis_service.analyze(
             self.project_storage,
@@ -289,6 +355,32 @@ class AppShellRuntime:
         )
         if is_err(result):
             raise RuntimeError(f"classify_drum_events failed: {result.error}")
+        self._refresh_from_storage(
+            active_song_id=self.session.active_song_id,
+            active_song_version_id=self.session.active_song_version_id,
+        )
+        self._is_dirty = True
+        return self.presentation()
+
+    def extract_classified_drums(self, layer_id) -> TimelinePresentation:
+        layer = self._require_layer(layer_id)
+        song_version_id = self._require_active_song_version_id("extract_classified_drums")
+        self._validate_drum_derived_audio_layer(layer, action_name="extract_classified_drums")
+
+        upgrade_installed_runtime_bundles(ensure_installed_models_dir())
+        bundles = resolve_installed_binary_drum_bundles()
+        result = self._analysis_service.analyze(
+            self.project_storage,
+            song_version_id,
+            "extract_classified_drums",
+            bindings={
+                "audio_file": layer.source_audio_path,
+                "kick_model_path": str(bundles["kick"].manifest_path),
+                "snare_model_path": str(bundles["snare"].manifest_path),
+            },
+        )
+        if is_err(result):
+            raise RuntimeError(f"extract_classified_drums failed: {result.error}")
         self._refresh_from_storage(
             active_song_id=self.session.active_song_id,
             active_song_version_id=self.session.active_song_version_id,
@@ -318,41 +410,11 @@ class AppShellRuntime:
         sync_bridge: MA3SyncBridge | None,
         sync_service: SyncService | None,
         runtime_audio=None,
-    ) -> DemoTimelineApp:
-        presentation, active_song_id, active_song_version_id = _build_project_native_baseline_presentation(
-            project_storage
-        )
-        session = Session(
-            id=SessionId(f"session_{project_storage.project.id}"),
-            project_id=ProjectId(project_storage.project.id),
-            active_song_id=active_song_id,
-            active_song_version_id=active_song_version_id,
-            active_timeline_id=presentation.timeline_id,
-            transport_state=TransportState(
-                is_playing=presentation.is_playing,
-                playhead=presentation.playhead,
-                follow_mode=presentation.follow_mode,
-            ),
-            mixer_state=MixerState(),
-            playback_state=PlaybackState(
-                status=PlaybackStatus.PLAYING if presentation.is_playing else PlaybackStatus.STOPPED,
-                backend_name="demo",
-            ),
-            sync_state=SyncState(mode=SyncMode.MA3, connected=True, target_ref="show_manager"),
-        )
-
-        runtime_sync_service: SyncService
-        if sync_service is not None:
-            runtime_sync_service = sync_service
-        elif sync_bridge is not None:
-            runtime_sync_service = MA3SyncAdapter(sync_bridge, state=session.sync_state, target_ref="show_manager")
-        else:
-            runtime_sync_service = InMemorySyncService(session.sync_state)
-
-        return DemoTimelineApp(
-            presentation_state=presentation,
-            session=session,
-            sync_service=runtime_sync_service,
+    ) -> TimelineApplication:
+        return build_runtime_timeline_application(
+            project_storage=project_storage,
+            sync_bridge=sync_bridge,
+            sync_service=sync_service,
             runtime_audio=runtime_audio,
         )
 
@@ -362,22 +424,30 @@ class AppShellRuntime:
         active_song_id: SongId | None = None,
         active_song_version_id: SongVersionId | None = None,
     ) -> None:
-        presentation, resolved_song_id, resolved_song_version_id = _build_project_native_baseline_presentation(
+        current_presentation = self.presentation()
+        timeline, overlay, resolved_song_id, resolved_song_version_id = _build_project_native_baseline_timeline(
             self.project_storage,
             active_song_id=active_song_id,
             active_song_version_id=active_song_version_id,
         )
-        self._app.presentation_state = presentation
+        self._app.presentation_enricher = lambda presentation: _apply_timeline_presentation_overlay(
+            presentation,
+            overlay=overlay,
+        )
+        self._app.replace_timeline(timeline)
+        self._restore_timeline_targets(current_presentation)
         self.session.active_song_id = active_song_id or resolved_song_id
         self.session.active_song_version_id = active_song_version_id or resolved_song_version_id
-        self.session.active_timeline_id = presentation.timeline_id
-        self._sync_runtime_audio_from_presentation(presentation)
+        self.session.active_timeline_id = self._app.timeline.id
+        self._sync_runtime_audio_from_presentation(self.presentation())
 
     def _sync_runtime_audio_from_presentation(self, presentation: TimelinePresentation) -> None:
         runtime_audio = self.runtime_audio
         if runtime_audio is None:
             return
         runtime_audio.build_for_presentation(presentation)
+        if hasattr(runtime_audio, "snapshot_state"):
+            self.session.playback_state = runtime_audio.snapshot_state(presentation)
 
     def _require_layer(self, layer_id) -> LayerPresentation:
         for layer in self.presentation().layers:
@@ -410,22 +480,88 @@ class AppShellRuntime:
                 "Select a drums layer produced by stem separation."
             )
 
+    def _restore_timeline_targets(self, prior_presentation: TimelinePresentation) -> None:
+        current_presentation = self.presentation()
+        selected_layer_id = self._resolve_preserved_selected_layer_id(prior_presentation, current_presentation)
+        selected_take_id = self._resolve_take_id(
+            current_presentation,
+            layer_id=selected_layer_id,
+            take_id=prior_presentation.selected_take_id,
+        )
+        active_playback_layer_id = self._resolve_preserved_active_playback_layer_id(
+            prior_presentation,
+            current_presentation,
+        )
+        active_playback_take_id = self._resolve_take_id(
+            current_presentation,
+            layer_id=active_playback_layer_id,
+            take_id=prior_presentation.active_playback_take_id,
+        )
+        timeline = self._app.timeline
+        timeline.selection.selected_layer_id = selected_layer_id
+        timeline.selection.selected_layer_ids = [selected_layer_id] if selected_layer_id is not None else []
+        timeline.selection.selected_take_id = selected_take_id
+        timeline.selection.selected_event_ids = []
+        timeline.playback_target.layer_id = active_playback_layer_id
+        timeline.playback_target.take_id = active_playback_take_id
+
+    @staticmethod
+    def _resolve_preserved_selected_layer_id(
+        prior_presentation: TimelinePresentation,
+        current_presentation: TimelinePresentation,
+    ) -> LayerId | None:
+        if prior_presentation.selected_layer_id is not None and AppShellRuntime._has_layer(
+            current_presentation, prior_presentation.selected_layer_id
+        ):
+            return prior_presentation.selected_layer_id
+        return current_presentation.selected_layer_id
+
+    @staticmethod
+    def _resolve_preserved_active_playback_layer_id(
+        prior_presentation: TimelinePresentation,
+        current_presentation: TimelinePresentation,
+    ) -> LayerId | None:
+        if prior_presentation.active_playback_layer_id is not None and AppShellRuntime._has_layer(
+            current_presentation, prior_presentation.active_playback_layer_id
+        ):
+            return prior_presentation.active_playback_layer_id
+        if current_presentation.active_playback_layer_id is not None:
+            return current_presentation.active_playback_layer_id
+        return current_presentation.selected_layer_id
+
+    @staticmethod
+    def _resolve_take_id(
+        presentation: TimelinePresentation,
+        *,
+        layer_id: LayerId | None,
+        take_id: TakeId | None,
+    ) -> TakeId | None:
+        if layer_id is None or take_id is None:
+            return None
+        for layer in presentation.layers:
+            if layer.layer_id != layer_id:
+                continue
+            if layer.main_take_id == take_id:
+                return take_id
+            if any(take.take_id == take_id for take in layer.takes):
+                return take_id
+            return None
+        return None
+
+    @staticmethod
+    def _has_layer(presentation: TimelinePresentation, layer_id: LayerId) -> bool:
+        return any(layer.layer_id == layer_id for layer in presentation.layers)
+
 
 def build_app_shell(
     *,
-    profile: AppRuntimeProfile = AppRuntimeProfile.PRODUCTION,
-    use_demo_fixture: bool = False,
     sync_bridge: MA3SyncBridge | None = None,
     sync_service: SyncService | None = None,
     analysis_service: AnalysisService | None = None,
     working_dir_root: Path | None = None,
     initial_project_name: str = "EchoZero Project",
-) -> DemoTimelineApp | AppShellRuntime:
-    effective_profile = AppRuntimeProfile.DEMO if use_demo_fixture else profile
-
-    if effective_profile == AppRuntimeProfile.DEMO:
-        return build_demo_app(sync_bridge=sync_bridge, sync_service=sync_service)
-
+) -> AppShellRuntime:
+    """Build the canonical in-memory app runtime used by the launcher and app-flow harness."""
     return AppShellRuntime(
         project_storage=ProjectStorage.create_new(
             name=initial_project_name,
@@ -445,211 +581,6 @@ def _build_runtime_analysis_service() -> AnalysisService:
             "SeparateAudio": SeparateAudioProcessor(),
             "DetectOnsets": DetectOnsetsProcessor(),
             "PyTorchAudioClassify": PyTorchAudioClassifyProcessor(),
+            "BinaryDrumClassify": BinaryDrumClassifyProcessor(),
         },
     )
-
-
-def _build_project_native_baseline_presentation(
-    project_storage: ProjectStorage,
-    *,
-    active_song_id: SongId | None = None,
-    active_song_version_id: SongVersionId | None = None,
-) -> tuple[TimelinePresentation, SongId | None, SongVersionId | None]:
-    project = project_storage.project
-    songs = project_storage.songs.list_by_project(project.id)
-    requested_song_id = str(active_song_id) if active_song_id is not None else None
-    requested_version_id = str(active_song_version_id) if active_song_version_id is not None else None
-
-    active_song = None
-    active_version = None
-    if requested_version_id is not None:
-        active_version = project_storage.song_versions.get(requested_version_id)
-        if active_version is not None:
-            active_song = project_storage.songs.get(active_version.song_id)
-    if active_song is None and requested_song_id is not None:
-        active_song = next((song for song in songs if song.id == requested_song_id), None)
-    if active_song is None:
-        active_song = next((song for song in songs if song.active_version_id), None)
-    if active_song is not None and active_version is None:
-        if active_song.active_version_id is not None:
-            active_version = project_storage.song_versions.get(active_song.active_version_id)
-
-    # If requested IDs refer to a version for which no song is currently linked,
-    # continue with project ordering to avoid breaking baseline startup flow.
-    if active_song is None:
-        return _build_empty_project_presentation(project_storage), None, None
-
-    version = active_version
-    if version is None and active_song.active_version_id is not None:
-        version = project_storage.song_versions.get(active_song.active_version_id)
-    if version is None:
-        return _build_empty_project_presentation(project_storage), SongId(active_song.id), None
-
-    timeline_id = TimelineId(f"timeline_{project.id}")
-    source_audio_path = resolve_audio_path(project_storage.working_dir, version.audio_file)
-    waveform_key = f"song-{version.id}"
-    if source_audio_path.exists():
-        register_waveform_from_audio_file(waveform_key, source_audio_path)
-
-    layers: list[LayerPresentation] = [
-        LayerPresentation(
-            layer_id=LayerId("source_audio"),
-            title=active_song.title,
-            subtitle=f"Imported song · {Path(version.audio_file).name}",
-            kind=LayerKind.AUDIO,
-            is_selected=True,
-            color=TIMELINE_STYLE.fixture.layer_color_tokens.get("song"),
-            badges=["main", "audio"],
-            waveform_key=waveform_key if source_audio_path.exists() else None,
-            source_audio_path=str(source_audio_path),
-            status=LayerStatusPresentation(source_label="Imported track"),
-        )
-    ]
-    for layer_record in project_storage.layers.list_by_version(version.id):
-        layer = _build_storage_layer_presentation(project_storage, layer_record)
-        if layer is not None:
-            layers.append(layer)
-
-    return (
-        TimelinePresentation(
-            timeline_id=timeline_id,
-            title=project.name,
-            layers=layers,
-            selected_layer_id=layers[0].layer_id,
-            selected_layer_ids=[layers[0].layer_id],
-            current_time_label="00:00.00",
-            end_time_label=_format_time(version.duration_seconds),
-        ),
-        SongId(active_song.id),
-        SongVersionId(version.id),
-    )
-
-
-def _build_empty_project_presentation(project_storage: ProjectStorage) -> TimelinePresentation:
-    project = project_storage.project
-    timeline_id = TimelineId(f"timeline_{project.id}")
-    return TimelinePresentation(
-        timeline_id=timeline_id,
-        title=project.name,
-        layers=[],
-        selected_layer_id=None,
-        selected_layer_ids=[],
-        current_time_label="00:00.00",
-        end_time_label="00:00.00",
-    )
-
-
-def _build_storage_layer_presentation(project_storage: ProjectStorage, layer_record) -> LayerPresentation | None:
-    takes = project_storage.takes.list_by_layer(layer_record.id)
-    if not takes:
-        return None
-    main_take = next((take for take in takes if take.is_main), takes[0])
-    main_kind = _take_kind(main_take)
-    take_rows: list[TakeLanePresentation] = []
-    for take in takes:
-        if take.is_main:
-            continue
-        take_rows.append(
-            TakeLanePresentation(
-                take_id=TakeId(str(take.id)),
-                name=take.label,
-                kind=_take_kind(take),
-                events=_event_presentations_from_take(take),
-                source_ref=_source_ref(take.source),
-                actions=[
-                    TakeActionPresentation(action_id="overwrite_main", label="Overwrite Main"),
-                    TakeActionPresentation(action_id="merge_main", label="Merge Main"),
-                ],
-                source_audio_path=str(take.data.file_path) if isinstance(take.data, AudioData) else None,
-            )
-        )
-    source_audio_path = str(main_take.data.file_path) if isinstance(main_take.data, AudioData) else None
-    return LayerPresentation(
-        layer_id=LayerId(str(layer_record.id)),
-        title=layer_record.name.title(),
-        subtitle=f"Derived layer · {layer_record.layer_type}",
-        main_take_id=TakeId(str(main_take.id)),
-        kind=main_kind,
-        is_expanded=bool(take_rows),
-        events=_event_presentations_from_take(main_take),
-        takes=take_rows,
-        visible=bool(layer_record.visible),
-        locked=bool(layer_record.locked),
-        color=layer_record.color,
-        badges=_layer_badges(layer_record.name, main_kind),
-        source_audio_path=source_audio_path,
-        status=LayerStatusPresentation(
-            stale=bool(layer_record.state_flags.get("stale", False)),
-            manually_modified=bool(layer_record.state_flags.get("manually_modified", False)),
-            source_label=_source_label(layer_record),
-        ),
-    )
-
-
-def _take_kind(take) -> LayerKind:
-    if isinstance(take.data, EventData):
-        return LayerKind.EVENT
-    return LayerKind.AUDIO
-
-
-def _event_presentations_from_take(take) -> list[EventPresentation]:
-    if not isinstance(take.data, EventData):
-        return []
-    events: list[DomainEvent] = []
-    for layer in take.data.layers:
-        events.extend(layer.events)
-    events.sort(key=lambda event: (event.time, event.duration, str(event.id)))
-    return [
-        EventPresentation(
-            event_id=EventId(str(event.id)),
-            start=float(event.time),
-            end=float(event.time + max(event.duration, 0.08)),
-            label=_event_label(event),
-        )
-        for event in events
-    ]
-
-
-def _event_label(event: DomainEvent) -> str:
-    if isinstance(event.classifications, dict) and event.classifications:
-        first_key = next(iter(event.classifications.keys()))
-        value = event.classifications.get(first_key)
-        if isinstance(value, str) and value.strip():
-            return value.strip().title()
-        if isinstance(first_key, str) and first_key.strip():
-            return first_key.strip().replace("_", " ").title()
-    return "Onset"
-
-
-def _source_ref(source) -> str | None:
-    if source is None:
-        return None
-    run_id = getattr(source, "run_id", "")
-    block_type = getattr(source, "block_type", "")
-    if run_id and block_type:
-        return f"{block_type}:{str(run_id)[:8]}"
-    if run_id:
-        return str(run_id)
-    return None
-
-
-def _source_label(layer_record) -> str:
-    source = layer_record.source_pipeline or {}
-    pipeline = source.get("pipeline_id", "pipeline")
-    output_name = source.get("output_name", layer_record.name)
-    return f"{pipeline} · {output_name}"
-
-
-def _layer_badges(name: str, kind: LayerKind) -> list[str]:
-    badges = ["main", kind.value]
-    if kind is LayerKind.AUDIO:
-        badges.append("stem")
-    if "drum" in name.strip().lower():
-        badges.append("drums")
-    return badges
-
-
-def _format_time(seconds: float) -> str:
-    mins = int(seconds // 60)
-    secs = seconds - (mins * 60)
-    return f"{mins:02d}:{secs:05.2f}"

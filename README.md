@@ -10,11 +10,7 @@ The canonical app surfaces in this repo are:
 ## Quick Start
 
 ```bash
-python3 --version
-python3 -m venv .venv
-source .venv/bin/activate
-python -m pip install --upgrade pip setuptools wheel
-pip install -e .
+python3 scripts/dev_bootstrap.py
 ```
 
 EchoZero requires Python 3.11 or newer. On older macOS installs, `python3`
@@ -22,10 +18,16 @@ may still point to 3.9. If it does, install Python 3.11+ and create the venv
 with that interpreter instead, for example `python3.11 -m venv .venv`.
 On macOS, the quickest fix is usually `brew install python@3.11`.
 
+If you want optional stacks during bootstrap:
+
+```bash
+python3 scripts/dev_bootstrap.py --extras ml packaging
+```
+
 Run the canonical EZ2 app shell:
 
 ```bash
-python run_echozero.py
+.venv/bin/python run_echozero.py
 ```
 
 Run Foundry:
@@ -44,7 +46,13 @@ pip install -r requirements.txt
 Run a small validation slice:
 
 ```bash
-pytest tests/testing/test_app_shell_profiles.py tests/ui/test_run_echozero_launcher.py -q
+.venv/bin/python -m echozero.testing.run --lane appflow
+```
+
+Install local git hooks:
+
+```bash
+.venv/bin/pre-commit install
 ```
 
 ## Repo Map
@@ -54,7 +62,6 @@ echozero/                EZ2 core application, Stage Zero UI, Foundry, shared ru
 tests/                   EZ2-heavy test suite
 docs/                    Canonical plans, architecture context, cleanup map
 run_echozero.py          Canonical EZ2 desktop launcher
-run_timeline_demo.py     Compatibility shim to the EZ2 launcher
 deploy/                  Auth/models worker sidecars
 ```
 
@@ -70,6 +77,7 @@ The canonical implementation/architecture docs are:
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
 - [AGENTS.md](AGENTS.md)
 - [docs/AGENT-CONTEXT.md](docs/AGENT-CONTEXT.md)
+- [docs/agent-task-template.md](docs/agent-task-template.md)
 
 ## Important Note
 

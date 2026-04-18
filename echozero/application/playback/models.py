@@ -30,3 +30,15 @@ class PlaybackState:
     active_sources: list[PlaybackSource] = field(default_factory=list)
     latency_ms: float = 0.0
     backend_name: str = "unconfigured"
+    active_layer_id: LayerId | None = None
+    active_take_id: TakeId | None = None
+    output_sample_rate: int = 0
+    output_channels: int = 0
+
+
+@dataclass(slots=True, frozen=True)
+class PlaybackTimingSnapshot:
+    audible_time_seconds: float
+    clock_time_seconds: float
+    snapshot_monotonic_seconds: float | None
+    is_playing: bool

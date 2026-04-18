@@ -372,7 +372,7 @@ class Orchestrator:
         now = datetime.now(timezone.utc)
 
         for domain_layer in event_data.layers:
-            layer_name = output_name if output_name else domain_layer.name
+            layer_name = domain_layer.name if len(event_data.layers) > 1 else (output_name if output_name else domain_layer.name)
             existing_layers = session.layers.list_by_version(song_version_id)
             existing = next((lr for lr in existing_layers if lr.name == layer_name), None)
 

@@ -60,6 +60,49 @@ def _manifest_target_path(manifest_path: Path, manifest: Mapping[str, Any]) -> P
     return (manifest_path.parent / weights_path).resolve()
 
 
+def resolve_runtime_model_path(model_path: str | Path) -> Path:
+    requested_path = Path(model_path)
+    if not requested_path.exists():
+        raise FileNotFoundError(f"Runtime model path does not exist: {requested_path}")
+
+    if requested_path.is_dir():
+        manifests = _iter_manifest_candidates(requested_path / "model.pth")
+        if not manifests:
+            fallback = requested_path / "model.pth"
+            if fallback.exists():
+                return fallback.resolve()
+            raise ValidationError(
+                "Runtime model directory must contain either model.pth or a matching *.manifest.json bundle: "
+                f"{requested_path}"
+            )
+        if len(manifests) > 1:
+            raise ValidationError(
+                "Runtime model directory is ambiguous; keep exactly one *.manifest.json artifact in the bundle: "
+                f"{requested_path}"
+            )
+        target_path = _manifest_target_path(manifests[0].path, manifests[0].manifest)
+        if target_path is None:
+            raise ValidationError(
+                f"Artifact manifest is missing a usable weightsPath: {manifests[0].path}"
+            )
+        if not target_path.exists():
+            raise FileNotFoundError(f"Resolved artifact weights do not exist: {target_path}")
+        return target_path
+
+    if requested_path.name.endswith(".manifest.json"):
+        manifest = _load_manifest(requested_path)
+        if manifest is None:
+            raise ValidationError(f"Artifact manifest is not valid JSON: {requested_path}")
+        target_path = _manifest_target_path(requested_path, manifest)
+        if target_path is None:
+            raise ValidationError(f"Artifact manifest is missing a usable weightsPath: {requested_path}")
+        if not target_path.exists():
+            raise FileNotFoundError(f"Resolved artifact weights do not exist: {target_path}")
+        return target_path
+
+    return requested_path.resolve()
+
+
 def _resolve_manifest_for_model(model_path: Path, report: ValidationReport) -> Mapping[str, Any] | None:
     candidates = _iter_manifest_candidates(model_path)
     if not candidates:

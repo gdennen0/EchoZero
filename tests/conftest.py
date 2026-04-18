@@ -6,7 +6,9 @@ All fixtures follow pytest conventions — import-free via conftest auto-discove
 
 from __future__ import annotations
 
+import os
 import sqlite3
+import sys
 import tempfile
 import shutil
 from pathlib import Path
@@ -19,6 +21,13 @@ import pytest
 
 # Keep all test temp dirs inside the repository and avoid OS temp locations
 _TMP_ROOT = Path(__file__).resolve().parent / ".local-pytest-tmp"
+
+# Qt widget tests need a deterministic headless backend in automation runs.
+os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+
+_UI_AUTOMATION_SRC = Path(__file__).resolve().parents[1] / "packages" / "ui_automation" / "src"
+if _UI_AUTOMATION_SRC.exists():
+    sys.path.insert(0, str(_UI_AUTOMATION_SRC))
 
 
 def pytest_configure(config) -> None:

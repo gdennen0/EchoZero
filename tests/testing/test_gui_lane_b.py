@@ -73,3 +73,68 @@ def test_lane_b_runner_executes_starter_scenario_and_writes_trace():
         assert written_trace == trace
     finally:
         shutil.rmtree(temp_root, ignore_errors=True)
+
+
+def test_lane_b_runner_writes_simulated_video_manifest(monkeypatch):
+    temp_root = _repo_local_temp_root()
+    output_dir = temp_root / "artifacts"
+
+    def fake_write_frame_video(frame_paths, output_path, *, fps):
+        assert frame_paths
+        assert fps == 6
+        output_path.write_bytes(b"fake-mp4")
+        return output_path
+
+    monkeypatch.setattr("echozero.testing.gui_lane_b._write_frame_video", fake_write_frame_video)
+
+    try:
+        trace = run_scenario_file(
+            scenario_path=Path("tests/gui/scenarios/e2e_core.json"),
+            output_dir=output_dir,
+            record_video=True,
+            fps=6,
+        )
+
+        assert trace
+        assert (output_dir / "gui-lane-b-simulated.mp4").exists()
+        artifacts = json.loads((output_dir / "artifacts.json").read_text(encoding="utf-8"))
+        assert artifacts["video"] == "gui-lane-b-simulated.mp4"
+        assert artifacts["frame_count"] >= len(trace)
+        assert artifacts["proof_classification"] == "simulated_gui_capture"
+        assert artifacts["operator_demo_valid"] is False
+        assert artifacts["analysis_mode"] == "mock"
+    finally:
+        shutil.rmtree(temp_root, ignore_errors=True)
+
+
+def test_lane_b_runner_can_disable_mock_analysis(monkeypatch):
+    temp_root = _repo_local_temp_root()
+    output_dir = temp_root / "artifacts"
+    captured: dict[str, object] = {}
+
+    class _FakeHarness:
+        def __init__(self, **kwargs):
+            captured.update(kwargs)
+
+        widget = None
+        launcher = type("_L", (), {"confirm_close": None})()
+        runtime = type("_R", (), {"_is_dirty": False})()
+
+        def shutdown(self):
+            return None
+
+    monkeypatch.setattr("echozero.testing.gui_lane_b.AppFlowHarness", _FakeHarness)
+    monkeypatch.setattr("echozero.testing.gui_lane_b._render_for_hit_testing", lambda harness: None)
+    monkeypatch.setattr("echozero.testing.gui_lane_b.load_scenario", lambda path: type("S", (), {"name": "real", "steps": []})())
+
+    try:
+        trace = run_scenario_file(
+            scenario_path=Path("tests/gui/scenarios/e2e_core.json"),
+            output_dir=output_dir,
+            use_mock_analysis=False,
+        )
+
+        assert trace == []
+        assert captured["analysis_service"] is None
+    finally:
+        shutil.rmtree(temp_root, ignore_errors=True)

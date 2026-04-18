@@ -82,36 +82,32 @@ def build_timeline_inspector_contract(
             )
             if event_match is not None:
                 layer, take, event = event_match
-                contract = _event_contract(
+                return _event_contract(
                     presentation,
                     layer=layer,
                     take=take,
                     event=event,
                     hit_target=hit_target,
                 )
-                return filter_context_sections_for_hit_target(contract, hit_target)
         if hit_target.take_id is not None:
             take_match = _find_take(presentation, layer_id=hit_target.layer_id, take_id=hit_target.take_id)
             if take_match is not None:
                 layer, take = take_match
-                contract = _take_contract(
+                return _take_contract(
                     presentation,
                     layer=layer,
                     take=take,
                     hit_target=hit_target,
                 )
-                return filter_context_sections_for_hit_target(contract, hit_target)
         if hit_target.layer_id is not None:
             layer = _find_layer(presentation, hit_target.layer_id)
             if layer is not None:
-                contract = _layer_contract(presentation, layer=layer, hit_target=hit_target)
-                return filter_context_sections_for_hit_target(contract, hit_target)
-        contract = _empty_contract(
+                return _layer_contract(presentation, layer=layer, hit_target=hit_target)
+        return _empty_contract(
             presentation,
             hit_target=hit_target,
             has_selected_events=bool(presentation.selected_event_ids),
         )
-        return filter_context_sections_for_hit_target(contract, hit_target)
 
     if presentation.selected_event_ids and presentation.selected_layer_id is not None:
         selected_event_id = presentation.selected_event_ids[0]
@@ -149,70 +145,24 @@ def render_inspector_contract_text(contract: InspectorContract) -> str:
     return "\n".join(lines)
 
 
-_ALLOWED_CONTEXT_ACTION_GROUPS_BY_HIT_KIND = {
-    "timeline": {"tools", "transport"},
-    "layer": {"layer", "gain", "pipeline", "transfer", "live_sync", "transport"},
-    "take": {"take", "transport"},
-    "event": {"selection", "take", "transport"},
-}
-
-
-def filter_context_sections_for_hit_target(
-    contract: InspectorContract,
-    hit_target: TimelineInspectorHitTarget | None,
-) -> InspectorContract:
-    if hit_target is None or not hit_target.kind:
-        return contract
-
-    allowed = _ALLOWED_CONTEXT_ACTION_GROUPS_BY_HIT_KIND.get(hit_target.kind, None)
-    if allowed is None:
-        return contract
-
-    filtered_sections: list[InspectorContextSection] = []
-    seen_action_ids: set[str] = set()
-    for section in contract.context_sections:
-        visible_actions = []
-        for action in section.actions:
-            group = (action.group or "").strip().lower()
-            if group and group not in allowed:
-                continue
-            if action.action_id in seen_action_ids:
-                continue
-            visible_actions.append(action)
-            seen_action_ids.add(action.action_id)
-
-        if visible_actions:
-            filtered_sections.append(
-                InspectorContextSection(
-                    section_id=section.section_id,
-                    label=section.label,
-                    actions=tuple(visible_actions),
-                )
-            )
-
-    return InspectorContract(
-        title=contract.title,
-        identity=contract.identity,
-        sections=contract.sections,
-        context_sections=tuple(filtered_sections),
-        empty_state=contract.empty_state,
-    )
-
-
-def _supports_ma3_transfer(layer: LayerPresentation | None) -> bool:
-    if layer is None:
-        return False
-    return layer.kind != LayerKind.AUDIO
-
-
 def _empty_contract(
     presentation: TimelinePresentation,
     *,
     hit_target: TimelineInspectorHitTarget | None,
     has_selected_events: bool,
 ) -> InspectorContract:
+    context_rows = _selection_playback_context_rows(presentation)
     return InspectorContract(
-        title="No timeline object selected.",
+        title="Timeline" if context_rows else "No timeline object selected.",
+        sections=(
+            InspectorSection(
+                section_id="timeline-context",
+                label="Timeline",
+                rows=context_rows,
+            ),
+        )
+        if context_rows
+        else (),
         context_sections=_shared_context_sections(
             presentation=presentation,
             layer=None,
@@ -231,10 +181,6 @@ def _layer_contract(
     hit_target: TimelineInspectorHitTarget | None,
 ) -> InspectorContract:
     flags: list[str] = []
-    if layer.muted:
-        flags.append("muted")
-    if layer.soloed:
-        flags.append("soloed")
     if layer.status.stale:
         flags.append("stale")
     if layer.status.manually_modified:
@@ -247,6 +193,7 @@ def _layer_contract(
         InspectorFactRow("main take", str(layer.main_take_id or "none")),
         InspectorFactRow("takes", str(take_count) if take_count else "none"),
         InspectorFactRow("status flags", ", ".join(flags) if flags else "none"),
+        InspectorFactRow("playback state", _playback_state_label(presentation, layer=layer, take=None)),
     ]
     rows.extend(_layer_transfer_rows(presentation, layer))
     if presentation.experimental_live_sync_enabled:
@@ -268,6 +215,11 @@ def _layer_contract(
                 section_id="layer-core",
                 label="Layer",
                 rows=tuple(rows),
+            ),
+            InspectorSection(
+                section_id="layer-context",
+                label="Context",
+                rows=_selection_playback_context_rows(presentation),
             ),
         ),
         context_sections=_shared_context_sections(
@@ -305,12 +257,18 @@ def _take_contract(
                     InspectorFactRow("kind", take.kind.name),
                     InspectorFactRow("main truth", "no"),
                     InspectorFactRow("events", str(len(take.events))),
+                    InspectorFactRow("playback state", _playback_state_label(presentation, layer=layer, take=take)),
                 ),
             ),
             InspectorSection(
                 section_id="take-transfer",
                 label="Sync & Transfer",
                 rows=_layer_transfer_rows(presentation, layer),
+            ),
+            InspectorSection(
+                section_id="take-context",
+                label="Context",
+                rows=_selection_playback_context_rows(presentation),
             ),
         ),
         context_sections=_shared_context_sections(
@@ -345,12 +303,18 @@ def _event_contract(
                 InspectorFactRow("duration", _format_seconds(event.duration)),
                 InspectorFactRow("layer", layer.title),
                 InspectorFactRow("take", f"{take_name} ({take_id or 'none'})"),
+                InspectorFactRow("playback state", _playback_state_label(presentation, layer=layer, take=take)),
             ),
         ),
         InspectorSection(
             section_id="event-transfer",
             label="Sync & Transfer",
             rows=_layer_transfer_rows(presentation, layer),
+        ),
+        InspectorSection(
+            section_id="event-context",
+            label="Context",
+            rows=_selection_playback_context_rows(presentation),
         ),
     )
     return InspectorContract(
@@ -382,7 +346,6 @@ def _shared_context_sections(
     include_layer_transfer_controls: bool,
 ) -> tuple[InspectorContextSection, ...]:
     sections: list[InspectorContextSection] = []
-    supports_ma3_transfer = _supports_ma3_transfer(layer)
 
     sections.append(
         InspectorContextSection(
@@ -457,24 +420,28 @@ def _shared_context_sections(
             )
         )
 
-    if layer is not None and supports_ma3_transfer:
-        transfer_actions = [
-            InspectorAction(
-                action_id="push_to_ma3",
-                label="Push to MA3",
-                group="transfer",
-            ),
-            InspectorAction(
-                action_id="pull_from_ma3",
-                label="Pull from MA3",
-                group="transfer",
-            ),
-            InspectorAction(
-                action_id="open_batch_transfer_workspace",
-                label="Batch Transfer",
-                group="transfer",
-            ),
-        ]
+    if layer is not None:
+        transfer_actions: list[InspectorAction] = []
+        if _layer_supports_ma3_transfer(layer):
+            transfer_actions.extend(
+                [
+                    InspectorAction(
+                        action_id="push_to_ma3",
+                        label="Push to MA3",
+                        group="transfer",
+                    ),
+                    InspectorAction(
+                        action_id="pull_from_ma3",
+                        label="Pull from MA3",
+                        group="transfer",
+                    ),
+                    InspectorAction(
+                        action_id="open_batch_transfer_workspace",
+                        label="Batch Transfer",
+                        group="transfer",
+                    ),
+                ]
+            )
         if presentation.batch_transfer_plan is not None:
             transfer_actions.extend(
                 [
@@ -586,14 +553,15 @@ def _shared_context_sections(
                     group="transfer",
                 )
             )
-        sections.append(
-            InspectorContextSection(
-                section_id="sync-transfer",
-                label="Sync & Transfer",
-                actions=tuple(transfer_actions),
+        if transfer_actions:
+            sections.append(
+                InspectorContextSection(
+                    section_id="sync-transfer",
+                    label="Sync & Transfer",
+                    actions=tuple(transfer_actions),
+                )
             )
-        )
-    elif layer is None:
+    else:
         transfer_actions = [
             InspectorAction(
                 action_id="pull_from_ma3",
@@ -670,16 +638,15 @@ def _shared_context_sections(
     if layer is not None:
         layer_actions = [
             InspectorAction(
-                action_id="toggle_mute",
-                label="Unmute Layer" if layer.muted else "Mute Layer",
+                action_id="set_active_playback_target",
+                label=(
+                    "Audio Routed to Master"
+                    if presentation.active_playback_layer_id == layer.layer_id
+                    else "Route Audio to Master"
+                ),
                 group="layer",
                 params={"layer_id": layer.layer_id},
-            ),
-            InspectorAction(
-                action_id="toggle_solo",
-                label="Unsolo Layer" if layer.soloed else "Solo Layer",
-                group="layer",
-                params={"layer_id": layer.layer_id},
+                enabled=bool(layer.source_audio_path or layer.playback_source_ref),
             ),
             InspectorAction(
                 action_id="gain_down",
@@ -700,21 +667,19 @@ def _shared_context_sections(
                 params={"layer_id": layer.layer_id, "gain_db": 6.0},
             ),
         ]
-        if supports_ma3_transfer:
-            layer_actions.extend(
-                [
-                    InspectorAction(
-                        action_id="push_to_ma3",
-                        label="Push to MA3",
-                        group="transfer",
-                    ),
-                    InspectorAction(
-                        action_id="pull_from_ma3",
-                        label="Pull from MA3",
-                        group="transfer",
-                    ),
-                ]
-            )
+        if _layer_supports_ma3_transfer(layer):
+            layer_actions[0:0] = [
+                InspectorAction(
+                    action_id="push_to_ma3",
+                    label="Push to MA3",
+                    group="transfer",
+                ),
+                InspectorAction(
+                    action_id="pull_from_ma3",
+                    label="Pull from MA3",
+                    group="transfer",
+                ),
+            ]
         layer_actions.extend(_pipeline_actions_for_layer(layer))
         sections.append(
             InspectorContextSection(
@@ -873,6 +838,82 @@ def _find_selected_event(
     )
 
 
+def _selection_playback_context_rows(
+    presentation: TimelinePresentation,
+) -> tuple[InspectorFactRow, ...]:
+    selection_label = _selected_identity_label(presentation)
+    playback_label = _playback_target_label(presentation)
+    if selection_label == "none" and playback_label == "none":
+        return ()
+    return (
+        InspectorFactRow("selected identity", selection_label),
+        InspectorFactRow("playback target", playback_label),
+    )
+
+
+def _selected_identity_label(presentation: TimelinePresentation) -> str:
+    if presentation.selected_event_ids:
+        event_match = _find_selected_event(presentation, presentation.selected_event_ids[0])
+        if event_match is not None:
+            layer, take, event = event_match
+            take_label = _take_identity_label(layer, take)
+            return f"Event {event.label} ({event.event_id}) on {layer.title} / {take_label}"
+    if presentation.selected_take_id is not None and presentation.selected_layer_id is not None:
+        take_match = _find_take(
+            presentation,
+            layer_id=presentation.selected_layer_id,
+            take_id=presentation.selected_take_id,
+        )
+        if take_match is not None:
+            layer, take = take_match
+            return f"Take {take.name} ({take.take_id}) on {layer.title}"
+        layer = _find_layer(presentation, presentation.selected_layer_id)
+        if layer is not None and presentation.selected_take_id == layer.main_take_id:
+            return f"Take Main take ({layer.main_take_id}) on {layer.title}"
+    if presentation.selected_layer_id is not None:
+        layer = _find_layer(presentation, presentation.selected_layer_id)
+        if layer is not None:
+            return f"Layer {layer.title} ({layer.layer_id})"
+    return "none"
+
+
+def _playback_target_label(presentation: TimelinePresentation) -> str:
+    layer_id = presentation.active_playback_layer_id
+    if layer_id is None:
+        return "none"
+    layer = _find_layer(presentation, layer_id)
+    if layer is None:
+        return f"Active layer {layer_id}"
+    take_id = presentation.active_playback_take_id
+    if take_id is None or take_id == layer.main_take_id:
+        return f"Active {layer.title} / Main take ({layer.main_take_id or 'none'})"
+    take_match = _find_take(presentation, layer_id=layer.layer_id, take_id=take_id)
+    if take_match is not None:
+        _, take = take_match
+        return f"Active {layer.title} / {take.name} ({take.take_id})"
+    return f"Active {layer.title} / Take {take_id}"
+
+
+def _playback_state_label(
+    presentation: TimelinePresentation,
+    *,
+    layer: LayerPresentation,
+    take: TakeLanePresentation | None,
+) -> str:
+    if presentation.active_playback_layer_id != layer.layer_id:
+        return "Set Active"
+    active_take_id = presentation.active_playback_take_id
+    if take is None:
+        return "Active" if active_take_id in (None, layer.main_take_id) else "Set Active"
+    return "Active" if active_take_id == take.take_id else "Set Active"
+
+
+def _take_identity_label(layer: LayerPresentation, take: TakeLanePresentation | None) -> str:
+    if take is None:
+        return f"Main take ({layer.main_take_id or 'none'})"
+    return f"{take.name} ({take.take_id})"
+
+
 def _format_seconds(value: float) -> str:
     return f"{value:.2f}s"
 
@@ -889,6 +930,14 @@ def _pipeline_actions_for_layer(layer: LayerPresentation) -> tuple[InspectorActi
             )
         )
     if _is_drum_capable_layer(layer):
+        actions.append(
+            InspectorAction(
+                action_id="extract_classified_drums",
+                label="Extract Classified Drums",
+                group="pipeline",
+                params={"layer_id": layer.layer_id},
+            )
+        )
         actions.append(
             InspectorAction(
                 action_id="extract_drum_events",
@@ -949,6 +998,10 @@ def _layer_transfer_rows(
     if layer.pull_row_issue:
         rows.append(InspectorFactRow("pull issue", layer.pull_row_issue))
     return tuple(rows)
+
+
+def _layer_supports_ma3_transfer(layer: LayerPresentation) -> bool:
+    return layer.kind is LayerKind.EVENT and layer.main_take_id is not None
 
 
 def _transfer_plan_summary(presentation: TimelinePresentation) -> str:

@@ -24,6 +24,7 @@ Ship-ready guarantees:
 
 from __future__ import annotations
 
+import time
 from typing import Any, Callable
 
 import numpy as np
@@ -39,6 +40,59 @@ from echozero.audio.transport import Transport, TransportState
 DEFAULT_SAMPLE_RATE = 44100
 DEFAULT_BUFFER_SIZE = 256  # ~5.8ms at 44100 — low latency, safe for modern hardware
 DEFAULT_CHANNELS = 1       # mono output for v1
+
+
+def _resolve_output_defaults(stream_factory: Callable[..., Any] | None) -> tuple[int, int]:
+    """Prefer the default real output device format when using sounddevice directly.
+
+    Deterministic test paths that inject a stream_factory keep the legacy defaults.
+    """
+    if stream_factory is not None:
+        return DEFAULT_SAMPLE_RATE, DEFAULT_CHANNELS
+
+    try:
+        import sounddevice as sd
+
+        output_device = sd.default.device[1]
+        device_info = sd.query_devices(output_device)
+        sample_rate = int(round(float(device_info.get("default_samplerate", DEFAULT_SAMPLE_RATE))))
+        max_output_channels = int(device_info.get("max_output_channels", DEFAULT_CHANNELS))
+        channels = 2 if max_output_channels >= 2 else max(1, max_output_channels)
+        return max(1, sample_rate), max(1, channels)
+    except Exception:
+        return DEFAULT_SAMPLE_RATE, DEFAULT_CHANNELS
+
+
+def _resolve_stream_defaults(
+    stream_factory: Callable[..., Any] | None,
+    *,
+    buffer_size: int,
+    blocksize: int | None,
+    latency: str | float | None,
+    prime_output_buffers_using_stream_callback: bool,
+) -> tuple[int, str | float, bool]:
+    """Choose safer real-device stream settings without perturbing injected test streams.
+
+    The app path should prefer stable playback over minimum latency. Injected
+    stream factories keep the historical aggressive defaults so deterministic
+    tests do not change behavior.
+    """
+    if stream_factory is not None:
+        resolved_blocksize = 0 if blocksize is None else int(blocksize)
+        resolved_latency: str | float = "low" if latency is None else latency
+        return (
+            resolved_blocksize,
+            resolved_latency,
+            bool(prime_output_buffers_using_stream_callback),
+        )
+
+    resolved_blocksize = int(blocksize or buffer_size)
+    resolved_latency = "high" if latency is None else latency
+    return (
+        max(1, resolved_blocksize),
+        resolved_latency,
+        bool(prime_output_buffers_using_stream_callback),
+    )
 
 
 class AudioEngine:
@@ -65,7 +119,11 @@ class AudioEngine:
     __slots__ = (
         "_clock", "_transport", "_mixer", "_crossfade",
         "_stream", "_buffer_size", "_channels",
-        "_stream_factory", "_active", "_end_of_content",
+        "_stream_factory", "_stream_blocksize",
+        "_stream_latency", "_prime_output_buffers_using_stream_callback",
+        "_active", "_end_of_content", "_reported_output_latency_seconds",
+        "_last_audible_time_seconds",
+        "_last_audible_monotonic_seconds",
         "_output_scratch",       # A2: pre-allocated output buffer for loop-wrap path
         "_pre_scratch",          # pre-allocated buffer for pre-wrap audio
         "_post_scratch",         # pre-allocated buffer for post-wrap audio
@@ -75,11 +133,17 @@ class AudioEngine:
 
     def __init__(
         self,
-        sample_rate: int = DEFAULT_SAMPLE_RATE,
+        sample_rate: int | None = None,
         buffer_size: int = DEFAULT_BUFFER_SIZE,
-        channels: int = DEFAULT_CHANNELS,
+        channels: int | None = None,
         stream_factory: Callable[..., Any] | None = None,
+        stream_blocksize: int | None = None,
+        stream_latency: str | float | None = None,
+        prime_output_buffers_using_stream_callback: bool = True,
     ) -> None:
+        resolved_sample_rate, resolved_channels = _resolve_output_defaults(stream_factory)
+        sample_rate = int(sample_rate or resolved_sample_rate)
+        channels = int(channels or resolved_channels)
         self._clock = Clock(sample_rate=sample_rate)
         self._transport = Transport(self._clock)
         self._mixer = Mixer()
@@ -90,8 +154,16 @@ class AudioEngine:
         self._channels = channels
         self._stream: Any = None
         self._stream_factory = stream_factory
+        self._stream_blocksize = stream_blocksize
+        self._stream_latency = stream_latency
+        self._prime_output_buffers_using_stream_callback = (
+            prime_output_buffers_using_stream_callback
+        )
         self._active = False
         self._end_of_content = False  # set by callback, read by main thread
+        self._reported_output_latency_seconds = 0.0
+        self._last_audible_time_seconds: float | None = None
+        self._last_audible_monotonic_seconds: float | None = None
 
         # A2: pre-allocated output scratch buffers. Sized to 2× buffer_size so that
         # split-read pre/post segments can each be a full buffer's worth.
@@ -129,6 +201,31 @@ class AudioEngine:
     @property
     def is_active(self) -> bool:
         return self._active
+
+    @property
+    def reported_output_latency_seconds(self) -> float:
+        """Best-effort output latency reported by the backend stream."""
+        return self._reported_output_latency_seconds
+
+    @property
+    def audible_time_seconds(self) -> float:
+        """Best-effort output-aligned transport time.
+
+        Uses the latest callback-aligned audible snapshot plus monotonic
+        extrapolation between callbacks. This keeps the UI smoother without
+        making the UI timer the source of truth.
+        """
+        clock_time = float(self._clock.position_seconds)
+        if not self._transport.is_playing:
+            return clock_time
+
+        snapshot = self._last_audible_time_seconds
+        snapshot_monotonic = self._last_audible_monotonic_seconds
+        if snapshot is None or snapshot_monotonic is None:
+            return max(0.0, clock_time - self._reported_output_latency_seconds)
+
+        extrapolated = snapshot + max(0.0, time.monotonic() - snapshot_monotonic)
+        return max(0.0, min(extrapolated, clock_time))
 
     @property
     def reached_end(self) -> bool:
@@ -187,18 +284,25 @@ class AudioEngine:
 
     def pause(self) -> None:
         self._transport.pause()
+        self._last_audible_monotonic_seconds = None
 
     def stop(self) -> None:
         self._end_of_content = False
         self._transport.stop()
+        self._last_audible_time_seconds = 0.0
+        self._last_audible_monotonic_seconds = None
 
     def seek(self, position_samples: int) -> None:
         self._end_of_content = False
         self._transport.seek(position_samples)
+        self._last_audible_time_seconds = self._clock.position_seconds
+        self._last_audible_monotonic_seconds = None
 
     def seek_seconds(self, seconds: float) -> None:
         self._end_of_content = False
         self._transport.seek_seconds(seconds)
+        self._last_audible_time_seconds = self._clock.position_seconds
+        self._last_audible_monotonic_seconds = None
 
     def toggle_play_pause(self) -> None:
         self._end_of_content = False
@@ -212,25 +316,36 @@ class AudioEngine:
         if self._active:
             return
 
+        blocksize, latency, prime_output = _resolve_stream_defaults(
+            self._stream_factory,
+            buffer_size=self._buffer_size,
+            blocksize=self._stream_blocksize,
+            latency=self._stream_latency,
+            prime_output_buffers_using_stream_callback=(
+                self._prime_output_buffers_using_stream_callback
+            ),
+        )
+
+        stream_kwargs = {
+            "samplerate": self._clock.sample_rate,
+            "blocksize": blocksize,
+            "channels": self._channels,
+            "dtype": "float32",
+            "latency": latency,
+            "prime_output_buffers_using_stream_callback": prime_output,
+            "callback": self._audio_callback,
+        }
+
         if self._stream_factory is not None:
-            self._stream = self._stream_factory(
-                samplerate=self._clock.sample_rate,
-                blocksize=self._buffer_size,
-                channels=self._channels,
-                dtype="float32",
-                callback=self._audio_callback,
-            )
+            self._stream = self._stream_factory(**stream_kwargs)
         else:
             import sounddevice as sd
-            self._stream = sd.OutputStream(
-                samplerate=self._clock.sample_rate,
-                blocksize=self._buffer_size,
-                channels=self._channels,
-                dtype="float32",
-                callback=self._audio_callback,
-            )
+            self._stream = sd.OutputStream(**stream_kwargs)
 
         self._stream.start()
+        self._reported_output_latency_seconds = self._coerce_output_latency_seconds(
+            getattr(self._stream, "latency", 0.0)
+        )
         self._active = True
 
     def shutdown(self) -> None:
@@ -240,6 +355,9 @@ class AudioEngine:
             self._stream.close()
             self._stream = None
         self._active = False
+        self._reported_output_latency_seconds = 0.0
+        self._last_audible_time_seconds = None
+        self._last_audible_monotonic_seconds = None
 
     # -- The callback (HOT PATH) -------------------------------------------
 
@@ -271,6 +389,7 @@ class AudioEngine:
 
         # Advance clock (lock-free)
         position = self._clock.advance(frames)
+        self._update_callback_timing_snapshot(time_info)
 
         # End-of-content check (auto-pause, skip if looping)
         duration = self._mixer.duration_samples
@@ -333,8 +452,6 @@ class AudioEngine:
                     xfade.apply(out, tail, head, pre_frames - xfade_len, xfade_len)
 
             # A3: clip crossfade output — equal-power peaks at √2 ≈ 1.414
-            np.clip(out[:frames], -1.0, 1.0, out=out[:frames])
-
             mixed = out
 
         else:
@@ -342,6 +459,8 @@ class AudioEngine:
             # A6: use read_mix_into to avoid a copy
             self._mixer.read_mix_into(self._output_scratch, position, frames)
             mixed = self._output_scratch[:frames]
+
+        self._sanitize_output_samples(mixed, frames)
 
         # Write to output
         if self._channels == 1:
@@ -357,3 +476,66 @@ class AudioEngine:
 
     def remove_clock_subscriber(self, sub: ClockSubscriber) -> None:
         self._clock.remove_subscriber(sub)
+
+    @staticmethod
+    def _coerce_output_latency_seconds(latency: Any) -> float:
+        """Normalize backend latency reporting to output-latency seconds."""
+        if isinstance(latency, (tuple, list)):
+            if not latency:
+                return 0.0
+            latency = latency[-1]
+        try:
+            return max(0.0, float(latency))
+        except (TypeError, ValueError):
+            return 0.0
+
+    @staticmethod
+    def _sanitize_output_samples(buffer: np.ndarray, frames: int) -> None:
+        """Clamp RT output to a finite, device-safe float32 range."""
+        out = buffer[:frames]
+        np.nan_to_num(out, copy=False, nan=0.0, posinf=1.0, neginf=-1.0)
+        np.clip(out, -1.0, 1.0, out=out)
+
+    def _update_callback_timing_snapshot(self, time_info: Any) -> None:
+        output_latency_seconds = self._reported_output_latency_seconds
+        callback_now = time.monotonic()
+        if time_info is not None:
+            measured_latency = self._extract_output_latency_seconds(time_info)
+            if measured_latency is not None:
+                output_latency_seconds = measured_latency
+                self._reported_output_latency_seconds = measured_latency
+
+        self._last_audible_time_seconds = max(
+            0.0,
+            float(self._clock.position_seconds) - output_latency_seconds,
+        )
+        self._last_audible_monotonic_seconds = callback_now
+
+    @staticmethod
+    def _extract_output_latency_seconds(time_info: Any) -> float | None:
+        current_time = AudioEngine._coerce_callback_time_value(time_info, "currentTime")
+        output_dac_time = AudioEngine._coerce_callback_time_value(time_info, "outputBufferDacTime")
+        if current_time is None or output_dac_time is None:
+            return None
+        return max(0.0, output_dac_time - current_time)
+
+    @staticmethod
+    def _coerce_callback_time_value(time_info: Any, field: str) -> float | None:
+        if time_info is None:
+            return None
+        value = None
+        if isinstance(time_info, dict):
+            value = time_info.get(field)
+        else:
+            value = getattr(time_info, field, None)
+            if value is None:
+                try:
+                    value = time_info[field]
+                except Exception:
+                    value = None
+        if value is None:
+            return None
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return None

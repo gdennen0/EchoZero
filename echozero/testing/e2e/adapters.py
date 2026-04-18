@@ -19,8 +19,6 @@ from echozero.application.timeline.intents import (
     Stop,
     TimelineIntent,
     ToggleLayerExpanded,
-    ToggleMute,
-    ToggleSolo,
     TriggerTakeAction,
 )
 from echozero.application.shared.enums import SyncMode
@@ -146,10 +144,6 @@ def _build_intent(intent_name: str, payload: dict[str, Any]) -> TimelineIntent:
         )
     if normalized == "ToggleLayerExpanded":
         return ToggleLayerExpanded(layer_id=payload["layer_id"])
-    if normalized == "ToggleMute":
-        return ToggleMute(layer_id=payload["layer_id"])
-    if normalized == "ToggleSolo":
-        return ToggleSolo(layer_id=payload["layer_id"])
     if normalized == "TriggerTakeAction":
         return TriggerTakeAction(
             layer_id=payload["layer_id"],

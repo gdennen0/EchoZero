@@ -30,10 +30,10 @@ from echozero.application.timeline.intents import (
     SelectEvent,
     SelectAllEvents,
     SelectTake,
+    SetActivePlaybackTarget,
     Stop,
     ToggleLayerExpanded,
-    ToggleMute,
-    ToggleSolo,
+    SetGain,
     TriggerTakeAction,
 )
 from echozero.application.timeline.models import Event, Layer, Take, Timeline
@@ -229,7 +229,61 @@ def test_select_take_is_selection_only_and_does_not_change_main_truth():
     )
 
     assert timeline.selection.selected_take_id == alt_take.id
+    assert timeline.playback_target.layer_id is None
+    assert timeline.playback_target.take_id is None
     assert [event.id for event in main_take.events] == original_main_event_ids
+
+
+def test_set_active_playback_target_updates_playback_target_without_touching_selection():
+    orchestrator, timeline, layer, _main_take, alt_take = _build_orchestrator_and_timeline()
+
+    timeline.selection.selected_layer_id = layer.id
+    timeline.selection.selected_layer_ids = [layer.id]
+    timeline.selection.selected_take_id = alt_take.id
+
+    orchestrator.handle(
+        timeline,
+        SetActivePlaybackTarget(layer_id=layer.id, take_id=None),
+    )
+
+    assert timeline.playback_target.layer_id == layer.id
+    assert timeline.playback_target.take_id is None
+    assert timeline.selection.selected_layer_id == layer.id
+    assert timeline.selection.selected_take_id == alt_take.id
+
+
+def test_set_active_playback_target_uses_explicit_playback_target_path():
+    orchestrator, timeline, layer, _main_take, alt_take = _build_orchestrator_and_timeline()
+
+    orchestrator.handle(
+        timeline,
+        SetActivePlaybackTarget(layer_id=layer.id, take_id=alt_take.id),
+    )
+
+    assert timeline.playback_target.layer_id == layer.id
+    assert timeline.playback_target.take_id == alt_take.id
+    assert timeline.selection.selected_layer_id is None
+    assert timeline.selection.selected_take_id is None
+
+
+def test_set_active_playback_target_can_clear_target_without_clearing_selection():
+    orchestrator, timeline, layer, _main_take, alt_take = _build_orchestrator_and_timeline()
+
+    timeline.selection.selected_layer_id = layer.id
+    timeline.selection.selected_layer_ids = [layer.id]
+    timeline.selection.selected_take_id = alt_take.id
+    timeline.playback_target.layer_id = layer.id
+    timeline.playback_target.take_id = alt_take.id
+
+    orchestrator.handle(
+        timeline,
+        SetActivePlaybackTarget(layer_id=None, take_id=None),
+    )
+
+    assert timeline.playback_target.layer_id is None
+    assert timeline.playback_target.take_id is None
+    assert timeline.selection.selected_layer_id == layer.id
+    assert timeline.selection.selected_take_id == alt_take.id
 
 
 def test_toggle_layer_expanded_round_trips_through_assembled_presentation():
@@ -412,14 +466,11 @@ def test_stop_resets_transport_playhead_and_playing_state():
     assert session.transport_state.playhead == 0.0
 
 
-def test_toggle_mute_and_solo_update_layer_mixer_state():
+def test_set_gain_updates_layer_mixer_state():
     orchestrator, timeline, layer, _main_take, _alt_take = _build_orchestrator_and_timeline()
 
-    orchestrator.handle(timeline, ToggleMute(layer.id))
-    assert layer.mixer.mute is True
-
-    orchestrator.handle(timeline, ToggleSolo(layer.id))
-    assert layer.mixer.solo is True
+    orchestrator.handle(timeline, SetGain(layer.id, -6.0))
+    assert layer.mixer.gain_db == -6.0
 
 
 def test_trigger_take_action_overwrite_main_replaces_events_from_source_take():

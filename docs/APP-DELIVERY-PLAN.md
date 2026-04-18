@@ -51,8 +51,8 @@ Make EchoZero operate as a production app, not a demo surface:
 4. **Single release contract**
    - No test release unless packaged-build smoke lane passes.
 
-5. **Demo demotion**
-   - `run_timeline_demo.py` remains a compatibility shim, not the primary validation path.
+5. **Single app launcher**
+   - `run_echozero.py` is the only desktop app entrypoint.
 
 ---
 
@@ -80,7 +80,7 @@ Deliverables:
 
 Exit criteria:
 - App boots from `run_echozero.py`
-- Legacy `run_timeline_demo.py` delegates without changing behavior
+- No alternate desktop launcher exists for demo/test app startup
 
 ## Phase B — App-Flow Test Harness
 

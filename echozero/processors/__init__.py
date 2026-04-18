@@ -6,6 +6,7 @@ Each processor implements the BlockExecutor protocol and is registered with the 
 
 from echozero.processors.audio_filter import AudioFilterProcessor
 from echozero.processors.audio_negate import AudioNegateProcessor
+from echozero.processors.binary_drum_classify import BinaryDrumClassifyProcessor
 from echozero.processors.dataset_viewer import DatasetViewerProcessor
 from echozero.processors.detect_onsets import DetectOnsetsProcessor
 from echozero.processors.eq_bands import EQBandsProcessor
@@ -21,6 +22,7 @@ from echozero.processors.transcribe_notes import TranscribeNotesProcessor
 __all__ = [
     "AudioFilterProcessor",
     "AudioNegateProcessor",
+    "BinaryDrumClassifyProcessor",
     "DatasetViewerProcessor",
     "DetectOnsetsProcessor",
     "EQBandsProcessor",

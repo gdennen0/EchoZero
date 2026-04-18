@@ -32,11 +32,12 @@ def test_manifest_schema_keys_exist(tmp_path: Path):
         ],
     )
 
-    assert set(manifest) >= {"run_timestamp", "run_id", "run_folder", "scenario_statuses", "counts"}
+    assert set(manifest) >= {"run_timestamp", "run_id", "run_folder", "scenario_statuses", "counts", "proof_contract"}
     assert manifest["counts"]["passed"] == 1
     assert manifest["counts"]["skipped"] == 1
     assert manifest["counts"]["artifacts"] == 1
     assert manifest["scenario_statuses"][0]["group"] == "canonical_app_lifecycle"
+    assert manifest["proof_contract"]["simulated_artifacts_must_be_labeled"] is True
 
 
 def test_missing_optional_artifacts_are_marked_without_crashing(tmp_path: Path):

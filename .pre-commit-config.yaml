@@ -1,0 +1,23 @@
+repos:
+  - repo: https://github.com/psf/black
+    rev: 24.10.0
+    hooks:
+      - id: black
+        args: [--line-length=99]
+  - repo: https://github.com/PyCQA/isort
+    rev: 5.13.2
+    hooks:
+      - id: isort
+        args: [--profile=black, --line-length=99]
+  - repo: local
+    hooks:
+      - id: repo-hygiene
+        name: repo hygiene
+        entry: python scripts/check_repo_hygiene.py
+        language: system
+        pass_filenames: false
+      - id: lane-ownership
+        name: lane ownership
+        entry: python scripts/check_lane_ownership.py
+        language: system
+        pass_filenames: false

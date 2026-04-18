@@ -25,7 +25,7 @@ Analyzes music → extracts time-stamped events → syncs with grandMA3.
 ```
 echozero/
   project.py         # Project — central application object
-  main.py            # Production bootstrap (lazy processor loading)
+  main.py            # Supporting composition helpers, not the canonical app entrypoint
   takes.py           # Take system (frozen snapshots, TakeLayer, merge)
   execution.py       # ExecutionEngine, GraphPlanner, BlockExecutor protocol
   event_bus.py       # Pub/sub EventBus for domain events
@@ -116,7 +116,7 @@ echozero/
 │  6. UI Layer           PyQt6 Stage Zero Editor        │
 │                        (in development)               │
 ├──────────────────────────────────────────────────────┤
-│  5. Application Layer  Project class                  │
+│  5. Application Layer  App shell runtime + contracts  │
 │                        run_echozero.py launcher       │
 ├──────────────────────────────────────────────────────┤
 │  4. Services Layer     Orchestrator                   │
@@ -147,9 +147,19 @@ Application imports everything. UI imports application only.
 
 ---
 
+## Runtime Boundary
+
+The canonical desktop UI enters through `run_echozero.py`, which builds the
+Stage Zero shell from `echozero/ui/qt/app_shell.py`.
+
+`Project` remains an important application object, but the current UI boundary
+is more presentation-driven than older docs implied. In practice the desktop
+shell talks through app-shell/runtime composition and presentation contracts,
+not directly to `Project` as a single universal façade.
+
 ## The Project Class
 
-`Project` is the single thing the UI talks to. It owns and wires:
+`Project` still owns and wires the core execution/persistence graph:
 
 - `Graph` — single source of truth for the block graph
 - `Pipeline` — routes commands, collects/flushes domain events

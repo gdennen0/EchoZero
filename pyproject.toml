@@ -32,7 +32,6 @@ dependencies = [
 
 [project.scripts]
 echozero = "run_echozero:main"
-echozero-demo = "run_timeline_demo:main"
 echozero-foundry = "echozero.foundry.ui.main_window:run_foundry_ui"
 
 [project.optional-dependencies]
@@ -43,6 +42,7 @@ dev = [
     "mypy>=1.5",
     "black>=23.7",
     "isort>=5.12",
+    "pre-commit>=3.7",
     "python-osc>=1.8.0",
 ]
 ml = [
@@ -60,10 +60,11 @@ packaging = [
 
 [tool.setuptools]
 include-package-data = true
-py-modules = ["run_echozero", "run_timeline_demo"]
+py-modules = ["run_echozero"]
 
 [tool.setuptools.packages.find]
-include = ["echozero", "echozero.*"]
+where = [".", "packages/ui_automation/src"]
+include = ["echozero", "echozero.*", "ui_automation", "ui_automation.*"]
 
 [tool.setuptools.package-data]
 echozero = [
@@ -71,6 +72,7 @@ echozero = [
     "testing/e2e/scenarios/*.json",
     "ui/qt/timeline/fixtures/*.json",
 ]
+ui_automation = ["py.typed"]
 
 [tool.black]
 line-length = 99
@@ -79,7 +81,7 @@ target-version = ["py311"]
 [tool.isort]
 profile = "black"
 line_length = 99
-known_first_party = ["echozero"]
+known_first_party = ["echozero", "ui_automation"]
 
 [tool.mypy]
 python_version = "3.11"
@@ -103,7 +105,7 @@ markers = [
 ]
 
 [tool.coverage.run]
-source = ["echozero"]
+source = ["echozero", "ui_automation"]
 omit = ["echozero/ui/*"]
 
 [tool.coverage.report]

@@ -121,6 +121,12 @@ class TimelineSelection:
 
 
 @dataclass(slots=True)
+class TimelinePlaybackTarget:
+    layer_id: LayerId | None = None
+    take_id: TakeId | None = None
+
+
+@dataclass(slots=True)
 class TimelineViewport:
     pixels_per_second: float = 100.0
     scroll_x: float = 0.0
@@ -136,4 +142,5 @@ class Timeline:
     layers: list[Layer] = field(default_factory=list)
     loop_region: TimeRange | None = None
     selection: TimelineSelection = field(default_factory=TimelineSelection)
+    playback_target: TimelinePlaybackTarget = field(default_factory=TimelinePlaybackTarget)
     viewport: TimelineViewport = field(default_factory=TimelineViewport)

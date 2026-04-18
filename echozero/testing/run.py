@@ -44,6 +44,24 @@ LANES: dict[str, list[str]] = {
         "tests/testing/test_gui_dsl.py",
         "tests/testing/test_gui_lane_b.py",
     ],
+    "ui-automation": [
+        "tests/ui_automation/test_session.py",
+        "tests/ui_automation/test_echozero_backend.py",
+        "tests/ui_automation/test_bridge_server.py",
+    ],
+    "humanflow-all": [
+        "tests/ui/test_run_echozero_launcher.py",
+        "tests/testing/test_app_shell_profiles.py",
+        "tests/testing/test_app_flow_harness.py",
+        "tests/ui/test_app_shell_runtime_flow.py",
+        "tests/ui_automation/test_session.py",
+        "tests/ui_automation/test_echozero_backend.py",
+        "tests/ui_automation/test_bridge_server.py",
+        "tests/application/test_manual_transfer_pull_flow.py",
+        "tests/application/test_manual_transfer_push_flow.py",
+        "tests/application/test_sync_adapters.py",
+        "tests/application/test_live_sync_guardrail_contracts.py",
+    ],
 }
 
 

@@ -7,7 +7,9 @@
     "follow_mode": "center",
     "selected_layer_id": "layer_drums",
     "selected_take_id": null,
-    "selected_event_ids": ["evt_snare_02"],
+    "selected_event_ids": [
+      "evt_snare_02"
+    ],
     "pixels_per_second": 180.0,
     "scroll_x": 0.0,
     "scroll_y": 0.0,
@@ -22,11 +24,12 @@
       "kind": "audio",
       "is_selected": false,
       "is_expanded": false,
-      "muted": false,
-      "soloed": false,
       "color_token": "song",
       "waveform_key": "song-main",
-      "badges": ["main", "audio"],
+      "badges": [
+        "main",
+        "audio"
+      ],
       "status": {
         "stale": false,
         "manually_modified": false,
@@ -43,11 +46,12 @@
       "kind": "audio",
       "is_selected": true,
       "is_expanded": true,
-      "muted": false,
-      "soloed": true,
       "color_token": "drums",
       "waveform_key": "drums-main",
-      "badges": ["main", "audio"],
+      "badges": [
+        "main",
+        "audio"
+      ],
       "status": {
         "stale": false,
         "manually_modified": false,
@@ -64,8 +68,12 @@
           "source_ref": "separator:v2",
           "waveform_key": "drums-take-2",
           "actions": [
-            { "action_id": "overwrite_main" },
-            { "action_id": "merge_main" }
+            {
+              "action_id": "overwrite_main"
+            },
+            {
+              "action_id": "merge_main"
+            }
           ],
           "events": []
         },
@@ -77,8 +85,12 @@
           "source_ref": "separator:v3",
           "waveform_key": "drums-take-3",
           "actions": [
-            { "action_id": "overwrite_main" },
-            { "action_id": "merge_main" }
+            {
+              "action_id": "overwrite_main"
+            },
+            {
+              "action_id": "merge_main"
+            }
           ],
           "events": []
         }
@@ -91,11 +103,12 @@
       "kind": "audio",
       "is_selected": false,
       "is_expanded": false,
-      "muted": false,
-      "soloed": false,
       "color_token": "bass",
       "waveform_key": "bass-main",
-      "badges": ["main", "audio"],
+      "badges": [
+        "main",
+        "audio"
+      ],
       "status": {
         "stale": false,
         "manually_modified": false,
@@ -112,11 +125,12 @@
       "kind": "audio",
       "is_selected": false,
       "is_expanded": false,
-      "muted": false,
-      "soloed": false,
       "color_token": "vocals",
       "waveform_key": "vocals-main",
-      "badges": ["main", "audio"],
+      "badges": [
+        "main",
+        "audio"
+      ],
       "status": {
         "stale": false,
         "manually_modified": false,
@@ -133,11 +147,12 @@
       "kind": "audio",
       "is_selected": false,
       "is_expanded": false,
-      "muted": false,
-      "soloed": false,
       "color_token": "other",
       "waveform_key": "other-main",
-      "badges": ["main", "audio"],
+      "badges": [
+        "main",
+        "audio"
+      ],
       "status": {
         "stale": false,
         "manually_modified": false,
@@ -154,10 +169,11 @@
       "kind": "event",
       "is_selected": false,
       "is_expanded": true,
-      "muted": false,
-      "soloed": false,
       "color_token": "kick",
-      "badges": ["main", "event"],
+      "badges": [
+        "main",
+        "event"
+      ],
       "status": {
         "stale": true,
         "manually_modified": true,
@@ -165,10 +181,30 @@
         "sync_label": "Not synced"
       },
       "events": [
-        { "id": "evt_kick_01", "start": 0.52, "end": 0.78, "label": "Kick" },
-        { "id": "evt_kick_02", "start": 4.12, "end": 4.38, "label": "Kick" },
-        { "id": "evt_kick_03", "start": 8.14, "end": 8.40, "label": "Kick" },
-        { "id": "evt_kick_04", "start": 12.14, "end": 12.40, "label": "Kick" }
+        {
+          "id": "evt_kick_01",
+          "start": 0.52,
+          "end": 0.78,
+          "label": "Kick"
+        },
+        {
+          "id": "evt_kick_02",
+          "start": 4.12,
+          "end": 4.38,
+          "label": "Kick"
+        },
+        {
+          "id": "evt_kick_03",
+          "start": 8.14,
+          "end": 8.40,
+          "label": "Kick"
+        },
+        {
+          "id": "evt_kick_04",
+          "start": 12.14,
+          "end": 12.40,
+          "label": "Kick"
+        }
       ],
       "takes": [
         {
@@ -178,13 +214,32 @@
           "kind": "event",
           "source_ref": "classifier:v2",
           "actions": [
-            { "action_id": "overwrite_main" },
-            { "action_id": "merge_main" }
+            {
+              "action_id": "overwrite_main"
+            },
+            {
+              "action_id": "merge_main"
+            }
           ],
           "events": [
-            { "id": "evt_kick_t2_01", "start": 0.48, "end": 0.74, "label": "Kick v2" },
-            { "id": "evt_kick_t2_02", "start": 4.08, "end": 4.32, "label": "Kick v2" },
-            { "id": "evt_kick_t2_03", "start": 8.10, "end": 8.34, "label": "Kick v2" }
+            {
+              "id": "evt_kick_t2_01",
+              "start": 0.48,
+              "end": 0.74,
+              "label": "Kick v2"
+            },
+            {
+              "id": "evt_kick_t2_02",
+              "start": 4.08,
+              "end": 4.32,
+              "label": "Kick v2"
+            },
+            {
+              "id": "evt_kick_t2_03",
+              "start": 8.10,
+              "end": 8.34,
+              "label": "Kick v2"
+            }
           ]
         },
         {
@@ -194,14 +249,38 @@
           "kind": "event",
           "source_ref": "classifier:v3",
           "actions": [
-            { "action_id": "overwrite_main" },
-            { "action_id": "merge_main" }
+            {
+              "action_id": "overwrite_main"
+            },
+            {
+              "action_id": "merge_main"
+            }
           ],
           "events": [
-            { "id": "evt_kick_t3_01", "start": 0.51, "end": 0.77, "label": "Kick v3" },
-            { "id": "evt_kick_t3_02", "start": 4.11, "end": 4.37, "label": "Kick v3" },
-            { "id": "evt_kick_t3_03", "start": 8.12, "end": 8.38, "label": "Kick v3" },
-            { "id": "evt_kick_t3_04", "start": 12.12, "end": 12.38, "label": "Kick v3" }
+            {
+              "id": "evt_kick_t3_01",
+              "start": 0.51,
+              "end": 0.77,
+              "label": "Kick v3"
+            },
+            {
+              "id": "evt_kick_t3_02",
+              "start": 4.11,
+              "end": 4.37,
+              "label": "Kick v3"
+            },
+            {
+              "id": "evt_kick_t3_03",
+              "start": 8.12,
+              "end": 8.38,
+              "label": "Kick v3"
+            },
+            {
+              "id": "evt_kick_t3_04",
+              "start": 12.12,
+              "end": 12.38,
+              "label": "Kick v3"
+            }
           ]
         }
       ]
@@ -213,10 +292,11 @@
       "kind": "event",
       "is_selected": false,
       "is_expanded": false,
-      "muted": false,
-      "soloed": false,
       "color_token": "snare",
-      "badges": ["main", "event"],
+      "badges": [
+        "main",
+        "event"
+      ],
       "status": {
         "stale": false,
         "manually_modified": false,
@@ -224,10 +304,31 @@
         "sync_label": "Not synced"
       },
       "events": [
-        { "id": "evt_snare_01", "start": 1.16, "end": 1.42, "label": "Snare" },
-        { "id": "evt_snare_02", "start": 5.16, "end": 5.42, "label": "Snare", "is_selected": true },
-        { "id": "evt_snare_03", "start": 9.16, "end": 9.42, "label": "Snare" },
-        { "id": "evt_snare_04", "start": 13.16, "end": 13.42, "label": "Snare" }
+        {
+          "id": "evt_snare_01",
+          "start": 1.16,
+          "end": 1.42,
+          "label": "Snare"
+        },
+        {
+          "id": "evt_snare_02",
+          "start": 5.16,
+          "end": 5.42,
+          "label": "Snare",
+          "is_selected": true
+        },
+        {
+          "id": "evt_snare_03",
+          "start": 9.16,
+          "end": 9.42,
+          "label": "Snare"
+        },
+        {
+          "id": "evt_snare_04",
+          "start": 13.16,
+          "end": 13.42,
+          "label": "Snare"
+        }
       ],
       "takes": []
     },
@@ -238,10 +339,11 @@
       "kind": "event",
       "is_selected": false,
       "is_expanded": false,
-      "muted": false,
-      "soloed": false,
       "color_token": "hihat",
-      "badges": ["main", "event"],
+      "badges": [
+        "main",
+        "event"
+      ],
       "status": {
         "stale": false,
         "manually_modified": false,
@@ -249,12 +351,42 @@
         "sync_label": "Not synced"
       },
       "events": [
-        { "id": "evt_hat_01", "start": 0.90, "end": 1.01, "label": "Hat" },
-        { "id": "evt_hat_02", "start": 1.88, "end": 1.99, "label": "Hat" },
-        { "id": "evt_hat_03", "start": 2.90, "end": 3.01, "label": "Hat" },
-        { "id": "evt_hat_04", "start": 3.88, "end": 3.99, "label": "Hat" },
-        { "id": "evt_hat_05", "start": 4.90, "end": 5.01, "label": "Hat" },
-        { "id": "evt_hat_06", "start": 5.88, "end": 5.99, "label": "Hat" }
+        {
+          "id": "evt_hat_01",
+          "start": 0.90,
+          "end": 1.01,
+          "label": "Hat"
+        },
+        {
+          "id": "evt_hat_02",
+          "start": 1.88,
+          "end": 1.99,
+          "label": "Hat"
+        },
+        {
+          "id": "evt_hat_03",
+          "start": 2.90,
+          "end": 3.01,
+          "label": "Hat"
+        },
+        {
+          "id": "evt_hat_04",
+          "start": 3.88,
+          "end": 3.99,
+          "label": "Hat"
+        },
+        {
+          "id": "evt_hat_05",
+          "start": 4.90,
+          "end": 5.01,
+          "label": "Hat"
+        },
+        {
+          "id": "evt_hat_06",
+          "start": 5.88,
+          "end": 5.99,
+          "label": "Hat"
+        }
       ],
       "takes": []
     },
@@ -265,10 +397,11 @@
       "kind": "event",
       "is_selected": false,
       "is_expanded": true,
-      "muted": false,
-      "soloed": false,
       "color_token": "clap",
-      "badges": ["main", "event"],
+      "badges": [
+        "main",
+        "event"
+      ],
       "status": {
         "stale": false,
         "manually_modified": false,
@@ -276,9 +409,24 @@
         "sync_label": "Not synced"
       },
       "events": [
-        { "id": "evt_clap_01", "start": 2.52, "end": 2.66, "label": "Clap" },
-        { "id": "evt_clap_02", "start": 6.52, "end": 6.66, "label": "Clap" },
-        { "id": "evt_clap_03", "start": 10.52, "end": 10.66, "label": "Clap" }
+        {
+          "id": "evt_clap_01",
+          "start": 2.52,
+          "end": 2.66,
+          "label": "Clap"
+        },
+        {
+          "id": "evt_clap_02",
+          "start": 6.52,
+          "end": 6.66,
+          "label": "Clap"
+        },
+        {
+          "id": "evt_clap_03",
+          "start": 10.52,
+          "end": 10.66,
+          "label": "Clap"
+        }
       ],
       "takes": [
         {
@@ -288,14 +436,38 @@
           "kind": "event",
           "source_ref": "classifier:v2",
           "actions": [
-            { "action_id": "overwrite_main" },
-            { "action_id": "merge_main" }
+            {
+              "action_id": "overwrite_main"
+            },
+            {
+              "action_id": "merge_main"
+            }
           ],
           "events": [
-            { "id": "evt_clap_t2_01", "start": 2.48, "end": 2.60, "label": "Clap v2" },
-            { "id": "evt_clap_t2_02", "start": 6.48, "end": 6.60, "label": "Clap v2" },
-            { "id": "evt_clap_t2_03", "start": 10.48, "end": 10.60, "label": "Clap v2" },
-            { "id": "evt_clap_t2_04", "start": 14.48, "end": 14.60, "label": "Clap v2" }
+            {
+              "id": "evt_clap_t2_01",
+              "start": 2.48,
+              "end": 2.60,
+              "label": "Clap v2"
+            },
+            {
+              "id": "evt_clap_t2_02",
+              "start": 6.48,
+              "end": 6.60,
+              "label": "Clap v2"
+            },
+            {
+              "id": "evt_clap_t2_03",
+              "start": 10.48,
+              "end": 10.60,
+              "label": "Clap v2"
+            },
+            {
+              "id": "evt_clap_t2_04",
+              "start": 14.48,
+              "end": 14.60,
+              "label": "Clap v2"
+            }
           ]
         }
       ]
@@ -307,10 +479,10 @@
       "kind": "sync",
       "is_selected": false,
       "is_expanded": false,
-      "muted": true,
-      "soloed": false,
       "color_token": "sync",
-      "badges": ["sync"],
+      "badges": [
+        "sync"
+      ],
       "status": {
         "stale": false,
         "manually_modified": false,
@@ -318,12 +490,26 @@
         "sync_label": "Connected tc101"
       },
       "events": [
-        { "id": "evt_sync_01", "start": 0.74, "end": 1.05, "label": "Cue 101" },
-        { "id": "evt_sync_02", "start": 8.74, "end": 9.05, "label": "Cue 102" },
-        { "id": "evt_sync_03", "start": 16.74, "end": 17.05, "label": "Cue 103" }
+        {
+          "id": "evt_sync_01",
+          "start": 0.74,
+          "end": 1.05,
+          "label": "Cue 101"
+        },
+        {
+          "id": "evt_sync_02",
+          "start": 8.74,
+          "end": 9.05,
+          "label": "Cue 102"
+        },
+        {
+          "id": "evt_sync_03",
+          "start": 16.74,
+          "end": 17.05,
+          "label": "Cue 103"
+        }
       ],
       "takes": []
     }
   ]
 }
-

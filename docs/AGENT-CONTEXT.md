@@ -33,7 +33,6 @@ Preserved from the old agent-assets layer:
 The repo is now centered on EZ2 only:
 
 - `run_echozero.py`: canonical desktop launcher
-- `run_timeline_demo.py`: compatibility shim only
 - `echozero/project.py`: main application entry object
 - `echozero/ui/qt/app_shell.py`: current app shell
 - `echozero/application/timeline/*`: timeline application contract

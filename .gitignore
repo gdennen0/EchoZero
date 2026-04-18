@@ -119,12 +119,20 @@ echozero-key.json
 site/
 
 # Local worktrees / temp sandboxes
+.work/*
+!.work/.gitkeep
+!.work/README.md
 .worktrees/
 .foundry-test-tmp/
 .pytest-foundry-tmp/
 _pycheck/
+.openclaw/
+.venv-py39-backup/
+memory/
+C:/
 
 # Runtime/generated artifacts
+artifacts/
 artifacts/perf/
 artifacts/foundry-runpacks/
 artifacts/foundry-ui/
@@ -133,3 +141,10 @@ artifacts/timeline-real-data-runtime/
 foundry/runs/
 foundry/state/
 foundry/tracking/
+
+# Local agent/runtime notes
+HEARTBEAT.md
+IDENTITY.md
+SOUL.md
+TOOLS.md
+USER.md
