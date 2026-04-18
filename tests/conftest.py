@@ -8,11 +8,36 @@ from __future__ import annotations
 
 import sqlite3
 import tempfile
+import shutil
 from pathlib import Path
+from uuid import uuid4
 from typing import Generator
 
 import numpy as np
 import pytest
+
+
+# Keep all test temp dirs inside the repository and avoid OS temp locations
+_TMP_ROOT = Path(__file__).resolve().parent / ".local-pytest-tmp"
+
+
+def pytest_configure(config) -> None:
+    _TMP_ROOT.mkdir(parents=True, exist_ok=True)
+    # Force pytest's internal tmp directories into a writable repo-local path.
+    config.option.basetemp = str(_TMP_ROOT / "run")
+
+
+@pytest.fixture
+def tmp_path() -> Path:
+    """Provide a writable temp directory under the repo-local cache."""
+    root = _TMP_ROOT / "path-fixtures"
+    root.mkdir(parents=True, exist_ok=True)
+    path = root / uuid4().hex
+    path.mkdir()
+    try:
+        yield path
+    finally:
+        shutil.rmtree(path, ignore_errors=True)
 
 
 @pytest.fixture

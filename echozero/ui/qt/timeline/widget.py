@@ -18,6 +18,7 @@ from echozero.application.presentation.inspector_contract import (
 )
 from echozero.application.presentation.models import TimelinePresentation, LayerPresentation, TakeLanePresentation
 from echozero.application.shared.enums import FollowMode
+from echozero.application.shared.enums import LayerKind
 from echozero.application.sync.models import LiveSyncState
 from echozero.application.timeline.intents import (
     ApplyPullFromMA3,
@@ -93,6 +94,13 @@ from echozero.ui.qt.timeline.blocks.take_row import TakeRowBlock
 from echozero.ui.qt.timeline.blocks.transport_bar import TransportLayout
 from echozero.ui.qt.timeline.blocks.transport_bar_block import TransportBarBlock
 from echozero.ui.qt.timeline.runtime_audio import TimelineRuntimeAudioController
+from echozero.ui.qt.timeline.object_model import (
+    UiObjectHitRegion,
+    UiObjectSpec,
+    build_event_object,
+    build_layer_object,
+    build_take_object,
+)
 from echozero.ui.qt.timeline.style import (
     TIMELINE_STYLE,
     TimelineShellStyle,
@@ -906,20 +914,10 @@ class TimelineCanvas(QWidget):
         self._main_row_height = LAYER_ROW_HEIGHT_PX
         self._take_row_height = TAKE_ROW_HEIGHT_PX
         self._event_height = EVENT_BAR_HEIGHT_PX
-        self._take_rects: list[tuple[QRectF, object, object]] = []
-        self._take_option_rects: list[tuple[QRectF, object, object]] = []
-        self._take_action_rects: list[tuple[QRectF, object, object, str]] = []
         self._open_take_options: set[tuple[object, object]] = set()
-        self._toggle_rects: list[tuple[QRectF, object]] = []
-        self._mute_rects: list[tuple[QRectF, object]] = []
-        self._solo_rects: list[tuple[QRectF, object]] = []
-        self._push_rects: list[tuple[QRectF, object]] = []
-        self._pull_rects: list[tuple[QRectF, object]] = []
-        self._event_rects: list[tuple[QRectF, object, object | None, object]] = []
-        self._header_select_rects: list[tuple[QRectF, object]] = []
-        self._row_body_select_rects: list[tuple[QRectF, object]] = []
-        self._header_hover_rects: list[tuple[QRectF, LayerPresentation]] = []
-        self._event_drop_rects: list[tuple[QRectF, object]] = []
+        self._take_specs: list[tuple[object, UiObjectSpec]] = []
+        self._event_specs: list[tuple[object, UiObjectSpec]] = []
+        self._layer_specs: list[tuple[object, UiObjectSpec]] = []
         self._hovered_layer_id: object | None = None
         self._dragging_playhead = False
         self._drag_candidate: dict[str, object] | None = None
@@ -974,19 +972,9 @@ class TimelineCanvas(QWidget):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         painter.fillRect(self.rect(), QColor(self._style.canvas.background_hex))
-        self._take_rects.clear()
-        self._take_option_rects.clear()
-        self._take_action_rects.clear()
-        self._toggle_rects.clear()
-        self._mute_rects.clear()
-        self._solo_rects.clear()
-        self._push_rects.clear()
-        self._pull_rects.clear()
-        self._event_rects.clear()
-        self._header_select_rects.clear()
-        self._row_body_select_rects.clear()
-        self._header_hover_rects.clear()
-        self._event_drop_rects.clear()
+        self._take_specs.clear()
+        self._event_specs.clear()
+        self._layer_specs.clear()
         with timed("timeline.paint.layers"):
             self._draw_layers(painter)
         with timed("timeline.paint.playhead"):
@@ -1028,20 +1016,30 @@ class TimelineCanvas(QWidget):
                 return
 
         pos = event.position()
-        hovered: LayerPresentation | None = None
-        hovered_rect: QRectF | None = None
-        for rect, layer in self._header_hover_rects:
-            if rect.contains(pos):
-                hovered = layer
-                hovered_rect = rect
+        hovered_layer: LayerPresentation | None = None
+        hovered_header_rect: tuple[float, float, float, float] | None = None
+        for _, layer_spec in self._layer_specs:
+            if layer_spec.kind.value != "layer":
+                continue
+            state = layer_spec.state
+            header_rect = state.get("header_rect")
+            if (
+                isinstance(header_rect, tuple)
+                and len(header_rect) == 4
+                and header_rect[0] <= pos.x() <= header_rect[0] + header_rect[2]
+                and header_rect[1] <= pos.y() <= header_rect[1] + header_rect[3]
+            ):
+                hovered_layer = self._find_layer_by_id(layer_spec.object_id)
+                hovered_header_rect = header_rect
                 break
 
-        next_id = hovered.layer_id if hovered is not None else None
+        next_id = hovered_layer.layer_id if hovered_layer is not None else None
         if next_id != self._hovered_layer_id:
             self._hovered_layer_id = next_id
-            if hovered is not None and hovered_rect is not None:
-                tip = self._header_tooltip_text(hovered)
+            if hovered_layer is not None and hovered_header_rect is not None:
+                tip = self._header_tooltip_text(hovered_layer)
                 if tip:
+                    hovered_rect = QRectF(*hovered_header_rect)
                     QToolTip.showText(
                         self.mapToGlobal(pos.toPoint()),
                         tip,
@@ -1075,67 +1073,51 @@ class TimelineCanvas(QWidget):
             self.playhead_drag_requested.emit(self._seek_time_at_x(pos.x()))
             event.accept()
             return
-        for rect, layer_id in self._mute_rects:
-            if rect.contains(pos):
-                self.mute_clicked.emit(layer_id)
-                return
-        for rect, layer_id in self._solo_rects:
-            if rect.contains(pos):
-                self.solo_clicked.emit(layer_id)
-                return
-        for rect, layer_id in self._push_rects:
-            if rect.contains(pos):
-                self.push_clicked.emit(layer_id)
-                return
-        for rect, layer_id in self._pull_rects:
-            if rect.contains(pos):
-                self.pull_clicked.emit(layer_id)
-                return
-        for rect, layer_id, take_id, action_id in self._take_action_rects:
-            if rect.contains(pos):
-                self.take_action_selected.emit(layer_id, take_id, action_id)
-                return
-        for rect, layer_id, take_id in self._take_option_rects:
-            if rect.contains(pos):
-                key = (layer_id, take_id)
-                if key in self._open_take_options:
-                    self._open_take_options.remove(key)
-                else:
-                    self._open_take_options.add(key)
-                self.update()
-                return
-        for rect, layer_id, take_id in self._take_rects:
-            if rect.contains(pos):
-                self.take_selected.emit(layer_id, take_id)
-                return
-        for rect, layer_id, take_id, event_id in self._event_rects:
-            if rect.contains(pos):
-                if (
-                    event.button() == Qt.MouseButton.LeftButton
-                    and self._can_start_event_drag(event.modifiers(), event_id)
-                ):
-                    self._drag_candidate = {
-                        "anchor_x": pos.x(),
-                        "anchor_y": pos.y(),
-                        "source_layer_id": layer_id,
-                    }
-                    self._dragging_events = False
-                    event.accept()
+
+        hit = self._hit_spec_for_position(pos)
+        if hit is not None:
+            _, object_id, spec, region = hit
+            kind = spec.kind
+            if region.kind == "button":
+                if kind.value == "layer":
+                    if self._dispatch_layer_object_button_action(object_id, region):
+                        return
+                elif kind.value == "take":
+                    if self._dispatch_take_object_button_action(object_id, region):
+                        return
+            else:
+                modifiers = event.modifiers()
+                if kind.value == "layer":
+                    self.layer_clicked.emit(object_id, self._layer_selection_mode_for_modifiers(modifiers))
                     return
-                self.event_selected.emit(layer_id, take_id, event_id, self._selection_mode_for_modifiers(event.modifiers()))
-                return
-        for rect, layer_id in self._toggle_rects:
-            if rect.contains(pos):
-                self.take_toggle_clicked.emit(layer_id)
-                return
-        for rect, layer_id in self._header_select_rects:
-            if rect.contains(pos):
-                self.layer_clicked.emit(layer_id, self._layer_selection_mode_for_modifiers(event.modifiers()))
-                return
-        for rect, layer_id in self._row_body_select_rects:
-            if rect.contains(pos):
-                self.layer_clicked.emit(layer_id, self._layer_selection_mode_for_modifiers(event.modifiers()))
-                return
+                if kind.value == "take":
+                    layer_id = spec.state.get("layer_id")
+                    take_id = spec.state.get("take_id")
+                    self.take_selected.emit(layer_id, take_id)
+                    return
+                if kind.value == "event":
+                    layer_id = spec.state.get("layer_id")
+                    take_id = spec.state.get("take_id")
+                    resolved_event_id = spec.state.get("event_id")
+                    if (
+                        event.button() == Qt.MouseButton.LeftButton
+                        and self._can_start_event_drag(modifiers, resolved_event_id)
+                    ):
+                        self._drag_candidate = {
+                            "anchor_x": pos.x(),
+                            "anchor_y": pos.y(),
+                            "source_layer_id": layer_id,
+                        }
+                        self._dragging_events = False
+                        event.accept()
+                        return
+                    self.event_selected.emit(
+                        layer_id,
+                        take_id,
+                        resolved_event_id,
+                        self._selection_mode_for_modifiers(modifiers),
+                    )
+                    return
         super().mousePressEvent(event)
 
     def contextMenuEvent(self, event: QContextMenuEvent) -> None:
@@ -1147,7 +1129,7 @@ class TimelineCanvas(QWidget):
     def _show_context_menu(self, pos: QPointF, *, global_pos=None) -> bool:
         hit_target = self._hit_target_for_position(pos)
         contract = build_timeline_inspector_contract(self.presentation, hit_target=hit_target)
-        menu = self._build_context_menu(contract, hit_kind=hit_target.kind)
+        menu = self._build_context_menu(contract)
         if menu.isEmpty():
             return False
         if global_pos is None:
@@ -1160,20 +1142,17 @@ class TimelineCanvas(QWidget):
             self.contract_action_selected.emit(payload)
         return True
 
-    def _build_context_menu(self, contract: InspectorContract, *, hit_kind: str | None = None) -> QMenu:
+    def _build_context_menu(self, contract: InspectorContract) -> QMenu:
         menu = QMenu(self)
         first_section = True
         seen_action_ids: set[str] = set()
         for section in contract.context_sections:
             visible_actions: list[InspectorAction] = []
             for action in section.actions:
-                if hit_kind is not None and not self._context_action_visible_for_hit_kind(action, hit_kind):
-                    continue
-                if hit_kind is not None and action.action_id in seen_action_ids:
+                if action.action_id in seen_action_ids:
                     continue
                 visible_actions.append(action)
-                if hit_kind is not None:
-                    seen_action_ids.add(action.action_id)
+                seen_action_ids.add(action.action_id)
             if not visible_actions:
                 continue
             if not first_section:
@@ -1185,20 +1164,68 @@ class TimelineCanvas(QWidget):
                 qt_action.setData(action)
         return menu
 
-    @staticmethod
-    def _context_action_visible_for_hit_kind(action: InspectorAction, hit_kind: str) -> bool:
-        group = (action.group or "").strip().lower()
-        kind = (hit_kind or "").strip().lower()
-        allowed_groups_by_kind = {
-            "timeline": {"tools", "transport"},
-            "layer": {"layer", "gain", "pipeline", "transfer", "live_sync", "transport"},
-            "take": {"take", "transport"},
-            "event": {"selection", "take", "transport"},
-        }
-        allowed = allowed_groups_by_kind.get(kind)
-        if allowed is None:
+    def _dispatch_layer_object_button_action(self, layer_id: object, region: UiObjectHitRegion) -> bool:
+        action_id = str(region.payload.get("action_id", ""))
+        if action_id == "toggle_mute":
+            self.mute_clicked.emit(layer_id)
             return True
-        return group in allowed
+        if action_id == "toggle_solo":
+            self.solo_clicked.emit(layer_id)
+            return True
+        if action_id == "push":
+            self.push_clicked.emit(layer_id)
+            return True
+        if action_id == "pull":
+            self.pull_clicked.emit(layer_id)
+            return True
+        if action_id == "toggle_expanded":
+            self.take_toggle_clicked.emit(layer_id)
+            return True
+        return False
+
+    def _dispatch_take_object_button_action(self, take_id: object, region: UiObjectHitRegion) -> bool:
+        if region.name == "options" and region.payload.get("action") == "toggle_options":
+            if isinstance(take_id, tuple) and len(take_id) == 2:
+                self._toggle_take_option(*take_id)
+            return True
+        action_id = str(region.payload.get("action_id", ""))
+        if not action_id:
+            return False
+        if isinstance(take_id, tuple) and len(take_id) == 2:
+            self.take_action_selected.emit(take_id[0], take_id[1], action_id)
+            return True
+        return False
+
+    def _toggle_take_option(self, layer_id: object, take_id: object) -> None:
+        key = (layer_id, take_id)
+        if key in self._open_take_options:
+            self._open_take_options.remove(key)
+        else:
+            self._open_take_options.add(key)
+        self.update()
+
+    def _spec_contains(
+        self,
+        spec: UiObjectSpec,
+        *,
+        pos: QPointF,
+    ) -> UiObjectHitRegion | None:
+        return spec.hit_region_for_point(pos.x(), pos.y())
+
+    def _hit_spec_for_position(self, pos: QPointF) -> tuple[int, object, UiObjectSpec, UiObjectHitRegion] | None:
+        for event_id, event_spec in self._event_specs:
+            region = self._spec_contains(event_spec, pos=pos)
+            if region is not None:
+                return 0, event_id, event_spec, region
+        for take_id, take_spec in self._take_specs:
+            region = self._spec_contains(take_spec, pos=pos)
+            if region is not None:
+                return 1, take_id, take_spec, region
+        for layer_id, layer_spec in self._layer_specs:
+            region = self._spec_contains(layer_spec, pos=pos)
+            if region is not None:
+                return 2, layer_id, layer_spec, region
+        return None
 
     def mouseReleaseEvent(self, event) -> None:
         if event.button() == Qt.MouseButton.LeftButton:
@@ -1312,6 +1339,12 @@ class TimelineCanvas(QWidget):
                 for take in layer.takes:
                     self._draw_take_row(painter, layer, take, y)
                     y += self._take_row_height
+
+    def _find_layer_by_id(self, layer_id: object | None) -> LayerPresentation | None:
+        if layer_id is None:
+            return None
+        return next((layer for layer in self.presentation.layers if layer.layer_id == layer_id), None)
+
     @staticmethod
     def _header_tooltip_text(layer: LayerPresentation) -> str:
         labels = badge_tooltip_labels(layer.badges)
@@ -1354,6 +1387,12 @@ class TimelineCanvas(QWidget):
         if dimmed:
             row_bg = QColor(self._style.canvas.dimmed_row_fill_hex)
         painter.fillRect(layout.row_rect, row_bg)
+        if layer.is_selected:
+            painter.save()
+            painter.setPen(QPen(QColor("#8fd0ff"), 2))
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.drawRoundedRect(layout.row_rect.adjusted(1.0, 1.0, -1.0, -1.0), 8.0, 8.0)
+            painter.restore()
         if self._push_outline_active_for_layer(layer):
             outline_rect = layout.row_rect.adjusted(1.0, 1.0, -1.0, -1.0)
             outline_color = QColor("#8fd0ff")
@@ -1374,18 +1413,28 @@ class TimelineCanvas(QWidget):
             toggle_rect=layout.toggle_rect,
             metadata_rect=layout.metadata_rect,
         )
-        if layer.takes:
-            self._toggle_rects.append((slots.toggle_rect, layer.layer_id))
-        self._header_select_rects.append((layout.header_rect, layer.layer_id))
-        self._row_body_select_rects.append((layout.content_rect, layer.layer_id))
-        self._header_hover_rects.append((layout.header_rect, layer))
-        if layer.kind.name == 'EVENT':
-            self._event_drop_rects.append((layout.content_rect, layer.layer_id))
-        hit_targets = self._header_block.paint(painter, slots, layer, dimmed=dimmed)
-        self._mute_rects.append((hit_targets.mute_rect, layer.layer_id))
-        self._solo_rects.append((hit_targets.solo_rect, layer.layer_id))
-        self._push_rects.append((hit_targets.push_rect, layer.layer_id))
-        self._pull_rects.append((hit_targets.pull_rect, layer.layer_id))
+        show_sync_controls = layer.kind != LayerKind.AUDIO
+        self._header_block.paint(
+            painter,
+            slots,
+            layer,
+            dimmed=dimmed,
+            show_sync_controls=show_sync_controls,
+        )
+        layer_object = build_layer_object(
+            layer,
+            rect=(
+                float(layout.row_rect.x()),
+                float(layout.row_rect.y()),
+                float(layout.row_rect.width()),
+                float(layout.row_rect.height()),
+            ),
+            controls_left=float(slots.controls_rect.x()),
+            header_rect=self._to_floats(layout.header_rect),
+            content_rect=self._to_floats(layout.content_rect),
+            toggle_rect=self._to_floats(slots.toggle_rect) if layer.takes else None,
+        )
+        self._layer_specs.append((layer.layer_id, layer_object))
 
         painter.save()
         painter.setClipRect(layout.content_rect)
@@ -1406,24 +1455,23 @@ class TimelineCanvas(QWidget):
                     ),
                 )
             else:
-                self._event_rects.extend(
-                    self._event_lane_block.paint(
-                        painter,
-                        top + 24,
-                        EventLanePresentation(
-                            layer_id=layer.layer_id,
-                            take_id=layer.main_take_id,
-                            events=layer.events,
-                            default_fill_hex=layer.color,
-                            pixels_per_second=self.presentation.pixels_per_second,
-                            scroll_x=self.presentation.scroll_x,
-                            header_width=self._header_width,
-                            event_height=self._event_height,
-                            dimmed=dimmed,
-                            viewport_width=self.width(),
-                        ),
-                    )
+                event_rects = self._event_lane_block.paint(
+                    painter,
+                    top + 24,
+                    EventLanePresentation(
+                        layer_id=layer.layer_id,
+                        take_id=layer.main_take_id,
+                        events=layer.events,
+                        default_fill_hex=layer.color,
+                        pixels_per_second=self.presentation.pixels_per_second,
+                        scroll_x=self.presentation.scroll_x,
+                        header_width=self._header_width,
+                        event_height=self._event_height,
+                        dimmed=dimmed,
+                        viewport_width=self.width(),
+                    ),
                 )
+                self._append_event_specs(layer.events, event_rects)
 
             if not layer.takes:
                 hint_color = self._style.canvas.no_takes_hint_dimmed_hex if dimmed else self._style.canvas.no_takes_hint_hex
@@ -1439,6 +1487,37 @@ class TimelineCanvas(QWidget):
     def _is_take_options_open(self, layer_id: object, take_id: object) -> bool:
         return (layer_id, take_id) in self._open_take_options
 
+    @staticmethod
+    def _to_floats(rect: QRectF) -> tuple[float, float, float, float]:
+        return (
+            float(rect.x()),
+            float(rect.y()),
+            float(rect.width()),
+            float(rect.height()),
+        )
+
+    def _append_event_specs(
+        self,
+        events: list,
+        event_rects: list[tuple[QRectF, object, object | None, object]],
+    ) -> None:
+        events_by_id = {event.event_id: event for event in events}
+        for rect, source_layer_id, source_take_id, event_id in event_rects:
+            event = events_by_id.get(event_id)
+            if event is None:
+                continue
+            self._event_specs.append(
+                (
+                    (source_layer_id, source_take_id, event_id),
+                    build_event_object(
+                        source_layer_id,
+                        source_take_id,
+                        event,
+                        rect=(float(rect.x()), float(rect.y()), float(rect.width()), float(rect.height())),
+                    ),
+                )
+            )
+
     def _draw_take_row(self, painter: QPainter, layer: LayerPresentation, take: TakeLanePresentation, top: int) -> None:
         dimmed = self._layer_dimmed(layer)
         layout = TakeRowLayout.create(top=top, width=self.width(), header_width=self._header_width, row_height=self._take_row_height)
@@ -1452,13 +1531,34 @@ class TimelineCanvas(QWidget):
             dimmed=dimmed,
         )
         self._draw_time_grid_band(painter, top=top, row_height=self._take_row_height)
-        self._take_rects.append(hit_targets.take_rect)
-        self._row_body_select_rects.append((layout.content_rect, layer.layer_id))
-        if take.kind.name == 'EVENT':
-            self._event_drop_rects.append((layout.content_rect, layer.layer_id))
-        if hit_targets.options_toggle_rect is not None:
-            self._take_option_rects.append(hit_targets.options_toggle_rect)
-        self._take_action_rects.extend(hit_targets.action_rects)
+        take_object = build_take_object(
+            layer,
+            take,
+            rect=(
+                float(layout.row_rect.x()),
+                float(layout.row_rect.y()),
+                float(layout.row_rect.width()),
+                float(layout.row_rect.height()),
+            ),
+            options_toggle_rect=self._to_floats(
+                hit_targets.options_toggle_rect[0]
+                if isinstance(hit_targets.options_toggle_rect, tuple)
+                else hit_targets.options_toggle_rect
+            )
+            if hit_targets.options_toggle_rect is not None
+            else None,
+            content_rect=self._to_floats(layout.content_rect),
+            action_rects=[
+                (self._to_floats(action_rect), action_id)
+                for action_rect, _, _, action_id in hit_targets.action_rects
+            ],
+        )
+        self._take_specs.append(
+            (
+                (layer.layer_id, take.take_id),
+                take_object,
+            )
+        )
 
         painter.save()
         painter.setClipRect(layout.content_rect)
@@ -1479,24 +1579,23 @@ class TimelineCanvas(QWidget):
                     ),
                 )
             else:
-                self._event_rects.extend(
-                    self._event_lane_block.paint(
-                        painter,
-                        top + 10,
-                        EventLanePresentation(
-                            layer_id=layer.layer_id,
-                            take_id=take.take_id,
-                            events=take.events,
-                            default_fill_hex=layer.color,
-                            pixels_per_second=self.presentation.pixels_per_second,
-                            scroll_x=self.presentation.scroll_x,
-                            header_width=self._header_width,
-                            event_height=self._event_height,
-                            dimmed=True or dimmed,
-                            viewport_width=self.width(),
-                        ),
-                    )
+                event_rects = self._event_lane_block.paint(
+                    painter,
+                    top + 10,
+                    EventLanePresentation(
+                        layer_id=layer.layer_id,
+                        take_id=take.take_id,
+                        events=take.events,
+                        default_fill_hex=layer.color,
+                        pixels_per_second=self.presentation.pixels_per_second,
+                        scroll_x=self.presentation.scroll_x,
+                        header_width=self._header_width,
+                        event_height=self._event_height,
+                        dimmed=True or dimmed,
+                        viewport_width=self.width(),
+                    ),
                 )
+                self._append_event_specs(take.events, event_rects)
         finally:
             painter.restore()
 
@@ -1543,40 +1642,141 @@ class TimelineCanvas(QWidget):
             return False
         return event_id in set(self.presentation.selected_event_ids)
 
+    @staticmethod
+    def _to_rect(value: object) -> QRectF | None:
+        if (
+            not isinstance(value, tuple)
+            or len(value) != 4
+            or not all(isinstance(component, (float, int)) for component in value)
+        ):
+            return None
+        return QRectF(float(value[0]), float(value[1]), float(value[2]), float(value[3]))
+
+    def layer_specs(self) -> list[UiObjectSpec]:
+        return [spec for _, spec in self._layer_specs]
+
+    def take_specs(self) -> list[UiObjectSpec]:
+        return [spec for _, spec in self._take_specs]
+
+    def event_specs(self) -> list[UiObjectSpec]:
+        return [spec for _, spec in self._event_specs]
+
+    def layer_spec(self, layer_id: object) -> UiObjectSpec | None:
+        for spec in self.layer_specs():
+            if spec.object_id == layer_id:
+                return spec
+        return None
+
+    def take_spec(self, layer_id: object, take_id: object) -> UiObjectSpec | None:
+        for spec in self.take_specs():
+            if spec.object_id == (layer_id, take_id):
+                return spec
+        return None
+
+    def event_spec(
+        self,
+        layer_id: object,
+        take_id: object | None,
+        event_id: object,
+    ) -> UiObjectSpec | None:
+        for spec in self.event_specs():
+            if spec.object_id == (layer_id, take_id, event_id):
+                return spec
+        return None
+
+    def layer_action_regions(self, action_id: str) -> list[tuple[QRectF, object]]:
+        regions: list[tuple[QRectF, object]] = []
+        for spec in self.layer_specs():
+            for region in spec.hit_regions:
+                if region.payload.get("action_id") == action_id:
+                    regions.append((QRectF(*region.rect), spec.object_id))
+        return regions
+
+    def take_row_body_rect(self, layer_id: object, take_id: object) -> QRectF | None:
+        spec = self.take_spec(layer_id, take_id)
+        if spec is None:
+            return None
+        return QRectF(*spec.rect)
+
+    def event_drop_regions(self) -> list[tuple[QRectF, object]]:
+        regions: list[tuple[QRectF, object]] = []
+        for spec in self.layer_specs():
+            if str(spec.state.get("kind", "")).lower() != "event":
+                continue
+            rect = self._to_rect(spec.state.get("content_rect"))
+            if rect is not None:
+                regions.append((rect, spec.object_id))
+        for spec in self.take_specs():
+            if str(spec.state.get("kind", "")).lower() != "event":
+                continue
+            rect = self._to_rect(spec.state.get("content_rect"))
+            if rect is not None:
+                layer_id = spec.state.get("layer_id")
+                if layer_id is not None:
+                    regions.append((rect, layer_id))
+        return regions
+
     def _event_drop_target_layer_id(self, pos: QPointF):
-        for rect, layer_id in self._event_drop_rects:
+        for rect, layer_id in self.event_drop_regions():
             if rect.contains(pos):
                 return layer_id
         return None
 
     def _hit_target_for_position(self, pos: QPointF) -> TimelineInspectorHitTarget:
-        for rect, layer_id, take_id, event_id in self._event_rects:
-            if rect.contains(pos):
-                return TimelineInspectorHitTarget(
-                    kind="event",
-                    layer_id=layer_id,
-                    take_id=take_id,
-                    event_id=event_id,
-                    time_seconds=self._seek_time_at_x(pos.x()) if pos.x() >= self._header_width else None,
-                )
-        for rect, layer_id, take_id in self._take_rects:
-            if rect.contains(pos):
-                return TimelineInspectorHitTarget(
-                    kind="take",
-                    layer_id=layer_id,
-                    take_id=take_id,
-                    time_seconds=self._seek_time_at_x(pos.x()) if pos.x() >= self._header_width else None,
-                )
-        for rect, layer_id in self._header_select_rects:
-            if rect.contains(pos):
-                return TimelineInspectorHitTarget(kind="layer", layer_id=layer_id)
-        for rect, layer_id in self._row_body_select_rects:
-            if rect.contains(pos):
+        hit = self._hit_spec_for_position(pos)
+        if hit is not None:
+            _, object_id, spec, region = hit
+            if region.kind == "button":
+                if spec.kind.value == "event":
+                    return TimelineInspectorHitTarget(
+                        kind="event",
+                        layer_id=spec.state.get("layer_id"),
+                        take_id=spec.state.get("take_id"),
+                        event_id=spec.state.get("event_id"),
+                        time_seconds=self._seek_time_at_x(pos.x()) if pos.x() >= self._header_width else None,
+                    )
+                if spec.kind.value == "take":
+                    return TimelineInspectorHitTarget(
+                        kind="take",
+                        layer_id=spec.state.get("layer_id"),
+                        take_id=spec.state.get("take_id"),
+                        time_seconds=self._seek_time_at_x(pos.x()) if pos.x() >= self._header_width else None,
+                    )
                 return TimelineInspectorHitTarget(
                     kind="layer",
-                    layer_id=layer_id,
+                    layer_id=spec.object_id,
                     time_seconds=self._seek_time_at_x(pos.x()) if pos.x() >= self._header_width else None,
                 )
+
+            if spec.kind.value == "event":
+                return TimelineInspectorHitTarget(
+                    kind="event",
+                    layer_id=spec.state.get("layer_id"),
+                    take_id=spec.state.get("take_id"),
+                    event_id=spec.state.get("event_id"),
+                    time_seconds=self._seek_time_at_x(pos.x()) if pos.x() >= self._header_width else None,
+                )
+            if spec.kind.value == "take":
+                return TimelineInspectorHitTarget(
+                    kind="take",
+                    layer_id=spec.state.get("layer_id"),
+                    take_id=spec.state.get("take_id"),
+                    time_seconds=self._seek_time_at_x(pos.x()) if pos.x() >= self._header_width else None,
+                )
+            if spec.kind.value == "layer":
+                in_header = False
+                header_rect = spec.state.get("header_rect")
+                if isinstance(header_rect, tuple) and len(header_rect) == 4:
+                    in_header = (
+                        header_rect[0] <= pos.x() <= header_rect[0] + header_rect[2]
+                        and header_rect[1] <= pos.y() <= header_rect[1] + header_rect[3]
+                    )
+                return TimelineInspectorHitTarget(
+                    kind="layer",
+                    layer_id=spec.object_id,
+                    time_seconds=None if in_header else self._seek_time_at_x(pos.x()) if pos.x() >= self._header_width else None,
+                )
+
         return TimelineInspectorHitTarget(
             kind="timeline",
             time_seconds=self._seek_time_at_x(pos.x()) if pos.x() >= self._header_width else None,
@@ -1782,10 +1982,14 @@ class TimelineWidget(QWidget):
         self._ruler.set_presentation(self.presentation)
         self._canvas.set_presentation(self.presentation)
         if self._runtime_audio is not None:
-            runtime_signature = tuple(
-                (str(layer.layer_id), layer.source_audio_path or "")
-                for layer in self.presentation.layers
-                if layer.source_audio_path
+            runtime_signature = (
+                self._runtime_audio.source_signature(self.presentation)
+                if hasattr(self._runtime_audio, "source_signature")
+                else tuple(
+                    (str(layer.layer_id), layer.source_audio_path or "")
+                    for layer in self.presentation.layers
+                    if layer.source_audio_path
+                )
             )
             if runtime_signature != self._runtime_source_signature:
                 self._runtime_audio.build_for_presentation(self.presentation)
@@ -2077,6 +2281,15 @@ class TimelineWidget(QWidget):
         if action_id == "add_song_from_path":
             self._run_add_song_from_path_action()
             return
+        if action_id == "add_event_layer":
+            self._run_add_layer_action("event", title_hint="Event Layer")
+            return
+        if action_id == "add_automation_layer":
+            self._run_add_layer_action("automation", title_hint="Automation Layer")
+            return
+        if action_id == "add_reference_layer":
+            self._run_add_layer_action("reference", title_hint="Reference Layer")
+            return
         if action_id == "toggle_mute":
             layer_id = params.get("layer_id")
             if layer_id is not None:
@@ -2234,6 +2447,28 @@ class TimelineWidget(QWidget):
         except Exception as exc:
             QMessageBox.warning(self, "Add Song", str(exc))
             return
+        self.set_presentation(updated if updated is not None else runtime.presentation())
+
+    def _run_add_layer_action(self, layer_kind: str, *, title_hint: str) -> None:
+        runtime = self._resolve_runtime_shell()
+        if runtime is None or not callable(getattr(runtime, "add_layer", None)):
+            QMessageBox.warning(
+                self,
+                "Add Layer",
+                "This runtime does not support adding layers.",
+            )
+            return
+
+        title, accepted = QInputDialog.getText(self, "Add Layer", "Layer title", text=title_hint)
+        if not accepted or not title.strip():
+            return
+
+        try:
+            updated = runtime.add_layer(LayerKind(layer_kind), title.strip())
+        except Exception as exc:
+            QMessageBox.warning(self, "Add Layer", str(exc))
+            return
+
         self.set_presentation(updated if updated is not None else runtime.presentation())
 
     def _handle_runtime_pipeline_action(self, action_id: str, params: dict[str, object]) -> bool:

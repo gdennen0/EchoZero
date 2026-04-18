@@ -118,6 +118,29 @@ class CountingRuntimeAudio(FakeRuntimeAudio):
         self.mix_calls += 1
 
 
+class SignatureAwareRuntimeAudio(CountingRuntimeAudio):
+    @staticmethod
+    def _is_event_slice_layer(layer: LayerPresentation) -> bool:
+        return (
+            layer.kind == LayerKind.EVENT
+            and layer.playback_enabled
+            and layer.playback_mode == PlaybackMode.EVENT_SLICE
+            and bool(layer.playback_source_ref)
+        )
+
+    def source_signature(self, presentation: TimelinePresentation) -> tuple[tuple[str, str], ...]:
+        return tuple(
+            (
+                str(layer.layer_id),
+                layer.source_audio_path
+                if layer.source_audio_path is not None
+                else f"event:{layer.playback_source_ref}:{','.join(f'{event.start:.6f}:{int(event.muted)}' for event in layer.events)}",
+            )
+            for layer in presentation.layers
+            if layer.source_audio_path or self._is_event_slice_layer(layer)
+        )
+
+
 def _audio_presentation() -> TimelinePresentation:
     base = build_demo_app().presentation()
     audio_layer = LayerPresentation(
@@ -401,6 +424,52 @@ def test_widget_set_presentation_avoids_rebuilding_runtime_layers_when_sources_u
         widget.set_presentation(next_presentation)
 
         assert runtime_audio.build_calls == 1
+        assert runtime_audio.mix_calls == 1
+    finally:
+        widget.close()
+        app.processEvents()
+
+
+def test_widget_set_presentation_rebuilds_runtime_layers_when_event_slice_source_changes():
+    app = QApplication.instance() or QApplication([])
+    presentation = _event_slice_presentation()
+    runtime_audio = SignatureAwareRuntimeAudio()
+    widget = TimelineWidget(
+        presentation,
+        on_intent=lambda intent: presentation,
+        runtime_audio=runtime_audio,
+    )
+    widget._runtime_timer.stop()
+    try:
+        widget.resize(1200, 320)
+        widget.show()
+        app.processEvents()
+
+        assert runtime_audio.build_calls == 1
+        assert runtime_audio.mix_calls == 0
+
+        changed_source = replace(
+            presentation,
+            layers=[
+                presentation.layers[0],
+                replace(
+                    presentation.layers[1],
+                    playback_source_ref="kick_alt.wav",
+                ),
+            ],
+        )
+        widget.set_presentation(changed_source)
+
+        assert runtime_audio.build_calls == 2
+        assert runtime_audio.mix_calls == 0
+
+        soloed_source = replace(
+            changed_source,
+            layers=[changed_source.layers[0], replace(changed_source.layers[1], soloed=True)],
+        )
+        widget.set_presentation(soloed_source)
+
+        assert runtime_audio.build_calls == 2
         assert runtime_audio.mix_calls == 1
     finally:
         widget.close()

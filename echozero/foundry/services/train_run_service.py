@@ -206,10 +206,13 @@ class TrainRunService:
         return ckpt_path
 
     def get_run(self, run_id: str) -> TrainRun | None:
-        return self._repo.get(run_id)
+        run = self._repo.get(run_id)
+        if run is not None:
+            return run
+        return self._repo.read_run_from_disk(run_id)
 
     def list_runs(self) -> list[TrainRun]:
-        return self._repo.list()
+        return self._repo.list_all()
 
     @staticmethod
     def _raise_if_canceled(cancel_event: Event | None) -> None:

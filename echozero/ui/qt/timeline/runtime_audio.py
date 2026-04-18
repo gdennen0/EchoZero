@@ -52,6 +52,14 @@ class TimelineRuntimeAudioController:
     def engine(self) -> AudioEngine:
         return self._engine
 
+    def source_signature(self, presentation: TimelinePresentation) -> tuple[tuple[str, str], ...]:
+        """Stable signature describing each playable layer's backing audio source."""
+
+        return tuple(
+            (layer.layer_id, layer.source_key)
+            for layer in self._runtime_layers(presentation)
+        )
+
     def build_for_presentation(self, presentation: TimelinePresentation) -> None:
         runtime_layers = self._runtime_layers(presentation)
         desired_ids = {layer.layer_id for layer in runtime_layers}

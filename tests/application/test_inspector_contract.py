@@ -79,6 +79,9 @@ def test_inspector_contract_no_selection_state():
     assert contract.title == "No timeline object selected."
     assert render_inspector_contract_text(contract) == "No timeline object selected."
     assert "pull_from_ma3" in action_ids
+    assert "add_event_layer" in action_ids
+    assert "add_automation_layer" in action_ids
+    assert "add_reference_layer" in action_ids
 
 
 def test_inspector_contract_layer_selection_state():
@@ -140,6 +143,21 @@ def test_inspector_contract_layer_selection_state():
     assert apply_action.label == "Apply Transfer Plan (1 ready row)"
     assert "sync-transfer" in section_ids
     assert "live-sync" not in [section.section_id for section in contract.context_sections]
+
+
+def test_inspector_contract_audio_layer_hides_ma3_controls():
+    presentation = _contract_test_presentation()
+    presentation.selected_layer_id = LayerId("layer_kick")
+    presentation.layers[0].kind = LayerKind.AUDIO
+
+    contract = build_timeline_inspector_contract(presentation)
+    action_ids = {action.action_id for section in contract.context_sections for action in section.actions}
+    section_ids = [section.section_id for section in contract.context_sections]
+
+    assert "sync-transfer" not in section_ids
+    assert "push_to_ma3" not in action_ids
+    assert "pull_from_ma3" not in action_ids
+    assert "open_batch_transfer_workspace" not in action_ids
 
 
 def test_inspector_contract_push_mode_layer_actions_and_facts():

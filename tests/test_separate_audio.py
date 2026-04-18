@@ -9,6 +9,7 @@ import os
 import tempfile
 import threading
 from pathlib import Path
+from uuid import uuid4
 from typing import Any
 
 import pytest
@@ -31,6 +32,15 @@ from echozero.result import Err, Ok, is_err, is_ok
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+_SEPARATE_AUDIO_TMP_ROOT = Path(__file__).resolve().parent / ".local-separate-audio-tmp"
+_SEPARATE_AUDIO_TMP_ROOT.mkdir(parents=True, exist_ok=True)
+
+
+def _next_tmp_dir() -> Path:
+    path = _SEPARATE_AUDIO_TMP_ROOT / uuid4().hex
+    path.mkdir()
+    return path
 
 
 def _audio_in_port() -> Port:
@@ -61,13 +71,16 @@ def _make_separator_block(
     two_stems: str | None = None,
     output_format: str = "wav",
     mp3_bitrate: int = 320,
+    working_dir: str | None = None,
 ) -> Block:
+    settings_working_dir = working_dir or str(_next_tmp_dir())
     settings: dict[str, Any] = {
         "model": model,
         "device": device,
         "shifts": shifts,
         "output_format": output_format,
         "mp3_bitrate": mp3_bitrate,
+        "working_dir": settings_working_dir,
     }
     if two_stems is not None:
         settings["two_stems"] = two_stems

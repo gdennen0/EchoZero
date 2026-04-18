@@ -25,6 +25,9 @@ from PyQt6.QtWidgets import (
     QTabWidget,
     QDoubleSpinBox,
     QSpinBox,
+    QTableWidget,
+    QTableWidgetItem,
+    QHeaderView,
     QVBoxLayout,
     QWidget,
 )
@@ -123,11 +126,14 @@ class FoundryWindow(QMainWindow):
 
         self.workspace_path = QLineEdit(str(self._root))
         self.workspace_path.setReadOnly(True)
+        self.workspace_picker = QPushButton("Workspace...")
+        self.workspace_picker.clicked.connect(self._pick_workspace_root)
         self.refresh_btn = QPushButton("Refresh")
         self.refresh_btn.clicked.connect(self._queue_workspace_refresh)
 
         layout.addWidget(QLabel("Workspace"))
         layout.addWidget(self.workspace_path, stretch=1)
+        layout.addWidget(self.workspace_picker)
         layout.addWidget(self.refresh_btn)
         return widget
 
@@ -135,6 +141,7 @@ class FoundryWindow(QMainWindow):
         tabs = QTabWidget()
         tabs.addTab(self._build_dataset_box(), "Dataset")
         tabs.addTab(self._build_training_box(), "Run")
+        tabs.addTab(self._build_past_runs_box(), "Past Runs")
         tabs.addTab(self._build_artifact_box(), "Artifacts")
         tabs.addTab(self._build_activity_box(), "Activity")
         return tabs
@@ -332,6 +339,46 @@ class FoundryWindow(QMainWindow):
         layout.addWidget(self.activity, stretch=1)
         return box
 
+    def _build_run_table(self, *, for_run_selection: bool = True) -> QTableWidget:
+        table = QTableWidget()
+        table.setColumnCount(8)
+        table.setHorizontalHeaderLabels(
+            [
+                "Run ID",
+                "Status",
+                "Dataset Version",
+                "Model",
+                "Epochs",
+                "LR",
+                "Updated",
+                "Artifacts",
+            ]
+        )
+        table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        table.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
+        table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        table.setMinimumHeight(220 if for_run_selection else 420)
+        header = table.horizontalHeader()
+        header.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
+        header.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(5, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(6, QHeaderView.ResizeMode.Stretch)
+        header.setSectionResizeMode(7, QHeaderView.ResizeMode.ResizeToContents)
+        return table
+
+    def _build_past_runs_box(self) -> QWidget:
+        box = QWidget()
+        layout = QVBoxLayout(box)
+        layout.setSpacing(SHELL_TOKENS.scales.layout_gap)
+
+        self.past_runs_overview = self._build_run_table(for_run_selection=False)
+        self.past_runs_overview.itemSelectionChanged.connect(self._select_run_from_past_overview)
+        layout.addWidget(self.past_runs_overview)
+        return box
+
     def _build_workspace_panel(self) -> QWidget:
         widget = QWidget()
         widget.setObjectName("foundryWorkspacePanel")
@@ -346,10 +393,9 @@ class FoundryWindow(QMainWindow):
 
         runs_box = QGroupBox("Runs")
         runs_layout = QVBoxLayout(runs_box)
-        self.run_list = QListWidget()
-        self.run_list.currentTextChanged.connect(self._select_run_from_list)
-        self.run_list.setMinimumHeight(140)
-        runs_layout.addWidget(self.run_list)
+        self.run_overview = self._build_run_table()
+        self.run_overview.itemSelectionChanged.connect(self._select_run_from_overview)
+        runs_layout.addWidget(self.run_overview)
 
         queue_box = QGroupBox("Background Queue")
         queue_layout = QVBoxLayout(queue_box)
@@ -608,6 +654,31 @@ class FoundryWindow(QMainWindow):
         self._set_status("Refreshing workspace state...")
         QTimer.singleShot(0, self._refresh_workspace_state)
 
+    def _pick_workspace_root(self) -> None:
+        if self._run_thread is not None:
+            self._error(Exception("Stop the active run before switching workspace roots."))
+            return
+
+        candidate = QFileDialog.getExistingDirectory(
+            self,
+            "Select Foundry workspace folder",
+            str(self._root),
+        )
+        if not candidate:
+            return
+
+        self._run_id = None
+        self._artifact_id = None
+        self._selected_artifact_id = None
+        self._dataset_id = None
+        self._version_id = None
+        self._app = FoundryApp(Path(candidate))
+        self._app.activity.set_listener(self._on_activity)
+        self._root = Path(candidate)
+        self.workspace_path.setText(str(self._root))
+        self._refresh_workspace_state()
+        self._set_status(f"Workspace switched to: {self._root}")
+
     def _load_defaults(self) -> None:
         candidate = self._root / "data" / "drum-oneshots"
         if candidate.exists() and candidate.is_dir():
@@ -631,30 +702,15 @@ class FoundryWindow(QMainWindow):
 
         self.workspace_summary.setPlainText(self._format_workspace_summary(datasets, runs))
         self.dataset_summary.setPlainText(self._format_dataset_summary())
-        self._populate_run_list(runs, select_run_id=select_run_id)
+        self._populate_run_overview(runs, select_run_id=select_run_id)
+        self._populate_past_runs_overview(runs, select_run_id=select_run_id)
         self._populate_queue_list(runs)
         self._update_selection_details(select_run_id=select_run_id, select_artifact_id=select_artifact_id)
         self._update_queue_action_buttons()
 
-    def _populate_run_list(self, runs: list[object], *, select_run_id: str | None = None) -> None:
-        current_run_id = select_run_id or self._run_id
-        if not current_run_id and runs:
-            current_run_id = runs[-1].id
-
-        self.run_list.blockSignals(True)
-        self.run_list.clear()
-        selected_row = -1
-        for index, run in enumerate(reversed(runs)):
-            label = f"{run.id} [{run.status.value}] {run.updated_at.strftime('%Y-%m-%d %H:%M:%S')}"
-            self.run_list.addItem(label)
-            self.run_list.item(index).setData(Qt.ItemDataRole.UserRole, run.id)
-            if run.id == current_run_id:
-                selected_row = index
-        self.run_list.blockSignals(False)
-
-        if selected_row >= 0:
-            self.run_list.setCurrentRow(selected_row)
-        else:
+    def _populate_run_overview(self, runs: list[object], *, select_run_id: str | None = None) -> None:
+        self._populate_run_rows(self.run_overview, runs, select_run_id=select_run_id)
+        if self.run_overview.rowCount() == 0:
             self.run_summary.setPlainText("No runs yet.")
             self.queue_list.clear()
             self.artifact_list.clear()
@@ -662,13 +718,86 @@ class FoundryWindow(QMainWindow):
             self.eval_list.clear()
             self.eval_summary.clear()
 
-    def _select_run_from_list(self, _: str) -> None:
-        item = self.run_list.currentItem()
+    def _populate_past_runs_overview(self, runs: list[object], *, select_run_id: str | None = None) -> None:
+        self._populate_run_rows(self.past_runs_overview, runs, select_run_id=select_run_id)
+
+    def _populate_run_rows(
+        self,
+        table: QTableWidget,
+        runs: list[object],
+        *,
+        select_run_id: str | None = None,
+        blank_message: str = "No runs yet.",
+    ) -> None:
+        current_run_id = select_run_id or self._run_id
+        if not current_run_id and runs:
+            current_run_id = runs[-1].id
+
+        table.blockSignals(True)
+        table.setRowCount(0)
+        selected_row = -1
+
+        for index, run in enumerate(reversed(runs)):
+            checkpoints = sorted(run.checkpoints_dir(self._root).glob("epoch_*.json"))
+            artifact_count = len(self._app.list_artifacts_for_run(run.id))
+            model_type = str(run.spec.get("model", {}).get("type", "n/a"))
+            row = table.rowCount()
+            table.insertRow(row)
+            cells = [
+                str(run.id),
+                str(run.status.value),
+                str(run.dataset_version_id),
+                model_type,
+                str(run.spec.get("training", {}).get("epochs", "n/a")),
+                str(run.spec.get("training", {}).get("learningRate", "n/a")),
+                run.updated_at.strftime("%Y-%m-%d %H:%M:%S"),
+                f"{artifact_count} artifacts, {len(checkpoints)} ckpt",
+            ]
+            for column, value in enumerate(cells):
+                item = QTableWidgetItem(value)
+                if column == 0:
+                    item.setData(Qt.ItemDataRole.UserRole, run.id)
+                    item.setToolTip(str(run.id))
+                table.setItem(row, column, item)
+                item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+            if run.id == current_run_id:
+                selected_row = index
+            table.item(row, 1).setToolTip(run.status.value)
+            table.item(row, 2).setToolTip(str(run.dataset_version_id))
+
+        if table.rowCount() == 0:
+            table.clearContents()
+            table.setRowCount(1)
+            blank = QTableWidgetItem(blank_message)
+            table.setSpan(0, 0, 1, table.columnCount())
+            blank.setFlags(blank.flags() & ~Qt.ItemFlag.ItemIsSelectable)
+            blank.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            table.setItem(0, 0, blank)
+
+        table.blockSignals(False)
+
+        if selected_row >= 0 and selected_row < table.rowCount():
+            table.selectRow(selected_row)
+
+    def _select_run_from_overview(self) -> None:
+        self._select_run_from_table(self.run_overview)
+
+    def _select_run_from_past_overview(self) -> None:
+        self._select_run_from_table(self.past_runs_overview)
+
+    def _select_run_from_table(self, table: QTableWidget) -> None:
+        selected_rows = table.selectionModel().selectedRows()
+        if not selected_rows:
+            return
+        item = table.item(selected_rows[0].row(), 0)
         if item is None:
             return
         run_id = item.data(Qt.ItemDataRole.UserRole)
+        if run_id is None:
+            return
         self._run_id = str(run_id) if run_id else None
         self._update_selection_details(select_run_id=self._run_id)
+        self._sync_run_selection(self._run_id)
         self._sync_queue_selection(self._run_id)
         self._update_queue_action_buttons()
 
@@ -968,6 +1097,8 @@ class FoundryWindow(QMainWindow):
             self.status_line.setText(
                 f"{self._running_action_label or 'Run'}: {run.id} [{run.status.value}]"
             )
+        self._populate_run_overview(runs, select_run_id=self._run_id)
+        self._populate_past_runs_overview(runs, select_run_id=self._run_id)
         self._append_new_run_events(self._run_id)
         self._populate_queue_list(runs)
         self._populate_artifact_list(
@@ -1058,16 +1189,20 @@ class FoundryWindow(QMainWindow):
         self.retry_queue_run_btn.setEnabled(can_retry)
 
     def _sync_run_selection(self, run_id: str | None) -> None:
+        self._sync_table_selection(self.run_overview, run_id)
+        self._sync_table_selection(self.past_runs_overview, run_id)
+
+    def _sync_table_selection(self, table: QTableWidget, run_id: str | None) -> None:
         if not run_id:
             return
-        for row in range(self.run_list.count()):
-            item = self.run_list.item(row)
-            if item.data(Qt.ItemDataRole.UserRole) != run_id:
+        for row in range(table.rowCount()):
+            item = table.item(row, 0)
+            if item is None or item.data(Qt.ItemDataRole.UserRole) != run_id:
                 continue
-            if self.run_list.currentRow() != row:
-                self.run_list.blockSignals(True)
-                self.run_list.setCurrentRow(row)
-                self.run_list.blockSignals(False)
+            if table.currentRow() != row:
+                table.blockSignals(True)
+                table.selectRow(row)
+                table.blockSignals(False)
             return
 
     def _sync_queue_selection(self, run_id: str | None) -> None:

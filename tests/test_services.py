@@ -7,6 +7,7 @@ layer/take persistence, using mock executors for isolation from real audio.
 
 from __future__ import annotations
 
+import os
 import uuid
 from datetime import datetime, timezone
 from typing import Any
@@ -396,7 +397,7 @@ class TestAnalysisServiceBindings:
         result = service.analyze(session, version.id, "onset_detection")
 
         assert isinstance(result, Ok)
-        assert capturing.captured_file_path == "/my/custom/audio.wav"
+        assert capturing.captured_file_path == os.path.abspath("/my/custom/audio.wav")
 
         session.close()
 

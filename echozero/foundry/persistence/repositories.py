@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 
 from echozero.foundry.domain import (
@@ -117,6 +117,7 @@ class TrainRunRepository:
     def __init__(self, root: Path):
         self._path = root / "foundry" / "state" / "train_runs.json"
         self._schema = "foundry.state.train_runs.v1"
+        self._runs_root = root / "foundry" / "runs"
 
     def save(self, run: TrainRun) -> TrainRun:
         rows = _read_state(self._path, self._schema)
@@ -157,6 +158,103 @@ class TrainRunRepository:
             if run is not None:
                 runs.append(run)
         return runs
+
+    def list_all(self) -> list[TrainRun]:
+        tracked = {run.id: run for run in self.list()}
+        for run in self._list_orphan_run_directories(tracked):
+            tracked[run.id] = run
+        return list(tracked.values())
+
+    def get_run_dir(self, run_id: str) -> Path:
+        return self._runs_root / run_id
+
+    def read_run_from_disk(self, run_id: str) -> TrainRun | None:
+        run_dir = self.get_run_dir(run_id)
+        if not run_dir.exists() or not run_dir.is_dir():
+            return None
+        return self._build_run_from_disk(run_id, run_dir)
+
+    def _list_orphan_run_directories(self, tracked_runs: dict[str, TrainRun]) -> list[TrainRun]:
+        if not self._runs_root.exists():
+            return []
+
+        runs: list[TrainRun] = []
+        for directory in sorted(self._runs_root.iterdir()):
+            if not directory.is_dir():
+                continue
+            run_id = directory.name
+            if not run_id.startswith("run_") or run_id in tracked_runs:
+                continue
+            run = self._build_run_from_disk(run_id, directory)
+            if run is not None:
+                runs.append(run)
+        return runs
+
+    def _build_run_from_disk(self, run_id: str, run_dir: Path) -> TrainRun:
+        created_at = datetime.fromtimestamp(run_dir.stat().st_mtime, tz=UTC)
+        updated_at = created_at
+
+        spec_path = run_dir / "spec.json"
+        spec: dict = {}
+        dataset_version_id = "unindexed"
+        if spec_path.exists():
+            try:
+                spec = json.loads(spec_path.read_text(encoding="utf-8"))
+                data = spec.get("data", {})
+                if isinstance(data, dict):
+                    dataset_version_id = data.get("datasetVersionId", dataset_version_id)
+            except (json.JSONDecodeError, OSError, TypeError, AttributeError):
+                spec = {}
+
+        events_path = run_dir / "events.jsonl"
+        status = TrainRunStatus.COMPLETED
+        if events_path.exists():
+            status = self._infer_status_from_events(events_path)
+
+        return TrainRun(
+            id=run_id,
+            dataset_version_id=dataset_version_id,
+            status=status,
+            spec=spec,
+            spec_hash="",
+            backend="pytorch",
+            device="cpu",
+            created_at=created_at,
+            updated_at=updated_at,
+        )
+
+    def _infer_status_from_events(self, events_path: Path) -> TrainRunStatus:
+        status = TrainRunStatus.COMPLETED
+        try:
+            text = events_path.read_text(encoding="utf-8").strip().splitlines()
+        except OSError:
+            return status
+
+        transitions = {
+            "RUN_CREATED": TrainRunStatus.QUEUED,
+            "RUN_PREPARING": TrainRunStatus.PREPARING,
+            "RUN_STARTED": TrainRunStatus.RUNNING,
+            "RUN_EVALUATING": TrainRunStatus.EVALUATING,
+            "RUN_EXPORTING": TrainRunStatus.EXPORTING,
+            "RUN_COMPLETED": TrainRunStatus.COMPLETED,
+            "RUN_FAILED": TrainRunStatus.FAILED,
+            "RUN_CANCELED": TrainRunStatus.CANCELED,
+            "RUN_RESUMED": TrainRunStatus.QUEUED,
+        }
+
+        for raw_line in reversed(text):
+            line = raw_line.strip()
+            if not line:
+                continue
+            try:
+                payload = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            event_type = str(payload.get("type", "")).strip()
+            mapped = transitions.get(event_type)
+            if mapped is not None:
+                return mapped
+        return status
 
 
 class DatasetRepository:

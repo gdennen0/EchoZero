@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+import os
 from collections import OrderedDict
 from dataclasses import dataclass
 from pathlib import Path
-import os
+import warnings
 
 import numpy as np
 
@@ -98,8 +99,18 @@ def _load_audio(path: Path) -> tuple[int, np.ndarray]:
     # Fast path for WAV
     if path.suffix.lower() == ".wav":
         from scipy.io import wavfile
+        try:
+            from scipy.io.wavfile import WavFileWarning
+            wav_warning_cls = WavFileWarning
+        except Exception:
+            wav_warning_cls = None
 
-        sr, data = wavfile.read(path)
+        if wav_warning_cls is not None:
+            with warnings.catch_warnings():
+                warnings.filterwarnings("ignore", category=wav_warning_cls)
+                sr, data = wavfile.read(path)
+        else:
+            sr, data = wavfile.read(path)
         return int(sr), np.asarray(data)
 
     # Fallback for other formats

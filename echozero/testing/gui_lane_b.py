@@ -6,7 +6,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from unittest.mock import patch
 
-from PyQt6.QtCore import QPoint, Qt
+from PyQt6.QtCore import QPoint, Qt, QRectF
 from PyQt6.QtTest import QTest
 from PyQt6.QtWidgets import QApplication
 
@@ -267,17 +267,21 @@ def _click_rect(widget, rect) -> None:
 
 
 def _click_first_event(harness: AppFlowHarness, *, layer_id: str | None) -> None:
-    for rect, candidate_layer_id, _take_id, _event_id in harness.widget._canvas._event_rects:
+    for spec in harness.widget._canvas.event_specs():
+        candidate_layer_id = spec.state.get("layer_id")
+        if candidate_layer_id is None:
+            continue
         if layer_id is None or str(candidate_layer_id) == layer_id:
-            _click_rect(harness.widget, rect)
+            _click_rect(harness.widget, QRectF(*spec.rect))
             return
     if layer_id is None:
-        raise AssertionError("No event rects are available")
+        raise AssertionError("No event specs are available")
     raise AssertionError(f"No event rect found for layer_id={layer_id}")
 
 
 def _click_layer_surface(harness: AppFlowHarness, *, surface: str, layer_id: str | None) -> None:
-    rects = harness.widget._canvas._push_rects if surface == "push" else harness.widget._canvas._pull_rects
+    action_id = "push" if surface == "push" else "pull"
+    rects = harness.widget._canvas.layer_action_regions(action_id)
     for rect, candidate_layer_id in rects:
         if layer_id is None or str(candidate_layer_id) == layer_id:
             _click_rect(harness.widget, rect)

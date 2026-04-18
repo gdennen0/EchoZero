@@ -28,6 +28,7 @@ from echozero.persistence.audio import AudioMetadata
 from echozero.persistence.session import ProjectStorage
 from echozero.project import Project
 from echozero.result import Ok, Err, is_ok, is_err, unwrap
+from tests.foundry.audio_fixtures import write_percussion_dataset
 
 
 # ---------------------------------------------------------------------------
@@ -67,6 +68,31 @@ def _create_project(tmp_path: Path, name: str = "Test Project") -> Project:
         name=name,
         working_dir_root=tmp_path / "working",
     )
+
+
+def _create_foundry_version_for_project(p: Project, tmp_path: Path, *, label_counts: dict[str, int] | None = None) -> Any:
+    """Create and plan a tiny foundry dataset version for project-level run tests."""
+    counts = label_counts or {"kick": 2, "snare": 2}
+    dataset_root = tmp_path / f"foundry_dataset_{uuid.uuid4().hex[:8]}"
+    write_percussion_dataset(dataset_root, sample_count=max(counts.values()), sample_rate=22050)
+
+    ds_result = p.foundry_create_dataset("Drums")
+    assert is_ok(ds_result)
+    dataset = unwrap(ds_result)
+
+    version_result = p.foundry_ingest_dataset_folder(dataset.id, dataset_root)
+    assert is_ok(version_result)
+    version = unwrap(version_result)
+
+    assert is_ok(
+        p.foundry_plan_dataset_version(
+            version.id,
+            validation_split=0.5,
+            test_split=0.0,
+            balance_strategy="none",
+        )
+    )
+    return version
 
 
 # ---------------------------------------------------------------------------
@@ -457,21 +483,13 @@ class TestSaveLoadRoundtrip:
 class TestFoundryIntegration:
     def test_foundry_dataset_to_run_v1_flow(self, tmp_path):
         with _create_project(tmp_path) as p:
-            dataset_root = tmp_path / "foundry_dataset"
-            (dataset_root / "kick").mkdir(parents=True, exist_ok=True)
-            (dataset_root / "snare").mkdir(parents=True, exist_ok=True)
-            (dataset_root / "kick" / "k1.wav").write_bytes(b"RIFF" + b"\x00" * 32)
-            (dataset_root / "snare" / "s1.wav").write_bytes(b"RIFF" + b"\x00" * 32)
-
-            ds_result = p.foundry_create_dataset("Drums")
-            assert is_ok(ds_result)
-            dataset = unwrap(ds_result)
-
-            version_result = p.foundry_ingest_dataset_folder(dataset.id, dataset_root)
-            assert is_ok(version_result)
-            version = unwrap(version_result)
-
-            planned_result = p.foundry_plan_dataset_version(version.id, balance_strategy="undersample_min")
+            version = _create_foundry_version_for_project(p, tmp_path)
+            planned_result = p.foundry_plan_dataset_version(
+                version.id,
+                validation_split=0.5,
+                test_split=0.0,
+                balance_strategy="undersample_min",
+            )
             assert is_ok(planned_result)
 
             run_spec = {
@@ -490,12 +508,17 @@ class TestFoundryIntegration:
                     "epochs": 1,
                     "batchSize": 2,
                     "learningRate": 0.001,
+                    "seed": 17,
                 },
             }
             run = unwrap(p.foundry_create_run(version.id, run_spec))
-            unwrap(p.foundry_start_run(run.id))
+            run = unwrap(p.foundry_start_run(run.id))
+            if run.status.value != "completed":
+                run = unwrap(p.foundry_complete_run(run.id, metrics={"f1": 0.9}))
+                assert run.status.value == "completed"
             unwrap(p.foundry_save_checkpoint(run.id, epoch=1, metric_snapshot={"loss": 0.1}))
-            unwrap(p.foundry_complete_run(run.id, metrics={"f1": 0.9}))
+            if run.status.value != "completed":
+                run = unwrap(p.foundry_complete_run(run.id, metrics={"f1": 0.9}))
 
             eval_result = p.foundry_record_eval(
                 run.id,
@@ -524,6 +547,9 @@ class TestFoundryIntegration:
 
     def test_foundry_publishes_lifecycle_events(self, tmp_path):
         with _create_project(tmp_path) as p:
+            version = _create_foundry_version_for_project(p, tmp_path)
+            assert version is not None
+
             seen: list[type] = []
 
             p.event_bus.subscribe(FoundryRunCreatedEvent, lambda e: seen.append(type(e)))
@@ -535,7 +561,7 @@ class TestFoundryIntegration:
                 "schema": "foundry.train_run_spec.v1",
                 "classificationMode": "multiclass",
                 "data": {
-                    "datasetVersionId": "dsv_proj",
+                "datasetVersionId": version.id,
                     "sampleRate": 22050,
                     "maxLength": 22050,
                     "nFft": 2048,
@@ -547,10 +573,11 @@ class TestFoundryIntegration:
                     "epochs": 1,
                     "batchSize": 2,
                     "learningRate": 0.001,
+                    "seed": 17,
                 },
             }
 
-            run = unwrap(p.foundry_create_run("dsv_proj", run_spec))
+            run = unwrap(p.foundry_create_run(version.id, run_spec))
             unwrap(p.foundry_start_run(run.id))
             unwrap(
                 p.foundry_finalize_artifact_checked(
@@ -578,11 +605,14 @@ class TestFoundryIntegration:
 
     def test_foundry_run_and_artifact_checked_gate_passes(self, tmp_path):
         with _create_project(tmp_path) as p:
+            version = _create_foundry_version_for_project(p, tmp_path)
+            assert version is not None
+
             run_spec = {
                 "schema": "foundry.train_run_spec.v1",
                 "classificationMode": "multiclass",
                 "data": {
-                    "datasetVersionId": "dsv_proj",
+                    "datasetVersionId": version.id,
                     "sampleRate": 22050,
                     "maxLength": 22050,
                     "nFft": 2048,
@@ -594,10 +624,11 @@ class TestFoundryIntegration:
                     "epochs": 1,
                     "batchSize": 2,
                     "learningRate": 0.001,
+                    "seed": 17,
                 },
             }
 
-            run_result = p.foundry_create_run("dsv_proj", run_spec)
+            run_result = p.foundry_create_run(version.id, run_spec)
             assert is_ok(run_result)
             run = unwrap(run_result)
 
@@ -623,11 +654,14 @@ class TestFoundryIntegration:
 
     def test_foundry_artifact_checked_gate_fails_on_missing_weights(self, tmp_path):
         with _create_project(tmp_path) as p:
+            version = _create_foundry_version_for_project(p, tmp_path)
+            assert version is not None
+
             run_spec = {
                 "schema": "foundry.train_run_spec.v1",
                 "classificationMode": "multiclass",
                 "data": {
-                    "datasetVersionId": "dsv_proj",
+                    "datasetVersionId": version.id,
                     "sampleRate": 22050,
                     "maxLength": 22050,
                     "nFft": 2048,
@@ -639,10 +673,11 @@ class TestFoundryIntegration:
                     "epochs": 1,
                     "batchSize": 2,
                     "learningRate": 0.001,
+                    "seed": 17,
                 },
             }
 
-            run = unwrap(p.foundry_create_run("dsv_proj", run_spec))
+            run = unwrap(p.foundry_create_run(version.id, run_spec))
             unwrap(p.foundry_start_run(run.id))
 
             artifact_result = p.foundry_finalize_artifact_checked(

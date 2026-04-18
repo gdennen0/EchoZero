@@ -282,12 +282,12 @@ class SplitBalanceService:
 
     @classmethod
     def _build_reproducibility_report(cls, version: DatasetVersion, assignments: dict[str, str], *, seed: int) -> dict:
-        group_rows = sorted(
-            {
-                cls.resolve_group_id(sample): sorted(item.sample_id for item in version.samples if cls.resolve_group_id(item) == cls.resolve_group_id(sample))
-                for sample in version.samples
-            }.items()
-        )
+        grouped_sample_ids: dict[str, list[str]] = {}
+        for sample in version.samples:
+            group_key = cls.resolve_group_id(sample)
+            grouped_sample_ids.setdefault(group_key, []).append(sample.sample_id)
+
+        group_rows = sorted((group_id, sorted(sample_ids)) for group_id, sample_ids in grouped_sample_ids.items())
         group_fingerprint = hashlib.sha256(json.dumps(group_rows, sort_keys=True).encode("utf-8")).hexdigest()
         assignment_rows = sorted(assignments.items())
         assignment_fingerprint = hashlib.sha256(json.dumps(assignment_rows, sort_keys=True).encode("utf-8")).hexdigest()

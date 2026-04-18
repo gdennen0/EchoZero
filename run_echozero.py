@@ -11,6 +11,7 @@ from PyQt6.QtWidgets import QApplication, QFileDialog, QMessageBox
 
 from echozero.ui.qt.app_shell import build_app_shell
 from echozero.ui.qt.runtime_logging import install_runtime_logging
+from echozero.ui.qt.timeline.runtime_audio import TimelineRuntimeAudioController
 from echozero.ui.qt.timeline.widget import TimelineWidget
 
 
@@ -182,6 +183,10 @@ def main(argv: list[str] | None = None) -> int:
         use_demo_fixture=parsed.use_demo_fixture,
         working_dir_root=working_dir_root,
     )
+    if getattr(demo, "runtime_audio", None) is None:
+        demo.runtime_audio = TimelineRuntimeAudioController()
+        demo.runtime_audio.build_for_presentation(demo.presentation())
+
     widget = TimelineWidget(
         demo.presentation(),
         on_intent=demo.dispatch,

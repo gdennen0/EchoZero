@@ -13,6 +13,7 @@ import struct
 import tempfile
 import wave
 from pathlib import Path
+from uuid import uuid4
 
 import numpy as np
 import pytest
@@ -29,7 +30,7 @@ from echozero.domain.types import (
     Layer,
     Port,
 )
-from echozero.execution import ExecutionContext, ExecutionEngine, GraphPlanner
+from echozero.execution import ExecutionContext, ExecutionEngine, ExecutionPlan, GraphPlanner
 from echozero.processors.load_audio import LoadAudioProcessor
 from echozero.processors.detect_onsets import DetectOnsetsProcessor
 from echozero.processors.audio_filter import AudioFilterProcessor
@@ -42,6 +43,15 @@ from echozero.processors.dataset_viewer import DatasetViewerProcessor
 from echozero.processors.transcribe_notes import TranscribeNotesProcessor
 from echozero.progress import RuntimeBus
 from echozero.result import Ok, is_err, is_ok, unwrap
+
+
+# ---------------------------------------------------------------------------
+# Module-local temp root to avoid machine-specific ACL issues under AppData\\Temp.
+# ---------------------------------------------------------------------------
+_LOCAL_TMP_ROOT = Path(__file__).resolve().parents[1] / "_tmp-real-audio"
+_LOCAL_TMP_ROOT.mkdir(parents=True, exist_ok=True)
+_REAL_AUDIO_TMP_ROOT = _LOCAL_TMP_ROOT / "runs"
+_REAL_AUDIO_TMP_ROOT.mkdir(parents=True, exist_ok=True)
 
 
 # ---------------------------------------------------------------------------
@@ -106,8 +116,9 @@ def _tone_bursts(freqs_and_times: list[tuple[float, float, float]], duration: fl
 @pytest.fixture
 def tmp_dir():
     """Temp directory cleaned up after test."""
-    d = tempfile.mkdtemp(prefix="ez_test_")
-    yield d
+    d = _REAL_AUDIO_TMP_ROOT / uuid4().hex
+    d.mkdir(parents=True, exist_ok=True)
+    yield str(d)
     import shutil
     shutil.rmtree(d, ignore_errors=True)
 
@@ -659,7 +670,10 @@ class TestDatasetViewerReal:
         bus = RuntimeBus()
         engine = ExecutionEngine(graph, bus)
         engine.register_executor("DatasetViewer", DatasetViewerProcessor())
-        result = engine.run(GraphPlanner().plan(graph))
+        result = engine.run(ExecutionPlan(
+            execution_id=uuid4().hex,
+            ordered_block_ids=("viewer",),
+        ))
 
         assert is_ok(result)
         stats = unwrap(result)["viewer"]["out"]

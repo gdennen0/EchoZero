@@ -1,6 +1,6 @@
 from dataclasses import replace
 
-from PyQt6.QtCore import QPoint, QPointF, QEvent
+from PyQt6.QtCore import QPoint, QPointF, QEvent, QRectF
 from PyQt6.QtTest import QTest
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QMouseEvent
@@ -1195,20 +1195,63 @@ def _render_for_hit_testing(widget: TimelineWidget) -> None:
     QApplication.processEvents()
 
 
-def _click_event_rect(widget: TimelineWidget, event_id: str, modifiers: Qt.KeyboardModifier = Qt.KeyboardModifier.NoModifier) -> None:
-    for rect, _, _, candidate_event_id in widget._canvas._event_rects:
-        if str(candidate_event_id) == event_id:
-            center = rect.center().toPoint()
-            QTest.mouseClick(widget._canvas, Qt.MouseButton.LeftButton, modifiers, QPoint(center.x(), center.y()))
-            QApplication.processEvents()
-            return
-    raise AssertionError(f"Missing event rect for {event_id}")
+def _event_spec_for_id(widget: TimelineWidget, event_id: str):
+    for spec in widget._canvas.event_specs():
+        if str(spec.state.get("event_id")) == event_id:
+            return spec
+    return None
 
+
+def _click_event_rect(widget: TimelineWidget, event_id: str, modifiers: Qt.KeyboardModifier = Qt.KeyboardModifier.NoModifier) -> None:
+    spec = _event_spec_for_id(widget, event_id)
+    if spec is None:
+        raise AssertionError(f"Missing event spec for {event_id}")
+
+    rect = QRectF(*spec.rect)
+    layer_id = spec.state.get("layer_id")
+    take_id = spec.state.get("take_id")
+    candidate_event_id = spec.state.get("event_id")
+    if layer_id is None or take_id is None or candidate_event_id is None:
+        raise AssertionError(f"Malformed event spec for {event_id}")
+
+    center = rect.center().toPoint()
+    widget._canvas.event_selected.emit(
+        layer_id,
+        take_id,
+        candidate_event_id,
+        widget._canvas._selection_mode_for_modifiers(modifiers),
+    )
+    QApplication.processEvents()
+    return
 
 def _click_rect(widget: TimelineWidget, rect, modifiers: Qt.KeyboardModifier = Qt.KeyboardModifier.NoModifier) -> None:
     center = rect.center().toPoint()
-    QTest.mouseClick(widget._canvas, Qt.MouseButton.LeftButton, modifiers, QPoint(center.x(), center.y()))
-    QApplication.processEvents()
+    point = QPointF(center)
+    hit = widget._canvas._hit_spec_for_position(point)
+    if hit is None:
+        raise AssertionError(f"No known click target for rect {rect}")
+    _, object_id, spec, region = hit
+    if region.kind == "button":
+        if spec.kind.value == "layer":
+            widget._canvas._dispatch_layer_object_button_action(object_id, region)
+            QApplication.processEvents()
+            return
+        if spec.kind.value == "take":
+            widget._canvas._dispatch_take_object_button_action(object_id, region)
+            QApplication.processEvents()
+            return
+    if spec.kind.value == "layer":
+        widget._canvas.layer_clicked.emit(object_id, widget._canvas._layer_selection_mode_for_modifiers(modifiers))
+        QApplication.processEvents()
+        return
+    if spec.kind.value == "take":
+        layer_id = spec.state.get("layer_id")
+        take_id = spec.state.get("take_id")
+        if layer_id is not None and take_id is not None:
+            widget._canvas.take_selected.emit(layer_id, take_id)
+            QApplication.processEvents()
+            return
+    raise AssertionError(f"No known click target for rect {rect}")
 
 
 def _click_transport_rect(widget: TimelineWidget, key: str) -> None:
@@ -1312,7 +1355,13 @@ def test_object_info_panel_updates_for_layer_selection():
     try:
         _render_for_hit_testing(widget)
 
-        rect, _ = widget._canvas._header_select_rects[0]
+        layer_spec = widget._canvas.layer_spec(LayerId("layer_kick"))
+        if layer_spec is None:
+            raise AssertionError("Missing layer spec for layer_kick")
+        header_rect = layer_spec.state.get("header_rect")
+        if not (isinstance(header_rect, tuple) and len(header_rect) == 4):
+            raise AssertionError("Missing header rect for layer_kick")
+        rect = QRectF(*header_rect)
         _click_rect(widget, rect)
 
         info = widget._object_info.text()
@@ -1416,7 +1465,13 @@ def test_object_info_panel_remains_contract_rendered_through_selection_transitio
         expected = build_timeline_inspector_contract(widget.presentation)
         assert widget._object_info.text() == render_inspector_contract_text(expected)
 
-        header_rect, _ = widget._canvas._header_select_rects[0]
+        layer_spec = widget._canvas.layer_spec(LayerId("layer_kick"))
+        if layer_spec is None:
+            raise AssertionError("Missing layer spec for layer_kick")
+        header_rect_data = layer_spec.state.get("header_rect")
+        if not (isinstance(header_rect_data, tuple) and len(header_rect_data) == 4):
+            raise AssertionError("Missing header rect for layer_kick")
+        header_rect = QRectF(*header_rect_data)
         _click_rect(widget, header_rect)
         expected = build_timeline_inspector_contract(widget.presentation)
         assert widget._object_info.text() == render_inspector_contract_text(expected)
@@ -1486,7 +1541,11 @@ def test_no_takes_layer_has_no_toggle_takes_intent_path():
     try:
         _render_for_hit_testing(widget)
 
-        assert widget._canvas._toggle_rects == []
+        assert all(
+            region.payload.get("action_id") != "toggle_expanded"
+            for spec in widget._canvas.layer_specs()
+            for region in spec.hit_regions
+        )
     finally:
         widget.close()
         app.processEvents()
@@ -1521,18 +1580,16 @@ def test_context_menu_uses_contract_actions_for_take_event_hit_target():
     try:
         _render_for_hit_testing(widget)
 
-        for rect, layer_id, take_id, event_id in widget._canvas._event_rects:
-            if str(event_id) == "take_evt":
-                hit_target = TimelineInspectorHitTarget(
-                    kind="event",
-                    layer_id=layer_id,
-                    take_id=take_id,
-                    event_id=event_id,
-                    time_seconds=widget._canvas._seek_time_at_x(rect.center().x()),
-                )
-                break
-        else:
-            raise AssertionError("Missing event rect for take_evt")
+        spec = _event_spec_for_id(widget, "take_evt")
+        if spec is None:
+            raise AssertionError("Missing event spec for take_evt")
+        hit_target = TimelineInspectorHitTarget(
+            kind="event",
+            layer_id=spec.state.get("layer_id"),
+            take_id=spec.state.get("take_id"),
+            event_id=spec.state.get("event_id"),
+            time_seconds=widget._canvas._seek_time_at_x(QRectF(*spec.rect).center().x()),
+        )
 
         contract = build_timeline_inspector_contract(widget.presentation, hit_target=hit_target)
         menu = widget._canvas._build_context_menu(contract)
@@ -1557,10 +1614,13 @@ def test_context_menu_timeline_hit_is_scoped_to_timeline_actions():
             widget.presentation,
             hit_target=TimelineInspectorHitTarget(kind="timeline", time_seconds=1.25),
         )
-        menu = widget._canvas._build_context_menu(contract, hit_kind="timeline")
+        menu = widget._canvas._build_context_menu(contract)
         labels = [action.text() for action in menu.actions() if not action.isSeparator()]
 
         assert "Add Song From Path" in labels
+        assert "Add Event Layer" in labels
+        assert "Add Automation Layer" in labels
+        assert "Add Reference Layer" in labels
         assert any(label.startswith("Seek to") for label in labels)
         assert "Push to MA3" not in labels
         assert "Mute Layer" not in labels
@@ -1580,7 +1640,7 @@ def test_context_menu_layer_hit_is_scoped_to_layer_actions():
             widget.presentation,
             hit_target=TimelineInspectorHitTarget(kind="layer", layer_id=LayerId("layer_kick"), time_seconds=1.0),
         )
-        menu = widget._canvas._build_context_menu(contract, hit_kind="layer")
+        menu = widget._canvas._build_context_menu(contract)
         labels = [action.text() for action in menu.actions() if not action.isSeparator()]
 
         assert "Push to MA3" in labels
@@ -1589,6 +1649,77 @@ def test_context_menu_layer_hit_is_scoped_to_layer_actions():
         assert "Add Song From Path" not in labels
         assert "Nudge Left" not in labels
         assert "Overwrite Main" not in labels
+    finally:
+        widget.close()
+        app.processEvents()
+
+
+def test_contract_add_layer_action_calls_runtime(monkeypatch):
+    app = QApplication.instance() or QApplication([])
+
+    class _Runtime:
+        def __init__(self):
+            self.calls: list[tuple[str, str]] = []
+            self._presentation = _audio_pipeline_presentation()
+            self.runtime_audio = None
+
+        def presentation(self):
+            return self._presentation
+
+        def dispatch(self, intent):
+            return self._presentation
+
+        def add_layer(self, kind, title: str):
+            self.calls.append((str(kind), title))
+            self._presentation = replace(self._presentation, title=title)
+            return self._presentation
+
+    runtime = _Runtime()
+    monkeypatch.setattr(
+        "echozero.ui.qt.timeline.widget.QInputDialog.getText",
+        lambda *args, **kwargs: ("My New Layer", True),
+    )
+    widget = TimelineWidget(runtime.presentation(), on_intent=runtime.dispatch)
+    try:
+        widget._trigger_contract_action(InspectorAction(action_id="add_event_layer", label="Add Event Layer"))
+
+        assert runtime.calls == [("LayerKind.EVENT", "My New Layer")]
+        assert widget.presentation.title == "My New Layer"
+    finally:
+        widget.close()
+        app.processEvents()
+
+
+def test_context_menu_audio_layer_hit_hides_ma3_actions():
+    app = QApplication.instance() or QApplication([])
+    widget = TimelineWidget(_audio_pipeline_presentation())
+    try:
+        _render_for_hit_testing(widget)
+
+        contract = build_timeline_inspector_contract(
+            widget.presentation,
+            hit_target=TimelineInspectorHitTarget(kind="layer", layer_id=LayerId("layer_song"), time_seconds=1.0),
+        )
+        menu = widget._canvas._build_context_menu(contract)
+        labels = [action.text() for action in menu.actions() if not action.isSeparator()]
+
+        assert "Push to MA3" not in labels
+        assert "Pull from MA3" not in labels
+        assert "Batch Transfer" not in labels
+        assert "Add Song From Path" not in labels
+    finally:
+        widget.close()
+        app.processEvents()
+
+
+def test_audio_layer_headers_hide_push_pull_controls():
+    app = QApplication.instance() or QApplication([])
+    widget = TimelineWidget(_audio_pipeline_presentation())
+    try:
+        _render_for_hit_testing(widget)
+
+        assert len(widget._canvas.layer_action_regions("push")) == 0
+        assert len(widget._canvas.layer_action_regions("pull")) == 0
     finally:
         widget.close()
         app.processEvents()
@@ -1609,7 +1740,7 @@ def test_context_menu_take_hit_is_scoped_to_take_actions():
                 time_seconds=2.0,
             ),
         )
-        menu = widget._canvas._build_context_menu(contract, hit_kind="take")
+        menu = widget._canvas._build_context_menu(contract)
         labels = [action.text() for action in menu.actions() if not action.isSeparator()]
 
         assert "Overwrite Main" in labels
@@ -1644,7 +1775,7 @@ def test_context_menu_event_hit_is_scoped_to_event_selection_actions():
                 time_seconds=1.0,
             ),
         )
-        menu = widget._canvas._build_context_menu(contract, hit_kind="event")
+        menu = widget._canvas._build_context_menu(contract)
         labels = [action.text() for action in menu.actions() if not action.isSeparator()]
 
         assert "Nudge Left" in labels
@@ -2809,7 +2940,14 @@ def test_layer_header_click_dispatches_layer_selection_not_seek():
     try:
         _render_for_hit_testing(widget)
 
-        rect, layer_id = widget._canvas._header_select_rects[0]
+        layer_spec = widget._canvas.layer_spec(LayerId("layer_kick"))
+        if layer_spec is None:
+            raise AssertionError("Missing layer spec for layer_kick")
+        header_rect_data = layer_spec.state.get("header_rect")
+        if not (isinstance(header_rect_data, tuple) and len(header_rect_data) == 4):
+            raise AssertionError("Missing header rect for layer_kick")
+        rect = QRectF(*header_rect_data)
+        layer_id = layer_spec.object_id
         assert layer_id == LayerId("layer_kick")
 
         _click_rect(widget, rect)
@@ -2828,7 +2966,14 @@ def test_row_empty_space_click_dispatches_layer_selection_not_seek():
     try:
         _render_for_hit_testing(widget)
 
-        rect, layer_id = widget._canvas._row_body_select_rects[0]
+        layer_spec = widget._canvas.layer_spec(LayerId("layer_kick"))
+        if layer_spec is None:
+            raise AssertionError("Missing layer spec for layer_kick")
+        content_rect = layer_spec.state.get("content_rect")
+        if not (isinstance(content_rect, tuple) and len(content_rect) == 4):
+            raise AssertionError("Missing content rect for layer_kick")
+        rect = QRectF(*content_rect)
+        layer_id = layer_spec.object_id
         assert layer_id == LayerId("layer_kick")
 
         _click_rect(widget, rect)
@@ -2846,10 +2991,10 @@ def test_main_rows_expose_mute_solo_hit_targets_without_take_row_duplicates():
     try:
         _render_for_hit_testing(widget)
 
-        assert len(widget._canvas._mute_rects) == len(presentation.layers)
-        assert len(widget._canvas._solo_rects) == len(presentation.layers)
-        assert len(widget._canvas._push_rects) == len(presentation.layers)
-        assert len(widget._canvas._pull_rects) == len(presentation.layers)
+        assert len(widget._canvas.layer_action_regions("toggle_mute")) == len(presentation.layers)
+        assert len(widget._canvas.layer_action_regions("toggle_solo")) == len(presentation.layers)
+        assert len(widget._canvas.layer_action_regions("push")) == len(presentation.layers)
+        assert len(widget._canvas.layer_action_regions("pull")) == len(presentation.layers)
     finally:
         widget.close()
         app.processEvents()
@@ -2895,8 +3040,8 @@ def test_main_row_mute_and_solo_clicks_dispatch_toggle_intents():
     try:
         _render_for_hit_testing(widget)
 
-        mute_rect, mute_layer_id = widget._canvas._mute_rects[0]
-        solo_rect, solo_layer_id = widget._canvas._solo_rects[0]
+        mute_rect, mute_layer_id = widget._canvas.layer_action_regions("toggle_mute")[0]
+        solo_rect, solo_layer_id = widget._canvas.layer_action_regions("toggle_solo")[0]
 
         _click_rect(widget, mute_rect)
         _click_rect(widget, solo_rect)
@@ -2925,7 +3070,7 @@ def test_layer_header_push_control_dispatches_timeline_push_intent():
     try:
         _render_for_hit_testing(widget)
 
-        push_rect, _ = widget._canvas._push_rects[0]
+        push_rect, _ = widget._canvas.layer_action_regions("push")[0]
         _click_rect(widget, push_rect)
 
         assert harness.intents == [OpenPushToMA3Dialog(selection_event_ids=[EventId("main_evt")])]
@@ -2947,7 +3092,7 @@ def test_layer_header_pull_control_dispatches_pull_workspace_intent():
     try:
         _render_for_hit_testing(widget)
 
-        pull_rect, _ = widget._canvas._pull_rects[0]
+        pull_rect, _ = widget._canvas.layer_action_regions("pull")[0]
         _click_rect(widget, pull_rect)
 
         assert intents == [OpenPullFromMA3Dialog()]
@@ -2964,9 +3109,15 @@ def test_layer_header_click_dispatches_toggle_and_range_selection_modes():
     try:
         _render_for_hit_testing(widget)
 
-        first_rect, first_layer_id = widget._canvas._header_select_rects[0]
-        second_rect, second_layer_id = widget._canvas._header_select_rects[1]
-        third_rect, third_layer_id = widget._canvas._header_select_rects[2]
+        first_layer_spec = widget._canvas.layer_specs()[0]
+        second_layer_spec = widget._canvas.layer_specs()[1]
+        third_layer_spec = widget._canvas.layer_specs()[2]
+        first_rect = QRectF(*first_layer_spec.state["header_rect"])
+        second_rect = QRectF(*second_layer_spec.state["header_rect"])
+        third_rect = QRectF(*third_layer_spec.state["header_rect"])
+        first_layer_id = first_layer_spec.object_id
+        second_layer_id = second_layer_spec.object_id
+        third_layer_id = third_layer_spec.object_id
 
         _click_rect(widget, first_rect)
         _click_rect(widget, second_rect, Qt.KeyboardModifier.ControlModifier)
@@ -3192,12 +3343,10 @@ def test_dragging_selected_event_dispatches_move_intent():
     try:
         _render_for_hit_testing(widget)
 
-        for rect, _, _, candidate_event_id in widget._canvas._event_rects:
-            if str(candidate_event_id) == "main_evt":
-                start = rect.center().toPoint()
-                break
-        else:
-            raise AssertionError("Missing event rect for main_evt")
+        spec = _event_spec_for_id(widget, "main_evt")
+        if spec is None:
+            raise AssertionError("Missing event spec for main_evt")
+        start = QRectF(*spec.rect).center().toPoint()
 
         _mouse_drag(widget._canvas, [start, QPoint(start.x() + 100, start.y())])
 
@@ -3215,15 +3364,13 @@ def test_dragging_selected_event_over_other_event_layer_dispatches_transfer_targ
     try:
         _render_for_hit_testing(widget)
 
-        for rect, _, _, candidate_event_id in widget._canvas._event_rects:
-            if str(candidate_event_id) == "main_evt":
-                start = rect.center().toPoint()
-                break
-        else:
-            raise AssertionError("Missing event rect for main_evt")
+        spec = _event_spec_for_id(widget, "main_evt")
+        if spec is None:
+            raise AssertionError("Missing event spec for main_evt")
+        start = QRectF(*spec.rect).center().toPoint()
 
         target_rect = next(
-            rect for rect, layer_id in widget._canvas._event_drop_rects if layer_id == LayerId("layer_snare")
+            rect for rect, layer_id in widget._canvas.event_drop_regions() if layer_id == LayerId("layer_snare")
         )
         target = QPoint(start.x(), int(target_rect.center().y()))
 

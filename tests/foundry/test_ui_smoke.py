@@ -133,7 +133,8 @@ def test_foundry_window_desktop_workflow_exposes_run_artifact_and_eval(tmp_path:
                 "dataset_summary": window.dataset_summary.toPlainText(),
                 "run_summary": window.run_summary.toPlainText(),
                 "artifact_summary": window.artifact_summary.toPlainText(),
-                "run_count": window.run_list.count(),
+                "run_count": window.run_overview.rowCount(),
+                "past_run_count": window.past_runs_overview.rowCount(),
                 "artifact_count": window.artifact_list.count(),
                 "eval_count": window.eval_list.count(),
             }))
@@ -152,6 +153,7 @@ def test_foundry_window_desktop_workflow_exposes_run_artifact_and_eval(tmp_path:
     assert "Status: completed" in payload["run_summary"]
     assert "Validation: ok=True" in payload["artifact_summary"]
     assert payload["run_count"] == 1
+    assert payload["past_run_count"] == 1
     assert payload["artifact_count"] == 1
     assert payload["eval_count"] == 1
 
@@ -200,7 +202,8 @@ def test_foundry_window_loads_existing_workspace_state(tmp_path: Path):
             app = QApplication.instance() or QApplication([])
             window = FoundryWindow(root)
             print(json.dumps({
-                "run_count": window.run_list.count(),
+                "run_count": window.run_overview.rowCount(),
+                "past_run_count": window.past_runs_overview.rowCount(),
                 "artifact_count": window.artifact_list.count(),
                 "eval_count": window.eval_list.count(),
                 "dataset_summary": window.dataset_summary.toPlainText(),
@@ -216,5 +219,6 @@ def test_foundry_window_loads_existing_workspace_state(tmp_path: Path):
     assert payload["run_count"] == 1
     assert payload["artifact_count"] == 1
     assert payload["eval_count"] == 1
+    assert payload["past_run_count"] == 1
     assert "Existing Drums" in payload["dataset_summary"]
     assert "Status: completed" in payload["run_summary"]

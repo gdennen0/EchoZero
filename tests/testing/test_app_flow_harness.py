@@ -6,6 +6,7 @@ from pathlib import Path
 
 from echozero.application.timeline.intents import ToggleLayerExpanded
 from echozero.testing.app_flow import AppFlowHarness
+from echozero.testing.analysis_mocks import write_test_wav
 
 _TEST_TEMP_ROOT = Path("C:/Users/griff/.codex/memories/test_app_flow_harness")
 
@@ -21,6 +22,9 @@ def test_app_flow_harness_dispatch_and_launcher_actions():
     harness = AppFlowHarness(working_dir_root=temp_root / "working")
 
     try:
+        audio_path = write_test_wav(temp_root / "fixtures" / "appflow-harness.wav")
+        harness.runtime.add_song_from_path("Harness Song", audio_path)
+
         layer_id = harness.presentation().layers[0].layer_id
 
         harness.dispatch(ToggleLayerExpanded(layer_id))

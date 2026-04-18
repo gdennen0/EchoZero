@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 from echozero.foundry.app import FoundryApp
@@ -190,3 +191,63 @@ def test_synthetic_provenance_persisted_and_surfaced(tmp_path: Path):
     assert artifact.manifest["syntheticProvenance"]["syntheticSampleIds"] == [synthetic_id]
     assert artifact.manifest["syntheticProvenance"]["syntheticSampleCount"] == 1
     assert artifact.manifest["trainingSummary"]["syntheticMix"]["actualSyntheticCount"] == 1
+
+
+def test_run_list_includes_untracked_run_directories(tmp_path: Path):
+    samples = tmp_path / "samples"
+    write_percussion_dataset(samples)
+    app = FoundryApp(tmp_path)
+    dataset = app.datasets.create_dataset("Directory Drift Drums")
+    version = app.datasets.ingest_from_folder(dataset.id, samples)
+    app.plan_version(version.id, validation_split=0.15, test_split=0.10, seed=42, balance_strategy="none")
+    run = app.runs.create_run(
+        version.id,
+        {
+            "schema": "foundry.train_run_spec.v1",
+            "classificationMode": "multiclass",
+            "data": {
+                "datasetVersionId": version.id,
+                "sampleRate": 22050,
+                "maxLength": 22050,
+                "nFft": 2048,
+                "hopLength": 512,
+                "nMels": 128,
+                "fmax": 8000,
+            },
+            "training": {"epochs": 1, "batchSize": 2, "learningRate": 0.01, "seed": 23},
+        },
+    )
+
+    runs_root = tmp_path / "foundry" / "runs"
+    orphan_with_spec = runs_root / "run_orphan_with_spec"
+    orphan_with_spec.mkdir(parents=True, exist_ok=True)
+    (orphan_with_spec / "spec.json").write_text(
+        json.dumps(
+            {
+                "schema": "foundry.train_run_spec.v1",
+                "classificationMode": "multiclass",
+                "data": {
+                    "datasetVersionId": version.id,
+                },
+                "training": {
+                    "epochs": 3,
+                    "batchSize": 4,
+                    "learningRate": 0.01,
+                    "seed": 77,
+                },
+            },
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    (orphan_with_spec / "events.jsonl").write_text(
+        json.dumps({"type": "RUN_COMPLETED", "payload": {"status": "completed"}}) + "\n",
+        encoding="utf-8",
+    )
+    orphan_without_spec = runs_root / "run_orphan_without_spec"
+    orphan_without_spec.mkdir(parents=True, exist_ok=True)
+
+    run_ids = {item.id for item in app.runs.list_runs()}
+    assert run.id in run_ids
+    assert "run_orphan_with_spec" in run_ids
+    assert "run_orphan_without_spec" in run_ids
