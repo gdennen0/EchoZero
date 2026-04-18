@@ -124,6 +124,22 @@ def Classify(**settings: Any) -> BlockSpec:
     )
 
 
+def BinaryDrumClassify(**settings: Any) -> BlockSpec:
+    """Classify drum onsets into one event layer per target drum class."""
+    return BlockSpec(
+        block_type="BinaryDrumClassify",
+        name="Binary Drum Classify",
+        input_ports=(
+            PortSpec("audio_in", PortType.AUDIO, Direction.INPUT),
+            PortSpec("events_in", PortType.EVENT, Direction.INPUT),
+        ),
+        output_ports=(
+            PortSpec("events_out", PortType.EVENT, Direction.OUTPUT),
+        ),
+        settings=settings,
+    )
+
+
 def TranscribeNotes(**settings: Any) -> BlockSpec:
     """Transcribe notes from audio (pitch, duration, velocity)."""
     return BlockSpec(
@@ -222,4 +238,3 @@ def DatasetViewer(**settings: Any) -> BlockSpec:
         output_ports=(),
         settings=settings,
     )
-

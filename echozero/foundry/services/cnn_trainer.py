@@ -14,6 +14,7 @@ import torch
 from sklearn.metrics import accuracy_score, confusion_matrix, log_loss, precision_recall_fscore_support
 
 from echozero.foundry.domain import DatasetSample, DatasetVersion, TrainRun
+from echozero.runtime_models.architectures import SimpleCnnRuntimeModel
 from echozero.foundry.services.baseline_trainer import BaselineTrainer, BaselineTrainingResult, RunCanceledError
 from echozero.foundry.services.training_runtime import (
     compute_config_fingerprint,
@@ -23,26 +24,7 @@ from echozero.foundry.services.training_runtime import (
 )
 
 
-class _SimpleCnn(torch.nn.Module):
-    def __init__(self, num_classes: int):
-        super().__init__()
-        self.features = torch.nn.Sequential(
-            torch.nn.Conv2d(1, 16, kernel_size=3, padding=1),
-            torch.nn.ReLU(),
-            torch.nn.MaxPool2d(kernel_size=2),
-            torch.nn.Conv2d(16, 32, kernel_size=3, padding=1),
-            torch.nn.ReLU(),
-            torch.nn.AdaptiveAvgPool2d((8, 8)),
-        )
-        self.classifier = torch.nn.Sequential(
-            torch.nn.Flatten(),
-            torch.nn.Linear(32 * 8 * 8, 64),
-            torch.nn.ReLU(),
-            torch.nn.Linear(64, num_classes),
-        )
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return self.classifier(self.features(x))
+_SimpleCnn = SimpleCnnRuntimeModel
 
 
 @dataclass(slots=True)

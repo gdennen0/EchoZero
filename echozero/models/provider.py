@@ -22,7 +22,7 @@ when available, but degrades gracefully to manual model management if not instal
 
 Design decisions:
 - HuggingFace Hub is the distribution channel (industry standard for ML models)
-- Downloads go to the models directory managed by ModelRegistry
+- Downloads go to the app-managed installed-models directory managed by ModelRegistry
 - Progress callbacks for UI integration (download bars, notifications)
 - Update checks are explicit (not automatic) — user controls when to download
 - Provider is injectable for testing (no real HTTP in tests)
@@ -46,8 +46,12 @@ from echozero.models.registry import (
     ModelStatus,
     ModelType,
 )
+from echozero.models.paths import ensure_installed_models_dir
 
 logger = logging.getLogger(__name__)
+
+# Canonical user-local runtime model install root.
+DEFAULT_MODELS_DIR = ensure_installed_models_dir()
 
 
 # ---------------------------------------------------------------------------
