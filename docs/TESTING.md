@@ -38,6 +38,7 @@ python -m echozero.testing.run --lane appflow-sync
 python -m echozero.testing.run --lane appflow-osc
 python -m echozero.testing.run --lane appflow-protocol
 python -m echozero.testing.run --lane appflow-all
+python -m echozero.testing.run --lane ui-automation
 python -m echozero.testing.run --lane gui-lane-b
 python -m echozero.testing.run --lane humanflow-all
 ```
@@ -89,13 +90,15 @@ Run:
 
 1. targeted pytest slice
 2. `python -m echozero.testing.run --lane appflow`
-3. `python -m echozero.testing.run --lane gui-lane-b` when visible timeline behavior changed and you need deterministic GUI regression coverage
-4. `python -m echozero.testing.run --lane humanflow-all` when the goal is broad human-task automation coverage across launcher, shell, and app contracts
+3. `python -m echozero.testing.run --lane ui-automation` when the goal is canonical app automation coverage through the shared client and live bridge surfaces
+4. `python -m echozero.testing.run --lane gui-lane-b` when visible timeline behavior changed and you need deterministic simulated GUI regression coverage
+5. `python -m echozero.testing.run --lane humanflow-all` when the goal is broad human-task automation coverage across launcher, shell, and app contracts
 
 Lane meaning:
 
+- `ui-automation` is the canonical app automation lane. It covers the shared automation client, the in-process harness-backed backend, and the live bridge.
 - `gui-lane-b` is a simulated GUI regression lane. Recorded artifacts from this lane are useful for coverage and review, but they are not human-path demo proof.
-- `humanflow-all` is the broad automation lane. It exercises more of the app path, but playback/demo claims still require real launcher/runtime actions, real inputs, and no simulated analysis or audio injection.
+- `humanflow-all` is the broad app-path automation lane. It excludes `gui-lane-b`, but playback/demo claims still require real launcher/runtime actions, real inputs, and no simulated analysis or audio injection.
 
 ### Release-affecting change
 

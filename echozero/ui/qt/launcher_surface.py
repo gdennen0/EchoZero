@@ -12,7 +12,7 @@ from pathlib import Path
 from PyQt6.QtGui import QAction, QKeySequence
 from PyQt6.QtWidgets import QFileDialog, QMessageBox
 
-from echozero.ui.qt.app_shell import AppRuntimeProfile, AppShellRuntime, build_app_shell
+from echozero.ui.qt.app_shell import AppShellRuntime, build_app_shell
 from echozero.ui.qt.timeline.widget import TimelineWidget
 
 
@@ -160,7 +160,6 @@ class LauncherController:
 
 def build_launcher_surface(
     *,
-    profile: AppRuntimeProfile = AppRuntimeProfile.PRODUCTION,
     working_dir_root: Path | None = None,
     initial_project_name: str = "EchoZero Project",
     analysis_service=None,
@@ -170,7 +169,6 @@ def build_launcher_surface(
     """Build the canonical shell widget/controller pair around AppShellRuntime."""
 
     runtime = build_app_shell(
-        profile=profile,
         sync_bridge=sync_bridge,
         sync_service=sync_service,
         analysis_service=analysis_service,

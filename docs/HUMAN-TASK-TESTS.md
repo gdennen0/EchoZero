@@ -29,10 +29,6 @@ Run the full current suite with:
   import, stems, drum events, classification, drag, scroll, transport play/pause/stop, pointer movement, and sync enable/disable.
 - [tests/ui_automation/test_bridge_server.py](/Users/march/Documents/GitHub/EchoZero/tests/ui_automation/test_bridge_server.py:1)
   Proves the live HTTP automation bridge can expose health and snapshot against a real EchoZero surface.
-- [tests/testing/test_gui_dsl.py](/Users/march/Documents/GitHub/EchoZero/tests/testing/test_gui_dsl.py:1)
-  Proves scenario parsing/validation for scripted human-style flows.
-- [tests/testing/test_gui_lane_b.py](/Users/march/Documents/GitHub/EchoZero/tests/testing/test_gui_lane_b.py:1)
-  Proves the higher-level operator scenario runner, screenshots, and trace/video outputs.
 - [tests/application/test_manual_transfer_pull_flow.py](/Users/march/Documents/GitHub/EchoZero/tests/application/test_manual_transfer_pull_flow.py:1)
   Proves app-contract behavior for pull flows.
 - [tests/application/test_manual_transfer_push_flow.py](/Users/march/Documents/GitHub/EchoZero/tests/application/test_manual_transfer_push_flow.py:1)
@@ -69,3 +65,8 @@ Not yet fully covered:
 - MA3 real hardware interaction
 
 Those remaining gaps should be treated as the next expansion list, not as solved.
+
+Simulated-but-useful coverage that is intentionally outside `humanflow-all`:
+
+- [tests/testing/test_gui_dsl.py](/Users/march/Documents/GitHub/EchoZero/tests/testing/test_gui_dsl.py:1)
+- [tests/testing/test_gui_lane_b.py](/Users/march/Documents/GitHub/EchoZero/tests/testing/test_gui_lane_b.py:1)

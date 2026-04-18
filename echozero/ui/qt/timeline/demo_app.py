@@ -1,4 +1,7 @@
-"""Runnable demo/testing loop for the new Stage Zero timeline shell."""
+"""Demo-only timeline fixture app for tests and screenshots.
+Exists to build synthetic timeline states without project/runtime wiring.
+Never use this module in the canonical user launch or app-shell runtime path.
+"""
 
 from __future__ import annotations
 
@@ -655,6 +658,7 @@ def _select_event(
 
 
 def build_demo_presentation() -> TimelinePresentation:
+    """Build the synthetic fixture presentation used by timeline-only tests."""
     return load_realistic_timeline_fixture()
 
 
@@ -663,6 +667,7 @@ def build_demo_app(
     sync_bridge: MA3SyncBridge | None = None,
     sync_service: SyncService | None = None,
 ) -> DemoTimelineApp:
+    """Build the synthetic demo app used by timeline fixture tests only."""
     presentation = build_demo_presentation()
     session = Session(
         id=SessionId('session_demo'),
@@ -705,6 +710,7 @@ def build_real_data_demo_app(
     song_title: str = "Doechii Nissan Altima",
     runtime_audio: TimelineRuntimeAudioController | None = None,
 ) -> tuple[DemoTimelineApp, object]:
+    """Build a demo app around real data fixtures for explicit demo/test flows only."""
     from echozero.ui.qt.timeline.real_data_fixture import build_real_data_presentation
 
     presentation, summary = build_real_data_presentation(

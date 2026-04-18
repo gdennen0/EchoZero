@@ -12,7 +12,7 @@ from echozero.application.shared.enums import SyncMode
 from echozero.application.sync.service import SyncService
 from echozero.services.orchestrator import AnalysisService
 from echozero.testing.ma3 import OSCLoopback, OSCMessageCapture, SimulatedMA3Bridge
-from echozero.ui.qt.app_shell import AppRuntimeProfile, AppShellRuntime
+from echozero.ui.qt.app_shell import AppShellRuntime
 from echozero.ui.qt.launcher_surface import build_launcher_surface
 
 _APPFLOW_TEMP_ROOT = Path("C:/Users/griff/.codex/memories/echozero_appflow")
@@ -45,7 +45,6 @@ class AppFlowHarness:
         self.ma3_bridge = SimulatedMA3Bridge() if simulate_ma3 else None
         self.ma3_osc_loopback = OSCLoopback().start() if simulate_ma3_osc else None
         surface = build_launcher_surface(
-            profile=AppRuntimeProfile.TEST,
             sync_bridge=self.ma3_bridge,
             sync_service=sync_service,
             working_dir_root=self._working_dir_root,

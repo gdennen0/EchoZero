@@ -3,6 +3,7 @@
 from .echozero import (
     EchoZeroAutomationBackend,
     EchoZeroAutomationProvider,
+    HarnessEchoZeroAutomationProvider,
     LiveEchoZeroAutomationBackend,
     LiveEchoZeroAutomationProvider,
 )
@@ -10,6 +11,7 @@ from .echozero import (
 __all__ = [
     "EchoZeroAutomationBackend",
     "EchoZeroAutomationProvider",
+    "HarnessEchoZeroAutomationProvider",
     "LiveEchoZeroAutomationBackend",
     "LiveEchoZeroAutomationProvider",
 ]

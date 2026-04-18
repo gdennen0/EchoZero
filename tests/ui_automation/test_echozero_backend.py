@@ -4,7 +4,7 @@ import shutil
 import uuid
 from pathlib import Path
 
-from ui_automation import AutomationSession, EchoZeroAutomationProvider
+from ui_automation import AutomationSession, HarnessEchoZeroAutomationProvider
 
 from echozero.testing.analysis_mocks import build_mock_analysis_service, write_test_model, write_test_wav
 
@@ -21,7 +21,7 @@ def test_echozero_backend_imports_song_and_exposes_timeline_targets():
     temp_root = _repo_local_temp_root()
     audio_path = write_test_wav(temp_root / "fixtures" / "automation-import.wav")
     session = AutomationSession.attach(
-        EchoZeroAutomationProvider(
+        HarnessEchoZeroAutomationProvider(
             working_dir_root=temp_root / "working",
             analysis_service=build_mock_analysis_service(),
         )
@@ -49,7 +49,7 @@ def test_echozero_backend_drives_stems_events_and_classification_flow():
     audio_path = write_test_wav(temp_root / "fixtures" / "automation-flow.wav")
     model_path = write_test_model(temp_root / "fixtures" / "automation-model.pth")
     session = AutomationSession.attach(
-        EchoZeroAutomationProvider(
+        HarnessEchoZeroAutomationProvider(
             working_dir_root=temp_root / "working",
             analysis_service=build_mock_analysis_service(),
         )
@@ -87,8 +87,9 @@ def test_echozero_backend_drags_selected_event_and_scrolls_timeline():
     temp_root = _repo_local_temp_root()
     audio_path = write_test_wav(temp_root / "fixtures" / "automation-drag.wav")
     session = AutomationSession.attach(
-        EchoZeroAutomationProvider(
+        HarnessEchoZeroAutomationProvider(
             working_dir_root=temp_root / "working",
+            window_width=320,
             analysis_service=build_mock_analysis_service(),
         )
     )
@@ -114,9 +115,6 @@ def test_echozero_backend_drags_selected_event_and_scrolls_timeline():
         assert moved_event.time_seconds is not None
         assert moved_event.time_seconds > before_time
 
-        session.backend._harness.widget.resize(320, 720)
-        session.backend._harness.widget.set_presentation(session.backend._harness.widget.presentation)
-
         before_scroll = session.find_target("shell.timeline")
         assert before_scroll is not None
         before_scroll_x = float(before_scroll.metadata["scroll_x"])
@@ -133,7 +131,7 @@ def test_echozero_backend_drives_transport_actions():
     temp_root = _repo_local_temp_root()
     audio_path = write_test_wav(temp_root / "fixtures" / "automation-project.wav")
     session = AutomationSession.attach(
-        EchoZeroAutomationProvider(
+        HarnessEchoZeroAutomationProvider(
             working_dir_root=temp_root / "working",
             analysis_service=build_mock_analysis_service(),
         )
@@ -163,7 +161,7 @@ def test_echozero_backend_tracks_pointer_hover_and_double_click():
     temp_root = _repo_local_temp_root()
     audio_path = write_test_wav(temp_root / "fixtures" / "automation-pointer.wav")
     session = AutomationSession.attach(
-        EchoZeroAutomationProvider(
+        HarnessEchoZeroAutomationProvider(
             working_dir_root=temp_root / "working",
             analysis_service=build_mock_analysis_service(),
         )
@@ -198,7 +196,7 @@ def test_echozero_backend_exposes_selected_object_capabilities():
     temp_root = _repo_local_temp_root()
     audio_path = write_test_wav(temp_root / "fixtures" / "automation-object.wav")
     session = AutomationSession.attach(
-        EchoZeroAutomationProvider(
+        HarnessEchoZeroAutomationProvider(
             working_dir_root=temp_root / "working",
             analysis_service=build_mock_analysis_service(),
         )
@@ -229,7 +227,7 @@ def test_echozero_backend_drives_sync_enable_disable_flow():
     temp_root = _repo_local_temp_root()
     audio_path = write_test_wav(temp_root / "fixtures" / "automation-sync.wav")
     session = AutomationSession.attach(
-        EchoZeroAutomationProvider(
+        HarnessEchoZeroAutomationProvider(
             working_dir_root=temp_root / "working",
             analysis_service=build_mock_analysis_service(),
             simulate_ma3=True,

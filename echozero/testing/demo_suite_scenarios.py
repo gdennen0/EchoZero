@@ -25,7 +25,7 @@ from echozero.application.presentation.models import (
 from echozero.application.shared.enums import SyncMode
 from echozero.application.sync.models import LiveSyncState
 from echozero.application.timeline.intents import Pause, Play, Seek, SelectEvent, SelectLayer, Stop, ToggleLayerExpanded
-from echozero.ui.qt.app_shell import AppRuntimeProfile, AppShellRuntime, build_app_shell
+from echozero.ui.qt.app_shell import AppShellRuntime, build_app_shell
 from echozero.ui.qt.font_bootstrap import ensure_qt_fonts_available
 from echozero.ui.qt.timeline.demo_app import build_demo_app, build_real_data_demo_app
 from echozero.ui.qt.timeline.test_harness import estimate_full_window_height
@@ -338,7 +338,6 @@ def canonical_app_lifecycle(*, run_folder: Path, record: bool, fps: int, **_: ob
     project_path = scenario_root / "real-app-demo.ez"
     audio_path = write_test_wav(scenario_root / "fixtures" / "canonical-app-demo.wav")
     runtime = build_app_shell(
-        profile=AppRuntimeProfile.PRODUCTION,
         working_dir_root=working_root,
         initial_project_name="EchoZero Demo Suite",
     )

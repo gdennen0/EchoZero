@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -7,7 +8,7 @@ from typing import Any
 from PyQt6.QtCore import QByteArray, QBuffer, QIODevice, QPoint, QPointF, QRect, Qt
 from PyQt6.QtGui import QMouseEvent
 from PyQt6.QtTest import QTest
-from PyQt6.QtWidgets import QApplication, QWidget
+from PyQt6.QtWidgets import QApplication, QFileDialog, QInputDialog, QWidget
 
 from echozero.application.presentation.inspector_contract import InspectorAction, build_timeline_inspector_contract
 from echozero.application.shared.enums import SyncMode
@@ -26,9 +27,13 @@ from ...core.models import (
 
 
 @dataclass(slots=True)
-class EchoZeroAutomationProvider:
+class HarnessEchoZeroAutomationProvider:
+    """In-process EchoZero automation provider for internal test support only."""
+
     working_dir_root: Path | None = None
     initial_project_name: str = "EchoZero Automation"
+    window_width: int = 1440
+    window_height: int = 720
     analysis_service: Any | None = None
     sync_service: Any | None = None
     simulate_ma3: bool = False
@@ -43,6 +48,9 @@ class EchoZeroAutomationProvider:
             analysis_service=self.analysis_service,
             sync_service=self.sync_service,
         )
+        harness.widget.resize(self.window_width, self.window_height)
+        harness.widget.show()
+        harness._app.processEvents()
         return EchoZeroAutomationBackend(harness)
 
 
@@ -68,6 +76,30 @@ class _SurfaceAutomationHarness:
         action.trigger()
         self._app.processEvents()
         return self.runtime.presentation()
+
+    def queue_open_path(self, path: str | Path) -> Path:
+        queued = Path(path)
+        original = self.launcher._choose_open_path
+        self.launcher._choose_open_path = lambda: queued  # type: ignore[method-assign]
+        self._queued_open_restore = original
+        return queued
+
+    def queue_save_path(self, path: str | Path) -> Path:
+        queued = Path(path)
+        original = self.launcher._choose_save_path
+        self.launcher._choose_save_path = lambda: queued  # type: ignore[method-assign]
+        self._queued_save_restore = original
+        return queued
+
+    def restore_dialog_paths(self) -> None:
+        restore_open = getattr(self, "_queued_open_restore", None)
+        if restore_open is not None:
+            self.launcher._choose_open_path = restore_open  # type: ignore[method-assign]
+            self._queued_open_restore = None
+        restore_save = getattr(self, "_queued_save_restore", None)
+        if restore_save is not None:
+            self.launcher._choose_save_path = restore_save  # type: ignore[method-assign]
+            self._queued_save_restore = None
 
     def enable_sync(self, mode: SyncMode = SyncMode.MA3):
         state = self.runtime.enable_sync(mode)
@@ -450,60 +482,61 @@ class EchoZeroAutomationBackend:
             self._harness.disable_sync()
         elif action_id == "app.new":
             project_name = str(payload.get("name", "EchoZero Project"))
-            self._harness.runtime.new_project(project_name)
-            self._harness.widget.set_presentation(self._harness.runtime.presentation())
-            QApplication.processEvents()
+            if project_name == "EchoZero Project":
+                self._harness.trigger_action("new_project")
+            else:
+                self._harness.runtime.new_project(project_name)
+                self._harness.widget.set_presentation(self._harness.runtime.presentation())
+                QApplication.processEvents()
         elif action_id == "app.save":
             project_path = payload.get("path")
             if project_path is not None:
                 target_path = Path(str(project_path))
                 target_path.parent.mkdir(parents=True, exist_ok=True)
-                self._harness.runtime.save_project_as(target_path)
+                self._harness.queue_save_path(target_path)
+                try:
+                    self._harness.trigger_action("save_project")
+                finally:
+                    self._restore_dialog_paths()
             else:
-                self._harness.runtime.save_project()
-            self._harness.widget.set_presentation(self._harness.runtime.presentation())
-            QApplication.processEvents()
+                self._harness.trigger_action("save_project")
         elif action_id == "app.save_as":
             if "path" not in payload:
                 raise ValueError("app.save_as requires params.path")
             target_path = Path(str(payload["path"]))
             target_path.parent.mkdir(parents=True, exist_ok=True)
-            self._harness.runtime.save_project_as(target_path)
-            self._harness.widget.set_presentation(self._harness.runtime.presentation())
-            QApplication.processEvents()
+            self._harness.queue_save_path(target_path)
+            try:
+                self._harness.trigger_action("save_project_as")
+            finally:
+                self._restore_dialog_paths()
         elif action_id == "app.open":
             if "path" not in payload:
                 raise ValueError("app.open requires params.path")
-            self._harness.runtime.open_project(Path(str(payload["path"])))
-            self._harness.widget.set_presentation(self._harness.runtime.presentation())
-            QApplication.processEvents()
+            self._harness.queue_open_path(Path(str(payload["path"])))
+            try:
+                self._harness.trigger_action("open_project")
+            finally:
+                self._restore_dialog_paths()
         elif action_id == "add_song_from_path":
-            self._harness.runtime.add_song_from_path(
-                str(payload["title"]),
-                Path(str(payload["audio_path"])),
-            )
-            self._harness.widget.set_presentation(self._harness.runtime.presentation())
+            contract_action = self._require_contract_action("add_song_from_path")
+            with self._dialog_overrides(
+                text_responses=[(str(payload["title"]), True)],
+                open_file_responses=[(str(payload["audio_path"]), "")],
+            ):
+                self._harness.widget._trigger_contract_action(contract_action)
             QApplication.processEvents()
-        elif action_id == "extract_stems":
-            self._harness.runtime.extract_stems(self._require_selected_layer_id(action_id))
-            self._harness.widget.set_presentation(self._harness.runtime.presentation())
-            QApplication.processEvents()
-        elif action_id == "extract_drum_events":
-            self._harness.runtime.extract_drum_events(self._require_selected_layer_id(action_id))
-            self._harness.widget.set_presentation(self._harness.runtime.presentation())
+        elif action_id in {"extract_stems", "extract_drum_events", "extract_classified_drums"}:
+            self._harness.widget._trigger_contract_action(self._require_contract_action(action_id))
             QApplication.processEvents()
         elif action_id == "classify_drum_events":
-            self._harness.runtime.classify_drum_events(
-                self._require_selected_layer_id(action_id),
-                Path(str(payload["model_path"])),
-            )
-            self._harness.widget.set_presentation(self._harness.runtime.presentation())
+            with self._dialog_overrides(
+                open_file_responses=[(str(payload["model_path"]), "")],
+            ):
+                self._harness.widget._trigger_contract_action(self._require_contract_action(action_id))
             QApplication.processEvents()
         else:
-            contract_action = self._find_contract_action(action_id)
-            if contract_action is None:
-                raise ValueError(f"Unsupported action: {action_id}")
-            self._harness.widget._trigger_contract_action(contract_action)
+            self._harness.widget._trigger_contract_action(self._require_contract_action(action_id))
             QApplication.processEvents()
         return self.snapshot()
 
@@ -544,11 +577,46 @@ class EchoZeroAutomationBackend:
                     return action
         return None
 
-    def _require_selected_layer_id(self, action_name: str):
-        layer_id = self._harness.presentation().selected_layer_id
-        if layer_id is None:
-            raise RuntimeError(f"{action_name} requires a selected layer target")
-        return layer_id
+    def _require_contract_action(self, action_id: str) -> InspectorAction:
+        action = self._find_contract_action(action_id)
+        if action is None:
+            raise ValueError(f"Unsupported action: {action_id}")
+        return action
+
+    def _restore_dialog_paths(self) -> None:
+        restore = getattr(self._harness, "restore_dialog_paths", None)
+        if callable(restore):
+            restore()
+
+    @contextmanager
+    def _dialog_overrides(
+        self,
+        *,
+        text_responses: list[tuple[str, bool]] | None = None,
+        open_file_responses: list[tuple[str, str]] | None = None,
+    ):
+        original_get_text = QInputDialog.getText
+        original_get_open = QFileDialog.getOpenFileName
+        queued_text = list(text_responses or [])
+        queued_open = list(open_file_responses or [])
+
+        def _get_text(*_args, **_kwargs):
+            if queued_text:
+                return queued_text.pop(0)
+            return ("", False)
+
+        def _get_open(*_args, **_kwargs):
+            if queued_open:
+                return queued_open.pop(0)
+            return ("", "")
+
+        QInputDialog.getText = staticmethod(_get_text)  # type: ignore[method-assign]
+        QFileDialog.getOpenFileName = staticmethod(_get_open)  # type: ignore[method-assign]
+        try:
+            yield
+        finally:
+            QInputDialog.getText = original_get_text  # type: ignore[method-assign]
+            QFileDialog.getOpenFileName = original_get_open  # type: ignore[method-assign]
 
     def _automation_actions_from_contract(self, contract) -> list[AutomationAction]:
         actions: list[AutomationAction] = []

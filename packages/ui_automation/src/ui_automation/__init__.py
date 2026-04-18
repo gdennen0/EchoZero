@@ -12,6 +12,7 @@ from .core import (
 from .adapters import (
     EchoZeroAutomationBackend,
     EchoZeroAutomationProvider,
+    HarnessEchoZeroAutomationProvider,
     LiveEchoZeroAutomationBackend,
     LiveEchoZeroAutomationProvider,
 )
@@ -21,6 +22,7 @@ __all__ = [
     "AutomationBounds",
     "EchoZeroAutomationBackend",
     "EchoZeroAutomationProvider",
+    "HarnessEchoZeroAutomationProvider",
     "LiveEchoZeroAutomationBackend",
     "LiveEchoZeroAutomationProvider",
     "AutomationHitTarget",

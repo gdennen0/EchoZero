@@ -9,7 +9,7 @@ surfaces.
 - `echozero/ui/qt/launcher_surface.py` is the shared shell assembly used by:
   - the launcher
   - `echozero/testing/app_flow.py`
-  - `packages/ui_automation/.../echozero/provider.py`
+  - the live automation bridge backend
 
 This means the app a developer launches and the app the automation harness
 drives now share the same widget/controller construction path.
@@ -20,7 +20,7 @@ Use these layers in order:
 
 1. `AppShellRuntime`
 2. `LauncherSurface`
-3. `AppFlowHarness`
+3. `AutomationBridgeServer`
 4. `EchoZeroAutomationProvider`
 
 Interpretation:
@@ -28,9 +28,11 @@ Interpretation:
 - `AppShellRuntime` is the canonical non-demo runtime.
 - `LauncherSurface` wraps that runtime in the actual Stage Zero shell widget and
   project lifecycle actions.
-- `AppFlowHarness` runs that shell in-process for proof lanes.
-- `EchoZeroAutomationProvider` exposes semantic snapshot/click/drag/scroll/key
-  control over the real shell surface.
+- `AutomationBridgeServer` exposes the live app surface over localhost.
+- `EchoZeroAutomationProvider` is the preferred public provider name and now
+  points at the live bridge client.
+- `HarnessEchoZeroAutomationProvider` is internal test support for in-process
+  proof and should not be treated as the default agent/app automation entrypoint.
 
 ### What this is for
 
@@ -46,6 +48,8 @@ Use this path when you need to:
 
 - `echozero/testing/e2e/adapters.py` still contains a demo-oriented driver and
   should not be treated as the primary app-path harness.
+- `HarnessEchoZeroAutomationProvider` is not the default external automation
+  surface.
 
 ### Proof lanes
 
@@ -53,5 +57,6 @@ Minimum proof for changes in this area:
 
 - `tests/testing/test_app_flow_harness.py`
 - `tests/ui_automation/test_echozero_backend.py`
+- `tests/ui_automation/test_bridge_server.py`
 - `tests/ui/test_run_echozero_launcher.py`
 - `python -m echozero.testing.run --lane appflow`
