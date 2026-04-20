@@ -6,7 +6,6 @@ from echozero.application.mixer.models import AudibilityState, MixerState
 from echozero.application.mixer.service import MixerService
 from echozero.application.playback.models import PlaybackState
 from echozero.application.playback.service import PlaybackService
-from echozero.application.timeline.assembler import TimelineAssembler
 from echozero.application.session.models import Session
 from echozero.application.session.service import SessionService
 from echozero.application.shared.enums import LayerKind
@@ -20,20 +19,25 @@ from echozero.application.shared.ids import (
     TakeId,
     TimelineId,
 )
+from echozero.application.shared.ranges import TimeRange
 from echozero.application.sync.models import SyncState
 from echozero.application.sync.service import SyncService
+from echozero.application.timeline.assembler import TimelineAssembler
 from echozero.application.timeline.intents import (
     ClearSelection,
+    CreateEvent,
+    DeleteEvents,
     DuplicateSelectedEvents,
     MoveSelectedEvents,
     NudgeSelectedEvents,
-    SelectEvent,
     SelectAllEvents,
+    SelectEvent,
     SelectTake,
     SetActivePlaybackTarget,
+    SetGain,
+    SetSelectedEvents,
     Stop,
     ToggleLayerExpanded,
-    SetGain,
     TriggerTakeAction,
 )
 from echozero.application.timeline.models import Event, Layer, Take, Timeline
@@ -116,7 +120,10 @@ class _MixerService(MixerService):
         return self._state
 
     def resolve_audibility(self, layers: list[Layer]) -> list[AudibilityState]:
-        return [AudibilityState(layer_id=layer.id, is_audible=True, reason="default") for layer in layers]
+        return [
+            AudibilityState(layer_id=layer.id, is_audible=True, reason="default")
+            for layer in layers
+        ]
 
 
 class _PlaybackService(PlaybackService):
@@ -332,11 +339,18 @@ def test_select_event_additive_and_toggle_preserve_deterministic_take_context():
 
     orchestrator.handle(
         timeline,
-        SelectEvent(layer_id=layer.id, take_id=main_take.id, event_id=main_take.events[0].id, mode="replace"),
+        SelectEvent(
+            layer_id=layer.id,
+            take_id=main_take.id,
+            event_id=main_take.events[0].id,
+            mode="replace",
+        ),
     )
     orchestrator.handle(
         timeline,
-        SelectEvent(layer_id=layer.id, take_id=alt_take.id, event_id=alt_take.events[0].id, mode="additive"),
+        SelectEvent(
+            layer_id=layer.id, take_id=alt_take.id, event_id=alt_take.events[0].id, mode="additive"
+        ),
     )
 
     assert timeline.selection.selected_event_ids == [main_take.events[0].id, alt_take.events[0].id]
@@ -344,7 +358,9 @@ def test_select_event_additive_and_toggle_preserve_deterministic_take_context():
 
     orchestrator.handle(
         timeline,
-        SelectEvent(layer_id=layer.id, take_id=alt_take.id, event_id=alt_take.events[0].id, mode="toggle"),
+        SelectEvent(
+            layer_id=layer.id, take_id=alt_take.id, event_id=alt_take.events[0].id, mode="toggle"
+        ),
     )
 
     assert timeline.selection.selected_event_ids == [main_take.events[0].id]
@@ -352,7 +368,9 @@ def test_select_event_additive_and_toggle_preserve_deterministic_take_context():
 
     orchestrator.handle(
         timeline,
-        SelectEvent(layer_id=layer.id, take_id=alt_take.id, event_id=main_take.events[0].id, mode="toggle"),
+        SelectEvent(
+            layer_id=layer.id, take_id=alt_take.id, event_id=main_take.events[0].id, mode="toggle"
+        ),
     )
 
     assert timeline.selection.selected_event_ids == []
@@ -452,6 +470,79 @@ def test_select_all_events_without_selected_layer_uses_visible_unlocked_layers_o
         visible_take.events[0].id,
     ]
     assert timeline.selection.selected_take_id == main_take.id
+
+
+def test_set_selected_events_preserves_cross_layer_batch_selection_context():
+    orchestrator, timeline, layer, main_take, _alt_take = _build_orchestrator_and_timeline()
+    other_take = Take(
+        id=TakeId("take_snare_main"),
+        layer_id=LayerId("layer_snare"),
+        name="Main",
+        events=[_event("snare_1", "take_snare_main", 3.0)],
+    )
+    other_layer = Layer(
+        id=LayerId("layer_snare"),
+        timeline_id=timeline.id,
+        name="Snare",
+        kind=LayerKind.EVENT,
+        order_index=1,
+        takes=[other_take],
+    )
+    timeline.layers.append(other_layer)
+
+    orchestrator.handle(
+        timeline,
+        SetSelectedEvents(
+            event_ids=[main_take.events[0].id, other_take.events[0].id],
+            anchor_layer_id=other_layer.id,
+            anchor_take_id=other_take.id,
+            selected_layer_ids=[layer.id, other_layer.id],
+        ),
+    )
+
+    assert timeline.selection.selected_layer_id == other_layer.id
+    assert timeline.selection.selected_layer_ids == [layer.id, other_layer.id]
+    assert timeline.selection.selected_take_id == other_take.id
+    assert timeline.selection.selected_event_ids == [EventId("main_1"), EventId("snare_1")]
+
+
+def test_create_event_appends_sorted_event_and_selects_it():
+    orchestrator, timeline, layer, main_take, _alt_take = _build_orchestrator_and_timeline()
+
+    orchestrator.handle(
+        timeline,
+        CreateEvent(
+            layer_id=layer.id,
+            take_id=main_take.id,
+            time_range=TimeRange(start=1.4, end=1.7),
+            label="Inserted",
+        ),
+    )
+
+    inserted = next(event for event in main_take.events if event.label == "Inserted")
+    assert inserted.id == EventId("take_main:event:1")
+    assert [event.start for event in main_take.events] == [1.0, 1.4, 2.0]
+    assert timeline.selection.selected_layer_id == layer.id
+    assert timeline.selection.selected_take_id == main_take.id
+    assert timeline.selection.selected_event_ids == [inserted.id]
+
+
+def test_delete_events_removes_records_and_clears_selected_take_when_selection_is_empty():
+    orchestrator, timeline, layer, main_take, alt_take = _build_orchestrator_and_timeline()
+    timeline.selection.selected_layer_id = layer.id
+    timeline.selection.selected_take_id = alt_take.id
+    timeline.selection.selected_event_ids = [main_take.events[0].id, alt_take.events[0].id]
+
+    orchestrator.handle(
+        timeline,
+        DeleteEvents(event_ids=[main_take.events[0].id, alt_take.events[0].id]),
+    )
+
+    assert [event.id for event in main_take.events] == [EventId("main_2")]
+    assert [event.id for event in alt_take.events] == [EventId("alt_2")]
+    assert timeline.selection.selected_layer_id == layer.id
+    assert timeline.selection.selected_take_id is None
+    assert timeline.selection.selected_event_ids == []
 
 
 def test_stop_resets_transport_playhead_and_playing_state():
@@ -683,11 +774,19 @@ def test_duplicate_selected_events_offsets_copies_and_is_repeatable():
     timeline.selection.selected_event_ids = [event.id]
 
     orchestrator.handle(timeline, DuplicateSelectedEvents())
-    first_duplicate = next(candidate for candidate in main_take.events if str(candidate.id) == "take_main:dup:main_1:1")
+    first_duplicate = next(
+        candidate
+        for candidate in main_take.events
+        if str(candidate.id) == "take_main:dup:main_1:1"
+    )
 
     timeline.selection.selected_event_ids = [event.id]
     orchestrator.handle(timeline, DuplicateSelectedEvents())
-    second_duplicate = next(candidate for candidate in main_take.events if str(candidate.id) == "take_main:dup:main_1:2")
+    second_duplicate = next(
+        candidate
+        for candidate in main_take.events
+        if str(candidate.id) == "take_main:dup:main_1:2"
+    )
 
     assert first_duplicate.start == pytest.approx(event.start + (1.0 / 30.0))
     assert second_duplicate.start == pytest.approx(event.start + (1.0 / 30.0))

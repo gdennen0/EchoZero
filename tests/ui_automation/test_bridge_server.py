@@ -7,11 +7,11 @@ import uuid
 from pathlib import Path
 
 from PyQt6.QtWidgets import QApplication
-from ui_automation import EchoZeroAutomationProvider
 
-from echozero.testing.app_flow import AppFlowHarness
 from echozero.testing.analysis_mocks import write_test_wav
+from echozero.testing.app_flow import AppFlowHarness
 from echozero.ui.qt.automation_bridge import AutomationBridgeServer
+from ui_automation import EchoZeroAutomationProvider
 
 _TEST_TEMP_ROOT = Path("C:/Users/griff/.codex/memories/test_echozero_bridge_server")
 
@@ -35,7 +35,9 @@ def test_bridge_server_exposes_health_and_snapshot():
     bridge.start()
 
     try:
-        backend = EchoZeroAutomationProvider(f"http://{bridge.address[0]}:{bridge.address[1]}").attach()
+        backend = EchoZeroAutomationProvider(
+            f"http://{bridge.address[0]}:{bridge.address[1]}"
+        ).attach()
         health = _run_with_qt_events(lambda: backend.health())
         snapshot = _run_with_qt_events(lambda: backend.snapshot())
 
@@ -61,7 +63,9 @@ def test_bridge_server_preserves_focus_and_object_snapshot_fields():
     bridge.start()
 
     try:
-        backend = EchoZeroAutomationProvider(f"http://{bridge.address[0]}:{bridge.address[1]}").attach()
+        backend = EchoZeroAutomationProvider(
+            f"http://{bridge.address[0]}:{bridge.address[1]}"
+        ).attach()
         clicked = _run_with_qt_events(lambda: backend.click("shell.timeline"))
         snapshot = _run_with_qt_events(lambda: backend.snapshot())
 
@@ -93,7 +97,9 @@ def test_bridge_server_drives_project_lifecycle_actions():
     bridge.start()
 
     try:
-        backend = EchoZeroAutomationProvider(f"http://{bridge.address[0]}:{bridge.address[1]}").attach()
+        backend = EchoZeroAutomationProvider(
+            f"http://{bridge.address[0]}:{bridge.address[1]}"
+        ).attach()
 
         after_new = _run_with_qt_events(
             lambda: backend.invoke("app.new", params={"name": "Bridge Lifecycle Project"})
@@ -102,7 +108,7 @@ def test_bridge_server_drives_project_lifecycle_actions():
 
         after_import = _run_with_qt_events(
             lambda: backend.invoke(
-                "add_song_from_path",
+                "song.add",
                 params={"title": "Bridge Song", "audio_path": str(audio_path)},
             )
         )
@@ -123,6 +129,8 @@ def test_bridge_server_drives_project_lifecycle_actions():
         bridge.stop()
         harness.shutdown()
         shutil.rmtree(temp_root, ignore_errors=True)
+
+
 def _run_with_qt_events(callback):
     result: dict[str, object] = {}
     error: dict[str, BaseException] = {}

@@ -23,67 +23,75 @@ from echozero.application.session.models import (
 from echozero.application.session.service import SessionService
 from echozero.application.shared.enums import LayerKind
 from echozero.application.shared.ids import LayerId, TakeId
+from echozero.application.shared.ranges import TimeRange
 from echozero.application.sync.diff_service import SyncDiffService
 from echozero.application.sync.models import LiveSyncState
 from echozero.application.sync.service import SyncService
+
 if TYPE_CHECKING:
     from echozero.application.timeline.assembler import TimelineAssembler
+
 from echozero.application.timeline.intents import (
     ApplyPullFromMA3,
-    ApplyTransferPreset,
     ApplyTransferPlan,
+    ApplyTransferPreset,
     CancelTransferPlan,
     ClearLayerLiveSyncPauseReason,
     ClearSelection,
     ConfirmPullFromMA3,
     ConfirmPushToMA3,
+    CreateEvent,
+    DeleteEvents,
     DeleteTransferPreset,
     DisableExperimentalLiveSync,
-    DuplicateSelectedEvents,
     DisableSync,
+    DuplicateSelectedEvents,
     EnableExperimentalLiveSync,
+    EnableSync,
+    ExitPullFromMA3Workspace,
+    ExitPushToMA3Mode,
     MoveSelectedEvents,
     NudgeSelectedEvents,
-    ExitPullFromMA3Workspace,
     OpenPullFromMA3Dialog,
-    SelectAllEvents,
-    SelectEvent,
-    SelectLayer,
-    SelectPullSourceEvents,
-    SelectPullSourceTracks,
-    SelectPullSourceTrack,
-    SelectPullTargetLayer,
-    SelectTake,
-    EnableSync,
-    ExitPushToMA3Mode,
     OpenPushToMA3Dialog,
     Pause,
     Play,
     PreviewTransferPlan,
     SaveTransferPreset,
     Seek,
+    SelectAllEvents,
+    SelectEvent,
+    SelectLayer,
+    SelectPullSourceEvents,
+    SelectPullSourceTrack,
+    SelectPullSourceTracks,
+    SelectPullTargetLayer,
+    SelectPushTargetTrack,
+    SelectTake,
+    SetActivePlaybackTarget,
+    SetGain,
+    SetLayerLiveSyncPauseReason,
+    SetLayerLiveSyncState,
     SetPullImportMode,
     SetPullSourceEvents,
     SetPullTrackOptions,
-    SetPushTransferMode,
-    SelectPushTargetTrack,
-    SetGain,
-    SetActivePlaybackTarget,
-    SetLayerLiveSyncPauseReason,
-    SetLayerLiveSyncState,
     SetPushTrackOptions,
+    SetPushTransferMode,
+    SetSelectedEvents,
     Stop,
     TimelineIntent,
     ToggleLayerExpanded,
     TriggerTakeAction,
 )
-from echozero.application.timeline.models import Timeline, Layer, Take, Event
+from echozero.application.timeline.models import Event, Layer, Take, Timeline
 from echozero.application.transport.service import TransportService
 
 _KEYBOARD_STEP_SECONDS = 1.0 / 30.0
 _RECONNECT_REARM_REQUIRED_REASON = "Live sync reconnected; explicit re-arm required"
 _PULL_TARGET_CREATE_NEW_LAYER_ID = LayerId("__manual_pull__:create_new_layer")
-_PULL_TARGET_CREATE_NEW_LAYER_PER_SOURCE_TRACK_ID = LayerId("__manual_pull__:create_new_layer_per_source_track")
+_PULL_TARGET_CREATE_NEW_LAYER_PER_SOURCE_TRACK_ID = LayerId(
+    "__manual_pull__:create_new_layer_per_source_track"
+)
 _PULL_TARGET_CREATE_NEW_LAYER_NAME = "+ Create New Layer..."
 _PULL_TARGET_CREATE_NEW_LAYER_PER_SOURCE_TRACK_NAME = "+ Create New Layer Per Source Track..."
 
@@ -97,7 +105,7 @@ class TimelineOrchestrator:
     mixer_service: MixerService
     playback_service: PlaybackService
     sync_service: SyncService
-    assembler: 'TimelineAssembler'
+    assembler: "TimelineAssembler"
     diff_service: SyncDiffService = field(default_factory=SyncDiffService)
 
     def handle(self, timeline: Timeline, intent: TimelineIntent) -> TimelinePresentation:
@@ -129,6 +137,27 @@ class TimelineOrchestrator:
 
         elif isinstance(intent, SelectAllEvents):
             self._handle_select_all_events(timeline)
+
+        elif isinstance(intent, SetSelectedEvents):
+            self._handle_set_selected_events(
+                timeline,
+                event_ids=list(intent.event_ids),
+                anchor_layer_id=intent.anchor_layer_id,
+                anchor_take_id=intent.anchor_take_id,
+                selected_layer_ids=list(intent.selected_layer_ids or []),
+            )
+
+        elif isinstance(intent, CreateEvent):
+            self._handle_create_event(
+                timeline,
+                layer_id=intent.layer_id,
+                take_id=intent.take_id,
+                time_range=intent.time_range,
+                label=intent.label,
+            )
+
+        elif isinstance(intent, DeleteEvents):
+            self._handle_delete_events(timeline, event_ids=list(intent.event_ids))
 
         elif isinstance(intent, MoveSelectedEvents):
             self._handle_move_selected_events(
@@ -258,10 +287,7 @@ class TimelineOrchestrator:
 
         elif isinstance(intent, SelectPushTargetTrack):
             session = self.session_service.get_session()
-            available_coords = {
-                track.coord
-                for track in session.manual_push_flow.available_tracks
-            }
+            available_coords = {track.coord for track in session.manual_push_flow.available_tracks}
             if intent.target_track_coord not in available_coords:
                 raise ValueError(
                     f"SelectPushTargetTrack target_track_coord not found in available_tracks: "
@@ -271,7 +297,10 @@ class TimelineOrchestrator:
             if intent.layer_id is not None:
                 layer = self._find_layer(timeline, intent.layer_id)
                 layer.sync.ma3_track_coord = intent.target_track_coord
-            elif timeline.selection.selected_layer_id is not None and session.manual_push_flow.push_mode_active:
+            elif (
+                timeline.selection.selected_layer_id is not None
+                and session.manual_push_flow.push_mode_active
+            ):
                 layer = self._find_layer(timeline, timeline.selection.selected_layer_id)
                 layer.sync.ma3_track_coord = intent.target_track_coord
             if session.manual_push_flow.push_mode_active:
@@ -294,7 +323,9 @@ class TimelineOrchestrator:
                 for layer_id in self._selected_layer_scope(timeline):
                     layer = self._find_layer(timeline, layer_id)
                     main_take = self._main_take(layer)
-                    if main_take is not None and any(event.id in selected_event_lookup for event in main_take.events):
+                    if main_take is not None and any(
+                        event.id in selected_event_lookup for event in main_take.events
+                    ):
                         layer.sync.ma3_track_coord = target_track.coord
             diff_summary, diff_rows = self.diff_service.build_push_preview_rows(
                 selected_events=selected_events,
@@ -330,7 +361,9 @@ class TimelineOrchestrator:
             session.manual_pull_flow.selected_ma3_event_ids_by_track = {}
             session.manual_pull_flow.import_mode = "new_take"
             session.manual_pull_flow.import_mode_by_source_track = {}
-            session.manual_pull_flow.available_target_layers = self._load_manual_pull_target_options(timeline)
+            session.manual_pull_flow.available_target_layers = (
+                self._load_manual_pull_target_options(timeline)
+            )
             session.manual_pull_flow.target_layer_id = None
             session.manual_pull_flow.target_layer_id_by_source_track = {}
             session.manual_pull_flow.diff_gate_open = False
@@ -355,7 +388,10 @@ class TimelineOrchestrator:
             session.manual_pull_flow.target_layer_id_by_source_track = {}
             session.manual_pull_flow.diff_gate_open = False
             session.manual_pull_flow.diff_preview = None
-            if session.batch_transfer_plan is not None and session.batch_transfer_plan.operation_type == "pull":
+            if (
+                session.batch_transfer_plan is not None
+                and session.batch_transfer_plan.operation_type == "pull"
+            ):
                 session.batch_transfer_plan = None
 
         elif isinstance(intent, SetPullTrackOptions):
@@ -363,8 +399,7 @@ class TimelineOrchestrator:
             session.manual_pull_flow.available_tracks = list(intent.tracks)
             if session.manual_pull_flow.workspace_active:
                 selected_coords = {
-                    track.coord
-                    for track in session.manual_pull_flow.available_tracks
+                    track.coord for track in session.manual_pull_flow.available_tracks
                 }
                 session.manual_pull_flow.selected_source_track_coords = [
                     coord
@@ -382,8 +417,7 @@ class TimelineOrchestrator:
         elif isinstance(intent, SelectPullSourceTracks):
             session = self.session_service.get_session()
             available_by_coord = {
-                track.coord: track
-                for track in session.manual_pull_flow.available_tracks
+                track.coord: track for track in session.manual_pull_flow.available_tracks
             }
             ordered_coords: list[str] = []
             unknown_coords: list[str] = []
@@ -403,16 +437,20 @@ class TimelineOrchestrator:
                 active_coord = ordered_coords[0]
                 session.manual_pull_flow.active_source_track_coord = active_coord
                 session.manual_pull_flow.source_track_coord = active_coord
-                session.manual_pull_flow.available_events = self._load_manual_pull_event_options(active_coord)
+                session.manual_pull_flow.available_events = self._load_manual_pull_event_options(
+                    active_coord
+                )
                 session.manual_pull_flow.selected_ma3_event_ids = list(
                     session.manual_pull_flow.selected_ma3_event_ids_by_track.get(active_coord, [])
                 )
-                session.manual_pull_flow.import_mode = session.manual_pull_flow.import_mode_by_source_track.get(
-                    active_coord,
-                    "new_take",
+                session.manual_pull_flow.import_mode = (
+                    session.manual_pull_flow.import_mode_by_source_track.get(
+                        active_coord,
+                        "new_take",
+                    )
                 )
-                session.manual_pull_flow.target_layer_id = session.manual_pull_flow.target_layer_id_by_source_track.get(
-                    active_coord
+                session.manual_pull_flow.target_layer_id = (
+                    session.manual_pull_flow.target_layer_id_by_source_track.get(active_coord)
                 )
             session.manual_pull_flow.diff_gate_open = False
             session.manual_pull_flow.diff_preview = None
@@ -432,16 +470,22 @@ class TimelineOrchestrator:
                 ]
             session.manual_pull_flow.active_source_track_coord = source_track.coord
             session.manual_pull_flow.source_track_coord = source_track.coord
-            session.manual_pull_flow.available_events = self._load_manual_pull_event_options(source_track.coord)
-            session.manual_pull_flow.selected_ma3_event_ids = list(
-                session.manual_pull_flow.selected_ma3_event_ids_by_track.get(source_track.coord, [])
-            )
-            session.manual_pull_flow.import_mode = session.manual_pull_flow.import_mode_by_source_track.get(
-                source_track.coord,
-                "new_take",
-            )
-            session.manual_pull_flow.target_layer_id = session.manual_pull_flow.target_layer_id_by_source_track.get(
+            session.manual_pull_flow.available_events = self._load_manual_pull_event_options(
                 source_track.coord
+            )
+            session.manual_pull_flow.selected_ma3_event_ids = list(
+                session.manual_pull_flow.selected_ma3_event_ids_by_track.get(
+                    source_track.coord, []
+                )
+            )
+            session.manual_pull_flow.import_mode = (
+                session.manual_pull_flow.import_mode_by_source_track.get(
+                    source_track.coord,
+                    "new_take",
+                )
+            )
+            session.manual_pull_flow.target_layer_id = (
+                session.manual_pull_flow.target_layer_id_by_source_track.get(source_track.coord)
             )
             session.manual_pull_flow.diff_gate_open = False
             session.manual_pull_flow.diff_preview = None
@@ -455,8 +499,7 @@ class TimelineOrchestrator:
         elif isinstance(intent, SelectPullSourceEvents):
             session = self.session_service.get_session()
             available_event_ids = {
-                event.event_id
-                for event in session.manual_pull_flow.available_events
+                event.event_id for event in session.manual_pull_flow.available_events
             }
             unknown_event_ids = [
                 event_id
@@ -469,7 +512,10 @@ class TimelineOrchestrator:
                     + ", ".join(unknown_event_ids)
                 )
             session.manual_pull_flow.selected_ma3_event_ids = list(intent.selected_ma3_event_ids)
-            active_coord = session.manual_pull_flow.active_source_track_coord or session.manual_pull_flow.source_track_coord
+            active_coord = (
+                session.manual_pull_flow.active_source_track_coord
+                or session.manual_pull_flow.source_track_coord
+            )
             if active_coord:
                 session.manual_pull_flow.selected_ma3_event_ids_by_track[active_coord] = list(
                     intent.selected_ma3_event_ids
@@ -487,12 +533,19 @@ class TimelineOrchestrator:
                 action_name="SelectPullTargetLayer",
             )
             session.manual_pull_flow.target_layer_id = target_layer.layer_id
-            active_coord = session.manual_pull_flow.active_source_track_coord or session.manual_pull_flow.source_track_coord
+            active_coord = (
+                session.manual_pull_flow.active_source_track_coord
+                or session.manual_pull_flow.source_track_coord
+            )
             if target_layer.layer_id == _PULL_TARGET_CREATE_NEW_LAYER_PER_SOURCE_TRACK_ID:
                 for coord in session.manual_pull_flow.selected_source_track_coords:
-                    session.manual_pull_flow.target_layer_id_by_source_track[coord] = target_layer.layer_id
+                    session.manual_pull_flow.target_layer_id_by_source_track[coord] = (
+                        target_layer.layer_id
+                    )
             elif active_coord:
-                session.manual_pull_flow.target_layer_id_by_source_track[active_coord] = target_layer.layer_id
+                session.manual_pull_flow.target_layer_id_by_source_track[active_coord] = (
+                    target_layer.layer_id
+                )
             session.manual_pull_flow.diff_gate_open = False
             session.manual_pull_flow.diff_preview = None
             if session.manual_pull_flow.workspace_active:
@@ -501,9 +554,14 @@ class TimelineOrchestrator:
         elif isinstance(intent, SetPullImportMode):
             session = self.session_service.get_session()
             session.manual_pull_flow.import_mode = intent.import_mode
-            active_coord = session.manual_pull_flow.active_source_track_coord or session.manual_pull_flow.source_track_coord
+            active_coord = (
+                session.manual_pull_flow.active_source_track_coord
+                or session.manual_pull_flow.source_track_coord
+            )
             if active_coord:
-                session.manual_pull_flow.import_mode_by_source_track[active_coord] = intent.import_mode
+                session.manual_pull_flow.import_mode_by_source_track[active_coord] = (
+                    intent.import_mode
+                )
             session.manual_pull_flow.diff_gate_open = False
             session.manual_pull_flow.diff_preview = None
             if session.manual_pull_flow.workspace_active:
@@ -522,8 +580,7 @@ class TimelineOrchestrator:
                 action_name="ConfirmPullFromMA3",
             )
             available_event_ids = {
-                event.event_id
-                for event in session.manual_pull_flow.available_events
+                event.event_id for event in session.manual_pull_flow.available_events
             }
             unknown_event_ids = [
                 event_id
@@ -559,9 +616,13 @@ class TimelineOrchestrator:
                 intent.selected_ma3_event_ids
             )
             session.manual_pull_flow.import_mode = intent.import_mode
-            session.manual_pull_flow.import_mode_by_source_track[source_track.coord] = intent.import_mode
+            session.manual_pull_flow.import_mode_by_source_track[source_track.coord] = (
+                intent.import_mode
+            )
             session.manual_pull_flow.target_layer_id = target_layer.layer_id
-            session.manual_pull_flow.target_layer_id_by_source_track[source_track.coord] = target_layer.layer_id
+            session.manual_pull_flow.target_layer_id_by_source_track[source_track.coord] = (
+                target_layer.layer_id
+            )
             session.manual_pull_flow.diff_gate_open = True
             session.manual_pull_flow.diff_preview = ManualPullDiffPreview(
                 selected_count=len(intent.selected_ma3_event_ids),
@@ -657,7 +718,9 @@ class TimelineOrchestrator:
         session = self.session_service.get_session()
         if session.manual_push_flow.push_mode_active:
             session.manual_push_flow.selected_layer_ids = self._selected_layer_scope(timeline)
-            session.manual_push_flow.selected_event_ids = list(timeline.selection.selected_event_ids)
+            session.manual_push_flow.selected_event_ids = list(
+                timeline.selection.selected_event_ids
+            )
             if not self._plan_counters_locked(session.batch_transfer_plan):
                 self._rebuild_push_transfer_plan(timeline, session)
         audibility = self.mixer_service.resolve_audibility(timeline.layers)
@@ -691,7 +754,9 @@ class TimelineOrchestrator:
             else:
                 next_ids = [*current_ids, layer_id]
         elif mode_normalized == "range":
-            ordered_ids = [layer.id for layer in sorted(timeline.layers, key=lambda value: value.order_index)]
+            ordered_ids = [
+                layer.id for layer in sorted(timeline.layers, key=lambda value: value.order_index)
+            ]
             anchor_id = current_ids[0] if current_ids else timeline.selection.selected_layer_id
             if anchor_id is None:
                 anchor_id = layer_id
@@ -731,7 +796,9 @@ class TimelineOrchestrator:
         timeline.playback_target.layer_id = layer.id
         timeline.playback_target.take_id = take_id
 
-    def _handle_select_event(self, timeline: Timeline, layer_id, take_id, event_id, mode: str) -> None:
+    def _handle_select_event(
+        self, timeline: Timeline, layer_id, take_id, event_id, mode: str
+    ) -> None:
         layer = self._find_layer(timeline, layer_id)
         if event_id is None:
             timeline.selection.selected_layer_id = layer.id
@@ -750,7 +817,9 @@ class TimelineOrchestrator:
                 selected_ids.append(event_id)
         elif mode_normalized == "toggle":
             if event_id in selected_ids:
-                selected_ids = [selected_id for selected_id in selected_ids if selected_id != event_id]
+                selected_ids = [
+                    selected_id for selected_id in selected_ids if selected_id != event_id
+                ]
             else:
                 selected_ids.append(event_id)
         else:
@@ -765,9 +834,15 @@ class TimelineOrchestrator:
         selected_layer_ids = self._selected_layer_scope(timeline)
         target_layers: list[Layer]
         if selected_layer_ids:
-            target_layers = [self._find_layer(timeline, layer_id) for layer_id in selected_layer_ids]
+            target_layers = [
+                self._find_layer(timeline, layer_id) for layer_id in selected_layer_ids
+            ]
         else:
-            target_layers = [layer for layer in timeline.layers if layer.presentation_hints.visible and not layer.presentation_hints.locked]
+            target_layers = [
+                layer
+                for layer in timeline.layers
+                if layer.presentation_hints.visible and not layer.presentation_hints.locked
+            ]
 
         selected_event_ids: list = []
         selected_take_id = None
@@ -782,7 +857,130 @@ class TimelineOrchestrator:
         timeline.selection.selected_event_ids = selected_event_ids
         timeline.selection.selected_take_id = selected_take_id
 
-    def _handle_trigger_take_action(self, timeline: Timeline, layer_id, take_id, action_id: str) -> None:
+    def _handle_set_selected_events(
+        self,
+        timeline: Timeline,
+        *,
+        event_ids: list,
+        anchor_layer_id,
+        anchor_take_id,
+        selected_layer_ids: list,
+    ) -> None:
+        normalized_event_ids = list(dict.fromkeys(event_ids))
+        normalized_layer_ids = list(dict.fromkeys(selected_layer_ids))
+
+        if not normalized_event_ids:
+            timeline.selection.selected_event_ids = []
+            timeline.selection.selected_take_id = None
+            timeline.selection.selected_layer_ids = (
+                normalized_layer_ids
+                if normalized_layer_ids
+                else ([anchor_layer_id] if anchor_layer_id is not None else [])
+            )
+            timeline.selection.selected_layer_id = (
+                anchor_layer_id if timeline.selection.selected_layer_ids else None
+            )
+            return
+
+        if anchor_layer_id is None or anchor_take_id is None:
+            records = self._selected_event_records(timeline, normalized_event_ids)
+            if records:
+                last_record = records[-1]
+                anchor_layer_id = last_record.layer.id
+                anchor_take_id = last_record.take.id
+                if not normalized_layer_ids:
+                    normalized_layer_ids = list(
+                        dict.fromkeys(record.layer.id for record in records)
+                    )
+
+        timeline.selection.selected_layer_id = anchor_layer_id
+        timeline.selection.selected_layer_ids = (
+            normalized_layer_ids
+            if normalized_layer_ids
+            else ([anchor_layer_id] if anchor_layer_id is not None else [])
+        )
+        timeline.selection.selected_take_id = anchor_take_id
+        timeline.selection.selected_event_ids = normalized_event_ids
+
+    def _handle_create_event(
+        self,
+        timeline: Timeline,
+        *,
+        layer_id,
+        take_id,
+        time_range: TimeRange,
+        label: str,
+    ) -> None:
+        layer = self._find_layer(timeline, layer_id)
+        if layer.kind is not LayerKind.EVENT or layer.presentation_hints.locked:
+            return
+
+        target_take = (
+            self._find_take(layer, take_id) if take_id is not None else self._main_take(layer)
+        )
+        if target_take is None:
+            target_take = self._resolve_or_create_main_take(layer)
+
+        new_event = Event(
+            id=self._next_created_event_id(timeline, target_take),
+            take_id=target_take.id,
+            start=float(time_range.start),
+            end=float(time_range.end),
+            label=label,
+        )
+        target_take.events = self._sorted_events([*target_take.events, new_event])
+        timeline.selection.selected_layer_id = layer.id
+        timeline.selection.selected_layer_ids = [layer.id]
+        timeline.selection.selected_take_id = target_take.id
+        timeline.selection.selected_event_ids = [new_event.id]
+
+    def _handle_delete_events(self, timeline: Timeline, *, event_ids: list) -> None:
+        delete_ids = set(event_ids)
+        if not delete_ids:
+            return
+
+        affected_layers: list = []
+        for layer in timeline.layers:
+            layer_changed = False
+            for take in layer.takes:
+                original_count = len(take.events)
+                if original_count:
+                    take.events = [event for event in take.events if event.id not in delete_ids]
+                if len(take.events) != original_count:
+                    layer_changed = True
+            if layer_changed:
+                affected_layers.append(layer.id)
+
+        if not affected_layers:
+            return
+
+        remaining_selected = [
+            event_id
+            for event_id in timeline.selection.selected_event_ids
+            if event_id not in delete_ids
+        ]
+        timeline.selection.selected_event_ids = remaining_selected
+        if remaining_selected:
+            records = self._selected_event_records(timeline, remaining_selected)
+            if records:
+                last_record = records[-1]
+                timeline.selection.selected_layer_id = last_record.layer.id
+                timeline.selection.selected_layer_ids = [last_record.layer.id]
+                timeline.selection.selected_take_id = last_record.take.id
+                return
+
+        fallback_layer_id = timeline.selection.selected_layer_id
+        if fallback_layer_id not in {layer.id for layer in timeline.layers}:
+            fallback_layer_id = affected_layers[0] if affected_layers else None
+        timeline.selection.selected_layer_id = fallback_layer_id
+        timeline.selection.selected_layer_ids = (
+            [] if fallback_layer_id is None else [fallback_layer_id]
+        )
+        timeline.selection.selected_take_id = None
+
+    def _handle_trigger_take_action(
+        self, timeline: Timeline, layer_id, take_id, action_id: str
+    ) -> None:
         layer = self._find_layer(timeline, layer_id)
         source_take = self._find_take(layer, take_id)
         main_take = self._main_take(layer)
@@ -799,7 +997,9 @@ class TimelineOrchestrator:
                 return
             merged = list(main_take.events)
             merged.extend(self._clone_events_for_target(source_take.events, main_take))
-            main_take.events = sorted(merged, key=lambda event: (event.start, event.end, str(event.id)))
+            main_take.events = sorted(
+                merged, key=lambda event: (event.start, event.end, str(event.id))
+            )
         else:
             return
 
@@ -808,7 +1008,9 @@ class TimelineOrchestrator:
         timeline.selection.selected_take_id = main_take.id
         timeline.selection.selected_event_ids = []
 
-    def _handle_move_selected_events(self, timeline: Timeline, delta_seconds: float, target_layer_id) -> None:
+    def _handle_move_selected_events(
+        self, timeline: Timeline, delta_seconds: float, target_layer_id
+    ) -> None:
         selected_ids = list(timeline.selection.selected_event_ids)
         if not selected_ids:
             return
@@ -844,9 +1046,15 @@ class TimelineOrchestrator:
             if source_layer_id is None and records:
                 source_layer_id = records[0].layer.id
             timeline.selection.selected_layer_id = source_layer_id
-            timeline.selection.selected_layer_ids = [] if source_layer_id is None else [source_layer_id]
+            timeline.selection.selected_layer_ids = (
+                [] if source_layer_id is None else [source_layer_id]
+            )
             timeline.selection.selected_take_id = self._resolve_selected_take_id(
-                self._find_layer(timeline, source_layer_id) if source_layer_id is not None else records[0].layer,
+                (
+                    self._find_layer(timeline, source_layer_id)
+                    if source_layer_id is not None
+                    else records[0].layer
+                ),
                 selected_ids,
                 fallback_take_id=timeline.selection.selected_take_id,
             )
@@ -857,7 +1065,9 @@ class TimelineOrchestrator:
             return
 
         for record in records:
-            record.take.events = [candidate for candidate in record.take.events if candidate.id != record.event.id]
+            record.take.events = [
+                candidate for candidate in record.take.events if candidate.id != record.event.id
+            ]
             affected_takes[record.take.id] = record.take
             record.event.start += applied_delta
             record.event.end += applied_delta
@@ -877,7 +1087,9 @@ class TimelineOrchestrator:
         take: Take
         event: Event
 
-    def _selected_event_records(self, timeline: Timeline, selected_ids: list) -> list[_EventRecord]:
+    def _selected_event_records(
+        self, timeline: Timeline, selected_ids: list
+    ) -> list[_EventRecord]:
         selected_lookup = set(selected_ids)
         order = {event_id: idx for idx, event_id in enumerate(selected_ids)}
         records: list[TimelineOrchestrator._EventRecord] = []
@@ -894,7 +1106,9 @@ class TimelineOrchestrator:
         selected_lookup = set(selected_ids)
         if fallback_take_id is not None:
             fallback = TimelineOrchestrator._find_take(layer, fallback_take_id)
-            if fallback is not None and any(event.id in selected_lookup for event in fallback.events):
+            if fallback is not None and any(
+                event.id in selected_lookup for event in fallback.events
+            ):
                 return fallback_take_id
 
         for take in layer.takes:
@@ -905,9 +1119,13 @@ class TimelineOrchestrator:
     @staticmethod
     def _sort_take_events(*takes: Take) -> None:
         for take in takes:
-            take.events = sorted(take.events, key=lambda event: (event.start, event.end, str(event.id)))
+            take.events = sorted(
+                take.events, key=lambda event: (event.start, event.end, str(event.id))
+            )
 
-    def _handle_nudge_selected_events(self, timeline: Timeline, direction: int, steps: int) -> None:
+    def _handle_nudge_selected_events(
+        self, timeline: Timeline, direction: int, steps: int
+    ) -> None:
         if direction == 0 or steps <= 0:
             return
 
@@ -956,7 +1174,9 @@ class TimelineOrchestrator:
             selected_take_id = take.id
 
         timeline.selection.selected_layer_id = selected_layer_id
-        timeline.selection.selected_layer_ids = [] if selected_layer_id is None else [selected_layer_id]
+        timeline.selection.selected_layer_ids = (
+            [] if selected_layer_id is None else [selected_layer_id]
+        )
         timeline.selection.selected_take_id = selected_take_id
         timeline.selection.selected_event_ids = duplicated_ids
 
@@ -983,6 +1203,19 @@ class TimelineOrchestrator:
         if layer.takes:
             return layer.takes[0]
         return None
+
+    @staticmethod
+    def _resolve_or_create_main_take(layer: Layer) -> Take:
+        main_take = TimelineOrchestrator._main_take(layer)
+        if main_take is not None:
+            return main_take
+        main_take = Take(
+            id=TakeId(f"{layer.id}:main"),
+            layer_id=layer.id,
+            name="Main",
+        )
+        layer.takes.insert(0, main_take)
+        return main_take
 
     @staticmethod
     def _find_take(layer: Layer, take_id) -> Take | None:
@@ -1013,13 +1246,24 @@ class TimelineOrchestrator:
                 return candidate
             index += 1
 
+    @staticmethod
+    def _next_created_event_id(timeline: Timeline, take: Take):
+        existing_ids = TimelineOrchestrator._all_event_ids(timeline)
+        index = 1
+        while True:
+            candidate = f"{take.id}:event:{index}"
+            if candidate not in existing_ids:
+                return candidate
+            index += 1
+
     def _selected_events(self, timeline: Timeline) -> list[tuple[Layer, Take, Event]]:
         selected_ids = set(timeline.selection.selected_event_ids)
         if not selected_ids:
             return []
 
         selected_order = {
-            str(event_id): index for index, event_id in enumerate(timeline.selection.selected_event_ids)
+            str(event_id): index
+            for index, event_id in enumerate(timeline.selection.selected_event_ids)
         }
         selected: list[tuple[Layer, Take, Event]] = []
         for layer in timeline.layers:
@@ -1034,9 +1278,7 @@ class TimelineOrchestrator:
     @staticmethod
     def _selected_events_by_ids(timeline: Timeline, selected_ids: list) -> list[Event]:
         selected_lookup = set(selected_ids)
-        selected_order = {
-            str(event_id): index for index, event_id in enumerate(selected_ids)
-        }
+        selected_order = {str(event_id): index for index, event_id in enumerate(selected_ids)}
         selected: list[Event] = []
         for layer in timeline.layers:
             main_take = TimelineOrchestrator._main_take(layer)
@@ -1064,10 +1306,7 @@ class TimelineOrchestrator:
         selected_ids: list[str],
         action_name: str,
     ) -> list[ManualPullEventOption]:
-        available_by_id = {
-            event.event_id: event
-            for event in available_events
-        }
+        available_by_id = {event.event_id: event for event in available_events}
         selected_events: list[ManualPullEventOption] = []
         missing_event_ids: list[str] = []
         for event_id in selected_ids:
@@ -1119,7 +1358,9 @@ class TimelineOrchestrator:
         order_index: int,
         existing_event_ids: set[str] | None = None,
     ) -> Event:
-        start, end = self.diff_service.resolve_pull_event_range(source_event, order_index=order_index)
+        start, end = self.diff_service.resolve_pull_event_range(
+            source_event, order_index=order_index
+        )
         event_id = self._next_manual_pull_event_id(
             take_id=take_id,
             source_track_coord=source_track.coord,
@@ -1158,7 +1399,9 @@ class TimelineOrchestrator:
                 return candidate
             suffix += 1
 
-    def _require_active_transfer_plan(self, session, plan_id: str, *, action_name: str) -> BatchTransferPlanState:
+    def _require_active_transfer_plan(
+        self, session, plan_id: str, *, action_name: str
+    ) -> BatchTransferPlanState:
         plan = session.batch_transfer_plan
         if plan is None:
             raise ValueError(f"{action_name} requires an active batch transfer plan")
@@ -1169,7 +1412,9 @@ class TimelineOrchestrator:
             )
         return plan
 
-    def _preview_transfer_plan(self, timeline: Timeline, session, plan: BatchTransferPlanState) -> None:
+    def _preview_transfer_plan(
+        self, timeline: Timeline, session, plan: BatchTransferPlanState
+    ) -> None:
         preview_rows: list[BatchTransferPlanRowState] = []
         for row in plan.rows:
             if row.status == "blocked":
@@ -1181,12 +1426,16 @@ class TimelineOrchestrator:
             if row.direction == "pull":
                 preview_rows.append(self._preview_pull_plan_row(row))
                 continue
-            preview_rows.append(self._copy_plan_row(row, issue=f"Unsupported transfer direction: {row.direction}"))
+            preview_rows.append(
+                self._copy_plan_row(row, issue=f"Unsupported transfer direction: {row.direction}")
+            )
 
         plan.rows = preview_rows
         self._refresh_plan_counters(plan)
 
-    def _apply_transfer_plan(self, timeline: Timeline, session, plan: BatchTransferPlanState) -> None:
+    def _apply_transfer_plan(
+        self, timeline: Timeline, session, plan: BatchTransferPlanState
+    ) -> None:
         applied_rows: list[BatchTransferPlanRowState] = []
         stop_execution = False
         for row in plan.rows:
@@ -1234,7 +1483,9 @@ class TimelineOrchestrator:
             self._reset_manual_pull_flow(session)
         session.batch_transfer_plan = None
 
-    def _preview_push_plan_row(self, timeline: Timeline, row: BatchTransferPlanRowState) -> BatchTransferPlanRowState:
+    def _preview_push_plan_row(
+        self, timeline: Timeline, row: BatchTransferPlanRowState
+    ) -> BatchTransferPlanRowState:
         target_track = self._manual_push_track_by_coord(
             self._load_manual_push_track_options(),
             row.target_track_coord or "",
@@ -1261,7 +1512,9 @@ class TimelineOrchestrator:
         )
         return self._copy_plan_row(row)
 
-    def _apply_pull_plan_row(self, timeline: Timeline, row: BatchTransferPlanRowState) -> BatchTransferPlanRowState:
+    def _apply_pull_plan_row(
+        self, timeline: Timeline, row: BatchTransferPlanRowState
+    ) -> BatchTransferPlanRowState:
         source_track = self._manual_pull_track_by_coord(
             self._load_manual_pull_track_options(),
             row.source_track_coord or "",
@@ -1290,7 +1543,9 @@ class TimelineOrchestrator:
         timeline.selection.selected_event_ids = selected_event_ids
         return self._copy_plan_row(row, status="applied", issue=None)
 
-    def _apply_push_plan_row(self, timeline: Timeline, row: BatchTransferPlanRowState) -> BatchTransferPlanRowState:
+    def _apply_push_plan_row(
+        self, timeline: Timeline, row: BatchTransferPlanRowState
+    ) -> BatchTransferPlanRowState:
         selected_events = self._selected_events_by_ids(timeline, list(row.selected_event_ids))
         if not selected_events:
             return self._copy_plan_row(
@@ -1433,7 +1688,9 @@ class TimelineOrchestrator:
         )
 
     def _apply_transfer_preset(self, timeline: Timeline, session, preset_id: str) -> None:
-        preset = self._require_transfer_preset(session, preset_id, action_name="ApplyTransferPreset")
+        preset = self._require_transfer_preset(
+            session, preset_id, action_name="ApplyTransferPreset"
+        )
 
         if session.manual_push_flow.push_mode_active:
             for layer in timeline.layers:
@@ -1442,30 +1699,37 @@ class TimelineOrchestrator:
                     layer.sync.ma3_track_coord = target_track_coord
             selected_layer_scope = self._selected_layer_scope(timeline)
             if selected_layer_scope:
-                session.manual_push_flow.target_track_coord = preset.push_target_mapping_by_layer_id.get(
-                    timeline.selection.selected_layer_id or selected_layer_scope[0]
+                session.manual_push_flow.target_track_coord = (
+                    preset.push_target_mapping_by_layer_id.get(
+                        timeline.selection.selected_layer_id or selected_layer_scope[0]
+                    )
                 )
             self._rebuild_push_transfer_plan(timeline, session)
 
         if session.manual_pull_flow.workspace_active:
             selected_coords = {
-                coord
-                for coord in session.manual_pull_flow.selected_source_track_coords
+                coord for coord in session.manual_pull_flow.selected_source_track_coords
             }
             available_target_ids = {
-                target.layer_id
-                for target in session.manual_pull_flow.available_target_layers
+                target.layer_id for target in session.manual_pull_flow.available_target_layers
             }
             next_mapping: dict[str, object] = {}
-            for source_track_coord, target_layer_id in preset.pull_target_mapping_by_source_track.items():
-                if source_track_coord in selected_coords and target_layer_id in available_target_ids:
+            for (
+                source_track_coord,
+                target_layer_id,
+            ) in preset.pull_target_mapping_by_source_track.items():
+                if (
+                    source_track_coord in selected_coords
+                    and target_layer_id in available_target_ids
+                ):
                     next_mapping[source_track_coord] = target_layer_id
             session.manual_pull_flow.target_layer_id_by_source_track = next_mapping
-            active_coord = session.manual_pull_flow.active_source_track_coord or session.manual_pull_flow.source_track_coord
+            active_coord = (
+                session.manual_pull_flow.active_source_track_coord
+                or session.manual_pull_flow.source_track_coord
+            )
             session.manual_pull_flow.target_layer_id = (
-                next_mapping.get(active_coord)
-                if active_coord is not None
-                else None
+                next_mapping.get(active_coord) if active_coord is not None else None
             )
             self._rebuild_pull_transfer_plan(timeline, session)
 
@@ -1520,10 +1784,7 @@ class TimelineOrchestrator:
     @classmethod
     def _next_transfer_preset_id(cls, session, name: str) -> str:
         base_slug = cls._slugify_transfer_preset_name(name)
-        existing_ids = {
-            preset.preset_id
-            for preset in session.transfer_presets
-        }
+        existing_ids = {preset.preset_id for preset in session.transfer_presets}
         if base_slug not in existing_ids:
             return base_slug
         counter = 2
@@ -1534,7 +1795,9 @@ class TimelineOrchestrator:
             counter += 1
 
     @staticmethod
-    def _require_transfer_preset(session, preset_id: str, *, action_name: str) -> TransferPresetState:
+    def _require_transfer_preset(
+        session, preset_id: str, *, action_name: str
+    ) -> TransferPresetState:
         for preset in session.transfer_presets:
             if preset.preset_id == preset_id:
                 return preset
@@ -1556,7 +1819,9 @@ class TimelineOrchestrator:
             blocked_count=blocked_count,
         )
 
-    def _build_push_transfer_plan_rows(self, timeline: Timeline) -> list[BatchTransferPlanRowState]:
+    def _build_push_transfer_plan_rows(
+        self, timeline: Timeline
+    ) -> list[BatchTransferPlanRowState]:
         grouped_records = self._selected_event_records_by_layer(timeline)
         if not grouped_records:
             return []
@@ -1566,13 +1831,10 @@ class TimelineOrchestrator:
         for layer, records in grouped_records:
             main_take = self._main_take(layer)
             main_event_ids = {
-                event.id
-                for event in (main_take.events if main_take is not None else [])
+                event.id for event in (main_take.events if main_take is not None else [])
             }
             selected_event_ids = [
-                record.event.id
-                for record in records
-                if record.event.id in main_event_ids
+                record.event.id for record in records if record.event.id in main_event_ids
             ]
             target_track_coord = layer.sync.ma3_track_coord
             target_track = None
@@ -1616,7 +1878,10 @@ class TimelineOrchestrator:
     def _rebuild_pull_transfer_plan(self, timeline: Timeline, session) -> None:
         rows = self._build_pull_transfer_plan_rows(timeline, session)
         if not rows:
-            if session.batch_transfer_plan is not None and session.batch_transfer_plan.operation_type == "pull":
+            if (
+                session.batch_transfer_plan is not None
+                and session.batch_transfer_plan.operation_type == "pull"
+            ):
                 session.batch_transfer_plan = None
             return
 
@@ -1632,27 +1897,18 @@ class TimelineOrchestrator:
             blocked_count=blocked_count,
         )
 
-    def _build_pull_transfer_plan_rows(self, timeline: Timeline, session) -> list[BatchTransferPlanRowState]:
+    def _build_pull_transfer_plan_rows(
+        self, timeline: Timeline, session
+    ) -> list[BatchTransferPlanRowState]:
         flow = session.manual_pull_flow
         if not flow.workspace_active:
             return []
 
-        tracks_by_coord = {
-            track.coord: track
-            for track in flow.available_tracks
-        }
-        track_order = {
-            track.coord: index
-            for index, track in enumerate(flow.available_tracks)
-        }
-        target_labels = {
-            target.layer_id: target.name
-            for target in flow.available_target_layers
-        }
+        tracks_by_coord = {track.coord: track for track in flow.available_tracks}
+        track_order = {track.coord: index for index, track in enumerate(flow.available_tracks)}
+        target_labels = {target.layer_id: target.name for target in flow.available_target_layers}
         selected_coords = [
-            coord
-            for coord in flow.selected_source_track_coords
-            if coord in tracks_by_coord
+            coord for coord in flow.selected_source_track_coords if coord in tracks_by_coord
         ]
         selected_coords.sort(key=lambda coord: (track_order.get(coord, 0), coord))
 
@@ -1661,7 +1917,9 @@ class TimelineOrchestrator:
             track = tracks_by_coord[coord]
             selected_event_ids = list(flow.selected_ma3_event_ids_by_track.get(coord, []))
             target_layer_id = flow.target_layer_id_by_source_track.get(coord)
-            import_mode = flow.import_mode_by_source_track.get(coord, flow.import_mode or "new_take")
+            import_mode = flow.import_mode_by_source_track.get(
+                coord, flow.import_mode or "new_take"
+            )
             if not selected_event_ids and target_layer_id is None:
                 status = "blocked"
                 issue = "Select source events and target layer mapping"
@@ -1697,20 +1955,30 @@ class TimelineOrchestrator:
 
         return rows
 
-    def _selected_event_records_by_layer(self, timeline: Timeline) -> list[tuple[Layer, list[_EventRecord]]]:
-        records = self._selected_event_records(timeline, list(timeline.selection.selected_event_ids))
+    def _selected_event_records_by_layer(
+        self, timeline: Timeline
+    ) -> list[tuple[Layer, list[_EventRecord]]]:
+        records = self._selected_event_records(
+            timeline, list(timeline.selection.selected_event_ids)
+        )
         explicit_selected_layer_scope = set(dict.fromkeys(timeline.selection.selected_layer_ids))
         if explicit_selected_layer_scope:
-            records = [record for record in records if record.layer.id in explicit_selected_layer_scope]
+            records = [
+                record for record in records if record.layer.id in explicit_selected_layer_scope
+            ]
         grouped: dict[object, list[TimelineOrchestrator._EventRecord]] = {}
         layer_order: dict[object, int] = {}
-        for index, layer in enumerate(sorted(timeline.layers, key=lambda value: value.order_index)):
+        for index, layer in enumerate(
+            sorted(timeline.layers, key=lambda value: value.order_index)
+        ):
             layer_order[layer.id] = index
         layer_lookup: dict[object, Layer] = {}
         for record in records:
             layer_lookup[record.layer.id] = record.layer
             grouped.setdefault(record.layer.id, []).append(record)
-        ordered_layer_ids = sorted(grouped.keys(), key=lambda layer_id: layer_order.get(layer_id, 0))
+        ordered_layer_ids = sorted(
+            grouped.keys(), key=lambda layer_id: layer_order.get(layer_id, 0)
+        )
         return [(layer_lookup[layer_id], grouped[layer_id]) for layer_id in ordered_layer_ids]
 
     @staticmethod
@@ -1807,8 +2075,7 @@ class TimelineOrchestrator:
             return []
 
         return [
-            self._normalize_manual_push_track_option(raw_track)
-            for raw_track in raw_tracks or []
+            self._normalize_manual_push_track_option(raw_track) for raw_track in raw_tracks or []
         ]
 
     def _load_manual_pull_track_options(self) -> list[ManualPullTrackOption]:
@@ -1821,11 +2088,12 @@ class TimelineOrchestrator:
             return []
 
         return [
-            self._normalize_manual_pull_track_option(raw_track)
-            for raw_track in raw_tracks or []
+            self._normalize_manual_pull_track_option(raw_track) for raw_track in raw_tracks or []
         ]
 
-    def _load_manual_pull_event_options(self, source_track_coord: str) -> list[ManualPullEventOption]:
+    def _load_manual_pull_event_options(
+        self, source_track_coord: str
+    ) -> list[ManualPullEventOption]:
         provider = self.sync_service
         if hasattr(provider, "list_pull_source_events"):
             raw_events = provider.list_pull_source_events(source_track_coord)
@@ -1837,8 +2105,7 @@ class TimelineOrchestrator:
             return []
 
         return [
-            self._normalize_manual_pull_event_option(raw_event)
-            for raw_event in raw_events or []
+            self._normalize_manual_pull_event_option(raw_event) for raw_event in raw_events or []
         ]
 
     @staticmethod
@@ -1882,7 +2149,9 @@ class TimelineOrchestrator:
             return self._create_manual_pull_target_layer(timeline, source_track=source_track)
         return self._find_layer(timeline, target_layer_id)
 
-    def _create_manual_pull_target_layer(self, timeline: Timeline, *, source_track: ManualPullTrackOption) -> Layer:
+    def _create_manual_pull_target_layer(
+        self, timeline: Timeline, *, source_track: ManualPullTrackOption
+    ) -> Layer:
         layer_name = self._next_manual_pull_layer_name(timeline, source_track.name)
         layer_id = self._next_manual_pull_layer_id(timeline, source_track)
         main_take_id = TakeId(f"{layer_id}:main")

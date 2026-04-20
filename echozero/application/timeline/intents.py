@@ -7,8 +7,8 @@ from echozero.application.session.models import (
     ManualPullTrackOption,
     ManualPushTrackOption,
 )
-from echozero.application.shared.ids import LayerId, TakeId, EventId
 from echozero.application.shared.enums import SyncMode
+from echozero.application.shared.ids import EventId, LayerId, TakeId
 from echozero.application.shared.ranges import TimeRange
 from echozero.application.sync.models import LiveSyncState, coerce_live_sync_state
 
@@ -51,6 +51,16 @@ class ClearSelection(TimelineIntent):
 @dataclass(slots=True)
 class SelectAllEvents(TimelineIntent):
     pass
+
+
+@dataclass(slots=True)
+class SetSelectedEvents(TimelineIntent):
+    """Replace the selected event set while preserving batch-selection anchors."""
+
+    event_ids: list[EventId]
+    anchor_layer_id: LayerId | None = None
+    anchor_take_id: TakeId | None = None
+    selected_layer_ids: list[LayerId] | None = None
 
 
 @dataclass(slots=True)
@@ -97,6 +107,29 @@ class ExtractDrumEvents(TimelineIntent):
     def __post_init__(self) -> None:
         if self.layer_id is None or not str(self.layer_id).strip():
             raise ValueError("ExtractDrumEvents requires a non-empty layer_id")
+
+
+@dataclass(slots=True)
+class CreateEvent(TimelineIntent):
+    """Create one event in the target lane and select it immediately."""
+
+    layer_id: LayerId
+    time_range: TimeRange
+    take_id: TakeId | None = None
+    label: str = "Event"
+
+    def __post_init__(self) -> None:
+        if self.layer_id is None or not str(self.layer_id).strip():
+            raise ValueError("CreateEvent requires a non-empty layer_id")
+        label = (self.label or "").strip()
+        self.label = label or "Event"
+
+
+@dataclass(slots=True)
+class DeleteEvents(TimelineIntent):
+    """Delete one or more events by id from the timeline."""
+
+    event_ids: list[EventId]
 
 
 @dataclass(slots=True)

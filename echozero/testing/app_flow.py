@@ -169,6 +169,8 @@ class AppFlowHarness:
             self.close()
             self.runtime.shutdown()
         finally:
+            if self.ma3_bridge is not None and hasattr(self.ma3_bridge, "shutdown"):
+                self.ma3_bridge.shutdown()
             if self.ma3_osc_loopback is not None:
                 self.ma3_osc_loopback.stop()
             if self._temp_root_handle is not None:

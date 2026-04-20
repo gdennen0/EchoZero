@@ -14,10 +14,10 @@ from __future__ import annotations
 import logging
 import time
 import uuid
-from pathlib import Path
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -120,6 +120,7 @@ class Orchestrator:
         self,
         session: ProjectStorage,
         config_id: str,
+        runtime_bindings: dict[str, Any] | None = None,
         on_progress: Callable[[str, float], None] | None = None,
     ) -> Result[AnalysisResult]:
         start_time = time.monotonic()
@@ -140,18 +141,30 @@ class Orchestrator:
 
         pipeline = config.to_pipeline()
 
-        from echozero.domain.types import BlockSettings
         from dataclasses import replace as _replace
+
+        from echozero.domain.types import BlockSettings
+
         resolved_audio_path = self._resolve_audio_path(session, song_version.audio_file)
         load_audio_ids = [
-            bid for bid, b in pipeline.graph.blocks.items()
-            if b.block_type == "LoadAudio"
+            bid for bid, b in pipeline.graph.blocks.items() if b.block_type == "LoadAudio"
         ]
         for block_id in load_audio_ids:
             block = pipeline.graph.blocks[block_id]
             new_settings = {**dict(block.settings), "file_path": resolved_audio_path}
             updated = _replace(block, settings=BlockSettings(new_settings))
             pipeline.graph.replace_block(updated)
+        if runtime_bindings:
+            for block_id, block in tuple(pipeline.graph.blocks.items()):
+                changed = {
+                    key: value for key, value in runtime_bindings.items() if key in block.settings
+                }
+                if not changed:
+                    continue
+                updated = _replace(
+                    block, settings=BlockSettings({**dict(block.settings), **changed})
+                )
+                pipeline.graph.replace_block(updated)
 
         if on_progress:
             on_progress("Executing pipeline", 0.2)
@@ -190,13 +203,15 @@ class Orchestrator:
 
         duration_ms = (time.monotonic() - start_time) * 1000
 
-        return ok(AnalysisResult(
-            song_version_id=config.song_version_id,
-            pipeline_id=config.template_id,
-            layer_ids=layer_ids,
-            take_ids=take_ids,
-            duration_ms=duration_ms,
-        ))
+        return ok(
+            AnalysisResult(
+                song_version_id=config.song_version_id,
+                pipeline_id=config.template_id,
+                layer_ids=layer_ids,
+                take_ids=take_ids,
+                duration_ms=duration_ms,
+            )
+        )
 
     def analyze(
         self,
@@ -204,6 +219,7 @@ class Orchestrator:
         song_version_id: str,
         pipeline_id: str,
         bindings: dict[str, Any] | None = None,
+        runtime_bindings: dict[str, Any] | None = None,
         on_progress: Callable[[str, float], None] | None = None,
     ) -> Result[AnalysisResult]:
         config_result = self.create_config(
@@ -216,7 +232,11 @@ class Orchestrator:
             return config_result
 
         config = unwrap(config_result)
-        return self.execute(session, config.id, on_progress=on_progress)
+        if runtime_bindings is None:
+            return self.execute(session, config.id, on_progress=on_progress)
+        return self.execute(
+            session, config.id, runtime_bindings=runtime_bindings, on_progress=on_progress
+        )
 
     def _persist_outputs(
         self,
@@ -230,10 +250,7 @@ class Orchestrator:
         all_layer_ids: list[str] = []
         all_take_ids: list[str] = []
 
-        custom_mappings = {
-            m.output_name: m
-            for m in self._output_mappings.get(pipeline_id, [])
-        }
+        custom_mappings = {m.output_name: m for m in self._output_mappings.get(pipeline_id, [])}
 
         for pipeline_output in pipeline.outputs:
             name = pipeline_output.name
@@ -242,7 +259,9 @@ class Orchestrator:
             if data is None:
                 logger.warning(
                     "Pipeline output '%s' resolved to None (block=%s, port=%s)",
-                    name, port_ref.block_id, port_ref.port_name,
+                    name,
+                    port_ref.block_id,
+                    port_ref.port_name,
                 )
                 continue
 
@@ -251,11 +270,12 @@ class Orchestrator:
             if target is None:
                 logger.warning(
                     "Pipeline output '%s' has type %s — no persistence handler, skipping",
-                    name, type(data).__name__,
+                    name,
+                    type(data).__name__,
                 )
                 continue
 
-            label = (mapping.label if mapping and mapping.label else self._label_from_name(name))
+            label = mapping.label if mapping and mapping.label else self._label_from_name(name)
             extra_params = mapping.params if mapping else {}
             block = pipeline.graph.blocks.get(port_ref.block_id)
             block_type = block.block_type if block else ""
@@ -372,7 +392,11 @@ class Orchestrator:
         now = datetime.now(timezone.utc)
 
         for domain_layer in event_data.layers:
-            layer_name = domain_layer.name if len(event_data.layers) > 1 else (output_name if output_name else domain_layer.name)
+            layer_name = (
+                domain_layer.name
+                if len(event_data.layers) > 1
+                else (output_name if output_name else domain_layer.name)
+            )
             existing_layers = session.layers.list_by_version(song_version_id)
             existing = next((lr for lr in existing_layers if lr.name == layer_name), None)
 
@@ -485,14 +509,17 @@ class Orchestrator:
         all_takes = session.takes.list_by_layer(layer_record_id)
         non_main = [t for t in all_takes if not t.is_main and not t.is_archived]
         if len(non_main) > self._max_takes_per_layer - 1:
-            to_archive = non_main[:len(non_main) - (self._max_takes_per_layer - 1)]
+            to_archive = non_main[: len(non_main) - (self._max_takes_per_layer - 1)]
             for old_take in to_archive:
                 from dataclasses import replace as _replace
+
                 archived = _replace(old_take, is_archived=True)
                 session.takes.update(archived)
                 logger.info(
                     "Archived take '%s' (layer=%s) — exceeded limit of %d",
-                    old_take.id, layer_record_id, self._max_takes_per_layer,
+                    old_take.id,
+                    layer_record_id,
+                    self._max_takes_per_layer,
                 )
 
 

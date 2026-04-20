@@ -6,17 +6,43 @@ import time
 from collections.abc import Callable
 from dataclasses import dataclass, replace
 
-from PyQt6.QtCore import QRectF, Qt, QTimer, pyqtSignal
-from PyQt6.QtGui import QColor, QContextMenuEvent, QPainter, QPen
-from PyQt6.QtWidgets import QFileDialog, QHBoxLayout, QInputDialog, QMenu, QMessageBox, QScrollArea, QScrollBar, QSplitter, QToolTip, QVBoxLayout, QWidget
+from PyQt6.QtCore import QPointF, QRectF, Qt, QTimer, pyqtSignal
+from PyQt6.QtGui import QColor, QContextMenuEvent, QCursor, QPainter, QPen, QWheelEvent
+from PyQt6.QtWidgets import (
+    QButtonGroup,
+    QFileDialog,
+    QHBoxLayout,
+    QInputDialog,
+    QMenu,
+    QMessageBox,
+    QPushButton,
+    QScrollArea,
+    QScrollBar,
+    QSplitter,
+    QToolTip,
+    QVBoxLayout,
+    QWidget,
+)
 
-from echozero.application.presentation.inspector_contract import InspectorAction, InspectorContract, TimelineInspectorHitTarget, build_timeline_inspector_contract, render_inspector_contract_text
-from echozero.application.presentation.models import TimelinePresentation, LayerPresentation, TakeLanePresentation
-from echozero.models.paths import ensure_installed_models_dir
+from echozero.application.presentation.inspector_contract import (
+    InspectorAction,
+    InspectorContract,
+    TimelineInspectorHitTarget,
+    build_timeline_inspector_contract,
+    render_inspector_contract_text,
+)
+from echozero.application.presentation.models import (
+    LayerPresentation,
+    TakeLanePresentation,
+    TimelinePresentation,
+)
 from echozero.application.shared.enums import FollowMode
+from echozero.application.shared.ranges import TimeRange
 from echozero.application.timeline.intents import (
     ApplyTransferPlan,
     ClearSelection,
+    CreateEvent,
+    DeleteEvents,
     DuplicateSelectedEvents,
     MoveSelectedEvents,
     NudgeSelectedEvents,
@@ -25,31 +51,37 @@ from echozero.application.timeline.intents import (
     Pause,
     Play,
     Seek,
-    SetActivePlaybackTarget,
     SelectAllEvents,
     SelectEvent,
     SelectLayer,
     SelectTake,
+    SetActivePlaybackTarget,
+    SetSelectedEvents,
     Stop,
     ToggleLayerExpanded,
     TriggerTakeAction,
 )
+from echozero.models.paths import ensure_installed_models_dir
 from echozero.perf import timed
 from echozero.ui.FEEL import (
+    DRAG_THRESHOLD_PX,
     EVENT_BAR_HEIGHT_PX,
+    EVENT_SELECTION_COLOR,
+    GRID_BAR_LINE_ALPHA,
+    GRID_BEAT_LINE_ALPHA,
     GRID_LINE_ALPHA,
     GRID_LINE_COLOR,
     LAYER_HEADER_TOP_PADDING_PX,
     LAYER_HEADER_WIDTH_PX,
     LAYER_ROW_HEIGHT_PX,
     RULER_HEIGHT_PX,
+    SNAP_MAGNETISM_RADIUS_PX,
     TAKE_ROW_HEIGHT_PX,
+    TIMELINE_RIGHT_PADDING_PX,
     TIMELINE_ZOOM_MAX_PPS,
     TIMELINE_ZOOM_MIN_PPS,
     TIMELINE_ZOOM_STEP_FACTOR,
-    TIMELINE_RIGHT_PADDING_PX,
 )
-from echozero.ui.style.tokens import SHELL_TOKENS
 from echozero.ui.qt.timeline.blocks.event_lane import EventLaneBlock, EventLanePresentation
 from echozero.ui.qt.timeline.blocks.layer_header import HeaderSlots, LayerHeaderBlock
 from echozero.ui.qt.timeline.blocks.layouts import MainRowLayout, TakeRowLayout
@@ -64,21 +96,32 @@ from echozero.ui.qt.timeline.blocks.ruler import (
 from echozero.ui.qt.timeline.blocks.take_row import TakeRowBlock
 from echozero.ui.qt.timeline.blocks.transport_bar import TransportLayout
 from echozero.ui.qt.timeline.blocks.transport_bar_block import TransportBarBlock
+from echozero.ui.qt.timeline.blocks.waveform_lane import (
+    WaveformLaneBlock,
+    WaveformLanePresentation,
+)
 from echozero.ui.qt.timeline.manual_pull import (
     ManualPullTimelineDialog,
     ManualPullTimelineSelectionResult,
-    format_manual_pull_seconds as _format_seconds,
 )
+from echozero.ui.qt.timeline.manual_pull import format_manual_pull_seconds as _format_seconds
 from echozero.ui.qt.timeline.object_info_panel import ObjectInfoPanel
-from echozero.ui.qt.timeline.runtime_audio import RuntimeAudioTimingSnapshot, TimelineRuntimeAudioController
+from echozero.ui.qt.timeline.runtime_audio import (
+    RuntimeAudioTimingSnapshot,
+    TimelineRuntimeAudioController,
+)
 from echozero.ui.qt.timeline.style import (
     TIMELINE_STYLE,
     TimelineShellStyle,
     build_timeline_scroll_area_stylesheet,
 )
+from echozero.ui.qt.timeline.time_grid import (
+    TimelineGridMode,
+    resolve_snap_time,
+    visible_grid_lines,
+)
 from echozero.ui.qt.timeline.widget_actions import TimelineWidgetActionRouter
-from echozero.ui.qt.timeline.blocks.waveform_lane import WaveformLaneBlock, WaveformLanePresentation
-
+from echozero.ui.style.tokens import SHELL_TOKENS
 
 _SPAN_CACHE: dict[tuple, float] = {}
 _MAX_SPAN_CACHE_ENTRIES = 24
@@ -127,7 +170,9 @@ def compute_scroll_bounds(
     """Return (content_width, max_scroll_x) for horizontal timeline navigation."""
     viewport = max(1, int(viewport_width))
     span = estimate_timeline_span_seconds(presentation)
-    content_width = max(viewport, int(header_width + (span * presentation.pixels_per_second) + right_padding_px))
+    content_width = max(
+        viewport, int(header_width + (span * presentation.pixels_per_second) + right_padding_px)
+    )
     max_scroll = max(0, content_width - viewport)
     return content_width, max_scroll
 
@@ -193,8 +238,8 @@ def _parse_time_label_seconds(label: str | None) -> float:
     if not text:
         return 0.0
     try:
-        if ':' in text:
-            mins_txt, secs_txt = text.split(':', 1)
+        if ":" in text:
+            mins_txt, secs_txt = text.split(":", 1)
             return max(0.0, int(mins_txt) * 60 + float(secs_txt))
         return max(0.0, float(text))
     except (TypeError, ValueError):
@@ -205,8 +250,6 @@ def _format_seconds(value: float) -> str:
     return f"{value:.2f}s"
 
 
-
-
 @dataclass(slots=True)
 class _ContextMenuEntry:
     label: str
@@ -214,9 +257,93 @@ class _ContextMenuEntry:
     callback: Callable[[], None] | None = None
 
 
+class TimelineEditorModeBar(QWidget):
+    """Compact editor-mode strip for event-layer timeline interactions."""
+
+    edit_mode_changed = pyqtSignal(str)
+    snap_toggled = pyqtSignal(bool)
+    grid_mode_changed = pyqtSignal(str)
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(12, 8, 12, 8)
+        layout.setSpacing(8)
+
+        self._button_group = QButtonGroup(self)
+        self._button_group.setExclusive(True)
+        self._mode_buttons: dict[str, QPushButton] = {}
+        for mode, label in (
+            ("select", "Select"),
+            ("draw", "Draw"),
+            ("erase", "Erase"),
+        ):
+            button = QPushButton(label, self)
+            button.setCheckable(True)
+            button.clicked.connect(
+                lambda _checked=False, mode_name=mode: self.edit_mode_changed.emit(mode_name)
+            )
+            layout.addWidget(button)
+            self._button_group.addButton(button)
+            self._mode_buttons[mode] = button
+
+        layout.addSpacing(12)
+        self._snap_button = QPushButton("Snap", self)
+        self._snap_button.setCheckable(True)
+        self._snap_button.clicked.connect(lambda checked: self.snap_toggled.emit(bool(checked)))
+        layout.addWidget(self._snap_button)
+
+        self._grid_button = QPushButton("Grid: Auto", self)
+        self._grid_button.clicked.connect(self._cycle_grid_mode)
+        layout.addWidget(self._grid_button)
+        layout.addStretch(1)
+
+        self._grid_modes: tuple[TimelineGridMode, ...] = (TimelineGridMode.AUTO,)
+        self._grid_mode = TimelineGridMode.AUTO
+
+    def set_state(
+        self,
+        *,
+        edit_mode: str,
+        snap_enabled: bool,
+        grid_mode: str,
+        beat_available: bool,
+    ) -> None:
+        self._grid_modes = (
+            (TimelineGridMode.AUTO, TimelineGridMode.BEAT, TimelineGridMode.OFF)
+            if beat_available
+            else (TimelineGridMode.AUTO, TimelineGridMode.OFF)
+        )
+        self._grid_mode = TimelineGridMode(str(grid_mode))
+        if self._grid_mode not in self._grid_modes:
+            self._grid_mode = self._grid_modes[0]
+
+        for mode_name, button in self._mode_buttons.items():
+            button.blockSignals(True)
+            button.setChecked(mode_name == edit_mode)
+            button.blockSignals(False)
+        self._snap_button.blockSignals(True)
+        self._snap_button.setChecked(bool(snap_enabled))
+        self._snap_button.blockSignals(False)
+        self._grid_button.setText(f"Grid: {self._grid_mode.value.title()}")
+
+    def _cycle_grid_mode(self) -> None:
+        if not self._grid_modes:
+            return
+        try:
+            current_index = self._grid_modes.index(self._grid_mode)
+        except ValueError:
+            current_index = 0
+        next_mode = self._grid_modes[(current_index + 1) % len(self._grid_modes)]
+        self._grid_mode = next_mode
+        self._grid_button.setText(f"Grid: {next_mode.value.title()}")
+        self.grid_mode_changed.emit(next_mode.value)
+
+
 class TimelineCanvas(QWidget):
     layer_clicked = pyqtSignal(object, str)
     active_clicked = pyqtSignal(object)
+    pipeline_actions_clicked = pyqtSignal(object)
     push_clicked = pyqtSignal(object)
     pull_clicked = pyqtSignal(object)
     take_toggle_clicked = pyqtSignal(object)
@@ -230,8 +357,14 @@ class TimelineCanvas(QWidget):
     playhead_drag_requested = pyqtSignal(float)
     clear_selection_requested = pyqtSignal()
     select_all_requested = pyqtSignal()
+    set_selected_events_requested = pyqtSignal(object, object, object, object)
+    create_event_requested = pyqtSignal(object, object, float, float)
+    delete_events_requested = pyqtSignal(object)
     nudge_requested = pyqtSignal(int, int)
     duplicate_requested = pyqtSignal(int)
+    edit_mode_requested = pyqtSignal(str)
+    snap_toggle_requested = pyqtSignal()
+    grid_mode_cycle_requested = pyqtSignal()
     preview_transfer_plan_requested = pyqtSignal()
     apply_transfer_plan_requested = pyqtSignal()
     cancel_transfer_plan_requested = pyqtSignal()
@@ -251,9 +384,11 @@ class TimelineCanvas(QWidget):
         self._open_take_options: set[tuple[object, object]] = set()
         self._toggle_rects: list[tuple[QRectF, object]] = []
         self._active_rects: list[tuple[QRectF, object]] = []
+        self._pipeline_action_rects: list[tuple[QRectF, object]] = []
         self._push_rects: list[tuple[QRectF, object]] = []
         self._pull_rects: list[tuple[QRectF, object]] = []
         self._event_rects: list[tuple[QRectF, object, object | None, object]] = []
+        self._event_lane_rects: list[tuple[QRectF, object, object | None]] = []
         self._header_select_rects: list[tuple[QRectF, object]] = []
         self._row_body_select_rects: list[tuple[QRectF, object]] = []
         self._header_hover_rects: list[tuple[QRectF, LayerPresentation]] = []
@@ -262,6 +397,14 @@ class TimelineCanvas(QWidget):
         self._dragging_playhead = False
         self._drag_candidate: dict[str, object] | None = None
         self._dragging_events = False
+        self._selection_drag_candidate: dict[str, object] | None = None
+        self._drawing_candidate: dict[str, object] | None = None
+        self._marquee_rect: QRectF | None = None
+        self._preview_event_rect: QRectF | None = None
+        self._snap_indicator_time: float | None = None
+        self._edit_mode = "select"
+        self._snap_enabled = True
+        self._grid_mode = TimelineGridMode.AUTO.value
         self._header_block = LayerHeaderBlock()
         self._waveform_block = WaveformLaneBlock()
         self._event_lane_block = EventLaneBlock()
@@ -270,6 +413,7 @@ class TimelineCanvas(QWidget):
         self.setMinimumWidth(1440)
         self.setMouseTracking(True)
         self._recompute_height()
+        self._sync_cursor()
 
     def _recompute_height(self) -> None:
         height = self._top_padding
@@ -291,15 +435,37 @@ class TimelineCanvas(QWidget):
         if plan is None or plan.operation_type not in {"push", "mixed"}:
             return False
         return any(
-            row.direction == "push" and row.source_layer_id == layer.layer_id
-            for row in plan.rows
+            row.direction == "push" and row.source_layer_id == layer.layer_id for row in plan.rows
         )
 
-    def set_presentation(self, presentation: TimelinePresentation, *, recompute_layout: bool = True) -> None:
+    def set_presentation(
+        self, presentation: TimelinePresentation, *, recompute_layout: bool = True
+    ) -> None:
         self.presentation = presentation
         if recompute_layout:
             self._recompute_height()
         self.update()
+
+    def set_editor_state(
+        self,
+        *,
+        edit_mode: str,
+        snap_enabled: bool,
+        grid_mode: str,
+    ) -> None:
+        self._edit_mode = edit_mode
+        self._snap_enabled = bool(snap_enabled)
+        self._grid_mode = grid_mode
+        self._sync_cursor()
+        self.update()
+
+    def _sync_cursor(self) -> None:
+        if self._edit_mode == "draw":
+            self.setCursor(Qt.CursorShape.CrossCursor)
+        elif self._edit_mode == "erase":
+            self.setCursor(Qt.CursorShape.PointingHandCursor)
+        else:
+            self.unsetCursor()
 
     def paintEvent(self, event):
         painter = QPainter(self)
@@ -310,9 +476,11 @@ class TimelineCanvas(QWidget):
         self._take_action_rects.clear()
         self._toggle_rects.clear()
         self._active_rects.clear()
+        self._pipeline_action_rects.clear()
         self._push_rects.clear()
         self._pull_rects.clear()
         self._event_rects.clear()
+        self._event_lane_rects.clear()
         self._header_select_rects.clear()
         self._row_body_select_rects.clear()
         self._header_hover_rects.clear()
@@ -321,29 +489,58 @@ class TimelineCanvas(QWidget):
             self._draw_layers(painter)
         with timed("timeline.paint.playhead"):
             self._draw_playhead(painter)
+        self._draw_interaction_overlays(painter)
 
     def _draw_time_grid_band(self, painter: QPainter, *, top: int, row_height: int) -> None:
         content_left = float(self._header_width)
         content_width = max(1.0, float(self.width()) - content_left)
-        marks = visible_ruler_seconds(
+        lines = visible_grid_lines(
             scroll_x=self.presentation.scroll_x,
             pixels_per_second=self.presentation.pixels_per_second,
             content_width=content_width,
-            content_start_x=content_left,
+            mode=self._grid_mode,
+            bpm=self.presentation.bpm,
         )
-
-        grid_color = QColor(GRID_LINE_COLOR)
-        grid_color.setAlpha(max(0, min(255, GRID_LINE_ALPHA)))
-        painter.setPen(QPen(grid_color, 1))
+        if not lines:
+            return
 
         band_top = int(top)
         band_bottom = int(top + max(1, row_height) - 1)
-        for _, x in marks:
+        for line in lines:
+            x = timeline_x_for_time(
+                line.time_seconds,
+                scroll_x=self.presentation.scroll_x,
+                pixels_per_second=self.presentation.pixels_per_second,
+                content_start_x=content_left,
+            )
             if x < content_left:
                 continue
+            alpha = GRID_LINE_ALPHA
+            if line.role == "beat":
+                alpha = GRID_BEAT_LINE_ALPHA
+            elif line.role in {"bar", "major"}:
+                alpha = GRID_BAR_LINE_ALPHA
+            grid_color = QColor(GRID_LINE_COLOR)
+            grid_color.setAlpha(max(0, min(255, alpha)))
+            painter.setPen(QPen(grid_color, 1))
             painter.drawLine(int(x), band_top, int(x), band_bottom)
 
     def mouseMoveEvent(self, event) -> None:
+        if self._drawing_candidate is not None and event.buttons() & Qt.MouseButton.LeftButton:
+            self._update_draw_preview(event.position(), modifiers=event.modifiers())
+            event.accept()
+            return
+
+        if (
+            self._selection_drag_candidate is not None
+            and event.buttons() & Qt.MouseButton.LeftButton
+        ):
+            anchor = self._selection_drag_candidate["anchor_pos"]
+            self._marquee_rect = QRectF(anchor, event.position()).normalized()
+            event.accept()
+            self.update()
+            return
+
         if self._dragging_playhead and event.buttons() & Qt.MouseButton.LeftButton:
             self.playhead_drag_requested.emit(self._seek_time_at_x(event.position().x()))
             event.accept()
@@ -352,8 +549,19 @@ class TimelineCanvas(QWidget):
         if self._drag_candidate is not None and event.buttons() & Qt.MouseButton.LeftButton:
             dx = abs(event.position().x() - float(self._drag_candidate["anchor_x"]))
             dy = abs(event.position().y() - float(self._drag_candidate["anchor_y"]))
-            if max(dx, dy) >= 4.0:
+            if max(dx, dy) >= DRAG_THRESHOLD_PX:
                 self._dragging_events = True
+                raw_delta = (event.position().x() - float(self._drag_candidate["anchor_x"])) / max(
+                    1.0, self.presentation.pixels_per_second
+                )
+                anchor_time = float(self._drag_candidate["anchor_event_start"]) + raw_delta
+                snapped = self._resolve_snap_target_time(
+                    anchor_time,
+                    modifiers=event.modifiers(),
+                    exclude_event_ids=tuple(self.presentation.selected_event_ids),
+                )
+                self._snap_indicator_time = snapped
+                self.update()
                 event.accept()
                 return
 
@@ -388,7 +596,13 @@ class TimelineCanvas(QWidget):
         self._dragging_playhead = False
         self._drag_candidate = None
         self._dragging_events = False
+        self._selection_drag_candidate = None
+        self._drawing_candidate = None
+        self._marquee_rect = None
+        self._preview_event_rect = None
+        self._snap_indicator_time = None
         QToolTip.hideText()
+        self.update()
         super().leaveEvent(event)
 
     def mousePressEvent(self, event):
@@ -408,6 +622,10 @@ class TimelineCanvas(QWidget):
         for rect, layer_id in self._active_rects:
             if rect.contains(pos):
                 self.active_clicked.emit(layer_id)
+                return
+        for rect, layer_id in self._pipeline_action_rects:
+            if rect.contains(pos):
+                self.pipeline_actions_clicked.emit(layer_id)
                 return
         for rect, layer_id in self._push_rects:
             if rect.contains(pos):
@@ -436,19 +654,56 @@ class TimelineCanvas(QWidget):
                 return
         for rect, layer_id, take_id, event_id in self._event_rects:
             if rect.contains(pos):
+                if self._edit_mode == "erase":
+                    self.delete_events_requested.emit([event_id])
+                    return
                 if (
-                    event.button() == Qt.MouseButton.LeftButton
+                    self._edit_mode == "select"
+                    and event.button() == Qt.MouseButton.LeftButton
                     and self._can_start_event_drag(event.modifiers(), event_id)
                 ):
                     self._drag_candidate = {
                         "anchor_x": pos.x(),
                         "anchor_y": pos.y(),
                         "source_layer_id": layer_id,
+                        "anchor_event_id": event_id,
+                        "anchor_event_start": self._event_start_for_id(event_id),
                     }
                     self._dragging_events = False
                     event.accept()
                     return
-                self.event_selected.emit(layer_id, take_id, event_id, self._selection_mode_for_modifiers(event.modifiers()))
+                self.event_selected.emit(
+                    layer_id,
+                    take_id,
+                    event_id,
+                    self._selection_mode_for_modifiers(event.modifiers()),
+                )
+                return
+        lane_hit = self._event_lane_hit(pos)
+        if lane_hit is not None and event.button() == Qt.MouseButton.LeftButton:
+            lane_rect, lane_layer_id, lane_take_id = lane_hit
+            del lane_rect
+            if self._edit_mode == "draw":
+                anchor_time = self._resolve_draw_time(pos.x(), modifiers=event.modifiers())
+                self._drawing_candidate = {
+                    "layer_id": lane_layer_id,
+                    "take_id": lane_take_id,
+                    "anchor_time": anchor_time,
+                }
+                self._preview_event_rect = None
+                self._update_draw_preview(pos, modifiers=event.modifiers())
+                event.accept()
+                return
+            if self._edit_mode == "select":
+                self._selection_drag_candidate = {
+                    "anchor_pos": pos,
+                    "origin_layer_id": lane_layer_id,
+                    "origin_take_id": lane_take_id,
+                    "modifiers": event.modifiers(),
+                }
+                self._marquee_rect = None
+                self._snap_indicator_time = None
+                event.accept()
                 return
         for rect, layer_id in self._toggle_rects:
             if rect.contains(pos):
@@ -456,11 +711,15 @@ class TimelineCanvas(QWidget):
                 return
         for rect, layer_id in self._header_select_rects:
             if rect.contains(pos):
-                self.layer_clicked.emit(layer_id, self._layer_selection_mode_for_modifiers(event.modifiers()))
+                self.layer_clicked.emit(
+                    layer_id, self._layer_selection_mode_for_modifiers(event.modifiers())
+                )
                 return
         for rect, layer_id in self._row_body_select_rects:
             if rect.contains(pos):
-                self.layer_clicked.emit(layer_id, self._layer_selection_mode_for_modifiers(event.modifiers()))
+                self.layer_clicked.emit(
+                    layer_id, self._layer_selection_mode_for_modifiers(event.modifiers())
+                )
                 return
         super().mousePressEvent(event)
 
@@ -486,14 +745,18 @@ class TimelineCanvas(QWidget):
             self.contract_action_selected.emit(payload)
         return True
 
-    def _build_context_menu(self, contract: InspectorContract, *, hit_kind: str | None = None) -> QMenu:
+    def _build_context_menu(
+        self, contract: InspectorContract, *, hit_kind: str | None = None
+    ) -> QMenu:
         menu = QMenu(self)
         first_section = True
         seen_action_ids: set[str] = set()
         for section in contract.context_sections:
             visible_actions: list[InspectorAction] = []
             for action in section.actions:
-                if hit_kind is not None and not self._context_action_visible_for_hit_kind(action, hit_kind):
+                if hit_kind is not None and not self._context_action_visible_for_hit_kind(
+                    action, hit_kind
+                ):
                     continue
                 if hit_kind is not None and action.action_id in seen_action_ids:
                     continue
@@ -529,18 +792,40 @@ class TimelineCanvas(QWidget):
     def mouseReleaseEvent(self, event) -> None:
         if event.button() == Qt.MouseButton.LeftButton:
             self._dragging_playhead = False
+            if self._drawing_candidate is not None:
+                self._commit_draw_preview(event.position(), modifiers=event.modifiers())
+                event.accept()
+                return
+            if self._selection_drag_candidate is not None:
+                self._commit_selection_drag()
+                event.accept()
+                return
             if self._drag_candidate is not None:
                 if self._dragging_events:
-                    delta_seconds = (event.position().x() - float(self._drag_candidate["anchor_x"])) / max(1.0, self.presentation.pixels_per_second)
+                    delta_seconds = (
+                        event.position().x() - float(self._drag_candidate["anchor_x"])
+                    ) / max(1.0, self.presentation.pixels_per_second)
+                    anchor_start = float(self._drag_candidate["anchor_event_start"])
+                    snapped_time = self._resolve_snap_target_time(
+                        anchor_start + delta_seconds,
+                        modifiers=event.modifiers(),
+                        exclude_event_ids=tuple(self.presentation.selected_event_ids),
+                    )
+                    if snapped_time is not None:
+                        delta_seconds = snapped_time - anchor_start
                     target_layer_id = self._event_drop_target_layer_id(event.position())
                     source_layer_id = self._drag_candidate["source_layer_id"]
                     if target_layer_id == source_layer_id:
                         target_layer_id = None
                     if abs(delta_seconds) >= 0.0001 or target_layer_id is not None:
-                        self.move_selected_events_requested.emit(float(delta_seconds), target_layer_id)
+                        self.move_selected_events_requested.emit(
+                            float(delta_seconds), target_layer_id
+                        )
                     event.accept()
                 self._drag_candidate = None
                 self._dragging_events = False
+                self._snap_indicator_time = None
+                self.update()
                 if event.isAccepted():
                     return
         super().mouseReleaseEvent(event)
@@ -599,12 +884,39 @@ class TimelineCanvas(QWidget):
             self.cancel_transfer_plan_requested.emit()
             event.accept()
             return
+        if (
+            event.key() in (Qt.Key.Key_Backspace, Qt.Key.Key_Delete)
+            and self.presentation.selected_event_ids
+        ):
+            self.delete_events_requested.emit(list(self.presentation.selected_event_ids))
+            event.accept()
+            return
         if event.key() == Qt.Key.Key_A and has_primary:
             self.select_all_requested.emit()
             event.accept()
             return
         if event.key() == Qt.Key.Key_D and has_primary:
             self.duplicate_requested.emit(steps)
+            event.accept()
+            return
+        if not has_primary and not has_shift and event.key() == Qt.Key.Key_V:
+            self.edit_mode_requested.emit("select")
+            event.accept()
+            return
+        if not has_primary and not has_shift and event.key() == Qt.Key.Key_B:
+            self.edit_mode_requested.emit("draw")
+            event.accept()
+            return
+        if not has_primary and not has_shift and event.key() == Qt.Key.Key_E:
+            self.edit_mode_requested.emit("erase")
+            event.accept()
+            return
+        if not has_primary and event.key() == Qt.Key.Key_S:
+            self.snap_toggle_requested.emit()
+            event.accept()
+            return
+        if not has_primary and event.key() == Qt.Key.Key_G:
+            self.grid_mode_cycle_requested.emit()
             event.accept()
             return
         if event.key() == Qt.Key.Key_Left:
@@ -631,7 +943,10 @@ class TimelineCanvas(QWidget):
     def _selection_mode_for_modifiers(modifiers: Qt.KeyboardModifier) -> str:
         if modifiers & Qt.KeyboardModifier.ShiftModifier:
             return "additive"
-        if modifiers & Qt.KeyboardModifier.ControlModifier or modifiers & Qt.KeyboardModifier.MetaModifier:
+        if (
+            modifiers & Qt.KeyboardModifier.ControlModifier
+            or modifiers & Qt.KeyboardModifier.MetaModifier
+        ):
             return "toggle"
         return "replace"
 
@@ -639,9 +954,201 @@ class TimelineCanvas(QWidget):
     def _layer_selection_mode_for_modifiers(modifiers: Qt.KeyboardModifier) -> str:
         if modifiers & Qt.KeyboardModifier.ShiftModifier:
             return "range"
-        if modifiers & Qt.KeyboardModifier.ControlModifier or modifiers & Qt.KeyboardModifier.MetaModifier:
+        if (
+            modifiers & Qt.KeyboardModifier.ControlModifier
+            or modifiers & Qt.KeyboardModifier.MetaModifier
+        ):
             return "toggle"
         return "replace"
+
+    def _event_lane_hit(self, pos: QPointF) -> tuple[QRectF, object, object | None] | None:
+        for rect, layer_id, take_id in self._event_lane_rects:
+            if rect.contains(pos):
+                return rect, layer_id, take_id
+        return None
+
+    def _resolve_draw_time(self, x: float, *, modifiers: Qt.KeyboardModifier) -> float:
+        time_seconds = self._seek_time_at_x(x)
+        snapped = self._resolve_snap_target_time(
+            time_seconds, modifiers=modifiers, exclude_event_ids=()
+        )
+        return snapped if snapped is not None else time_seconds
+
+    def _event_start_for_id(self, event_id: object) -> float:
+        for layer in self.presentation.layers:
+            for event in layer.events:
+                if event.event_id == event_id:
+                    return float(event.start)
+            for take in layer.takes:
+                for event in take.events:
+                    if event.event_id == event_id:
+                        return float(event.start)
+        return 0.0
+
+    def _event_times(self, *, exclude_event_ids: tuple[object, ...]) -> tuple[float, ...]:
+        excluded = set(exclude_event_ids)
+        times: list[float] = []
+        for layer in self.presentation.layers:
+            for event in layer.events:
+                if event.event_id in excluded:
+                    continue
+                times.extend((float(event.start), float(event.end)))
+            for take in layer.takes:
+                for event in take.events:
+                    if event.event_id in excluded:
+                        continue
+                    times.extend((float(event.start), float(event.end)))
+        return tuple(times)
+
+    def _resolve_snap_target_time(
+        self,
+        time_seconds: float,
+        *,
+        modifiers: Qt.KeyboardModifier,
+        exclude_event_ids: tuple[object, ...],
+    ) -> float | None:
+        if not self._snap_enabled or modifiers & Qt.KeyboardModifier.AltModifier:
+            return None
+        resolved = resolve_snap_time(
+            time_seconds,
+            pixels_per_second=self.presentation.pixels_per_second,
+            mode=self._grid_mode,
+            bpm=self.presentation.bpm,
+            threshold_px=float(SNAP_MAGNETISM_RADIUS_PX),
+            event_times=self._event_times(exclude_event_ids=exclude_event_ids),
+            playhead_time=self.presentation.playhead,
+        )
+        return resolved.time_seconds if resolved is not None else None
+
+    def _update_draw_preview(self, pos: QPointF, *, modifiers: Qt.KeyboardModifier) -> None:
+        if self._drawing_candidate is None:
+            return
+        anchor_time = float(self._drawing_candidate["anchor_time"])
+        current_time = self._resolve_draw_time(pos.x(), modifiers=modifiers)
+        if abs(current_time - anchor_time) < 1e-6:
+            default_duration = 0.25
+            current_time = anchor_time + default_duration
+        start_time = max(0.0, min(anchor_time, current_time))
+        end_time = max(start_time + 0.01, max(anchor_time, current_time))
+        self._snap_indicator_time = current_time
+        x = timeline_x_for_time(
+            start_time,
+            scroll_x=self.presentation.scroll_x,
+            pixels_per_second=self.presentation.pixels_per_second,
+            content_start_x=self._header_width,
+        )
+        width = max(2.0, (end_time - start_time) * max(1.0, self.presentation.pixels_per_second))
+        lane_hit = self._event_lane_hit(pos)
+        if lane_hit is None:
+            lane_hit = next(
+                (
+                    candidate
+                    for candidate in self._event_lane_rects
+                    if candidate[1] == self._drawing_candidate["layer_id"]
+                    and candidate[2] == self._drawing_candidate["take_id"]
+                ),
+                None,
+            )
+        if lane_hit is not None:
+            lane_rect, _layer_id, _take_id = lane_hit
+            top = lane_rect.top() + max(0.0, (lane_rect.height() - self._event_height) * 0.5)
+            self._preview_event_rect = QRectF(x, top, width, self._event_height)
+        self.update()
+
+    def _commit_draw_preview(self, pos: QPointF, *, modifiers: Qt.KeyboardModifier) -> None:
+        if self._drawing_candidate is None:
+            return
+        anchor_time = float(self._drawing_candidate["anchor_time"])
+        current_time = self._resolve_draw_time(pos.x(), modifiers=modifiers)
+        if abs(current_time - anchor_time) < 1e-6:
+            current_time = anchor_time + 0.25
+        start_time = max(0.0, min(anchor_time, current_time))
+        end_time = max(start_time + 0.01, max(anchor_time, current_time))
+        self.create_event_requested.emit(
+            self._drawing_candidate["layer_id"],
+            self._drawing_candidate["take_id"],
+            float(start_time),
+            float(end_time),
+        )
+        self._drawing_candidate = None
+        self._preview_event_rect = None
+        self._snap_indicator_time = None
+        self.update()
+
+    def _commit_selection_drag(self) -> None:
+        if self._selection_drag_candidate is None:
+            return
+        candidate = self._selection_drag_candidate
+        rect = self._marquee_rect.normalized() if self._marquee_rect is not None else None
+        self._selection_drag_candidate = None
+        self._marquee_rect = None
+
+        if rect is None or rect.width() < DRAG_THRESHOLD_PX and rect.height() < DRAG_THRESHOLD_PX:
+            self.layer_clicked.emit(
+                candidate["origin_layer_id"],
+                self._layer_selection_mode_for_modifiers(candidate["modifiers"]),
+            )
+            self.update()
+            return
+
+        mode = self._selection_mode_for_modifiers(candidate["modifiers"])
+        intersected_ids: list[object] = []
+        for event_rect, _layer_id, _take_id, event_id in self._event_rects:
+            if rect.intersects(event_rect):
+                intersected_ids.append(event_id)
+
+        next_event_ids = list(self.presentation.selected_event_ids)
+        if mode == "replace":
+            next_event_ids = intersected_ids
+        elif mode == "additive":
+            for event_id in intersected_ids:
+                if event_id not in next_event_ids:
+                    next_event_ids.append(event_id)
+        else:
+            for event_id in intersected_ids:
+                if event_id in next_event_ids:
+                    next_event_ids = [
+                        candidate_id for candidate_id in next_event_ids if candidate_id != event_id
+                    ]
+                else:
+                    next_event_ids.append(event_id)
+
+        anchor_layer_id, anchor_take_id, selected_layer_ids = (
+            self._selection_context_for_event_ids(next_event_ids)
+        )
+        self.set_selected_events_requested.emit(
+            next_event_ids,
+            anchor_layer_id,
+            anchor_take_id,
+            selected_layer_ids,
+        )
+        self.update()
+
+    def _selection_context_for_event_ids(
+        self, event_ids: list[object]
+    ) -> tuple[object | None, object | None, list[object]]:
+        lookup = set(event_ids)
+        selected_layer_ids: list[object] = []
+        anchor_layer_id = None
+        anchor_take_id = None
+        for layer in self.presentation.layers:
+            layer_has_selected = False
+            for event in layer.events:
+                if event.event_id not in lookup:
+                    continue
+                layer_has_selected = True
+                anchor_layer_id = layer.layer_id
+                anchor_take_id = layer.main_take_id
+            for take in layer.takes:
+                for event in take.events:
+                    if event.event_id not in lookup:
+                        continue
+                    layer_has_selected = True
+                    anchor_layer_id = layer.layer_id
+                    anchor_take_id = take.take_id
+            if layer_has_selected and layer.layer_id not in selected_layer_ids:
+                selected_layer_ids.append(layer.layer_id)
+        return anchor_layer_id, anchor_take_id, selected_layer_ids
 
     def _draw_layers(self, painter: QPainter) -> None:
         y = self._top_padding
@@ -652,6 +1159,7 @@ class TimelineCanvas(QWidget):
                 for take in layer.takes:
                     self._draw_take_row(painter, layer, take, y)
                     y += self._take_row_height
+
     @staticmethod
     def _header_tooltip_text(layer: LayerPresentation) -> str:
         labels = badge_tooltip_labels(layer.badges)
@@ -689,8 +1197,17 @@ class TimelineCanvas(QWidget):
 
     def _draw_main_row(self, painter: QPainter, layer: LayerPresentation, top: int) -> None:
         dimmed = self._layer_dimmed(layer)
-        layout = MainRowLayout.create(top=top, width=self.width(), header_width=self._header_width, row_height=self._main_row_height)
-        row_bg = QColor(self._style.canvas.selected_row_fill_hex if layer.is_selected else self._style.canvas.row_fill_hex)
+        layout = MainRowLayout.create(
+            top=top,
+            width=self.width(),
+            header_width=self._header_width,
+            row_height=self._main_row_height,
+        )
+        row_bg = QColor(
+            self._style.canvas.selected_row_fill_hex
+            if layer.is_selected
+            else self._style.canvas.row_fill_hex
+        )
         if dimmed:
             row_bg = QColor(self._style.canvas.dimmed_row_fill_hex)
         painter.fillRect(layout.row_rect, row_bg)
@@ -703,7 +1220,13 @@ class TimelineCanvas(QWidget):
             painter.drawRoundedRect(outline_rect, 8.0, 8.0)
             painter.restore()
         self._draw_time_grid_band(painter, top=top, row_height=self._main_row_height)
-        painter.fillRect(0, top + self._main_row_height - 1, self.width(), 1, QColor(self._style.canvas.row_divider_hex))
+        painter.fillRect(
+            0,
+            top + self._main_row_height - 1,
+            self.width(),
+            1,
+            QColor(self._style.canvas.row_divider_hex),
+        )
 
         slots = HeaderSlots(
             rect=layout.header_rect,
@@ -719,12 +1242,17 @@ class TimelineCanvas(QWidget):
         self._header_select_rects.append((layout.header_rect, layer.layer_id))
         self._row_body_select_rects.append((layout.content_rect, layer.layer_id))
         self._header_hover_rects.append((layout.header_rect, layer))
-        if layer.kind.name == 'EVENT':
+        if layer.kind.name == "EVENT":
             self._event_drop_rects.append((layout.content_rect, layer.layer_id))
+            self._event_lane_rects.append(
+                (layout.content_rect, layer.layer_id, layer.main_take_id)
+            )
         hit_targets = self._header_block.paint(painter, slots, layer, dimmed=dimmed)
         for control_id, rect in hit_targets.control_rects:
             if control_id == "set_active_playback_target":
                 self._active_rects.append((rect, layer.layer_id))
+            elif control_id == "layer_pipeline_actions":
+                self._pipeline_action_rects.append((rect, layer.layer_id))
             elif control_id == "push_to_ma3":
                 self._push_rects.append((rect, layer.layer_id))
             elif control_id == "pull_from_ma3":
@@ -733,7 +1261,7 @@ class TimelineCanvas(QWidget):
         painter.save()
         painter.setClipRect(layout.content_rect)
         try:
-            if layer.kind.name == 'AUDIO':
+            if layer.kind.name == "AUDIO":
                 self._waveform_block.paint(
                     painter,
                     top,
@@ -769,7 +1297,11 @@ class TimelineCanvas(QWidget):
                 )
 
             if not layer.takes:
-                hint_color = self._style.canvas.no_takes_hint_dimmed_hex if dimmed else self._style.canvas.no_takes_hint_hex
+                hint_color = (
+                    self._style.canvas.no_takes_hint_dimmed_hex
+                    if dimmed
+                    else self._style.canvas.no_takes_hint_hex
+                )
                 painter.setPen(QColor(hint_color))
                 painter.drawText(
                     layout.content_rect.adjusted(10, 0, -10, 0),
@@ -782,9 +1314,16 @@ class TimelineCanvas(QWidget):
     def _is_take_options_open(self, layer_id: object, take_id: object) -> bool:
         return (layer_id, take_id) in self._open_take_options
 
-    def _draw_take_row(self, painter: QPainter, layer: LayerPresentation, take: TakeLanePresentation, top: int) -> None:
+    def _draw_take_row(
+        self, painter: QPainter, layer: LayerPresentation, take: TakeLanePresentation, top: int
+    ) -> None:
         dimmed = self._layer_dimmed(layer)
-        layout = TakeRowLayout.create(top=top, width=self.width(), header_width=self._header_width, row_height=self._take_row_height)
+        layout = TakeRowLayout.create(
+            top=top,
+            width=self.width(),
+            header_width=self._header_width,
+            row_height=self._take_row_height,
+        )
         options_open = self._is_take_options_open(layer.layer_id, take.take_id)
         hit_targets = self._take_row_block.paint_header(
             painter,
@@ -797,8 +1336,9 @@ class TimelineCanvas(QWidget):
         self._draw_time_grid_band(painter, top=top, row_height=self._take_row_height)
         self._take_rects.append(hit_targets.take_rect)
         self._row_body_select_rects.append((layout.content_rect, layer.layer_id))
-        if take.kind.name == 'EVENT':
+        if take.kind.name == "EVENT":
             self._event_drop_rects.append((layout.content_rect, layer.layer_id))
+            self._event_lane_rects.append((layout.content_rect, layer.layer_id, take.take_id))
         if hit_targets.options_toggle_rect is not None:
             self._take_option_rects.append(hit_targets.options_toggle_rect)
         self._take_action_rects.extend(hit_targets.action_rects)
@@ -806,7 +1346,7 @@ class TimelineCanvas(QWidget):
         painter.save()
         painter.setClipRect(layout.content_rect)
         try:
-            if take.kind.name == 'AUDIO':
+            if take.kind.name == "AUDIO":
                 self._waveform_block.paint(
                     painter,
                     top,
@@ -854,11 +1394,52 @@ class TimelineCanvas(QWidget):
         if x < self._header_width or x > self.width():
             return
 
-        painter.setPen(QPen(QColor(self._style.playhead.color_hex), self._style.playhead.line_width_px))
+        painter.setPen(
+            QPen(QColor(self._style.playhead.color_hex), self._style.playhead.line_width_px)
+        )
         painter.drawLine(int(x), 0, int(x), self.height())
         painter.setBrush(QColor(self._style.playhead.color_hex))
-        painter.setPen(QPen(QColor(self._style.playhead.color_hex), self._style.playhead.head_outline_width_px))
+        painter.setPen(
+            QPen(
+                QColor(self._style.playhead.color_hex), self._style.playhead.head_outline_width_px
+            )
+        )
         painter.drawPolygon(playhead_head_polygon(x, float(self._top_padding)))
+
+    def _draw_interaction_overlays(self, painter: QPainter) -> None:
+        if self._snap_indicator_time is not None:
+            x = timeline_x_for_time(
+                self._snap_indicator_time,
+                scroll_x=self.presentation.scroll_x,
+                pixels_per_second=self.presentation.pixels_per_second,
+                content_start_x=self._header_width,
+            )
+            if self._header_width <= x <= self.width():
+                snap_color = QColor(EVENT_SELECTION_COLOR)
+                snap_color.setAlpha(110)
+                painter.save()
+                painter.setPen(QPen(snap_color, 1, Qt.PenStyle.DashLine))
+                painter.drawLine(int(x), int(self._top_padding), int(x), self.height())
+                painter.restore()
+
+        if self._preview_event_rect is not None:
+            preview_color = QColor(EVENT_SELECTION_COLOR)
+            preview_color.setAlpha(52)
+            painter.save()
+            painter.setPen(QPen(QColor(EVENT_SELECTION_COLOR), 1, Qt.PenStyle.DashLine))
+            painter.setBrush(preview_color)
+            painter.drawRoundedRect(self._preview_event_rect, 6.0, 6.0)
+            painter.restore()
+
+        if self._marquee_rect is not None:
+            marquee_color = QColor(EVENT_SELECTION_COLOR)
+            marquee_fill = QColor(EVENT_SELECTION_COLOR)
+            marquee_fill.setAlpha(36)
+            painter.save()
+            painter.setPen(QPen(marquee_color, 1, Qt.PenStyle.DashLine))
+            painter.setBrush(marquee_fill)
+            painter.drawRect(self._marquee_rect.normalized())
+            painter.restore()
 
     def _playhead_head_contains(self, pos: QPointF) -> bool:
         x = timeline_x_for_time(
@@ -900,7 +1481,9 @@ class TimelineCanvas(QWidget):
                     layer_id=layer_id,
                     take_id=take_id,
                     event_id=event_id,
-                    time_seconds=self._seek_time_at_x(pos.x()) if pos.x() >= self._header_width else None,
+                    time_seconds=(
+                        self._seek_time_at_x(pos.x()) if pos.x() >= self._header_width else None
+                    ),
                 )
         for rect, layer_id, take_id in self._take_rects:
             if rect.contains(pos):
@@ -908,7 +1491,9 @@ class TimelineCanvas(QWidget):
                     kind="take",
                     layer_id=layer_id,
                     take_id=take_id,
-                    time_seconds=self._seek_time_at_x(pos.x()) if pos.x() >= self._header_width else None,
+                    time_seconds=(
+                        self._seek_time_at_x(pos.x()) if pos.x() >= self._header_width else None
+                    ),
                 )
         for rect, layer_id in self._header_select_rects:
             if rect.contains(pos):
@@ -918,7 +1503,9 @@ class TimelineCanvas(QWidget):
                 return TimelineInspectorHitTarget(
                     kind="layer",
                     layer_id=layer_id,
-                    time_seconds=self._seek_time_at_x(pos.x()) if pos.x() >= self._header_width else None,
+                    time_seconds=(
+                        self._seek_time_at_x(pos.x()) if pos.x() >= self._header_width else None
+                    ),
                 )
         return TimelineInspectorHitTarget(
             kind="timeline",
@@ -927,7 +1514,12 @@ class TimelineCanvas(QWidget):
 
 
 class TransportBar(QWidget):
-    def __init__(self, presentation: TimelinePresentation, on_intent: Callable[[object], object | None] | None = None, parent=None):
+    def __init__(
+        self,
+        presentation: TimelinePresentation,
+        on_intent: Callable[[object], object | None] | None = None,
+        parent=None,
+    ):
         super().__init__(parent)
         self.presentation = presentation
         self._on_intent = on_intent
@@ -950,10 +1542,10 @@ class TransportBar(QWidget):
 
     def mousePressEvent(self, event) -> None:
         pos = event.position()
-        if (play_rect := self._control_rects.get('play')) is not None and play_rect.contains(pos):
+        if (play_rect := self._control_rects.get("play")) is not None and play_rect.contains(pos):
             self._dispatch(Pause() if self.presentation.is_playing else Play())
             return
-        if (stop_rect := self._control_rects.get('stop')) is not None and stop_rect.contains(pos):
+        if (stop_rect := self._control_rects.get("stop")) is not None and stop_rect.contains(pos):
             self._dispatch(Stop())
             return
         super().mousePressEvent(event)
@@ -969,7 +1561,13 @@ class TransportBar(QWidget):
 class TimelineRuler(QWidget):
     seek_requested = pyqtSignal(float)
 
-    def __init__(self, presentation: TimelinePresentation, *, header_width: float = float(LAYER_HEADER_WIDTH_PX), parent=None):
+    def __init__(
+        self,
+        presentation: TimelinePresentation,
+        *,
+        header_width: float = float(LAYER_HEADER_WIDTH_PX),
+        parent=None,
+    ):
         super().__init__(parent)
         self.presentation = presentation
         self._header_width = header_width
@@ -992,7 +1590,10 @@ class TimelineRuler(QWidget):
         )
 
     def mousePressEvent(self, event) -> None:
-        if event.button() == Qt.MouseButton.LeftButton and event.position().x() >= self._header_width:
+        if (
+            event.button() == Qt.MouseButton.LeftButton
+            and event.position().x() >= self._header_width
+        ):
             self._dragging = True
             self.seek_requested.emit(self._seek_time_at_x(event.position().x()))
             event.accept()
@@ -1037,6 +1638,9 @@ class TimelineWidget(QWidget):
         self._runtime_source_signature: tuple[tuple[str, str], ...] | None = None
         self._runtime_playhead_floor: float | None = None
         self._runtime_timing_snapshot: RuntimeAudioTimingSnapshot | None = None
+        self._edit_mode = "select"
+        self._snap_enabled = True
+        self._grid_mode = TimelineGridMode.AUTO.value
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.setWindowTitle(self._style.window_title)
 
@@ -1052,6 +1656,12 @@ class TimelineWidget(QWidget):
         self._transport = TransportBar(self.presentation, on_intent=self._dispatch)
         left_layout.addWidget(self._transport)
 
+        self._editor_bar = TimelineEditorModeBar(self)
+        self._editor_bar.edit_mode_changed.connect(self._set_edit_mode)
+        self._editor_bar.snap_toggled.connect(self._set_snap_enabled)
+        self._editor_bar.grid_mode_changed.connect(self._set_grid_mode)
+        left_layout.addWidget(self._editor_bar)
+
         self._canvas = TimelineCanvas(self.presentation)
         self._ruler = TimelineRuler(self.presentation, header_width=self._canvas._header_width)
         left_layout.addWidget(self._ruler)
@@ -1062,6 +1672,7 @@ class TimelineWidget(QWidget):
         self._scroll.setStyleSheet(f"background: {SHELL_TOKENS.canvas_bg}; border: none;")
         self._canvas.layer_clicked.connect(self._select_layer)
         self._canvas.active_clicked.connect(self._set_active_playback_target)
+        self._canvas.pipeline_actions_clicked.connect(self._open_layer_pipeline_actions)
         self._canvas.push_clicked.connect(self._open_push_from_layer_action)
         self._canvas.pull_clicked.connect(self._open_pull_from_layer_action)
         self._canvas.take_toggle_clicked.connect(self._toggle_take_selector)
@@ -1075,8 +1686,14 @@ class TimelineWidget(QWidget):
         self._canvas.zoom_requested.connect(self._zoom_from_input)
         self._canvas.clear_selection_requested.connect(self._clear_selection)
         self._canvas.select_all_requested.connect(self._select_all_events)
+        self._canvas.set_selected_events_requested.connect(self._set_selected_events)
+        self._canvas.create_event_requested.connect(self._create_event)
+        self._canvas.delete_events_requested.connect(self._delete_events)
         self._canvas.nudge_requested.connect(self._nudge_selected_events)
         self._canvas.duplicate_requested.connect(self._duplicate_selected_events)
+        self._canvas.edit_mode_requested.connect(self._set_edit_mode)
+        self._canvas.snap_toggle_requested.connect(self._toggle_snap_enabled)
+        self._canvas.grid_mode_cycle_requested.connect(self._cycle_grid_mode)
         self._canvas.preview_transfer_plan_requested.connect(self._preview_active_transfer_plan)
         self._canvas.apply_transfer_plan_requested.connect(self._apply_active_transfer_plan)
         self._canvas.cancel_transfer_plan_requested.connect(self._cancel_active_transfer_plan)
@@ -1093,6 +1710,7 @@ class TimelineWidget(QWidget):
 
         self._object_info = ObjectInfoPanel(self)
         self._object_info.action_requested.connect(self._handle_contract_action)
+        self._object_info.settings_requested.connect(self._open_action_settings_dialog)
         self._object_info_panel = self._object_info
         self._main_splitter = QSplitter(Qt.Orientation.Horizontal, self)
         self._main_splitter.setChildrenCollapsible(False)
@@ -1115,7 +1733,9 @@ class TimelineWidget(QWidget):
             set_presentation=self.set_presentation,
             resolve_runtime_shell=self._resolve_runtime_shell,
             selected_event_ids_for_selected_layers=self._selected_event_ids_for_selected_layers,
-            open_manual_pull_timeline_popup=lambda flow: self._open_manual_pull_timeline_popup(flow),
+            open_manual_pull_timeline_popup=lambda flow: self._open_manual_pull_timeline_popup(
+                flow
+            ),
             input_dialog=QInputDialog,
             file_dialog=QFileDialog,
             message_box=QMessageBox,
@@ -1135,7 +1755,8 @@ class TimelineWidget(QWidget):
         self._update_horizontal_scroll_bounds(sync_bar_value=True)
         self._reset_scroll_area_horizontal_offset()
         self._transport.set_presentation(self.presentation)
-        self._object_info.set_contract(build_timeline_inspector_contract(self.presentation))
+        self._sync_editor_state()
+        self._refresh_object_info_panel()
         self._ruler.set_presentation(self.presentation)
         self._canvas.set_presentation(self.presentation)
         if self._runtime_audio is not None:
@@ -1192,7 +1813,9 @@ class TimelineWidget(QWidget):
         else:
             scroll_delta = delta
         next_value = int(round(self._hscroll.value() + scroll_delta))
-        self._hscroll.setValue(max(self._hscroll.minimum(), min(self._hscroll.maximum(), next_value)))
+        self._hscroll.setValue(
+            max(self._hscroll.minimum(), min(self._hscroll.maximum(), next_value))
+        )
 
     def _reset_scroll_area_horizontal_offset(self) -> None:
         bar = self._scroll.horizontalScrollBar()
@@ -1202,6 +1825,63 @@ class TimelineWidget(QWidget):
         bar.setValue(0)
         bar.blockSignals(False)
 
+    def _sync_editor_state(self) -> None:
+        beat_available = self.presentation.bpm is not None and float(self.presentation.bpm) > 0.0
+        if self._grid_mode == TimelineGridMode.BEAT.value and not beat_available:
+            self._grid_mode = TimelineGridMode.AUTO.value
+        self._editor_bar.set_state(
+            edit_mode=self._edit_mode,
+            snap_enabled=self._snap_enabled,
+            grid_mode=self._grid_mode,
+            beat_available=beat_available,
+        )
+        self._canvas.set_editor_state(
+            edit_mode=self._edit_mode,
+            snap_enabled=self._snap_enabled,
+            grid_mode=self._grid_mode,
+        )
+
+    def _set_edit_mode(self, mode: str) -> None:
+        normalized = (mode or "select").strip().lower()
+        if normalized not in {"select", "draw", "erase"}:
+            return
+        self._edit_mode = normalized
+        self._sync_editor_state()
+
+    def _set_snap_enabled(self, enabled: bool) -> None:
+        self._snap_enabled = bool(enabled)
+        self._sync_editor_state()
+
+    def _toggle_snap_enabled(self) -> None:
+        self._set_snap_enabled(not self._snap_enabled)
+
+    def _set_grid_mode(self, mode: str) -> None:
+        normalized = (mode or TimelineGridMode.AUTO.value).strip().lower()
+        try:
+            resolved = TimelineGridMode(normalized)
+        except ValueError:
+            resolved = TimelineGridMode.AUTO
+        if resolved is TimelineGridMode.BEAT and not (
+            self.presentation.bpm and float(self.presentation.bpm) > 0.0
+        ):
+            resolved = TimelineGridMode.AUTO
+        self._grid_mode = resolved.value
+        self._sync_editor_state()
+
+    def _cycle_grid_mode(self) -> None:
+        beat_available = self.presentation.bpm is not None and float(self.presentation.bpm) > 0.0
+        modes = (
+            [TimelineGridMode.AUTO, TimelineGridMode.BEAT, TimelineGridMode.OFF]
+            if beat_available
+            else [TimelineGridMode.AUTO, TimelineGridMode.OFF]
+        )
+        current = TimelineGridMode(self._grid_mode)
+        try:
+            index = modes.index(current)
+        except ValueError:
+            index = 0
+        self._set_grid_mode(modes[(index + 1) % len(modes)].value)
+
     def _zoom_from_input(self, delta: int, anchor_x: float) -> None:
         if delta == 0:
             return
@@ -1210,7 +1890,9 @@ class TimelineWidget(QWidget):
 
     def _apply_zoom_factor(self, factor: float, *, anchor_x: float) -> None:
         current_pps = max(1.0, float(self.presentation.pixels_per_second))
-        target_pps = max(TIMELINE_ZOOM_MIN_PPS, min(TIMELINE_ZOOM_MAX_PPS, current_pps * float(factor)))
+        target_pps = max(
+            TIMELINE_ZOOM_MIN_PPS, min(TIMELINE_ZOOM_MAX_PPS, current_pps * float(factor))
+        )
         if abs(target_pps - current_pps) < 0.001:
             return
 
@@ -1231,7 +1913,7 @@ class TimelineWidget(QWidget):
         )
         self._update_horizontal_scroll_bounds(sync_bar_value=True)
         self._transport.set_presentation(self.presentation)
-        self._object_info.set_contract(build_timeline_inspector_contract(self.presentation))
+        self._refresh_object_info_panel()
         self._ruler.set_presentation(self.presentation)
         self._canvas.set_presentation(self.presentation, recompute_layout=False)
 
@@ -1259,7 +1941,9 @@ class TimelineWidget(QWidget):
                     self._runtime_timing_snapshot = None
                     self._runtime_playhead_floor = None
                 else:
-                    runtime_time = self._stabilize_runtime_playhead(runtime_time, playing=runtime_playing)
+                    runtime_time = self._stabilize_runtime_playhead(
+                        runtime_time, playing=runtime_playing
+                    )
                 updated = replace(
                     updated,
                     playhead=runtime_time,
@@ -1360,9 +2044,37 @@ class TimelineWidget(QWidget):
         self._dispatch(SelectTake(layer_id, take_id))
 
     def _select_event(self, layer_id, take_id, event_id, mode: str) -> None:
-        if event_id is None:
-            return
         self._dispatch(SelectEvent(layer_id, take_id, event_id, mode=mode))
+
+    def _set_selected_events(
+        self, event_ids, anchor_layer_id, anchor_take_id, selected_layer_ids
+    ) -> None:
+        self._dispatch(
+            SetSelectedEvents(
+                event_ids=list(event_ids),
+                anchor_layer_id=anchor_layer_id,
+                anchor_take_id=anchor_take_id,
+                selected_layer_ids=list(selected_layer_ids),
+            )
+        )
+
+    def _create_event(self, layer_id, take_id, start_seconds: float, end_seconds: float) -> None:
+        self._dispatch(
+            CreateEvent(
+                layer_id=layer_id,
+                take_id=take_id,
+                time_range=TimeRange(
+                    start=max(0.0, min(float(start_seconds), float(end_seconds))),
+                    end=max(float(start_seconds), float(end_seconds)),
+                ),
+            )
+        )
+
+    def _delete_events(self, event_ids) -> None:
+        ids = list(event_ids)
+        if not ids:
+            return
+        self._dispatch(DeleteEvents(event_ids=ids))
 
     def _clear_selection(self) -> None:
         self._dispatch(ClearSelection())
@@ -1382,7 +2094,9 @@ class TimelineWidget(QWidget):
         self._dispatch(TriggerTakeAction(layer_id, take_id, action_id))
 
     def _move_selected_events(self, delta_seconds: float, target_layer_id) -> None:
-        self._dispatch(MoveSelectedEvents(delta_seconds=delta_seconds, target_layer_id=target_layer_id))
+        self._dispatch(
+            MoveSelectedEvents(delta_seconds=delta_seconds, target_layer_id=target_layer_id)
+        )
 
     def _set_active_playback_target(self, layer_id) -> None:
         self._dispatch(SetActivePlaybackTarget(layer_id=layer_id, take_id=None))
@@ -1413,7 +2127,11 @@ class TimelineWidget(QWidget):
                 continue
             for event in layer.events:
                 allowed_event_ids.add(event.event_id)
-        return [event_id for event_id in self.presentation.selected_event_ids if event_id in allowed_event_ids]
+        return [
+            event_id
+            for event_id in self.presentation.selected_event_ids
+            if event_id in allowed_event_ids
+        ]
 
     def _preview_active_transfer_plan(self) -> None:
         plan = self.presentation.batch_transfer_plan
@@ -1421,7 +2139,7 @@ class TimelineWidget(QWidget):
             return
         self._handle_contract_action(
             InspectorAction(
-                action_id="preview_transfer_plan",
+                action_id="transfer.plan_preview",
                 label=_preview_transfer_plan_label(plan),
                 params={"plan_id": plan.plan_id},
             )
@@ -1433,7 +2151,7 @@ class TimelineWidget(QWidget):
             return
         self._handle_contract_action(
             InspectorAction(
-                action_id="apply_transfer_plan",
+                action_id="transfer.plan_apply",
                 label=_apply_transfer_plan_label(plan),
                 params={"plan_id": plan.plan_id},
             )
@@ -1445,14 +2163,81 @@ class TimelineWidget(QWidget):
             return
         self._handle_contract_action(
             InspectorAction(
-                action_id="cancel_transfer_plan",
+                action_id="transfer.plan_cancel",
                 label="Cancel Transfer Plan",
                 params={"plan_id": plan.plan_id},
             )
         )
 
     def _handle_contract_action(self, action: InspectorAction) -> None:
+        if action.kind == "settings":
+            self._action_router.open_object_action_settings(action)
+            return
         self._action_router.trigger_contract_action(action)
+
+    def _open_action_settings_dialog(self, action: InspectorAction) -> None:
+        self._action_router.open_object_action_settings(action)
+
+    def _open_layer_pipeline_actions(self, layer_id) -> None:
+        self._focus_layer_for_header_action(layer_id)
+        contract = build_timeline_inspector_contract(
+            self.presentation,
+            hit_target=TimelineInspectorHitTarget(kind="layer", layer_id=layer_id),
+        )
+        pipeline_actions = [
+            action
+            for section in contract.context_sections
+            for action in section.actions
+            if action.action_id.startswith("timeline.")
+        ]
+        if not pipeline_actions:
+            return
+
+        runtime = self._resolve_runtime_shell()
+        describe = (
+            getattr(runtime, "describe_object_action", None) if runtime is not None else None
+        )
+        menu = QMenu(self)
+        for index, action in enumerate(pipeline_actions):
+            if index:
+                menu.addSeparator()
+            plan = None
+            if callable(describe):
+                try:
+                    plan = describe(
+                        action.action_id,
+                        action.params,
+                        object_id=layer_id,
+                        object_type="layer",
+                    )
+                except Exception:
+                    plan = None
+            settings_entry = menu.addAction(f"Open {action.label} Settings")
+            settings_entry.setData(
+                InspectorAction(
+                    action_id=action.action_id,
+                    label=action.label,
+                    kind="settings",
+                    params=dict(action.params),
+                )
+            )
+            run_entry = menu.addAction(
+                f"{plan.run_label} {action.label}" if plan is not None else f"Run {action.label}"
+            )
+            run_entry.setData(
+                InspectorAction(
+                    action_id=action.action_id,
+                    label=action.label,
+                    params=dict(action.params),
+                )
+            )
+
+        chosen = menu.exec(QCursor.pos())
+        if chosen is None:
+            return
+        payload = chosen.data()
+        if isinstance(payload, InspectorAction):
+            self._handle_contract_action(payload)
 
     def _trigger_contract_action(self, action: InspectorAction) -> None:
         self._handle_contract_action(action)
@@ -1466,14 +2251,50 @@ class TimelineWidget(QWidget):
     def _resolve_runtime_shell(self):
         owner = getattr(self._on_intent, "__self__", None)
         if owner is not None and all(
-            hasattr(owner, method_name)
-            for method_name in ("presentation",)
+            hasattr(owner, method_name) for method_name in ("presentation",)
         ):
             return owner
         runtime = getattr(owner, "runtime", None)
         if runtime is not None and hasattr(runtime, "presentation"):
             return runtime
         return None
+
+    def _refresh_object_info_panel(self) -> None:
+        contract = build_timeline_inspector_contract(self.presentation)
+        self._object_info.set_contract(self.presentation, contract)
+        self._object_info.set_action_settings_plans(
+            self._resolve_object_action_settings_plans(contract)
+        )
+
+    def _resolve_object_action_settings_plans(self, contract: InspectorContract) -> tuple:
+        runtime = self._resolve_runtime_shell()
+        describe = (
+            getattr(runtime, "describe_object_action", None) if runtime is not None else None
+        )
+        if not callable(describe):
+            return ()
+        plans = []
+        object_identity = contract.identity
+        for section in contract.context_sections:
+            for action in section.actions:
+                if not action.action_id.startswith("timeline."):
+                    continue
+                try:
+                    plan = describe(
+                        action.action_id,
+                        action.params,
+                        object_id=(
+                            object_identity.object_id if object_identity is not None else None
+                        ),
+                        object_type=(
+                            object_identity.object_type if object_identity is not None else None
+                        ),
+                    )
+                except Exception:
+                    continue
+                plans.append(plan)
+        return tuple(plans)
+
 
 def _format_time_label(seconds: float) -> str:
     mins = int(seconds // 60)

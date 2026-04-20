@@ -8,6 +8,9 @@ from echozero.persistence.repositories.layer import LayerRepository
 from echozero.persistence.repositories.pipeline_config import PipelineConfigRepository
 from echozero.persistence.repositories.project import ProjectRepository
 from echozero.persistence.repositories.song import SongRepository, SongVersionRepository
+from echozero.persistence.repositories.song_default_pipeline_config import (
+    SongDefaultPipelineConfigRepository,
+)
 from echozero.persistence.repositories.take import TakeRepository
 
 __all__ = [
@@ -17,4 +20,5 @@ __all__ = [
     "LayerRepository",
     "TakeRepository",
     "PipelineConfigRepository",
+    "SongDefaultPipelineConfigRepository",
 ]

@@ -4,9 +4,12 @@ import shutil
 import uuid
 from pathlib import Path
 
+from echozero.testing.analysis_mocks import (
+    build_mock_analysis_service,
+    write_test_model,
+    write_test_wav,
+)
 from ui_automation import AutomationSession, HarnessEchoZeroAutomationProvider
-
-from echozero.testing.analysis_mocks import build_mock_analysis_service, write_test_model, write_test_wav
 
 _TEST_TEMP_ROOT = Path("C:/Users/griff/.codex/memories/test_echozero_automation_backend")
 
@@ -29,7 +32,7 @@ def test_echozero_backend_imports_song_and_exposes_timeline_targets():
 
     try:
         snapshot = session.invoke(
-            "add_song_from_path",
+            "song.add",
             params={"title": "Automation Song", "audio_path": str(audio_path)},
         )
 
@@ -37,7 +40,7 @@ def test_echozero_backend_imports_song_and_exposes_timeline_targets():
 
         assert source_layer is not None
         assert source_layer.label == "Automation Song"
-        assert any(action.action_id == "extract_stems" for action in snapshot.actions)
+        assert any(action.action_id == "timeline.extract_stems" for action in snapshot.actions)
         assert session.screenshot(target_id="shell.timeline").startswith(b"\x89PNG\r\n\x1a\n")
     finally:
         session.close()
@@ -57,20 +60,20 @@ def test_echozero_backend_drives_stems_events_and_classification_flow():
 
     try:
         session.invoke(
-            "add_song_from_path",
+            "song.add",
             params={"title": "Automation Flow Song", "audio_path": str(audio_path)},
         )
-        session.invoke("extract_stems", target_id="timeline.layer:source_audio")
+        session.invoke("timeline.extract_stems", target_id="timeline.layer:source_audio")
 
         drums_target = session.find_target("Drums")
         assert drums_target is not None
 
-        session.invoke("extract_drum_events", target_id=drums_target.target_id)
+        session.invoke("timeline.extract_drum_events", target_id=drums_target.target_id)
         after_events = session.snapshot()
         assert any(target.kind == "event" for target in after_events.targets)
 
         session.invoke(
-            "classify_drum_events",
+            "timeline.classify_drum_events",
             target_id=drums_target.target_id,
             params={"model_path": str(model_path)},
         )
@@ -96,22 +99,26 @@ def test_echozero_backend_drags_selected_event_and_scrolls_timeline():
 
     try:
         session.invoke(
-            "add_song_from_path",
+            "song.add",
             params={"title": "Automation Drag Song", "audio_path": str(audio_path)},
         )
-        session.invoke("extract_stems", target_id="timeline.layer:source_audio")
+        session.invoke("timeline.extract_stems", target_id="timeline.layer:source_audio")
 
         drums_target = session.find_target("Drums")
         assert drums_target is not None
 
-        session.invoke("extract_drum_events", target_id=drums_target.target_id)
-        event_target = next(target for target in session.snapshot().targets if target.kind == "event")
+        session.invoke("timeline.extract_drum_events", target_id=drums_target.target_id)
+        event_target = next(
+            target for target in session.snapshot().targets if target.kind == "event"
+        )
         before_time = event_target.time_seconds
         assert before_time is not None
 
         session.click(event_target.target_id)
         after_drag = session.drag(event_target.target_id, {"dx": 100, "dy": 0})
-        moved_event = next(target for target in after_drag.targets if target.target_id == event_target.target_id)
+        moved_event = next(
+            target for target in after_drag.targets if target.target_id == event_target.target_id
+        )
         assert moved_event.time_seconds is not None
         assert moved_event.time_seconds > before_time
 
@@ -120,7 +127,9 @@ def test_echozero_backend_drags_selected_event_and_scrolls_timeline():
         before_scroll_x = float(before_scroll.metadata["scroll_x"])
 
         after_scroll = session.scroll("shell.timeline", dx=240)
-        timeline_target = next(target for target in after_scroll.targets if target.target_id == "shell.timeline")
+        timeline_target = next(
+            target for target in after_scroll.targets if target.target_id == "shell.timeline"
+        )
         assert float(timeline_target.metadata["scroll_x"]) > before_scroll_x
     finally:
         session.close()
@@ -139,7 +148,7 @@ def test_echozero_backend_drives_transport_actions():
 
     try:
         session.invoke(
-            "add_song_from_path",
+            "song.add",
             params={"title": "Lifecycle Song", "audio_path": str(audio_path)},
         )
 
@@ -169,10 +178,10 @@ def test_echozero_backend_tracks_pointer_hover_and_double_click():
 
     try:
         session.invoke(
-            "add_song_from_path",
+            "song.add",
             params={"title": "Pointer Song", "audio_path": str(audio_path)},
         )
-        session.invoke("extract_stems", target_id="timeline.layer:source_audio")
+        session.invoke("timeline.extract_stems", target_id="timeline.layer:source_audio")
         drums_target = session.find_target("Drums")
         assert drums_target is not None
 
@@ -204,7 +213,7 @@ def test_echozero_backend_exposes_selected_object_capabilities():
 
     try:
         session.invoke(
-            "add_song_from_path",
+            "song.add",
             params={"title": "Object Song", "audio_path": str(audio_path)},
         )
         snapshot = session.click("timeline.layer:source_audio")
@@ -217,7 +226,9 @@ def test_echozero_backend_exposes_selected_object_capabilities():
         assert snapshot.focused_target_id == "timeline.layer:source_audio"
         assert snapshot.focused_object_id == "source_audio"
         assert any(fact.label == "kind" for fact in selected_object.facts)
-        assert any(action.action_id == "extract_stems" for action in selected_object.actions)
+        assert any(
+            action.action_id == "timeline.extract_stems" for action in selected_object.actions
+        )
     finally:
         session.close()
         shutil.rmtree(temp_root, ignore_errors=True)
@@ -236,7 +247,7 @@ def test_echozero_backend_drives_sync_enable_disable_flow():
 
     try:
         session.invoke(
-            "add_song_from_path",
+            "song.add",
             params={"title": "Sync Flow Song", "audio_path": str(audio_path)},
         )
 

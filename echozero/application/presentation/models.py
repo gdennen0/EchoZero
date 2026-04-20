@@ -2,8 +2,8 @@
 
 from dataclasses import dataclass, field
 
-from echozero.application.shared.ids import TimelineId, LayerId, TakeId, EventId
-from echozero.application.shared.enums import LayerKind, FollowMode, PlaybackMode, SyncMode
+from echozero.application.shared.enums import FollowMode, LayerKind, PlaybackMode, SyncMode
+from echozero.application.shared.ids import EventId, LayerId, TakeId, TimelineId
 from echozero.application.shared.ranges import TimeRange
 from echozero.application.sync.models import LiveSyncState
 
@@ -22,7 +22,7 @@ class TakeLanePresentation:
     kind: LayerKind = LayerKind.EVENT
     is_selected: bool = False
     is_playback_active: bool = False
-    events: list['EventPresentation'] = field(default_factory=list)
+    events: list["EventPresentation"] = field(default_factory=list)
     source_ref: str | None = None
     waveform_key: str | None = None
     source_audio_path: str | None = None
@@ -58,6 +58,7 @@ def default_layer_header_controls(
     kind: LayerKind,
     main_take_id: TakeId | None,
     is_playback_active: bool,
+    is_selected: bool = False,
 ) -> list[LayerHeaderControlPresentation]:
     controls = [
         LayerHeaderControlPresentation(
@@ -67,6 +68,13 @@ def default_layer_header_controls(
             active=is_playback_active,
         )
     ]
+    if kind is LayerKind.AUDIO and is_selected:
+        controls.append(
+            LayerHeaderControlPresentation(
+                control_id="layer_pipeline_actions",
+                label="Pipelines",
+            )
+        )
     if kind is LayerKind.EVENT and main_take_id is not None:
         controls.extend(
             [
@@ -290,6 +298,7 @@ class LayerPresentation:
                 kind=self.kind,
                 main_take_id=self.main_take_id,
                 is_playback_active=self.is_playback_active,
+                is_selected=self.is_selected,
             )
 
 
@@ -298,6 +307,7 @@ class TimelinePresentation:
     timeline_id: TimelineId
     title: str
     layers: list[LayerPresentation] = field(default_factory=list)
+    bpm: float | None = None
     playhead: float = 0.0
     is_playing: bool = False
     loop_region: TimeRange | None = None
@@ -314,7 +324,11 @@ class TimelinePresentation:
     experimental_live_sync_enabled: bool = False
     current_time_label: str = "00:00.00"
     end_time_label: str = "00:00.00"
-    manual_push_flow: ManualPushFlowPresentation = field(default_factory=ManualPushFlowPresentation)
-    manual_pull_flow: ManualPullFlowPresentation = field(default_factory=ManualPullFlowPresentation)
+    manual_push_flow: ManualPushFlowPresentation = field(
+        default_factory=ManualPushFlowPresentation
+    )
+    manual_pull_flow: ManualPullFlowPresentation = field(
+        default_factory=ManualPullFlowPresentation
+    )
     batch_transfer_plan: BatchTransferPlanPresentation | None = None
     transfer_presets: list[TransferPresetPresentation] = field(default_factory=list)

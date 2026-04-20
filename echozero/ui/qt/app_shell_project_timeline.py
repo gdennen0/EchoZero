@@ -10,12 +10,32 @@ from pathlib import Path
 
 from echozero.application.presentation.models import LayerPresentation, TimelinePresentation
 from echozero.application.shared.enums import LayerKind
-from echozero.application.shared.ids import EventId, LayerId, SongId, SongVersionId, TakeId, TimelineId
-from echozero.application.timeline.models import Event, Layer, LayerPresentationHints, LayerProvenance, LayerStatus, Take, Timeline
-from echozero.domain.types import AudioData, EventData, Event as DomainEvent
+from echozero.application.shared.ids import (
+    EventId,
+    LayerId,
+    SongId,
+    SongVersionId,
+    TakeId,
+    TimelineId,
+)
+from echozero.application.timeline.models import (
+    Event,
+    Layer,
+    LayerPresentationHints,
+    LayerProvenance,
+    LayerStatus,
+    Take,
+    Timeline,
+)
+from echozero.domain.types import AudioData
+from echozero.domain.types import Event as DomainEvent
+from echozero.domain.types import EventData
 from echozero.persistence.session import ProjectStorage
 from echozero.ui.qt.timeline.style import TIMELINE_STYLE
-from echozero.ui.qt.timeline.waveform_cache import get_cached_waveform, register_waveform_from_audio_file
+from echozero.ui.qt.timeline.waveform_cache import (
+    get_cached_waveform,
+    register_waveform_from_audio_file,
+)
 
 
 @dataclass(slots=True)
@@ -33,6 +53,7 @@ class TimelinePresentationOverlay:
 
     project_title: str
     end_time_label: str
+    bpm: float | None
     layer_audio: dict[LayerId, AudioPresentationFields]
     take_audio: dict[TakeId, AudioPresentationFields]
 
@@ -48,7 +69,9 @@ def build_project_native_baseline_timeline(
     project = project_storage.project
     songs = project_storage.songs.list_by_project(project.id)
     requested_song_id = str(active_song_id) if active_song_id is not None else None
-    requested_version_id = str(active_song_version_id) if active_song_version_id is not None else None
+    requested_version_id = (
+        str(active_song_version_id) if active_song_version_id is not None else None
+    )
 
     active_song = None
     active_version = None
@@ -60,11 +83,20 @@ def build_project_native_baseline_timeline(
         active_song = next((song for song in songs if song.id == requested_song_id), None)
     if active_song is None:
         active_song = next((song for song in songs if song.active_version_id), None)
-    if active_song is not None and active_version is None and active_song.active_version_id is not None:
+    if (
+        active_song is not None
+        and active_version is None
+        and active_song.active_version_id is not None
+    ):
         active_version = project_storage.song_versions.get(active_song.active_version_id)
 
     if active_song is None:
-        return build_empty_project_timeline(project_storage), empty_overlay(project.name), None, None
+        return (
+            build_empty_project_timeline(project_storage),
+            empty_overlay(project.name),
+            None,
+            None,
+        )
 
     version = active_version
     if version is None and active_song.active_version_id is not None:
@@ -98,7 +130,13 @@ def build_project_native_baseline_timeline(
                 )
             ],
             playback=replace(
-                Layer(id=source_layer_id, timeline_id=timeline_id, name="", kind=LayerKind.AUDIO, order_index=0).playback,
+                Layer(
+                    id=source_layer_id,
+                    timeline_id=timeline_id,
+                    name="",
+                    kind=LayerKind.AUDIO,
+                    order_index=0,
+                ).playback,
                 armed_source_ref=str(source_audio_path),
             ),
             presentation_hints=LayerPresentationHints(
@@ -121,7 +159,9 @@ def build_project_native_baseline_timeline(
         )
     }
     for layer_record in project_storage.layers.list_by_version(version.id):
-        layer, layer_fields, take_fields = build_storage_layer(project_storage, timeline_id, layer_record)
+        layer, layer_fields, take_fields = build_storage_layer(
+            project_storage, timeline_id, layer_record
+        )
         if layer is not None:
             layers.append(layer)
             layer_audio[layer.id] = layer_fields
@@ -142,6 +182,7 @@ def build_project_native_baseline_timeline(
         TimelinePresentationOverlay(
             project_title=project.name,
             end_time_label=format_time(version.duration_seconds),
+            bpm=project.settings.bpm,
             layer_audio=layer_audio,
             take_audio=take_audio,
         ),
@@ -234,7 +275,9 @@ def build_storage_layer(
         order_index=int(layer_record.order) + 1,
         takes=timeline_takes,
         playback=replace(
-            Layer(id=layer_id, timeline_id=timeline_id, name="", kind=main_kind, order_index=0).playback,
+            Layer(
+                id=layer_id, timeline_id=timeline_id, name="", kind=main_kind, order_index=0
+            ).playback,
             armed_source_ref=main_audio.playback_source_ref,
         ),
         status=LayerStatus(
@@ -243,8 +286,16 @@ def build_storage_layer(
             stale_reason=layer_record.state_flags.get("stale_reason"),
         ),
         provenance=LayerProvenance(
-            source_layer_id=LayerId(str(provenance["source_layer_id"])) if provenance.get("source_layer_id") else None,
-            source_song_version_id=SongVersionId(str(provenance["source_song_version_id"])) if provenance.get("source_song_version_id") else None,
+            source_layer_id=(
+                LayerId(str(provenance["source_layer_id"]))
+                if provenance.get("source_layer_id")
+                else None
+            ),
+            source_song_version_id=(
+                SongVersionId(str(provenance["source_song_version_id"]))
+                if provenance.get("source_song_version_id")
+                else None
+            ),
             source_run_id=provenance.get("source_run_id"),
             pipeline_id=source_pipeline.get("pipeline_id") or provenance.get("pipeline_id"),
             output_name=source_pipeline.get("output_name") or provenance.get("output_name"),
@@ -321,6 +372,7 @@ def empty_overlay(project_title: str) -> TimelinePresentationOverlay:
     return TimelinePresentationOverlay(
         project_title=project_title,
         end_time_label="00:00.00",
+        bpm=None,
         layer_audio={},
         take_audio={},
     )
@@ -339,9 +391,15 @@ def apply_timeline_presentation_overlay(
         takes = [
             replace(
                 take,
-                waveform_key=overlay.take_audio.get(take.take_id, AudioPresentationFields()).waveform_key,
-                source_audio_path=overlay.take_audio.get(take.take_id, AudioPresentationFields()).source_audio_path,
-                playback_source_ref=overlay.take_audio.get(take.take_id, AudioPresentationFields()).playback_source_ref,
+                waveform_key=overlay.take_audio.get(
+                    take.take_id, AudioPresentationFields()
+                ).waveform_key,
+                source_audio_path=overlay.take_audio.get(
+                    take.take_id, AudioPresentationFields()
+                ).source_audio_path,
+                playback_source_ref=overlay.take_audio.get(
+                    take.take_id, AudioPresentationFields()
+                ).playback_source_ref,
             )
             for take in layer.takes
         ]
@@ -359,6 +417,7 @@ def apply_timeline_presentation_overlay(
     return replace(
         presentation,
         title=overlay.project_title,
+        bpm=overlay.bpm,
         current_time_label=format_time(presentation.playhead),
         end_time_label=overlay.end_time_label,
         layers=layers,

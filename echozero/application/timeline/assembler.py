@@ -12,25 +12,26 @@ from echozero.application.presentation.models import (
     EventPresentation,
     LayerHeaderControlPresentation,
     LayerPresentation,
+    LayerStatusPresentation,
     ManualPullDiffPreviewPresentation,
     ManualPullEventOptionPresentation,
     ManualPullFlowPresentation,
     ManualPullTargetOptionPresentation,
     ManualPullTrackOptionPresentation,
-    LayerStatusPresentation,
     ManualPushDiffPreviewPresentation,
     ManualPushFlowPresentation,
     ManualPushTrackOptionPresentation,
-    TransferPresetPresentation,
-    TakeActionPresentation,
-    TakeLanePresentation,
     SyncDiffRowPresentation,
     SyncDiffSummaryPresentation,
+    TakeActionPresentation,
+    TakeLanePresentation,
     TimelinePresentation,
+    TransferPresetPresentation,
 )
 from echozero.application.session.models import Session
-from echozero.application.shared.enums import SyncMode
+from echozero.application.shared.enums import LayerKind, SyncMode
 from echozero.application.timeline.models import Event, Layer, Take, Timeline
+from echozero.application.timeline.object_actions import pipeline_actions_for_audio_layer
 from echozero.perf import timed
 
 
@@ -120,7 +121,9 @@ class TimelineAssembler:
         selected_event_ids: set,
     ) -> LayerPresentation:
         main_take = self._main_take(layer)
-        main_events = self._assemble_events(main_take.events if main_take else [], selected_event_ids)
+        main_events = self._assemble_events(
+            main_take.events if main_take else [], selected_event_ids
+        )
         take_rows = self._assemble_take_rows(
             layer,
             selected_layer_id=selected_layer_id,
@@ -150,13 +153,16 @@ class TimelineAssembler:
             source_run_id=layer.provenance.source_run_id or "",
         )
 
+        is_selected = layer.id in selected_layer_ids or (
+            not selected_layer_ids and layer.id == selected_layer_id
+        )
         return LayerPresentation(
             layer_id=layer.id,
             main_take_id=main_take.id if main_take is not None else None,
             title=layer.name,
             subtitle="",
             kind=layer.kind,
-            is_selected=layer.id in selected_layer_ids or (not selected_layer_ids and layer.id == selected_layer_id),
+            is_selected=is_selected,
             is_playback_active=layer.id == active_playback_layer_id,
             is_expanded=layer.presentation_hints.expanded,
             events=main_events,
@@ -186,6 +192,7 @@ class TimelineAssembler:
             header_controls=self._assemble_header_controls(
                 layer,
                 is_playback_active=layer.id == active_playback_layer_id,
+                is_selected=is_selected,
             ),
             playback_source_ref=layer.playback.armed_source_ref,
             status=status,
@@ -196,6 +203,7 @@ class TimelineAssembler:
         layer: Layer,
         *,
         is_playback_active: bool,
+        is_selected: bool,
     ) -> list[LayerHeaderControlPresentation]:
         controls = [
             LayerHeaderControlPresentation(
@@ -205,6 +213,14 @@ class TimelineAssembler:
                 active=is_playback_active,
             )
         ]
+        if is_selected and TimelineAssembler._layer_pipeline_action_count(layer) > 0:
+            controls.append(
+                LayerHeaderControlPresentation(
+                    control_id="layer_pipeline_actions",
+                    label="Pipelines",
+                    kind="action",
+                )
+            )
         if layer.kind.name == "EVENT" and layer.takes:
             controls.extend(
                 [
@@ -221,6 +237,28 @@ class TimelineAssembler:
                 ]
             )
         return controls
+
+    @staticmethod
+    def _layer_pipeline_action_count(layer: Layer) -> int:
+        return len(
+            pipeline_actions_for_audio_layer(
+                is_stem_capable=TimelineAssembler._is_stem_capable_layer(layer),
+                is_drum_capable=TimelineAssembler._is_drum_capable_layer(layer),
+            )
+        )
+
+    @staticmethod
+    def _is_stem_capable_layer(layer: Layer) -> bool:
+        return layer.kind is LayerKind.AUDIO
+
+    @staticmethod
+    def _is_drum_capable_layer(layer: Layer) -> bool:
+        if not TimelineAssembler._is_stem_capable_layer(layer):
+            return False
+        title = layer.name.strip().lower()
+        pipeline_id = (layer.provenance.pipeline_id or "").strip().lower()
+        output_name = (layer.provenance.output_name or "").strip().lower()
+        return "drum" in title or "drum" in pipeline_id or "drum" in output_name
 
     def _assemble_take_rows(
         self,
@@ -304,8 +342,16 @@ class TimelineAssembler:
                     bool(layer.status.stale),
                     bool(layer.status.manually_modified),
                     layer.status.stale_reason,
-                    str(layer.provenance.source_layer_id) if layer.provenance.source_layer_id is not None else None,
-                    str(layer.provenance.source_song_version_id) if layer.provenance.source_song_version_id is not None else None,
+                    (
+                        str(layer.provenance.source_layer_id)
+                        if layer.provenance.source_layer_id is not None
+                        else None
+                    ),
+                    (
+                        str(layer.provenance.source_song_version_id)
+                        if layer.provenance.source_song_version_id is not None
+                        else None
+                    ),
                     layer.provenance.source_run_id,
                     layer.provenance.pipeline_id,
                     layer.provenance.output_name,
@@ -375,16 +421,22 @@ class TimelineAssembler:
             tuple(session.manual_pull_flow.selected_source_track_coords),
             tuple(
                 (coord, tuple(event_ids))
-                for coord, event_ids in sorted(session.manual_pull_flow.selected_ma3_event_ids_by_track.items())
+                for coord, event_ids in sorted(
+                    session.manual_pull_flow.selected_ma3_event_ids_by_track.items()
+                )
             ),
             session.manual_pull_flow.import_mode,
             tuple(
                 (coord, mode)
-                for coord, mode in sorted(session.manual_pull_flow.import_mode_by_source_track.items())
+                for coord, mode in sorted(
+                    session.manual_pull_flow.import_mode_by_source_track.items()
+                )
             ),
             tuple(
                 (coord, str(layer_id))
-                for coord, layer_id in sorted(session.manual_pull_flow.target_layer_id_by_source_track.items())
+                for coord, layer_id in sorted(
+                    session.manual_pull_flow.target_layer_id_by_source_track.items()
+                )
             ),
             plan_sig,
         )
@@ -397,7 +449,9 @@ class TimelineAssembler:
                 prev = events[i - 1]
                 cur = events[i]
                 if (prev.start, prev.end, str(prev.id)) > (cur.start, cur.end, str(cur.id)):
-                    ordered = sorted(events, key=lambda value: (value.start, value.end, str(value.id)))
+                    ordered = sorted(
+                        events, key=lambda value: (value.start, value.end, str(value.id))
+                    )
                     break
 
         return [
@@ -567,7 +621,9 @@ class TimelineAssembler:
                 preset_id=preset.preset_id,
                 name=preset.name,
                 push_target_mapping_by_layer_id=dict(preset.push_target_mapping_by_layer_id),
-                pull_target_mapping_by_source_track=dict(preset.pull_target_mapping_by_source_track),
+                pull_target_mapping_by_source_track=dict(
+                    preset.pull_target_mapping_by_source_track
+                ),
             )
             for preset in session.transfer_presets
         ]

@@ -8,6 +8,15 @@ and during UI engine redevelopment.
 It connects Qt implementation constraints, Fluent-style system thinking, FEEL,
 and EchoZero operator workflow rules into one design standard.
 
+For the current canonical UI governance layer, also read:
+
+- `docs/ui/STANDARDS.md`
+- `docs/ui/INVENTORY-INTERACTIONS.md`
+- `docs/ui/INVENTORY-SURFACES.md`
+- `docs/ui/INVENTORY-PRIMITIVES.md`
+- `docs/ui/OWNERSHIP-MAP.md`
+- `docs/ui/CHANGE-CHECKLIST.md`
+
 ## North Star
 
 EchoZero uses this standard:

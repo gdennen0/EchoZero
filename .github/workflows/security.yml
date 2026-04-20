@@ -1,0 +1,65 @@
+name: Security
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: "17 9 * * 1"
+
+jobs:
+  python-audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install pip-audit
+        run: python -m pip install --upgrade pip pip-audit
+
+      - name: Audit Python dependencies
+        run: python -m pip_audit -r requirements.txt
+
+  auth-worker-audit:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: deploy/auth-worker
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: deploy/auth-worker/package-lock.json
+
+      - name: Install auth worker dependencies
+        run: npm ci
+
+      - name: Audit auth worker dependencies
+        run: npm audit --omit=dev
+
+  models-worker-audit:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: deploy/models-worker
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: deploy/models-worker/package-lock.json
+
+      - name: Install models worker dependencies
+        run: npm ci
+
+      - name: Audit models worker dependencies
+        run: npm audit --omit=dev

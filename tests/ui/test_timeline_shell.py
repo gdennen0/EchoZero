@@ -1,10 +1,9 @@
 from dataclasses import replace
 from pathlib import Path
 
-from PyQt6.QtCore import QPoint, QPointF, QEvent, QRectF
-from PyQt6.QtTest import QTest
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import QEvent, QPoint, QPointF, QRectF, Qt
 from PyQt6.QtGui import QColor, QImage, QMouseEvent, QPainter
+from PyQt6.QtTest import QTest
 from PyQt6.QtWidgets import QApplication, QMessageBox
 
 from echozero.application.presentation.inspector_contract import (
@@ -19,6 +18,7 @@ from echozero.application.presentation.models import (
     EventPresentation,
     LayerHeaderControlPresentation,
     LayerPresentation,
+    LayerStatusPresentation,
     ManualPullDiffPreviewPresentation,
     ManualPullEventOptionPresentation,
     ManualPullFlowPresentation,
@@ -27,7 +27,6 @@ from echozero.application.presentation.models import (
     ManualPushDiffPreviewPresentation,
     ManualPushFlowPresentation,
     ManualPushTrackOptionPresentation,
-    LayerStatusPresentation,
     TakeLanePresentation,
     TimelinePresentation,
     TransferPresetPresentation,
@@ -37,13 +36,15 @@ from echozero.application.shared.ids import EventId, LayerId, TakeId, TimelineId
 from echozero.application.sync.models import LiveSyncState
 from echozero.application.timeline.intents import (
     ApplyPullFromMA3,
-    ApplyTransferPreset,
     ApplyTransferPlan,
+    ApplyTransferPreset,
     CancelTransferPlan,
     ClearLayerLiveSyncPauseReason,
     ClearSelection,
     ConfirmPullFromMA3,
     ConfirmPushToMA3,
+    CreateEvent,
+    DeleteEvents,
     DeleteTransferPreset,
     DuplicateSelectedEvents,
     ExitPullFromMA3Workspace,
@@ -57,27 +58,31 @@ from echozero.application.timeline.intents import (
     PreviewTransferPlan,
     SaveTransferPreset,
     Seek,
-    SetActivePlaybackTarget,
-    SetPullImportMode,
-    SetLayerLiveSyncPauseReason,
-    SetLayerLiveSyncState,
-    SetPushTransferMode,
     SelectAllEvents,
     SelectEvent,
     SelectLayer,
     SelectPullSourceEvents,
-    SelectPullSourceTracks,
     SelectPullSourceTrack,
+    SelectPullSourceTracks,
     SelectPullTargetLayer,
     SelectPushTargetTrack,
+    SetActivePlaybackTarget,
+    SetGain,
+    SetLayerLiveSyncPauseReason,
+    SetLayerLiveSyncState,
+    SetPullImportMode,
+    SetPushTransferMode,
+    SetSelectedEvents,
     Stop,
     ToggleLayerExpanded,
-    SetGain,
 )
-from echozero.ui.qt.timeline.demo_app import build_demo_app
 from echozero.ui.qt.timeline.blocks.layer_header import HeaderSlots, LayerHeaderBlock
-from echozero.ui.qt.timeline.test_harness import build_variant_presentations, estimate_full_window_height
 from echozero.ui.qt.timeline.blocks.ruler import timeline_x_for_time
+from echozero.ui.qt.timeline.demo_app import build_demo_app
+from echozero.ui.qt.timeline.test_harness import (
+    build_variant_presentations,
+    estimate_full_window_height,
+)
 from echozero.ui.qt.timeline.widget import (
     ManualPullTimelineDialog,
     ManualPullTimelineSelectionResult,
@@ -89,9 +94,9 @@ from echozero.ui.qt.timeline.widget import (
 
 def test_demo_variants_include_take_lanes_open_and_zoom_states():
     variants = build_variant_presentations()
-    assert 'take_lanes_open' in variants
-    assert 'zoomed_in' in variants
-    assert 'zoomed_out' in variants
+    assert "take_lanes_open" in variants
+    assert "zoomed_in" in variants
+    assert "zoomed_out" in variants
 
 
 def test_play_pause_seek_intents_update_presentation():
@@ -116,31 +121,31 @@ def test_realistic_fixture_contains_song_stems_and_drum_classifiers():
     presentation = demo.presentation()
     titles = {layer.title for layer in presentation.layers}
 
-    assert {'Song', 'Drums', 'Bass', 'Vocals', 'Other', 'Kick', 'Snare', 'HiHat', 'Clap'} <= titles
+    assert {"Song", "Drums", "Bass", "Vocals", "Other", "Kick", "Snare", "HiHat", "Clap"} <= titles
 
 
 def test_take_lanes_exist_without_inline_action_requirements():
     demo = build_demo_app()
     presentation = demo.presentation()
-    drums = next(layer for layer in presentation.layers if layer.title == 'Drums')
-    kick = next(layer for layer in presentation.layers if layer.title == 'Kick')
+    drums = next(layer for layer in presentation.layers if layer.title == "Drums")
+    kick = next(layer for layer in presentation.layers if layer.title == "Kick")
 
     assert len(drums.takes) >= 1
-    assert drums.takes[0].kind.name == 'AUDIO'
+    assert drums.takes[0].kind.name == "AUDIO"
     assert len(kick.takes) >= 1
-    assert kick.takes[0].kind.name == 'EVENT'
+    assert kick.takes[0].kind.name == "EVENT"
 
 
 def test_toggle_layer_expansion_round_trips():
     demo = build_demo_app()
-    song = next(layer for layer in demo.presentation().layers if layer.title == 'Song')
+    song = next(layer for layer in demo.presentation().layers if layer.title == "Song")
 
     expanded = demo.dispatch(ToggleLayerExpanded(song.layer_id))
-    expanded_song = next(layer for layer in expanded.layers if layer.title == 'Song')
+    expanded_song = next(layer for layer in expanded.layers if layer.title == "Song")
     assert expanded_song.is_expanded is True
 
     collapsed = demo.dispatch(ToggleLayerExpanded(song.layer_id))
-    collapsed_song = next(layer for layer in collapsed.layers if layer.title == 'Song')
+    collapsed_song = next(layer for layer in collapsed.layers if layer.title == "Song")
     assert collapsed_song.is_expanded is False
 
 
@@ -177,7 +182,9 @@ def test_fixture_exposes_stale_manual_and_sync_signals():
 
     assert any(layer.status.stale for layer in presentation.layers)
     assert any(layer.status.manually_modified for layer in presentation.layers)
-    assert any("sync" in layer.title.lower() or layer.status.sync_label for layer in presentation.layers)
+    assert any(
+        "sync" in layer.title.lower() or layer.status.sync_label for layer in presentation.layers
+    )
 
 
 def test_fixture_keeps_unique_event_ids_across_main_and_takes():
@@ -287,7 +294,13 @@ def _audio_pipeline_presentation() -> TimelinePresentation:
 def test_pipeline_context_actions_include_phase1_ids():
     presentation = _audio_pipeline_presentation()
 
-    empty_contract = build_timeline_inspector_contract(presentation)
+    empty_contract = build_timeline_inspector_contract(
+        replace(
+            presentation,
+            selected_layer_id=None,
+            selected_layer_ids=[],
+        )
+    )
     song_contract = build_timeline_inspector_contract(
         presentation,
         hit_target=TimelineInspectorHitTarget(kind="layer", layer_id=LayerId("layer_song")),
@@ -313,14 +326,16 @@ def test_pipeline_context_actions_include_phase1_ids():
         for action in section.actions
     }
 
-    assert "add_song_from_path" in empty_action_ids
-    assert "extract_stems" in song_action_ids
-    assert "extract_drum_events" not in song_action_ids
-    assert "classify_drum_events" not in song_action_ids
-    assert "extract_stems" in drums_action_ids
-    assert "extract_classified_drums" in drums_action_ids
-    assert "extract_drum_events" in drums_action_ids
-    assert "classify_drum_events" in drums_action_ids
+    assert "song.add" in empty_action_ids
+    assert "song.add" not in song_action_ids
+    assert "song.add" not in drums_action_ids
+    assert "timeline.extract_stems" in song_action_ids
+    assert "timeline.extract_drum_events" not in song_action_ids
+    assert "timeline.classify_drum_events" not in song_action_ids
+    assert "timeline.extract_stems" in drums_action_ids
+    assert "timeline.extract_classified_drums" in drums_action_ids
+    assert "timeline.extract_drum_events" in drums_action_ids
+    assert "timeline.classify_drum_events" in drums_action_ids
 
 
 def test_contract_add_song_action_calls_runtime(monkeypatch):
@@ -354,7 +369,49 @@ def test_contract_add_song_action_calls_runtime(monkeypatch):
     )
     widget = TimelineWidget(runtime.presentation(), on_intent=runtime.dispatch)
     try:
-        widget._trigger_contract_action(InspectorAction(action_id="add_song_from_path", label="Add Song From Path"))
+        widget._trigger_contract_action(InspectorAction(action_id="song.add", label="Add Song"))
+
+        assert runtime.calls == [("Imported Song", "C:/audio/import.wav")]
+        assert widget.presentation.title == "Imported Song"
+    finally:
+        widget.close()
+        app.processEvents()
+
+
+def test_contract_add_song_legacy_alias_still_calls_runtime(monkeypatch):
+    app = QApplication.instance() or QApplication([])
+
+    class _Runtime:
+        def __init__(self):
+            self.calls: list[tuple[str, str]] = []
+            self._presentation = _audio_pipeline_presentation()
+            self.runtime_audio = None
+
+        def presentation(self):
+            return self._presentation
+
+        def dispatch(self, intent):
+            return self._presentation
+
+        def add_song_from_path(self, title: str, audio_path: str):
+            self.calls.append((title, audio_path))
+            self._presentation = replace(self._presentation, title=title)
+            return self._presentation
+
+    runtime = _Runtime()
+    monkeypatch.setattr(
+        "echozero.ui.qt.timeline.widget.QInputDialog.getText",
+        lambda *args, **kwargs: ("Imported Song", True),
+    )
+    monkeypatch.setattr(
+        "echozero.ui.qt.timeline.widget.QFileDialog.getOpenFileName",
+        lambda *args, **kwargs: ("C:/audio/import.wav", "Audio Files"),
+    )
+    widget = TimelineWidget(runtime.presentation(), on_intent=runtime.dispatch)
+    try:
+        widget._trigger_contract_action(
+            InspectorAction(action_id="add_song_from_path", label="Add Song From Path")
+        )
 
         assert runtime.calls == [("Imported Song", "C:/audio/import.wav")]
         assert widget.presentation.title == "Imported Song"
@@ -377,8 +434,8 @@ def test_contract_extract_pipeline_action_warns_when_not_implemented(monkeypatch
         def dispatch(self, intent):
             return self._presentation
 
-        def extract_stems(self, layer_id):
-            raise NotImplementedError(f"extract_stems pending for {layer_id}")
+        def run_object_action(self, action_id, params, *, object_id=None, object_type=None):
+            raise NotImplementedError(f"{action_id} pending for {params['layer_id']}")
 
     warnings: list[str] = []
     monkeypatch.setattr(
@@ -389,12 +446,12 @@ def test_contract_extract_pipeline_action_warns_when_not_implemented(monkeypatch
     widget = TimelineWidget(runtime.presentation(), on_intent=runtime.dispatch)
     try:
         handled = widget._handle_runtime_pipeline_action(
-            "extract_stems",
+            "timeline.extract_stems",
             {"layer_id": LayerId("layer_song")},
         )
 
         assert handled is True
-        assert warnings == ["extract_stems pending for layer_song"]
+        assert warnings == ["timeline.extract_stems pending for layer_song"]
     finally:
         widget.close()
         app.processEvents()
@@ -407,7 +464,7 @@ def test_contract_classify_pipeline_action_prompts_for_model_and_calls_runtime(m
         def __init__(self):
             self.runtime_audio = None
             self._presentation = _audio_pipeline_presentation()
-            self.calls: list[tuple[object, str]] = []
+            self.calls: list[tuple[str, dict[str, object]]] = []
 
         def presentation(self):
             return self._presentation
@@ -415,8 +472,8 @@ def test_contract_classify_pipeline_action_prompts_for_model_and_calls_runtime(m
         def dispatch(self, intent):
             return self._presentation
 
-        def classify_drum_events(self, layer_id, model_path):
-            self.calls.append((layer_id, model_path))
+        def run_object_action(self, action_id, params, *, object_id=None, object_type=None):
+            self.calls.append((action_id, params))
             return self._presentation
 
     runtime = _Runtime()
@@ -437,12 +494,20 @@ def test_contract_classify_pipeline_action_prompts_for_model_and_calls_runtime(m
     widget = TimelineWidget(runtime.presentation(), on_intent=runtime.dispatch)
     try:
         handled = widget._handle_runtime_pipeline_action(
-            "classify_drum_events",
+            "timeline.classify_drum_events",
             {"layer_id": LayerId("layer_drums")},
         )
 
         assert handled is True
-        assert runtime.calls == [(LayerId("layer_drums"), "C:/models/art_demo.manifest.json")]
+        assert runtime.calls == [
+            (
+                "timeline.classify_drum_events",
+                {
+                    "layer_id": LayerId("layer_drums"),
+                    "model_path": "C:/models/art_demo.manifest.json",
+                },
+            )
+        ]
         assert recorded_args
         assert recorded_args[0][2] == "C:/Users/griff/.echozero/models"
     finally:
@@ -457,7 +522,7 @@ def test_contract_extract_classified_drums_calls_runtime_without_picker(monkeypa
         def __init__(self):
             self.runtime_audio = None
             self._presentation = _audio_pipeline_presentation()
-            self.calls: list[object] = []
+            self.calls: list[tuple[str, dict[str, object]]] = []
 
         def presentation(self):
             return self._presentation
@@ -465,20 +530,64 @@ def test_contract_extract_classified_drums_calls_runtime_without_picker(monkeypa
         def dispatch(self, intent):
             return self._presentation
 
-        def extract_classified_drums(self, layer_id):
-            self.calls.append(layer_id)
+        def run_object_action(self, action_id, params, *, object_id=None, object_type=None):
+            self.calls.append((action_id, params))
             return self._presentation
 
     runtime = _Runtime()
     widget = TimelineWidget(runtime.presentation(), on_intent=runtime.dispatch)
     try:
         handled = widget._handle_runtime_pipeline_action(
-            "extract_classified_drums",
+            "timeline.extract_classified_drums",
             {"layer_id": LayerId("layer_drums")},
         )
 
         assert handled is True
-        assert runtime.calls == [LayerId("layer_drums")]
+        assert runtime.calls == [
+            (
+                "timeline.extract_classified_drums",
+                {"layer_id": LayerId("layer_drums")},
+            )
+        ]
+    finally:
+        widget.close()
+        app.processEvents()
+
+
+def test_unknown_registered_object_action_routes_through_runtime(monkeypatch):
+    app = QApplication.instance() or QApplication([])
+
+    class _Runtime:
+        def __init__(self):
+            self.runtime_audio = None
+            self._presentation = _audio_pipeline_presentation()
+            self.calls: list[tuple[str, dict[str, object]]] = []
+
+        def presentation(self):
+            return self._presentation
+
+        def dispatch(self, intent):
+            return self._presentation
+
+        def run_object_action(self, action_id, params, *, object_id=None, object_type=None):
+            self.calls.append((action_id, params))
+            return self._presentation
+
+    runtime = _Runtime()
+    widget = TimelineWidget(runtime.presentation(), on_intent=runtime.dispatch)
+    try:
+        handled = widget._action_router.handle_transfer_action(
+            "timeline.extract_drum_events",
+            {"layer_id": LayerId("layer_drums")},
+        )
+
+        assert handled is True
+        assert runtime.calls == [
+            (
+                "timeline.extract_drum_events",
+                {"layer_id": LayerId("layer_drums")},
+            )
+        ]
     finally:
         widget.close()
         app.processEvents()
@@ -600,16 +709,22 @@ class _SelectionInspectorHarness:
             selected_ids = [intent.layer_id] if intent.layer_id is not None else []
             if intent.mode == "toggle" and intent.layer_id is not None:
                 current_ids = list(self._presentation.selected_layer_ids) or (
-                    [self._presentation.selected_layer_id] if self._presentation.selected_layer_id is not None else []
+                    [self._presentation.selected_layer_id]
+                    if self._presentation.selected_layer_id is not None
+                    else []
                 )
                 if intent.layer_id in current_ids:
-                    selected_ids = [layer_id for layer_id in current_ids if layer_id != intent.layer_id]
+                    selected_ids = [
+                        layer_id for layer_id in current_ids if layer_id != intent.layer_id
+                    ]
                 else:
                     selected_ids = [*current_ids, intent.layer_id]
             elif intent.mode == "range" and intent.layer_id is not None:
                 ordered_ids = [layer.layer_id for layer in self._presentation.layers]
                 anchor_id = self._presentation.selected_layer_id or intent.layer_id
-                low, high = sorted((ordered_ids.index(anchor_id), ordered_ids.index(intent.layer_id)))
+                low, high = sorted(
+                    (ordered_ids.index(anchor_id), ordered_ids.index(intent.layer_id))
+                )
                 selected_ids = ordered_ids[low : high + 1]
             self._presentation = replace(
                 self._presentation,
@@ -681,7 +796,12 @@ class _SelectionInspectorHarness:
                         is_selected=False,
                         events=[replace(event, is_selected=False) for event in layer.events],
                         takes=[
-                            replace(take, events=[replace(event, is_selected=False) for event in take.events])
+                            replace(
+                                take,
+                                events=[
+                                    replace(event, is_selected=False) for event in take.events
+                                ],
+                            )
                             for take in layer.takes
                         ],
                     )
@@ -713,16 +833,29 @@ class _ManualPushHarness:
                 layers=[
                     replace(
                         layer,
-                        push_selection_count=len(self._presentation.selected_event_ids) if layer.layer_id == self._presentation.selected_layer_id else 0,
-                        push_row_status="blocked" if layer.layer_id == self._presentation.selected_layer_id else "",
-                        push_row_issue="Select an MA3 target track" if layer.layer_id == self._presentation.selected_layer_id else "",
+                        push_selection_count=(
+                            len(self._presentation.selected_event_ids)
+                            if layer.layer_id == self._presentation.selected_layer_id
+                            else 0
+                        ),
+                        push_row_status=(
+                            "blocked"
+                            if layer.layer_id == self._presentation.selected_layer_id
+                            else ""
+                        ),
+                        push_row_issue=(
+                            "Select an MA3 target track"
+                            if layer.layer_id == self._presentation.selected_layer_id
+                            else ""
+                        ),
                     )
                     for layer in self._presentation.layers
                 ],
                 manual_push_flow=ManualPushFlowPresentation(
                     dialog_open=False,
                     push_mode_active=True,
-                    selected_layer_ids=list(self._presentation.selected_layer_ids) or [LayerId("layer_kick")],
+                    selected_layer_ids=list(self._presentation.selected_layer_ids)
+                    or [LayerId("layer_kick")],
                     available_tracks=[
                         ManualPushTrackOptionPresentation(
                             coord="tc1_tg2_tr3",
@@ -758,16 +891,34 @@ class _ManualPushHarness:
         if isinstance(intent, SelectPushTargetTrack):
             selected_event_ids = list(self._presentation.selected_event_ids)
             if not selected_event_ids and self._presentation.batch_transfer_plan is not None:
-                selected_event_ids = list(self._presentation.batch_transfer_plan.rows[0].selected_event_ids)
+                selected_event_ids = list(
+                    self._presentation.batch_transfer_plan.rows[0].selected_event_ids
+                )
             self._presentation = replace(
                 self._presentation,
                 layers=[
                     replace(
                         layer,
-                        push_target_label="Track 3 (tc1_tg2_tr3) - Bass" if layer.layer_id == self._presentation.selected_layer_id else layer.push_target_label,
-                        push_selection_count=len(selected_event_ids) if layer.layer_id == self._presentation.selected_layer_id else layer.push_selection_count,
-                        push_row_status="ready" if layer.layer_id == self._presentation.selected_layer_id else layer.push_row_status,
-                        push_row_issue="" if layer.layer_id == self._presentation.selected_layer_id else layer.push_row_issue,
+                        push_target_label=(
+                            "Track 3 (tc1_tg2_tr3) - Bass"
+                            if layer.layer_id == self._presentation.selected_layer_id
+                            else layer.push_target_label
+                        ),
+                        push_selection_count=(
+                            len(selected_event_ids)
+                            if layer.layer_id == self._presentation.selected_layer_id
+                            else layer.push_selection_count
+                        ),
+                        push_row_status=(
+                            "ready"
+                            if layer.layer_id == self._presentation.selected_layer_id
+                            else layer.push_row_status
+                        ),
+                        push_row_issue=(
+                            ""
+                            if layer.layer_id == self._presentation.selected_layer_id
+                            else layer.push_row_issue
+                        ),
                     )
                     for layer in self._presentation.layers
                 ],
@@ -810,17 +961,35 @@ class _ManualPushHarness:
                 layers=[
                     replace(
                         layer,
-                        push_target_label="Track 3 (tc1_tg2_tr3) - Bass" if layer.layer_id == self._presentation.selected_layer_id else layer.push_target_label,
-                        push_selection_count=len(intent.selected_event_ids) if layer.layer_id == self._presentation.selected_layer_id else layer.push_selection_count,
-                        push_row_status="ready" if layer.layer_id == self._presentation.selected_layer_id else layer.push_row_status,
-                        push_row_issue="" if layer.layer_id == self._presentation.selected_layer_id else layer.push_row_issue,
+                        push_target_label=(
+                            "Track 3 (tc1_tg2_tr3) - Bass"
+                            if layer.layer_id == self._presentation.selected_layer_id
+                            else layer.push_target_label
+                        ),
+                        push_selection_count=(
+                            len(intent.selected_event_ids)
+                            if layer.layer_id == self._presentation.selected_layer_id
+                            else layer.push_selection_count
+                        ),
+                        push_row_status=(
+                            "ready"
+                            if layer.layer_id == self._presentation.selected_layer_id
+                            else layer.push_row_status
+                        ),
+                        push_row_issue=(
+                            ""
+                            if layer.layer_id == self._presentation.selected_layer_id
+                            else layer.push_row_issue
+                        ),
                     )
                     for layer in self._presentation.layers
                 ],
                 manual_push_flow=ManualPushFlowPresentation(
                     dialog_open=False,
                     push_mode_active=True,
-                    selected_layer_ids=list(self._presentation.manual_push_flow.selected_layer_ids),
+                    selected_layer_ids=list(
+                        self._presentation.manual_push_flow.selected_layer_ids
+                    ),
                     available_tracks=list(self._presentation.manual_push_flow.available_tracks),
                     target_track_coord=intent.target_track_coord,
                     diff_gate_open=True,
@@ -864,14 +1033,18 @@ class _ManualPushHarness:
             return self._presentation
         if isinstance(intent, ApplyTransferPlan):
             plan = self._presentation.batch_transfer_plan
-            rows = [] if plan is None else [
-                replace(
-                    row,
-                    status="applied" if row.status == "ready" else row.status,
-                    issue=None if row.status == "ready" else row.issue,
-                )
-                for row in plan.rows
-            ]
+            rows = (
+                []
+                if plan is None
+                else [
+                    replace(
+                        row,
+                        status="applied" if row.status == "ready" else row.status,
+                        issue=None if row.status == "ready" else row.issue,
+                    )
+                    for row in plan.rows
+                ]
+            )
             self._presentation = replace(
                 self._presentation,
                 batch_transfer_plan=(
@@ -1004,7 +1177,9 @@ class _ManualPullHarness:
                     selected_ma3_event_ids=list(intent.selected_ma3_event_ids),
                     selected_ma3_event_ids_by_track={
                         **self._presentation.manual_pull_flow.selected_ma3_event_ids_by_track,
-                        self._presentation.manual_pull_flow.active_source_track_coord: list(intent.selected_ma3_event_ids),
+                        self._presentation.manual_pull_flow.active_source_track_coord: list(
+                            intent.selected_ma3_event_ids
+                        ),
                     },
                 ),
                 batch_transfer_plan=BatchTransferPlanPresentation(
@@ -1054,14 +1229,19 @@ class _ManualPullHarness:
                             source_label="Track 3 (tc1_tg2_tr3)",
                             target_label=(
                                 "Kick"
-                                if self._presentation.manual_pull_flow.target_layer_id == LayerId("layer_kick")
+                                if self._presentation.manual_pull_flow.target_layer_id
+                                == LayerId("layer_kick")
                                 else "Unmapped"
                             ),
                             source_track_coord="tc1_tg2_tr3",
                             target_layer_id=self._presentation.manual_pull_flow.target_layer_id,
                             import_mode=intent.import_mode,
-                            selected_ma3_event_ids=list(self._presentation.manual_pull_flow.selected_ma3_event_ids),
-                            selected_count=len(self._presentation.manual_pull_flow.selected_ma3_event_ids),
+                            selected_ma3_event_ids=list(
+                                self._presentation.manual_pull_flow.selected_ma3_event_ids
+                            ),
+                            selected_count=len(
+                                self._presentation.manual_pull_flow.selected_ma3_event_ids
+                            ),
                             status=(
                                 "ready"
                                 if self._presentation.manual_pull_flow.target_layer_id is not None
@@ -1105,14 +1285,26 @@ class _ManualPullHarness:
                 layers=[
                     replace(
                         layer,
-                        pull_target_label="Kick" if layer.layer_id == intent.target_layer_id else layer.pull_target_label,
+                        pull_target_label=(
+                            "Kick"
+                            if layer.layer_id == intent.target_layer_id
+                            else layer.pull_target_label
+                        ),
                         pull_selection_count=(
                             len(self._presentation.manual_pull_flow.selected_ma3_event_ids)
                             if layer.layer_id == intent.target_layer_id
                             else layer.pull_selection_count
                         ),
-                        pull_row_status="ready" if layer.layer_id == intent.target_layer_id else layer.pull_row_status,
-                        pull_row_issue="" if layer.layer_id == intent.target_layer_id else layer.pull_row_issue,
+                        pull_row_status=(
+                            "ready"
+                            if layer.layer_id == intent.target_layer_id
+                            else layer.pull_row_status
+                        ),
+                        pull_row_issue=(
+                            ""
+                            if layer.layer_id == intent.target_layer_id
+                            else layer.pull_row_issue
+                        ),
                     )
                     for layer in self._presentation.layers
                 ],
@@ -1128,8 +1320,12 @@ class _ManualPullHarness:
                             source_track_coord="tc1_tg2_tr3",
                             target_layer_id=intent.target_layer_id,
                             import_mode=self._presentation.manual_pull_flow.import_mode,
-                            selected_ma3_event_ids=list(self._presentation.manual_pull_flow.selected_ma3_event_ids),
-                            selected_count=len(self._presentation.manual_pull_flow.selected_ma3_event_ids),
+                            selected_ma3_event_ids=list(
+                                self._presentation.manual_pull_flow.selected_ma3_event_ids
+                            ),
+                            selected_count=len(
+                                self._presentation.manual_pull_flow.selected_ma3_event_ids
+                            ),
                             status="ready",
                         )
                     ],
@@ -1144,7 +1340,9 @@ class _ManualPullHarness:
                     dialog_open=False,
                     workspace_active=True,
                     available_tracks=list(self._presentation.manual_pull_flow.available_tracks),
-                    selected_source_track_coords=list(self._presentation.manual_pull_flow.selected_source_track_coords),
+                    selected_source_track_coords=list(
+                        self._presentation.manual_pull_flow.selected_source_track_coords
+                    ),
                     active_source_track_coord=intent.source_track_coord,
                     source_track_coord=intent.source_track_coord,
                     available_events=list(self._presentation.manual_pull_flow.available_events),
@@ -1158,7 +1356,9 @@ class _ManualPullHarness:
                         **self._presentation.manual_pull_flow.import_mode_by_source_track,
                         intent.source_track_coord: intent.import_mode,
                     },
-                    available_target_layers=list(self._presentation.manual_pull_flow.available_target_layers),
+                    available_target_layers=list(
+                        self._presentation.manual_pull_flow.available_target_layers
+                    ),
                     target_layer_id=intent.target_layer_id,
                     target_layer_id_by_source_track={
                         **self._presentation.manual_pull_flow.target_layer_id_by_source_track,
@@ -1182,14 +1382,18 @@ class _ManualPullHarness:
             return self._presentation
         if isinstance(intent, ApplyTransferPlan):
             plan = self._presentation.batch_transfer_plan
-            rows = [] if plan is None else [
-                replace(
-                    row,
-                    status="applied" if row.status == "ready" else row.status,
-                    issue=None if row.status == "ready" else row.issue,
-                )
-                for row in plan.rows
-            ]
+            rows = (
+                []
+                if plan is None
+                else [
+                    replace(
+                        row,
+                        status="applied" if row.status == "ready" else row.status,
+                        issue=None if row.status == "ready" else row.issue,
+                    )
+                    for row in plan.rows
+                ]
+            )
             self._presentation = replace(
                 self._presentation,
                 batch_transfer_plan=(
@@ -1244,26 +1448,44 @@ def _render_for_hit_testing(widget: TimelineWidget) -> None:
     QApplication.processEvents()
 
 
-def _click_event_rect(widget: TimelineWidget, event_id: str, modifiers: Qt.KeyboardModifier = Qt.KeyboardModifier.NoModifier) -> None:
+def _click_event_rect(
+    widget: TimelineWidget,
+    event_id: str,
+    modifiers: Qt.KeyboardModifier = Qt.KeyboardModifier.NoModifier,
+) -> None:
     for rect, _, _, candidate_event_id in widget._canvas._event_rects:
         if str(candidate_event_id) == event_id:
             center = rect.center().toPoint()
-            QTest.mouseClick(widget._canvas, Qt.MouseButton.LeftButton, modifiers, QPoint(center.x(), center.y()))
+            QTest.mouseClick(
+                widget._canvas,
+                Qt.MouseButton.LeftButton,
+                modifiers,
+                QPoint(center.x(), center.y()),
+            )
             QApplication.processEvents()
             return
     raise AssertionError(f"Missing event rect for {event_id}")
 
 
-def _click_rect(widget: TimelineWidget, rect, modifiers: Qt.KeyboardModifier = Qt.KeyboardModifier.NoModifier) -> None:
+def _click_rect(
+    widget: TimelineWidget, rect, modifiers: Qt.KeyboardModifier = Qt.KeyboardModifier.NoModifier
+) -> None:
     center = rect.center().toPoint()
-    QTest.mouseClick(widget._canvas, Qt.MouseButton.LeftButton, modifiers, QPoint(center.x(), center.y()))
+    QTest.mouseClick(
+        widget._canvas, Qt.MouseButton.LeftButton, modifiers, QPoint(center.x(), center.y())
+    )
     QApplication.processEvents()
 
 
 def _click_transport_rect(widget: TimelineWidget, key: str) -> None:
     rect = widget._transport._control_rects[key]
     center = rect.center().toPoint()
-    QTest.mouseClick(widget._transport, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier, QPoint(center.x(), center.y()))
+    QTest.mouseClick(
+        widget._transport,
+        Qt.MouseButton.LeftButton,
+        Qt.KeyboardModifier.NoModifier,
+        QPoint(center.x(), center.y()),
+    )
     QApplication.processEvents()
 
 
@@ -1321,11 +1543,14 @@ def _seek_tracking_widget(presentation: TimelinePresentation) -> tuple[TimelineW
 
     return TimelineWidget(presentation, on_intent=_on_intent), intents
 
+
 def test_main_row_event_click_dispatches_main_take_identity():
     app = QApplication.instance() or QApplication([])
     intents: list[SelectEvent] = []
     presentation = _selection_test_presentation()
-    widget = TimelineWidget(presentation, on_intent=lambda intent: intents.append(intent) or presentation)
+    widget = TimelineWidget(
+        presentation, on_intent=lambda intent: intents.append(intent) or presentation
+    )
     try:
         _render_for_hit_testing(widget)
         _click_event_rect(widget, "main_evt")
@@ -1407,7 +1632,9 @@ def test_take_lane_event_click_dispatches_take_identity():
     app = QApplication.instance() or QApplication([])
     intents: list[SelectEvent] = []
     presentation = _selection_test_presentation()
-    widget = TimelineWidget(presentation, on_intent=lambda intent: intents.append(intent) or presentation)
+    widget = TimelineWidget(
+        presentation, on_intent=lambda intent: intents.append(intent) or presentation
+    )
     try:
         _render_for_hit_testing(widget)
         _click_event_rect(widget, "take_evt")
@@ -1443,6 +1670,45 @@ def test_object_info_panel_updates_for_take_lane_event_selection():
         assert "playback state: Set Active" in info
         assert "selected identity: Event Take (take_evt) on Kick / Take 2 (take_alt)" in info
         assert "playback target: none" in info
+    finally:
+        widget.close()
+        app.processEvents()
+
+
+def test_object_info_panel_event_clip_button_routes_to_runtime_preview():
+    app = QApplication.instance() or QApplication([])
+
+    class _Runtime(_SelectionInspectorHarness):
+        def __init__(self, presentation: TimelinePresentation):
+            super().__init__(presentation)
+            self.runtime_audio = None
+            self.preview_calls: list[tuple[object, object, object]] = []
+
+        def preview_event_clip(self, *, layer_id, take_id=None, event_id):
+            self.preview_calls.append((layer_id, take_id, event_id))
+
+    base = _selection_test_presentation()
+    presentation = replace(
+        base,
+        layers=[
+            replace(
+                base.layers[0],
+                source_audio_path="kick.wav",
+                playback_source_ref="kick.wav",
+            )
+        ],
+    )
+    runtime = _Runtime(presentation)
+    widget = TimelineWidget(runtime.presentation(), on_intent=runtime.dispatch)
+    try:
+        _render_for_hit_testing(widget)
+        _click_event_rect(widget, "main_evt")
+
+        widget._object_info._action_buttons["preview_event_clip"].click()
+
+        assert runtime.preview_calls == [
+            (LayerId("layer_kick"), TakeId("take_main"), EventId("main_evt"))
+        ]
     finally:
         widget.close()
         app.processEvents()
@@ -1518,7 +1784,9 @@ def test_object_info_panel_remains_contract_rendered_through_selection_transitio
 
 def test_object_info_panel_keeps_no_takes_indication_for_empty_layer():
     app = QApplication.instance() or QApplication([])
-    presentation = replace(_no_takes_layer_presentation(), selected_layer_id=LayerId("layer_empty"))
+    presentation = replace(
+        _no_takes_layer_presentation(), selected_layer_id=LayerId("layer_empty")
+    )
     widget = TimelineWidget(presentation)
     try:
         _render_for_hit_testing(widget)
@@ -1548,7 +1816,9 @@ def test_no_takes_layer_context_menu_excludes_take_actions():
             ),
         )
         menu = widget._canvas._build_context_menu(contract)
-        action_ids = [action.action_id for section in contract.context_sections for action in section.actions]
+        action_ids = [
+            action.action_id for section in contract.context_sections for action in section.actions
+        ]
         menu_labels = [action.text() for action in menu.actions() if not action.isSeparator()]
 
         assert "overwrite_main" not in action_ids
@@ -1564,7 +1834,9 @@ def test_no_takes_layer_has_no_toggle_takes_intent_path():
     app = QApplication.instance() or QApplication([])
     intents: list[object] = []
     presentation = _no_takes_layer_presentation()
-    widget = TimelineWidget(presentation, on_intent=lambda intent: intents.append(intent) or presentation)
+    widget = TimelineWidget(
+        presentation, on_intent=lambda intent: intents.append(intent) or presentation
+    )
     try:
         _render_for_hit_testing(widget)
 
@@ -1619,7 +1891,9 @@ def test_context_menu_uses_contract_actions_for_take_event_hit_target():
         contract = build_timeline_inspector_contract(widget.presentation, hit_target=hit_target)
         menu = widget._canvas._build_context_menu(contract)
         menu_labels = [action.text() for action in menu.actions() if not action.isSeparator()]
-        contract_labels = [action.label for section in contract.context_sections for action in section.actions]
+        contract_labels = [
+            action.label for section in contract.context_sections for action in section.actions
+        ]
 
         assert menu_labels == contract_labels
         assert "Overwrite Main" in menu_labels
@@ -1642,7 +1916,7 @@ def test_context_menu_timeline_hit_is_scoped_to_timeline_actions():
         menu = widget._canvas._build_context_menu(contract, hit_kind="timeline")
         labels = [action.text() for action in menu.actions() if not action.isSeparator()]
 
-        assert "Add Song From Path" in labels
+        assert "Add Song" in labels
         assert any(label.startswith("Seek to") for label in labels)
         assert "Push to MA3" not in labels
         assert "Route Audio to Master" not in labels
@@ -1660,7 +1934,9 @@ def test_context_menu_layer_hit_is_scoped_to_layer_actions():
 
         contract = build_timeline_inspector_contract(
             widget.presentation,
-            hit_target=TimelineInspectorHitTarget(kind="layer", layer_id=LayerId("layer_kick"), time_seconds=1.0),
+            hit_target=TimelineInspectorHitTarget(
+                kind="layer", layer_id=LayerId("layer_kick"), time_seconds=1.0
+            ),
         )
         menu = widget._canvas._build_context_menu(contract, hit_kind="layer")
         labels = [action.text() for action in menu.actions() if not action.isSeparator()]
@@ -1668,7 +1944,7 @@ def test_context_menu_layer_hit_is_scoped_to_layer_actions():
         assert "Push to MA3" in labels
         assert "Pull from MA3" in labels
         assert "Route Audio to Master" in labels
-        assert "Add Song From Path" not in labels
+        assert "Add Song" not in labels
         assert "Nudge Left" not in labels
         assert "Overwrite Main" not in labels
     finally:
@@ -1698,7 +1974,7 @@ def test_context_menu_take_hit_is_scoped_to_take_actions():
         assert "Merge Main" in labels
         assert "Push to MA3" not in labels
         assert "Route Audio to Master" not in labels
-        assert "Add Song From Path" not in labels
+        assert "Add Song" not in labels
     finally:
         widget.close()
         app.processEvents()
@@ -1734,7 +2010,7 @@ def test_context_menu_event_hit_is_scoped_to_event_selection_actions():
         assert "Duplicate" in labels
         assert "Push to MA3" not in labels
         assert "Route Audio to Master" not in labels
-        assert "Add Song From Path" not in labels
+        assert "Add Song" not in labels
     finally:
         widget.close()
         app.processEvents()
@@ -1760,14 +2036,18 @@ def test_selection_contract_exposes_push_to_ma3_action():
     )
 
     contract = build_timeline_inspector_contract(presentation)
-    action_ids = [action.action_id for section in contract.context_sections for action in section.actions]
+    action_ids = [
+        action.action_id for section in contract.context_sections for action in section.actions
+    ]
 
     assert "push_to_ma3" in action_ids
 
 
 def test_empty_contract_exposes_pull_from_ma3_action():
     contract = build_timeline_inspector_contract(_selection_test_presentation())
-    action_ids = [action.action_id for section in contract.context_sections for action in section.actions]
+    action_ids = [
+        action.action_id for section in contract.context_sections for action in section.actions
+    ]
 
     assert "pull_from_ma3" in action_ids
 
@@ -1801,12 +2081,16 @@ def test_layer_contract_exposes_sync_transfer_section_and_batch_placeholder_acti
 
     contract = build_timeline_inspector_contract(presentation)
     section_ids = [section.section_id for section in contract.context_sections]
-    action_ids = [action.action_id for section in contract.context_sections for action in section.actions]
+    action_ids = [
+        action.action_id for section in contract.context_sections for action in section.actions
+    ]
 
     assert "sync-transfer" in section_ids
     assert "open_batch_transfer_workspace" in action_ids
     assert "pull_from_ma3" in action_ids
-    assert {"preview_transfer_plan", "apply_transfer_plan", "cancel_transfer_plan"} <= set(action_ids)
+    assert {"transfer.plan_preview", "transfer.plan_apply", "transfer.plan_cancel"} <= set(
+        action_ids
+    )
 
 
 def test_live_sync_actions_hidden_when_experimental_flag_disabled():
@@ -1825,7 +2109,9 @@ def test_live_sync_actions_hidden_when_experimental_flag_disabled():
 
     contract = build_timeline_inspector_contract(presentation)
     section_ids = [section.section_id for section in contract.context_sections]
-    action_ids = [action.action_id for section in contract.context_sections for action in section.actions]
+    action_ids = [
+        action.action_id for section in contract.context_sections for action in section.actions
+    ]
 
     assert "live-sync" not in section_ids
     assert "live_sync_set_off" not in action_ids
@@ -1847,7 +2133,9 @@ def test_live_sync_action_dispatches_state_and_pause_intents(monkeypatch):
             )
         ],
     )
-    widget = TimelineWidget(presentation, on_intent=lambda intent: intents.append(intent) or presentation)
+    widget = TimelineWidget(
+        presentation, on_intent=lambda intent: intents.append(intent) or presentation
+    )
     try:
         _render_for_hit_testing(widget)
 
@@ -1864,9 +2152,15 @@ def test_live_sync_action_dispatches_state_and_pause_intents(monkeypatch):
         widget._trigger_contract_action(actions["live_sync_clear_pause_reason"])
 
         assert intents == [
-            SetLayerLiveSyncState(layer_id=LayerId("layer_kick"), live_sync_state=LiveSyncState.OFF),
-            SetLayerLiveSyncState(layer_id=LayerId("layer_kick"), live_sync_state=LiveSyncState.OBSERVE),
-            SetLayerLiveSyncPauseReason(layer_id=LayerId("layer_kick"), pause_reason="operator pause"),
+            SetLayerLiveSyncState(
+                layer_id=LayerId("layer_kick"), live_sync_state=LiveSyncState.OFF
+            ),
+            SetLayerLiveSyncState(
+                layer_id=LayerId("layer_kick"), live_sync_state=LiveSyncState.OBSERVE
+            ),
+            SetLayerLiveSyncPauseReason(
+                layer_id=LayerId("layer_kick"), pause_reason="operator pause"
+            ),
             ClearLayerLiveSyncPauseReason(layer_id=LayerId("layer_kick")),
         ]
     finally:
@@ -1882,7 +2176,9 @@ def test_live_sync_armed_write_requires_confirmation_before_dispatch(monkeypatch
         experimental_live_sync_enabled=True,
         selected_layer_id=LayerId("layer_kick"),
     )
-    widget = TimelineWidget(presentation, on_intent=lambda intent: intents.append(intent) or presentation)
+    widget = TimelineWidget(
+        presentation, on_intent=lambda intent: intents.append(intent) or presentation
+    )
     try:
         _render_for_hit_testing(widget)
 
@@ -1954,7 +2250,9 @@ def test_pull_from_ma3_action_enters_pull_workspace_mode(monkeypatch):
         app.processEvents()
 
 
-def test_select_pull_source_events_action_opens_timeline_popup_and_dispatches_event_and_target_selection(monkeypatch):
+def test_select_pull_source_events_action_opens_timeline_popup_and_dispatches_event_and_target_selection(
+    monkeypatch,
+):
     app = QApplication.instance() or QApplication([])
     base = replace(
         _selection_test_presentation(),
@@ -1994,7 +2292,9 @@ def test_select_pull_source_events_action_opens_timeline_popup_and_dispatches_ev
         widget._trigger_contract_action(
             next(
                 action
-                for section in build_timeline_inspector_contract(widget.presentation).context_sections
+                for section in build_timeline_inspector_contract(
+                    widget.presentation
+                ).context_sections
                 for action in section.actions
                 if action.action_id == "select_pull_source_tracks"
             )
@@ -2002,7 +2302,9 @@ def test_select_pull_source_events_action_opens_timeline_popup_and_dispatches_ev
         widget._trigger_contract_action(
             next(
                 action
-                for section in build_timeline_inspector_contract(widget.presentation).context_sections
+                for section in build_timeline_inspector_contract(
+                    widget.presentation
+                ).context_sections
                 for action in section.actions
                 if action.action_id == "select_pull_source_events"
             )
@@ -2189,7 +2491,9 @@ def test_preview_pull_diff_does_not_auto_apply(monkeypatch):
         widget._trigger_contract_action(
             next(
                 action
-                for section in build_timeline_inspector_contract(widget.presentation).context_sections
+                for section in build_timeline_inspector_contract(
+                    widget.presentation
+                ).context_sections
                 for action in section.actions
                 if action.action_id == "select_pull_source_events"
             )
@@ -2197,7 +2501,9 @@ def test_preview_pull_diff_does_not_auto_apply(monkeypatch):
         widget._trigger_contract_action(
             next(
                 action
-                for section in build_timeline_inspector_contract(widget.presentation).context_sections
+                for section in build_timeline_inspector_contract(
+                    widget.presentation
+                ).context_sections
                 for action in section.actions
                 if action.action_id == "preview_pull_diff"
             )
@@ -2205,15 +2511,18 @@ def test_preview_pull_diff_does_not_auto_apply(monkeypatch):
 
         assert ApplyPullFromMA3() not in harness.intents
         assert widget.presentation.manual_pull_flow.diff_gate_open is True
-        assert widget.presentation.manual_pull_flow.diff_preview == ManualPullDiffPreviewPresentation(
-            selected_count=2,
-            source_track_coord="tc1_tg2_tr3",
-            source_track_name="Track 3",
-            source_track_note="Lead",
-            source_track_event_count=2,
-            target_layer_id=LayerId("layer_kick"),
-            target_layer_name="Kick",
-            import_mode="new_take",
+        assert (
+            widget.presentation.manual_pull_flow.diff_preview
+            == ManualPullDiffPreviewPresentation(
+                selected_count=2,
+                source_track_coord="tc1_tg2_tr3",
+                source_track_name="Track 3",
+                source_track_note="Lead",
+                source_track_event_count=2,
+                target_layer_id=LayerId("layer_kick"),
+                target_layer_name="Kick",
+                import_mode="new_take",
+            )
         )
         assert summaries == [
             (
@@ -2360,7 +2669,9 @@ def test_push_mode_actions_dispatch_target_preview_and_exit(monkeypatch):
         widget._trigger_contract_action(exit_action)
 
         assert harness.intents == [
-            SelectPushTargetTrack(target_track_coord="tc1_tg2_tr3", layer_id=LayerId("layer_kick")),
+            SelectPushTargetTrack(
+                target_track_coord="tc1_tg2_tr3", layer_id=LayerId("layer_kick")
+            ),
             ConfirmPushToMA3(
                 target_track_coord="tc1_tg2_tr3",
                 selected_event_ids=[EventId("main_evt")],
@@ -2392,7 +2703,9 @@ def test_transfer_plan_actions_dispatch_preview_apply_and_cancel(monkeypatch):
         layers=[
             replace(
                 _selection_test_presentation().layers[0],
-                events=[replace(_selection_test_presentation().layers[0].events[0], is_selected=True)],
+                events=[
+                    replace(_selection_test_presentation().layers[0].events[0], is_selected=True)
+                ],
                 push_selection_count=1,
                 push_row_status="ready",
             )
@@ -2443,19 +2756,19 @@ def test_transfer_plan_actions_dispatch_preview_apply_and_cancel(monkeypatch):
             action
             for section in contract.context_sections
             for action in section.actions
-            if action.action_id == "preview_transfer_plan"
+            if action.action_id == "transfer.plan_preview"
         )
         apply_action = next(
             action
             for section in contract.context_sections
             for action in section.actions
-            if action.action_id == "apply_transfer_plan"
+            if action.action_id == "transfer.plan_apply"
         )
         cancel_action = next(
             action
             for section in contract.context_sections
             for action in section.actions
-            if action.action_id == "cancel_transfer_plan"
+            if action.action_id == "transfer.plan_cancel"
         )
 
         widget._trigger_contract_action(preview_action)
@@ -2515,7 +2828,9 @@ def test_transfer_preset_actions_are_hidden_from_primary_transfer_surface(monkey
     try:
         _render_for_hit_testing(widget)
         contract = build_timeline_inspector_contract(widget.presentation)
-        action_ids = {action.action_id for section in contract.context_sections for action in section.actions}
+        action_ids = {
+            action.action_id for section in contract.context_sections for action in section.actions
+        }
 
         assert "save_transfer_preset" not in action_ids
         assert "apply_transfer_preset" not in action_ids
@@ -2526,7 +2841,9 @@ def test_transfer_preset_actions_are_hidden_from_primary_transfer_surface(monkey
         app.processEvents()
 
 
-def test_push_mode_contract_actions_dispatch_select_all_unselect_all_and_transfer_mode(monkeypatch):
+def test_push_mode_contract_actions_dispatch_select_all_unselect_all_and_transfer_mode(
+    monkeypatch,
+):
     app = QApplication.instance() or QApplication([])
     base = replace(
         _selection_test_presentation(),
@@ -2535,7 +2852,9 @@ def test_push_mode_contract_actions_dispatch_select_all_unselect_all_and_transfe
             push_mode_active=True,
             transfer_mode="merge",
             available_tracks=[
-                ManualPushTrackOptionPresentation(coord="tc1_tg2_tr3", name="Track 3", note="Bass"),
+                ManualPushTrackOptionPresentation(
+                    coord="tc1_tg2_tr3", name="Track 3", note="Bass"
+                ),
             ],
         ),
     )
@@ -2547,9 +2866,15 @@ def test_push_mode_contract_actions_dispatch_select_all_unselect_all_and_transfe
     )
     try:
         _render_for_hit_testing(widget)
-        widget._trigger_contract_action(InspectorAction(action_id="push_select_all_events", label="Select All Events"))
-        widget._trigger_contract_action(InspectorAction(action_id="push_unselect_all_events", label="Unselect All Events"))
-        widget._trigger_contract_action(InspectorAction(action_id="set_push_transfer_mode", label="Set Push Transfer Mode"))
+        widget._trigger_contract_action(
+            InspectorAction(action_id="push_select_all_events", label="Select All Events")
+        )
+        widget._trigger_contract_action(
+            InspectorAction(action_id="push_unselect_all_events", label="Unselect All Events")
+        )
+        widget._trigger_contract_action(
+            InspectorAction(action_id="set_push_transfer_mode", label="Set Push Transfer Mode")
+        )
 
         assert harness.intents == [
             SelectAllEvents(),
@@ -2570,8 +2895,12 @@ def test_apply_transfer_plan_prompts_for_each_unmapped_push_row_before_dispatch(
         manual_push_flow=ManualPushFlowPresentation(
             push_mode_active=True,
             available_tracks=[
-                ManualPushTrackOptionPresentation(coord="tc1_tg2_tr3", name="Track 3", note="Bass"),
-                ManualPushTrackOptionPresentation(coord="tc1_tg2_tr4", name="Track 4", note="Lead"),
+                ManualPushTrackOptionPresentation(
+                    coord="tc1_tg2_tr3", name="Track 3", note="Bass"
+                ),
+                ManualPushTrackOptionPresentation(
+                    coord="tc1_tg2_tr4", name="Track 4", note="Lead"
+                ),
             ],
         ),
         batch_transfer_plan=BatchTransferPlanPresentation(
@@ -2607,7 +2936,9 @@ def test_apply_transfer_plan_prompts_for_each_unmapped_push_row_before_dispatch(
     intents: list[object] = []
     widget = TimelineWidget(base, on_intent=lambda intent: intents.append(intent) or base)
     prompts: list[str] = []
-    replies = iter([("Track 3 (tc1_tg2_tr3) - Bass", True), ("Track 4 (tc1_tg2_tr4) - Lead", True)])
+    replies = iter(
+        [("Track 3 (tc1_tg2_tr3) - Bass", True), ("Track 4 (tc1_tg2_tr4) - Lead", True)]
+    )
     monkeypatch.setattr(
         "echozero.ui.qt.timeline.widget.QInputDialog.getItem",
         lambda _parent, _title, label, *_args: prompts.append(label) or next(replies),
@@ -2619,7 +2950,7 @@ def test_apply_transfer_plan_prompts_for_each_unmapped_push_row_before_dispatch(
     try:
         widget._trigger_contract_action(
             InspectorAction(
-                action_id="apply_transfer_plan",
+                action_id="transfer.plan_apply",
                 label="Apply Transfer Plan (0 ready rows)",
                 params={"plan_id": "push:timeline_selection"},
             )
@@ -2644,7 +2975,9 @@ def test_apply_transfer_plan_aborts_when_push_mapping_prompt_is_canceled(monkeyp
         manual_push_flow=ManualPushFlowPresentation(
             push_mode_active=True,
             available_tracks=[
-                ManualPushTrackOptionPresentation(coord="tc1_tg2_tr3", name="Track 3", note="Bass"),
+                ManualPushTrackOptionPresentation(
+                    coord="tc1_tg2_tr3", name="Track 3", note="Bass"
+                ),
             ],
         ),
         batch_transfer_plan=BatchTransferPlanPresentation(
@@ -2675,7 +3008,7 @@ def test_apply_transfer_plan_aborts_when_push_mapping_prompt_is_canceled(monkeyp
     try:
         widget._trigger_contract_action(
             InspectorAction(
-                action_id="apply_transfer_plan",
+                action_id="transfer.plan_apply",
                 label="Apply Transfer Plan (0 ready rows)",
                 params={"plan_id": "push:timeline_selection"},
             )
@@ -2708,7 +3041,9 @@ def test_manual_pull_timeline_dialog_keeps_target_selection_in_same_popup():
         selected_event_ids=["ma3_evt_2"],
         available_targets=[
             ManualPullTargetOptionPresentation(layer_id=LayerId("layer_kick"), name="Kick"),
-            ManualPullTargetOptionPresentation(layer_id=LayerId("layer_new"), name="Create New Layer"),
+            ManualPullTargetOptionPresentation(
+                layer_id=LayerId("layer_new"), name="Create New Layer"
+            ),
         ],
         selected_target_layer_id=LayerId("layer_new"),
         selected_import_mode="main",
@@ -2717,11 +3052,16 @@ def test_manual_pull_timeline_dialog_keeps_target_selection_in_same_popup():
         assert dialog.selected_event_ids() == ["ma3_evt_2"]
         assert dialog.selected_target_layer_id() == LayerId("layer_new")
         assert dialog.selected_import_mode() == "main"
-        assert [dialog._target_combo.itemText(index) for index in range(dialog._target_combo.count())] == [
+        assert [
+            dialog._target_combo.itemText(index) for index in range(dialog._target_combo.count())
+        ] == [
             "Kick",
             "Create New Layer",
         ]
-        assert [dialog._import_mode_combo.itemText(index) for index in range(dialog._import_mode_combo.count())] == [
+        assert [
+            dialog._import_mode_combo.itemText(index)
+            for index in range(dialog._import_mode_combo.count())
+        ] == [
             "Import as New Take",
             "Import to Main",
         ]
@@ -2812,7 +3152,9 @@ def test_batch_plan_shortcuts_noop_without_active_plan():
     app = QApplication.instance() or QApplication([])
     intents: list[object] = []
     presentation = _selection_test_presentation()
-    widget = TimelineWidget(presentation, on_intent=lambda intent: intents.append(intent) or presentation)
+    widget = TimelineWidget(
+        presentation, on_intent=lambda intent: intents.append(intent) or presentation
+    )
     try:
         _render_for_hit_testing(widget)
 
@@ -2843,7 +3185,9 @@ def test_shift_click_event_dispatches_additive_selection_mode():
     app = QApplication.instance() or QApplication([])
     intents: list[SelectEvent] = []
     presentation = _selection_test_presentation()
-    widget = TimelineWidget(presentation, on_intent=lambda intent: intents.append(intent) or presentation)
+    widget = TimelineWidget(
+        presentation, on_intent=lambda intent: intents.append(intent) or presentation
+    )
     try:
         _render_for_hit_testing(widget)
         _click_event_rect(widget, "take_evt", Qt.KeyboardModifier.ShiftModifier)
@@ -2865,7 +3209,9 @@ def test_ctrl_click_event_dispatches_toggle_selection_mode():
     app = QApplication.instance() or QApplication([])
     intents: list[SelectEvent] = []
     presentation = _selection_test_presentation()
-    widget = TimelineWidget(presentation, on_intent=lambda intent: intents.append(intent) or presentation)
+    widget = TimelineWidget(
+        presentation, on_intent=lambda intent: intents.append(intent) or presentation
+    )
     try:
         _render_for_hit_testing(widget)
         _click_event_rect(widget, "main_evt", Qt.KeyboardModifier.ControlModifier)
@@ -2887,7 +3233,9 @@ def test_layer_header_click_dispatches_layer_selection_not_seek():
     app = QApplication.instance() or QApplication([])
     intents: list[object] = []
     presentation = _selection_test_presentation()
-    widget = TimelineWidget(presentation, on_intent=lambda intent: intents.append(intent) or presentation)
+    widget = TimelineWidget(
+        presentation, on_intent=lambda intent: intents.append(intent) or presentation
+    )
     try:
         _render_for_hit_testing(widget)
 
@@ -2906,7 +3254,9 @@ def test_row_empty_space_click_dispatches_layer_selection_not_seek():
     app = QApplication.instance() or QApplication([])
     intents: list[object] = []
     presentation = _selection_test_presentation()
-    widget = TimelineWidget(presentation, on_intent=lambda intent: intents.append(intent) or presentation)
+    widget = TimelineWidget(
+        presentation, on_intent=lambda intent: intents.append(intent) or presentation
+    )
     try:
         _render_for_hit_testing(widget)
 
@@ -2930,10 +3280,18 @@ def test_main_rows_expose_active_hit_targets_without_take_row_duplicates():
 
         assert len(widget._canvas._active_rects) == len(presentation.layers)
         assert len(widget._canvas._push_rects) == len(
-            [layer for layer in presentation.layers if layer.kind is LayerKind.EVENT and layer.main_take_id is not None]
+            [
+                layer
+                for layer in presentation.layers
+                if layer.kind is LayerKind.EVENT and layer.main_take_id is not None
+            ]
         )
         assert len(widget._canvas._pull_rects) == len(
-            [layer for layer in presentation.layers if layer.kind is LayerKind.EVENT and layer.main_take_id is not None]
+            [
+                layer
+                for layer in presentation.layers
+                if layer.kind is LayerKind.EVENT and layer.main_take_id is not None
+            ]
         )
     finally:
         widget.close()
@@ -2960,7 +3318,9 @@ def test_layer_presentation_declares_header_controls():
     layer = presentation.layers[0]
 
     layer.header_controls = [
-        LayerHeaderControlPresentation(control_id="set_active_playback_target", label="ACTIVE", kind="toggle"),
+        LayerHeaderControlPresentation(
+            control_id="set_active_playback_target", label="ACTIVE", kind="toggle"
+        ),
         LayerHeaderControlPresentation(control_id="push_to_ma3", label="Push"),
         LayerHeaderControlPresentation(control_id="pull_from_ma3", label="Pull"),
     ]
@@ -2972,6 +3332,23 @@ def test_layer_presentation_declares_header_controls():
     ]
 
 
+def test_selected_audio_layer_declares_pipeline_header_control():
+    presentation = _audio_pipeline_presentation()
+
+    selected_layer_controls = [
+        control.control_id for control in presentation.layers[0].header_controls
+    ]
+    unselected_layer_controls = [
+        control.control_id for control in presentation.layers[1].header_controls
+    ]
+
+    assert selected_layer_controls == [
+        "set_active_playback_target",
+        "layer_pipeline_actions",
+    ]
+    assert "layer_pipeline_actions" not in unselected_layer_controls
+
+
 def test_ruler_click_dispatches_seek():
     app = QApplication.instance() or QApplication([])
     presentation = _selection_test_presentation()
@@ -2979,7 +3356,12 @@ def test_ruler_click_dispatches_seek():
     try:
         _render_for_hit_testing(widget)
 
-        QTest.mouseClick(widget._ruler, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier, QPoint(520, 12))
+        QTest.mouseClick(
+            widget._ruler,
+            Qt.MouseButton.LeftButton,
+            Qt.KeyboardModifier.NoModifier,
+            QPoint(520, 12),
+        )
         QApplication.processEvents()
 
         assert intents == [Seek(2.0)]
@@ -2990,12 +3372,19 @@ def test_ruler_click_dispatches_seek():
 
 def test_ruler_click_dispatches_seek_using_scroll_offset():
     app = QApplication.instance() or QApplication([])
-    presentation = replace(_selection_test_presentation(), scroll_x=200.0, end_time_label="00:12.00")
+    presentation = replace(
+        _selection_test_presentation(), scroll_x=200.0, end_time_label="00:12.00"
+    )
     widget, intents = _seek_tracking_widget(presentation)
     try:
         _render_for_hit_testing(widget)
 
-        QTest.mouseClick(widget._ruler, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier, QPoint(520, 12))
+        QTest.mouseClick(
+            widget._ruler,
+            Qt.MouseButton.LeftButton,
+            Qt.KeyboardModifier.NoModifier,
+            QPoint(520, 12),
+        )
         QApplication.processEvents()
 
         assert intents == [Seek(4.0)]
@@ -3020,7 +3409,9 @@ def test_main_row_active_click_dispatches_playback_target_intent_only():
             )
         ],
     )
-    widget = TimelineWidget(presentation, on_intent=lambda intent: intents.append(intent) or presentation)
+    widget = TimelineWidget(
+        presentation, on_intent=lambda intent: intents.append(intent) or presentation
+    )
     try:
         _render_for_hit_testing(widget)
 
@@ -3097,8 +3488,12 @@ def test_layer_header_renders_selection_background_and_active_button_independent
     playback_header_color = playback_image.pixelColor(12, 12)
     selected_active_rect = dict(selected_hit_targets.control_rects)["set_active_playback_target"]
     playback_active_rect = dict(playback_hit_targets.control_rects)["set_active_playback_target"]
-    selected_button_color = selected_image.pixelColor(int(selected_active_rect.left()) + 3, int(selected_active_rect.top()) + 9)
-    playback_button_color = playback_image.pixelColor(int(playback_active_rect.left()) + 3, int(playback_active_rect.top()) + 9)
+    selected_button_color = selected_image.pixelColor(
+        int(selected_active_rect.left()) + 3, int(selected_active_rect.top()) + 9
+    )
+    playback_button_color = playback_image.pixelColor(
+        int(playback_active_rect.left()) + 3, int(playback_active_rect.top()) + 9
+    )
 
     assert selected_header_color.name() == "#202833"
     assert playback_header_color.name() == "#1b212a"
@@ -3132,6 +3527,56 @@ def test_layer_header_push_control_dispatches_timeline_push_intent():
         app.processEvents()
 
 
+def test_layer_header_pipeline_control_opens_workspace_pipeline_menu(monkeypatch):
+    app = QApplication.instance() or QApplication([])
+    widget = TimelineWidget(_audio_pipeline_presentation())
+    opened: list[InspectorAction] = []
+    menu_labels: list[str] = []
+    try:
+        _render_for_hit_testing(widget)
+
+        monkeypatch.setattr(
+            widget._action_router,
+            "open_object_action_settings",
+            lambda action: opened.append(action),
+        )
+
+        def _choose_settings(menu, *_args, **_kwargs):
+            menu_labels.extend(
+                action.text() for action in menu.actions() if not action.isSeparator()
+            )
+            return next(
+                action
+                for action in menu.actions()
+                if action.text() == "Open Extract Stems Settings"
+            )
+
+        monkeypatch.setattr(
+            "echozero.ui.qt.timeline.widget.QMenu.exec",
+            _choose_settings,
+        )
+
+        pipeline_rect, layer_id = widget._canvas._pipeline_action_rects[0]
+        _click_rect(widget, pipeline_rect)
+
+        assert layer_id == LayerId("layer_song")
+        assert menu_labels == [
+            "Open Extract Stems Settings",
+            "Run Extract Stems",
+        ]
+        assert opened == [
+            InspectorAction(
+                action_id="timeline.extract_stems",
+                label="Extract Stems",
+                kind="settings",
+                params={"layer_id": LayerId("layer_song")},
+            )
+        ]
+    finally:
+        widget.close()
+        app.processEvents()
+
+
 def test_layer_header_pull_control_dispatches_pull_workspace_intent():
     app = QApplication.instance() or QApplication([])
     intents: list[object] = []
@@ -3141,7 +3586,9 @@ def test_layer_header_pull_control_dispatches_pull_workspace_intent():
         selected_layer_ids=[LayerId("layer_kick")],
         layers=[replace(_selection_test_presentation().layers[0], is_selected=True)],
     )
-    widget = TimelineWidget(presentation, on_intent=lambda intent: intents.append(intent) or presentation)
+    widget = TimelineWidget(
+        presentation, on_intent=lambda intent: intents.append(intent) or presentation
+    )
     try:
         _render_for_hit_testing(widget)
 
@@ -3158,7 +3605,9 @@ def test_layer_header_click_dispatches_toggle_and_range_selection_modes():
     app = QApplication.instance() or QApplication([])
     intents: list[object] = []
     presentation = _multi_layer_selection_presentation()
-    widget = TimelineWidget(presentation, on_intent=lambda intent: intents.append(intent) or presentation)
+    widget = TimelineWidget(
+        presentation, on_intent=lambda intent: intents.append(intent) or presentation
+    )
     try:
         _render_for_hit_testing(widget)
 
@@ -3214,7 +3663,10 @@ def test_playhead_head_drag_dispatches_seek():
             )
         )
         y = widget._canvas._top_padding - 4
-        _mouse_drag(widget._canvas, [QPoint(start_x, y), QPoint(start_x + 100, y), QPoint(start_x + 200, y)])
+        _mouse_drag(
+            widget._canvas,
+            [QPoint(start_x, y), QPoint(start_x + 100, y), QPoint(start_x + 200, y)],
+        )
 
         assert intents == [Seek(1.0), Seek(2.0), Seek(3.0)]
     finally:
@@ -3243,7 +3695,10 @@ def test_playhead_head_drag_dispatches_seek_using_scroll_offset():
             )
         )
         y = widget._canvas._top_padding - 4
-        _mouse_drag(widget._canvas, [QPoint(start_x, y), QPoint(start_x + 100, y), QPoint(start_x + 200, y)])
+        _mouse_drag(
+            widget._canvas,
+            [QPoint(start_x, y), QPoint(start_x + 100, y), QPoint(start_x + 200, y)],
+        )
 
         assert intents == [Seek(4.0), Seek(5.0), Seek(6.0)]
     finally:
@@ -3256,7 +3711,9 @@ def test_canvas_empty_non_selection_space_no_longer_dispatches_seek():
     app = QApplication.instance() or QApplication([])
     intents: list[object] = []
     presentation = _selection_test_presentation()
-    widget = TimelineWidget(presentation, on_intent=lambda intent: intents.append(intent) or presentation)
+    widget = TimelineWidget(
+        presentation, on_intent=lambda intent: intents.append(intent) or presentation
+    )
     try:
         _render_for_hit_testing(widget)
 
@@ -3278,7 +3735,9 @@ def test_escape_dispatches_clear_selection():
     app = QApplication.instance() or QApplication([])
     intents: list[object] = []
     presentation = _selection_test_presentation()
-    widget = TimelineWidget(presentation, on_intent=lambda intent: intents.append(intent) or presentation)
+    widget = TimelineWidget(
+        presentation, on_intent=lambda intent: intents.append(intent) or presentation
+    )
     try:
         _render_for_hit_testing(widget)
 
@@ -3295,7 +3754,9 @@ def test_ctrl_a_dispatches_select_all_events():
     app = QApplication.instance() or QApplication([])
     intents: list[object] = []
     presentation = _selection_test_presentation()
-    widget = TimelineWidget(presentation, on_intent=lambda intent: intents.append(intent) or presentation)
+    widget = TimelineWidget(
+        presentation, on_intent=lambda intent: intents.append(intent) or presentation
+    )
     try:
         _render_for_hit_testing(widget)
 
@@ -3312,7 +3773,9 @@ def test_arrow_keys_dispatch_nudge_selected_events():
     app = QApplication.instance() or QApplication([])
     intents: list[object] = []
     presentation = _selection_test_presentation()
-    widget = TimelineWidget(presentation, on_intent=lambda intent: intents.append(intent) or presentation)
+    widget = TimelineWidget(
+        presentation, on_intent=lambda intent: intents.append(intent) or presentation
+    )
     try:
         _render_for_hit_testing(widget)
 
@@ -3333,7 +3796,9 @@ def test_ctrl_d_dispatches_duplicate_selected_events():
     app = QApplication.instance() or QApplication([])
     intents: list[object] = []
     presentation = _selection_test_presentation()
-    widget = TimelineWidget(presentation, on_intent=lambda intent: intents.append(intent) or presentation)
+    widget = TimelineWidget(
+        presentation, on_intent=lambda intent: intents.append(intent) or presentation
+    )
     try:
         _render_for_hit_testing(widget)
 
@@ -3386,7 +3851,9 @@ def test_dragging_selected_event_dispatches_move_intent():
     app = QApplication.instance() or QApplication([])
     intents: list[object] = []
     presentation = _drag_test_presentation()
-    widget = TimelineWidget(presentation, on_intent=lambda intent: intents.append(intent) or presentation)
+    widget = TimelineWidget(
+        presentation, on_intent=lambda intent: intents.append(intent) or presentation
+    )
     try:
         _render_for_hit_testing(widget)
 
@@ -3409,7 +3876,9 @@ def test_dragging_selected_event_over_other_event_layer_dispatches_transfer_targ
     app = QApplication.instance() or QApplication([])
     intents: list[object] = []
     presentation = _drag_test_presentation()
-    widget = TimelineWidget(presentation, on_intent=lambda intent: intents.append(intent) or presentation)
+    widget = TimelineWidget(
+        presentation, on_intent=lambda intent: intents.append(intent) or presentation
+    )
     try:
         _render_for_hit_testing(widget)
 
@@ -3421,13 +3890,144 @@ def test_dragging_selected_event_over_other_event_layer_dispatches_transfer_targ
             raise AssertionError("Missing event rect for main_evt")
 
         target_rect = next(
-            rect for rect, layer_id in widget._canvas._event_drop_rects if layer_id == LayerId("layer_snare")
+            rect
+            for rect, layer_id in widget._canvas._event_drop_rects
+            if layer_id == LayerId("layer_snare")
         )
         target = QPoint(start.x(), int(target_rect.center().y()))
 
         _mouse_drag(widget._canvas, [start, target])
 
-        assert intents == [MoveSelectedEvents(delta_seconds=0.0, target_layer_id=LayerId("layer_snare"))]
+        assert intents == [
+            MoveSelectedEvents(delta_seconds=0.0, target_layer_id=LayerId("layer_snare"))
+        ]
+    finally:
+        widget.close()
+        app.processEvents()
+
+
+def test_draw_mode_drag_dispatches_create_event_intent():
+    app = QApplication.instance() or QApplication([])
+    intents: list[object] = []
+    presentation = _selection_test_presentation()
+    widget = TimelineWidget(
+        presentation, on_intent=lambda intent: intents.append(intent) or presentation
+    )
+    try:
+        _render_for_hit_testing(widget)
+
+        widget._editor_bar._mode_buttons["draw"].click()
+        QApplication.processEvents()
+
+        lane_rect, _, _ = widget._canvas._event_lane_rects[0]
+        y = int(lane_rect.center().y())
+        _mouse_drag(
+            widget._canvas,
+            [
+                QPoint(int(lane_rect.left() + 260), y),
+                QPoint(int(lane_rect.left() + 330), y),
+            ],
+        )
+
+        assert len(intents) == 1
+        assert isinstance(intents[0], CreateEvent)
+        assert intents[0].layer_id == LayerId("layer_kick")
+        assert intents[0].take_id == TakeId("take_main")
+        assert intents[0].time_range.start < intents[0].time_range.end
+    finally:
+        widget.close()
+        app.processEvents()
+
+
+def test_erase_mode_click_dispatches_delete_events_intent():
+    app = QApplication.instance() or QApplication([])
+    intents: list[object] = []
+    presentation = _selection_test_presentation()
+    widget = TimelineWidget(
+        presentation, on_intent=lambda intent: intents.append(intent) or presentation
+    )
+    try:
+        _render_for_hit_testing(widget)
+
+        widget._editor_bar._mode_buttons["erase"].click()
+        QApplication.processEvents()
+        _click_event_rect(widget, "main_evt")
+
+        assert intents == [DeleteEvents(event_ids=[EventId("main_evt")])]
+    finally:
+        widget.close()
+        app.processEvents()
+
+
+def test_marquee_drag_dispatches_batch_event_selection_intent():
+    app = QApplication.instance() or QApplication([])
+    intents: list[object] = []
+    presentation = _selection_test_presentation()
+    widget = TimelineWidget(
+        presentation, on_intent=lambda intent: intents.append(intent) or presentation
+    )
+    try:
+        _render_for_hit_testing(widget)
+
+        main_rect = next(
+            rect
+            for rect, _, _, event_id in widget._canvas._event_rects
+            if str(event_id) == "main_evt"
+        )
+        take_rect = next(
+            rect
+            for rect, _, _, event_id in widget._canvas._event_rects
+            if str(event_id) == "take_evt"
+        )
+        _mouse_drag(
+            widget._canvas,
+            [
+                QPoint(int(main_rect.left() - 6), int(main_rect.top() - 4)),
+                QPoint(int(take_rect.right() + 6), int(take_rect.bottom() + 4)),
+            ],
+        )
+
+        assert intents == [
+            SetSelectedEvents(
+                event_ids=[EventId("main_evt"), EventId("take_evt")],
+                anchor_layer_id=LayerId("layer_kick"),
+                anchor_take_id=TakeId("take_alt"),
+                selected_layer_ids=[LayerId("layer_kick")],
+            )
+        ]
+    finally:
+        widget.close()
+        app.processEvents()
+
+
+def test_delete_key_dispatches_delete_events_for_current_selection():
+    app = QApplication.instance() or QApplication([])
+    intents: list[object] = []
+    presentation = replace(
+        _selection_test_presentation(),
+        selected_layer_id=LayerId("layer_kick"),
+        selected_layer_ids=[LayerId("layer_kick")],
+        selected_take_id=TakeId("take_main"),
+        selected_event_ids=[EventId("main_evt")],
+        layers=[
+            replace(
+                _selection_test_presentation().layers[0],
+                events=[
+                    replace(_selection_test_presentation().layers[0].events[0], is_selected=True)
+                ],
+            )
+        ],
+    )
+    widget = TimelineWidget(
+        presentation, on_intent=lambda intent: intents.append(intent) or presentation
+    )
+    try:
+        _render_for_hit_testing(widget)
+
+        QTest.keyClick(widget._canvas, Qt.Key.Key_Delete)
+        QApplication.processEvents()
+
+        assert intents == [DeleteEvents(event_ids=[EventId("main_evt")])]
     finally:
         widget.close()
         app.processEvents()

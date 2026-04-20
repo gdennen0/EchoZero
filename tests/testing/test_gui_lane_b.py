@@ -29,31 +29,57 @@ def test_lane_b_runner_executes_starter_scenario_and_writes_trace():
         assert trace
         assert [step["status"] for step in trace] == ["passed"] * len(trace)
 
-        push_step = next(step for step in trace if step["action"] == "open_push_surface")
-        push_apply_step = next(step for step in trace if step["label"] == "Apply push transfer plan")
-        pull_step = next(step for step in trace if step["action"] == "open_pull_surface")
-        pull_apply_step = next(step for step in trace if step["label"] == "Apply pull transfer plan")
-        enable_step = next(step for step in trace if step["action"] == "enable_sync")
-        disable_step = next(step for step in trace if step["action"] == "disable_sync")
-        classify_step = next(step for step in trace if step["action"] == "classify_drum_events")
+        push_step = next(
+            step
+            for step in trace
+            if step["action"] == "transfer.workspace_open" and step["label"] == "Open push surface"
+        )
+        push_apply_step = next(
+            step for step in trace if step["label"] == "Apply push transfer plan"
+        )
+        pull_step = next(
+            step
+            for step in trace
+            if step["action"] == "transfer.workspace_open" and step["label"] == "Open pull surface"
+        )
+        pull_apply_step = next(
+            step for step in trace if step["label"] == "Apply pull transfer plan"
+        )
+        enable_step = next(step for step in trace if step["action"] == "sync.enable")
+        disable_step = next(step for step in trace if step["action"] == "sync.disable")
+        classify_step = next(
+            step for step in trace if step["action"] == "timeline.classify_drum_events"
+        )
 
         assert push_step["snapshot"]["push_mode_active"] is True
         assert push_step["snapshot"]["batch_transfer_plan_id"] is not None
         assert push_apply_step["status"] == "passed"
-        assert push_apply_step["snapshot"]["batch_transfer_plan_id"] == push_step["snapshot"]["batch_transfer_plan_id"]
+        assert (
+            push_apply_step["snapshot"]["batch_transfer_plan_id"]
+            == push_step["snapshot"]["batch_transfer_plan_id"]
+        )
 
         assert pull_step["snapshot"]["pull_workspace_active"] is True
         assert pull_step["snapshot"]["batch_transfer_plan_id"] is not None
         assert pull_apply_step["status"] == "passed"
-        assert pull_apply_step["snapshot"]["batch_transfer_plan_id"] == pull_step["snapshot"]["batch_transfer_plan_id"]
-        assert pull_apply_step["snapshot"]["batch_transfer_plan_id"] != push_step["snapshot"]["batch_transfer_plan_id"]
+        assert (
+            pull_apply_step["snapshot"]["batch_transfer_plan_id"]
+            == pull_step["snapshot"]["batch_transfer_plan_id"]
+        )
+        assert (
+            pull_apply_step["snapshot"]["batch_transfer_plan_id"]
+            != push_step["snapshot"]["batch_transfer_plan_id"]
+        )
 
         assert enable_step["snapshot"]["sync_connected"] is True
         assert enable_step["snapshot"]["sync_mode"] == "ma3"
         assert disable_step["snapshot"]["sync_connected"] is False
         assert disable_step["snapshot"]["sync_mode"] == "none"
         assert any(layer["title"] == "Drums" for layer in classify_step["snapshot"]["layers"])
-        assert any(layer["title"] == "Drum_Classified_Events" for layer in classify_step["snapshot"]["layers"])
+        assert any(
+            layer["title"] == "Drum_Classified_Events"
+            for layer in classify_step["snapshot"]["layers"]
+        )
 
         trace_path = output_dir / "trace.json"
         screenshot_path = output_dir / "lane-b-final.png"
@@ -124,8 +150,13 @@ def test_lane_b_runner_can_disable_mock_analysis(monkeypatch):
             return None
 
     monkeypatch.setattr("echozero.testing.gui_lane_b.AppFlowHarness", _FakeHarness)
-    monkeypatch.setattr("echozero.testing.gui_lane_b._render_for_hit_testing", lambda harness: None)
-    monkeypatch.setattr("echozero.testing.gui_lane_b.load_scenario", lambda path: type("S", (), {"name": "real", "steps": []})())
+    monkeypatch.setattr(
+        "echozero.testing.gui_lane_b._render_for_hit_testing", lambda harness: None
+    )
+    monkeypatch.setattr(
+        "echozero.testing.gui_lane_b.load_scenario",
+        lambda path: type("S", (), {"name": "real", "steps": []})(),
+    )
 
     try:
         trace = run_scenario_file(

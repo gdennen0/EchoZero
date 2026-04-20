@@ -4,7 +4,7 @@
   "steps": [
     {
       "label": "Add song from generated audio",
-      "action": "add_song_from_path",
+      "action": "song.add",
       "params": {
         "title": "Lane B Song",
         "audio_path": "__RUN_TEMP__/fixtures/import.wav"
@@ -12,35 +12,35 @@
     },
     {
       "label": "Extract stems from imported song",
-      "action": "extract_stems",
+      "action": "timeline.extract_stems",
       "params": {
         "layer_id": "source_audio"
       }
     },
     {
       "label": "Capture post-stems checkpoint",
-      "action": "screenshot",
+      "action": "capture.screenshot",
       "params": {
         "filename": "lane-b-post-stems.png"
       }
     },
     {
       "label": "Extract drum events from drums stem",
-      "action": "extract_drum_events",
+      "action": "timeline.extract_drum_events",
       "params": {
         "layer_title": "Drums"
       }
     },
     {
       "label": "Capture post-drum-events checkpoint",
-      "action": "screenshot",
+      "action": "capture.screenshot",
       "params": {
         "filename": "lane-b-post-drum-events.png"
       }
     },
     {
       "label": "Classify drum events with generated model",
-      "action": "classify_drum_events",
+      "action": "timeline.classify_drum_events",
       "params": {
         "layer_title": "Drums",
         "model_path": "__RUN_TEMP__/fixtures/drum-model.pth"
@@ -48,21 +48,21 @@
     },
     {
       "label": "Capture post-classification checkpoint",
-      "action": "screenshot",
+      "action": "capture.screenshot",
       "params": {
         "filename": "lane-b-post-classification.png"
       }
     },
     {
       "label": "Select first classified event",
-      "action": "select_first_event",
+      "action": "selection.first_event",
       "params": {
         "layer_title": "Drum_Classified_Events"
       }
     },
     {
       "label": "Nudge selection right",
-      "action": "nudge",
+      "action": "timeline.nudge_selection",
       "params": {
         "direction": "right",
         "steps": 1
@@ -70,51 +70,53 @@
     },
     {
       "label": "Duplicate selection",
-      "action": "duplicate",
+      "action": "timeline.duplicate_selection",
       "params": {
         "steps": 1
       }
     },
     {
       "label": "Open push surface",
-      "action": "open_push_surface",
+      "action": "transfer.workspace_open",
       "params": {
-        "layer_title": "Drum_Classified_Events"
+        "layer_title": "Drum_Classified_Events",
+        "direction": "push"
       }
     },
     {
       "label": "Apply push transfer plan",
-      "action": "apply_transfer_plan"
+      "action": "transfer.plan_apply"
     },
     {
       "label": "Capture post-push-apply checkpoint",
-      "action": "screenshot",
+      "action": "capture.screenshot",
       "params": {
         "filename": "lane-b-post-push-apply.png"
       }
     },
     {
       "label": "Enable sync",
-      "action": "enable_sync"
+      "action": "sync.enable"
     },
     {
       "label": "Disable sync",
-      "action": "disable_sync"
+      "action": "sync.disable"
     },
     {
       "label": "Open pull surface",
-      "action": "open_pull_surface",
+      "action": "transfer.workspace_open",
       "params": {
-        "layer_title": "Drum_Classified_Events"
+        "layer_title": "Drum_Classified_Events",
+        "direction": "pull"
       }
     },
     {
       "label": "Apply pull transfer plan",
-      "action": "apply_transfer_plan"
+      "action": "transfer.plan_apply"
     },
     {
       "label": "Capture screenshot",
-      "action": "screenshot",
+      "action": "capture.screenshot",
       "params": {
         "filename": "lane-b-final.png"
       }

@@ -46,12 +46,15 @@ class _RunWorker(QObject):
         self._action = action
 
     def run(self) -> None:
+        thread = QThread.currentThread()
         try:
             run_id = str(self._action())
         except Exception as exc:
             self.failed.emit(str(exc))
-            return
-        self.finished.emit(run_id)
+        else:
+            self.finished.emit(run_id)
+        finally:
+            thread.quit()
 
 
 class FoundryWindow(QMainWindow):
@@ -319,7 +322,9 @@ class FoundryWindow(QMainWindow):
 
         self.artifact_summary = QPlainTextEdit()
         self.artifact_summary.setReadOnly(True)
-        self.artifact_summary.setPlaceholderText("Selected artifact and validation details will appear here.")
+        self.artifact_summary.setPlaceholderText(
+            "Selected artifact and validation details will appear here."
+        )
 
         layout.addWidget(form)
         layout.addWidget(QLabel("Selected Artifact"))
@@ -454,7 +459,9 @@ class FoundryWindow(QMainWindow):
             self._dataset_id = dataset.id
             self._version_id = version.id
             self.class_names.setText(",".join(version.class_map))
-            self._set_status(f"Dataset ready: {dataset.id} -> {version.id} ({len(version.samples)} samples)")
+            self._set_status(
+                f"Dataset ready: {dataset.id} -> {version.id} ({len(version.samples)} samples)"
+            )
             self._refresh_workspace_state()
         except Exception as exc:
             self._error(exc)
@@ -528,7 +535,9 @@ class FoundryWindow(QMainWindow):
 
     def _checkpoint_run(self) -> None:
         try:
-            path = self._app.runs.save_checkpoint(self._require_run_id(), epoch=1, metric_snapshot={"loss": 0.123})
+            path = self._app.runs.save_checkpoint(
+                self._require_run_id(), epoch=1, metric_snapshot={"loss": 0.123}
+            )
             self._set_status(f"Checkpoint saved: {path.name}")
             self._refresh_workspace_state(select_run_id=self._run_id)
         except Exception as exc:
@@ -555,7 +564,11 @@ class FoundryWindow(QMainWindow):
             run = self._require_selected_queue_run()
             if str(run.status.value).lower() not in self._ACTIVE_RUN_STATUSES:
                 raise ValueError("Only queued or active runs can be canceled")
-            if self._run_thread is not None and self._run_id == run.id and self._run_cancel_event is not None:
+            if (
+                self._run_thread is not None
+                and self._run_id == run.id
+                and self._run_cancel_event is not None
+            ):
                 self._run_cancel_event.set()
             run = self._app.runs.cancel_run(run.id, reason="user")
             self._set_status(f"Canceled run: {run.id}")
@@ -576,10 +589,14 @@ class FoundryWindow(QMainWindow):
 
     def _finalize_artifact(self) -> None:
         try:
-            artifact = self._app.finalize_artifact(self._require_run_id(), self._build_artifact_manifest())
+            artifact = self._app.finalize_artifact(
+                self._require_run_id(), self._build_artifact_manifest()
+            )
             self._artifact_id = artifact.id
             self._set_status(f"Artifact finalized: {artifact.id}")
-            self._refresh_workspace_state(select_run_id=self._run_id, select_artifact_id=artifact.id)
+            self._refresh_workspace_state(
+                select_run_id=self._run_id, select_artifact_id=artifact.id
+            )
         except Exception as exc:
             self._error(exc)
 
@@ -593,7 +610,9 @@ class FoundryWindow(QMainWindow):
                 f"Validation for {artifact_id}: ok={report.ok}, "
                 f"errors={len(report.errors)}, warnings={len(report.warnings)}"
             )
-            self._refresh_workspace_state(select_run_id=self._run_id, select_artifact_id=artifact_id)
+            self._refresh_workspace_state(
+                select_run_id=self._run_id, select_artifact_id=artifact_id
+            )
         except Exception as exc:
             self._error(exc)
 
@@ -607,14 +626,18 @@ class FoundryWindow(QMainWindow):
     def _open_metrics_json(self) -> None:
         try:
             run = self._require_selected_run()
-            self._open_existing_path(run.exports_dir(self._root) / "metrics.json", label="metrics.json")
+            self._open_existing_path(
+                run.exports_dir(self._root) / "metrics.json", label="metrics.json"
+            )
         except Exception as exc:
             self._error(exc)
 
     def _open_run_summary_json(self) -> None:
         try:
             run = self._require_selected_run()
-            self._open_existing_path(run.exports_dir(self._root) / "run_summary.json", label="run_summary.json")
+            self._open_existing_path(
+                run.exports_dir(self._root) / "run_summary.json", label="run_summary.json"
+            )
         except Exception as exc:
             self._error(exc)
 
@@ -622,7 +645,10 @@ class FoundryWindow(QMainWindow):
         try:
             artifact_id = self._selected_artifact_id or self._artifact_id
             if not artifact_id and self._run_id:
-                artifacts = sorted(self._app.list_artifacts_for_run(self._run_id), key=lambda item: item.created_at)
+                artifacts = sorted(
+                    self._app.list_artifacts_for_run(self._run_id),
+                    key=lambda item: item.created_at,
+                )
                 artifact_id = artifacts[-1].id if artifacts else None
             if not artifact_id:
                 raise ValueError("Select or create an artifact first")
@@ -636,7 +662,9 @@ class FoundryWindow(QMainWindow):
     def _open_latest_artifact_package(self) -> None:
         path = self._resolve_latest_artifact_package_path()
         if path is None:
-            self._set_status("No artifact package available yet. Complete a run to generate exports.")
+            self._set_status(
+                "No artifact package available yet. Complete a run to generate exports."
+            )
             return
         if not path.exists():
             self._set_status(f"Latest artifact package is missing on disk: {path}")
@@ -705,10 +733,14 @@ class FoundryWindow(QMainWindow):
         self._populate_run_overview(runs, select_run_id=select_run_id)
         self._populate_past_runs_overview(runs, select_run_id=select_run_id)
         self._populate_queue_list(runs)
-        self._update_selection_details(select_run_id=select_run_id, select_artifact_id=select_artifact_id)
+        self._update_selection_details(
+            select_run_id=select_run_id, select_artifact_id=select_artifact_id
+        )
         self._update_queue_action_buttons()
 
-    def _populate_run_overview(self, runs: list[object], *, select_run_id: str | None = None) -> None:
+    def _populate_run_overview(
+        self, runs: list[object], *, select_run_id: str | None = None
+    ) -> None:
         self._populate_run_rows(self.run_overview, runs, select_run_id=select_run_id)
         if self.run_overview.rowCount() == 0:
             self.run_summary.setPlainText("No runs yet.")
@@ -718,7 +750,9 @@ class FoundryWindow(QMainWindow):
             self.eval_list.clear()
             self.eval_summary.clear()
 
-    def _populate_past_runs_overview(self, runs: list[object], *, select_run_id: str | None = None) -> None:
+    def _populate_past_runs_overview(
+        self, runs: list[object], *, select_run_id: str | None = None
+    ) -> None:
         self._populate_run_rows(self.past_runs_overview, runs, select_run_id=select_run_id)
 
     def _populate_run_rows(
@@ -819,7 +853,9 @@ class FoundryWindow(QMainWindow):
         artifact_id = item.data(Qt.ItemDataRole.UserRole)
         self._selected_artifact_id = str(artifact_id) if artifact_id else None
         self._artifact_id = self._selected_artifact_id
-        self.artifact_summary.setPlainText(self._format_artifact_summary(self._selected_artifact_id))
+        self.artifact_summary.setPlainText(
+            self._format_artifact_summary(self._selected_artifact_id)
+        )
 
     def _update_selection_details(
         self,
@@ -845,12 +881,18 @@ class FoundryWindow(QMainWindow):
 
         self.run_summary.setPlainText(self._format_run_summary(run))
 
-        artifacts = sorted(self._app.list_artifacts_for_run(run.id), key=lambda item: item.created_at)
-        evals = sorted(self._app.list_eval_reports_for_run(run.id), key=lambda item: item.created_at)
+        artifacts = sorted(
+            self._app.list_artifacts_for_run(run.id), key=lambda item: item.created_at
+        )
+        evals = sorted(
+            self._app.list_eval_reports_for_run(run.id), key=lambda item: item.created_at
+        )
         self._populate_artifact_list(artifacts, select_artifact_id=select_artifact_id)
         self._populate_eval_list(evals)
 
-    def _populate_artifact_list(self, artifacts: list[object], *, select_artifact_id: str | None = None) -> None:
+    def _populate_artifact_list(
+        self, artifacts: list[object], *, select_artifact_id: str | None = None
+    ) -> None:
         artifact_id = select_artifact_id or self._artifact_id
         if not artifact_id and artifacts:
             artifact_id = artifacts[-1].id
@@ -881,9 +923,15 @@ class FoundryWindow(QMainWindow):
             self.eval_summary.setPlainText("No eval reports yet.")
             return
         for report in reversed(evals):
-            macro_f1 = report.metrics.get("macro_f1", report.aggregate_metrics.get("macro_f1", "n/a"))
-            accuracy = report.metrics.get("accuracy", report.aggregate_metrics.get("accuracy", "n/a"))
-            self.eval_list.addItem(f"{report.id} [{report.split_name}] macro_f1={macro_f1} accuracy={accuracy}")
+            macro_f1 = report.metrics.get(
+                "macro_f1", report.aggregate_metrics.get("macro_f1", "n/a")
+            )
+            accuracy = report.metrics.get(
+                "accuracy", report.aggregate_metrics.get("accuracy", "n/a")
+            )
+            self.eval_list.addItem(
+                f"{report.id} [{report.split_name}] macro_f1={macro_f1} accuracy={accuracy}"
+            )
         self.eval_summary.setPlainText(self._format_eval_summary(evals[-1]))
 
     def _populate_queue_list(self, runs: list[object]) -> None:
@@ -896,11 +944,11 @@ class FoundryWindow(QMainWindow):
             return
 
         active_runs = [
-            run for run in runs
-            if str(run.status.value).lower() in self._ACTIVE_RUN_STATUSES
+            run for run in runs if str(run.status.value).lower() in self._ACTIVE_RUN_STATUSES
         ]
         recent_terminal_runs = [
-            run for run in sorted(runs, key=lambda item: (item.updated_at, item.id), reverse=True)
+            run
+            for run in sorted(runs, key=lambda item: (item.updated_at, item.id), reverse=True)
             if str(run.status.value).lower() not in self._ACTIVE_RUN_STATUSES
         ][:5]
         visible_runs = sorted(
@@ -915,7 +963,9 @@ class FoundryWindow(QMainWindow):
             return
         selected_row = -1
         for index, run in enumerate(visible_runs):
-            self.queue_list.addItem(self._format_queue_entry(run, is_active=run.id == active_run_id))
+            self.queue_list.addItem(
+                self._format_queue_entry(run, is_active=run.id == active_run_id)
+            )
             self.queue_list.item(index).setData(Qt.ItemDataRole.UserRole, run.id)
             if run.id == selected_run_id or (selected_run_id is None and run.id == self._run_id):
                 selected_row = index
@@ -984,7 +1034,10 @@ class FoundryWindow(QMainWindow):
     def _resolve_active_run_id(self, active_runs: list[object]) -> str | None:
         if self._run_id:
             current_run = self._app.runs.get_run(self._run_id)
-            if current_run is not None and str(current_run.status.value).lower() in self._ACTIVE_RUN_STATUSES:
+            if (
+                current_run is not None
+                and str(current_run.status.value).lower() in self._ACTIVE_RUN_STATUSES
+            ):
                 return current_run.id
         if not active_runs:
             return None
@@ -1029,7 +1082,9 @@ class FoundryWindow(QMainWindow):
                 self.dataset_selector.setCurrentIndex(index)
         self.dataset_selector.blockSignals(False)
 
-        versions = self._app.datasets.list_versions(selected_dataset_id) if selected_dataset_id else []
+        versions = (
+            self._app.datasets.list_versions(selected_dataset_id) if selected_dataset_id else []
+        )
         if self._version_id and all(version.id != self._version_id for version in versions):
             self._version_id = None
         if self._version_id is None and versions:
@@ -1102,10 +1157,16 @@ class FoundryWindow(QMainWindow):
         self._append_new_run_events(self._run_id)
         self._populate_queue_list(runs)
         self._populate_artifact_list(
-            sorted(self._app.list_artifacts_for_run(self._run_id), key=lambda item: item.created_at),
+            sorted(
+                self._app.list_artifacts_for_run(self._run_id), key=lambda item: item.created_at
+            ),
             select_artifact_id=self._artifact_id,
         )
-        self._populate_eval_list(sorted(self._app.list_eval_reports_for_run(self._run_id), key=lambda item: item.created_at))
+        self._populate_eval_list(
+            sorted(
+                self._app.list_eval_reports_for_run(self._run_id), key=lambda item: item.created_at
+            )
+        )
 
     def _append_new_run_events(self, run_id: str) -> None:
         run = self._app.runs.get_run(run_id)
@@ -1127,8 +1188,12 @@ class FoundryWindow(QMainWindow):
 
     def _on_background_run_finished(self, run_id: str) -> None:
         run = self._app.runs.get_run(run_id)
-        artifacts = sorted(self._app.list_artifacts_for_run(run_id), key=lambda item: item.created_at)
-        evals = sorted(self._app.list_eval_reports_for_run(run_id), key=lambda item: item.created_at)
+        artifacts = sorted(
+            self._app.list_artifacts_for_run(run_id), key=lambda item: item.created_at
+        )
+        evals = sorted(
+            self._app.list_eval_reports_for_run(run_id), key=lambda item: item.created_at
+        )
         self._artifact_id = artifacts[-1].id if artifacts else None
         self._append_new_run_events(run_id)
         if run is not None:
@@ -1245,7 +1310,11 @@ class FoundryWindow(QMainWindow):
             return "No dataset loaded yet."
         dataset = self._app.datasets.get_dataset(self._dataset_id)
         versions = self._app.datasets.list_versions(self._dataset_id)
-        version = self._app.datasets.get_version(self._version_id) if self._version_id else (versions[-1] if versions else None)
+        version = (
+            self._app.datasets.get_version(self._version_id)
+            if self._version_id
+            else (versions[-1] if versions else None)
+        )
         if dataset is None:
             return f"Dataset not found: {self._dataset_id}"
 
@@ -1337,11 +1406,15 @@ class FoundryWindow(QMainWindow):
     def _format_compatibility_issue_lines(self, report: object) -> list[str]:
         issues: list[tuple[str, object]] = []
         issues.extend(("error", detail) for detail in list(getattr(report, "error_details", [])))
-        issues.extend(("warning", detail) for detail in list(getattr(report, "warning_details", [])))
+        issues.extend(
+            ("warning", detail) for detail in list(getattr(report, "warning_details", []))
+        )
 
         if not issues:
             issues.extend(("error", message) for message in list(getattr(report, "errors", [])))
-            issues.extend(("warning", message) for message in list(getattr(report, "warnings", [])))
+            issues.extend(
+                ("warning", message) for message in list(getattr(report, "warnings", []))
+            )
 
         lines: list[str] = []
         for default_severity, issue in issues:

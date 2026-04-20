@@ -9,7 +9,7 @@ from __future__ import annotations
 import sqlite3
 from collections.abc import Callable
 
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 
 _DDL = """\
 CREATE TABLE IF NOT EXISTS _meta (
@@ -99,16 +99,30 @@ CREATE INDEX IF NOT EXISTS idx_layers_version ON layers(song_version_id);
 CREATE INDEX IF NOT EXISTS idx_takes_layer ON takes(layer_id);
 CREATE INDEX IF NOT EXISTS idx_configs_version ON pipeline_configs(song_version_id);
 CREATE INDEX IF NOT EXISTS idx_configs_template ON pipeline_configs(template_id);
+
+CREATE TABLE IF NOT EXISTS song_default_pipeline_configs (
+    id TEXT PRIMARY KEY,
+    song_id TEXT NOT NULL REFERENCES songs(id) ON DELETE CASCADE,
+    template_id TEXT NOT NULL,
+    name TEXT NOT NULL,
+    graph_json TEXT NOT NULL,
+    outputs_json TEXT NOT NULL DEFAULT '[]',
+    knob_values_json TEXT NOT NULL DEFAULT '{}',
+    block_overrides_json TEXT NOT NULL DEFAULT '{}',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_song_default_configs_song ON song_default_pipeline_configs(song_id);
+CREATE INDEX IF NOT EXISTS idx_song_default_configs_template ON song_default_pipeline_configs(template_id);
 """
 
 
 def get_schema_version(conn: sqlite3.Connection) -> int:
-    row = conn.execute(
-        "SELECT value FROM _meta WHERE key = 'schema_version'"
-    ).fetchone()
+    row = conn.execute("SELECT value FROM _meta WHERE key = 'schema_version'").fetchone()
     if row is None:
         return 0
-    return int(row['value'])
+    return int(row["value"])
 
 
 def set_schema_version(conn: sqlite3.Connection, version: int) -> None:
@@ -154,13 +168,13 @@ def _migrate_v1_to_v2(conn: sqlite3.Connection) -> None:
             "knob_values_json, created_at, updated_at) "
             "VALUES (?, ?, ?, ?, '{}', '[]', ?, ?, ?)",
             (
-                row['id'],
-                row['song_version_id'],
-                row['pipeline_id'],
-                row['pipeline_id'],
-                row['bindings'],
-                row['created_at'],
-                row['created_at'],
+                row["id"],
+                row["song_version_id"],
+                row["pipeline_id"],
+                row["pipeline_id"],
+                row["bindings"],
+                row["created_at"],
+                row["created_at"],
             ),
         )
 
@@ -174,12 +188,10 @@ def _migrate_v2_to_v3(conn: sqlite3.Connection) -> None:
     if layers_table is None:
         return
 
-    columns = {
-        row['name'] for row in conn.execute("PRAGMA table_info(layers)").fetchall()
-    }
-    if 'state_flags_json' not in columns:
+    columns = {row["name"] for row in conn.execute("PRAGMA table_info(layers)").fetchall()}
+    if "state_flags_json" not in columns:
         conn.execute("ALTER TABLE layers ADD COLUMN state_flags_json TEXT NOT NULL DEFAULT '{}' ")
-    if 'provenance_json' not in columns:
+    if "provenance_json" not in columns:
         conn.execute("ALTER TABLE layers ADD COLUMN provenance_json TEXT NOT NULL DEFAULT '{}' ")
 
 
@@ -190,17 +202,33 @@ def _migrate_v3_to_v4(conn: sqlite3.Connection) -> None:
     if versions_table is None:
         return
 
-    columns = {
-        row['name'] for row in conn.execute("PRAGMA table_info(song_versions)").fetchall()
-    }
-    if 'rebuild_plan_json' not in columns:
-        conn.execute("ALTER TABLE song_versions ADD COLUMN rebuild_plan_json TEXT NOT NULL DEFAULT '{}' ")
+    columns = {row["name"] for row in conn.execute("PRAGMA table_info(song_versions)").fetchall()}
+    if "rebuild_plan_json" not in columns:
+        conn.execute(
+            "ALTER TABLE song_versions ADD COLUMN rebuild_plan_json TEXT NOT NULL DEFAULT '{}' "
+        )
 
 
 _MIGRATIONS: dict[int, Callable[[sqlite3.Connection], None]] = {
     2: _migrate_v1_to_v2,
     3: _migrate_v2_to_v3,
     4: _migrate_v3_to_v4,
+    5: lambda conn: conn.executescript("""\
+        CREATE TABLE IF NOT EXISTS song_default_pipeline_configs (
+            id TEXT PRIMARY KEY,
+            song_id TEXT NOT NULL REFERENCES songs(id) ON DELETE CASCADE,
+            template_id TEXT NOT NULL,
+            name TEXT NOT NULL,
+            graph_json TEXT NOT NULL,
+            outputs_json TEXT NOT NULL DEFAULT '[]',
+            knob_values_json TEXT NOT NULL DEFAULT '{}',
+            block_overrides_json TEXT NOT NULL DEFAULT '{}',
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_song_default_configs_song ON song_default_pipeline_configs(song_id);
+        CREATE INDEX IF NOT EXISTS idx_song_default_configs_template ON song_default_pipeline_configs(template_id);
+    """),
 }
 
 

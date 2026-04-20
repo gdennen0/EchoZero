@@ -8,23 +8,43 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from unittest.mock import patch
 
-from PyQt6.QtCore import QPoint, Qt, QRectF
+from PyQt6.QtCore import QPoint, QRectF, Qt
 from PyQt6.QtTest import QTest
 from PyQt6.QtWidgets import QApplication
 
-from echozero.application.timeline.intents import ApplyTransferPlan, OpenPullFromMA3Dialog, OpenPushToMA3Dialog, SelectLayer
-from echozero.application.session.models import ManualPullEventOption, ManualPullTrackOption, ManualPushTrackOption
 from echozero.application.presentation.inspector_contract import (
     InspectorAction,
     TimelineInspectorHitTarget,
     build_timeline_inspector_contract,
 )
+from echozero.application.session.models import (
+    ManualPullEventOption,
+    ManualPullTrackOption,
+    ManualPushTrackOption,
+)
 from echozero.application.shared.enums import SyncMode
 from echozero.application.sync.models import SyncState
 from echozero.application.sync.service import SyncService
+from echozero.application.timeline.intents import (
+    ApplyTransferPlan,
+    ConfirmPullFromMA3,
+    ExitPushToMA3Mode,
+    OpenPullFromMA3Dialog,
+    OpenPushToMA3Dialog,
+    SelectLayer,
+    SelectPullSourceEvents,
+    SelectPullSourceTrack,
+    SelectPullSourceTracks,
+    SelectPullTargetLayer,
+    SetPullImportMode,
+)
 from echozero.application.transport.models import TransportState
 from echozero.services.orchestrator import AnalysisService
-from echozero.testing.analysis_mocks import build_mock_analysis_service, write_test_model, write_test_wav
+from echozero.testing.analysis_mocks import (
+    build_mock_analysis_service,
+    write_test_model,
+    write_test_wav,
+)
 from echozero.testing.app_flow import AppFlowHarness
 from echozero.testing.gui_dsl import GuiScenario, load_scenario
 
@@ -139,7 +159,11 @@ class GuiLaneBRunner:
         self._fps = max(1, fps)
         self._analysis_service = analysis_service
         self._use_mock_analysis = use_mock_analysis
-        base_root = output_dir.parent if output_dir is not None else Path(tempfile.gettempdir()) / "EchoZero"
+        base_root = (
+            output_dir.parent
+            if output_dir is not None
+            else Path(tempfile.gettempdir()) / "EchoZero"
+        )
         self._run_temp_root = base_root.resolve()
 
     def run(self) -> list[dict[str, object]]:
@@ -152,9 +176,13 @@ class GuiLaneBRunner:
             sync_service=_LaneBSyncService(),
         )
         _render_for_hit_testing(harness)
-        recorder = None if self._output_dir is None or not self._record_video else _GuiLaneBVideoRecorder.create(
-            self._output_dir,
-            fps=self._fps,
+        recorder = (
+            None
+            if self._output_dir is None or not self._record_video
+            else _GuiLaneBVideoRecorder.create(
+                self._output_dir,
+                fps=self._fps,
+            )
         )
 
         try:
@@ -166,7 +194,9 @@ class GuiLaneBRunner:
             for index, step in enumerate(self._scenario.steps):
                 label = step.label or step.action
                 try:
-                    self._execute_step(harness, action=step.action, params=self._resolve_step_params(step.params))
+                    self._execute_step(
+                        harness, action=step.action, params=self._resolve_step_params(step.params)
+                    )
                     status = "passed"
                     error = None
                 except Exception as exc:
@@ -190,7 +220,9 @@ class GuiLaneBRunner:
                     break
 
             if self._output_dir is not None:
-                (self._output_dir / "trace.json").write_text(json.dumps(trace, indent=2), encoding="utf-8")
+                (self._output_dir / "trace.json").write_text(
+                    json.dumps(trace, indent=2), encoding="utf-8"
+                )
                 if recorder is not None:
                     video_path = recorder.finalize()
                     if video_path is not None:
@@ -203,7 +235,9 @@ class GuiLaneBRunner:
                                     "frame_count": len(recorder.frame_paths),
                                     "proof_classification": "simulated_gui_capture",
                                     "operator_demo_valid": False,
-                                    "analysis_mode": "mock" if self._use_mock_analysis else "runtime",
+                                    "analysis_mode": (
+                                        "mock" if self._use_mock_analysis else "runtime"
+                                    ),
                                 },
                                 indent=2,
                             ),
@@ -222,24 +256,29 @@ class GuiLaneBRunner:
             return build_mock_analysis_service()
         return None
 
-    def _execute_step(self, harness: AppFlowHarness, *, action: str, params: dict[str, object]) -> None:
-        if action == "add_song_from_path":
+    def _execute_step(
+        self, harness: AppFlowHarness, *, action: str, params: dict[str, object]
+    ) -> None:
+        if action == "song.add":
             self._ensure_test_asset(Path(str(params["audio_path"])))
-            with patch(
-                "echozero.ui.qt.timeline.widget.QInputDialog.getText",
-                return_value=(str(params["title"]), True),
-            ), patch(
-                "echozero.ui.qt.timeline.widget.QFileDialog.getOpenFileName",
-                return_value=(str(params["audio_path"]), "Audio Files"),
+            with (
+                patch(
+                    "echozero.ui.qt.timeline.widget.QInputDialog.getText",
+                    return_value=(str(params["title"]), True),
+                ),
+                patch(
+                    "echozero.ui.qt.timeline.widget.QFileDialog.getOpenFileName",
+                    return_value=(str(params["audio_path"]), "Audio Files"),
+                ),
             ):
-                _trigger_global_contract_action(harness, "add_song_from_path")
-        elif action == "extract_stems":
+                _trigger_global_contract_action(harness, "song.add")
+        elif action == "timeline.extract_stems":
             layer = _resolve_layer(harness, params)
-            _trigger_layer_contract_action(harness, layer.layer_id, "extract_stems")
-        elif action == "extract_drum_events":
+            _trigger_layer_contract_action(harness, layer.layer_id, "timeline.extract_stems")
+        elif action == "timeline.extract_drum_events":
             layer = _resolve_layer(harness, params)
-            _trigger_layer_contract_action(harness, layer.layer_id, "extract_drum_events")
-        elif action == "classify_drum_events":
+            _trigger_layer_contract_action(harness, layer.layer_id, "timeline.extract_drum_events")
+        elif action == "timeline.classify_drum_events":
             layer = _resolve_layer(harness, params)
             model_path = Path(str(params["model_path"]))
             self._ensure_test_asset(model_path)
@@ -247,53 +286,105 @@ class GuiLaneBRunner:
                 "echozero.ui.qt.timeline.widget.QFileDialog.getOpenFileName",
                 return_value=(str(model_path), "PyTorch Models"),
             ):
-                _trigger_layer_contract_action(harness, layer.layer_id, "classify_drum_events")
-        elif action == "trigger_action":
-            harness.trigger_action(str(params["action_id"]))
-        elif action == "select_first_event":
-            layer = _resolve_layer(harness, params) if "layer_id" in params or "layer_title" in params else None
+                _trigger_layer_contract_action(
+                    harness, layer.layer_id, "timeline.classify_drum_events"
+                )
+        elif action == "selection.first_event":
+            layer = (
+                _resolve_layer(harness, params)
+                if "layer_id" in params or "layer_title" in params
+                else None
+            )
             _click_first_event(harness, layer_id=None if layer is None else str(layer.layer_id))
-        elif action in {"nudge", "nudge_selected_events"}:
+        elif action == "timeline.nudge_selection":
             direction = str(params["direction"])
             steps = int(params.get("steps", 1))
-            modifiers = Qt.KeyboardModifier.ShiftModifier if steps >= 10 else Qt.KeyboardModifier.NoModifier
+            modifiers = (
+                Qt.KeyboardModifier.ShiftModifier
+                if steps >= 10
+                else Qt.KeyboardModifier.NoModifier
+            )
             key = Qt.Key.Key_Left if direction == "left" else Qt.Key.Key_Right
             QTest.keyClick(harness.widget._canvas, key, modifiers)
             QApplication.processEvents()
-        elif action in {"duplicate", "duplicate_selected_events"}:
+        elif action == "timeline.duplicate_selection":
             steps = int(params.get("steps", 1))
             modifiers = Qt.KeyboardModifier.ControlModifier
             if steps >= 10:
                 modifiers |= Qt.KeyboardModifier.ShiftModifier
             QTest.keyClick(harness.widget._canvas, Qt.Key.Key_D, modifiers)
             QApplication.processEvents()
-        elif action == "open_push_surface":
-            layer = _resolve_layer(harness, params) if "layer_id" in params or "layer_title" in params else None
-            if layer is None:
-                raise RuntimeError("open_push_surface requires params.layer_id or params.layer_title.")
-            harness.widget._dispatch(SelectLayer(layer.layer_id))
-            harness.widget._dispatch(
-                OpenPushToMA3Dialog(selection_event_ids=harness.widget._selected_event_ids_for_selected_layers())
+        elif action == "transfer.workspace_open":
+            layer = (
+                _resolve_layer(harness, params)
+                if "layer_id" in params or "layer_title" in params
+                else None
             )
-        elif action == "open_pull_surface":
-            layer = _resolve_layer(harness, params) if "layer_id" in params or "layer_title" in params else None
             if layer is None:
-                raise RuntimeError("open_pull_surface requires params.layer_id or params.layer_title.")
-            harness.widget._dispatch(SelectLayer(layer.layer_id))
-            harness.widget._dispatch(OpenPullFromMA3Dialog())
-        elif action == "apply_transfer_plan":
+                raise RuntimeError(
+                    "transfer.workspace_open requires params.layer_id or params.layer_title."
+                )
+            direction = str(params.get("direction", "")).lower()
+            if direction == "push":
+                _trigger_layer_contract_action(harness, layer.layer_id, "push_to_ma3")
+            elif direction == "pull":
+                if harness.presentation().manual_push_flow.push_mode_active:
+                    harness.widget._dispatch(ExitPushToMA3Mode())
+                harness.widget._dispatch(SelectLayer(layer.layer_id))
+                harness.widget._dispatch(OpenPullFromMA3Dialog())
+                flow = harness.presentation().manual_pull_flow
+                if flow.available_tracks:
+                    track = flow.available_tracks[0]
+                    harness.widget._dispatch(
+                        SelectPullSourceTracks(source_track_coords=[track.coord])
+                    )
+                    harness.widget._dispatch(SelectPullSourceTrack(source_track_coord=track.coord))
+                    flow = harness.presentation().manual_pull_flow
+                    if flow.available_events:
+                        selected_event_ids = [str(flow.available_events[0].event_id)]
+                        harness.widget._dispatch(
+                            SelectPullSourceEvents(selected_ma3_event_ids=selected_event_ids)
+                        )
+                    if flow.available_target_layers:
+                        harness.widget._dispatch(
+                            SelectPullTargetLayer(
+                                target_layer_id=flow.available_target_layers[0].layer_id
+                            )
+                        )
+                    harness.widget._dispatch(SetPullImportMode(import_mode="main"))
+                    flow = harness.presentation().manual_pull_flow
+                    if (
+                        flow.active_source_track_coord
+                        and flow.target_layer_id
+                        and flow.selected_ma3_event_ids
+                    ):
+                        harness.widget._dispatch(
+                            ConfirmPullFromMA3(
+                                source_track_coord=flow.active_source_track_coord,
+                                selected_ma3_event_ids=list(flow.selected_ma3_event_ids),
+                                target_layer_id=flow.target_layer_id,
+                                import_mode=flow.import_mode,
+                            )
+                        )
+            else:
+                raise RuntimeError(
+                    "transfer.workspace_open requires params.direction in push/pull."
+                )
+        elif action == "transfer.plan_apply":
             plan = harness.presentation().batch_transfer_plan
             if plan is None:
-                raise RuntimeError("Lane B apply_transfer_plan requires an active batch transfer plan.")
+                raise RuntimeError(
+                    "Lane B transfer.plan_apply requires an active batch transfer plan."
+                )
             harness.widget._dispatch(ApplyTransferPlan(plan_id=plan.plan_id))
             QApplication.processEvents()
-        elif action == "enable_sync":
+        elif action == "sync.enable":
             harness.enable_sync()
-        elif action == "disable_sync":
+        elif action == "sync.disable":
             harness.disable_sync()
-        elif action == "screenshot":
+        elif action == "capture.screenshot":
             if self._output_dir is None:
-                raise ValueError("screenshot action requires an output_dir")
+                raise ValueError("capture.screenshot action requires an output_dir")
             screenshot_path = self._output_dir / str(params["filename"])
             screenshot_path.parent.mkdir(parents=True, exist_ok=True)
             if not harness.widget.grab().save(str(screenshot_path)):
@@ -404,17 +495,19 @@ def _write_frame_video(frame_paths: list[Path], output_path: Path, *, fps: int) 
 
 def _click_rect(widget, rect) -> None:
     center = rect.center().toPoint()
-    QTest.mouseClick(widget._canvas, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier, QPoint(center.x(), center.y()))
+    QTest.mouseClick(
+        widget._canvas,
+        Qt.MouseButton.LeftButton,
+        Qt.KeyboardModifier.NoModifier,
+        QPoint(center.x(), center.y()),
+    )
     QApplication.processEvents()
 
 
 def _click_first_event(harness: AppFlowHarness, *, layer_id: str | None) -> None:
-    for spec in harness.widget._canvas.event_specs():
-        candidate_layer_id = spec.state.get("layer_id")
-        if candidate_layer_id is None:
-            continue
+    for rect, candidate_layer_id, _take_id, _event_id in harness.widget._canvas._event_rects:
         if layer_id is None or str(candidate_layer_id) == layer_id:
-            _click_rect(harness.widget, QRectF(*spec.rect))
+            _click_rect(harness.widget, QRectF(rect))
             return
     if layer_id is None:
         raise AssertionError("No event specs are available")
@@ -444,7 +537,9 @@ def _resolve_layer(harness: AppFlowHarness, params: dict[str, object]):
         raise RuntimeError(f"Lane B could not find layer_id '{layer_id}'.")
     if isinstance(layer_title, str) and layer_title.strip():
         wanted = layer_title.strip().casefold()
-        matches = [layer for layer in presentation.layers if layer.title.strip().casefold() == wanted]
+        matches = [
+            layer for layer in presentation.layers if layer.title.strip().casefold() == wanted
+        ]
         if len(matches) == 1:
             return matches[0]
         if not matches:
@@ -455,7 +550,9 @@ def _resolve_layer(harness: AppFlowHarness, params: dict[str, object]):
 
 def _trigger_global_contract_action(harness: AppFlowHarness, action_id: str) -> None:
     contract = build_timeline_inspector_contract(harness.presentation())
-    harness.widget._trigger_contract_action(_find_contract_action(contract.context_sections, action_id))
+    harness.widget._trigger_contract_action(
+        _find_contract_action(contract.context_sections, action_id)
+    )
     QApplication.processEvents()
 
 
@@ -464,7 +561,9 @@ def _trigger_layer_contract_action(harness: AppFlowHarness, layer_id, action_id:
         harness.presentation(),
         hit_target=TimelineInspectorHitTarget(kind="layer", layer_id=layer_id),
     )
-    harness.widget._trigger_contract_action(_find_contract_action(contract.context_sections, action_id))
+    harness.widget._trigger_contract_action(
+        _find_contract_action(contract.context_sections, action_id)
+    )
     QApplication.processEvents()
 
 
@@ -479,12 +578,20 @@ def _find_contract_action(context_sections, action_id: str) -> InspectorAction:
 def _snapshot_harness(harness: AppFlowHarness) -> dict[str, object]:
     presentation = harness.presentation()
     return {
-        "selected_layer_id": None if presentation.selected_layer_id is None else str(presentation.selected_layer_id),
-        "selected_take_id": None if presentation.selected_take_id is None else str(presentation.selected_take_id),
+        "selected_layer_id": (
+            None if presentation.selected_layer_id is None else str(presentation.selected_layer_id)
+        ),
+        "selected_take_id": (
+            None if presentation.selected_take_id is None else str(presentation.selected_take_id)
+        ),
         "selected_event_ids": [str(event_id) for event_id in presentation.selected_event_ids],
         "push_mode_active": bool(presentation.manual_push_flow.push_mode_active),
         "pull_workspace_active": bool(presentation.manual_pull_flow.workspace_active),
-        "batch_transfer_plan_id": None if presentation.batch_transfer_plan is None else presentation.batch_transfer_plan.plan_id,
+        "batch_transfer_plan_id": (
+            None
+            if presentation.batch_transfer_plan is None
+            else presentation.batch_transfer_plan.plan_id
+        ),
         "sync_connected": bool(harness.runtime.session.sync_state.connected),
         "sync_mode": harness.runtime.session.sync_state.mode.value,
         "layers": [

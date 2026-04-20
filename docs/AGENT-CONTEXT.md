@@ -37,7 +37,7 @@ The repo is now centered on EZ2 only:
 - `echozero/ui/qt/app_shell.py`: current app shell
 - `echozero/application/timeline/*`: timeline application contract
 - `echozero/application/sync/*`: sync contract, adapters, diff services
-- `echozero/infrastructure/sync/ma3_adapter.py`: current MA3 bridge placeholder/infrastructure seam
+- `echozero/infrastructure/sync/ma3_adapter.py`: MA3 transfer adapter seam and snapshot coercion helpers
 - `echozero/foundry/*`: Foundry app lane
 - `deploy/*`: worker sidecars
 

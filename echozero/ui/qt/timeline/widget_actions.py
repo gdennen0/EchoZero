@@ -1,6 +1,6 @@
 """Timeline widget action routing and dialog orchestration.
 Exists to keep TimelineWidget focused on rendering and input state.
-Connects inspector/transfer/runtime actions to existing app intents and runtime methods.
+Connects inspector and transfer actions to app intents and canonical object actions.
 """
 
 from __future__ import annotations
@@ -13,8 +13,8 @@ from echozero.application.presentation.inspector_contract import InspectorAction
 from echozero.application.presentation.models import TimelinePresentation
 from echozero.application.sync.models import LiveSyncState
 from echozero.application.timeline.intents import (
-    ApplyTransferPreset,
     ApplyTransferPlan,
+    ApplyTransferPreset,
     CancelTransferPlan,
     ClearLayerLiveSyncPauseReason,
     ClearSelection,
@@ -30,22 +30,31 @@ from echozero.application.timeline.intents import (
     PreviewTransferPlan,
     SaveTransferPreset,
     Seek,
-    SetActivePlaybackTarget,
-    SetGain,
-    SetLayerLiveSyncPauseReason,
-    SetLayerLiveSyncState,
-    SetPullImportMode,
-    SetPushTransferMode,
     SelectAllEvents,
     SelectPullSourceEvents,
     SelectPullSourceTrack,
     SelectPullSourceTracks,
     SelectPullTargetLayer,
     SelectPushTargetTrack,
+    SetActivePlaybackTarget,
+    SetGain,
+    SetLayerLiveSyncPauseReason,
+    SetLayerLiveSyncState,
+    SetPullImportMode,
+    SetPushTransferMode,
     TriggerTakeAction,
 )
+from echozero.application.timeline.object_actions import (
+    canonical_action_id,
+    descriptor_for_action,
+    is_object_action,
+)
 from echozero.models.paths import ensure_installed_models_dir
-from echozero.ui.qt.timeline.manual_pull import ManualPullTimelineDialog, ManualPullTimelineSelectionResult
+from echozero.ui.qt.settings_dialog import ActionSettingsDialog
+from echozero.ui.qt.timeline.manual_pull import (
+    ManualPullTimelineDialog,
+    ManualPullTimelineSelectionResult,
+)
 
 
 class TimelineWidgetActionRouter:
@@ -60,7 +69,9 @@ class TimelineWidgetActionRouter:
         set_presentation: Callable[[TimelinePresentation], None],
         resolve_runtime_shell: Callable[[], object | None],
         selected_event_ids_for_selected_layers: Callable[[], list],
-        open_manual_pull_timeline_popup: Callable[[object], ManualPullTimelineSelectionResult | None] | None = None,
+        open_manual_pull_timeline_popup: (
+            Callable[[object], ManualPullTimelineSelectionResult | None] | None
+        ) = None,
         input_dialog=QInputDialog,
         file_dialog=QFileDialog,
         message_box=QMessageBox,
@@ -72,7 +83,9 @@ class TimelineWidgetActionRouter:
         self._set_presentation = set_presentation
         self._resolve_runtime_shell = resolve_runtime_shell
         self._selected_event_ids_for_selected_layers = selected_event_ids_for_selected_layers
-        self._open_manual_pull_timeline_popup = open_manual_pull_timeline_popup or self._default_open_manual_pull_timeline_popup
+        self._open_manual_pull_timeline_popup = (
+            open_manual_pull_timeline_popup or self._default_open_manual_pull_timeline_popup
+        )
         self._input_dialog = input_dialog
         self._file_dialog = file_dialog
         self._message_box = message_box
@@ -81,7 +94,7 @@ class TimelineWidgetActionRouter:
     def trigger_contract_action(self, action: InspectorAction) -> None:
         """Execute one inspector contract action against the widget/runtime surface."""
         params = action.params
-        action_id = action.action_id
+        action_id = canonical_action_id(action.action_id) or action.action_id
         if action_id == "seek_here":
             time_seconds = params.get("time_seconds")
             if isinstance(time_seconds, (int, float)):
@@ -93,11 +106,14 @@ class TimelineWidgetActionRouter:
         if action_id == "nudge_right":
             self._dispatch(NudgeSelectedEvents(direction=1, steps=int(params.get("steps", 1))))
             return
-        if action_id == "duplicate":
+        if action_id == "timeline.duplicate_selection":
             self._dispatch(DuplicateSelectedEvents(steps=int(params.get("steps", 1))))
             return
-        if action_id == "add_song_from_path":
+        if action_id == "song.add":
             self._run_add_song_from_path_action()
+            return
+        if action_id == "preview_event_clip":
+            self._handle_preview_event_clip(params)
             return
         if action_id == "set_active_playback_target":
             layer_id = params.get("layer_id")
@@ -110,7 +126,11 @@ class TimelineWidgetActionRouter:
             if layer_id is not None and isinstance(gain_db, (int, float)):
                 self._dispatch(SetGain(layer_id=layer_id, gain_db=float(gain_db)))
             return
-        if action_id in {"live_sync_set_off", "live_sync_set_observe", "live_sync_set_armed_write"}:
+        if action_id in {
+            "live_sync_set_off",
+            "live_sync_set_observe",
+            "live_sync_set_armed_write",
+        }:
             self._handle_live_sync_action(action_id, params)
             return
         if action_id == "live_sync_set_pause_reason":
@@ -137,6 +157,51 @@ class TimelineWidgetActionRouter:
             if layer_id is not None and take_id is not None:
                 self._dispatch(TriggerTakeAction(layer_id, take_id, action_id))
 
+    def open_object_action_settings(self, action: InspectorAction) -> None:
+        """Open the reusable settings dialog for one object action."""
+
+        runtime = self._resolve_runtime_shell()
+        open_session = (
+            getattr(runtime, "open_object_action_session", None) if runtime is not None else None
+        )
+        dispatch_command = (
+            getattr(runtime, "dispatch_object_action_command", None)
+            if runtime is not None
+            else None
+        )
+        if not callable(open_session) or not callable(dispatch_command):
+            self._message_box.warning(
+                self._widget,
+                "Pipeline Settings",
+                "This runtime does not support reusable pipeline settings.",
+            )
+            return
+        layer_id = action.params.get("layer_id")
+        try:
+            session = open_session(
+                action.action_id,
+                action.params,
+                object_id=layer_id,
+                object_type="layer" if layer_id is not None else None,
+            )
+        except Exception as exc:
+            self._message_box.warning(self._widget, "Pipeline Settings", str(exc))
+            return
+
+        dialog = ActionSettingsDialog(
+            session,
+            dispatch_command=dispatch_command,
+            parent=self._widget,
+        )
+        dialog.exec()
+        runtime_presentation = (
+            runtime.presentation()
+            if runtime is not None and hasattr(runtime, "presentation")
+            else None
+        )
+        if runtime_presentation is not None:
+            self._set_presentation(runtime_presentation)
+
     def handle_transfer_action(self, action_id: str, params: dict[str, object]) -> bool:
         """Route transfer and runtime-pipeline actions and report whether they were handled."""
         if action_id == "push_to_ma3":
@@ -155,9 +220,9 @@ class TimelineWidgetActionRouter:
             return self._handle_save_transfer_preset()
         if action_id in {"apply_transfer_preset", "delete_transfer_preset"}:
             return self._handle_transfer_preset_action(action_id)
-        if action_id in {"preview_transfer_plan", "apply_transfer_plan", "cancel_transfer_plan"}:
+        if action_id in {"transfer.plan_preview", "transfer.plan_apply", "transfer.plan_cancel"}:
             return self._handle_transfer_plan_action(action_id, params)
-        if action_id in {"extract_stems", "extract_drum_events", "classify_drum_events", "extract_classified_drums"}:
+        if is_object_action(action_id):
             return self._handle_runtime_pipeline_action(action_id, params)
         if action_id in {
             "select_push_target_track",
@@ -221,16 +286,49 @@ class TimelineWidgetActionRouter:
             return
         self._set_presentation(updated if updated is not None else runtime.presentation())
 
+    def _handle_preview_event_clip(self, params: dict[str, object]) -> None:
+        runtime = self._resolve_runtime_shell()
+        preview_clip = (
+            getattr(runtime, "preview_event_clip", None) if runtime is not None else None
+        )
+        if not callable(preview_clip):
+            self._message_box.warning(
+                self._widget,
+                "Event Clip Preview",
+                "This runtime does not support event clip preview.",
+            )
+            return
+        layer_id = params.get("layer_id")
+        event_id = params.get("event_id")
+        if layer_id is None or event_id is None:
+            self._message_box.warning(
+                self._widget,
+                "Event Clip Preview",
+                "The selected event is missing clip preview metadata.",
+            )
+            return
+        try:
+            preview_clip(
+                layer_id=layer_id,
+                take_id=params.get("take_id"),
+                event_id=event_id,
+            )
+        except Exception as exc:
+            self._message_box.warning(self._widget, "Event Clip Preview", str(exc))
+
     def _handle_runtime_pipeline_action(self, action_id: str, params: dict[str, object]) -> bool:
         runtime = self._resolve_runtime_shell()
-        layer_id = params.get("layer_id")
-        if runtime is None or not callable(getattr(runtime, action_id, None)):
+        run_object_action = (
+            getattr(runtime, "run_object_action", None) if runtime is not None else None
+        )
+        if not callable(run_object_action):
             self._message_box.warning(
                 self._widget,
                 "Pipeline Action",
                 f"This runtime does not support '{action_id}'.",
             )
             return True
+        layer_id = params.get("layer_id")
         if layer_id is None:
             self._message_box.warning(
                 self._widget,
@@ -238,8 +336,20 @@ class TimelineWidgetActionRouter:
                 f"'{action_id}' requires a target layer.",
             )
             return True
-        call_args: list[object] = [layer_id]
-        if action_id == "classify_drum_events":
+        resolved_params = dict(params)
+        descriptor = descriptor_for_action(action_id)
+        if descriptor is None:
+            self._message_box.warning(
+                self._widget,
+                "Pipeline Action",
+                f"This runtime does not recognize '{action_id}'.",
+            )
+            return True
+        if (
+            descriptor.params_schema.get("model_path") == "dialog:file:model"
+            and "model_path" not in resolved_params
+            and "classify_model_path" not in resolved_params
+        ):
             models_dir = self._resolve_models_dir()
             model_path, _ = self._file_dialog.getOpenFileName(
                 self._widget,
@@ -249,9 +359,14 @@ class TimelineWidgetActionRouter:
             )
             if not model_path:
                 return True
-            call_args.append(model_path)
+            resolved_params["model_path"] = model_path
         try:
-            updated = getattr(runtime, action_id)(*call_args)
+            updated = run_object_action(
+                action_id,
+                resolved_params,
+                object_id=layer_id,
+                object_type="layer",
+            )
         except NotImplementedError as exc:
             self._message_box.warning(self._widget, "Pipeline Action", str(exc))
             return True
@@ -297,7 +412,11 @@ class TimelineWidgetActionRouter:
         if not presentation.transfer_presets:
             return True
         labels = [self._transfer_preset_label(preset) for preset in presentation.transfer_presets]
-        title = "Apply Transfer Preset" if action_id == "apply_transfer_preset" else "Delete Transfer Preset"
+        title = (
+            "Apply Transfer Preset"
+            if action_id == "apply_transfer_preset"
+            else "Delete Transfer Preset"
+        )
         chosen_label, accepted = self._input_dialog.getItem(
             self._widget,
             title,
@@ -309,7 +428,11 @@ class TimelineWidgetActionRouter:
         if not accepted:
             return True
         selected_preset = next(
-            (preset for preset, label in zip(presentation.transfer_presets, labels) if label == chosen_label),
+            (
+                preset
+                for preset, label in zip(presentation.transfer_presets, labels)
+                if label == chosen_label
+            ),
             None,
         )
         if selected_preset is None:
@@ -322,7 +445,7 @@ class TimelineWidgetActionRouter:
 
     def _handle_transfer_plan_action(self, action_id: str, params: dict[str, object]) -> bool:
         plan_id = params.get("plan_id")
-        if action_id == "cancel_transfer_plan":
+        if action_id == "transfer.plan_cancel":
             if isinstance(plan_id, str):
                 self._dispatch(CancelTransferPlan(plan_id=plan_id))
             return True
@@ -330,7 +453,7 @@ class TimelineWidgetActionRouter:
             return True
         if not self._resolve_blocked_push_rows_for_plan_action(plan_id):
             return True
-        if action_id == "preview_transfer_plan":
+        if action_id == "transfer.plan_preview":
             self._dispatch(PreviewTransferPlan(plan_id=plan_id))
             plan = self._get_presentation().batch_transfer_plan
             if plan is not None and plan.plan_id == plan_id:
@@ -347,7 +470,7 @@ class TimelineWidgetActionRouter:
                     ),
                 )
             return True
-        if action_id == "apply_transfer_plan":
+        if action_id == "transfer.plan_apply":
             self._dispatch(ApplyTransferPlan(plan_id=plan_id))
             plan = self._get_presentation().batch_transfer_plan
             if plan is not None and plan.plan_id == plan_id:
@@ -365,7 +488,9 @@ class TimelineWidgetActionRouter:
             return True
         return False
 
-    def _handle_manual_transfer_workspace_action(self, action_id: str, params: dict[str, object]) -> bool:
+    def _handle_manual_transfer_workspace_action(
+        self, action_id: str, params: dict[str, object]
+    ) -> bool:
         presentation = self._get_presentation()
         if action_id == "select_push_target_track":
             flow = presentation.manual_push_flow
@@ -384,12 +509,18 @@ class TimelineWidgetActionRouter:
             if not accepted:
                 return True
             selected_track = next(
-                (track for track, label in zip(flow.available_tracks, labels) if label == chosen_label),
+                (
+                    track
+                    for track, label in zip(flow.available_tracks, labels)
+                    if label == chosen_label
+                ),
                 None,
             )
             if selected_track is None:
                 return True
-            self._dispatch(SelectPushTargetTrack(target_track_coord=selected_track.coord, layer_id=layer_id))
+            self._dispatch(
+                SelectPushTargetTrack(target_track_coord=selected_track.coord, layer_id=layer_id)
+            )
             return True
         if action_id == "preview_push_diff":
             return self._preview_push_diff(params)
@@ -420,7 +551,11 @@ class TimelineWidgetActionRouter:
         row = next(
             (
                 candidate
-                for candidate in (presentation.batch_transfer_plan.rows if presentation.batch_transfer_plan else [])
+                for candidate in (
+                    presentation.batch_transfer_plan.rows
+                    if presentation.batch_transfer_plan
+                    else []
+                )
                 if candidate.direction == "push" and candidate.source_layer_id == layer_id
             ),
             None,
@@ -463,7 +598,11 @@ class TimelineWidgetActionRouter:
         if not accepted:
             return True
         selected_track = next(
-            (track for track, label in zip(flow.available_tracks, track_labels) if label == chosen_track_label),
+            (
+                track
+                for track, label in zip(flow.available_tracks, track_labels)
+                if label == chosen_track_label
+            ),
             None,
         )
         if selected_track is None:
@@ -477,7 +616,11 @@ class TimelineWidgetActionRouter:
 
     def _select_pull_source_events(self) -> bool:
         flow = self._get_presentation().manual_pull_flow
-        if not flow.active_source_track_coord or not flow.available_events or not flow.available_target_layers:
+        if (
+            not flow.active_source_track_coord
+            or not flow.available_events
+            or not flow.available_target_layers
+        ):
             return True
         selection = self._open_manual_pull_timeline_popup(flow)
         if selection is None:
@@ -491,7 +634,9 @@ class TimelineWidgetActionRouter:
         flow = self._get_presentation().manual_pull_flow
         if not flow.available_target_layers:
             return True
-        target_labels = [self._manual_pull_target_label(target) for target in flow.available_target_layers]
+        target_labels = [
+            self._manual_pull_target_label(target) for target in flow.available_target_layers
+        ]
         chosen_target_label, accepted = self._input_dialog.getItem(
             self._widget,
             "Import from MA3",
@@ -503,7 +648,11 @@ class TimelineWidgetActionRouter:
         if not accepted:
             return True
         selected_target = next(
-            (target for target, label in zip(flow.available_target_layers, target_labels) if label == chosen_target_label),
+            (
+                target
+                for target, label in zip(flow.available_target_layers, target_labels)
+                if label == chosen_target_label
+            ),
             None,
         )
         if selected_target is None:
@@ -519,12 +668,21 @@ class TimelineWidgetActionRouter:
         row = next(
             (
                 candidate
-                for candidate in (presentation.batch_transfer_plan.rows if presentation.batch_transfer_plan else [])
+                for candidate in (
+                    presentation.batch_transfer_plan.rows
+                    if presentation.batch_transfer_plan
+                    else []
+                )
                 if candidate.direction == "pull" and candidate.target_layer_id == layer_id
             ),
             None,
         )
-        if row is None or not row.source_track_coord or not row.target_layer_id or not row.selected_ma3_event_ids:
+        if (
+            row is None
+            or not row.source_track_coord
+            or not row.target_layer_id
+            or not row.selected_ma3_event_ids
+        ):
             return True
         self._dispatch(SelectPullSourceTrack(source_track_coord=row.source_track_coord))
         self._dispatch(
@@ -556,9 +714,7 @@ class TimelineWidgetActionRouter:
         if plan is None or plan.plan_id != plan_id or plan.operation_type not in {"push", "mixed"}:
             return True
         blocked_rows = [
-            row
-            for row in plan.rows
-            if row.direction == "push" and not row.target_track_coord
+            row for row in plan.rows if row.direction == "push" and not row.target_track_coord
         ]
         if not blocked_rows:
             return True
@@ -578,7 +734,11 @@ class TimelineWidgetActionRouter:
             if not accepted:
                 return False
             selected_track = next(
-                (track for track, label in zip(flow.available_tracks, labels) if label == chosen_label),
+                (
+                    track
+                    for track, label in zip(flow.available_tracks, labels)
+                    if label == chosen_label
+                ),
                 None,
             )
             if selected_track is None:
@@ -593,9 +753,15 @@ class TimelineWidgetActionRouter:
             labels = [self._manual_push_track_label(track) for track in flow.available_tracks]
         return True
 
-    def _default_open_manual_pull_timeline_popup(self, flow) -> ManualPullTimelineSelectionResult | None:
+    def _default_open_manual_pull_timeline_popup(
+        self, flow
+    ) -> ManualPullTimelineSelectionResult | None:
         source_track = next(
-            (track for track in flow.available_tracks if track.coord == flow.active_source_track_coord),
+            (
+                track
+                for track in flow.available_tracks
+                if track.coord == flow.active_source_track_coord
+            ),
             None,
         )
         source_track_label = (
@@ -604,7 +770,9 @@ class TimelineWidgetActionRouter:
             else str(flow.active_source_track_coord)
         )
         selected_event_ids = list(
-            flow.selected_ma3_event_ids_by_track.get(flow.active_source_track_coord, flow.selected_ma3_event_ids)
+            flow.selected_ma3_event_ids_by_track.get(
+                flow.active_source_track_coord, flow.selected_ma3_event_ids
+            )
         )
         selected_target_layer_id = flow.target_layer_id_by_source_track.get(
             flow.active_source_track_coord,
@@ -640,7 +808,9 @@ class TimelineWidgetActionRouter:
         return " ".join(parts)
 
     @staticmethod
-    def _manual_push_diff_preview_summary(selected_count: int, target_track_name: str, target_track_coord: str) -> str:
+    def _manual_push_diff_preview_summary(
+        selected_count: int, target_track_name: str, target_track_coord: str
+    ) -> str:
         noun = "event" if selected_count == 1 else "events"
         return (
             f"Prepared diff preview for {selected_count} selected {noun}.\n\n"

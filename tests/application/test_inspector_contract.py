@@ -9,13 +9,14 @@ from echozero.application.presentation.models import (
     EventPresentation,
     LayerPresentation,
     LayerStatusPresentation,
+    ManualPullEventOptionPresentation,
     TakeLanePresentation,
     TimelinePresentation,
-    ManualPullEventOptionPresentation,
 )
 from echozero.application.shared.enums import LayerKind
 from echozero.application.shared.ids import EventId, LayerId, TakeId, TimelineId
 from echozero.application.sync.models import LiveSyncState
+from echozero.application.timeline.object_actions import descriptor_for_action, is_object_action
 
 
 def _contract_test_presentation() -> TimelinePresentation:
@@ -73,7 +74,9 @@ def _section_rows(contract):
 
 def test_inspector_contract_no_selection_state():
     contract = build_timeline_inspector_contract(_contract_test_presentation())
-    action_ids = [action.action_id for section in contract.context_sections for action in section.actions]
+    action_ids = [
+        action.action_id for section in contract.context_sections for action in section.actions
+    ]
 
     assert contract.identity is None
     assert contract.title == "No timeline object selected."
@@ -106,7 +109,9 @@ def test_inspector_contract_layer_selection_state():
 
     contract = build_timeline_inspector_contract(presentation)
     rows = _section_rows(contract)
-    action_ids = [action.action_id for section in contract.context_sections for action in section.actions]
+    action_ids = [
+        action.action_id for section in contract.context_sections for action in section.actions
+    ]
     section_ids = [section.section_id for section in contract.context_sections]
 
     assert contract.identity is not None
@@ -136,16 +141,46 @@ def test_inspector_contract_layer_selection_state():
         "push_to_ma3",
         "pull_from_ma3",
         "open_batch_transfer_workspace",
-        "preview_transfer_plan",
-        "apply_transfer_plan",
-        "cancel_transfer_plan",
+        "transfer.plan_preview",
+        "transfer.plan_apply",
+        "transfer.plan_cancel",
     } <= set(action_ids)
-    preview_action = next(action for section in contract.context_sections for action in section.actions if action.action_id == "preview_transfer_plan")
-    apply_action = next(action for section in contract.context_sections for action in section.actions if action.action_id == "apply_transfer_plan")
+    preview_action = next(
+        action
+        for section in contract.context_sections
+        for action in section.actions
+        if action.action_id == "transfer.plan_preview"
+    )
+    apply_action = next(
+        action
+        for section in contract.context_sections
+        for action in section.actions
+        if action.action_id == "transfer.plan_apply"
+    )
     assert preview_action.label == "Preview Transfer Plan (1 ready row)"
     assert apply_action.label == "Apply Transfer Plan (1 ready row)"
     assert "sync-transfer" in section_ids
     assert "live-sync" not in [section.section_id for section in contract.context_sections]
+
+
+def test_inspector_contract_object_actions_are_registered_descriptors():
+    presentation = _contract_test_presentation()
+    presentation.layers[0].kind = LayerKind.AUDIO
+    presentation.selected_layer_id = LayerId("layer_kick")
+
+    contract = build_timeline_inspector_contract(presentation)
+    action_ids = [
+        action.action_id for section in contract.context_sections for action in section.actions
+    ]
+    object_action_ids = [
+        action_id for action_id in action_ids if action_id.startswith("timeline.")
+    ]
+
+    assert object_action_ids
+    for action_id in object_action_ids:
+        descriptor = descriptor_for_action(action_id)
+        assert descriptor is not None
+        assert is_object_action(action_id) is True
 
 
 def test_inspector_contract_audio_layer_hides_ma3_controls():
@@ -154,7 +189,9 @@ def test_inspector_contract_audio_layer_hides_ma3_controls():
     presentation.layers[0].kind = LayerKind.AUDIO
 
     contract = build_timeline_inspector_contract(presentation)
-    action_ids = {action.action_id for section in contract.context_sections for action in section.actions}
+    action_ids = {
+        action.action_id for section in contract.context_sections for action in section.actions
+    }
     section_ids = [section.section_id for section in contract.context_sections]
 
     assert "sync-transfer" not in section_ids
@@ -193,7 +230,9 @@ def test_inspector_contract_push_mode_layer_actions_and_facts():
 
     contract = build_timeline_inspector_contract(presentation)
     rows = _section_rows(contract)
-    action_ids = [action.action_id for section in contract.context_sections for action in section.actions]
+    action_ids = [
+        action.action_id for section in contract.context_sections for action in section.actions
+    ]
 
     assert rows["push mode"] == "active"
     assert rows["push transfer mode"] == "overwrite"
@@ -210,9 +249,9 @@ def test_inspector_contract_push_mode_layer_actions_and_facts():
         "select_push_target_track",
         "preview_push_diff",
         "exit_push_mode",
-        "preview_transfer_plan",
-        "apply_transfer_plan",
-        "cancel_transfer_plan",
+        "transfer.plan_preview",
+        "transfer.plan_apply",
+        "transfer.plan_cancel",
     } <= set(action_ids)
 
 
@@ -254,7 +293,9 @@ def test_inspector_contract_pull_workspace_actions_and_facts():
 
     contract = build_timeline_inspector_contract(presentation)
     rows = _section_rows(contract)
-    action_ids = [action.action_id for section in contract.context_sections for action in section.actions]
+    action_ids = [
+        action.action_id for section in contract.context_sections for action in section.actions
+    ]
 
     assert rows["pull workspace"] == "active"
     assert rows["pull target"] == "Kick"
@@ -266,10 +307,11 @@ def test_inspector_contract_pull_workspace_actions_and_facts():
         "set_pull_target_layer_mapping",
         "preview_pull_diff",
         "exit_pull_workspace",
-        "preview_transfer_plan",
-        "apply_transfer_plan",
-        "cancel_transfer_plan",
+        "transfer.plan_preview",
+        "transfer.plan_apply",
+        "transfer.plan_cancel",
     } <= set(action_ids)
+
 
 def test_inspector_contract_hides_transfer_preset_actions_from_primary_transfer_surface():
     presentation = _contract_test_presentation()
@@ -278,7 +320,9 @@ def test_inspector_contract_hides_transfer_preset_actions_from_primary_transfer_
     presentation.layers[0].sync_target_label = "tc1_tg2_tr3"
 
     contract = build_timeline_inspector_contract(presentation)
-    action_ids = {action.action_id for section in contract.context_sections for action in section.actions}
+    action_ids = {
+        action.action_id for section in contract.context_sections for action in section.actions
+    }
 
     assert "save_transfer_preset" not in action_ids
     assert "apply_transfer_preset" not in action_ids
@@ -342,8 +386,12 @@ def test_inspector_contract_main_event_state():
 
     contract = build_timeline_inspector_contract(presentation)
     rows = _section_rows(contract)
-    action_ids = [action.action_id for section in contract.context_sections for action in section.actions]
-    transfer_section = next(section for section in contract.sections if section.section_id == "event-transfer")
+    action_ids = [
+        action.action_id for section in contract.context_sections for action in section.actions
+    ]
+    transfer_section = next(
+        section for section in contract.sections if section.section_id == "event-transfer"
+    )
 
     assert contract.identity is not None
     assert contract.identity.object_type == "event"
@@ -385,7 +433,9 @@ def test_inspector_contract_take_event_state():
         ),
     )
     rows = _section_rows(contract)
-    action_ids = [action.action_id for section in contract.context_sections for action in section.actions]
+    action_ids = [
+        action.action_id for section in contract.context_sections for action in section.actions
+    ]
 
     assert contract.title == "Event Take"
     assert rows["take"] == "Take 2 (take_alt)"
@@ -405,7 +455,9 @@ def test_inspector_contract_no_takes_layer_state():
 
     contract = build_timeline_inspector_contract(presentation)
     rows = _section_rows(contract)
-    action_ids = [action.action_id for section in contract.context_sections for action in section.actions]
+    action_ids = [
+        action.action_id for section in contract.context_sections for action in section.actions
+    ]
 
     assert contract.title == "Layer Empty"
     assert rows["main take"] == "none"
@@ -519,7 +571,9 @@ def test_inspector_contract_no_takes_hit_target_excludes_take_actions():
         ),
     )
     section_ids = [section.section_id for section in contract.context_sections]
-    action_ids = [action.action_id for section in contract.context_sections for action in section.actions]
+    action_ids = [
+        action.action_id for section in contract.context_sections for action in section.actions
+    ]
 
     assert contract.title == "Layer Empty"
     assert "take-actions" not in section_ids

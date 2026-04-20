@@ -5,24 +5,19 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-
 SUPPORTED_ACTIONS = {
-    "add_song_from_path",
-    "classify_drum_events",
-    "duplicate",
-    "extract_drum_events",
-    "extract_stems",
-    "nudge",
-    "trigger_action",
-    "select_first_event",
-    "nudge_selected_events",
-    "duplicate_selected_events",
-    "open_push_surface",
-    "open_pull_surface",
-    "apply_transfer_plan",
-    "enable_sync",
-    "disable_sync",
-    "screenshot",
+    "song.add",
+    "timeline.classify_drum_events",
+    "timeline.duplicate_selection",
+    "timeline.extract_drum_events",
+    "timeline.extract_stems",
+    "timeline.nudge_selection",
+    "selection.first_event",
+    "transfer.workspace_open",
+    "transfer.plan_apply",
+    "sync.enable",
+    "sync.disable",
+    "capture.screenshot",
 }
 
 
@@ -60,7 +55,9 @@ def load_scenario(path: str | Path) -> GuiScenario:
         action = _require_string(raw_step, "action", step_index=index)
         if action not in SUPPORTED_ACTIONS:
             supported = ", ".join(sorted(SUPPORTED_ACTIONS))
-            raise ValueError(f"Step {index} action '{action}' is unsupported; supported actions: {supported}")
+            raise ValueError(
+                f"Step {index} action '{action}' is unsupported; supported actions: {supported}"
+            )
         params = raw_step.get("params", {})
         if not isinstance(params, dict):
             raise ValueError(f"Step {index} params must be an object")
@@ -82,26 +79,36 @@ def _require_string(payload: dict[str, Any], key: str, *, step_index: int | None
 
 
 def _validate_step(*, action: str, params: dict[str, Any], step_index: int) -> None:
-    if action == "add_song_from_path":
+    if action == "song.add":
         _require_string(params, "title", step_index=step_index)
         _require_string(params, "audio_path", step_index=step_index)
-    elif action in {"extract_stems", "extract_drum_events", "classify_drum_events", "select_first_event", "open_push_surface", "open_pull_surface"}:
+    elif action in {
+        "timeline.extract_stems",
+        "timeline.extract_drum_events",
+        "timeline.classify_drum_events",
+        "selection.first_event",
+        "transfer.workspace_open",
+    }:
         _require_layer_target(params, step_index=step_index, action=action)
-        if action == "classify_drum_events":
+        if action == "timeline.classify_drum_events":
             _require_string(params, "model_path", step_index=step_index)
-    elif action == "trigger_action":
-        value = params.get("action_id")
-        if value not in {"new", "open", "save", "save_as"}:
-            raise ValueError(f"Step {step_index} trigger_action requires params.action_id in new/open/save/save_as")
-    elif action in {"nudge", "nudge_selected_events"}:
+        if action == "transfer.workspace_open" and params.get("direction") not in {"push", "pull"}:
+            raise ValueError(
+                f"Step {step_index} transfer.workspace_open requires params.direction in push/pull"
+            )
+    elif action == "timeline.nudge_selection":
         if params.get("direction") not in {"left", "right"}:
             raise ValueError(f"Step {step_index} {action} requires params.direction in left/right")
-        if "steps" in params and (not isinstance(params["steps"], int) or int(params["steps"]) < 1):
+        if "steps" in params and (
+            not isinstance(params["steps"], int) or int(params["steps"]) < 1
+        ):
             raise ValueError(f"Step {step_index} {action} params.steps must be an integer >= 1")
-    elif action in {"duplicate", "duplicate_selected_events"}:
-        if "steps" in params and (not isinstance(params["steps"], int) or int(params["steps"]) < 1):
+    elif action == "timeline.duplicate_selection":
+        if "steps" in params and (
+            not isinstance(params["steps"], int) or int(params["steps"]) < 1
+        ):
             raise ValueError(f"Step {step_index} {action} params.steps must be an integer >= 1")
-    elif action == "screenshot":
+    elif action == "capture.screenshot":
         _require_string(params, "filename", step_index=step_index)
 
 
@@ -111,7 +118,9 @@ def _require_layer_target(params: dict[str, Any], *, step_index: int, action: st
     has_layer_id = isinstance(layer_id, str) and bool(layer_id.strip())
     has_layer_title = isinstance(layer_title, str) and bool(layer_title.strip())
     if not has_layer_id and not has_layer_title:
-        raise ValueError(f"Step {step_index} {action} requires params.layer_id or params.layer_title")
+        raise ValueError(
+            f"Step {step_index} {action} requires params.layer_id or params.layer_title"
+        )
     if layer_id is not None and not isinstance(layer_id, str):
         raise ValueError(f"Step {step_index} {action} params.layer_id must be a string")
     if layer_title is not None and not isinstance(layer_title, str):

@@ -5,7 +5,6 @@ import sys
 
 import pytest
 
-
 LANES: dict[str, list[str]] = {
     "appflow": [
         "tests/testing/test_app_flow_harness.py",
@@ -19,11 +18,13 @@ LANES: dict[str, list[str]] = {
     ],
     "appflow-osc": [
         "tests/testing/test_ma3_osc_loopback.py",
+        "tests/testing/test_ma3_osc_bridge.py",
         "tests/testing/test_app_flow_harness.py",
         "-k",
         "osc",
     ],
     "appflow-protocol": [
+        "tests/testing/test_ma3_osc_bridge.py",
         "tests/testing/test_simulated_ma3_bridge.py",
         "tests/application/test_sync_adapters.py",
         "tests/application/test_live_sync_guardrail_contracts.py",
@@ -31,6 +32,7 @@ LANES: dict[str, list[str]] = {
     "appflow-all": [
         "tests/testing/test_app_flow_harness.py",
         "tests/testing/test_app_shell_profiles.py",
+        "tests/testing/test_ma3_osc_bridge.py",
         "tests/testing/test_simulated_ma3_bridge.py",
         "tests/application/test_sync_adapters.py",
         "tests/application/test_live_sync_guardrail_contracts.py",

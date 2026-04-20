@@ -5,12 +5,19 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from PyQt6.QtCore import QByteArray, QBuffer, QIODevice, QPoint, QPointF, QRect, Qt
+from PyQt6.QtCore import QBuffer, QByteArray, QIODevice, QPoint, QPointF, QRect, Qt
 from PyQt6.QtGui import QMouseEvent
 from PyQt6.QtTest import QTest
 from PyQt6.QtWidgets import QApplication, QFileDialog, QInputDialog, QWidget
 
-from echozero.application.presentation.inspector_contract import InspectorAction, build_timeline_inspector_contract
+from echozero.application.presentation.action_descriptors import (
+    descriptor_for_action,
+    is_object_action,
+)
+from echozero.application.presentation.inspector_contract import (
+    InspectorAction,
+    build_timeline_inspector_contract,
+)
 from echozero.application.shared.enums import SyncMode
 from echozero.application.timeline.intents import Pause, Play, Stop
 from echozero.testing.app_flow import AppFlowHarness
@@ -214,7 +221,9 @@ class EchoZeroAutomationBackend:
                 )
 
         for rect, layer_id, _take_id, event_id in self._harness.widget._canvas._event_rects:
-            layer = next((item for item in presentation.layers if str(item.layer_id) == str(layer_id)), None)
+            layer = next(
+                (item for item in presentation.layers if str(item.layer_id) == str(layer_id)), None
+            )
             event_label = str(event_id)
             if layer is not None:
                 for candidate in layer.events:
@@ -251,7 +260,7 @@ class EchoZeroAutomationBackend:
             AutomationAction(action_id="app.new", label="New Project", group="app"),
             AutomationAction(action_id="app.save", label="Save Project", group="app"),
             AutomationAction(action_id="app.save_as", label="Save Project As", group="app"),
-            AutomationAction(action_id="add_song_from_path", label="Add Song From Path", group="app"),
+            AutomationAction(action_id="song.add", label="Add Song", group="song"),
         ]
         contract = build_timeline_inspector_contract(presentation)
         contract_actions = self._automation_actions_from_contract(contract)
@@ -327,13 +336,17 @@ class EchoZeroAutomationBackend:
             rect = self._harness.widget._transport._control_rects.get(control)
             if rect is None:
                 raise ValueError(f"Unknown transport control: {target_id}")
-            self._move_pointer_to_widget_rect(self._harness.widget._transport, rect, target_id=target_id)
+            self._move_pointer_to_widget_rect(
+                self._harness.widget._transport, rect, target_id=target_id
+            )
             self._click_widget_rect(self._harness.widget._transport, rect)
             return self.snapshot()
 
         if target_id == "shell.timeline":
             rect = self._harness.widget._canvas.rect()
-            self._move_pointer_to_widget_rect(self._harness.widget._canvas, rect, target_id=target_id)
+            self._move_pointer_to_widget_rect(
+                self._harness.widget._canvas, rect, target_id=target_id
+            )
             self._click_widget_rect(self._harness.widget._canvas, rect)
             return self.snapshot()
 
@@ -368,7 +381,9 @@ class EchoZeroAutomationBackend:
             rect = self._harness.widget._transport._control_rects.get(control)
             if rect is None:
                 raise ValueError(f"Unknown transport control: {target_id}")
-            self._move_pointer_to_widget_rect(self._harness.widget._transport, rect, target_id=target_id)
+            self._move_pointer_to_widget_rect(
+                self._harness.widget._transport, rect, target_id=target_id
+            )
             self._double_click_widget_rect(self._harness.widget._transport, rect)
             return self.snapshot()
         rect = self._target_canvas_rect(target_id)
@@ -518,22 +533,27 @@ class EchoZeroAutomationBackend:
                 self._harness.trigger_action("open_project")
             finally:
                 self._restore_dialog_paths()
-        elif action_id == "add_song_from_path":
-            contract_action = self._require_contract_action("add_song_from_path")
+        elif action_id == "song.add":
+            contract_action = self._require_contract_action("song.add")
             with self._dialog_overrides(
                 text_responses=[(str(payload["title"]), True)],
                 open_file_responses=[(str(payload["audio_path"]), "")],
             ):
                 self._harness.widget._trigger_contract_action(contract_action)
             QApplication.processEvents()
-        elif action_id in {"extract_stems", "extract_drum_events", "extract_classified_drums"}:
-            self._harness.widget._trigger_contract_action(self._require_contract_action(action_id))
-            QApplication.processEvents()
-        elif action_id == "classify_drum_events":
+        elif is_object_action(action_id):
+            descriptor = descriptor_for_action(action_id)
+            assert descriptor is not None
+            contract_action = self._require_contract_action(action_id)
+            dialog_file_responses: list[tuple[str, str]] = []
+            if descriptor.params_schema.get("model_path") == "dialog:file:model":
+                if "model_path" not in payload:
+                    raise ValueError(f"{action_id} requires params.model_path")
+                dialog_file_responses.append((str(payload["model_path"]), ""))
             with self._dialog_overrides(
-                open_file_responses=[(str(payload["model_path"]), "")],
+                open_file_responses=dialog_file_responses or None,
             ):
-                self._harness.widget._trigger_contract_action(self._require_contract_action(action_id))
+                self._harness.widget._trigger_contract_action(contract_action)
             QApplication.processEvents()
         else:
             self._harness.widget._trigger_contract_action(self._require_contract_action(action_id))
@@ -556,13 +576,23 @@ class EchoZeroAutomationBackend:
             rect = self._harness.widget._transport._control_rects.get(control)
             if rect is None:
                 raise ValueError(f"Unknown transport control: {target_id}")
-            self._move_pointer_to_widget_rect(self._harness.widget._transport, rect, target_id=target_id)
+            self._move_pointer_to_widget_rect(
+                self._harness.widget._transport, rect, target_id=target_id
+            )
             return
         if target_id == "shell.timeline":
-            self._move_pointer_to_widget_rect(self._harness.widget._canvas, self._harness.widget._canvas.rect(), target_id=target_id)
+            self._move_pointer_to_widget_rect(
+                self._harness.widget._canvas,
+                self._harness.widget._canvas.rect(),
+                target_id=target_id,
+            )
             return
         if target_id == "shell.ruler":
-            self._move_pointer_to_widget_rect(self._harness.widget._ruler, self._harness.widget._ruler.rect(), target_id=target_id)
+            self._move_pointer_to_widget_rect(
+                self._harness.widget._ruler,
+                self._harness.widget._ruler.rect(),
+                target_id=target_id,
+            )
             return
         rect = self._target_canvas_rect(target_id)
         if rect is None:
@@ -644,7 +674,9 @@ class EchoZeroAutomationBackend:
         for section in contract.sections:
             for row in section.rows:
                 fact_rows.append(AutomationObjectFact(label=row.label, value=row.value))
-        target_id = self._contract_target_id(contract.identity.object_type, contract.identity.object_id)
+        target_id = self._contract_target_id(
+            contract.identity.object_type, contract.identity.object_id
+        )
         return (
             AutomationObject(
                 object_id=contract.identity.object_id,

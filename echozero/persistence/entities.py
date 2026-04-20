@@ -11,7 +11,6 @@ from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 from typing import Any, Literal
 
-
 # ---------------------------------------------------------------------------
 # Shared types
 # ---------------------------------------------------------------------------
@@ -183,9 +182,10 @@ class PipelineConfigRecord:
                            Used to determine maps_to_block targeting.
         """
         import json
-        from echozero.serialization import deserialize_graph, serialize_graph
-        from echozero.domain.types import BlockSettings
         from dataclasses import replace as _replace
+
+        from echozero.domain.types import BlockSettings
+        from echozero.serialization import deserialize_graph, serialize_graph
 
         new_knob_values = dict(self.knob_values)
         new_knob_values[key] = value
@@ -196,7 +196,7 @@ class PipelineConfigRecord:
         # Determine target block(s)
         target_block_id = None
         if knob_metadata and key in knob_metadata:
-            target_block_id = getattr(knob_metadata[key], 'maps_to_block', None)
+            target_block_id = getattr(knob_metadata[key], "maps_to_block", None)
 
         for block_id, block in graph.blocks.items():
             if key not in block.settings:
@@ -224,9 +224,10 @@ class PipelineConfigRecord:
     ) -> PipelineConfigRecord:
         """Return a new config with multiple updated knob values. Batch version."""
         import json
-        from echozero.serialization import deserialize_graph, serialize_graph
-        from echozero.domain.types import BlockSettings
         from dataclasses import replace as _replace
+
+        from echozero.domain.types import BlockSettings
+        from echozero.serialization import deserialize_graph, serialize_graph
 
         new_knob_values = {**self.knob_values, **updates}
 
@@ -242,7 +243,7 @@ class PipelineConfigRecord:
                     continue
                 target = None
                 if knob_metadata and key in knob_metadata:
-                    target = getattr(knob_metadata[key], 'maps_to_block', None)
+                    target = getattr(knob_metadata[key], "maps_to_block", None)
                 if target is not None and block_id != target:
                     continue
                 # Skip overridden settings
@@ -276,9 +277,10 @@ class PipelineConfigRecord:
         Raises KeyError if the block doesn't exist in the graph.
         """
         import json
-        from echozero.serialization import deserialize_graph, serialize_graph
-        from echozero.domain.types import BlockSettings
         from dataclasses import replace as _replace
+
+        from echozero.domain.types import BlockSettings
+        from echozero.serialization import deserialize_graph, serialize_graph
 
         graph_data = json.loads(self.graph_json)
         graph = deserialize_graph(graph_data)
@@ -312,9 +314,10 @@ class PipelineConfigRecord:
     ) -> PipelineConfigRecord:
         """Return a new config with multiple settings updated on a single block."""
         import json
-        from echozero.serialization import deserialize_graph, serialize_graph
-        from echozero.domain.types import BlockSettings
         from dataclasses import replace as _replace
+
+        from echozero.domain.types import BlockSettings
+        from echozero.serialization import deserialize_graph, serialize_graph
 
         graph_data = json.loads(self.graph_json)
         graph = deserialize_graph(graph_data)
@@ -351,9 +354,10 @@ class PipelineConfigRecord:
         The setting value is updated to match the current knob value.
         """
         import json
-        from echozero.serialization import deserialize_graph, serialize_graph
-        from echozero.domain.types import BlockSettings
         from dataclasses import replace as _replace
+
+        from echozero.domain.types import BlockSettings
+        from echozero.serialization import deserialize_graph, serialize_graph
 
         new_overrides = {k: list(v) for k, v in self.block_overrides.items()}
         if block_id in new_overrides and key in new_overrides[block_id]:
@@ -380,8 +384,9 @@ class PipelineConfigRecord:
 
     def to_pipeline(self):
         """Deserialize into a runnable Pipeline object."""
-        from echozero.serialization import deserialize_pipeline
         import json
+
+        from echozero.serialization import deserialize_pipeline
 
         data = json.loads(self.graph_json)
         outputs = json.loads(self.outputs_json)
@@ -407,19 +412,22 @@ class PipelineConfigRecord:
         """Create a PipelineConfigRecord from a freshly-built Pipeline."""
         import json
         import uuid
+
         from echozero.serialization import serialize_graph
 
         now = datetime.now(timezone.utc)
 
         graph_json = json.dumps(serialize_graph(pipeline.graph))
-        outputs_json = json.dumps([
-            {
-                "name": out.name,
-                "block_id": out.port_ref.block_id,
-                "port_name": out.port_ref.port_name,
-            }
-            for out in pipeline.outputs
-        ])
+        outputs_json = json.dumps(
+            [
+                {
+                    "name": out.name,
+                    "block_id": out.port_ref.block_id,
+                    "port_name": out.port_ref.port_name,
+                }
+                for out in pipeline.outputs
+            ]
+        )
 
         return cls(
             id=config_id or uuid.uuid4().hex,
@@ -431,4 +439,143 @@ class PipelineConfigRecord:
             knob_values=dict(knob_values),
             created_at=now,
             updated_at=now,
+        )
+
+
+@dataclass(frozen=True)
+class SongDefaultPipelineConfigRecord:
+    """Persistent song-level default pipeline configuration."""
+
+    id: str
+    song_id: str
+    template_id: str
+    name: str
+    graph_json: str
+    outputs_json: str
+    knob_values: dict[str, Any]
+    created_at: datetime
+    updated_at: datetime
+    block_overrides: dict[str, list[str]] = field(default_factory=dict)
+
+    def with_knob_value(
+        self,
+        key: str,
+        value: Any,
+        knob_metadata: dict[str, Any] | None = None,
+    ) -> SongDefaultPipelineConfigRecord:
+        updated = PipelineConfigRecord(
+            id=self.id,
+            song_version_id="",
+            template_id=self.template_id,
+            name=self.name,
+            graph_json=self.graph_json,
+            outputs_json=self.outputs_json,
+            knob_values=self.knob_values,
+            created_at=self.created_at,
+            updated_at=self.updated_at,
+            block_overrides=self.block_overrides,
+        ).with_knob_value(key, value, knob_metadata=knob_metadata)
+        return self.from_version_config(updated, song_id=self.song_id)
+
+    def with_knob_values(
+        self,
+        updates: dict[str, Any],
+        knob_metadata: dict[str, Any] | None = None,
+    ) -> SongDefaultPipelineConfigRecord:
+        updated = PipelineConfigRecord(
+            id=self.id,
+            song_version_id="",
+            template_id=self.template_id,
+            name=self.name,
+            graph_json=self.graph_json,
+            outputs_json=self.outputs_json,
+            knob_values=self.knob_values,
+            created_at=self.created_at,
+            updated_at=self.updated_at,
+            block_overrides=self.block_overrides,
+        ).with_knob_values(updates, knob_metadata=knob_metadata)
+        return self.from_version_config(updated, song_id=self.song_id)
+
+    def with_block_setting(
+        self, block_id: str, key: str, value: Any
+    ) -> SongDefaultPipelineConfigRecord:
+        updated = PipelineConfigRecord(
+            id=self.id,
+            song_version_id="",
+            template_id=self.template_id,
+            name=self.name,
+            graph_json=self.graph_json,
+            outputs_json=self.outputs_json,
+            knob_values=self.knob_values,
+            created_at=self.created_at,
+            updated_at=self.updated_at,
+            block_overrides=self.block_overrides,
+        ).with_block_setting(block_id, key, value)
+        return self.from_version_config(updated, song_id=self.song_id)
+
+    def with_block_settings(
+        self, block_id: str, updates: dict[str, Any]
+    ) -> SongDefaultPipelineConfigRecord:
+        updated = PipelineConfigRecord(
+            id=self.id,
+            song_version_id="",
+            template_id=self.template_id,
+            name=self.name,
+            graph_json=self.graph_json,
+            outputs_json=self.outputs_json,
+            knob_values=self.knob_values,
+            created_at=self.created_at,
+            updated_at=self.updated_at,
+            block_overrides=self.block_overrides,
+        ).with_block_settings(block_id, updates)
+        return self.from_version_config(updated, song_id=self.song_id)
+
+    def clear_block_override(self, block_id: str, key: str) -> SongDefaultPipelineConfigRecord:
+        updated = PipelineConfigRecord(
+            id=self.id,
+            song_version_id="",
+            template_id=self.template_id,
+            name=self.name,
+            graph_json=self.graph_json,
+            outputs_json=self.outputs_json,
+            knob_values=self.knob_values,
+            created_at=self.created_at,
+            updated_at=self.updated_at,
+            block_overrides=self.block_overrides,
+        ).clear_block_override(block_id, key)
+        return self.from_version_config(updated, song_id=self.song_id)
+
+    def to_version_config(self, *, song_version_id: str) -> PipelineConfigRecord:
+        return PipelineConfigRecord(
+            id=self.id,
+            song_version_id=song_version_id,
+            template_id=self.template_id,
+            name=self.name,
+            graph_json=self.graph_json,
+            outputs_json=self.outputs_json,
+            knob_values=self.knob_values,
+            created_at=self.created_at,
+            updated_at=self.updated_at,
+            block_overrides=self.block_overrides,
+        )
+
+    @classmethod
+    def from_version_config(
+        cls,
+        config: PipelineConfigRecord,
+        *,
+        song_id: str,
+        config_id: str | None = None,
+    ) -> SongDefaultPipelineConfigRecord:
+        return cls(
+            id=config_id or config.id,
+            song_id=song_id,
+            template_id=config.template_id,
+            name=config.name,
+            graph_json=config.graph_json,
+            outputs_json=config.outputs_json,
+            knob_values=dict(config.knob_values),
+            created_at=config.created_at,
+            updated_at=config.updated_at,
+            block_overrides={k: list(v) for k, v in config.block_overrides.items()},
         )

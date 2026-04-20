@@ -23,11 +23,19 @@ from pathlib import Path
 from echozero.domain.graph import Graph
 from echozero.event_bus import EventBus
 from echozero.persistence.dirty import DirtyTracker
-from echozero.persistence.entities import ProjectRecord, ProjectSettingsRecord, SongRecord, SongVersionRecord
+from echozero.persistence.entities import (
+    PipelineConfigRecord,
+    ProjectRecord,
+    ProjectSettingsRecord,
+    SongDefaultPipelineConfigRecord,
+    SongRecord,
+    SongVersionRecord,
+)
 from echozero.persistence.repositories import (
     LayerRepository,
     PipelineConfigRepository,
     ProjectRepository,
+    SongDefaultPipelineConfigRepository,
     SongRepository,
     SongVersionRepository,
     TakeRepository,
@@ -36,6 +44,7 @@ from echozero.persistence.schema import init_db
 from echozero.serialization import deserialize_graph, serialize_graph
 
 logger = logging.getLogger(__name__)
+
 
 def _default_working_dir_root() -> Path:
     """Resolve canonical working-dir root for local app data."""
@@ -350,6 +359,12 @@ class ProjectStorage:
         self._check_closed()
         return PipelineConfigRepository(self.db)
 
+    @property
+    def song_default_pipeline_configs(self) -> SongDefaultPipelineConfigRepository:
+        """Access the song default pipeline config repository."""
+        self._check_closed()
+        return SongDefaultPipelineConfigRepository(self.db)
+
     # -- Graph persistence --------------------------------------------------
 
     def save_graph(self, graph: Graph) -> None:
@@ -371,9 +386,9 @@ class ProjectStorage:
                 "SELECT graph_json FROM projects WHERE id = ?",
                 (self.project.id,),
             ).fetchone()
-            if row is None or row['graph_json'] is None:
+            if row is None or row["graph_json"] is None:
                 return None
-            return deserialize_graph(json.loads(row['graph_json']))
+            return deserialize_graph(json.loads(row["graph_json"]))
 
     # -- Audio import -------------------------------------------------------
 
@@ -398,16 +413,14 @@ class ProjectStorage:
         Returns:
             The newly created and persisted SongVersionRecord with real metadata.
         """
-        from echozero.persistence.audio import import_audio, scan_audio_metadata
         from echozero.errors import ValidationError
+        from echozero.persistence.audio import import_audio, scan_audio_metadata
 
         # Validate audio file BEFORE copying into the project
         try:
             scan_audio_metadata(audio_source, scan_fn=scan_fn)
         except Exception as exc:
-            raise ValidationError(
-                f"Invalid audio file '{audio_source.name}': {exc}"
-            ) from exc
+            raise ValidationError(f"Invalid audio file '{audio_source.name}': {exc}") from exc
 
         audio_rel_path, audio_hash = import_audio(audio_source, self.working_dir)
 
@@ -474,30 +487,31 @@ class ProjectStorage:
 
             # Point song to the new version
             from dataclasses import replace as _replace
+
             updated_song = _replace(song, active_version_id=version.id)
             self.songs.update(updated_song)
 
-            # Create default pipeline configs from templates
-            self._apply_default_templates(version.id, default_templates)
+            # Create song defaults, then copy them into the first version.
+            self._apply_default_templates_to_song(song_id, default_templates)
+            self._copy_song_default_configs_to_version(song_id, version.id)
 
             self.db.commit()
             self.dirty_tracker.mark_dirty(song_id)
 
             return updated_song, version
 
-    def _apply_default_templates(
+    def _apply_default_templates_to_song(
         self,
-        song_version_id: str,
+        song_id: str,
         template_ids: list[str] | None = None,
     ) -> None:
-        """Create PipelineConfigs from registered templates for a new version.
+        """Create song default configs from registered templates.
 
         Args:
-            song_version_id: The version to attach configs to.
+            song_id: The song to attach configs to.
             template_ids: Specific template IDs. None = all registered. [] = none.
         """
         from echozero.pipelines.registry import get_registry
-        from echozero.persistence.entities import PipelineConfigRecord
 
         registry = get_registry()
 
@@ -513,11 +527,38 @@ class ProjectStorage:
             config = PipelineConfigRecord.from_pipeline(
                 pipeline,
                 template_id=template.id,
-                song_version_id=song_version_id,
+                song_version_id="",
                 knob_values={k: v.default for k, v in template.knobs.items()},
                 name=template.name,
             )
-            self.pipeline_configs.create(config)
+            self.song_default_pipeline_configs.create(
+                SongDefaultPipelineConfigRecord.from_version_config(config, song_id=song_id)
+            )
+
+    def _copy_song_default_configs_to_version(
+        self, song_id: str, song_version_id: str
+    ) -> list[str]:
+        """Copy song defaults into version-owned effective configs."""
+
+        new_config_ids: list[str] = []
+        now = datetime.now(timezone.utc)
+        for config in self.song_default_pipeline_configs.list_by_song(song_id):
+            new_config = config.to_version_config(song_version_id=song_version_id)
+            new_config = PipelineConfigRecord(
+                id=uuid.uuid4().hex,
+                song_version_id=new_config.song_version_id,
+                template_id=new_config.template_id,
+                name=new_config.name,
+                graph_json=new_config.graph_json,
+                outputs_json=new_config.outputs_json,
+                knob_values=dict(new_config.knob_values),
+                created_at=now,
+                updated_at=now,
+                block_overrides={k: list(v) for k, v in new_config.block_overrides.items()},
+            )
+            self.pipeline_configs.create(new_config)
+            new_config_ids.append(new_config.id)
+        return new_config_ids
 
     def add_song_version(
         self,
@@ -559,9 +600,7 @@ class ProjectStorage:
 
             source_version_id = song.active_version_id
             if source_version_id is None:
-                raise ValueError(
-                    f"SongRecord '{song_id}' has no active version to copy configs from"
-                )
+                raise ValueError(f"SongRecord '{song_id}' has no active version")
 
             # Auto-generate label
             if label is None:
@@ -571,20 +610,8 @@ class ProjectStorage:
             # Create version (imports audio, scans metadata)
             version = self._create_version(song_id, audio_source, label, scan_fn)
 
-            # Copy all pipeline configs from source version
-            now = datetime.now(timezone.utc)
-            source_configs = self.pipeline_configs.list_by_version(source_version_id)
-            new_config_ids: list[str] = []
-            for config in source_configs:
-                new_config = _replace(
-                    config,
-                    id=uuid.uuid4().hex,
-                    song_version_id=version.id,
-                    created_at=now,
-                    updated_at=now,
-                )
-                self.pipeline_configs.create(new_config)
-                new_config_ids.append(new_config.id)
+            # Copy all song default pipeline configs into the new version
+            new_config_ids = self._copy_song_default_configs_to_version(song_id, version.id)
 
             from echozero.services.provenance import build_song_version_rebuild_plan
 
@@ -624,9 +651,7 @@ class ProjectStorage:
         with self._autosave_lock:
             if self._closed:
                 return
-            self._autosave_timer = threading.Timer(
-                self._autosave_interval, self._autosave_tick
-            )
+            self._autosave_timer = threading.Timer(self._autosave_interval, self._autosave_tick)
             self._autosave_timer.daemon = True
             self._autosave_timer.start()
 
@@ -657,9 +682,7 @@ class ProjectStorage:
     ) -> bool:
         """Check if a working dir exists with a project.db for this .ez file."""
         root = working_dir_root or WORKING_DIR_ROOT
-        working_dir = root / hashlib.sha256(
-            str(ez_path.resolve()).encode()
-        ).hexdigest()[:16]
+        working_dir = root / hashlib.sha256(str(ez_path.resolve()).encode()).hexdigest()[:16]
         return (working_dir / "project.db").exists()
 
     @staticmethod
@@ -670,9 +693,7 @@ class ProjectStorage:
     ) -> ProjectStorage:
         """Open the existing working dir for recovery instead of unpacking fresh."""
         root = working_dir_root or WORKING_DIR_ROOT
-        working_dir = root / hashlib.sha256(
-            str(ez_path.resolve()).encode()
-        ).hexdigest()[:16]
+        working_dir = root / hashlib.sha256(str(ez_path.resolve()).encode()).hexdigest()[:16]
         return ProjectStorage.open_db(working_dir, event_bus)
 
     @staticmethod
@@ -684,9 +705,7 @@ class ProjectStorage:
         import shutil
 
         root = working_dir_root or WORKING_DIR_ROOT
-        working_dir = root / hashlib.sha256(
-            str(ez_path.resolve()).encode()
-        ).hexdigest()[:16]
+        working_dir = root / hashlib.sha256(str(ez_path.resolve()).encode()).hexdigest()[:16]
         if working_dir.exists():
             # Release any stale lockfile before removing
             _release_project_lock(working_dir / "project.lock")

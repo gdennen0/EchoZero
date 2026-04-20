@@ -1,17 +1,28 @@
 from __future__ import annotations
 
-from dataclasses import replace
 import shutil
 import uuid
+from dataclasses import replace
 from pathlib import Path
 
 import numpy as np
 import pytest
 
-from echozero.application.timeline.intents import Play, ToggleLayerExpanded
+from echozero.application.presentation.inspector_contract import (
+    TimelineInspectorHitTarget,
+    build_timeline_inspector_contract,
+)
+from echozero.application.shared.enums import LayerKind
+from echozero.application.shared.ranges import TimeRange
+from echozero.application.timeline.intents import CreateEvent, Play, ToggleLayerExpanded
 from echozero.audio.engine import AudioEngine
-from echozero.testing.analysis_mocks import build_mock_analysis_service, write_test_tone_wav, write_test_wav
+from echozero.testing.analysis_mocks import (
+    build_mock_analysis_service,
+    write_test_tone_wav,
+    write_test_wav,
+)
 from echozero.testing.app_flow import AppFlowHarness
+from echozero.ui.qt.timeline.manual_pull import ManualPullTimelineSelectionResult
 from echozero.ui.qt.timeline.runtime_audio import TimelineRuntimeAudioController
 
 _TEST_TEMP_ROOT = Path("C:/Users/griff/.codex/memories/test_app_flow_harness")
@@ -43,8 +54,12 @@ def _fake_stream_factory(**kwargs):
     return _FakeStream(**kwargs)
 
 
-def _install_deterministic_runtime_audio(harness: AppFlowHarness) -> TimelineRuntimeAudioController:
-    runtime_audio = TimelineRuntimeAudioController(engine=AudioEngine(stream_factory=_fake_stream_factory))
+def _install_deterministic_runtime_audio(
+    harness: AppFlowHarness,
+) -> TimelineRuntimeAudioController:
+    runtime_audio = TimelineRuntimeAudioController(
+        engine=AudioEngine(stream_factory=_fake_stream_factory)
+    )
     harness.install_runtime_audio(runtime_audio)
     return runtime_audio
 
@@ -62,6 +77,29 @@ def _route_monitor_to_layer(harness: AppFlowHarness, layer_id) -> None:
         )
     )
     harness._app.processEvents()
+
+
+def _contract_action(harness: AppFlowHarness, action_id: str):
+    contract = build_timeline_inspector_contract(harness.widget.presentation)
+    return next(
+        action
+        for section in contract.context_sections
+        for action in section.actions
+        if action.action_id == action_id
+    )
+
+
+def _layer_contract_action(harness: AppFlowHarness, layer_id, action_id: str):
+    contract = build_timeline_inspector_contract(
+        harness.widget.presentation,
+        hit_target=TimelineInspectorHitTarget(kind="layer", layer_id=layer_id),
+    )
+    return next(
+        action
+        for section in contract.context_sections
+        for action in section.actions
+        if action.action_id == action_id
+    )
 
 
 def test_app_flow_harness_dispatch_and_launcher_actions():
@@ -119,6 +157,115 @@ def test_app_flow_harness_sync_with_simulated_ma3_connects_bridge():
         shutil.rmtree(temp_root, ignore_errors=True)
 
 
+def test_app_flow_harness_sync_push_transfer_updates_simulated_ma3_snapshot(monkeypatch):
+    temp_root = _repo_local_temp_root()
+    harness = AppFlowHarness(simulate_ma3=True, working_dir_root=temp_root / "working-sync-push")
+
+    try:
+        presentation = harness.runtime.add_layer(LayerKind.EVENT, "Push Layer")
+        harness.widget.set_presentation(presentation)
+        harness._app.processEvents()
+
+        layer_id = harness.presentation().layers[0].layer_id
+        harness.dispatch(
+            CreateEvent(
+                layer_id=layer_id,
+                take_id=None,
+                time_range=TimeRange(1.0, 1.5),
+            )
+        )
+
+        harness.widget._trigger_contract_action(
+            _layer_contract_action(harness, layer_id, "push_to_ma3")
+        )
+        monkeypatch.setattr(
+            "echozero.ui.qt.timeline.widget.QInputDialog.getItem",
+            lambda *args, **kwargs: ("Track 4 (tc1_tg2_tr4) - Lead [1 existing]", True),
+        )
+        monkeypatch.setattr(
+            "echozero.ui.qt.timeline.widget.QMessageBox.information",
+            lambda *args, **kwargs: None,
+        )
+
+        harness.widget._trigger_contract_action(
+            _layer_contract_action(harness, layer_id, "select_push_target_track")
+        )
+        harness.widget._trigger_contract_action(
+            _layer_contract_action(harness, layer_id, "transfer.plan_apply")
+        )
+
+        assert harness.ma3_bridge is not None
+        remote_events = harness.ma3_bridge.list_track_events("tc1_tg2_tr4")
+        assert [event.label for event in remote_events] == ["Event", "Cue 9"]
+        assert harness.presentation().batch_transfer_plan is not None
+        assert harness.presentation().batch_transfer_plan.rows[0].status == "applied"
+    finally:
+        harness.shutdown()
+        shutil.rmtree(temp_root, ignore_errors=True)
+
+
+def test_app_flow_harness_sync_pull_transfer_imports_remote_events(monkeypatch):
+    temp_root = _repo_local_temp_root()
+    harness = AppFlowHarness(simulate_ma3=True, working_dir_root=temp_root / "working-sync-pull")
+
+    try:
+        presentation = harness.runtime.add_layer(LayerKind.EVENT, "Pull Target")
+        harness.widget.set_presentation(presentation)
+        harness._app.processEvents()
+
+        layer_id = harness.presentation().layers[0].layer_id
+        harness.dispatch(
+            CreateEvent(
+                layer_id=layer_id,
+                take_id=None,
+                time_range=TimeRange(0.25, 0.5),
+            )
+        )
+        harness.widget._trigger_contract_action(
+            _layer_contract_action(harness, layer_id, "pull_from_ma3")
+        )
+        monkeypatch.setattr(
+            "echozero.ui.qt.timeline.widget.QInputDialog.getItem",
+            lambda *args, **kwargs: ("Track 3 (tc1_tg2_tr3) - Bass [2 events]", True),
+        )
+        monkeypatch.setattr(
+            "echozero.ui.qt.timeline.widget.QMessageBox.information",
+            lambda *args, **kwargs: None,
+        )
+        harness.widget._open_manual_pull_timeline_popup = (
+            lambda _flow: ManualPullTimelineSelectionResult(
+                selected_event_ids=["ma3_evt_1", "ma3_evt_2"],
+                target_layer_id=layer_id,
+                import_mode="new_take",
+            )
+        )
+
+        harness.widget._trigger_contract_action(
+            _layer_contract_action(harness, layer_id, "select_pull_source_tracks")
+        )
+        harness.widget._trigger_contract_action(
+            _layer_contract_action(harness, layer_id, "select_pull_source_events")
+        )
+        harness.widget._trigger_contract_action(
+            _layer_contract_action(harness, layer_id, "transfer.plan_apply")
+        )
+
+        target_layer = next(
+            layer for layer in harness.runtime._app.timeline.layers if layer.id == layer_id
+        )
+        imported_take = next(
+            take for take in target_layer.takes if str(take.id) != f"{layer_id}:main"
+        )
+        assert [event.label for event in imported_take.events] == ["Cue 1", "Cue 2"]
+        assert harness.presentation().selected_layer_id == layer_id
+        assert len(harness.presentation().selected_event_ids) == 2
+        assert harness.presentation().batch_transfer_plan is not None
+        assert harness.presentation().batch_transfer_plan.rows[0].status == "applied"
+    finally:
+        harness.shutdown()
+        shutil.rmtree(temp_root, ignore_errors=True)
+
+
 def test_app_flow_harness_osc_loopback_helpers():
     temp_root = _repo_local_temp_root()
     harness = AppFlowHarness(simulate_ma3_osc=True, working_dir_root=temp_root / "working-osc")
@@ -142,7 +289,9 @@ def test_app_flow_harness_osc_loopback_helpers():
 
 def test_app_flow_harness_shutdown_stops_osc_loopback():
     temp_root = _repo_local_temp_root()
-    harness = AppFlowHarness(simulate_ma3_osc=True, working_dir_root=temp_root / "working-osc-stop")
+    harness = AppFlowHarness(
+        simulate_ma3_osc=True, working_dir_root=temp_root / "working-osc-stop"
+    )
 
     loopback = harness.ma3_osc_loopback
     assert loopback is not None
@@ -166,7 +315,11 @@ def test_app_flow_harness_playback_advances_playhead_with_runtime_audio():
         runtime_audio = _install_deterministic_runtime_audio(harness)
         harness.runtime.add_song_from_path(
             "Playback Song",
-            write_test_tone_wav(temp_root / "fixtures" / "playback-song.wav", duration_seconds=1.5, frequency_hz=220.0),
+            write_test_tone_wav(
+                temp_root / "fixtures" / "playback-song.wav",
+                duration_seconds=1.5,
+                frequency_hz=220.0,
+            ),
         )
         harness.widget.set_presentation(harness.runtime.presentation())
         harness._app.processEvents()
@@ -195,13 +348,17 @@ def test_app_flow_harness_route_switch_keeps_transport_running_and_advances_play
         runtime_audio = _install_deterministic_runtime_audio(harness)
         harness.runtime.add_song_from_path(
             "Route Song",
-            write_test_tone_wav(temp_root / "fixtures" / "route-song.wav", duration_seconds=1.5, frequency_hz=220.0),
+            write_test_tone_wav(
+                temp_root / "fixtures" / "route-song.wav", duration_seconds=1.5, frequency_hz=220.0
+            ),
         )
         after_stems = harness.runtime.extract_stems("source_audio")
         harness.widget.set_presentation(after_stems)
         harness._app.processEvents()
 
-        drums_layer = next(layer for layer in harness.presentation().layers if layer.title == "Drums")
+        drums_layer = next(
+            layer for layer in harness.presentation().layers if layer.title == "Drums"
+        )
 
         harness.dispatch(Play())
         harness.advance_playback(iterations=6)
@@ -237,14 +394,22 @@ def test_app_flow_harness_derived_audio_layers_produce_distinct_playback_output(
         runtime_audio = _install_deterministic_runtime_audio(harness)
         harness.runtime.add_song_from_path(
             "Derived Playback Song",
-            write_test_tone_wav(temp_root / "fixtures" / "derived-song.wav", duration_seconds=1.5, frequency_hz=220.0),
+            write_test_tone_wav(
+                temp_root / "fixtures" / "derived-song.wav",
+                duration_seconds=1.5,
+                frequency_hz=220.0,
+            ),
         )
         after_stems = harness.runtime.extract_stems("source_audio")
         harness.widget.set_presentation(after_stems)
         harness._app.processEvents()
 
-        drums_layer = next(layer for layer in harness.presentation().layers if layer.title == "Drums")
-        bass_layer = next(layer for layer in harness.presentation().layers if layer.title == "Bass")
+        drums_layer = next(
+            layer for layer in harness.presentation().layers if layer.title == "Drums"
+        )
+        bass_layer = next(
+            layer for layer in harness.presentation().layers if layer.title == "Bass"
+        )
 
         _route_monitor_to_layer(harness, drums_layer.layer_id)
         drums_mix = runtime_audio.engine.mixer.read_mix(0, 512)

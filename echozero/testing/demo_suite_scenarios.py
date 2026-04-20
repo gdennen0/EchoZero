@@ -24,14 +24,21 @@ from echozero.application.presentation.models import (
 )
 from echozero.application.shared.enums import SyncMode
 from echozero.application.sync.models import LiveSyncState
-from echozero.application.timeline.intents import Pause, Play, Seek, SelectEvent, SelectLayer, Stop, ToggleLayerExpanded
+from echozero.application.timeline.intents import (
+    Pause,
+    Play,
+    Seek,
+    SelectEvent,
+    SelectLayer,
+    Stop,
+    ToggleLayerExpanded,
+)
+from echozero.testing.analysis_mocks import write_test_wav
 from echozero.ui.qt.app_shell import AppShellRuntime, build_app_shell
 from echozero.ui.qt.font_bootstrap import ensure_qt_fonts_available
 from echozero.ui.qt.timeline.demo_app import build_demo_app, build_real_data_demo_app
 from echozero.ui.qt.timeline.test_harness import estimate_full_window_height
 from echozero.ui.qt.timeline.widget import TimelineWidget
-from echozero.testing.analysis_mocks import write_test_wav
-
 
 DEFAULT_REFERENCE_ROOT = Path("C:/Users/griff/.openclaw/workspace/tmp/timeline-demo")
 DEFAULT_RELEASES_ROOT = Path("artifacts/releases/test")
@@ -93,7 +100,7 @@ def _write_looped_mp4(image_path: Path, output_path: Path, fps: int) -> Path | N
         "-i",
         str(image_path),
         "-vf",
-        "format=yuv420p",
+        "scale=trunc(iw/2)*2:trunc(ih/2)*2,format=yuv420p",
         str(output_path),
     ]
     subprocess.run(command, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
@@ -120,7 +127,9 @@ def _snapshot(
             artifacts["video"] = _relative_path(video_path, run_folder)
         else:
             scenario_notes.append("ffmpeg not available; skipped video capture")
-    return ScenarioResult(group=group, name=name, status="passed", artifacts=artifacts, notes=scenario_notes)
+    return ScenarioResult(
+        group=group, name=name, status="passed", artifacts=artifacts, notes=scenario_notes
+    )
 
 
 def _first_layer_with_events(presentation: TimelinePresentation) -> LayerPresentation:
@@ -137,20 +146,30 @@ def _first_layer_with_takes(presentation: TimelinePresentation) -> LayerPresenta
     raise ValueError("No layer with takes found in demo presentation")
 
 
-def _move_selected_events_presentation(presentation: TimelinePresentation, delta_seconds: float) -> TimelinePresentation:
+def _move_selected_events_presentation(
+    presentation: TimelinePresentation, delta_seconds: float
+) -> TimelinePresentation:
     updated_layers: list[LayerPresentation] = []
     for layer in presentation.layers:
         updated_events = []
         for event in layer.events:
             if event.is_selected:
-                updated_events.append(replace(event, start=max(0.0, event.start + delta_seconds), end=max(0.1, event.end + delta_seconds)))
+                updated_events.append(
+                    replace(
+                        event,
+                        start=max(0.0, event.start + delta_seconds),
+                        end=max(0.1, event.end + delta_seconds),
+                    )
+                )
             else:
                 updated_events.append(event)
         updated_layers.append(replace(layer, events=updated_events))
     return replace(presentation, layers=updated_layers)
 
 
-def _duplicate_selected_events_presentation(presentation: TimelinePresentation, offset_seconds: float = 0.5) -> TimelinePresentation:
+def _duplicate_selected_events_presentation(
+    presentation: TimelinePresentation, offset_seconds: float = 0.5
+) -> TimelinePresentation:
     updated_layers: list[LayerPresentation] = []
     for layer in presentation.layers:
         next_events = list(layer.events)
@@ -181,7 +200,9 @@ def _canonical_push_surface(presentation: TimelinePresentation) -> TimelinePrese
             push_mode_active=True,
             selected_layer_ids=[layer_id],
             available_tracks=[
-                ManualPushTrackOptionPresentation(coord="tc1_tg2_tr3", name="Track 3", note="Bass", event_count=8),
+                ManualPushTrackOptionPresentation(
+                    coord="tc1_tg2_tr3", name="Track 3", note="Bass", event_count=8
+                ),
             ],
         ),
     )
@@ -196,25 +217,35 @@ def _canonical_pull_surface(presentation: TimelinePresentation) -> TimelinePrese
         manual_pull_flow=ManualPullFlowPresentation(
             workspace_active=True,
             available_tracks=[
-                ManualPullTrackOptionPresentation(coord="tc1_tg2_tr3", name="MA3 Track", note="Lead", event_count=2),
+                ManualPullTrackOptionPresentation(
+                    coord="tc1_tg2_tr3", name="MA3 Track", note="Lead", event_count=2
+                ),
             ],
             selected_source_track_coords=["tc1_tg2_tr3"],
             active_source_track_coord="tc1_tg2_tr3",
             source_track_coord="tc1_tg2_tr3",
             available_events=[
-                ManualPullEventOptionPresentation(event_id="ma3_evt_1", label="Cue 1", start=1.0, end=1.5),
-                ManualPullEventOptionPresentation(event_id="ma3_evt_2", label="Cue 2", start=2.0, end=2.5),
+                ManualPullEventOptionPresentation(
+                    event_id="ma3_evt_1", label="Cue 1", start=1.0, end=1.5
+                ),
+                ManualPullEventOptionPresentation(
+                    event_id="ma3_evt_2", label="Cue 2", start=2.0, end=2.5
+                ),
             ],
             selected_ma3_event_ids=["ma3_evt_1"],
             available_target_layers=[
-                ManualPullTargetOptionPresentation(layer_id=layer_id, name=presentation.layers[0].title),
+                ManualPullTargetOptionPresentation(
+                    layer_id=layer_id, name=presentation.layers[0].title
+                ),
             ],
             target_layer_id=layer_id,
         ),
     )
 
 
-def _canonical_sync_presentation(presentation: TimelinePresentation, enabled: bool) -> TimelinePresentation:
+def _canonical_sync_presentation(
+    presentation: TimelinePresentation, enabled: bool
+) -> TimelinePresentation:
     updated_layers = [
         replace(
             layer,
@@ -331,7 +362,9 @@ def include_packaged_app_evidence(
     ]
 
 
-def canonical_app_lifecycle(*, run_folder: Path, record: bool, fps: int, **_: object) -> list[ScenarioResult]:
+def canonical_app_lifecycle(
+    *, run_folder: Path, record: bool, fps: int, **_: object
+) -> list[ScenarioResult]:
     app = _app()
     scenario_root = run_folder / "canonical_app_lifecycle"
     working_root = scenario_root / "working"
@@ -344,10 +377,14 @@ def canonical_app_lifecycle(*, run_folder: Path, record: bool, fps: int, **_: ob
     if not isinstance(runtime, AppShellRuntime):
         raise TypeError("Expected canonical AppShellRuntime for demo suite")
 
-    widget = TimelineWidget(runtime.presentation(), on_intent=runtime.dispatch, runtime_audio=runtime.runtime_audio)
+    widget = TimelineWidget(
+        runtime.presentation(), on_intent=runtime.dispatch, runtime_audio=runtime.runtime_audio
+    )
     results: list[ScenarioResult] = []
 
-    def capture_current(name: str, presentation: TimelinePresentation | None = None, notes: list[str] | None = None) -> None:
+    def capture_current(
+        name: str, presentation: TimelinePresentation | None = None, notes: list[str] | None = None
+    ) -> None:
         current = runtime.presentation() if presentation is None else presentation
         widget.resize(1440, estimate_full_window_height(current))
         widget.set_presentation(current)
@@ -409,13 +446,19 @@ def canonical_app_lifecycle(*, run_folder: Path, record: bool, fps: int, **_: ob
     return results
 
 
-def fixture_rich_editing_flow(*, run_folder: Path, record: bool, fps: int, **_: object) -> list[ScenarioResult]:
+def fixture_rich_editing_flow(
+    *, run_folder: Path, record: bool, fps: int, **_: object
+) -> list[ScenarioResult]:
     app = _app()
     demo = build_demo_app()
-    widget = TimelineWidget(demo.presentation(), on_intent=demo.dispatch, runtime_audio=demo.runtime_audio)
+    widget = TimelineWidget(
+        demo.presentation(), on_intent=demo.dispatch, runtime_audio=demo.runtime_audio
+    )
     results: list[ScenarioResult] = []
 
-    def capture_current(name: str, presentation: TimelinePresentation | None = None, notes: list[str] | None = None) -> None:
+    def capture_current(
+        name: str, presentation: TimelinePresentation | None = None, notes: list[str] | None = None
+    ) -> None:
         current = demo.presentation() if presentation is None else presentation
         widget.resize(1440, estimate_full_window_height(current))
         widget.set_presentation(current)
@@ -447,7 +490,11 @@ def fixture_rich_editing_flow(*, run_folder: Path, record: bool, fps: int, **_: 
 
         selected_layer = demo.presentation()
         event_layer = _first_layer_with_events(selected_layer)
-        demo.dispatch(SelectEvent(event_layer.layer_id, event_layer.main_take_id, event_layer.events[0].event_id))
+        demo.dispatch(
+            SelectEvent(
+                event_layer.layer_id, event_layer.main_take_id, event_layer.events[0].event_id
+            )
+        )
         capture_current("event_selection")
 
         nudged = _move_selected_events_presentation(demo.presentation(), 1.0 / 30.0)
@@ -512,10 +559,14 @@ def real_data_scenario(
     app = _app()
     working_root = run_folder / "real-data-working"
     demo, summary = build_real_data_demo_app(audio_path=audio_path, working_root=working_root)
-    widget = TimelineWidget(demo.presentation(), on_intent=demo.dispatch, runtime_audio=demo.runtime_audio)
+    widget = TimelineWidget(
+        demo.presentation(), on_intent=demo.dispatch, runtime_audio=demo.runtime_audio
+    )
     results: list[ScenarioResult] = []
 
-    def capture_current(name: str, presentation: TimelinePresentation | None = None, notes: list[str] | None = None) -> None:
+    def capture_current(
+        name: str, presentation: TimelinePresentation | None = None, notes: list[str] | None = None
+    ) -> None:
         current = demo.presentation() if presentation is None else presentation
         widget.resize(1440, estimate_full_window_height(current))
         widget.set_presentation(current)

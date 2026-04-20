@@ -5,8 +5,13 @@ from dataclasses import replace
 from pathlib import Path
 
 import echozero.pipelines.templates  # noqa: F401
-from echozero.application.presentation.models import EventPresentation, LayerStatusPresentation, TakeActionPresentation, TakeLanePresentation
-from echozero.application.presentation.models import TimelinePresentation
+from echozero.application.presentation.models import (
+    EventPresentation,
+    LayerStatusPresentation,
+    TakeActionPresentation,
+    TakeLanePresentation,
+    TimelinePresentation,
+)
 from echozero.application.session.models import Session
 from echozero.application.shared.enums import LayerKind, PlaybackStatus, SyncMode
 from echozero.application.shared.ids import LayerId, ProjectId, SessionId, SongId, SongVersionId
@@ -19,6 +24,8 @@ from echozero.application.timeline.intents import (
     ApplyTransferPlan,
     ConfirmPullFromMA3,
     ConfirmPushToMA3,
+    CreateEvent,
+    DeleteEvents,
     DuplicateSelectedEvents,
     MoveEvent,
     MoveSelectedEvents,
@@ -30,36 +37,65 @@ from echozero.application.timeline.intents import (
     TriggerTakeAction,
     TrimEvent,
 )
-from echozero.application.timeline.models import Layer, LayerPresentationHints, LayerProvenance, LayerStatus, LayerSyncState, Timeline
+from echozero.application.timeline.models import (
+    Layer,
+    LayerPresentationHints,
+    LayerProvenance,
+    LayerStatus,
+    LayerSyncState,
+    Timeline,
+)
+from echozero.application.timeline.object_actions import (
+    ApplyCopySource,
+    ChangeSessionScope,
+    ObjectActionService,
+    ObjectActionSettingsPlan,
+    ObjectActionSettingsSession,
+    PreviewCopySource,
+    ReplaceSessionValues,
+    RunSession,
+    SaveAndRunSession,
+    SaveSession,
+    SetSessionFieldValue,
+)
 from echozero.domain.types import AudioData
-from echozero.persistence.session import ProjectStorage
-from echozero.inference_eval.runtime_preflight import resolve_runtime_model_path
 from echozero.models.paths import ensure_installed_models_dir
 from echozero.models.runtime_bundle_selection import resolve_installed_binary_drum_bundles
+from echozero.persistence.session import ProjectStorage
 from echozero.pipelines.registry import get_registry
-from echozero.processors import DetectOnsetsProcessor, LoadAudioProcessor, PyTorchAudioClassifyProcessor, SeparateAudioProcessor
+from echozero.processors import (
+    DetectOnsetsProcessor,
+    LoadAudioProcessor,
+    PyTorchAudioClassifyProcessor,
+    SeparateAudioProcessor,
+)
 from echozero.processors.binary_drum_classify import BinaryDrumClassifyProcessor
-from echozero.result import is_err
-from echozero.runtime_models.bundle_compat import upgrade_installed_runtime_bundles
 from echozero.services.orchestrator import AnalysisService
-from echozero.ui.qt.timeline.fixture_loader import load_realistic_timeline_fixture  # noqa: F401
-from echozero.ui.qt.app_shell_runtime_services import build_runtime_timeline_application
 from echozero.ui.qt.app_shell_project_timeline import (
     AudioPresentationFields as _AudioPresentationFields,
-    TimelinePresentationOverlay as _TimelinePresentationOverlay,
-    apply_timeline_presentation_overlay as _apply_timeline_presentation_overlay,
-    build_project_native_baseline_timeline as _build_project_native_baseline_timeline,
-    format_time as _format_time,
 )
+from echozero.ui.qt.app_shell_project_timeline import (
+    TimelinePresentationOverlay as _TimelinePresentationOverlay,
+)
+from echozero.ui.qt.app_shell_project_timeline import (
+    apply_timeline_presentation_overlay as _apply_timeline_presentation_overlay,
+)
+from echozero.ui.qt.app_shell_project_timeline import (
+    build_project_native_baseline_timeline as _build_project_native_baseline_timeline,
+)
+from echozero.ui.qt.app_shell_project_timeline import format_time as _format_time
+from echozero.ui.qt.app_shell_runtime_services import build_runtime_timeline_application
+from echozero.ui.qt.timeline.fixture_loader import load_realistic_timeline_fixture  # noqa: F401
 from echozero.ui.qt.timeline.runtime_audio import TimelineRuntimeAudioController
 from echozero.ui.qt.timeline.style import TIMELINE_STYLE
-
 
 _DIRTYING_INTENT_TYPES = (
     ApplyPullFromMA3,
     ApplyTransferPlan,
     ConfirmPullFromMA3,
     ConfirmPushToMA3,
+    CreateEvent,
+    DeleteEvents,
     DuplicateSelectedEvents,
     MoveEvent,
     MoveSelectedEvents,
@@ -71,6 +107,8 @@ _DIRTYING_INTENT_TYPES = (
     TriggerTakeAction,
     TrimEvent,
 )
+
+
 class AppShellRuntime:
     def __init__(
         self,
@@ -84,6 +122,13 @@ class AppShellRuntime:
         self._sync_bridge = sync_bridge
         self._sync_service_override = sync_service
         self._analysis_service = analysis_service or _build_runtime_analysis_service()
+        self._object_action_settings = ObjectActionService(
+            project_storage_getter=lambda: self.project_storage,
+            session_getter=lambda: self.session,
+            presentation_getter=self.presentation,
+            require_layer=self._require_layer,
+            analysis_service=self._analysis_service,
+        )
         self._is_dirty = False
         self._app = self._build_runtime_app(
             project_storage=project_storage,
@@ -218,6 +263,154 @@ class AppShellRuntime:
         self._is_dirty = True
         return self.presentation()
 
+    def run_object_action(
+        self,
+        action_id: str,
+        params: dict[str, object] | None = None,
+        *,
+        object_id: object | None = None,
+        object_type: str | None = None,
+    ) -> TimelinePresentation:
+        """Execute one object-scoped action through the canonical runtime path."""
+        self._object_action_settings.run(
+            action_id,
+            params,
+            object_id=object_id,
+            object_type=object_type,
+        )
+        self._refresh_from_storage(
+            active_song_id=self.session.active_song_id,
+            active_song_version_id=self.session.active_song_version_id,
+        )
+        self._is_dirty = True
+        return self.presentation()
+
+    def open_object_action_session(
+        self,
+        action_id: str,
+        params: dict[str, object] | None = None,
+        *,
+        object_id: object | None = None,
+        object_type: str | None = None,
+        scope: str = "version",
+    ) -> ObjectActionSettingsSession:
+        return self._object_action_settings.open_session(
+            action_id,
+            params,
+            object_id=object_id,
+            object_type=object_type,
+            scope=scope,
+        )
+
+    def dispatch_object_action_command(
+        self,
+        session_id: str,
+        command: object,
+    ) -> ObjectActionSettingsSession:
+        session = self._object_action_settings.dispatch_command(session_id, command)
+        if isinstance(command, (RunSession, SaveAndRunSession)):
+            self._refresh_from_storage(
+                active_song_id=self.session.active_song_id,
+                active_song_version_id=self.session.active_song_version_id,
+            )
+            self._is_dirty = True
+        elif isinstance(command, (SaveSession, ApplyCopySource)):
+            self._is_dirty = True
+        elif isinstance(
+            command,
+            (SetSessionFieldValue, ReplaceSessionValues, ChangeSessionScope, PreviewCopySource),
+        ):
+            self._is_dirty = self._is_dirty
+        return session
+
+    def save_object_action_settings(
+        self,
+        action_id: str,
+        params: dict[str, object] | None = None,
+        *,
+        object_id: object | None = None,
+        object_type: str | None = None,
+        scope: str = "version",
+    ) -> ObjectActionSettingsPlan:
+        """Persist editable settings for one object action and return the refreshed plan."""
+        self._is_dirty = True
+        return self._object_action_settings.save(
+            action_id,
+            params,
+            object_id=object_id,
+            object_type=object_type,
+            scope=scope,
+        )
+
+    def describe_object_action(
+        self,
+        action_id: str,
+        params: dict[str, object] | None = None,
+        *,
+        object_id: object | None = None,
+        object_type: str | None = None,
+        scope: str = "version",
+    ) -> ObjectActionSettingsPlan:
+        """Describe editable settings and locked bindings for one object action."""
+        return self._object_action_settings.describe(
+            action_id,
+            params,
+            object_id=object_id,
+            object_type=object_type,
+            scope=scope,
+        )
+
+    def preview_object_action_settings_copy(
+        self,
+        action_id: str,
+        *,
+        source_scope: str,
+        target_scope: str,
+        source_song_id: str | None = None,
+        source_version_id: str | None = None,
+        target_song_id: str | None = None,
+        target_version_id: str | None = None,
+        keys: list[str] | None = None,
+    ) -> dict[str, object]:
+        """Preview partial settings copy between song-default and version scopes."""
+        return self._object_action_settings.preview_copy(
+            action_id,
+            source_scope=source_scope,
+            target_scope=target_scope,
+            source_song_id=source_song_id,
+            source_version_id=source_version_id,
+            target_song_id=target_song_id,
+            target_version_id=target_version_id,
+            keys=keys,
+        )
+
+    def apply_object_action_settings_copy(
+        self,
+        action_id: str,
+        *,
+        source_scope: str,
+        target_scope: str,
+        source_song_id: str | None = None,
+        source_version_id: str | None = None,
+        target_song_id: str | None = None,
+        target_version_id: str | None = None,
+        keys: list[str] | None = None,
+    ) -> dict[str, object]:
+        """Apply partial settings copy between song-default and version scopes."""
+        preview = self._object_action_settings.apply_copy(
+            action_id,
+            source_scope=source_scope,
+            target_scope=target_scope,
+            source_song_id=source_song_id,
+            source_version_id=source_version_id,
+            target_song_id=target_song_id,
+            target_version_id=target_version_id,
+            keys=keys,
+        )
+        if preview["changes"]:
+            self._is_dirty = True
+        return preview
+
     def select_song(self, song_id: str | SongId) -> TimelinePresentation:
         song_record = self.project_storage.songs.get(str(song_id))
         if song_record is None:
@@ -241,9 +434,7 @@ class AppShellRuntime:
 
         song_record = self.project_storage.songs.get(version_record.song_id)
         if song_record is None:
-            raise RuntimeError(
-                f"SongRecord not found for SongVersionRecord '{version_record.id}'"
-            )
+            raise RuntimeError(f"SongRecord not found for SongVersionRecord '{version_record.id}'")
 
         if song_record.active_version_id != version_record.id:
             self.project_storage.songs.update(
@@ -291,106 +482,51 @@ class AppShellRuntime:
         return self.presentation()
 
     def extract_stems(self, layer_id) -> TimelinePresentation:
-        layer = self._require_layer(layer_id)
-        if self.session.active_song_version_id is None:
-            raise RuntimeError("extract_stems requires an active song version.")
-        if layer.kind is not LayerKind.AUDIO:
-            raise ValueError(f"extract_stems requires an audio layer, got {layer.kind.name.lower()}.")
-        if str(layer.layer_id) != "source_audio":
-            raise NotImplementedError(
-                "extract_stems currently runs only from the imported song layer. "
-                "Derived-audio reruns are deferred until arbitrary-layer pipeline input is wired."
-            )
-        result = self._analysis_service.analyze(
-            self.project_storage,
-            str(self.session.active_song_version_id),
-            "stem_separation",
+        return self.run_object_action(
+            "timeline.extract_stems", object_id=layer_id, object_type="layer"
         )
-        if is_err(result):
-            raise RuntimeError(f"extract_stems failed: {result.error}")
-        self._refresh_from_storage(
-            active_song_id=self.session.active_song_id,
-            active_song_version_id=self.session.active_song_version_id,
-        )
-        self._is_dirty = True
-        return self.presentation()
 
     def extract_drum_events(self, layer_id) -> TimelinePresentation:
-        layer = self._require_layer(layer_id)
-        song_version_id = self._require_active_song_version_id("extract_drum_events")
-        self._validate_drum_derived_audio_layer(layer, action_name="extract_drum_events")
-
-        result = self._analysis_service.analyze(
-            self.project_storage,
-            song_version_id,
-            "onset_detection",
-            bindings={"audio_file": layer.source_audio_path},
+        return self.run_object_action(
+            "timeline.extract_drum_events", object_id=layer_id, object_type="layer"
         )
-        if is_err(result):
-            raise RuntimeError(f"extract_drum_events failed: {result.error}")
-        self._refresh_from_storage(
-            active_song_id=self.session.active_song_id,
-            active_song_version_id=self.session.active_song_version_id,
-        )
-        self._is_dirty = True
-        return self.presentation()
 
     def classify_drum_events(self, layer_id, model_path: str | Path) -> TimelinePresentation:
-        layer = self._require_layer(layer_id)
-        song_version_id = self._require_active_song_version_id("classify_drum_events")
-        self._validate_drum_derived_audio_layer(layer, action_name="classify_drum_events")
-
-        resolved_model_path = resolve_runtime_model_path(model_path)
-        if not str(resolved_model_path).strip():
-            raise ValueError("classify_drum_events requires a non-empty model path.")
-
-        result = self._analysis_service.analyze(
-            self.project_storage,
-            song_version_id,
-            "drum_classification",
-            bindings={
-                "audio_file": layer.source_audio_path,
-                "classify_model_path": str(resolved_model_path),
-            },
+        return self.run_object_action(
+            "timeline.classify_drum_events",
+            {"model_path": model_path},
+            object_id=layer_id,
+            object_type="layer",
         )
-        if is_err(result):
-            raise RuntimeError(f"classify_drum_events failed: {result.error}")
-        self._refresh_from_storage(
-            active_song_id=self.session.active_song_id,
-            active_song_version_id=self.session.active_song_version_id,
-        )
-        self._is_dirty = True
-        return self.presentation()
 
     def extract_classified_drums(self, layer_id) -> TimelinePresentation:
-        layer = self._require_layer(layer_id)
-        song_version_id = self._require_active_song_version_id("extract_classified_drums")
-        self._validate_drum_derived_audio_layer(layer, action_name="extract_classified_drums")
+        return self.run_object_action(
+            "timeline.extract_classified_drums", object_id=layer_id, object_type="layer"
+        )
 
-        upgrade_installed_runtime_bundles(ensure_installed_models_dir())
-        bundles = resolve_installed_binary_drum_bundles()
-        result = self._analysis_service.analyze(
-            self.project_storage,
-            song_version_id,
-            "extract_classified_drums",
-            bindings={
-                "audio_file": layer.source_audio_path,
-                "kick_model_path": str(bundles["kick"].manifest_path),
-                "snare_model_path": str(bundles["snare"].manifest_path),
-            },
+    def preview_event_clip(self, *, layer_id, take_id=None, event_id) -> None:
+        runtime_audio = self.runtime_audio
+        if runtime_audio is None or not hasattr(runtime_audio, "preview_clip"):
+            raise RuntimeError("This runtime does not support event clip preview.")
+
+        clip = self._resolve_event_clip_preview(
+            self.presentation(),
+            layer_id=layer_id,
+            take_id=take_id,
+            event_id=event_id,
         )
-        if is_err(result):
-            raise RuntimeError(f"extract_classified_drums failed: {result.error}")
-        self._refresh_from_storage(
-            active_song_id=self.session.active_song_id,
-            active_song_version_id=self.session.active_song_version_id,
+        runtime_audio.preview_clip(
+            clip["source_ref"],
+            start_seconds=clip["start_seconds"],
+            end_seconds=clip["end_seconds"],
+            gain_db=clip["gain_db"],
         )
-        self._is_dirty = True
-        return self.presentation()
 
     def shutdown(self) -> None:
         if self.runtime_audio is not None:
             self.runtime_audio.shutdown()
+        if self._sync_bridge is not None and hasattr(self._sync_bridge, "shutdown"):
+            self._sync_bridge.shutdown()
         self.project_storage.close()
 
     def enable_sync(self, mode: SyncMode = SyncMode.MA3) -> SyncState:
@@ -425,14 +561,18 @@ class AppShellRuntime:
         active_song_version_id: SongVersionId | None = None,
     ) -> None:
         current_presentation = self.presentation()
-        timeline, overlay, resolved_song_id, resolved_song_version_id = _build_project_native_baseline_timeline(
-            self.project_storage,
-            active_song_id=active_song_id,
-            active_song_version_id=active_song_version_id,
+        timeline, overlay, resolved_song_id, resolved_song_version_id = (
+            _build_project_native_baseline_timeline(
+                self.project_storage,
+                active_song_id=active_song_id,
+                active_song_version_id=active_song_version_id,
+            )
         )
-        self._app.presentation_enricher = lambda presentation: _apply_timeline_presentation_overlay(
-            presentation,
-            overlay=overlay,
+        self._app.presentation_enricher = (
+            lambda presentation: _apply_timeline_presentation_overlay(
+                presentation,
+                overlay=overlay,
+            )
         )
         self._app.replace_timeline(timeline)
         self._restore_timeline_targets(current_presentation)
@@ -455,6 +595,50 @@ class AppShellRuntime:
                 return layer
         raise ValueError(f"Unknown layer_id: {layer_id}")
 
+    @staticmethod
+    def _resolve_event_clip_preview(
+        presentation: TimelinePresentation,
+        *,
+        layer_id,
+        take_id,
+        event_id,
+    ) -> dict[str, object]:
+        for layer in presentation.layers:
+            if layer.layer_id != layer_id:
+                continue
+            if take_id in (None, layer.main_take_id):
+                for event in layer.events:
+                    if event.event_id == event_id:
+                        source_ref = layer.playback_source_ref or layer.source_audio_path
+                        if not source_ref:
+                            raise RuntimeError("Selected event does not have a source audio clip.")
+                        return {
+                            "source_ref": source_ref,
+                            "start_seconds": float(event.start),
+                            "end_seconds": float(event.end),
+                            "gain_db": float(layer.gain_db),
+                        }
+            for take in layer.takes:
+                if take.take_id != take_id:
+                    continue
+                for event in take.events:
+                    if event.event_id == event_id:
+                        source_ref = (
+                            take.playback_source_ref
+                            or take.source_audio_path
+                            or layer.playback_source_ref
+                            or layer.source_audio_path
+                        )
+                        if not source_ref:
+                            raise RuntimeError("Selected event does not have a source audio clip.")
+                        return {
+                            "source_ref": source_ref,
+                            "start_seconds": float(event.start),
+                            "end_seconds": float(event.end),
+                            "gain_db": float(layer.gain_db),
+                        }
+        raise ValueError(f"Unknown event clip preview target: {event_id}")
+
     def _require_active_song_version_id(self, action_name: str) -> str:
         song_version_id = self.session.active_song_version_id
         if song_version_id is None:
@@ -468,13 +652,19 @@ class AppShellRuntime:
                 f"{action_name} requires an audio layer, got {layer.kind.name.lower()}."
             )
         if not layer.source_audio_path:
-            raise RuntimeError(f"{action_name} requires a source audio path on the selected layer.")
+            raise RuntimeError(
+                f"{action_name} requires a source audio path on the selected layer."
+            )
 
         title_lower = layer.title.lower()
-        source_label = (layer.status.source_label if layer.status is not None else "")
+        source_label = layer.status.source_label if layer.status is not None else ""
         source_label_lower = source_label.lower()
         badges = {str(badge).strip().lower() for badge in layer.badges}
-        if "drum" not in title_lower and "drums" not in badges and "drum" not in source_label_lower:
+        if (
+            "drum" not in title_lower
+            and "drums" not in badges
+            and "drum" not in source_label_lower
+        ):
             raise NotImplementedError(
                 f"{action_name} currently runs only from drum-derived audio layers. "
                 "Select a drums layer produced by stem separation."
@@ -482,7 +672,9 @@ class AppShellRuntime:
 
     def _restore_timeline_targets(self, prior_presentation: TimelinePresentation) -> None:
         current_presentation = self.presentation()
-        selected_layer_id = self._resolve_preserved_selected_layer_id(prior_presentation, current_presentation)
+        selected_layer_id = self._resolve_preserved_selected_layer_id(
+            prior_presentation, current_presentation
+        )
         selected_take_id = self._resolve_take_id(
             current_presentation,
             layer_id=selected_layer_id,
@@ -499,7 +691,9 @@ class AppShellRuntime:
         )
         timeline = self._app.timeline
         timeline.selection.selected_layer_id = selected_layer_id
-        timeline.selection.selected_layer_ids = [selected_layer_id] if selected_layer_id is not None else []
+        timeline.selection.selected_layer_ids = (
+            [selected_layer_id] if selected_layer_id is not None else []
+        )
         timeline.selection.selected_take_id = selected_take_id
         timeline.selection.selected_event_ids = []
         timeline.playback_target.layer_id = active_playback_layer_id

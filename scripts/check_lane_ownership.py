@@ -8,6 +8,7 @@ Connects docs/DEV-LANES.md ownership rules to a cross-platform local check.
 from __future__ import annotations
 
 import argparse
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -35,7 +36,15 @@ def _git_current_branch(repo_root: Path) -> str:
 
 def _git_changed_files(repo_root: Path, *, base_ref: str) -> list[str]:
     result = subprocess.run(
-        ["git", "-C", str(repo_root), "diff", "--name-only", "--diff-filter=ACMR", f"{base_ref}...HEAD"],
+        [
+            "git",
+            "-C",
+            str(repo_root),
+            "diff",
+            "--name-only",
+            "--diff-filter=ACMR",
+            f"{base_ref}...HEAD",
+        ],
         capture_output=True,
         text=True,
         check=True,
@@ -53,6 +62,16 @@ def _infer_lane(branch_name: str) -> str | None:
     return None
 
 
+def _git_action_branch_name() -> str | None:
+    head_ref = os.environ.get("GITHUB_HEAD_REF")
+    if head_ref:
+        return head_ref.strip() or None
+    ref_name = os.environ.get("GITHUB_REF_NAME")
+    if ref_name:
+        return ref_name.strip() or None
+    return None
+
+
 def _is_opposing_lane_path(path: str, *, lane: str) -> bool:
     opposing_lane = "foundry" if lane == "ez" else "ez"
     return path.startswith(LANE_RULES[opposing_lane])
@@ -66,7 +85,7 @@ def main(argv: list[str] | None = None) -> int:
     parsed = parser.parse_args(argv)
 
     repo_root = Path(__file__).resolve().parents[1]
-    branch_name = _git_current_branch(repo_root)
+    branch_name = _git_action_branch_name() or _git_current_branch(repo_root)
     lane = parsed.lane or _infer_lane(branch_name)
     if lane is None:
         print(f"Lane ownership check skipped: branch '{branch_name}' is not a lane branch.")

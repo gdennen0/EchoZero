@@ -15,7 +15,11 @@ from typing import Callable
 import numpy as np
 import soundfile as sf
 
-from echozero.application.playback.models import PlaybackSource, PlaybackState, PlaybackTimingSnapshot
+from echozero.application.playback.models import (
+    PlaybackSource,
+    PlaybackState,
+    PlaybackTimingSnapshot,
+)
 from echozero.application.presentation.models import TimelinePresentation
 from echozero.application.shared.enums import LayerKind, PlaybackMode, PlaybackStatus
 from echozero.audio.engine import AudioEngine
@@ -49,15 +53,24 @@ class PresentationPlaybackRuntime:
     """Playback runtime facade for the current presentation-backed app shell."""
 
     _MONITOR_LAYER_ID = "__ez_monitor__"
+    _PREVIEW_LAYER_ID = "__ez_preview__"
 
     def __init__(
         self,
         engine: AudioEngine | None = None,
         *,
         engine_factory: Callable[[], AudioEngine] | None = None,
+        preview_engine: AudioEngine | None = None,
+        preview_engine_factory: Callable[[], AudioEngine] | None = None,
         audio_loader: Callable[[str | Path], tuple[np.ndarray, int]] = _load_mono_audio,
     ) -> None:
-        self._engine = engine or (engine_factory() if engine_factory is not None else AudioEngine())
+        self._engine = engine or (
+            engine_factory() if engine_factory is not None else AudioEngine()
+        )
+        resolved_preview_factory = preview_engine_factory or engine_factory
+        self._preview_engine = preview_engine or (
+            resolved_preview_factory() if resolved_preview_factory is not None else AudioEngine()
+        )
         self._audio_loader = audio_loader
         self._loaded_source_key: str | None = None
         self._buffer_cache: dict[str, tuple[np.ndarray, int]] = {}
@@ -99,9 +112,7 @@ class PresentationPlaybackRuntime:
             audible_time_seconds=max(0.0, float(snapshot_time)),
             clock_time_seconds=max(0.0, clock_time),
             snapshot_monotonic_seconds=(
-                max(0.0, float(snapshot_monotonic))
-                if snapshot_monotonic is not None
-                else None
+                max(0.0, float(snapshot_monotonic)) if snapshot_monotonic is not None else None
             ),
             is_playing=is_playing,
         )
@@ -111,8 +122,58 @@ class PresentationPlaybackRuntime:
 
     def shutdown(self) -> None:
         self._engine.shutdown()
+        self.stop_preview()
+        self._preview_engine.shutdown()
 
-    def presentation_signature(self, presentation: TimelinePresentation) -> tuple[tuple[str, str], ...]:
+    def preview_clip(
+        self,
+        source_ref: str,
+        *,
+        start_seconds: float,
+        end_seconds: float,
+        gain_db: float = 0.0,
+    ) -> bool:
+        source_path = str(source_ref).strip()
+        if not source_path:
+            return False
+
+        source_key = f"preview:{source_path}"
+        source_buffer, sample_rate = self._buffer_cache.get(source_key) or self._audio_loader(
+            source_path
+        )
+        self._buffer_cache[source_key] = (source_buffer, sample_rate)
+        if source_buffer.size == 0:
+            return False
+
+        start_sample = max(0, int(round(float(start_seconds) * sample_rate)))
+        end_sample = max(start_sample, int(round(float(end_seconds) * sample_rate)))
+        end_sample = min(end_sample, int(source_buffer.size))
+        if end_sample <= start_sample:
+            return False
+
+        preview_buffer = np.asarray(source_buffer[start_sample:end_sample], dtype=np.float32)
+        if preview_buffer.size == 0:
+            return False
+
+        self.stop_preview()
+        self._preview_engine.add_layer(
+            self._PREVIEW_LAYER_ID,
+            preview_buffer,
+            sample_rate,
+            name="Event Preview",
+            volume=_db_to_linear(gain_db),
+        )
+        self._preview_engine.seek_seconds(0.0)
+        self._preview_engine.play()
+        return True
+
+    def stop_preview(self) -> None:
+        self._preview_engine.stop()
+        self._preview_engine.remove_layer(self._PREVIEW_LAYER_ID)
+
+    def presentation_signature(
+        self, presentation: TimelinePresentation
+    ) -> tuple[tuple[str, str], ...]:
         active_layer = self._select_active_runtime_layer(presentation)
         if active_layer is None:
             return ()
@@ -174,7 +235,9 @@ class PresentationPlaybackRuntime:
             engine_layer.muted = False
             engine_layer.volume = _db_to_linear(active_layer.gain_db)
 
-    def _select_active_runtime_layer(self, presentation: TimelinePresentation) -> RuntimeAudioLayer | None:
+    def _select_active_runtime_layer(
+        self, presentation: TimelinePresentation
+    ) -> RuntimeAudioLayer | None:
         active_layer_id = presentation.active_playback_layer_id
         active_take_id = presentation.active_playback_take_id
         if active_layer_id is not None:
@@ -260,7 +323,9 @@ class PresentationPlaybackRuntime:
         source_audio_path: str,
     ) -> RuntimeAudioLayer:
         source_key = f"audio:{source_audio_path}"
-        buffer, sample_rate = self._buffer_cache.get(source_key) or self._audio_loader(source_audio_path)
+        buffer, sample_rate = self._buffer_cache.get(source_key) or self._audio_loader(
+            source_audio_path
+        )
         self._buffer_cache[source_key] = (buffer, sample_rate)
         return RuntimeAudioLayer(
             layer_id=layer_id,
@@ -283,11 +348,12 @@ class PresentationPlaybackRuntime:
         presentation_events: list,
     ) -> RuntimeAudioLayer | None:
         sample_source_key = f"event-sample:{playback_source_ref}"
-        event_buffer, sample_rate = self._buffer_cache.get(sample_source_key) or self._audio_loader(playback_source_ref)
+        event_buffer, sample_rate = self._buffer_cache.get(
+            sample_source_key
+        ) or self._audio_loader(playback_source_ref)
         self._buffer_cache[sample_source_key] = (event_buffer, sample_rate)
         event_signature = ",".join(
-            f"{event.start:.6f}:{int(event.muted)}"
-            for event in presentation_events
+            f"{event.start:.6f}:{int(event.muted)}" for event in presentation_events
         )
         rendered_source_key = f"event:{playback_source_ref}:{event_signature}"
         cached_render = self._buffer_cache.get(rendered_source_key)
@@ -337,7 +403,9 @@ class PresentationPlaybackRuntime:
         if not active_events:
             return np.zeros(0, dtype=np.float32)
 
-        start_samples = [max(0, int(round(float(event.start) * sample_rate))) for event in active_events]
+        start_samples = [
+            max(0, int(round(float(event.start) * sample_rate))) for event in active_events
+        ]
         total_samples = max(start_samples) + int(event_buffer.size)
         rendered = np.zeros(total_samples, dtype=np.float32)
 

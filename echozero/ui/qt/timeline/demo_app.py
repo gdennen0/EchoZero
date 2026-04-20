@@ -8,7 +8,7 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 from pathlib import Path
 
-from echozero.application.mixer.models import AudibilityState, MixerState, LayerMixerState
+from echozero.application.mixer.models import AudibilityState, LayerMixerState, MixerState
 from echozero.application.mixer.service import MixerService
 from echozero.application.playback.models import PlaybackState
 from echozero.application.playback.service import PlaybackService
@@ -35,6 +35,8 @@ from echozero.application.sync.models import SyncState
 from echozero.application.sync.service import SyncService
 from echozero.application.timeline.intents import (
     ClearSelection,
+    CreateEvent,
+    DeleteEvents,
     DuplicateSelectedEvents,
     MoveSelectedEvents,
     NudgeSelectedEvents,
@@ -47,10 +49,11 @@ from echozero.application.timeline.intents import (
     SelectLayer,
     SelectTake,
     SetActivePlaybackTarget,
+    SetGain,
+    SetSelectedEvents,
     Stop,
     TimelineIntent,
     ToggleLayerExpanded,
-    SetGain,
     TriggerTakeAction,
 )
 from echozero.application.transport.models import TransportState
@@ -142,7 +145,9 @@ class DemoMixerService(MixerService):
     def resolve_audibility(self, layers) -> list[AudibilityState]:
         resolved: list[AudibilityState] = []
         for layer in layers:
-            resolved.append(AudibilityState(layer_id=layer.layer_id, is_audible=True, reason='normal'))
+            resolved.append(
+                AudibilityState(layer_id=layer.layer_id, is_audible=True, reason="normal")
+            )
         return resolved
 
 
@@ -156,8 +161,12 @@ class DemoPlaybackService(PlaybackService):
     def prepare(self, timeline) -> PlaybackState:
         return self._session.playback_state
 
-    def update_runtime(self, timeline, transport: TransportState, audibility, sync: SyncState) -> PlaybackState:
-        self._session.playback_state.status = PlaybackStatus.PLAYING if transport.is_playing else PlaybackStatus.STOPPED
+    def update_runtime(
+        self, timeline, transport: TransportState, audibility, sync: SyncState
+    ) -> PlaybackState:
+        self._session.playback_state.status = (
+            PlaybackStatus.PLAYING if transport.is_playing else PlaybackStatus.STOPPED
+        )
         return self._session.playback_state
 
     def stop(self) -> PlaybackState:
@@ -180,7 +189,9 @@ class DemoTimelineApp:
             self.session.transport_state.playhead = self.runtime_audio.current_time_seconds()
             self.session.transport_state.is_playing = self.runtime_audio.is_playing()
             if hasattr(self.runtime_audio, "snapshot_state"):
-                self.session.playback_state = self.runtime_audio.snapshot_state(self.presentation_state)
+                self.session.playback_state = self.runtime_audio.snapshot_state(
+                    self.presentation_state
+                )
 
     def dispatch(self, intent: TimelineIntent) -> TimelinePresentation:
         if isinstance(intent, Pause):
@@ -223,16 +234,22 @@ class DemoTimelineApp:
             selected_ids = [intent.layer_id] if intent.layer_id is not None else []
             if intent.mode == "toggle" and intent.layer_id is not None:
                 current_ids = list(self.presentation_state.selected_layer_ids) or (
-                    [self.presentation_state.selected_layer_id] if self.presentation_state.selected_layer_id is not None else []
+                    [self.presentation_state.selected_layer_id]
+                    if self.presentation_state.selected_layer_id is not None
+                    else []
                 )
                 if intent.layer_id in current_ids:
-                    selected_ids = [layer_id for layer_id in current_ids if layer_id != intent.layer_id]
+                    selected_ids = [
+                        layer_id for layer_id in current_ids if layer_id != intent.layer_id
+                    ]
                 else:
                     selected_ids = [*current_ids, intent.layer_id]
             elif intent.mode == "range" and intent.layer_id is not None:
                 ordered_ids = [layer.layer_id for layer in self.presentation_state.layers]
                 anchor_id = self.presentation_state.selected_layer_id or intent.layer_id
-                low, high = sorted((ordered_ids.index(anchor_id), ordered_ids.index(intent.layer_id)))
+                low, high = sorted(
+                    (ordered_ids.index(anchor_id), ordered_ids.index(intent.layer_id))
+                )
                 selected_ids = ordered_ids[low : high + 1]
             layers = [
                 replace(layer, is_selected=(layer.layer_id in selected_ids))
@@ -283,6 +300,35 @@ class DemoTimelineApp:
                 selected_take_id=intent.take_id,
                 selected_event_ids=selected_ids,
             )
+        elif isinstance(intent, SetSelectedEvents):
+            self.presentation_state = replace(
+                self.presentation_state,
+                layers=_set_selected_events(
+                    self.presentation_state.layers,
+                    selected_event_ids=list(intent.event_ids),
+                ),
+                selected_layer_id=intent.anchor_layer_id,
+                selected_layer_ids=list(
+                    intent.selected_layer_ids
+                    or ([] if intent.anchor_layer_id is None else [intent.anchor_layer_id])
+                ),
+                selected_take_id=intent.anchor_take_id,
+                selected_event_ids=list(intent.event_ids),
+            )
+        elif isinstance(intent, CreateEvent):
+            self.presentation_state = _create_demo_event(
+                self.presentation_state,
+                layer_id=intent.layer_id,
+                take_id=intent.take_id,
+                start=float(intent.time_range.start),
+                end=float(intent.time_range.end),
+                label=intent.label,
+            )
+        elif isinstance(intent, DeleteEvents):
+            self.presentation_state = _delete_demo_events(
+                self.presentation_state,
+                event_ids=list(intent.event_ids),
+            )
         elif isinstance(intent, ClearSelection):
             layers = _clear_selection(self.presentation_state.layers)
             self.presentation_state = replace(
@@ -296,7 +342,12 @@ class DemoTimelineApp:
         elif isinstance(intent, TriggerTakeAction):
             self.presentation_state = replace(
                 self.presentation_state,
-                layers=_apply_take_action(self.presentation_state.layers, intent.layer_id, intent.take_id, intent.action_id),
+                layers=_apply_take_action(
+                    self.presentation_state.layers,
+                    intent.layer_id,
+                    intent.take_id,
+                    intent.action_id,
+                ),
             )
         elif isinstance(intent, NudgeSelectedEvents):
             self.presentation_state = _nudge_selected_events(
@@ -401,7 +452,9 @@ def _duplicate_selected_events(
                     is_selected=False,
                 )
             )
-        next_events.sort(key=lambda candidate: (candidate.start, candidate.end, str(candidate.event_id)))
+        next_events.sort(
+            key=lambda candidate: (candidate.start, candidate.end, str(candidate.event_id))
+        )
         layers.append(replace(layer, events=next_events))
     return replace(presentation, layers=layers)
 
@@ -437,10 +490,14 @@ def _move_selected_events(
             )
         if target_layer_id is not None and layer.layer_id == target_layer_id:
             next_events.extend(moved_events)
-            next_events.sort(key=lambda candidate: (candidate.start, candidate.end, str(candidate.event_id)))
+            next_events.sort(
+                key=lambda candidate: (candidate.start, candidate.end, str(candidate.event_id))
+            )
         elif target_layer_id is None and layer.layer_id == source_layer_id:
             next_events.extend(moved_events)
-            next_events.sort(key=lambda candidate: (candidate.start, candidate.end, str(candidate.event_id)))
+            next_events.sort(
+                key=lambda candidate: (candidate.start, candidate.end, str(candidate.event_id))
+            )
         updated_layers.append(replace(layer, events=next_events))
 
     selected_layer_id = target_layer_id if target_layer_id is not None else source_layer_id
@@ -487,19 +544,26 @@ def _open_push_workspace(
     batch_plan = BatchTransferPlanPresentation(
         plan_id="push:timeline_selection",
         operation_type="push",
-        rows=[
-            BatchTransferPlanRowPresentation(
-                row_id=f"push:{target_layer_id}",
-                direction="push",
-                source_label=next((layer.title for layer in layers if layer.layer_id == target_layer_id), "Selection"),
-                target_label="Unmapped",
-                source_layer_id=target_layer_id,
-                selected_event_ids=list(selected_event_ids),
-                selected_count=len(selected_event_ids),
-                status="blocked",
-                issue="Select an MA3 target track",
-            )
-        ] if target_layer_id is not None else [],
+        rows=(
+            [
+                BatchTransferPlanRowPresentation(
+                    row_id=f"push:{target_layer_id}",
+                    direction="push",
+                    source_label=next(
+                        (layer.title for layer in layers if layer.layer_id == target_layer_id),
+                        "Selection",
+                    ),
+                    target_label="Unmapped",
+                    source_layer_id=target_layer_id,
+                    selected_event_ids=list(selected_event_ids),
+                    selected_count=len(selected_event_ids),
+                    status="blocked",
+                    issue="Select an MA3 target track",
+                )
+            ]
+            if target_layer_id is not None
+            else []
+        ),
         blocked_count=1 if target_layer_id is not None else 0,
     )
     return replace(
@@ -540,15 +604,21 @@ def _open_pull_workspace(
             dialog_open=False,
             workspace_active=True,
             available_tracks=track_options,
-            available_events=[
-                ManualPullEventOptionPresentation(
-                    event_id=str(option.event_id),
-                    label=str(option.label),
-                    start=option.start,
-                    end=option.end,
-                )
-                for option in _sync_list(sync_service, "list_pull_source_events", "tc1_tg2_tr3")
-            ] if track_options else [],
+            available_events=(
+                [
+                    ManualPullEventOptionPresentation(
+                        event_id=str(option.event_id),
+                        label=str(option.label),
+                        start=option.start,
+                        end=option.end,
+                    )
+                    for option in _sync_list(
+                        sync_service, "list_pull_source_events", "tc1_tg2_tr3"
+                    )
+                ]
+                if track_options
+                else []
+            ),
             available_target_layers=target_options,
         ),
         batch_transfer_plan=BatchTransferPlanPresentation(
@@ -583,11 +653,11 @@ def _apply_take_action(
             continue
 
         next_events = list(layer.events)
-        if action_id in {'overwrite_main', 'promote_take'}:
-            next_events = _clone_events_for_main(take.events, suffix='ow')
-        elif action_id == 'merge_main':
+        if action_id in {"overwrite_main", "promote_take"}:
+            next_events = _clone_events_for_main(take.events, suffix="ow")
+        elif action_id == "merge_main":
             merged = list(layer.events)
-            merged.extend(_clone_events_for_main(take.events, suffix='mg'))
+            merged.extend(_clone_events_for_main(take.events, suffix="mg"))
             next_events = sorted(merged, key=lambda e: (e.start, e.end))
 
         next_status = replace(layer.status, stale=False, manually_modified=True)
@@ -595,13 +665,15 @@ def _apply_take_action(
     return updated
 
 
-def _clone_events_for_main(events: list[EventPresentation], *, suffix: str) -> list[EventPresentation]:
+def _clone_events_for_main(
+    events: list[EventPresentation], *, suffix: str
+) -> list[EventPresentation]:
     clones: list[EventPresentation] = []
     for idx, event in enumerate(events, start=1):
         clones.append(
             replace(
                 event,
-                event_id=EventId(f'{event.event_id}_{suffix}_{idx}'),
+                event_id=EventId(f"{event.event_id}_{suffix}_{idx}"),
                 is_selected=False,
             )
         )
@@ -617,7 +689,9 @@ def _clear_selection(layers: list[LayerPresentation]) -> list[LayerPresentation]
                 is_selected=False,
                 events=[replace(event, is_selected=False) for event in layer.events],
                 takes=[
-                    replace(take, events=[replace(event, is_selected=False) for event in take.events])
+                    replace(
+                        take, events=[replace(event, is_selected=False) for event in take.events]
+                    )
                     for take in layer.takes
                 ],
             )
@@ -636,7 +710,10 @@ def _select_event(
     for layer in layers:
         is_layer_selected = layer.layer_id == layer_id
         events = [
-            replace(event, is_selected=is_layer_selected and take_id is None and event.event_id == event_id)
+            replace(
+                event,
+                is_selected=is_layer_selected and take_id is None and event.event_id == event_id,
+            )
             for event in layer.events
         ]
         takes = []
@@ -647,7 +724,9 @@ def _select_event(
                     events=[
                         replace(
                             event,
-                            is_selected=is_layer_selected and take.take_id == take_id and event.event_id == event_id,
+                            is_selected=is_layer_selected
+                            and take.take_id == take_id
+                            and event.event_id == event_id,
                         )
                         for event in take.events
                     ],
@@ -655,6 +734,182 @@ def _select_event(
             )
         updated.append(replace(layer, is_selected=is_layer_selected, events=events, takes=takes))
     return updated
+
+
+def _set_selected_events(
+    layers: list[LayerPresentation],
+    *,
+    selected_event_ids: list[EventId],
+) -> list[LayerPresentation]:
+    selected_lookup = set(selected_event_ids)
+    updated_layers: list[LayerPresentation] = []
+    for layer in layers:
+        updated_layers.append(
+            replace(
+                layer,
+                is_selected=any(event.event_id in selected_lookup for event in layer.events)
+                or any(
+                    event.event_id in selected_lookup
+                    for take in layer.takes
+                    for event in take.events
+                ),
+                events=[
+                    replace(event, is_selected=event.event_id in selected_lookup)
+                    for event in layer.events
+                ],
+                takes=[
+                    replace(
+                        take,
+                        events=[
+                            replace(event, is_selected=event.event_id in selected_lookup)
+                            for event in take.events
+                        ],
+                    )
+                    for take in layer.takes
+                ],
+            )
+        )
+    return updated_layers
+
+
+def _create_demo_event(
+    presentation: TimelinePresentation,
+    *,
+    layer_id,
+    take_id,
+    start: float,
+    end: float,
+    label: str,
+) -> TimelinePresentation:
+    target_event_id = None
+    target_take_id = take_id
+    updated_layers: list[LayerPresentation] = []
+    for layer in presentation.layers:
+        if layer.layer_id != layer_id:
+            updated_layers.append(layer)
+            continue
+
+        target_take_id = take_id if take_id is not None else layer.main_take_id
+        if take_id in (None, layer.main_take_id):
+            target_event_id = _next_demo_event_id(
+                layer.main_take_id or EventId(f"{layer.layer_id}:main"), layer.events
+            )
+            created = EventPresentation(
+                event_id=target_event_id,
+                start=start,
+                end=end,
+                label=label,
+                is_selected=True,
+            )
+            updated_layers.append(
+                replace(
+                    layer,
+                    is_selected=True,
+                    events=sorted(
+                        [replace(event, is_selected=False) for event in layer.events] + [created],
+                        key=lambda event: (event.start, event.end, str(event.event_id)),
+                    ),
+                    takes=[
+                        replace(
+                            take,
+                            events=[replace(event, is_selected=False) for event in take.events],
+                        )
+                        for take in layer.takes
+                    ],
+                )
+            )
+            continue
+
+        updated_takes: list[TakeLanePresentation] = []
+        for take in layer.takes:
+            if take.take_id != take_id:
+                updated_takes.append(
+                    replace(
+                        take,
+                        events=[replace(event, is_selected=False) for event in take.events],
+                    )
+                )
+                continue
+            target_event_id = _next_demo_event_id(take.take_id, take.events)
+            created = EventPresentation(
+                event_id=target_event_id,
+                start=start,
+                end=end,
+                label=label,
+                is_selected=True,
+            )
+            updated_takes.append(
+                replace(
+                    take,
+                    events=sorted(
+                        [replace(event, is_selected=False) for event in take.events] + [created],
+                        key=lambda event: (event.start, event.end, str(event.event_id)),
+                    ),
+                )
+            )
+        updated_layers.append(
+            replace(
+                layer,
+                is_selected=True,
+                events=[replace(event, is_selected=False) for event in layer.events],
+                takes=updated_takes,
+            )
+        )
+
+    return replace(
+        presentation,
+        layers=updated_layers,
+        selected_layer_id=layer_id,
+        selected_layer_ids=[layer_id],
+        selected_take_id=target_take_id,
+        selected_event_ids=[] if target_event_id is None else [target_event_id],
+    )
+
+
+def _delete_demo_events(
+    presentation: TimelinePresentation,
+    *,
+    event_ids: list[EventId],
+) -> TimelinePresentation:
+    delete_lookup = set(event_ids)
+    layers = [
+        replace(
+            layer,
+            events=[
+                replace(event, is_selected=False)
+                for event in layer.events
+                if event.event_id not in delete_lookup
+            ],
+            takes=[
+                replace(
+                    take,
+                    events=[
+                        replace(event, is_selected=False)
+                        for event in take.events
+                        if event.event_id not in delete_lookup
+                    ],
+                )
+                for take in layer.takes
+            ],
+        )
+        for layer in presentation.layers
+    ]
+    return replace(
+        presentation,
+        layers=layers,
+        selected_take_id=None,
+        selected_event_ids=[],
+    )
+
+
+def _next_demo_event_id(take_id, events: list[EventPresentation]) -> EventId:
+    existing = {str(event.event_id) for event in events}
+    index = 1
+    while True:
+        candidate = EventId(f"{take_id}:event:{index}")
+        if str(candidate) not in existing:
+            return candidate
+        index += 1
 
 
 def build_demo_presentation() -> TimelinePresentation:
@@ -670,10 +925,10 @@ def build_demo_app(
     """Build the synthetic demo app used by timeline fixture tests only."""
     presentation = build_demo_presentation()
     session = Session(
-        id=SessionId('session_demo'),
-        project_id=ProjectId('project_demo'),
-        active_song_id=SongId('song_demo'),
-        active_song_version_id=SongVersionId('song_version_demo'),
+        id=SessionId("session_demo"),
+        project_id=ProjectId("project_demo"),
+        active_song_id=SongId("song_demo"),
+        active_song_version_id=SongVersionId("song_version_demo"),
         active_timeline_id=presentation.timeline_id,
         transport_state=TransportState(
             is_playing=presentation.is_playing,
@@ -683,16 +938,18 @@ def build_demo_app(
         mixer_state=MixerState(),
         playback_state=PlaybackState(
             status=PlaybackStatus.PLAYING if presentation.is_playing else PlaybackStatus.STOPPED,
-            backend_name='demo',
+            backend_name="demo",
         ),
-        sync_state=SyncState(mode=SyncMode.MA3, connected=True, target_ref='show_manager'),
+        sync_state=SyncState(mode=SyncMode.MA3, connected=True, target_ref="show_manager"),
     )
 
     runtime_sync_service: SyncService
     if sync_service is not None:
         runtime_sync_service = sync_service
     elif sync_bridge is not None:
-        runtime_sync_service = MA3SyncAdapter(sync_bridge, state=session.sync_state, target_ref="show_manager")
+        runtime_sync_service = MA3SyncAdapter(
+            sync_bridge, state=session.sync_state, target_ref="show_manager"
+        )
     else:
         runtime_sync_service = InMemorySyncService(session.sync_state)
 

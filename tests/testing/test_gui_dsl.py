@@ -15,8 +15,8 @@ def test_load_scenario_parses_valid_json(tmp_path):
                 "name": "Valid Scenario",
                 "seed": 11,
                 "steps": [
-                    {"action": "select_first_event", "params": {"layer_id": "layer_kick"}},
-                    {"action": "enable_sync"},
+                    {"action": "selection.first_event", "params": {"layer_id": "layer_kick"}},
+                    {"action": "sync.enable"},
                 ],
             }
         ),
@@ -27,7 +27,7 @@ def test_load_scenario_parses_valid_json(tmp_path):
 
     assert scenario.name == "Valid Scenario"
     assert scenario.seed == 11
-    assert [step.action for step in scenario.steps] == ["select_first_event", "enable_sync"]
+    assert [step.action for step in scenario.steps] == ["selection.first_event", "sync.enable"]
 
 
 def test_load_scenario_parses_real_input_pipeline_actions(tmp_path):
@@ -38,22 +38,22 @@ def test_load_scenario_parses_real_input_pipeline_actions(tmp_path):
                 "name": "Pipeline Actions",
                 "steps": [
                     {
-                        "action": "add_song_from_path",
+                        "action": "song.add",
                         "params": {
                             "title": "Test Song",
                             "audio_path": "C:/audio/test.wav",
                         },
                     },
                     {
-                        "action": "extract_stems",
+                        "action": "timeline.extract_stems",
                         "params": {"layer_id": "layer_song"},
                     },
                     {
-                        "action": "extract_drum_events",
+                        "action": "timeline.extract_drum_events",
                         "params": {"layer_title": "Drums"},
                     },
                     {
-                        "action": "classify_drum_events",
+                        "action": "timeline.classify_drum_events",
                         "params": {"layer_title": "Drums", "model_path": "C:/models/drums.pth"},
                     },
                 ],
@@ -65,10 +65,10 @@ def test_load_scenario_parses_real_input_pipeline_actions(tmp_path):
     scenario = load_scenario(scenario_path)
 
     assert [step.action for step in scenario.steps] == [
-        "add_song_from_path",
-        "extract_stems",
-        "extract_drum_events",
-        "classify_drum_events",
+        "song.add",
+        "timeline.extract_stems",
+        "timeline.extract_drum_events",
+        "timeline.classify_drum_events",
     ]
 
 
@@ -94,13 +94,13 @@ def test_load_scenario_rejects_missing_required_fields(tmp_path):
         json.dumps(
             {
                 "name": "Missing Fields",
-                "steps": [{"action": "trigger_action", "params": {}}],
+                "steps": [{"action": "song.add", "params": {}}],
             }
         ),
         encoding="utf-8",
     )
 
-    with pytest.raises(ValueError, match="action_id"):
+    with pytest.raises(ValueError, match="title"):
         load_scenario(scenario_path)
 
 
@@ -110,7 +110,7 @@ def test_load_scenario_rejects_missing_pipeline_action_fields(tmp_path):
         json.dumps(
             {
                 "name": "Missing Pipeline Fields",
-                "steps": [{"action": "extract_stems", "params": {}}],
+                "steps": [{"action": "timeline.extract_stems", "params": {}}],
             }
         ),
         encoding="utf-8",
@@ -127,10 +127,16 @@ def test_load_scenario_accepts_layer_title_targets_and_action_aliases(tmp_path):
             {
                 "name": "Layer Titles",
                 "steps": [
-                    {"action": "select_first_event", "params": {"layer_title": "Kick"}},
-                    {"action": "open_push_surface", "params": {"layer_title": "Kick"}},
-                    {"action": "nudge", "params": {"direction": "right", "steps": 1}},
-                    {"action": "duplicate", "params": {"steps": 1}},
+                    {"action": "selection.first_event", "params": {"layer_title": "Kick"}},
+                    {
+                        "action": "transfer.workspace_open",
+                        "params": {"layer_title": "Kick", "direction": "push"},
+                    },
+                    {
+                        "action": "timeline.nudge_selection",
+                        "params": {"direction": "right", "steps": 1},
+                    },
+                    {"action": "timeline.duplicate_selection", "params": {"steps": 1}},
                 ],
             }
         ),
@@ -140,10 +146,10 @@ def test_load_scenario_accepts_layer_title_targets_and_action_aliases(tmp_path):
     scenario = load_scenario(scenario_path)
 
     assert [step.action for step in scenario.steps] == [
-        "select_first_event",
-        "open_push_surface",
-        "nudge",
-        "duplicate",
+        "selection.first_event",
+        "transfer.workspace_open",
+        "timeline.nudge_selection",
+        "timeline.duplicate_selection",
     ]
 
 
@@ -154,7 +160,10 @@ def test_load_scenario_rejects_classify_without_model_path(tmp_path):
             {
                 "name": "Missing Model",
                 "steps": [
-                    {"action": "classify_drum_events", "params": {"layer_title": "Drums"}},
+                    {
+                        "action": "timeline.classify_drum_events",
+                        "params": {"layer_title": "Drums"},
+                    },
                 ],
             }
         ),

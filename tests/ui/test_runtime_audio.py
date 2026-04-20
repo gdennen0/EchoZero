@@ -5,17 +5,32 @@ from dataclasses import replace
 
 import numpy as np
 import pytest
-from PyQt6.QtWidgets import QApplication
 from PyQt6.QtCore import Qt
+from PyQt6.QtWidgets import QApplication
 
-from echozero.application.presentation.models import EventPresentation, LayerPresentation, TakeLanePresentation, TimelinePresentation
+from echozero.application.presentation.models import (
+    EventPresentation,
+    LayerPresentation,
+    TakeLanePresentation,
+    TimelinePresentation,
+)
 from echozero.application.shared.enums import LayerKind, PlaybackMode
 from echozero.application.shared.ids import EventId, LayerId, TakeId
-from echozero.application.timeline.intents import Pause, Play, Seek, SelectLayer, SetActivePlaybackTarget, Stop
+from echozero.application.timeline.intents import (
+    Pause,
+    Play,
+    Seek,
+    SelectLayer,
+    SetActivePlaybackTarget,
+    Stop,
+)
 from echozero.audio.engine import AudioEngine
-from echozero.ui.qt.timeline.demo_app import build_demo_app
-from echozero.ui.qt.timeline.runtime_audio import RuntimeAudioTimingSnapshot, TimelineRuntimeAudioController
 from echozero.ui.qt.timeline.blocks.ruler import seek_time_for_x
+from echozero.ui.qt.timeline.demo_app import build_demo_app
+from echozero.ui.qt.timeline.runtime_audio import (
+    RuntimeAudioTimingSnapshot,
+    TimelineRuntimeAudioController,
+)
 from echozero.ui.qt.timeline.widget import TimelineWidget
 
 
@@ -166,13 +181,17 @@ class SignatureAwareRuntimeAudio(CountingRuntimeAudio):
             and bool(layer.playback_source_ref)
         )
 
-    def presentation_signature(self, presentation: TimelinePresentation) -> tuple[tuple[str, str], ...]:
+    def presentation_signature(
+        self, presentation: TimelinePresentation
+    ) -> tuple[tuple[str, str], ...]:
         return tuple(
             (
                 str(layer.layer_id),
-                layer.source_audio_path
-                if layer.source_audio_path is not None
-                else f"event:{layer.playback_source_ref}:{','.join(f'{event.start:.6f}:{int(event.muted)}' for event in layer.events)}",
+                (
+                    layer.source_audio_path
+                    if layer.source_audio_path is not None
+                    else f"event:{layer.playback_source_ref}:{','.join(f'{event.start:.6f}:{int(event.muted)}' for event in layer.events)}"
+                ),
             )
             for layer in presentation.layers
             if layer.source_audio_path or self._is_event_slice_layer(layer)
@@ -261,9 +280,7 @@ def test_runtime_controller_updates_mix_state_while_playing():
 
 def test_runtime_controller_compensates_for_reported_output_latency_while_playing():
     presentation = _audio_presentation()
-    engine = AudioEngine(
-        stream_factory=lambda **kwargs: FakeStream(**kwargs | {"latency": 0.1})
-    )
+    engine = AudioEngine(stream_factory=lambda **kwargs: FakeStream(**kwargs | {"latency": 0.1}))
     controller = TimelineRuntimeAudioController(
         engine=engine,
         audio_loader=lambda path: (np.ones(4410, dtype=np.float32), 44100),
@@ -324,6 +341,29 @@ def test_runtime_controller_snapshot_state_reports_backend_session_and_target():
     assert state.active_take_id is None
     assert len(state.active_sources) == 1
     assert state.active_sources[0].source_ref == "demo.wav"
+    controller.shutdown()
+
+
+def test_runtime_controller_preview_clip_plays_sliced_audio_on_preview_engine():
+    engine = AudioEngine(stream_factory=_fake_stream_factory)
+    preview_engine = AudioEngine(sample_rate=10, stream_factory=_fake_stream_factory)
+    controller = TimelineRuntimeAudioController(
+        engine=engine,
+        preview_engine=preview_engine,
+        audio_loader=lambda _path: (np.arange(10, dtype=np.float32), 10),
+    )
+
+    played = controller.preview_clip("kick.wav", start_seconds=0.2, end_seconds=0.6)
+
+    assert played is True
+    preview_layer = preview_engine.mixer.get_layer(
+        TimelineRuntimeAudioController._PREVIEW_LAYER_ID
+    )
+    assert preview_layer is not None
+    np.testing.assert_array_equal(
+        preview_layer.buffer, np.array([2.0, 3.0, 4.0, 5.0], dtype=np.float32)
+    )
+    assert preview_engine.transport.is_playing is True
     controller.shutdown()
 
 
@@ -439,7 +479,9 @@ def test_runtime_controller_uses_selected_take_audio_for_monitored_layer():
 
     engine_layer = engine.mixer.get_layer(TimelineRuntimeAudioController._MONITOR_LAYER_ID)
     assert engine_layer is not None
-    np.testing.assert_array_almost_equal(engine_layer.buffer[:2], np.array([0.8, -0.4], dtype=np.float32))
+    np.testing.assert_array_almost_equal(
+        engine_layer.buffer[:2], np.array([0.8, -0.4], dtype=np.float32)
+    )
     controller.shutdown()
 
 
@@ -566,8 +608,16 @@ def test_widget_dispatch_preserves_runtime_playhead_on_audio_route_update():
         return replace(
             presentation,
             layers=[layer],
-            active_playback_layer_id=intent.layer_id if isinstance(intent, SetActivePlaybackTarget) else presentation.active_playback_layer_id,
-            active_playback_take_id=intent.take_id if isinstance(intent, SetActivePlaybackTarget) else presentation.active_playback_take_id,
+            active_playback_layer_id=(
+                intent.layer_id
+                if isinstance(intent, SetActivePlaybackTarget)
+                else presentation.active_playback_layer_id
+            ),
+            active_playback_take_id=(
+                intent.take_id
+                if isinstance(intent, SetActivePlaybackTarget)
+                else presentation.active_playback_take_id
+            ),
             playhead=0.0,
             is_playing=False,
             current_time_label="00:00.00",
@@ -773,8 +823,16 @@ def test_widget_runtime_ticks_do_not_snap_backward_during_audio_route_churn():
         current = state["presentation"]
         updated = replace(
             current,
-            active_playback_layer_id=intent.layer_id if isinstance(intent, SetActivePlaybackTarget) else current.active_playback_layer_id,
-            active_playback_take_id=intent.take_id if isinstance(intent, SetActivePlaybackTarget) else current.active_playback_take_id,
+            active_playback_layer_id=(
+                intent.layer_id
+                if isinstance(intent, SetActivePlaybackTarget)
+                else current.active_playback_layer_id
+            ),
+            active_playback_take_id=(
+                intent.take_id
+                if isinstance(intent, SetActivePlaybackTarget)
+                else current.active_playback_take_id
+            ),
             playhead=0.0,
             is_playing=False,
             current_time_label="00:00.00",
@@ -782,7 +840,9 @@ def test_widget_runtime_ticks_do_not_snap_backward_during_audio_route_churn():
         state["presentation"] = updated
         return updated
 
-    widget = TimelineWidget(state["presentation"], on_intent=_on_intent, runtime_audio=runtime_audio)
+    widget = TimelineWidget(
+        state["presentation"], on_intent=_on_intent, runtime_audio=runtime_audio
+    )
     widget._runtime_timer.stop()
     try:
         widget.resize(1200, 320)
@@ -862,7 +922,9 @@ def test_widget_seek_churn_keeps_seek_anchor_through_stale_runtime_samples():
         state["presentation"] = updated
         return updated
 
-    widget = TimelineWidget(state["presentation"], on_intent=_on_intent, runtime_audio=runtime_audio)
+    widget = TimelineWidget(
+        state["presentation"], on_intent=_on_intent, runtime_audio=runtime_audio
+    )
     widget._runtime_timer.stop()
     try:
         widget.resize(1200, 320)

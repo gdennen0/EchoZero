@@ -10,6 +10,13 @@ def build_object_info_panel_qss(tokens: ShellTokens = SHELL_TOKENS) -> str:
             background: {tokens.panel_bg};
             border-left: {scales.border_width}px solid {tokens.panel_border};
         }}
+        QScrollArea#timeline_object_info_scroll {{
+            background: transparent;
+            border: none;
+        }}
+        QScrollArea#timeline_object_info_scroll > QWidget > QWidget {{
+            background: transparent;
+        }}
         QLabel#objectPaletteHeader {{
             color: {tokens.text_primary};
             font-size: 15px;
@@ -70,7 +77,7 @@ def build_object_info_panel_qss(tokens: ShellTokens = SHELL_TOKENS) -> str:
 def build_foundry_shell_qss(tokens: ShellTokens = SHELL_TOKENS) -> str:
     scales = tokens.scales
     return f"""
-        QMainWindow {{
+        QMainWindow, QDialog {{
             background: {tokens.window_bg};
         }}
         QWidget#foundryRoot, QWidget#foundryHeader, QWidget#foundryWorkspacePanel, QTabWidget::pane {{

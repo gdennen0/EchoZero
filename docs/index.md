@@ -8,6 +8,11 @@ Audio analysis workstation for live lighting design.
 - [Agent Context](AGENT-CONTEXT.md) — Compact orientation for coding agents
 - [Worker Roles](WORKER-ROLES.md) — `lead-dev` and disposable worker contract
 - [Testing](TESTING.md) — Verification lanes and proof map
+- [Testing Primitives](TESTING-PRIMITIVES.md) — Canonical action vocabulary for tests, demos, and automation
+- [Testing Executors](TESTING-EXECUTORS.md) — Standard executor interface for automation and proof surfaces
+- [Testing Scenario Schema](TESTING-SCENARIO-SCHEMA.md) — Preferred scenario file shape built on canonical primitives
+- [Testing Migration Map](TESTING-MIGRATION-MAP.md) — Explicit migration path from current test/demo surfaces
+- [Object Pipeline Action Architecture](OBJECT-PIPELINE-ACTION-ARCHITECTURE.md) — Refactor spec for object-owned pipeline workflows and generic action execution
 - [Release Checklist](RELEASE-CHECKLIST.md) — Release signoff checklist
 - [Unified Plan](UNIFIED-IMPLEMENTATION-PLAN.md) — Canonical implementation direction
 - [Architecture](ARCHITECTURE.md) — System design and structure  
