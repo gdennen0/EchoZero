@@ -72,6 +72,17 @@ HOVER_DELAY_MS = 150  # Delay before hover effects appear
 # TIME RULER
 # =============================================================================
 
+TIMELINE_TRANSPORT_HEIGHT_PX = 40  # Compact transport strip height above the ruler
+TIMELINE_TRANSPORT_BUTTON_HEIGHT_PX = 26  # Painted play/stop button height in transport
+TIMELINE_EDITOR_BAR_PADDING_X_PX = 12  # Horizontal padding around the editor toolbar strip
+TIMELINE_EDITOR_BAR_PADDING_Y_PX = 6  # Vertical padding around the editor toolbar strip
+TIMELINE_EDITOR_GROUP_PADDING_X_PX = 8  # Horizontal padding inside each toolbar group
+TIMELINE_EDITOR_GROUP_PADDING_Y_PX = 5  # Vertical padding inside each toolbar group
+TIMELINE_EDITOR_GROUP_SPACING_PX = 6  # Gap between toolbar labels and controls
+TIMELINE_EDITOR_BUTTON_MIN_HEIGHT_PX = 26  # Compact minimum button height in the editor toolbar
+TIMELINE_OBJECT_INFO_METADATA_MIN_HEIGHT_PX = 28  # Compact starting body height for inspector facts
+TIMELINE_OBJECT_INFO_METADATA_DEFAULT_HEIGHT_PX = 84  # Initial inspector metadata pane height
+TIMELINE_OBJECT_INFO_SPLITTER_HANDLE_PX = 6  # Grab area for resizing inspector metadata vs actions
 RULER_HEIGHT_PX = 28  # Ruler bar height
 RULER_MIN_TICK_SPACING_PX = 60  # Minimum pixels between major ticks
 RULER_MINOR_TICKS_PER_MAJOR = 4  # Subdivision density

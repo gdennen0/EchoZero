@@ -1,66 +1,53 @@
 # EchoZero Agent Guide
 
-Use this file as the fast-start orientation for coding agents in this repo.
-It is a summary layer, not a competing architecture spec.
-If this file conflicts with a canonical doc, the canonical doc wins.
+Use this file as the minimal startup contract for coding agents in this repo.
+Do not preload a long doc chain at session start. Read deeper docs only when the task needs them.
+If this file conflicts with code or a canonical doc, code and the canonical doc win.
 
-## Read Order
+## Default Startup
 
-1. `STYLE.md`
-2. `GLOSSARY.md`
-3. `docs/AGENT-CONTEXT.md`
-4. `docs/architecture/TIMELINE-FIRST-PRINCIPLES-2026-04-02.md`
-5. `docs/UNIFIED-IMPLEMENTATION-PLAN.md`
-6. `docs/architecture/DECISIONS.md`
-7. `docs/APP-DELIVERY-PLAN.md`
-8. `docs/UI-STANDARD.md`
-9. `docs/WORKER-ROLES.md`
-10. `docs/AGENT-WORKFLOW.md`
-11. `docs/TESTING.md`
-
-Use subsystem docs only when relevant:
-- Foundry: `docs/FOUNDRY-TRAINING.md`
-- MA3: `MA3/README.md`, `MA3/MA3_INTEGRATION_PITFALLS.md`
-- Packaging: `docs/packaging/PACKAGING.md`
-- Repo cleanup boundaries: `docs/EZ2-CODEBASE-CLEANUP-MAP.md`
-- UI direction: `docs/UI-STANDARD.md`, `docs/UI-CLEANUP-MAP.md`, `docs/UI-ENGINE-REDEVELOPMENT-PLAN.md`
+- Stay in this file unless the task needs more context.
+- Open `docs/STATUS.md` when you need current repo truth or are about to touch canonical app, timeline, sync, or Foundry paths.
+- Open `STYLE.md` when editing Python or adding files.
+- Open `GLOSSARY.md` when naming domain concepts, UI text, or docs.
+- Do not open `docs/architecture/DECISIONS.md` by default. Use it only for a specific decision, topic, or decision ID.
+- Open subsystem docs only for the subsystem you are changing.
 
 ## Canonical Repo Truth
 
 - `run_echozero.py` is the canonical EZ2 desktop entrypoint.
 - `echozero/` is the canonical EZ2 codebase.
 - `echozero/ui/qt/app_shell.py` is the main Stage Zero shell surface.
-- `echozero/application/timeline/*` holds the timeline app contract.
-- `echozero/application/sync/*` and `echozero/infrastructure/sync/ma3_adapter.py` hold the sync boundary.
+- `echozero/application/timeline/*` is the timeline app contract.
+- `echozero/application/sync/*` and `echozero/infrastructure/sync/ma3_adapter.py` are the sync boundary.
 - `echozero/foundry/*` is the Foundry lane.
-- EZ1 code was removed from the branch. If you need it, use git history, not new code paths.
+- EZ1 code was removed from this branch. Use git history if you need it.
 
 ## Locked Rules
 
-- Main is truth. Takes are subordinate history/candidates, never alternate live truth.
-- Staleness only changes when upstream main changes.
+- Main is truth. Takes are subordinate history and candidate lanes, never alternate live truth.
+- Staleness changes only when upstream main changes.
 - MA3 sync is main-only.
-- SongVersion starts blank; configs carry forward, processed results do not.
-- Engine stays ignorant of UI/editor semantics.
-- FEEL owns UI tuning constants. Do not spread magic numbers through timeline code.
-- Generated outputs do not belong in git: `artifacts/**`, `foundry/tracking/**`, local DB snapshots.
+- `SongVersion` starts blank. Configs carry forward; processed results do not.
+- The engine stays ignorant of UI, editor, and MA3 semantics.
+- `echozero/ui/FEEL.py` owns UI tuning constants. Do not scatter magic numbers through timeline code.
+- Generated outputs do not belong in git: `artifacts/**`, `foundry/tracking/**`, local DB snapshots, or local runtime state.
 
-## Proof Expectations
+## Proof Rules
 
-- App-facing work is not done until it is proven through the app path, not just demo helpers.
+- App-facing work is not done until it is proven through the real app path, not only helpers.
 - Sync changes need app-boundary guardrail tests and the sync-receive lane.
-- Timeline/UI changes need application and UI contract coverage; run perf guardrails for hot-path changes.
+- Timeline or UI changes need application and UI contract coverage; run perf guardrails for hot-path work.
 - Release-affecting changes need packaging and smoke consideration.
 - Parallel worker use must stay bounded and follow `docs/WORKER-ROLES.md`.
-- Long-running delegated work must emit visible status heartbeats and a stuck-agent escalation per `docs/AGENT-WORKFLOW.md`.
+- Long-running delegated work must emit status heartbeats and stuck-agent escalation per `docs/AGENT-WORKFLOW.md`.
 
 ## Human-Path Demo Rule
 
 - Demo videos and non-deterministic functional tests must use real human paths only.
-- Do not use mock analysis services, fake audio streams, direct audio-callback driving, or widget-presentation injection for demo claims.
-- Do not bypass launcher actions, widget interactions, runtime intents, dialog flows, or application contracts to fake user behavior.
-- If a proof path uses simulation or state injection, it is not a human-path demo and must be labeled accordingly.
-- For demo claims about playback or pipeline behavior, use real EZ runtime actions with real input assets and report what was real vs synthetic.
+- Do not fake demo claims with mock analysis services, fake audio streams, direct audio-callback driving, widget-presentation injection, or bypassed launcher and dialog flows.
+- If a proof path uses simulation or injected state, label it as non-human-path proof.
+- For playback or pipeline demo claims, use real EZ runtime actions with real input assets and report what was real versus synthetic.
 
 ## Do Not Reintroduce
 
@@ -70,13 +57,19 @@ Use subsystem docs only when relevant:
 - tracked generated artifacts or local runtime state
 - large sidecar agent frameworks when a small local doc will do
 
-## Where To Look Next
+## Read On Demand
 
-- Deep context and preserved design intent: `docs/AGENT-CONTEXT.md`
-- Architecture decisions and tradeoffs: `docs/architecture/DECISIONS.md`
-- Delivery and release gates: `docs/APP-DELIVERY-PLAN.md`
-- Desktop UI North Star: `docs/UI-STANDARD.md`
-- Worker orchestration rules: `docs/WORKER-ROLES.md`
-- Default orchestration/delegation workflow: `docs/AGENT-WORKFLOW.md`
-- Verification command map: `docs/TESTING.md`
-- Current cleanup/keep posture: `docs/EZ2-CODEBASE-CLEANUP-MAP.md`
+- Current truth: `docs/STATUS.md`
+- Deep orientation: `docs/AGENT-CONTEXT.md`
+- First principles: `docs/architecture/TIMELINE-FIRST-PRINCIPLES-2026-04-02.md`
+- Delivery and implementation plans: `docs/UNIFIED-IMPLEMENTATION-PLAN.md`, `docs/APP-DELIVERY-PLAN.md`
+- Decision log: `docs/architecture/DECISIONS.md`
+- UI direction: `docs/UI-STANDARD.md`
+- Worker orchestration: `docs/WORKER-ROLES.md`, `docs/AGENT-WORKFLOW.md`, `docs/OPENCLAW-CODEX-PROMPTING.md`
+- Verification: `docs/TESTING.md`
+- Timeline: `echozero/application/timeline/README.md`, `echozero/ui/qt/timeline/README.md`
+- Presentation: `echozero/application/presentation/README.md`
+- Foundry: `echozero/foundry/README.md`, `docs/FOUNDRY-TRAINING.md`
+- MA3: `MA3/README.md`, `MA3/MA3_INTEGRATION_PITFALLS.md`
+- Packaging: `docs/packaging/PACKAGING.md`
+- Repo cleanup boundaries: `docs/EZ2-CODEBASE-CLEANUP-MAP.md`

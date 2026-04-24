@@ -1,18 +1,7 @@
 """
 Mixer: Multi-track summing with mute/solo logic.
-
-Exists because the audio callback needs a single function that returns the mixed
-output for a given position. The mixer owns the layer list and handles the
-mute/solo matrix.
-
-Solo logic follows the DAW convention (Reaper/Logic/Ableton):
-- If NO layers are soloed → play all non-muted layers
-- If ANY layer is soloed → play ONLY soloed layers (mute is ignored on soloed layers)
-
-This is the "solo overrides mute" rule that every DAW uses.
-
-Audio thread contract: read_mix_into() uses pre-allocated caller-provided buffers.
-No per-callback allocations beyond initial setup.
+Exists because the audio callback needs one place to sum active mono or stereo layers.
+Connects `AudioLayer` reads to engine-ready mixed buffers without UI semantics.
 """
 
 from __future__ import annotations
@@ -22,8 +11,10 @@ import numpy as np
 from echozero.audio.layer import AudioLayer
 
 
-# Maximum buffer size we'll ever need (4096 at 192kHz is extreme)
-_MAX_SCRATCH_FRAMES = 8192
+# Leave headroom for host-chosen callback sizes when sounddevice runs with
+# blocksize=0 on real hardware.
+_MAX_SCRATCH_FRAMES = 32768
+_MAX_OUTPUT_CHANNELS = 2
 
 
 class Mixer:
@@ -33,7 +24,15 @@ class Mixer:
     read_mix_into() is called from the audio callback — never allocates, never locks.
     """
 
-    __slots__ = ("_layers", "_master_volume", "_scratch", "_layer_scratch", "_solo_count")
+    __slots__ = (
+        "_layers",
+        "_master_volume",
+        "_scratch",
+        "_layer_scratch",
+        "_scratch_multichannel",
+        "_layer_scratch_multichannel",
+        "_solo_count",
+    )
 
     def __init__(self) -> None:
         self._layers: list[AudioLayer] = []
@@ -43,6 +42,14 @@ class Mixer:
         # the per-layer temp; if frames > 4096 those regions overlap.
         self._scratch: np.ndarray = np.zeros(_MAX_SCRATCH_FRAMES, dtype=np.float32)
         self._layer_scratch: np.ndarray = np.zeros(_MAX_SCRATCH_FRAMES, dtype=np.float32)
+        self._scratch_multichannel: np.ndarray = np.zeros(
+            (_MAX_SCRATCH_FRAMES, _MAX_OUTPUT_CHANNELS),
+            dtype=np.float32,
+        )
+        self._layer_scratch_multichannel: np.ndarray = np.zeros(
+            (_MAX_SCRATCH_FRAMES, _MAX_OUTPUT_CHANNELS),
+            dtype=np.float32,
+        )
         # A15: track solo count so read_mix doesn't need any(l.solo for l in layers)
         self._solo_count: int = 0
 
@@ -121,7 +128,7 @@ class Mixer:
             layer.solo = False
         self._solo_count = 0
 
-    def read_mix(self, position: int, frames: int) -> np.ndarray:
+    def read_mix(self, position: int, frames: int, *, channels: int = 1) -> np.ndarray:
         """Sum all active layers at the given position. Returns a COPY.
 
         HOT PATH — called every audio callback (~5ms).
@@ -144,9 +151,18 @@ class Mixer:
             frames: Number of samples to mix.
 
         Returns:
-            float32 array of shape (frames,), clipped to [-1, 1]. Owned by caller.
+            float32 array of shape `(frames,)` for mono or `(frames, channels)` for
+            multi-channel output, clipped to [-1, 1]. Owned by caller.
         """
-        out = self._scratch[:frames]
+        if channels <= 1:
+            out = self._scratch[:frames]
+        else:
+            if channels > self._scratch_multichannel.shape[1]:
+                raise ValueError(
+                    f"channels ({channels}) > supported output channels "
+                    f"({self._scratch_multichannel.shape[1]})"
+                )
+            out = self._scratch_multichannel[:frames, :channels]
         self._mix_into(out, position, frames)
         return out.copy()
 
@@ -187,8 +203,16 @@ class Mixer:
                 if layer.muted:
                     continue
 
-            # A1: use separate _layer_scratch so it never overlaps with `out`
-            layer_buf = self._layer_scratch[:frames]
+            # A1: use separate layer scratch so it never overlaps with `out`
+            if out.ndim == 1:
+                layer_buf = self._layer_scratch[:frames]
+            else:
+                if out.shape[1] > self._layer_scratch_multichannel.shape[1]:
+                    raise ValueError(
+                        f"channels ({out.shape[1]}) > supported output channels "
+                        f"({self._layer_scratch_multichannel.shape[1]})"
+                    )
+                layer_buf = self._layer_scratch_multichannel[:frames, :out.shape[1]]
             layer.read_into(layer_buf, position, frames)
             out += layer_buf * layer.volume
 

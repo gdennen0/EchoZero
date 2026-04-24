@@ -14,6 +14,7 @@ from echozero.ui.FEEL import (
     TIMELINE_ZOOM_MIN_PPS,
     TIMELINE_ZOOM_STEP_FACTOR,
 )
+from echozero.ui.qt.timeline.blocks.layouts import MainRowLayout
 from echozero.ui.qt.timeline.demo_app import build_demo_app
 from echozero.ui.qt.timeline.widget import (
     TimelineCanvas,
@@ -64,6 +65,17 @@ def test_compute_scroll_bounds_default_right_padding_is_sourced_from_feel():
 
     assert content_width == expected_content_width
     assert max_scroll == expected_content_width - viewport_width
+
+
+def test_main_row_layout_keeps_expand_toggle_inside_header_width():
+    layout = MainRowLayout.create(
+        top=10,
+        width=900,
+        header_width=LAYER_HEADER_WIDTH_PX,
+        row_height=LAYER_ROW_HEIGHT_PX,
+    )
+
+    assert layout.toggle_rect.right() <= layout.header_rect.right()
 
 
 def test_timeline_zoom_in_clamps_to_feel_max_pps():

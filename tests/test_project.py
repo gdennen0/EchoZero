@@ -349,6 +349,8 @@ class TestSongManagement:
 
     def test_add_song_version_adds_new_version(self, tmp_path):
         """add_song_version() adds a new version to an existing song."""
+        from dataclasses import replace
+
         audio1 = _create_audio_file(tmp_path, "song_v1.wav")
         audio2 = _create_audio_file(tmp_path, "song_v2.wav")
         with _create_project(tmp_path) as p:
@@ -358,6 +360,8 @@ class TestSongManagement:
                 scan_fn=_mock_scan,
                 default_templates=[],
             )
+            p.song_versions.update(replace(v1, ma3_timecode_pool_no=201))
+            p.storage.commit()
             v2 = p.add_song_version(
                 song_id=song.id,
                 audio_source=audio2,
@@ -366,6 +370,7 @@ class TestSongManagement:
             )
             assert v2.song_id == song.id
             assert v2.label == "Remix"
+            assert v2.ma3_timecode_pool_no == 201
 
     def test_songs_survive_close_and_reopen(self, tmp_path):
         """Songs survive close + reopen via open_db."""

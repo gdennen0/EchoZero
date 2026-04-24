@@ -4,6 +4,7 @@ import faulthandler
 import os
 import platform
 import sys
+import logging
 import threading
 import traceback
 from datetime import datetime
@@ -131,6 +132,18 @@ def install_runtime_logging(log_dir: Path | None = None, *, app_name: str = "Ech
         print(f"pid={os.getpid()}")
         print(f"argv={sys.argv}")
         print(f"log_path={session_path}")
+
+        level_name = os.getenv("ECHOZERO_LOG_LEVEL", "INFO").strip().upper()
+        level = getattr(logging, level_name, logging.INFO)
+        root_logger = logging.getLogger()
+        if not root_logger.handlers:
+            logging.basicConfig(
+                level=level,
+                stream=handle,
+                format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+            )
+        else:
+            root_logger.setLevel(level)
 
     def _main_excepthook(exc_type, exc, tb) -> None:
         print("\n=== UNHANDLED EXCEPTION (main thread) ===", file=sys.stderr)

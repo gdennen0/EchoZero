@@ -3,15 +3,50 @@
 from dataclasses import dataclass, field
 
 from echozero.application.shared.enums import FollowMode, LayerKind, PlaybackMode, SyncMode
-from echozero.application.shared.ids import EventId, LayerId, TakeId, TimelineId
+from echozero.application.shared.ids import EventId, LayerId, RegionId, TakeId, TimelineId
 from echozero.application.shared.ranges import TimeRange
 from echozero.application.sync.models import LiveSyncState
+from echozero.application.timeline.models import EventRef
 
 
 @dataclass(slots=True)
 class TakeActionPresentation:
     action_id: str
     label: str
+    compact_label: str | None = None
+
+
+def default_take_actions(*, has_selection: bool = False) -> list["TakeActionPresentation"]:
+    """Return the canonical editorial actions exposed for one subordinate take."""
+    actions = [
+        TakeActionPresentation(
+            action_id="overwrite_main",
+            label="Overwrite Main",
+            compact_label="Overwrite",
+        ),
+        TakeActionPresentation(
+            action_id="merge_main",
+            label="Merge Main",
+            compact_label="Merge",
+        ),
+    ]
+    if has_selection:
+        actions.insert(
+            0,
+            TakeActionPresentation(
+                action_id="add_selection_to_main",
+                label="Add Selection to Main",
+                compact_label="Selection",
+            ),
+        )
+    actions.append(
+        TakeActionPresentation(
+            action_id="delete_take",
+            label="Delete Take",
+            compact_label="Delete",
+        )
+    )
+    return actions
 
 
 @dataclass(slots=True)
@@ -75,19 +110,6 @@ def default_layer_header_controls(
                 label="Pipelines",
             )
         )
-    if kind is LayerKind.EVENT and main_take_id is not None:
-        controls.extend(
-            [
-                LayerHeaderControlPresentation(
-                    control_id="push_to_ma3",
-                    label="Push",
-                ),
-                LayerHeaderControlPresentation(
-                    control_id="pull_from_ma3",
-                    label="Pull",
-                ),
-            ]
-        )
     return controls
 
 
@@ -95,8 +117,37 @@ def default_layer_header_controls(
 class ManualPushTrackOptionPresentation:
     coord: str
     name: str
+    number: int | None = None
+    timecode_name: str | None = None
     note: str | None = None
     event_count: int | None = None
+    sequence_no: int | None = None
+
+
+@dataclass(slots=True)
+class ManualPushTimecodeOptionPresentation:
+    number: int
+    name: str | None = None
+
+
+@dataclass(slots=True)
+class ManualPushTrackGroupOptionPresentation:
+    number: int
+    name: str
+    track_count: int | None = None
+
+
+@dataclass(slots=True)
+class ManualPushSequenceOptionPresentation:
+    number: int
+    name: str
+
+
+@dataclass(slots=True)
+class ManualPushSequenceRangePresentation:
+    start: int
+    end: int
+    song_label: str | None = None
 
 
 @dataclass(slots=True)
@@ -135,7 +186,13 @@ class ManualPushFlowPresentation:
     dialog_open: bool = False
     push_mode_active: bool = False
     selected_layer_ids: list[LayerId] = field(default_factory=list)
+    available_timecodes: list[ManualPushTimecodeOptionPresentation] = field(default_factory=list)
+    selected_timecode_no: int | None = None
+    available_track_groups: list[ManualPushTrackGroupOptionPresentation] = field(default_factory=list)
+    selected_track_group_no: int | None = None
     available_tracks: list[ManualPushTrackOptionPresentation] = field(default_factory=list)
+    available_sequences: list[ManualPushSequenceOptionPresentation] = field(default_factory=list)
+    current_song_sequence_range: ManualPushSequenceRangePresentation | None = None
     target_track_coord: str | None = None
     transfer_mode: str = "merge"
     diff_gate_open: bool = False
@@ -146,8 +203,23 @@ class ManualPushFlowPresentation:
 class ManualPullTrackOptionPresentation:
     coord: str
     name: str
+    number: int | None = None
+    timecode_name: str | None = None
     note: str | None = None
     event_count: int | None = None
+
+
+@dataclass(slots=True)
+class ManualPullTimecodeOptionPresentation:
+    number: int
+    name: str | None = None
+
+
+@dataclass(slots=True)
+class ManualPullTrackGroupOptionPresentation:
+    number: int
+    name: str
+    track_count: int | None = None
 
 
 @dataclass(slots=True)
@@ -182,6 +254,10 @@ class ManualPullDiffPreviewPresentation:
 class ManualPullFlowPresentation:
     dialog_open: bool = False
     workspace_active: bool = False
+    available_timecodes: list[ManualPullTimecodeOptionPresentation] = field(default_factory=list)
+    selected_timecode_no: int | None = None
+    available_track_groups: list[ManualPullTrackGroupOptionPresentation] = field(default_factory=list)
+    selected_track_group_no: int | None = None
     available_tracks: list[ManualPullTrackOptionPresentation] = field(default_factory=list)
     selected_source_track_coords: list[str] = field(default_factory=list)
     active_source_track_coord: str | None = None
@@ -237,6 +313,35 @@ class BatchTransferPlanPresentation:
 
 
 @dataclass(slots=True)
+class PipelineRunBannerPresentation:
+    run_id: str
+    title: str
+    status: str
+    message: str
+    percent: float | None = None
+    is_error: bool = False
+
+
+@dataclass(slots=True)
+class SongVersionOptionPresentation:
+    song_version_id: str
+    label: str
+    is_active: bool = False
+    ma3_timecode_pool_no: int | None = None
+
+
+@dataclass(slots=True)
+class SongOptionPresentation:
+    song_id: str
+    title: str
+    is_active: bool = False
+    active_version_id: str = ""
+    active_version_label: str = ""
+    version_count: int = 0
+    versions: list[SongVersionOptionPresentation] = field(default_factory=list)
+
+
+@dataclass(slots=True)
 class EventPresentation:
     event_id: EventId
     start: float
@@ -246,6 +351,21 @@ class EventPresentation:
     muted: bool = False
     is_selected: bool = False
     badges: list[str] = field(default_factory=list)
+
+    @property
+    def duration(self) -> float:
+        return self.end - self.start
+
+
+@dataclass(slots=True)
+class RegionPresentation:
+    region_id: RegionId
+    start: float
+    end: float
+    label: str
+    color: str | None = None
+    kind: str = "custom"
+    is_selected: bool = False
 
     @property
     def duration(self) -> float:
@@ -307,6 +427,13 @@ class TimelinePresentation:
     timeline_id: TimelineId
     title: str
     layers: list[LayerPresentation] = field(default_factory=list)
+    active_song_id: str = ""
+    active_song_title: str = ""
+    active_song_version_id: str = ""
+    active_song_version_label: str = ""
+    active_song_version_ma3_timecode_pool_no: int | None = None
+    available_songs: list[SongOptionPresentation] = field(default_factory=list)
+    available_song_versions: list[SongVersionOptionPresentation] = field(default_factory=list)
     bpm: float | None = None
     playhead: float = 0.0
     is_playing: bool = False
@@ -315,9 +442,12 @@ class TimelinePresentation:
     selected_layer_id: LayerId | None = None
     selected_layer_ids: list[LayerId] = field(default_factory=list)
     selected_take_id: TakeId | None = None
+    selected_event_refs: list[EventRef] = field(default_factory=list)
     active_playback_layer_id: LayerId | None = None
     active_playback_take_id: TakeId | None = None
     selected_event_ids: list[EventId] = field(default_factory=list)
+    selected_region_id: RegionId | None = None
+    regions: list[RegionPresentation] = field(default_factory=list)
     pixels_per_second: float = 100.0
     scroll_x: float = 0.0
     scroll_y: float = 0.0
@@ -332,3 +462,4 @@ class TimelinePresentation:
     )
     batch_transfer_plan: BatchTransferPlanPresentation | None = None
     transfer_presets: list[TransferPresetPresentation] = field(default_factory=list)
+    pipeline_run_banner: PipelineRunBannerPresentation | None = None

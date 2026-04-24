@@ -12,6 +12,7 @@ from echozero.persistence.repositories.song_default_pipeline_config import (
     SongDefaultPipelineConfigRepository,
 )
 from echozero.persistence.repositories.take import TakeRepository
+from echozero.persistence.repositories.timeline_region import TimelineRegionRepository
 
 __all__ = [
     "ProjectRepository",
@@ -19,6 +20,7 @@ __all__ = [
     "SongVersionRepository",
     "LayerRepository",
     "TakeRepository",
+    "TimelineRegionRepository",
     "PipelineConfigRepository",
     "SongDefaultPipelineConfigRepository",
 ]

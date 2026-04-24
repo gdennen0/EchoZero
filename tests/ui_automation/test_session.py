@@ -3,6 +3,7 @@ from __future__ import annotations
 from ui_automation import (
     AutomationAction,
     AutomationBounds,
+    AutomationHitTarget,
     AutomationObject,
     AutomationObjectFact,
     AutomationSession,
@@ -56,6 +57,33 @@ class _StubBackend:
                     label="Source Audio",
                     target_id="timeline.layer:source_audio",
                     facts=(AutomationObjectFact(label="kind", value="source_audio"),),
+                    actions=(
+                        AutomationAction(
+                            action_id="timeline.extract_stems",
+                            label="Extract Stems",
+                            group="timeline",
+                            target_id="timeline.layer:source_audio",
+                        ),
+                    ),
+                ),
+                AutomationObject(
+                    object_id="event_kick_1",
+                    object_type="event",
+                    label="Kick 1",
+                    target_id="timeline.event:event_kick_1",
+                    facts=(AutomationObjectFact(label="classification", value="kick"),),
+                ),
+            ),
+            hit_targets=(
+                AutomationHitTarget(
+                    target_id="timeline.layer:source_audio",
+                    kind="layer",
+                    bounds=AutomationBounds(x=10, y=20, width=300, height=40),
+                ),
+                AutomationHitTarget(
+                    target_id="timeline.event:event_kick_1",
+                    kind="event",
+                    bounds=AutomationBounds(x=24, y=72, width=12, height=12),
                 ),
             ),
         )
@@ -176,6 +204,31 @@ def test_session_finds_targets_by_exact_or_partial_query():
     assert session.find_target("shell.timeline") is not None
     assert session.find_target("transport").target_id == "shell.transport"  # type: ignore[union-attr]
     assert session.find_target("missing") is None
+
+
+def test_session_finds_objects_by_exact_partial_and_filtered_query():
+    session = AutomationSession.attach(_StubBackend())
+
+    assert session.find_object("source_audio").object_id == "source_audio"  # type: ignore[union-attr]
+    assert session.find_object("Kick").object_id == "event_kick_1"  # type: ignore[union-attr]
+    assert session.find_object("classification", object_type="event").object_id == "event_kick_1"  # type: ignore[union-attr]
+    assert session.find_object("source", object_type="event") is None
+
+
+def test_session_finds_actions_across_object_and_snapshot_surfaces():
+    session = AutomationSession.attach(_StubBackend())
+
+    assert session.find_action("timeline.zoom_in").action_id == "timeline.zoom_in"  # type: ignore[union-attr]
+    assert session.find_action("extract", target_id="timeline.layer:source_audio").action_id == "timeline.extract_stems"  # type: ignore[union-attr]
+    assert session.find_action("extract", group="transport") is None
+
+
+def test_session_finds_hit_targets_by_exact_partial_and_kind():
+    session = AutomationSession.attach(_StubBackend())
+
+    assert session.find_hit_target("timeline.layer:source_audio").kind == "layer"  # type: ignore[union-attr]
+    assert session.find_hit_target("kick", kind="event").target_id == "timeline.event:event_kick_1"  # type: ignore[union-attr]
+    assert session.find_hit_target("source", kind="event") is None
 
 
 def test_session_invokes_semantic_action_through_backend():

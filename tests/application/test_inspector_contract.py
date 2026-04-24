@@ -10,11 +10,14 @@ from echozero.application.presentation.models import (
     LayerPresentation,
     LayerStatusPresentation,
     ManualPullEventOptionPresentation,
+    RegionPresentation,
+    SongOptionPresentation,
+    SongVersionOptionPresentation,
     TakeLanePresentation,
     TimelinePresentation,
 )
 from echozero.application.shared.enums import LayerKind
-from echozero.application.shared.ids import EventId, LayerId, TakeId, TimelineId
+from echozero.application.shared.ids import EventId, LayerId, RegionId, TakeId, TimelineId
 from echozero.application.sync.models import LiveSyncState
 from echozero.application.timeline.object_actions import descriptor_for_action, is_object_action
 
@@ -68,6 +71,58 @@ def _contract_test_presentation() -> TimelinePresentation:
     )
 
 
+def _song_version_contract_presentation() -> TimelinePresentation:
+    presentation = _contract_test_presentation()
+    presentation.active_song_id = "song_alpha"
+    presentation.active_song_title = "Alpha Song"
+    presentation.active_song_version_id = "song_version_festival"
+    presentation.active_song_version_label = "Festival Edit"
+    presentation.available_songs = [
+        SongOptionPresentation(
+            song_id="song_alpha",
+            title="Alpha Song",
+            is_active=True,
+            active_version_id="song_version_festival",
+            active_version_label="Festival Edit",
+            version_count=2,
+            versions=[
+                SongVersionOptionPresentation(
+                    song_version_id="song_version_original",
+                    label="Original",
+                ),
+                SongVersionOptionPresentation(
+                    song_version_id="song_version_festival",
+                    label="Festival Edit",
+                    is_active=True,
+                ),
+            ],
+        ),
+        SongOptionPresentation(
+            song_id="song_beta",
+            title="Beta Song",
+            active_version_id="song_version_beta",
+            active_version_label="Original",
+            version_count=1,
+            versions=[
+                SongVersionOptionPresentation(
+                    song_version_id="song_version_beta",
+                    label="Original",
+                    is_active=True,
+                )
+            ],
+        ),
+    ]
+    presentation.available_song_versions = [
+        SongVersionOptionPresentation(song_version_id="song_version_original", label="Original"),
+        SongVersionOptionPresentation(
+            song_version_id="song_version_festival",
+            label="Festival Edit",
+            is_active=True,
+        ),
+    ]
+    return presentation
+
+
 def _section_rows(contract):
     return {row.label: row.value for section in contract.sections for row in section.rows}
 
@@ -81,31 +136,44 @@ def test_inspector_contract_no_selection_state():
     assert contract.identity is None
     assert contract.title == "No timeline object selected."
     assert render_inspector_contract_text(contract) == "No timeline object selected."
-    assert "pull_from_ma3" in action_ids
+    assert "send_layer_to_ma3" not in action_ids
     assert "add_event_layer" in action_ids
-    assert "add_automation_layer" in action_ids
-    assert "add_reference_layer" in action_ids
+    assert "add_automation_layer" not in action_ids
+    assert "add_reference_layer" not in action_ids
+
+
+def test_inspector_contract_falls_back_to_current_song_version_without_selection():
+    contract = build_timeline_inspector_contract(_song_version_contract_presentation())
+    rows = _section_rows(contract)
+    action_ids = {
+        action.action_id for section in contract.context_sections for action in section.actions
+    }
+
+    assert contract.identity is not None
+    assert contract.identity.object_type == "song_version"
+    assert contract.title == "Song Alpha Song"
+    assert rows["song id"] == "song_alpha"
+    assert rows["song title"] == "Alpha Song"
+    assert rows["version id"] == "song_version_festival"
+    assert rows["version label"] == "Festival Edit"
+    assert rows["ma3 tc pool"] == "unconfigured"
+    assert rows["versions"] == "2"
+    assert rows["timeline duration"] == "00:05.00"
+    assert rows["layers"] == "2"
+    assert {
+        "song.select",
+        "song.version.switch",
+        "song.version.add",
+        "song.delete",
+        "song.version.delete",
+        "song.add",
+    } <= action_ids
 
 
 def test_inspector_contract_layer_selection_state():
     presentation = _contract_test_presentation()
     presentation.selected_layer_id = LayerId("layer_kick")
     presentation.layers[0].sync_target_label = "tc1_tg2_tr3"
-    presentation.batch_transfer_plan = BatchTransferPlanPresentation(
-        plan_id="plan_123",
-        operation_type="mixed",
-        rows=[
-            BatchTransferPlanRowPresentation(
-                row_id="row_1",
-                direction="push",
-                source_label="Kick",
-                target_label="Track 3",
-                selected_count=1,
-                status="ready",
-            )
-        ],
-        ready_count=1,
-    )
 
     contract = build_timeline_inspector_contract(presentation)
     rows = _section_rows(contract)
@@ -124,43 +192,35 @@ def test_inspector_contract_layer_selection_state():
     assert rows["playback state"] == "Set Active"
     assert rows["sync state"] == "Off"
     assert rows["sync mapping"] == "tc1_tg2_tr3"
-    assert rows["transfer plan"] == "mixed plan_123 (1 rows, ready 1, blocked 0, failed 0)"
-    assert rows["push mode"] == "inactive"
-    assert rows["push transfer mode"] == "merge"
-    assert rows["push target"] == "none"
-    assert rows["push selection"] == "0"
-    assert rows["push row"] == "none"
-    assert rows["pull workspace"] == "inactive"
-    assert rows["pull target"] == "none"
-    assert rows["pull selection"] == "0"
-    assert rows["pull row"] == "none"
     assert rows["selected identity"] == "Layer Kick (layer_kick)"
     assert rows["playback target"] == "none"
     assert {"set_active_playback_target", "gain_down", "gain_unity", "gain_up"} <= set(action_ids)
     assert {
-        "push_to_ma3",
-        "pull_from_ma3",
-        "open_batch_transfer_workspace",
-        "transfer.plan_preview",
-        "transfer.plan_apply",
-        "transfer.plan_cancel",
+        "selection.select_every_other",
+        "selection.renumber_cues_from_one",
     } <= set(action_ids)
-    preview_action = next(
-        action
-        for section in contract.context_sections
-        for action in section.actions
-        if action.action_id == "transfer.plan_preview"
-    )
-    apply_action = next(
-        action
-        for section in contract.context_sections
-        for action in section.actions
-        if action.action_id == "transfer.plan_apply"
-    )
-    assert preview_action.label == "Preview Transfer Plan (1 ready row)"
-    assert apply_action.label == "Apply Transfer Plan (1 ready row)"
+    assert {
+        "route_layer_to_ma3_track",
+        "send_layer_to_ma3",
+        "send_selected_events_to_ma3",
+        "send_to_different_track_once",
+    } <= set(action_ids)
+    assert "event-batch" in section_ids
     assert "sync-transfer" in section_ids
     assert "live-sync" not in [section.section_id for section in contract.context_sections]
+
+
+def test_inspector_contract_layer_selection_keeps_song_switching_actions_available():
+    presentation = _song_version_contract_presentation()
+    presentation.selected_layer_id = LayerId("layer_kick")
+
+    contract = build_timeline_inspector_contract(presentation)
+    action_ids = {
+        action.action_id for section in contract.context_sections for action in section.actions
+    }
+
+    assert {"song.select", "song.version.switch", "song.version.add"} <= action_ids
+    assert "song.add" not in action_ids
 
 
 def test_inspector_contract_object_actions_are_registered_descriptors():
@@ -195,20 +255,17 @@ def test_inspector_contract_audio_layer_hides_ma3_controls():
     section_ids = [section.section_id for section in contract.context_sections]
 
     assert "sync-transfer" not in section_ids
-    assert "push_to_ma3" not in action_ids
-    assert "pull_from_ma3" not in action_ids
-    assert "open_batch_transfer_workspace" not in action_ids
+    assert "route_layer_to_ma3_track" not in action_ids
+    assert "send_layer_to_ma3" not in action_ids
+    assert "send_selected_events_to_ma3" not in action_ids
+    assert "send_to_different_track_once" not in action_ids
 
 
-def test_inspector_contract_push_mode_layer_actions_and_facts():
+def test_inspector_contract_hides_legacy_transfer_surface_even_if_legacy_state_exists():
     presentation = _contract_test_presentation()
     presentation.selected_layer_id = LayerId("layer_kick")
     presentation.manual_push_flow.push_mode_active = True
-    presentation.manual_push_flow.transfer_mode = "overwrite"
-    presentation.manual_push_flow.available_tracks = []
-    presentation.layers[0].push_target_label = "Track 3 (tc1_tg2_tr3) - Bass"
-    presentation.layers[0].push_selection_count = 1
-    presentation.layers[0].push_row_status = "ready"
+    presentation.manual_pull_flow.workspace_active = True
     presentation.batch_transfer_plan = BatchTransferPlanPresentation(
         plan_id="push:timeline_contract",
         operation_type="push",
@@ -217,10 +274,7 @@ def test_inspector_contract_push_mode_layer_actions_and_facts():
                 row_id="push:layer_kick",
                 direction="push",
                 source_label="Kick",
-                target_label="Track 3 (tc1_tg2_tr3) - Bass",
-                source_layer_id=LayerId("layer_kick"),
-                target_track_coord="tc1_tg2_tr3",
-                selected_event_ids=[EventId("main_evt")],
+                target_label="Track 3",
                 selected_count=1,
                 status="ready",
             )
@@ -230,87 +284,17 @@ def test_inspector_contract_push_mode_layer_actions_and_facts():
 
     contract = build_timeline_inspector_contract(presentation)
     rows = _section_rows(contract)
-    action_ids = [
+    action_ids = {
         action.action_id for section in contract.context_sections for action in section.actions
-    ]
+    }
 
-    assert rows["push mode"] == "active"
-    assert rows["push transfer mode"] == "overwrite"
-    assert rows["push target"] == "Track 3 (tc1_tg2_tr3) - Bass"
-    assert rows["push selection"] == "1"
-    assert rows["push row"] == "ready"
-    assert rows["selected identity"] == "Layer Kick (layer_kick)"
-    assert rows["playback target"] == "none"
-    assert {
-        "push_to_ma3",
-        "push_select_all_events",
-        "push_unselect_all_events",
-        "set_push_transfer_mode",
-        "select_push_target_track",
-        "preview_push_diff",
-        "exit_push_mode",
-        "transfer.plan_preview",
-        "transfer.plan_apply",
-        "transfer.plan_cancel",
-    } <= set(action_ids)
-
-
-def test_inspector_contract_pull_workspace_actions_and_facts():
-    presentation = _contract_test_presentation()
-    presentation.selected_layer_id = LayerId("layer_kick")
-    presentation.manual_pull_flow.workspace_active = True
-    presentation.manual_pull_flow.available_tracks = []
-    presentation.manual_pull_flow.active_source_track_coord = "tc1_tg2_tr5"
-    presentation.manual_pull_flow.available_events = [
-        ManualPullEventOptionPresentation(
-            event_id="ma3_evt_1",
-            label="Cue 1",
-            start=1.0,
-            end=1.5,
-        )
-    ]
-    presentation.layers[0].pull_target_label = "Kick"
-    presentation.layers[0].pull_selection_count = 2
-    presentation.layers[0].pull_row_status = "ready"
-    presentation.batch_transfer_plan = BatchTransferPlanPresentation(
-        plan_id="pull:timeline_contract",
-        operation_type="pull",
-        rows=[
-            BatchTransferPlanRowPresentation(
-                row_id="pull:tc1_tg2_tr5",
-                direction="pull",
-                source_label="Track 5 (tc1_tg2_tr5)",
-                target_label="Kick",
-                source_track_coord="tc1_tg2_tr5",
-                target_layer_id=LayerId("layer_kick"),
-                selected_ma3_event_ids=["ma3_evt_1", "ma3_evt_2"],
-                selected_count=2,
-                status="ready",
-            )
-        ],
-        ready_count=1,
-    )
-
-    contract = build_timeline_inspector_contract(presentation)
-    rows = _section_rows(contract)
-    action_ids = [
-        action.action_id for section in contract.context_sections for action in section.actions
-    ]
-
-    assert rows["pull workspace"] == "active"
-    assert rows["pull target"] == "Kick"
-    assert rows["pull selection"] == "2"
-    assert rows["pull row"] == "ready"
-    assert {
-        "select_pull_source_tracks",
-        "select_pull_source_events",
-        "set_pull_target_layer_mapping",
-        "preview_pull_diff",
-        "exit_pull_workspace",
-        "transfer.plan_preview",
-        "transfer.plan_apply",
-        "transfer.plan_cancel",
-    } <= set(action_ids)
+    assert "push mode" not in rows
+    assert "pull workspace" not in rows
+    assert "transfer plan" not in rows
+    assert "transfer.plan_preview" not in action_ids
+    assert "transfer.plan_apply" not in action_ids
+    assert "transfer.plan_cancel" not in action_ids
+    assert "pull_from_ma3" in action_ids
 
 
 def test_inspector_contract_hides_transfer_preset_actions_from_primary_transfer_surface():
@@ -379,10 +363,6 @@ def test_inspector_contract_main_event_state():
     presentation.selected_take_id = TakeId("take_main")
     presentation.selected_event_ids = [EventId("main_evt")]
     presentation.layers[0].sync_target_label = "tc1_tg2_tr3"
-    presentation.manual_pull_flow.workspace_active = True
-    presentation.layers[0].pull_target_label = "Kick"
-    presentation.layers[0].pull_selection_count = 1
-    presentation.layers[0].pull_row_status = "ready"
 
     contract = build_timeline_inspector_contract(presentation)
     rows = _section_rows(contract)
@@ -403,18 +383,19 @@ def test_inspector_contract_main_event_state():
     assert rows["take"] == "Main take (take_main)"
     assert rows["playback state"] == "Set Active"
     assert rows["sync mapping"] == "tc1_tg2_tr3"
-    assert rows["pull workspace"] == "active"
-    assert rows["pull target"] == "Kick"
-    assert rows["pull selection"] == "1"
-    assert rows["pull row"] == "ready"
     assert rows["selected identity"] == "Event Main (main_evt) on Kick / Main take (take_main)"
     assert rows["playback target"] == "none"
     assert transfer_section.label == "Sync & Transfer"
-    assert {"push_to_ma3", "pull_from_ma3", "open_batch_transfer_workspace"} <= set(action_ids)
-    assert "select_pull_source_events" not in action_ids
-    assert "set_pull_target_layer_mapping" not in action_ids
-    assert "preview_pull_diff" not in action_ids
-    assert "select_push_target_track" not in action_ids
+    assert {
+        "selection.select_every_other",
+        "selection.renumber_cues_from_one",
+    } <= set(action_ids)
+    assert {
+        "route_layer_to_ma3_track",
+        "send_layer_to_ma3",
+        "send_selected_events_to_ma3",
+        "send_to_different_track_once",
+    } <= set(action_ids)
 
 
 def test_inspector_contract_take_event_state():
@@ -440,13 +421,72 @@ def test_inspector_contract_take_event_state():
     assert contract.title == "Event Take"
     assert rows["take"] == "Take 2 (take_alt)"
     assert rows["playback state"] == "Active"
-    assert rows["push mode"] == "inactive"
-    assert rows["pull workspace"] == "inactive"
     assert rows["selected identity"] == "none"
     assert rows["playback target"] == "Active Kick / Take 2 (take_alt)"
-    assert {"seek_here", "overwrite_main", "merge_main"} <= set(action_ids)
-    assert "select_pull_source_events" not in action_ids
-    assert "select_push_target_track" not in action_ids
+    assert {
+        "seek_here",
+        "overwrite_main",
+        "merge_main",
+        "delete_take",
+        "selection.select_every_other",
+        "selection.renumber_cues_from_one",
+    } <= set(action_ids)
+    assert "send_selected_events_to_ma3" in action_ids
+    assert "send_layer_to_ma3" not in action_ids
+    assert "send_to_different_track_once" not in action_ids
+
+
+def test_inspector_contract_layer_hit_uses_selected_layers_batch_scope_when_multiselect_is_active():
+    presentation = _contract_test_presentation()
+    presentation.selected_layer_id = LayerId("layer_empty")
+    presentation.selected_layer_ids = [LayerId("layer_kick"), LayerId("layer_empty")]
+
+    contract = build_timeline_inspector_contract(
+        presentation,
+        hit_target=TimelineInspectorHitTarget(
+            kind="layer",
+            layer_id=LayerId("layer_kick"),
+            time_seconds=1.0,
+        ),
+    )
+    batch_actions = next(
+        section for section in contract.context_sections if section.section_id == "event-batch"
+    ).actions
+    select_every_other = next(
+        action for action in batch_actions if action.action_id == "selection.select_every_other"
+    )
+
+    assert select_every_other.label == "Select Every Other in Selected Layers"
+    assert select_every_other.params["scope_mode"] == "selected_layers_main"
+
+
+def test_inspector_contract_uses_region_batch_scope_when_region_selected():
+    presentation = _contract_test_presentation()
+    presentation.selected_region_id = RegionId("region_1")
+    presentation.regions = [
+        RegionPresentation(
+            region_id=RegionId("region_1"),
+            start=0.9,
+            end=1.6,
+            label="Verse",
+        )
+    ]
+
+    contract = build_timeline_inspector_contract(presentation)
+    batch_actions = next(
+        section for section in contract.context_sections if section.section_id == "event-batch"
+    ).actions
+    select_every_other = next(
+        action for action in batch_actions if action.action_id == "selection.select_every_other"
+    )
+    renumber = next(
+        action for action in batch_actions if action.action_id == "selection.renumber_cues_from_one"
+    )
+
+    assert select_every_other.label == "Select Every Other in Region"
+    assert select_every_other.params["scope_mode"] == "region"
+    assert select_every_other.params["scope_region_id"] == "region_1"
+    assert renumber.label == "Renumber Cues from 1 in Region"
 
 
 def test_inspector_contract_no_takes_layer_state():
@@ -464,6 +504,7 @@ def test_inspector_contract_no_takes_layer_state():
     assert rows["takes"] == "none"
     assert "overwrite_main" not in action_ids
     assert "merge_main" not in action_ids
+    assert "delete_take" not in action_ids
 
 
 def test_inspector_contract_render_text_tracks_selection_transition_sequence():
@@ -495,16 +536,6 @@ def test_inspector_contract_render_text_tracks_selection_transition_sequence():
             "playback state: Set Active",
             "sync state: Off",
             "sync mapping: none",
-            "transfer plan: none",
-            "push mode: inactive",
-            "push transfer mode: merge",
-            "push target: none",
-            "push selection: 0",
-            "push row: none",
-            "pull workspace: inactive",
-            "pull target: none",
-            "pull selection: 0",
-            "pull row: none",
             "selected identity: Layer Kick (layer_kick)",
             "playback target: none",
         ]
@@ -521,16 +552,6 @@ def test_inspector_contract_render_text_tracks_selection_transition_sequence():
             "playback state: Set Active",
             "sync state: Off",
             "sync mapping: none",
-            "transfer plan: none",
-            "push mode: inactive",
-            "push transfer mode: merge",
-            "push target: none",
-            "push selection: 0",
-            "push row: none",
-            "pull workspace: inactive",
-            "pull target: none",
-            "pull selection: 0",
-            "pull row: none",
             "selected identity: Event Main (main_evt) on Kick / Main take (take_main)",
             "playback target: none",
         ]
@@ -579,3 +600,4 @@ def test_inspector_contract_no_takes_hit_target_excludes_take_actions():
     assert "take-actions" not in section_ids
     assert "overwrite_main" not in action_ids
     assert "merge_main" not in action_ids
+    assert "delete_take" not in action_ids

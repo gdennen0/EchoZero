@@ -1,25 +1,6 @@
-"""
-AudioEngine: Top-level audio playback engine.
-
-Exists because someone needs to own the sounddevice stream, wire the clock to
-the mixer, and present a clean API to the rest of the application.
-
-This is the single entry point for audio playback. The application creates one
-AudioEngine, adds layers, and calls play/pause/stop. Everything else is internal.
-
-Inspired by: Reaper's audio system, JUCE AudioDeviceManager, Ableton's audio engine.
-
-Process-agnostic: no Qt, no pipeline engine, no persistence. Just numpy + sounddevice.
-
-Ship-ready guarantees:
-- Lock-free audio callback (no mutex, no GIL contention beyond atomic reads)
-- Zero per-callback allocations (pre-allocated scratch buffers)
-- Hard clipping on output (prevents DAC distortion)
-- Auto-stop at end of content (unless looping)
-- Sample rate conversion on layer add (mismatched rates handled)
-- Thread-safe subscriber add/remove while playing
-- Crossfade output clipped to [-1, 1] (equal-power peaks at √2 ≈ 1.414 otherwise)
-- Glitch counter tracks sounddevice underrun/overrun events
+"""Core audio playback engine for EchoZero runtime.
+Exists to own the sounddevice stream, transport clock, and layer mixer for playback.
+Connects application playback control to process-local audio I/O without UI semantics.
 """
 
 from __future__ import annotations
@@ -30,19 +11,24 @@ from typing import Any, Callable
 import numpy as np
 
 from echozero.audio.clock import Clock, ClockSubscriber
-from echozero.audio.crossfade import CrossfadeBuffer, DEFAULT_CROSSFADE_SAMPLES
+from echozero.audio.crossfade import CrossfadeBuffer
 from echozero.audio.layer import AudioLayer
 from echozero.audio.mixer import Mixer
-from echozero.audio.transport import Transport, TransportState
+from echozero.audio.transport import Transport
 
 
 # Default audio settings
 DEFAULT_SAMPLE_RATE = 44100
 DEFAULT_BUFFER_SIZE = 256  # ~5.8ms at 44100 — low latency, safe for modern hardware
-DEFAULT_CHANNELS = 1       # mono output for v1
+DEFAULT_CHANNELS = 1       # injected/test streams keep legacy mono defaults
+DEFAULT_SCRATCH_FRAMES = 32768
 
 
-def _resolve_output_defaults(stream_factory: Callable[..., Any] | None) -> tuple[int, int]:
+def _resolve_output_defaults(
+    stream_factory: Callable[..., Any] | None,
+    *,
+    output_device: int | str | None = None,
+) -> tuple[int, int]:
     """Prefer the default real output device format when using sounddevice directly.
 
     Deterministic test paths that inject a stream_factory keep the legacy defaults.
@@ -53,8 +39,8 @@ def _resolve_output_defaults(stream_factory: Callable[..., Any] | None) -> tuple
     try:
         import sounddevice as sd
 
-        output_device = sd.default.device[1]
-        device_info = sd.query_devices(output_device)
+        resolved_output_device = sd.default.device[1] if output_device is None else output_device
+        device_info = sd.query_devices(resolved_output_device)
         sample_rate = int(round(float(device_info.get("default_samplerate", DEFAULT_SAMPLE_RATE))))
         max_output_channels = int(device_info.get("max_output_channels", DEFAULT_CHANNELS))
         channels = 2 if max_output_channels >= 2 else max(1, max_output_channels)
@@ -86,13 +72,24 @@ def _resolve_stream_defaults(
             bool(prime_output_buffers_using_stream_callback),
         )
 
-    resolved_blocksize = int(blocksize or buffer_size)
+    # PortAudio/sounddevice recommends blocksize=0 unless the callback truly
+    # requires a fixed frame count. Our callback already handles variable-size
+    # buffers, and host-chosen block sizes are typically more robust on real
+    # devices than forcing a nominal buffer size such as 256 frames.
+    resolved_blocksize = 0 if blocksize is None else int(blocksize)
     resolved_latency = "high" if latency is None else latency
     return (
-        max(1, resolved_blocksize),
+        max(0, resolved_blocksize),
         resolved_latency,
         bool(prime_output_buffers_using_stream_callback),
     )
+
+
+def _create_audio_buffer(frames: int, channels: int) -> np.ndarray:
+    """Allocate a scratch buffer matching the engine output channel layout."""
+    if channels <= 1:
+        return np.zeros(frames, dtype=np.float32)
+    return np.zeros((frames, channels), dtype=np.float32)
 
 
 class AudioEngine:
@@ -121,6 +118,7 @@ class AudioEngine:
         "_stream", "_buffer_size", "_channels",
         "_stream_factory", "_stream_blocksize",
         "_stream_latency", "_prime_output_buffers_using_stream_callback",
+        "_output_device",
         "_active", "_end_of_content", "_reported_output_latency_seconds",
         "_last_audible_time_seconds",
         "_last_audible_monotonic_seconds",
@@ -140,8 +138,12 @@ class AudioEngine:
         stream_blocksize: int | None = None,
         stream_latency: str | float | None = None,
         prime_output_buffers_using_stream_callback: bool = True,
+        output_device: int | str | None = None,
     ) -> None:
-        resolved_sample_rate, resolved_channels = _resolve_output_defaults(stream_factory)
+        resolved_sample_rate, resolved_channels = _resolve_output_defaults(
+            stream_factory,
+            output_device=output_device,
+        )
         sample_rate = int(sample_rate or resolved_sample_rate)
         channels = int(channels or resolved_channels)
         self._clock = Clock(sample_rate=sample_rate)
@@ -159,6 +161,7 @@ class AudioEngine:
         self._prime_output_buffers_using_stream_callback = (
             prime_output_buffers_using_stream_callback
         )
+        self._output_device = output_device
         self._active = False
         self._end_of_content = False  # set by callback, read by main thread
         self._reported_output_latency_seconds = 0.0
@@ -167,10 +170,10 @@ class AudioEngine:
 
         # A2: pre-allocated output scratch buffers. Sized to 2× buffer_size so that
         # split-read pre/post segments can each be a full buffer's worth.
-        scratch_size = max(buffer_size * 2, 8192)
-        self._output_scratch: np.ndarray = np.zeros(scratch_size, dtype=np.float32)
-        self._pre_scratch: np.ndarray = np.zeros(scratch_size, dtype=np.float32)
-        self._post_scratch: np.ndarray = np.zeros(scratch_size, dtype=np.float32)
+        scratch_size = max(buffer_size * 2, DEFAULT_SCRATCH_FRAMES)
+        self._output_scratch: np.ndarray = _create_audio_buffer(scratch_size, channels)
+        self._pre_scratch: np.ndarray = _create_audio_buffer(scratch_size, channels)
+        self._post_scratch: np.ndarray = _create_audio_buffer(scratch_size, channels)
 
         # A10: glitch tracking
         self._glitch_count: int = 0
@@ -335,6 +338,8 @@ class AudioEngine:
             "prime_output_buffers_using_stream_callback": prime_output,
             "callback": self._audio_callback,
         }
+        if self._output_device is not None:
+            stream_kwargs["device"] = self._output_device
 
         if self._stream_factory is not None:
             self._stream = self._stream_factory(**stream_kwargs)
@@ -382,6 +387,14 @@ class AudioEngine:
         if status:
             self._glitch_count += 1
             self._last_status = status
+
+        if frames > len(self._output_scratch):
+            outdata[:] = 0
+            self._glitch_count += 1
+            self._last_status = (
+                f"callback_frames_exceeded_scratch:{frames}>{len(self._output_scratch)}"
+            )
+            return
 
         if not self._transport.is_playing:
             outdata[:] = 0
@@ -464,10 +477,15 @@ class AudioEngine:
 
         # Write to output
         if self._channels == 1:
-            outdata[:, 0] = mixed
+            if mixed.ndim == 1:
+                outdata[:, 0] = mixed
+            else:
+                outdata[:, 0] = mixed[:, 0]
         else:
-            for ch in range(self._channels):
-                outdata[:, ch] = mixed
+            if mixed.ndim == 1:
+                outdata[:, :] = mixed[:, None]
+            else:
+                outdata[:, :] = mixed[:, :self._channels]
 
     # -- Clock subscriber management ----------------------------------------
 

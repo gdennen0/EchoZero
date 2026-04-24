@@ -73,6 +73,9 @@
             },
             {
               "action_id": "merge_main"
+            },
+            {
+              "action_id": "delete_take"
             }
           ],
           "events": []
@@ -90,6 +93,9 @@
             },
             {
               "action_id": "merge_main"
+            },
+            {
+              "action_id": "delete_take"
             }
           ],
           "events": []
@@ -219,6 +225,9 @@
             },
             {
               "action_id": "merge_main"
+            },
+            {
+              "action_id": "delete_take"
             }
           ],
           "events": [
@@ -254,6 +263,9 @@
             },
             {
               "action_id": "merge_main"
+            },
+            {
+              "action_id": "delete_take"
             }
           ],
           "events": [
@@ -441,6 +453,9 @@
             },
             {
               "action_id": "merge_main"
+            },
+            {
+              "action_id": "delete_take"
             }
           ],
           "events": [

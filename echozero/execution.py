@@ -261,22 +261,28 @@ class ExecutionEngine:
             assert isinstance(result, Ok)
             result_value = result.value
 
-            # Detect multi-port: executor returned a dict whose keys match
-            # the block's declared output port names.
+            # Detect multi-port: executor returned a dict with one or more
+            # declared output port names. Ignore undeclared extras so blocks
+            # like two-stem separation can still feed their declared ports.
             output_port_names = {p.name for p in block.output_ports}
+            matching_port_values = (
+                {
+                    key: value
+                    for key, value in result_value.items()
+                    if key in output_port_names and value is not None
+                }
+                if isinstance(result_value, dict)
+                else {}
+            )
             is_multi_port = (
-                isinstance(result_value, dict)
+                bool(matching_port_values)
                 and len(output_port_names) > 1
-                and result_value.keys() <= output_port_names
             )
 
             if is_multi_port:
-                # Multi-port: executor returned {port_name: value}
-                # Filter out None values — partial returns don't store empty ports
-                result_value = {k: v for k, v in result_value.items() if v is not None}
-                for pname, pvalue in result_value.items():
+                for pname, pvalue in matching_port_values.items():
                     context.set_output(block_id, pname, pvalue)
-                outputs[block_id] = result_value
+                outputs[block_id] = matching_port_values
             else:
                 # Single-port (or single output port): wrap in {port_name: value}
                 pname = block.output_ports[0].name if block.output_ports else "out"

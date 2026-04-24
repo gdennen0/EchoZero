@@ -1,8 +1,6 @@
-"""
-Persistence entities: Frozen dataclasses for EchoZero's project storage model.
-Exists because the domain layer's types are engine-facing (runtime pipeline data),
-while persistence needs additional UI/project state (color, order, visibility).
-These DTOs map 1:1 to SQLite rows; repositories translate between them and domain types.
+"""Persistence record types for EchoZero project storage.
+Exists to represent SQLite-backed project state with UI, ordering, and provenance metadata.
+Connects repository storage rows to the broader application and domain model surface.
 """
 
 from __future__ import annotations
@@ -83,6 +81,7 @@ class SongVersionRecord:
     original_sample_rate: int
     audio_hash: str
     created_at: datetime
+    ma3_timecode_pool_no: int | None = None
     rebuild_plan: dict[str, Any] = field(default_factory=dict)
 
 
@@ -118,6 +117,26 @@ class LayerRecord:
     created_at: datetime
     state_flags: dict[str, Any] = field(default_factory=dict)
     provenance: dict[str, Any] = field(default_factory=dict)
+
+
+# ---------------------------------------------------------------------------
+# Timeline region record
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class TimelineRegionRecord:
+    """Persistence-layer entity for one timeline region span."""
+
+    id: str
+    song_version_id: str
+    label: str
+    start_seconds: float
+    end_seconds: float
+    color: str | None
+    order_index: int
+    kind: str
+    created_at: datetime
 
 
 # ---------------------------------------------------------------------------
@@ -161,6 +180,19 @@ class PipelineConfigRecord:
     Use clear_block_override() to re-link a setting back to the global knob.
     """
 
+    @staticmethod
+    def _target_block_id_for_knob(key: str, knob_metadata: dict[str, Any] | None) -> str | None:
+        if knob_metadata is None or key not in knob_metadata:
+            return None
+        return getattr(knob_metadata[key], "maps_to_block", None)
+
+    @staticmethod
+    def _target_setting_key_for_knob(key: str, knob_metadata: dict[str, Any] | None) -> str:
+        if knob_metadata is None or key not in knob_metadata:
+            return key
+        mapped_key = getattr(knob_metadata[key], "maps_to_setting", None)
+        return str(mapped_key) if mapped_key else key
+
     def with_knob_value(
         self,
         key: str,
@@ -193,21 +225,22 @@ class PipelineConfigRecord:
         graph_data = json.loads(self.graph_json)
         graph = deserialize_graph(graph_data)
 
-        # Determine target block(s)
-        target_block_id = None
-        if knob_metadata and key in knob_metadata:
-            target_block_id = getattr(knob_metadata[key], "maps_to_block", None)
+        target_block_id = self._target_block_id_for_knob(key, knob_metadata)
+        target_setting_key = self._target_setting_key_for_knob(key, knob_metadata)
 
         for block_id, block in graph.blocks.items():
-            if key not in block.settings:
+            if target_setting_key not in block.settings:
                 continue
             if target_block_id is not None and block_id != target_block_id:
                 continue
             # Skip blocks where this setting has been overridden per-block
-            if block_id in self.block_overrides and key in self.block_overrides[block_id]:
+            if (
+                block_id in self.block_overrides
+                and target_setting_key in self.block_overrides[block_id]
+            ):
                 continue
             new_settings = dict(block.settings)
-            new_settings[key] = value
+            new_settings[target_setting_key] = value
             graph.replace_block(_replace(block, settings=BlockSettings(new_settings)))
 
         return replace(
@@ -239,17 +272,16 @@ class PipelineConfigRecord:
             changed = {}
             overridden_keys = self.block_overrides.get(block_id, [])
             for key, value in updates.items():
-                if key not in block.settings:
+                target_setting_key = self._target_setting_key_for_knob(key, knob_metadata)
+                if target_setting_key not in block.settings:
                     continue
-                target = None
-                if knob_metadata and key in knob_metadata:
-                    target = getattr(knob_metadata[key], "maps_to_block", None)
+                target = self._target_block_id_for_knob(key, knob_metadata)
                 if target is not None and block_id != target:
                     continue
                 # Skip overridden settings
-                if key in overridden_keys:
+                if target_setting_key in overridden_keys:
                     continue
-                changed[key] = value
+                changed[target_setting_key] = value
             if changed:
                 new_settings = {**dict(block.settings), **changed}
                 graph.replace_block(_replace(block, settings=BlockSettings(new_settings)))

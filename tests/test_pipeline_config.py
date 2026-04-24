@@ -500,6 +500,110 @@ class TestMapsToBlock:
                 assert block.settings.get("threshold") == 0.8
 
 
+class TestMapsToSetting:
+    """Knobs can target block settings with different names."""
+
+    def test_full_analysis_prefixed_onset_knobs_update_detect_blocks(self, session, song_version):
+        orch = Orchestrator(get_registry(), _executors())
+        template = get_registry().get("full_analysis")
+        assert template is not None
+        config = unwrap(orch.create_config(session, song_version.id, "full_analysis"))
+
+        updated = config.with_knob_values(
+            {
+                "onset_method": "hfc",
+                "onset_backtrack": False,
+                "onset_timing_offset_ms": 18.0,
+            },
+            knob_metadata=template.knobs,
+        )
+
+        pipeline = updated.to_pipeline()
+        for block_id in ("drums_onsets", "bass_onsets", "vocals_onsets", "other_onsets"):
+            block = pipeline.graph.blocks[block_id]
+            assert block.settings.get("method") == "hfc"
+            assert block.settings.get("backtrack") is False
+            assert block.settings.get("timing_offset_ms") == 18.0
+
+    def test_drum_classification_prefixed_knobs_update_detect_and_classify_blocks(
+        self, session, song_version
+    ):
+        orch = Orchestrator(get_registry(), _executors())
+        template = get_registry().get("drum_classification")
+        assert template is not None
+        config = unwrap(orch.create_config(session, song_version.id, "drum_classification"))
+
+        updated = config.with_knob_values(
+            {
+                "onset_threshold": 0.05,
+                "onset_min_gap": 0.02,
+                "classify_device": "cpu",
+                "classify_batch_size": 8,
+            },
+            knob_metadata=template.knobs,
+        )
+
+        pipeline = updated.to_pipeline()
+        detect = pipeline.graph.blocks["detect_onsets"]
+        classify = pipeline.graph.blocks["classify"]
+        assert detect.settings.get("threshold") == 0.05
+        assert detect.settings.get("min_gap") == 0.02
+        assert classify.settings.get("device") == "cpu"
+        assert classify.settings.get("batch_size") == 8
+
+    def test_extract_classified_drums_prefixed_knobs_update_detect_and_classify_blocks(
+        self, session, song_version
+    ):
+        orch = Orchestrator(get_registry(), _executors())
+        template = get_registry().get("extract_classified_drums")
+        assert template is not None
+        config = unwrap(orch.create_config(session, song_version.id, "extract_classified_drums"))
+
+        updated = config.with_knob_values(
+            {
+                "onset_threshold": 0.05,
+                "onset_method": "complex",
+                "classify_device": "cpu",
+            },
+            knob_metadata=template.knobs,
+        )
+
+        pipeline = updated.to_pipeline()
+        detect = pipeline.graph.blocks["detect_onsets"]
+        classify = pipeline.graph.blocks["classify_drums"]
+        assert detect.settings.get("threshold") == 0.05
+        assert detect.settings.get("method") == "complex"
+        assert classify.settings.get("device") == "cpu"
+
+    def test_extract_song_drum_events_knobs_update_separator_detect_and_classify_blocks(
+        self, session, song_version
+    ):
+        orch = Orchestrator(get_registry(), _executors())
+        template = get_registry().get("extract_song_drum_events")
+        assert template is not None
+        config = unwrap(orch.create_config(session, song_version.id, "extract_song_drum_events"))
+
+        updated = config.with_knob_values(
+            {
+                "model": "mdx_extra",
+                "device": "cpu",
+                "onset_threshold": 0.05,
+                "positive_threshold": 0.65,
+            },
+            knob_metadata=template.knobs,
+        )
+
+        pipeline = updated.to_pipeline()
+        separate = pipeline.graph.blocks["separate_drums"]
+        detect = pipeline.graph.blocks["detect_onsets"]
+        classify = pipeline.graph.blocks["classify_drums"]
+        assert separate.settings.get("model") == "mdx_extra"
+        assert separate.settings.get("device") == "cpu"
+        assert detect.settings.get("threshold") == 0.05
+        assert classify.settings.get("device") == "cpu"
+        assert classify.settings.get("positive_threshold") == 0.65
+
+
 class TestConfigToFromPipeline:
     """Verify PipelineConfigRecord.from_pipeline and to_pipeline round-trips."""
 

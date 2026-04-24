@@ -36,6 +36,27 @@ from echozero.pipelines.registry import pipeline_template
             step=0.05,
             description="Onset detection threshold (lower = more events)",
         ),
+        "onset_method": knob(
+            "default",
+            label="Onset Method",
+            widget=KnobWidget.DROPDOWN,
+            options=("default", "hfc", "complex"),
+            maps_to_setting="method",
+        ),
+        "onset_backtrack": knob(
+            True,
+            label="Onset Backtrack",
+            maps_to_setting="backtrack",
+        ),
+        "onset_timing_offset_ms": knob(
+            0.0,
+            label="Onset Timing Offset (ms)",
+            min_value=-100.0,
+            max_value=100.0,
+            step=1.0,
+            advanced=True,
+            maps_to_setting="timing_offset_ms",
+        ),
         "model": knob(
             "htdemucs",
             label="Separation Model",
@@ -52,15 +73,19 @@ from echozero.pipelines.registry import pipeline_template
             "",
             label="Classification Model",
             widget=KnobWidget.FILE_PICKER,
-            file_types=(".pth",),
+            file_types=(".manifest.json", ".pth"),
             description="PyTorch model for drum classification",
             advanced=True,
+            maps_to_setting="model_path",
         ),
     },
 )
 def build_full_analysis(
     audio_file="",
     threshold=0.3,
+    onset_method="default",
+    onset_backtrack=True,
+    onset_timing_offset_ms=0.0,
     model="htdemucs",
     device="auto",
     classify_model_path="",
@@ -72,16 +97,44 @@ def build_full_analysis(
     sep = p.add(Separator(model=model, device=device), id="sep", audio_in=load.audio_out)
 
     drums_onsets = p.add(
-        DetectOnsets(threshold=threshold), id="drums_onsets", audio_in=sep.drums_out
+        DetectOnsets(
+            threshold=threshold,
+            method=onset_method,
+            backtrack=onset_backtrack,
+            timing_offset_ms=onset_timing_offset_ms,
+        ),
+        id="drums_onsets",
+        audio_in=sep.drums_out,
     )
     bass_onsets = p.add(
-        DetectOnsets(threshold=threshold), id="bass_onsets", audio_in=sep.bass_out
+        DetectOnsets(
+            threshold=threshold,
+            method=onset_method,
+            backtrack=onset_backtrack,
+            timing_offset_ms=onset_timing_offset_ms,
+        ),
+        id="bass_onsets",
+        audio_in=sep.bass_out,
     )
     vocals_onsets = p.add(
-        DetectOnsets(threshold=threshold), id="vocals_onsets", audio_in=sep.vocals_out
+        DetectOnsets(
+            threshold=threshold,
+            method=onset_method,
+            backtrack=onset_backtrack,
+            timing_offset_ms=onset_timing_offset_ms,
+        ),
+        id="vocals_onsets",
+        audio_in=sep.vocals_out,
     )
     other_onsets = p.add(
-        DetectOnsets(threshold=threshold), id="other_onsets", audio_in=sep.other_out
+        DetectOnsets(
+            threshold=threshold,
+            method=onset_method,
+            backtrack=onset_backtrack,
+            timing_offset_ms=onset_timing_offset_ms,
+        ),
+        id="other_onsets",
+        audio_in=sep.other_out,
     )
 
     # Classify drums if a model is provided
@@ -90,6 +143,7 @@ def build_full_analysis(
             Classify(model_path=classify_model_path, device=device),
             id="drums_classify",
             events_in=drums_onsets.events_out,
+            audio_in=sep.drums_out,
         )
         p.output("drums_classified", drums_classified.events_out)
     else:

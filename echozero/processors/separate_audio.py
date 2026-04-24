@@ -1,8 +1,6 @@
-"""
-SeparateAudioProcessor: Splits a stereo mix into isolated stems using Demucs.
-Exists because source separation is the foundation of per-instrument analysis —
-you can't detect drum onsets cleanly on a full mix.
-Used by ExecutionEngine when running blocks of type 'SeparateAudio'.
+"""Demucs-backed source separation processor.
+Exists to split mixed audio into isolated stems for downstream analysis workflows.
+Connects execution-engine block runs to model-backed stem separation results.
 """
 
 from __future__ import annotations
@@ -509,5 +507,4 @@ class SeparateAudioProcessor:
         )
 
         return ok(outputs)
-
 

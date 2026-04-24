@@ -7,7 +7,11 @@ from typing import Any
 
 SUPPORTED_ACTIONS = {
     "song.add",
+    "song.select",
+    "song.version.add",
+    "song.version.switch",
     "timeline.classify_drum_events",
+    "timeline.extract_classified_drums",
     "timeline.duplicate_selection",
     "timeline.extract_drum_events",
     "timeline.extract_stems",
@@ -82,10 +86,28 @@ def _validate_step(*, action: str, params: dict[str, Any], step_index: int) -> N
     if action == "song.add":
         _require_string(params, "title", step_index=step_index)
         _require_string(params, "audio_path", step_index=step_index)
+    elif action == "song.select":
+        if not _has_named_target(params, "song_id", "song_title"):
+            raise ValueError(
+                f"Step {step_index} song.select requires params.song_id or params.song_title"
+            )
+    elif action == "song.version.switch":
+        if not _has_named_target(params, "song_version_id", "version_label"):
+            raise ValueError(
+                "Step "
+                f"{step_index} song.version.switch requires params.song_version_id or params.version_label"
+            )
+    elif action == "song.version.add":
+        _require_string(params, "audio_path", step_index=step_index)
+        _optional_named_target(params, "song_id", "song_title", step_index=step_index)
+        label = params.get("label")
+        if label is not None and not isinstance(label, str):
+            raise ValueError(f"Step {step_index} song.version.add params.label must be a string")
     elif action in {
         "timeline.extract_stems",
         "timeline.extract_drum_events",
         "timeline.classify_drum_events",
+        "timeline.extract_classified_drums",
         "selection.first_event",
         "transfer.workspace_open",
     }:
@@ -125,3 +147,26 @@ def _require_layer_target(params: dict[str, Any], *, step_index: int, action: st
         raise ValueError(f"Step {step_index} {action} params.layer_id must be a string")
     if layer_title is not None and not isinstance(layer_title, str):
         raise ValueError(f"Step {step_index} {action} params.layer_title must be a string")
+
+
+def _has_named_target(params: dict[str, Any], id_key: str, title_key: str) -> bool:
+    value = params.get(id_key)
+    if isinstance(value, str) and value.strip():
+        return True
+    value = params.get(title_key)
+    return isinstance(value, str) and bool(value.strip())
+
+
+def _optional_named_target(
+    params: dict[str, Any],
+    id_key: str,
+    title_key: str,
+    *,
+    step_index: int,
+) -> None:
+    value = params.get(id_key)
+    if value is not None and not isinstance(value, str):
+        raise ValueError(f"Step {step_index} params.{id_key} must be a string")
+    value = params.get(title_key)
+    if value is not None and not isinstance(value, str):
+        raise ValueError(f"Step {step_index} params.{title_key} must be a string")

@@ -226,7 +226,11 @@ class TestFullPipeline:
         load = p.add(LoadAudio())
         stems = p.add(Separator(device="auto"), audio_in=load.audio_out)
         drums_onsets = p.add(DetectOnsets(threshold=0.3), audio_in=stems.drums_out)
-        drums_classified = p.add(Classify(device="auto"), events_in=drums_onsets.events_out)
+        drums_classified = p.add(
+            Classify(device="auto"),
+            events_in=drums_onsets.events_out,
+            audio_in=stems.drums_out,
+        )
         bass_onsets = p.add(DetectOnsets(), audio_in=stems.bass_out)
 
         p.output("drums_classified", drums_classified.events_out)
@@ -240,8 +244,8 @@ class TestFullPipeline:
         assert block_types.count("DetectOnsets") == 2
         assert block_types.count("PyTorchAudioClassify") == 1
 
-        # 4 connections
-        assert len(p.graph.connections) == 4
+        # 5 connections
+        assert len(p.graph.connections) == 5
 
         # Valid DAG
         order = p.graph.topological_sort()
@@ -363,6 +367,11 @@ class TestBlockSpecs:
         assert spec.block_type == "DetectOnsets"
         assert spec.settings["threshold"] == 0.5
 
+    def test_classify_spec_accepts_audio_context(self):
+        spec = Classify(model_path="/tmp/model.manifest.json")
+        input_names = [port.name for port in spec.input_ports]
+        assert input_names == ["events_in", "audio_in"]
+
     def test_settings_override(self):
         spec = LoadAudio(file_path="/test.wav", target_sample_rate=22050)
         assert spec.settings["file_path"] == "/test.wav"
@@ -386,4 +395,3 @@ class TestBlockSpecs:
                 assert port.name.endswith("_out"), f"{spec.block_type} output port {port.name}"
             for port in spec.input_ports:
                 assert port.name.endswith("_in"), f"{spec.block_type} input port {port.name}"
-

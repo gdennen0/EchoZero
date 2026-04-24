@@ -1,12 +1,32 @@
 from __future__ import annotations
 
 import os
+from collections.abc import Sequence
 from pathlib import Path
+from typing import Protocol, cast
 
 from PyQt6.QtGui import QFont, QFontDatabase
 from PyQt6.QtWidgets import QApplication
 
 _BOOTSTRAP_PROPERTY = "echozero.qt.font_bootstrap.done"
+
+
+class _ReadableFont(Protocol):
+    """Minimal font contract needed to preserve the current point size."""
+
+    def pointSize(self) -> int: ...
+
+
+class _FontApplication(Protocol):
+    """Minimal Qt app surface required for font bootstrap."""
+
+    def property(self, name: str) -> object | None: ...
+
+    def setProperty(self, name: str, value: object) -> None: ...
+
+    def font(self) -> _ReadableFont: ...
+
+    def setFont(self, font: object) -> None: ...
 
 
 def _default_font_candidates() -> list[Path]:
@@ -19,14 +39,23 @@ def _default_font_candidates() -> list[Path]:
     ]
 
 
+def _resolve_font_application(app: _FontApplication | None) -> _FontApplication | None:
+    if app is not None:
+        return app
+    instance = QApplication.instance()
+    if isinstance(instance, QApplication):
+        return cast(_FontApplication, instance)
+    return None
+
+
 def ensure_qt_fonts_available(
-    app: QApplication | None = None,
+    app: _FontApplication | None = None,
     *,
-    candidates: list[Path] | None = None,
+    candidates: Sequence[Path] | None = None,
 ) -> list[str]:
     """Ensure at least one readable font family exists for headless Qt rendering."""
 
-    qt_app = app or QApplication.instance()
+    qt_app = _resolve_font_application(app)
     if qt_app is None:
         return []
 

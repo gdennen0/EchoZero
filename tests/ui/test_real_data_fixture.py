@@ -34,3 +34,4 @@ def test_real_data_fixture_defaults_resolve_from_timeline_style_tokens():
     assert _fixture_layer_color("drums") == fixture_color("drums")
     assert _fixture_layer_color("unknown-layer") == TIMELINE_STYLE.fixture.fallback_audio_lane_hex
     assert fixture_take_action_label("overwrite_main") == "Overwrite Main"
+    assert fixture_take_action_label("delete_take") == "Delete Take"

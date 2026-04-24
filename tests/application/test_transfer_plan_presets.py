@@ -152,8 +152,14 @@ class _SyncService(SyncService):
     def align_transport(self, transport: TransportState) -> TransportState:
         return transport
 
-    def list_push_track_options(self):
-        return list(self._push_tracks)
+    def list_push_track_options(self, *, timecode_no: int | None = None):
+        if timecode_no is None:
+            return list(self._push_tracks)
+        return [
+            track
+            for track in self._push_tracks
+            if track.coord.startswith(f"tc{int(timecode_no)}_")
+        ]
 
     def list_pull_track_options(self):
         return list(self._pull_tracks)
@@ -171,6 +177,7 @@ def _build_orchestrator(sync_service: SyncService):
     session = Session(
         id=SessionId("session_transfer_presets"),
         project_id=ProjectId("project_transfer_presets"),
+        active_song_version_ma3_timecode_pool_no=1,
         active_timeline_id=TimelineId("timeline_transfer_presets"),
     )
     kick_layer = Layer(

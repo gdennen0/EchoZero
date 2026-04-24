@@ -178,16 +178,31 @@ class TestAutoMapping:
         assert len(takes[0].data.layers[0].events) == 3
         session.close()
 
-    def test_auto_label_from_output_name(self, tmp_path):
-        """Output name 'onsets' → label 'Onsets'."""
+    def test_event_data_persistence_assigns_instance_ids_and_preserves_lineage(self, tmp_path):
+        session, _, version = _create_session(tmp_path)
+        orch = Orchestrator(get_registry(), _default_executors())
+
+        result = orch.analyze(session, version.id, "onset_detection")
+
+        assert isinstance(result, Ok)
+        layers = session.layers.list_by_version(version.id)
+        takes = session.takes.list_by_layer(layers[0].id)
+        stored_events = takes[0].data.layers[0].events
+
+        assert [event.source_event_id for event in stored_events] == ["e1", "e2", "e3"]
+        assert [event.parent_event_id for event in stored_events] == ["e1", "e2", "e3"]
+        assert len({event.id for event in stored_events}) == 3
+        assert {event.id for event in stored_events}.isdisjoint({"e1", "e2", "e3"})
+        session.close()
+
+    def test_default_take_label_starts_at_take_one(self, tmp_path):
         session, _, version = _create_session(tmp_path)
         orch = Orchestrator(get_registry(), _default_executors())
         orch.analyze(session, version.id, "onset_detection")
 
         layers = session.layers.list_by_version(version.id)
         takes = session.takes.list_by_layer(layers[0].id)
-        # The label comes from _label_from_name("onsets") = "Onsets"
-        assert takes[0].label == "Onsets"
+        assert takes[0].label == "Take 1"
         session.close()
 
 
@@ -285,6 +300,7 @@ class TestRerun:
         assert len(takes) == 2
         main_count = sum(1 for t in takes if t.is_main)
         assert main_count == 1
+        assert [take.label for take in takes] == ["Take 1", "Take 2"]
         session.close()
 
     def test_three_runs_three_takes(self, tmp_path):
@@ -298,6 +314,7 @@ class TestRerun:
         assert len(layers) == 1
         takes = session.takes.list_by_layer(layers[0].id)
         assert len(takes) == 3
+        assert [take.label for take in takes] == ["Take 1", "Take 2", "Take 3"]
         session.close()
 
 

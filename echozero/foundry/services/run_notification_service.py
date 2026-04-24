@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
+import threading
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, cast
 
 from echozero.foundry.domain import TrainRun, TrainRunStatus
 
@@ -97,7 +99,10 @@ class RunNotificationService:
         if not path.exists():
             return {}
         try:
-            return json.loads(path.read_text(encoding="utf-8"))
+            payload = json.loads(path.read_text(encoding="utf-8"))
+            if isinstance(payload, dict):
+                return cast(dict[str, Any], payload)
+            return {}
         except Exception:
             return {}
 
@@ -124,14 +129,35 @@ class RunNotificationService:
         state["sent"] = sent
 
     def notify_openclaw(self, text: str) -> None:
+        argv = ["openclaw", "system", "event", "--text", text, "--mode", "now"]
         try:
+            if hasattr(os, "posix_spawnp"):
+                devnull_fd = os.open(os.devnull, os.O_WRONLY)
+                try:
+                    file_actions = [
+                        (os.POSIX_SPAWN_DUP2, devnull_fd, 1),
+                        (os.POSIX_SPAWN_DUP2, devnull_fd, 2),
+                    ]
+                    pid = os.posix_spawnp(
+                        argv[0],
+                        argv,
+                        os.environ.copy(),
+                        file_actions=file_actions,
+                    )
+                    os.waitpid(pid, 0)
+                    return
+                finally:
+                    os.close(devnull_fd)
+
+            if threading.current_thread() is not threading.main_thread():
+                return
+
             subprocess.run(
-                ["openclaw", "system", "event", "--text", text, "--mode", "now"],
+                argv,
                 cwd=str(self._root),
                 check=False,
-                capture_output=True,
-                text=True,
-                timeout=20,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
             )
         except Exception:
             pass

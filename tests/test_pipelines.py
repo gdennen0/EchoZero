@@ -146,7 +146,7 @@ class TestPipelineTemplateDecorator:
         assert t is not None
         assert t.name == 'Onset Detection'
         assert t.description == 'Detect note onsets in audio'
-        assert len(t.knobs) == 3
+        assert len(t.knobs) == 6
 
 
 # ===================================================================
@@ -202,7 +202,10 @@ class TestOnsetDetectionTemplate:
         g = template.build()
         detect = g.blocks['detect_onsets']
         assert detect.settings['threshold'] == 0.3
+        assert detect.settings['min_gap'] == 0.05
         assert detect.settings['method'] == 'default'
+        assert detect.settings['backtrack'] is True
+        assert detect.settings['timing_offset_ms'] == 0.0
 
     def test_knobs_audio_file(self, template: PipelineTemplate) -> None:
         k = template.knobs['audio_file']
@@ -221,6 +224,62 @@ class TestOnsetDetectionTemplate:
         assert isinstance(k, Knob)
         assert k.widget == KnobWidget.DROPDOWN
         assert 'default' in k.options
+
+    def test_knobs_backtrack(self, template: PipelineTemplate) -> None:
+        k = template.knobs['backtrack']
+        assert isinstance(k, Knob)
+        assert k.default is True
+
+
+class TestDrumClassificationTemplate:
+    """Drum classification template exposes onset and classifier controls."""
+
+    @pytest.fixture
+    def template(self) -> PipelineTemplate:
+        import echozero.pipelines.templates.drum_classification  # noqa: F401
+
+        reg = get_registry()
+        t = reg.get("drum_classification")
+        assert t is not None
+        return t
+
+    def test_knobs_include_onset_and_classifier_controls(self, template: PipelineTemplate) -> None:
+        assert "onset_threshold" in template.knobs
+        assert "onset_min_gap" in template.knobs
+        assert "onset_method" in template.knobs
+        assert "onset_backtrack" in template.knobs
+        assert "onset_timing_offset_ms" in template.knobs
+        assert "classify_model_path" in template.knobs
+        assert "classify_device" in template.knobs
+        assert "classify_batch_size" in template.knobs
+
+    def test_detect_onsets_block_receives_onset_knob_values(self, template: PipelineTemplate) -> None:
+        pipeline = template.build_pipeline(
+            bindings={
+                "onset_threshold": 0.2,
+                "onset_min_gap": 0.08,
+                "onset_method": "hfc",
+                "onset_backtrack": False,
+                "onset_timing_offset_ms": -12.0,
+                "classify_model_path": "model.pth",
+            }
+        )
+
+        detect = pipeline.graph.blocks["detect_onsets"]
+        assert detect.settings["threshold"] == 0.2
+        assert detect.settings["min_gap"] == 0.08
+        assert detect.settings["method"] == "hfc"
+        assert detect.settings["backtrack"] is False
+        assert detect.settings["timing_offset_ms"] == -12.0
+
+    def test_classify_block_receives_audio_context(self, template: PipelineTemplate) -> None:
+        pipeline = template.build_pipeline(bindings={"classify_model_path": "model.pth"})
+        assert any(
+            connection.source_block_id == "load_audio"
+            and connection.target_block_id == "classify"
+            and connection.target_input_name == "audio_in"
+            for connection in pipeline.graph.connections
+        )
 
 
 # ===================================================================
@@ -429,4 +488,3 @@ class TestFullAnalysisTemplate:
         assert order.index('load') < order.index('sep')
         assert order.index('sep') < order.index('drums_onsets')
         assert order.index('sep') < order.index('bass_onsets')
-

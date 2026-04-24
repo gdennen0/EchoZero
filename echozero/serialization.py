@@ -187,6 +187,8 @@ def _serialize_event(event: Event) -> dict[str, Any]:
         "classifications": event.classifications,
         "metadata": event.metadata,
         "origin": event.origin,
+        "source_event_id": event.source_event_id,
+        "parent_event_id": event.parent_event_id,
     }
 
 
@@ -199,6 +201,8 @@ def _deserialize_event(data: dict[str, Any]) -> Event:
         classifications=data["classifications"],
         metadata=data["metadata"],
         origin=data["origin"],
+        source_event_id=data.get("source_event_id"),
+        parent_event_id=data.get("parent_event_id"),
     )
 
 
@@ -366,4 +370,3 @@ def load_project(path: str) -> tuple[Graph, list[TakeLayer]]:
         deserialize_take_layer(tl) for tl in data.get("take_layers", [])
     ]
     return graph, take_layers
-

@@ -7,6 +7,9 @@ across sessions.
 It connects `AGENTS.md`, `docs/WORKER-ROLES.md`, `docs/DEV-LANES.md`, and
 `docs/TESTING.md` into one practical workflow.
 
+Prompt construction for OpenClaw/Codex work is standardized in
+[docs/OPENCLAW-CODEX-PROMPTING.md](/Users/march/Documents/GitHub/EchoZero/docs/OPENCLAW-CODEX-PROMPTING.md:1).
+
 ## Purpose
 
 EchoZero uses an orchestrator-first workflow.
@@ -71,14 +74,39 @@ Do not spawn when:
 Every delegated task must specify:
 
 - goal
+- why now / user-visible outcome
 - owned paths
 - forbidden paths
+- canonical docs to read first
+- canonical surface to use
 - proof lane
+- stop/report conditions
 - expected output
 - residual-risk reporting requirement
 
 Use [docs/agent-task-template.md](/Users/march/Documents/GitHub/EchoZero/docs/agent-task-template.md:1)
-for the assignment format.
+for the assignment format and
+[docs/OPENCLAW-CODEX-PROMPTING.md](/Users/march/Documents/GitHub/EchoZero/docs/OPENCLAW-CODEX-PROMPTING.md:1)
+for the phrasing and prompt-shape rules.
+
+## Prompt Construction
+
+Every good EchoZero worker prompt should make these explicit before work starts:
+
+- role: `research`, `impl`, `verify`, or `review`
+- exact outcome and why it matters now
+- owned paths and forbidden paths
+- smallest useful doc/code context package
+- canonical truth or automation surface
+- primary and secondary proof commands
+- stop conditions for conflicts, missing dependencies, or rule ambiguity
+- reporting contract, including residual risks
+
+For OpenClaw or app automation work, prompts should also state:
+
+- use the app-owned automation bridge and `packages/ui_automation/**`
+- prefer semantic actions and stable target ids before pointer fallbacks
+- do not treat demo or simulated GUI helpers as the canonical control surface
 
 ## Ownership Rules
 

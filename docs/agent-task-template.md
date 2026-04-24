@@ -1,27 +1,38 @@
 # Agent Task Template
 
-Use this template when assigning work to a disposable worker or starting a bounded
-session in a separate worktree.
+Use this template when assigning work to a disposable worker or starting a
+bounded session in a separate worktree.
+For prompt phrasing and EchoZero-specific tricks, pair this with
+`docs/OPENCLAW-CODEX-PROMPTING.md`.
 
-## Goal
+## Prompt header
 
-- Problem to solve:
+- Role:
+- Goal:
 - Why now:
 - User-visible outcome:
 
-## Scope
+## Scope and ownership
 
 - Owned paths:
-- Allowed tests:
 - Forbidden paths:
-- Canonical docs to read first:
+- Allowed tests or proof lanes:
 - Lane/worktree:
+
+## Context package
+
+- Canonical docs to read first:
+- Relevant source files to inspect first:
+- Relevant tests to inspect first:
+- Canonical surface to use:
+- Non-canonical surfaces to avoid:
 
 ## Locked rules
 
 - Truth-model constraints:
 - Sync/timeline/UI constraints:
 - Cleanup boundaries:
+- Stop and report if:
 
 ## Proof lane
 
@@ -29,11 +40,11 @@ session in a separate worktree.
 - Secondary proof command:
 - Perf/hardware/manual proof required:
 
-## Delegation contract
+## Execution contract
 
-- Role:
 - Why this assignment is delegated:
-- Do not edit outside owned paths:
+- Stay inside owned paths:
+- Do not widen scope into opportunistic cleanup:
 - Do not revert unrelated work:
 - Report residual risk explicitly:
 
@@ -48,6 +59,31 @@ session in a separate worktree.
 - Files changed:
 - Commands run:
 - Pass/fail result:
+- Strongest failure signal if broken:
 - Residual risks/blockers:
 - Spawn/session proof:
 - Closeout state:
+
+## Optional role add-ons
+
+### `research`
+
+- Exact question to answer:
+- References required:
+- Uncertainty to call out:
+
+### `impl`
+
+- Concrete change to make:
+- Allowed abstractions:
+- Explicit anti-patterns to avoid:
+
+### `verify`
+
+- Read-only vs fix-forward:
+- Evidence required:
+
+### `review`
+
+- Findings-first requirement:
+- Severity/file reference requirement:

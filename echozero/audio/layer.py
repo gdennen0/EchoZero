@@ -1,15 +1,7 @@
 """
 AudioLayer: A single audio track in the mixer.
-
 Exists because multi-track playback requires individual control over each stem/source.
-Each layer holds a loaded audio buffer and provides read access for the mixer's
-summing callback.
-
-Inspired by: Reaper track items, Ableton clip slots, Logic regions.
-Keeps it simple — a layer is a buffer with volume/mute/solo and a sample offset.
-
-Audio thread contract: read_into() writes into a pre-allocated scratch buffer.
-No allocations on the hot path.
+Connects loaded mono or stereo buffers to the mixer's callback read contract.
 """
 
 from __future__ import annotations
@@ -44,14 +36,18 @@ def resample_buffer(buffer: np.ndarray, source_sr: int, target_sr: int) -> np.nd
     idx_floor = np.floor(indices).astype(np.int64)
     idx_ceil = np.minimum(idx_floor + 1, len(buffer) - 1)
     frac = (indices - idx_floor).astype(np.float32)
-    return buffer[idx_floor] * (1.0 - frac) + buffer[idx_ceil] * frac
+    if buffer.ndim == 1:
+        return buffer[idx_floor] * (1.0 - frac) + buffer[idx_ceil] * frac
+    frac_2d = frac[:, None]
+    return buffer[idx_floor] * (1.0 - frac_2d) + buffer[idx_ceil] * frac_2d
 
 
 class AudioLayer:
     """One audio track. Holds samples, provides chunk reads for the mixer.
 
-    The buffer is a 1D float32 numpy array (mono), resampled to the engine's
-    sample rate on construction. All read operations are in engine sample space.
+    The buffer may be mono `(frames,)` or multi-channel `(frames, channels)`,
+    resampled to the engine's sample rate on construction. All read operations
+    are in engine sample space.
 
     Attributes:
         id: Unique layer identifier (matches domain Layer.id).
@@ -106,6 +102,13 @@ class AudioLayer:
         return len(self.buffer)
 
     @property
+    def channel_count(self) -> int:
+        """Number of audio channels carried by this layer."""
+        if self.buffer.ndim == 1:
+            return 1
+        return int(self.buffer.shape[1])
+
+    @property
     def duration_seconds(self) -> float:
         """Duration in seconds."""
         return self.duration_samples / self.sample_rate
@@ -135,6 +138,8 @@ class AudioLayer:
                 f"frames ({frames}) > buffer length ({len(out)}): "
                 "caller must provide a buffer at least `frames` long"
             )
+        if out.ndim not in (1, 2):
+            raise ValueError(f"Unsupported output rank {out.ndim}; expected 1D or 2D audio buffer")
 
         out[:frames] = 0.0
 
@@ -150,14 +155,54 @@ class AudioLayer:
         out_start = buf_start - local_pos
         out_end = out_start + (buf_end - buf_start)
 
-        out[out_start:out_end] = self.buffer[buf_start:buf_end]
+        source = self.buffer[buf_start:buf_end]
+        destination = out[out_start:out_end]
+
+        if destination.ndim == 1:
+            if source.ndim == 1:
+                destination[:] = source
+                return
+
+            destination[:] = source[:, 0]
+            for channel_index in range(1, source.shape[1]):
+                destination[:] += source[:, channel_index]
+            destination[:] /= float(source.shape[1])
+            return
+
+        if source.ndim == 1:
+            destination[:] = source[:, None]
+            return
+
+        source_channels = source.shape[1]
+        output_channels = destination.shape[1]
+        if source_channels == output_channels:
+            destination[:] = source
+            return
+        if source_channels == 1:
+            destination[:] = source[:, :1]
+            return
+        if output_channels == 1:
+            destination[:, 0] = source[:, 0]
+            for channel_index in range(1, source_channels):
+                destination[:, 0] += source[:, channel_index]
+            destination[:, 0] /= float(source_channels)
+            return
+
+        copied_channels = min(source_channels, output_channels)
+        destination[:, :copied_channels] = source[:, :copied_channels]
+        if copied_channels < output_channels:
+            destination[:, copied_channels:] = source[:, copied_channels - 1:copied_channels]
 
     def read_samples(self, position: int, frames: int) -> np.ndarray:
         """Read a chunk of audio (allocating version, for non-hot-path use).
 
-        Returns a float32 array of length `frames`. For the audio callback,
-        prefer read_into() with a pre-allocated scratch buffer.
+        Returns mono audio as `(frames,)` or multi-channel audio as
+        `(frames, channels)`. For the audio callback, prefer read_into() with a
+        pre-allocated scratch buffer.
         """
-        out = np.zeros(frames, dtype=np.float32)
+        if self.channel_count == 1:
+            out = np.zeros(frames, dtype=np.float32)
+        else:
+            out = np.zeros((frames, self.channel_count), dtype=np.float32)
         self.read_into(out, position, frames)
         return out

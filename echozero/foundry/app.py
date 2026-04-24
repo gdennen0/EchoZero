@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from threading import Event
 from typing import Any
 
 from echozero.domain.events import (
@@ -11,6 +12,7 @@ from echozero.domain.events import (
     create_event_id,
 )
 from echozero.event_bus import EventBus
+from echozero.foundry.domain import CompatibilityReport, Dataset, EvalReport, ModelArtifact, TrainRun
 from echozero.foundry.persistence import (
     DatasetRepository,
     EvalReportRepository,
@@ -55,7 +57,14 @@ class FoundryApp:
 
         self.activity = FoundryActivityFeed(self.event_bus)
 
-    def create_run(self, dataset_version_id: str, run_spec: dict[str, Any], *, backend: str = "pytorch", device: str = "cpu"):
+    def create_run(
+        self,
+        dataset_version_id: str,
+        run_spec: dict[str, Any],
+        *,
+        backend: str = "pytorch",
+        device: str = "cpu",
+    ) -> TrainRun:
         run = self.runs.create_run(dataset_version_id, run_spec, backend=backend, device=device)
         self.event_bus.publish(
             FoundryRunCreatedEvent(
@@ -69,7 +78,7 @@ class FoundryApp:
         )
         return run
 
-    def start_run(self, run_id: str, *, cancel_event=None):
+    def start_run(self, run_id: str, *, cancel_event: Event | None = None) -> TrainRun:
         run = self.runs.start_run(run_id, cancel_event=cancel_event)
         self.event_bus.publish(
             FoundryRunStartedEvent(
@@ -82,7 +91,7 @@ class FoundryApp:
         )
         return run
 
-    def finalize_artifact(self, run_id: str, manifest: dict[str, Any]):
+    def finalize_artifact(self, run_id: str, manifest: dict[str, Any]) -> ModelArtifact:
         artifact = self.artifacts.finalize_artifact(run_id, manifest)
         self.event_bus.publish(
             FoundryArtifactFinalizedEvent(
@@ -95,7 +104,12 @@ class FoundryApp:
         )
         return artifact
 
-    def validate_artifact(self, artifact_id: str, *, consumer: str = "PyTorchAudioClassify"):
+    def validate_artifact(
+        self,
+        artifact_id: str,
+        *,
+        consumer: str = "PyTorchAudioClassify",
+    ) -> CompatibilityReport:
         report = self.artifacts.validate_compatibility(artifact_id, consumer=consumer)
         self.event_bus.publish(
             FoundryArtifactValidatedEvent(
@@ -111,7 +125,15 @@ class FoundryApp:
         )
         return report
 
-    def plan_version(self, version_id: str, *, validation_split: float = 0.15, test_split: float = 0.10, seed: int = 42, balance_strategy: str = "none") -> dict[str, Any]:
+    def plan_version(
+        self,
+        version_id: str,
+        *,
+        validation_split: float = 0.15,
+        test_split: float = 0.10,
+        seed: int = 42,
+        balance_strategy: str = "none",
+    ) -> dict[str, Any]:
         version = self.datasets.get_version(version_id)
         if version is None:
             raise ValueError(f"DatasetVersion not found: {version_id}")
@@ -140,20 +162,20 @@ class FoundryApp:
     # Query boundary for Foundry UI
     # ------------------------------------------------------------------
 
-    def list_datasets(self):
+    def list_datasets(self) -> list[Dataset]:
         return self.queries.list_datasets()
 
-    def list_runs(self):
+    def list_runs(self) -> list[TrainRun]:
         return self.queries.list_runs()
 
-    def list_artifacts(self):
+    def list_artifacts(self) -> list[ModelArtifact]:
         return self.queries.list_artifacts()
 
-    def list_artifacts_for_run(self, run_id: str):
+    def list_artifacts_for_run(self, run_id: str) -> list[ModelArtifact]:
         return self.queries.list_artifacts_for_run(run_id)
 
-    def get_artifact(self, artifact_id: str):
+    def get_artifact(self, artifact_id: str) -> ModelArtifact | None:
         return self.queries.get_artifact(artifact_id)
 
-    def list_eval_reports_for_run(self, run_id: str):
+    def list_eval_reports_for_run(self, run_id: str) -> list[EvalReport]:
         return self.queries.list_eval_reports_for_run(run_id)

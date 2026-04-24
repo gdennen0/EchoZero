@@ -1,9 +1,18 @@
 # LLM Cleanup Board
 
-_Updated: 2026-04-18_
+Status: active cleanup campaign
+Last verified: 2026-04-21
+
+_Updated: 2026-04-21_
 
 This board is the repo-local campaign for making the canonical EchoZero lane
 smaller, less ambiguous, and easier for LLMs to load correctly.
+
+Use [STATUS.md](STATUS.md) for current implementation truth.
+Use this board for cleanup sequencing and progress.
+Use [EXECUTION-PLAN.md](EXECUTION-PLAN.md) for the ordered remediation plan across issues `1-12`.
+Use [BACKLOG-CLEARANCE-PLAN.md](BACKLOG-CLEARANCE-PLAN.md) for the ordered
+post-remediation backlog-clearance pass.
 
 ## Goal
 
@@ -33,8 +42,8 @@ Make the repo answer these questions quickly and consistently:
 ### Split
 
 - `echozero/ui/qt/app_shell.py`
-  - split composition/runtime shell from project-native timeline bootstrap
-  - split runtime-service adapters from shell behavior
+  - keep shrinking shell behavior into named helper modules
+  - preserve `app_shell.py` as orchestration, not conversion/storage detail
 - `echozero/ui/qt/timeline/widget.py`
   - split manual-pull dialog stack
   - split object-info panel
@@ -89,23 +98,43 @@ Ranked by comprehension cost: size, centrality, and chance of conflicting truths
 
 ## Current Campaign
 
-### Phase 1
+### Completed
 
-- extract project-native timeline bootstrap from `app_shell.py`
-- extract manual-pull UI stack from `timeline/widget.py`
-- extract object-info panel from `timeline/widget.py`
+- [x] add `docs/STATUS.md` as the canonical current-state map
+- [x] add subsystem maps for timeline app, presentation, timeline UI, and Foundry
+- [x] refresh `docs/index.md` and `AGENTS.md` so the front door points at current truth
+- [x] add `Status:` / `Last verified:` markers to major canonical docs
+- [x] label support-only surfaces like `gui_lane_b`, `fixture_loader.py`, and `test_harness.py`
+- [x] extract `echozero/ui/qt/app_shell_timeline_state.py` from `app_shell.py`
+- [x] extract `echozero/ui/qt/app_shell_layer_storage.py` from `app_shell.py`
+- [x] split `echozero/application/presentation/inspector_contract.py` into public builders, shared types, and support helpers
+- [x] normalize the remaining large-module boundary headers and enforce them in `scripts/check_repo_hygiene.py`
+- [x] make explicit import and export boundaries pass on the canonical shell/timeline proof lane
+- [x] extract object-action session and pipeline-run helper logic into `echozero/ui/qt/app_shell_object_actions.py`
+- [x] extract undo/history classification and snapshot restore logic into `echozero/ui/qt/app_shell_history.py`
+- [x] shrink `echozero/application/timeline/orchestrator.py` by separating selection/edit from transfer-plan flows
+- [x] continue the remaining `app_shell.py` cleanup by moving storage-sync and project-lifecycle details behind thinner runtime helpers
+- [x] shrink `echozero/application/presentation/inspector_contract.py` into smaller contract builders
+- [x] split `echozero/ui/qt/timeline/widget.py` and `widget_actions.py` by rendering, input, and dispatch roles
+- [x] split `tests/ui/test_timeline_shell.py` by behavior area instead of one giant proof surface
+- [x] continue the strict type-clean pass outward from the canonical shell lane into adjacent timeline/UI helpers
+- [x] add repo guardrails for cleaned orchestration roots, wrapper entrypoints, and missing boundary headers
 
-### Phase 2
+### Next Expansion
 
-- split transfer-action handlers out of `TimelineWidget`
-- split runtime pipeline actions from widget shell logic
-- split app-shell runtime service adapters out of `app_shell.py`
+- [ ] extend size guardrails from cleaned roots into remaining large canonical mixins once those files are split further
+- [ ] choose the next decomposition targets among `widget_canvas.py`, `object_info_panel.py`, and `main_window_run_mixin.py`
+- [ ] reduce doc sprawl by rolling planning/audit docs into fewer current-state docs
+- [ ] continue the type-clean pass from shell helpers into the remaining large timeline/UI hotspots
 
-### Phase 3
+## Current Wins
 
-- shrink `orchestrator.py`
-- shrink `inspector_contract.py`
-- split `tests/ui/test_timeline_shell.py`
+- `app_shell.py`, `widget.py`, `widget_actions.py`, `main_window.py`, `demo_app.py`, and the historical wrapper test files are now thin orchestration roots instead of mixed-concern monoliths.
+- `app_shell_project_timeline.py` now stays as the public root over focused storage/audio and presentation-overlay helpers, instead of mixing baseline assembly, waveform registration, and selector formatting in one file.
+- The canonical docs front door now has one fast current-truth doc plus code-adjacent subsystem maps.
+- Canonical versus support-only UI surfaces are clearer in both docs and module headers.
+- The hygiene guardrail now enforces boundary headers plus size ceilings for cleaned public roots and wrapper entrypoints, without tightening limits on still-active large mixins prematurely.
+- The cleanup execution plan is now reflected in repo docs as completed work instead of open chat-only status.
 
 ## Working Rule
 

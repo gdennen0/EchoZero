@@ -1,9 +1,12 @@
-from PyQt6.QtWidgets import QApplication, QDialogButtonBox
+from PyQt6.QtCore import Qt
+from PyQt6.QtWidgets import QApplication, QDialogButtonBox, QLabel, QWidget
 
 from echozero.application.presentation.inspector_contract import (
     InspectorAction,
     InspectorContextSection,
     InspectorContract,
+    InspectorFactRow,
+    InspectorSection,
     build_timeline_inspector_contract,
 )
 from echozero.application.timeline.object_actions import (
@@ -14,12 +17,20 @@ from echozero.application.timeline.object_actions import (
     ObjectActionSettingsScopeState,
     ObjectActionSettingsSession,
 )
+from echozero.ui.FEEL import (
+    TIMELINE_EDITOR_BUTTON_MIN_HEIGHT_PX,
+    TIMELINE_OBJECT_INFO_METADATA_DEFAULT_HEIGHT_PX,
+    TIMELINE_OBJECT_INFO_METADATA_MIN_HEIGHT_PX,
+    TIMELINE_OBJECT_INFO_SPLITTER_HANDLE_PX,
+    TIMELINE_TRANSPORT_HEIGHT_PX,
+)
 from echozero.ui.qt.settings_dialog import ActionSettingsDialog
 from echozero.ui.qt.settings_form import ActionSettingsForm
 from echozero.ui.qt.timeline.blocks.event_lane import EventLaneBlock
 from echozero.ui.qt.timeline.blocks.layer_header import LayerHeaderBlock
 from echozero.ui.qt.timeline.blocks.ruler import RulerBlock
 from echozero.ui.qt.timeline.blocks.take_row import TakeRowBlock
+from echozero.ui.qt.timeline.blocks.transport_bar import TransportLayout
 from echozero.ui.qt.timeline.blocks.transport_bar_block import TransportBarBlock
 from echozero.ui.qt.timeline.blocks.waveform_lane import WaveformLaneBlock
 from echozero.ui.qt.timeline.demo_app import build_demo_app
@@ -30,7 +41,10 @@ from echozero.ui.qt.timeline.style import (
     fixture_color,
     fixture_take_action_label,
 )
-from echozero.ui.qt.timeline.widget import ObjectInfoPanel, TimelineWidget
+from echozero.ui.qt.timeline.widget import ObjectInfoPanel, TimelineEditorModeBar, TimelineWidget
+from echozero.ui.style.qt import ensure_qt_theme_installed
+from echozero.ui.style.qt.qss import build_echozero_app_qss
+from tests.ui.timeline_shell_shared_support import _song_switching_presentation
 
 
 def test_object_palette_stylesheet_uses_shared_tokens():
@@ -55,6 +69,53 @@ def test_object_info_panel_layout_comes_from_style_module():
         assert margins.right() == style.content_padding.right
         assert margins.bottom() == style.content_padding.bottom
         assert panel.layout().spacing() == style.section_spacing_px
+    finally:
+        panel.close()
+        app.processEvents()
+
+
+def test_object_info_panel_uses_sectioned_summary_and_hidden_playback_surface_by_default():
+    app = QApplication.instance() or QApplication([])
+    panel = ObjectInfoPanel()
+    try:
+        assert panel._selection_card.property("section") is True
+        assert panel._event_preview_card.property("section") is True
+        assert panel._layer_controls.property("section") is True
+        assert panel._kind.objectName() == "timeline_object_info_kind"
+        assert panel._event_preview_card.isHidden()
+        assert panel._layer_controls.isHidden()
+        assert panel._content_splitter.handleWidth() == TIMELINE_OBJECT_INFO_SPLITTER_HANDLE_PX
+    finally:
+        panel.close()
+        app.processEvents()
+
+
+def test_object_info_panel_keeps_metadata_compact_and_scrollable():
+    app = QApplication.instance() or QApplication([])
+    demo = build_demo_app()
+    panel = ObjectInfoPanel()
+    try:
+        rows = tuple(
+            InspectorFactRow(label=f"field {index}", value="value " * 8) for index in range(12)
+        )
+        contract = InspectorContract(
+            title="Dense Layer",
+            sections=(InspectorSection(section_id="details", label="Details", rows=rows),),
+        )
+
+        panel.resize(panel.maximumWidth(), 320)
+        panel.show()
+        panel.set_contract(demo.presentation(), contract)
+        app.processEvents()
+
+        sizes = panel._content_splitter.sizes()
+
+        assert panel._content_splitter.orientation() == Qt.Orientation.Vertical
+        assert panel._body.isReadOnly()
+        assert panel._body.minimumHeight() == TIMELINE_OBJECT_INFO_METADATA_MIN_HEIGHT_PX
+        assert panel._body.verticalScrollBar().maximum() > 0
+        assert sizes[0] >= TIMELINE_OBJECT_INFO_METADATA_DEFAULT_HEIGHT_PX
+        assert sizes[0] < sizes[1]
     finally:
         panel.close()
         app.processEvents()
@@ -125,7 +186,12 @@ def test_object_info_panel_renders_pipeline_action_settings_rows():
         )
 
         assert "timeline.extract_stems" in panel._pipeline_action_rows
+        assert panel._pipeline_action_rows["timeline.extract_stems"].objectName() == (
+            "timeline_object_info_action_row"
+        )
+        assert panel._settings_buttons["timeline.extract_stems"].property("appearance") == "subtle"
         assert panel._settings_buttons["timeline.extract_stems"].text() == "Open Settings"
+        assert panel._action_buttons["timeline.extract_stems"].property("appearance") == "primary"
         assert panel._action_buttons["timeline.extract_stems"].text() == "Run"
     finally:
         panel.close()
@@ -364,16 +430,147 @@ def test_action_settings_dialog_makes_scope_explicit_in_title_and_copy_target():
         dispatch_command=lambda _session_id, _command: session,
     )
     try:
+        assert dialog.objectName() == "actionSettingsDialog"
         assert dialog.windowTitle() == "Pipeline Settings: This Version · Extract Stems"
+        assert dialog._header.property("section") is True
+        assert dialog._title.text() == "Extract Stems"
         assert dialog._copy_group.title() == "Copy Settings Into This Version"
         assert dialog._stage_group.title() == "Stage Settings: Extract Stems"
         assert "Scope: This Version" in dialog._context.text()
+        assert dialog._buttons.button(QDialogButtonBox.StandardButton.Save).property(
+            "appearance"
+        ) == ("subtle")
+        assert dialog._buttons.button(QDialogButtonBox.StandardButton.Apply).property(
+            "appearance"
+        ) == ("primary")
         assert (
             dialog._buttons.button(QDialogButtonBox.StandardButton.Apply).text()
             == "Save And Rerun"
         )
     finally:
         dialog.close()
+        app.processEvents()
+
+
+def test_action_settings_dialog_uses_bounded_section_surfaces():
+    app = QApplication.instance() or QApplication([])
+    session = ObjectActionSettingsSession(
+        session_id="session_2",
+        action_id="timeline.extract_stems",
+        object_id="source_audio",
+        object_type="layer",
+        scope="version",
+        plan=ObjectActionSettingsPlan(
+            action_id="timeline.extract_stems",
+            title="Extract Stems",
+            object_id="source_audio",
+            object_type="layer",
+            pipeline_template_id="stem_separation",
+        ),
+        scope_states=(
+            ObjectActionSettingsScopeState(scope="version", label="This Version"),
+            ObjectActionSettingsScopeState(scope="song_default", label="Song Default"),
+        ),
+    )
+    dialog = ActionSettingsDialog(
+        session,
+        dispatch_command=lambda _session_id, _command: session,
+    )
+    try:
+        assert dialog._scope_group.property("section") is True
+        assert dialog._copy_group.property("section") is True
+        assert dialog._stage_group.property("section") is True
+        assert dialog._apply_copy.property("appearance") == "subtle"
+        assert dialog._copy_preview.objectName() == "actionSettingsCopyPreview"
+    finally:
+        dialog.close()
+        app.processEvents()
+
+
+def test_timeline_editor_mode_bar_groups_tools_and_syncs_state():
+    app = QApplication.instance() or QApplication([])
+    bar = TimelineEditorModeBar()
+    try:
+        bar.set_state(
+            edit_mode="draw",
+            snap_enabled=True,
+            grid_mode="beat",
+            beat_available=True,
+        )
+
+        assert bar.objectName() == "timelineEditorModeBar"
+        assert bar.findChild(QWidget, "timelineEditorModeGroup") is not None
+        assert bar.findChild(QWidget, "timelineEditorAssistGroup") is not None
+        assert bar.findChild(QWidget, "timelineEditorShellGroup") is not None
+        assert bar._settings_button.objectName() == "timelineEditorSettingsButton"
+        assert bar._regions_button.objectName() == "timelineEditorRegionsButton"
+        assert bar._mode_buttons["move"].text() == "Move"
+        assert bar._mode_buttons["region"].text() == "Region"
+        assert bar._mode_buttons["draw"].isChecked()
+        assert bar._snap_button.isChecked()
+        assert bar._grid_button.text() == "Grid: Beat"
+    finally:
+        bar.close()
+        app.processEvents()
+
+
+def test_timeline_editor_mode_bar_emits_regions_requested_signal():
+    app = QApplication.instance() or QApplication([])
+    bar = TimelineEditorModeBar()
+    emitted: list[bool] = []
+    try:
+        bar.regions_requested.connect(lambda: emitted.append(True))
+
+        bar._regions_button.click()
+
+        assert emitted == [True]
+    finally:
+        bar.close()
+        app.processEvents()
+
+
+def test_transport_layout_centers_compact_bar_content():
+    layout = TransportLayout.create(width=1280)
+    center_lines = (
+        layout.title_rect.center().y(),
+        layout.controls_rect.center().y(),
+        layout.time_rect.center().y(),
+        layout.meta_rect.center().y(),
+    )
+
+    assert layout.rect.height() == TIMELINE_TRANSPORT_HEIGHT_PX
+    assert max(center_lines) - min(center_lines) <= 0.5
+
+
+def test_timeline_widget_top_chrome_is_compact_and_centered():
+    app = QApplication.instance() or QApplication([])
+    ensure_qt_theme_installed(app)
+    widget = TimelineWidget(build_demo_app().presentation())
+    try:
+        widget.resize(1400, 900)
+        widget.show()
+        app.processEvents()
+
+        mode_group = widget._editor_bar.findChild(QWidget, "timelineEditorModeGroup")
+        assert mode_group is not None
+        edit_label = next(
+            label
+            for label in mode_group.findChildren(QLabel)
+            if label.property("timelineToolbarLabel") is True
+        )
+        select_button = widget._editor_bar._mode_buttons["select"]
+        bar_center_y = widget._editor_bar.rect().center().y()
+        group_center_y = mode_group.rect().center().y()
+
+        assert widget._transport.height() == TIMELINE_TRANSPORT_HEIGHT_PX
+        assert widget._editor_bar.height() <= 60
+        assert abs(mode_group.geometry().center().y() - bar_center_y) <= 2
+        assert abs(edit_label.geometry().center().y() - group_center_y) <= 2
+        assert abs(select_button.geometry().center().y() - group_center_y) <= 2
+        assert edit_label.height() >= TIMELINE_EDITOR_BUTTON_MIN_HEIGHT_PX
+        assert abs(edit_label.height() - select_button.height()) <= 4
+    finally:
+        widget.close()
         app.processEvents()
 
 
@@ -490,11 +687,45 @@ def test_timeline_blocks_default_to_shared_style_tokens():
 
 def test_timeline_widget_shell_uses_shared_style_tokens():
     app = QApplication.instance() or QApplication([])
+    ensure_qt_theme_installed(app)
     widget = TimelineWidget(build_demo_app().presentation())
     try:
         assert widget.windowTitle() == TIMELINE_STYLE.window_title
         assert widget._canvas._style is TIMELINE_STYLE
-        assert build_timeline_scroll_area_stylesheet(widget._style) == widget._scroll.styleSheet()
+        assert app.styleSheet() == build_echozero_app_qss()
+        assert widget._editor_bar.objectName() == "timelineEditorModeBar"
+        assert widget._shell_splitter.objectName() == "timelineShellSplitter"
+        assert widget._main_splitter.objectName() == "timelineMainSplitter"
+        assert widget._editor_bar.styleSheet() == ""
+        assert widget._scroll.styleSheet() == ""
+        assert widget._shell_splitter.styleSheet() == ""
+        assert widget._main_splitter.styleSheet() == ""
+    finally:
+        widget.close()
+        app.processEvents()
+
+
+def test_timeline_widget_song_browser_splitter_restores_resized_width():
+    app = QApplication.instance() or QApplication([])
+    widget = TimelineWidget(_song_switching_presentation())
+    try:
+        widget.resize(1600, 900)
+        widget.show()
+        app.processEvents()
+
+        widget._shell_splitter.setSizes([340, 1260])
+        app.processEvents()
+        expected_width = widget._shell_splitter.sizes()[0]
+        widget._sync_song_browser_splitter_width()
+        assert widget._song_browser_panel.expanded_width == expected_width
+
+        widget._song_browser_panel.toggle_collapsed()
+        app.processEvents()
+        assert widget._shell_splitter.sizes()[0] <= 80
+
+        widget._song_browser_panel.toggle_collapsed()
+        app.processEvents()
+        assert widget._shell_splitter.sizes()[0] >= 220
     finally:
         widget.close()
         app.processEvents()
@@ -505,3 +736,4 @@ def test_timeline_fixture_tokens_are_discoverable_from_style_module():
     assert fixture_color("sync") == TIMELINE_STYLE.fixture.layer_color_tokens["sync"]
     assert fixture_take_action_label("overwrite_main") == "Overwrite Main"
     assert fixture_take_action_label("merge_main") == "Merge Main"
+    assert fixture_take_action_label("delete_take") == "Delete Take"

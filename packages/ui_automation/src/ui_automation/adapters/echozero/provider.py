@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from contextlib import contextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
@@ -262,9 +262,30 @@ class EchoZeroAutomationBackend:
             AutomationAction(action_id="app.save_as", label="Save Project As", group="app"),
             AutomationAction(action_id="song.add", label="Add Song", group="song"),
         ]
+        if presentation.available_songs:
+            actions.append(AutomationAction(action_id="song.select", label="Select Song", group="song"))
+        if presentation.active_song_id:
+            actions.append(
+                AutomationAction(
+                    action_id="song.version.add",
+                    label="Add Version",
+                    group="song",
+                )
+            )
+        if len(presentation.available_song_versions) > 1:
+            actions.append(
+                AutomationAction(
+                    action_id="song.version.switch",
+                    label="Switch Version",
+                    group="song",
+                )
+            )
         contract = build_timeline_inspector_contract(presentation)
         contract_actions = self._automation_actions_from_contract(contract)
-        actions.extend(contract_actions)
+        known_action_ids = {action.action_id for action in actions}
+        actions.extend(
+            action for action in contract_actions if action.action_id not in known_action_ids
+        )
 
         selection = []
         if presentation.selected_layer_id is not None:
@@ -303,6 +324,27 @@ class EchoZeroAutomationBackend:
             hit_targets=tuple(hit_targets),
             artifacts={
                 "project_title": presentation.title,
+                "active_song_id": presentation.active_song_id,
+                "active_song_version_id": presentation.active_song_version_id,
+                "songs": [
+                    {
+                        "song_id": song.song_id,
+                        "title": song.title,
+                        "is_active": song.is_active,
+                        "active_version_id": song.active_version_id,
+                        "active_version_label": song.active_version_label,
+                        "version_count": song.version_count,
+                    }
+                    for song in presentation.available_songs
+                ],
+                "song_versions": [
+                    {
+                        "song_version_id": version.song_version_id,
+                        "label": version.label,
+                        "is_active": version.is_active,
+                    }
+                    for version in presentation.available_song_versions
+                ],
                 "pointer_target_id": self._pointer_target_id,
                 "pointer_position": self._pointer_position,
             },
@@ -534,17 +576,28 @@ class EchoZeroAutomationBackend:
             finally:
                 self._restore_dialog_paths()
         elif action_id == "song.add":
-            contract_action = self._require_contract_action("song.add")
+            contract_action = self._find_contract_action("song.add")
+            if contract_action is None:
+                contract_action = InspectorAction(action_id="song.add", label="Add Song")
+            contract_action = replace(
+                contract_action,
+                params={**contract_action.params, **payload},
+            )
             with self._dialog_overrides(
                 text_responses=[(str(payload["title"]), True)],
                 open_file_responses=[(str(payload["audio_path"]), "")],
             ):
                 self._harness.widget._trigger_contract_action(contract_action)
             QApplication.processEvents()
+        elif action_id in {"song.select", "song.version.switch", "song.version.add"}:
+            self._harness.widget._trigger_contract_action(
+                self._merged_contract_action(action_id, payload)
+            )
+            QApplication.processEvents()
         elif is_object_action(action_id):
             descriptor = descriptor_for_action(action_id)
             assert descriptor is not None
-            contract_action = self._require_contract_action(action_id)
+            contract_action = self._merged_contract_action(action_id, payload)
             dialog_file_responses: list[tuple[str, str]] = []
             if descriptor.params_schema.get("model_path") == "dialog:file:model":
                 if "model_path" not in payload:
@@ -612,6 +665,18 @@ class EchoZeroAutomationBackend:
         if action is None:
             raise ValueError(f"Unsupported action: {action_id}")
         return action
+
+    def _merged_contract_action(
+        self,
+        action_id: str,
+        payload: dict[str, Any],
+    ) -> InspectorAction:
+        action = self._require_contract_action(action_id)
+        if not payload:
+            return action
+        merged_params = dict(action.params)
+        merged_params.update(payload)
+        return replace(action, params=merged_params)
 
     def _restore_dialog_paths(self) -> None:
         restore = getattr(self._harness, "restore_dialog_paths", None)

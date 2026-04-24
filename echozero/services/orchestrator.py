@@ -1,28 +1,23 @@
-"""
-Orchestrator: Runs pipelines against songs and persists results.
-
-The bridge between engine (computes) and persistence (stores).
-Flow: load audio path → build pipeline → execute → map outputs → persist.
-
-Persistence mapping uses PIPELINE OUTPUTS, not internal block wiring.
-The pipeline declares p.output("onsets", ...) — the Orchestrator maps
-"onsets" to a Layer+Take. It never reaches into block IDs or port names.
+"""Pipeline execution orchestrator for persistence-backed song processing.
+Exists to run pipelines against stored songs and map outputs into layers and takes.
+Connects execution-engine results and pipeline declarations to project persistence.
 """
 
 from __future__ import annotations
 
 import logging
+import re
 import time
 import uuid
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 logger = logging.getLogger(__name__)
 
-from echozero.domain.types import AudioData, EventData
+from echozero.domain.types import AudioData, Event as DomainEvent, EventData, Layer as DomainLayer
 from echozero.errors import ValidationError
 from echozero.execution import BlockExecutor, ExecutionEngine, GraphPlanner
 from echozero.persistence.entities import LayerRecord, PipelineConfigRecord
@@ -33,6 +28,9 @@ from echozero.progress import RuntimeBus
 from echozero.result import Err, Result, err, is_err, ok, unwrap
 from echozero.services.provenance import initialize_generated_layer_state
 from echozero.takes import Take, TakeSource
+
+_DEFAULT_TAKE_LABEL_PATTERN = re.compile(r"^take\s+(\d+)$", re.IGNORECASE)
+_LAYER_NAME_NORMALIZATION_PATTERN = re.compile(r"\s+")
 
 
 @dataclass(frozen=True)
@@ -52,6 +50,43 @@ class AnalysisResult:
     layer_ids: list[str]
     take_ids: list[str]
     duration_ms: float
+
+
+def _assign_event_instance_id(event: DomainEvent) -> DomainEvent:
+    """Create a fresh persisted event instance id while preserving lineage."""
+
+    instance_id = f"evt_{uuid.uuid4().hex}"
+    source_event_id = event.source_event_id or event.id
+    return replace(
+        event,
+        id=instance_id,
+        source_event_id=source_event_id,
+        parent_event_id=event.id,
+    )
+
+
+def _normalize_event_data_for_take(event_data: EventData) -> EventData:
+    """Convert pipeline output events into persisted event instances."""
+
+    normalized_layers: list[DomainLayer] = []
+    for layer in event_data.layers:
+        normalized_layers.append(
+            replace(
+                layer,
+                events=tuple(_assign_event_instance_id(event) for event in layer.events),
+            )
+        )
+    return EventData(layers=tuple(normalized_layers))
+
+
+def _next_default_take_label(existing_takes: list[Take]) -> str:
+    """Compute the next default numbered take label for one layer."""
+    next_index = len(existing_takes) + 1
+    for take in existing_takes:
+        match = _DEFAULT_TAKE_LABEL_PATTERN.fullmatch((take.label or "").strip())
+        if match is not None:
+            next_index = max(next_index, int(match.group(1)) + 1)
+    return f"Take {next_index}"
 
 
 class Orchestrator:
@@ -128,13 +163,14 @@ class Orchestrator:
         if on_progress:
             on_progress("Loading configuration", 0.0)
 
-        config = session.pipeline_configs.get(config_id)
-        if config is None:
-            return err(ValidationError(f"PipelineConfigRecord not found: {config_id}"))
+        with session.locked():
+            config = session.pipeline_configs.get(config_id)
+            if config is None:
+                return err(ValidationError(f"PipelineConfigRecord not found: {config_id}"))
 
-        song_version = session.song_versions.get(config.song_version_id)
-        if song_version is None:
-            return err(ValidationError(f"SongVersionRecord not found: {config.song_version_id}"))
+            song_version = session.song_versions.get(config.song_version_id)
+            if song_version is None:
+                return err(ValidationError(f"SongVersionRecord not found: {config.song_version_id}"))
 
         if on_progress:
             on_progress("Preparing pipeline", 0.1)
@@ -145,7 +181,12 @@ class Orchestrator:
 
         from echozero.domain.types import BlockSettings
 
-        resolved_audio_path = self._resolve_audio_path(session, song_version.audio_file)
+        effective_audio_file = song_version.audio_file
+        if runtime_bindings is not None:
+            runtime_audio_file = runtime_bindings.get("audio_file")
+            if runtime_audio_file is not None and str(runtime_audio_file).strip():
+                effective_audio_file = str(runtime_audio_file)
+        resolved_audio_path = self._resolve_audio_path(session, effective_audio_file)
         load_audio_ids = [
             bid for bid, b in pipeline.graph.blocks.items() if b.block_type == "LoadAudio"
         ]
@@ -187,16 +228,17 @@ class Orchestrator:
         if on_progress:
             on_progress("Persisting results", 0.8)
 
-        layer_ids, take_ids = self._persist_outputs(
-            pipeline=pipeline,
-            raw_outputs=raw_outputs,
-            session=session,
-            song_version_id=config.song_version_id,
-            pipeline_id=config.template_id,
-            execution_id=plan.execution_id,
-        )
+        with session.locked():
+            layer_ids, take_ids = self._persist_outputs(
+                pipeline=pipeline,
+                raw_outputs=raw_outputs,
+                session=session,
+                song_version_id=config.song_version_id,
+                pipeline_id=config.template_id,
+                execution_id=plan.execution_id,
+            )
 
-        session.commit()
+            session.commit()
 
         if on_progress:
             on_progress("Complete", 1.0)
@@ -275,7 +317,7 @@ class Orchestrator:
                 )
                 continue
 
-            label = mapping.label if mapping and mapping.label else self._label_from_name(name)
+            label = mapping.label if mapping and mapping.label else ""
             extra_params = mapping.params if mapping else {}
             block = pipeline.graph.blocks.get(port_ref.block_id)
             block_type = block.block_type if block else ""
@@ -331,6 +373,33 @@ class Orchestrator:
     @staticmethod
     def _label_from_name(name: str) -> str:
         return name.replace("_", " ").title()
+
+    @staticmethod
+    def _normalize_layer_name(value: str) -> str:
+        return _LAYER_NAME_NORMALIZATION_PATTERN.sub(" ", (value or "").strip().lower())
+
+    @staticmethod
+    def _find_matching_layer(
+        layers: list[LayerRecord],
+        target_name: str,
+    ) -> LayerRecord | None:
+        if not layers:
+            return None
+        exact_match = next((lr for lr in layers if lr.name == target_name), None)
+        if exact_match is not None:
+            return exact_match
+
+        normalized_target = Orchestrator._normalize_layer_name(target_name)
+        if not normalized_target:
+            return None
+        return next(
+            (
+                lr
+                for lr in layers
+                if Orchestrator._normalize_layer_name(lr.name) == normalized_target
+            ),
+            None,
+        )
 
     def _make_generated_layer(
         self,
@@ -398,7 +467,26 @@ class Orchestrator:
                 else (output_name if output_name else domain_layer.name)
             )
             existing_layers = session.layers.list_by_version(song_version_id)
-            existing = next((lr for lr in existing_layers if lr.name == layer_name), None)
+            existing_names = [lr.name for lr in existing_layers]
+            existing = self._find_matching_layer(existing_layers, layer_name)
+            if existing is None:
+                logger.info(
+                    "No matching layer found for pipeline output '%s' (%s) in version '%s'. "
+                    "Existing layer names: %s. Creating a new layer.",
+                    output_name,
+                    layer_name,
+                    song_version_id,
+                    existing_names,
+                )
+            elif existing.name != layer_name:
+                logger.info(
+                    "Matched existing layer by normalized name. "
+                    "Requested '%s', found existing '%s' (output='%s', pipeline='%s').",
+                    layer_name,
+                    existing.name,
+                    output_name,
+                    pipeline_id,
+                )
 
             if existing is not None:
                 layer_record_id = existing.id
@@ -422,8 +510,12 @@ class Orchestrator:
                 is_main = True
 
             layer_ids.append(layer_record_id)
-            layer_event_data = EventData(layers=(domain_layer,))
-            take_label = label or f"{domain_layer.name} — {pipeline_id}"
+            layer_event_data = _normalize_event_data_for_take(
+                EventData(layers=(domain_layer,))
+            )
+            take_label = label or _next_default_take_label(
+                session.takes.list_by_layer(layer_record_id)
+            )
 
             take = Take.create(
                 data=layer_event_data,
@@ -462,7 +554,24 @@ class Orchestrator:
 
         layer_name = output_name if output_name else label or "Audio"
         existing_layers = session.layers.list_by_version(song_version_id)
-        existing = next((lr for lr in existing_layers if lr.name == layer_name), None)
+        existing = self._find_matching_layer(existing_layers, layer_name)
+        if existing is None:
+            logger.info(
+                "No matching audio layer found for pipeline output '%s' (%s) in version '%s'. "
+                "Existing layer names: %s. Creating a new layer.",
+                output_name,
+                layer_name,
+                song_version_id,
+                [lr.name for lr in existing_layers],
+            )
+        elif existing.name != layer_name:
+            logger.info(
+                "Matched existing audio layer by normalized name. "
+                "Requested '%s', found existing '%s' (pipeline='%s').",
+                layer_name,
+                existing.name,
+                pipeline_id,
+            )
 
         if existing is not None:
             layer_record_id = existing.id
@@ -486,9 +595,10 @@ class Orchestrator:
             is_main = True
 
         layer_ids.append(layer_record_id)
+        take_label = label or _next_default_take_label(session.takes.list_by_layer(layer_record_id))
         take = Take.create(
             data=audio_data,
-            label=label or self._label_from_name(layer_name),
+            label=take_label,
             origin="pipeline",
             source=TakeSource(
                 block_id=block_id,

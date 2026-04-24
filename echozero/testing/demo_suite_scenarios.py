@@ -1,3 +1,8 @@
+"""demo-suite-scenarios: Shared scenario builders for simulated demo lanes.
+Exists to define reusable app-state fixtures and scripted expectations for demo/test runs.
+Never treat this module as canonical runtime logic or human-path proof.
+"""
+
 from __future__ import annotations
 
 import os

@@ -1,0 +1,15 @@
+from tests.ui.app_shell_runtime_flow_support import (
+    test_app_shell_runtime_add_song_from_path_updates_presentation,
+    test_app_shell_runtime_add_song_version_copies_configs_and_switches_versions,
+    test_app_shell_runtime_exposes_transfer_surface_actions,
+    test_app_shell_runtime_import_song_creates_default_pipeline_configs,
+    test_app_shell_runtime_open_project_failure_keeps_current_project_live,
+    test_app_shell_runtime_open_project_replaces_live_project_state,
+    test_app_shell_runtime_new_save_open_reopen_flow,
+    test_app_shell_runtime_open_project_clears_stale_selected_event_refs,
+    test_app_shell_runtime_open_project_preserves_playback_target_when_still_valid,
+    test_app_shell_runtime_refresh_repairs_missing_playback_target_to_baseline_layer,
+    test_app_shell_runtime_select_song_switches_loaded_timeline,
+    test_app_shell_runtime_uses_canonical_timeline_application,
+    test_app_shell_widget_contract_switches_song_and_song_version,
+)

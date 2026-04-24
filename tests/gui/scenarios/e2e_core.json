@@ -25,7 +25,7 @@
       }
     },
     {
-      "label": "Extract drum events from drums stem",
+      "label": "Extract onsets from drums stem",
       "action": "timeline.extract_drum_events",
       "params": {
         "layer_title": "Drums"
@@ -39,11 +39,10 @@
       }
     },
     {
-      "label": "Classify drum events with generated model",
-      "action": "timeline.classify_drum_events",
+      "label": "Extract classified drums from drums stem",
+      "action": "timeline.extract_classified_drums",
       "params": {
-        "layer_title": "Drums",
-        "model_path": "__RUN_TEMP__/fixtures/drum-model.pth"
+        "layer_title": "Drums"
       }
     },
     {
@@ -57,7 +56,7 @@
       "label": "Select first classified event",
       "action": "selection.first_event",
       "params": {
-        "layer_title": "Drum_Classified_Events"
+        "layer_title": "Kick"
       }
     },
     {
@@ -79,7 +78,7 @@
       "label": "Open push surface",
       "action": "transfer.workspace_open",
       "params": {
-        "layer_title": "Drum_Classified_Events",
+        "layer_title": "Kick",
         "direction": "push"
       }
     },
@@ -106,7 +105,7 @@
       "label": "Open pull surface",
       "action": "transfer.workspace_open",
       "params": {
-        "layer_title": "Drum_Classified_Events",
+        "layer_title": "Kick",
         "direction": "pull"
       }
     },

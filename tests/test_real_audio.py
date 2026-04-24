@@ -32,7 +32,7 @@ from echozero.domain.types import (
 )
 from echozero.execution import ExecutionContext, ExecutionEngine, ExecutionPlan, GraphPlanner
 from echozero.processors.load_audio import LoadAudioProcessor
-from echozero.processors.detect_onsets import DetectOnsetsProcessor
+from echozero.processors.detect_onsets import DetectOnsetsProcessor, _default_onset_detect
 from echozero.processors.audio_filter import AudioFilterProcessor
 from echozero.processors.eq_bands import EQBandsProcessor
 from echozero.processors.audio_negate import AudioNegateProcessor
@@ -284,7 +284,32 @@ class TestDetectOnsetsReal:
         assert is_ok(result)
         event_data = unwrap(result)["onsets"]["events_out"]
         total_events = sum(len(l.events) for l in event_data.layers)
-        assert total_events <= 1  # silence: 0 or maybe 1 spurious
+        assert total_events == 0
+
+    def test_backtrack_detects_earlier_or_equal_onsets_on_clicks(self, click_wav):
+        without_backtrack = _default_onset_detect(
+            click_wav,
+            44100,
+            0.3,
+            0.1,
+            backtrack=False,
+        )
+        with_backtrack = _default_onset_detect(
+            click_wav,
+            44100,
+            0.3,
+            0.1,
+            backtrack=True,
+        )
+
+        assert without_backtrack
+        assert with_backtrack
+        comparable_count = min(len(without_backtrack), len(with_backtrack))
+        assert comparable_count > 0
+        assert all(
+            with_backtrack[index] <= without_backtrack[index]
+            for index in range(comparable_count)
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -795,5 +820,4 @@ class TestFullPipelineReal:
         content = Path(output_xml).read_text()
         assert 'ClickTrack' in content
         assert content.count('<Event ') >= 2
-
 

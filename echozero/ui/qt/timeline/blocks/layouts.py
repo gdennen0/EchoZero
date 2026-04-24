@@ -19,6 +19,10 @@ class MainRowLayout:
 
     @staticmethod
     def create(*, top: float, width: float, header_width: float, row_height: float) -> 'MainRowLayout':
+        header_left = 14.0
+        controls_rect = QRectF(144, top + 14, 152, 18)
+        toggle_rect = QRectF(header_width - 28, top + 12, 16, 16)
+        title_right = min(controls_rect.left(), toggle_rect.left()) - 8.0
         row_rect = QRectF(0, top, width, row_height - 1)
         header_rect = QRectF(0, top, header_width, row_height - 1)
         content_rect = QRectF(header_width, top, width - header_width, row_height - 1)
@@ -26,11 +30,11 @@ class MainRowLayout:
             row_rect=row_rect,
             header_rect=header_rect,
             content_rect=content_rect,
-            title_rect=QRectF(14, top + 7, 170, 18),
+            title_rect=QRectF(header_left, top + 7, max(0.0, title_right - header_left), 18),
             subtitle_rect=QRectF(14, top + 24, 0, 0),
             status_rect=QRectF(14, top + 46, 170, 16),
-            controls_rect=QRectF(144, top + 14, 152, 18),
-            toggle_rect=QRectF(300, top + 12, 28, 18),
+            controls_rect=controls_rect,
+            toggle_rect=toggle_rect,
             metadata_rect=QRectF(14, top + 28, 170, 14),
         )
 

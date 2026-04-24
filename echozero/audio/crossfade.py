@@ -110,4 +110,7 @@ class CrossfadeBuffer:
         fade_in = self._fade_in[:xfade_len]
 
         region = output[xfade_start:xfade_start + xfade_len]
+        if region.ndim > 1:
+            fade_out = fade_out[:, None]
+            fade_in = fade_in[:, None]
         region[:] = tail_audio[:xfade_len] * fade_out + head_audio[:xfade_len] * fade_in

@@ -102,6 +102,7 @@ class Knob:
     depends_on: str | None = None
     placeholder: str = ""
     maps_to_block: str | None = None  # block_id this knob targets (None = all blocks with this setting)
+    maps_to_setting: str | None = None  # block setting name this knob targets (None = knob key)
 
 
 # ---------------------------------------------------------------------------
@@ -220,6 +221,7 @@ def knob(
     depends_on: str | None = None,
     placeholder: str = "",
     maps_to_block: str | None = None,
+    maps_to_setting: str | None = None,
 ) -> Knob:
     """Build a validated Knob.
 
@@ -281,6 +283,7 @@ def knob(
         depends_on=depends_on,
         placeholder=placeholder,
         maps_to_block=maps_to_block,
+        maps_to_setting=maps_to_setting,
     )
 
 

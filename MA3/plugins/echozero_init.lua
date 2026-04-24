@@ -54,8 +54,11 @@ local function init()
     -- Verify API modules
     local api = {
         {"EZ.GetTimecodes",  EZ.GetTimecodes},
+        {"EZ.CreateTimecode", EZ.CreateTimecode},
         {"EZ.GetTrackGroups",EZ.GetTrackGroups},
+        {"EZ.CreateTrackGroup", EZ.CreateTrackGroup},
         {"EZ.GetTracks",     EZ.GetTracks},
+        {"EZ.CreateTrack",   EZ.CreateTrack},
         {"EZ.GetEvents",     EZ.GetEvents},
         {"EZ.GetSequences",  EZ.GetSequences},
         {"EZ.HookTrack",     EZ.HookTrack},

@@ -155,3 +155,19 @@ def predict_probabilities(runtime_model: LoadedRuntimeModel, feature: np.ndarray
         logits = runtime_model.model(torch.from_numpy(feature).to(runtime_model.device))
         probabilities = torch.softmax(logits, dim=1).cpu().numpy()[0]
     return probabilities.astype(np.float32)
+
+
+def predict_probabilities_batch(
+    runtime_model: LoadedRuntimeModel,
+    features: np.ndarray,
+) -> np.ndarray:
+    """Return class probabilities for a batch of runtime feature tensors."""
+    try:
+        import torch
+    except ImportError as exc:
+        raise ExecutionError("PyTorch is required for runtime model inference.") from exc
+
+    with torch.no_grad():
+        logits = runtime_model.model(torch.from_numpy(features).to(runtime_model.device))
+        probabilities = torch.softmax(logits, dim=1).cpu().numpy()
+    return probabilities.astype(np.float32)

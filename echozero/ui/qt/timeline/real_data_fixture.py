@@ -133,6 +133,10 @@ def build_real_data_presentation(
                                 action_id="merge_main",
                                 label=fixture_take_action_label("merge_main"),
                             ),
+                            TakeActionPresentation(
+                                action_id="delete_take",
+                                label=fixture_take_action_label("delete_take"),
+                            ),
                         ],
                     )
                 )

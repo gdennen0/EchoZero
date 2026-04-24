@@ -12,7 +12,11 @@ from pathlib import Path
 import pytest
 
 from tests.foundry.audio_fixtures import write_percussion_dataset
-from echozero.ui.style.qt.qss import build_foundry_shell_qss
+from echozero.ui.style.qt.qss import (
+    build_echozero_app_qss,
+    build_echozero_shell_qss,
+    build_foundry_surface_qss,
+)
 
 
 pytestmark = pytest.mark.skipif(
@@ -81,7 +85,8 @@ def test_foundry_window_applies_shared_shell_stylesheet(tmp_path: Path):
             app = QApplication.instance() or QApplication([])
             window = FoundryWindow(root)
             print(json.dumps({
-                "style": window.styleSheet(),
+                "style": app.styleSheet(),
+                "window_style": window.styleSheet(),
                 "root_name": window.centralWidget().objectName(),
                 "status_name": window.status_line.objectName(),
             }))
@@ -92,7 +97,10 @@ def test_foundry_window_applies_shared_shell_stylesheet(tmp_path: Path):
         tmp_path,
     )
 
-    assert payload["style"] == build_foundry_shell_qss()
+    assert payload["style"] == build_echozero_app_qss()
+    assert build_echozero_shell_qss().strip() in payload["style"]
+    assert build_foundry_surface_qss().strip() in payload["style"]
+    assert payload["window_style"] == ""
     assert payload["root_name"] == "foundryRoot"
     assert payload["status_name"] == "foundryStatusLine"
 

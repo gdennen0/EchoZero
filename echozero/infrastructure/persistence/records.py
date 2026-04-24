@@ -54,6 +54,8 @@ class EventRecord:
     take_id: str
     start: float
     end: float
+    source_event_id: str | None = None
+    parent_event_id: str | None = None
     payload_ref: str | None = None
     label: str = "Event"
     color: str | None = None

@@ -2,7 +2,14 @@
 
 from dataclasses import dataclass, field
 
-from echozero.application.shared.ids import TimelineId, SongVersionId, LayerId, TakeId, EventId
+from echozero.application.shared.ids import (
+    EventId,
+    LayerId,
+    RegionId,
+    SongVersionId,
+    TakeId,
+    TimelineId,
+)
 from echozero.application.shared.enums import LayerKind
 from echozero.application.shared.ranges import TimeRange
 from echozero.application.mixer.models import LayerMixerState
@@ -60,12 +67,22 @@ class LayerProvenance:
     output_name: str | None = None
 
 
+@dataclass(frozen=True, slots=True)
+class EventRef:
+    layer_id: LayerId
+    take_id: TakeId
+    event_id: EventId
+
+
 @dataclass(slots=True)
 class Event:
     id: EventId
     take_id: TakeId
     start: float
     end: float
+    cue_number: int = 1
+    source_event_id: str | None = None
+    parent_event_id: str | None = None
     payload_ref: str | None = None
     label: str = "Event"
     color: str | None = None
@@ -78,6 +95,38 @@ class Event:
             raise ValueError(
                 f"Event.end must be >= start, got start={self.start}, end={self.end}"
             )
+        try:
+            cue_number = int(self.cue_number)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"Event.cue_number must be an integer, got {self.cue_number!r}") from exc
+        if cue_number < 1:
+            raise ValueError(f"Event.cue_number must be >= 1, got {cue_number}")
+        self.cue_number = cue_number
+
+    @property
+    def duration(self) -> float:
+        return self.end - self.start
+
+
+@dataclass(slots=True)
+class TimelineRegion:
+    id: RegionId
+    start: float
+    end: float
+    label: str = "Region"
+    color: str | None = None
+    order_index: int = 0
+    kind: str = "custom"
+
+    def __post_init__(self) -> None:
+        if self.start < 0:
+            raise ValueError(f"TimelineRegion.start must be >= 0, got {self.start}")
+        if self.end < self.start:
+            raise ValueError(
+                f"TimelineRegion.end must be >= start, got start={self.start}, end={self.end}"
+            )
+        self.label = (self.label or "").strip() or "Region"
+        self.kind = (self.kind or "").strip().lower() or "custom"
 
     @property
     def duration(self) -> float:
@@ -117,7 +166,9 @@ class TimelineSelection:
     selected_layer_id: LayerId | None = None
     selected_layer_ids: list[LayerId] = field(default_factory=list)
     selected_take_id: TakeId | None = None
+    selected_event_refs: list[EventRef] = field(default_factory=list)
     selected_event_ids: list[EventId] = field(default_factory=list)
+    selected_region_id: RegionId | None = None
 
 
 @dataclass(slots=True)
@@ -140,6 +191,7 @@ class Timeline:
     start: float = 0.0
     end: float = 0.0
     layers: list[Layer] = field(default_factory=list)
+    regions: list[TimelineRegion] = field(default_factory=list)
     loop_region: TimeRange | None = None
     selection: TimelineSelection = field(default_factory=TimelineSelection)
     playback_target: TimelinePlaybackTarget = field(default_factory=TimelinePlaybackTarget)

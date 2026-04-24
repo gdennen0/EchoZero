@@ -9,7 +9,7 @@ from __future__ import annotations
 import sqlite3
 from collections.abc import Callable
 
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 7
 
 _DDL = """\
 CREATE TABLE IF NOT EXISTS _meta (
@@ -46,6 +46,7 @@ CREATE TABLE IF NOT EXISTS song_versions (
     duration_seconds REAL NOT NULL,
     original_sample_rate INTEGER NOT NULL,
     audio_hash TEXT NOT NULL,
+    ma3_timecode_pool_no INTEGER,
     rebuild_plan_json TEXT NOT NULL DEFAULT '{}',
     created_at TEXT NOT NULL
 );
@@ -80,6 +81,18 @@ CREATE TABLE IF NOT EXISTS takes (
     notes TEXT DEFAULT ''
 );
 
+CREATE TABLE IF NOT EXISTS timeline_regions (
+    id TEXT PRIMARY KEY,
+    song_version_id TEXT NOT NULL REFERENCES song_versions(id) ON DELETE CASCADE,
+    label TEXT NOT NULL,
+    start_seconds REAL NOT NULL,
+    end_seconds REAL NOT NULL,
+    color TEXT,
+    order_index INTEGER NOT NULL DEFAULT 0,
+    kind TEXT NOT NULL DEFAULT 'custom',
+    created_at TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS pipeline_configs (
     id TEXT PRIMARY KEY,
     song_version_id TEXT NOT NULL REFERENCES song_versions(id) ON DELETE CASCADE,
@@ -97,6 +110,7 @@ CREATE INDEX IF NOT EXISTS idx_songs_project ON songs(project_id);
 CREATE INDEX IF NOT EXISTS idx_versions_song ON song_versions(song_id);
 CREATE INDEX IF NOT EXISTS idx_layers_version ON layers(song_version_id);
 CREATE INDEX IF NOT EXISTS idx_takes_layer ON takes(layer_id);
+CREATE INDEX IF NOT EXISTS idx_timeline_regions_version ON timeline_regions(song_version_id);
 CREATE INDEX IF NOT EXISTS idx_configs_version ON pipeline_configs(song_version_id);
 CREATE INDEX IF NOT EXISTS idx_configs_template ON pipeline_configs(template_id);
 
@@ -209,6 +223,37 @@ def _migrate_v3_to_v4(conn: sqlite3.Connection) -> None:
         )
 
 
+def _migrate_v5_to_v6(conn: sqlite3.Connection) -> None:
+    versions_table = conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='song_versions'"
+    ).fetchone()
+    if versions_table is None:
+        return
+
+    columns = {row["name"] for row in conn.execute("PRAGMA table_info(song_versions)").fetchall()}
+    if "ma3_timecode_pool_no" not in columns:
+        conn.execute(
+            "ALTER TABLE song_versions ADD COLUMN ma3_timecode_pool_no INTEGER "
+        )
+
+
+def _migrate_v6_to_v7(conn: sqlite3.Connection) -> None:
+    conn.executescript("""\
+        CREATE TABLE IF NOT EXISTS timeline_regions (
+            id TEXT PRIMARY KEY,
+            song_version_id TEXT NOT NULL REFERENCES song_versions(id) ON DELETE CASCADE,
+            label TEXT NOT NULL,
+            start_seconds REAL NOT NULL,
+            end_seconds REAL NOT NULL,
+            color TEXT,
+            order_index INTEGER NOT NULL DEFAULT 0,
+            kind TEXT NOT NULL DEFAULT 'custom',
+            created_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_timeline_regions_version ON timeline_regions(song_version_id);
+    """)
+
+
 _MIGRATIONS: dict[int, Callable[[sqlite3.Connection], None]] = {
     2: _migrate_v1_to_v2,
     3: _migrate_v2_to_v3,
@@ -229,6 +274,8 @@ _MIGRATIONS: dict[int, Callable[[sqlite3.Connection], None]] = {
         CREATE INDEX IF NOT EXISTS idx_song_default_configs_song ON song_default_pipeline_configs(song_id);
         CREATE INDEX IF NOT EXISTS idx_song_default_configs_template ON song_default_pipeline_configs(template_id);
     """),
+    6: _migrate_v5_to_v6,
+    7: _migrate_v6_to_v7,
 }
 
 

@@ -694,3 +694,32 @@ class TestMultiPortOutput:
         assert isinstance(result, Ok)
         assert reader.received_input == "drums_data"
 
+    def test_multi_port_ignores_undeclared_extra_outputs_and_feeds_declared_port(self) -> None:
+        graph, runtime_bus, engine = self._make_engine()
+        graph.add_block(_make_block("sep", block_type="Separator", output_ports=(
+            Port(name="drums_out", port_type=PortType.AUDIO, direction=Direction.OUTPUT),
+            Port(name="bass_out", port_type=PortType.AUDIO, direction=Direction.OUTPUT),
+            Port(name="vocals_out", port_type=PortType.AUDIO, direction=Direction.OUTPUT),
+            Port(name="other_out", port_type=PortType.AUDIO, direction=Direction.OUTPUT),
+        )))
+        graph.add_block(_make_block("proc", block_type="Processor", input_ports=(
+            Port(name="audio_in", port_type=PortType.AUDIO, direction=Direction.INPUT),
+        )))
+        graph.add_connection(Connection(
+            source_block_id="sep", source_output_name="drums_out",
+            target_block_id="proc", target_input_name="audio_in",
+        ))
+
+        reader = InputReadingExecutor("audio_in")
+        engine.register_executor(
+            "Separator",
+            MultiPortExecutor({"drums_out": "drums_data", "no_drums_out": "remainder_data"}),
+        )
+        engine.register_executor("Processor", reader)
+
+        plan = GraphPlanner().plan(graph)
+        result = engine.run(plan)
+
+        assert isinstance(result, Ok)
+        assert result.value["sep"] == {"drums_out": "drums_data"}
+        assert reader.received_input == "drums_data"

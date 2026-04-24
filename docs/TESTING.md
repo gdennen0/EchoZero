@@ -1,5 +1,8 @@
 # EchoZero Testing Guide
 
+Status: active canonical verification guide
+Last verified: 2026-04-21
+
 This file is the execution map for proving work in EchoZero.
 
 Choose the smallest lane that proves the behavior, then expand only if the
@@ -54,6 +57,21 @@ Perf guardrail hotspot:
 ```bash
 pytest tests/benchmarks/benchmark_timeline_phase3.py -q
 ```
+
+## Split Test Entry Points
+
+Several historically large test files now stay as stable wrapper entrypoints
+over smaller case modules:
+
+- `tests/ui/test_timeline_shell.py` -> `tests/ui/timeline_shell_*_cases.py` plus `tests/ui/timeline_shell_support.py`
+- `tests/ui/test_app_shell_runtime_flow.py` -> `tests/ui/app_shell_runtime_flow_*_cases.py` plus `tests/ui/app_shell_runtime_flow_support.py`
+- `tests/ui/test_runtime_audio.py` -> `tests/ui/runtime_audio_*_cases.py` plus `tests/ui/runtime_audio_support.py`
+- `tests/test_persistence.py` -> `tests/persistence_*_cases.py` plus `tests/persistence_support.py`
+- `tests/test_audio_engine.py` -> `tests/audio_engine_*_cases.py` plus `tests/audio_engine_support.py`
+- `tests/test_session.py` -> `tests/session_*_cases.py` plus `tests/session_support.py`
+
+Use the historical wrapper path when replaying an established proof command.
+Use the case modules when narrowing a failure to one behavior area.
 
 ## Lane Selection
 

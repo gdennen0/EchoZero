@@ -1,4 +1,7 @@
-"""Stable timeline fixture loader for Stage Zero UI development."""
+"""Fixture loader: Synthetic timeline presentation loader for UI development.
+Exists to provide stable, non-runtime fixture data for style and layout work.
+Never treat this module as the canonical app-shell runtime or truth surface.
+"""
 
 from __future__ import annotations
 

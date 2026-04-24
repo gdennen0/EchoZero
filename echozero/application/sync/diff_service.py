@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from collections.abc import Sequence
 from typing import Protocol
 
 from echozero.application.timeline.models import Event
@@ -63,7 +64,7 @@ class SyncDiffService:
     def build_pull_preview_rows(
         self,
         *,
-        selected_events: list[_PullEventOptionLike],
+        selected_events: Sequence[_PullEventOptionLike],
         target_layer_name: str,
     ) -> tuple[SyncDiffSummary, list[SyncDiffRow]]:
         rows = [
@@ -79,8 +80,12 @@ class SyncDiffService:
 
     @staticmethod
     def resolve_pull_event_range(source_event: _PullEventOptionLike, *, order_index: int) -> tuple[float, float]:
-        default_duration = 0.25
-        if source_event.start is not None and source_event.end is not None:
+        default_duration = 0.30
+        if (
+            source_event.start is not None
+            and source_event.end is not None
+            and float(source_event.end) > float(source_event.start)
+        ):
             return float(source_event.start), float(source_event.end)
         if source_event.start is not None:
             start = max(0.0, float(source_event.start))

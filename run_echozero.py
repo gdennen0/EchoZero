@@ -1,3 +1,8 @@
+"""Canonical EchoZero desktop launcher entrypoint.
+Exists to bootstrap the Qt app shell from CLI and packaged runtime environments.
+Connects process startup and release launch flows to the Stage Zero shell.
+"""
+
 from __future__ import annotations
 
 import argparse
@@ -8,7 +13,12 @@ from pathlib import Path
 from PyQt6.QtCore import QTimer
 from PyQt6.QtWidgets import QApplication
 
-from echozero.infrastructure.sync.ma3_osc import MA3OSCBridge, OSCCommandTransport
+from echozero.application.settings import (
+    AppSettingsLaunchOverrides,
+    build_default_app_settings_service,
+)
+from echozero.infrastructure.osc import OscUdpSendTransport
+from echozero.infrastructure.sync.ma3_osc import MA3OSCBridge
 from echozero.ui.qt.automation_bridge import AutomationBridgeServer
 from echozero.ui.qt.launcher_surface import (
     PROJECT_FILE_FILTER,
@@ -16,6 +26,7 @@ from echozero.ui.qt.launcher_surface import (
     build_launcher_surface,
 )
 from echozero.ui.qt.runtime_logging import install_runtime_logging
+from echozero.ui.style.qt import ensure_qt_theme_installed
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -53,8 +64,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--ma3-osc-listen-host",
         type=str,
-        default="127.0.0.1",
-        help="Host for the EchoZero MA3 OSC listener.",
+        default=None,
+        help="Override the saved host for the EchoZero MA3 OSC listener.",
     )
     parser.add_argument(
         "--ma3-osc-listen-port",
@@ -65,8 +76,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--ma3-osc-command-host",
         type=str,
-        default="127.0.0.1",
-        help="Host for EchoZero -> MA3 OSC command traffic.",
+        default=None,
+        help="Override the saved host for EchoZero -> MA3 OSC command traffic.",
     )
     parser.add_argument(
         "--ma3-osc-command-port",
@@ -74,17 +85,22 @@ def main(argv: list[str] | None = None) -> int:
         default=None,
         help="If set, send MA3 commands to this OSC port using the production bridge.",
     )
-    parser.add_argument(
-        "--ma3-osc-timecode",
-        type=int,
-        default=1,
-        help="Default MA3 timecode number used by the production OSC bridge.",
-    )
     parsed, qt_args = parser.parse_known_args(list(argv) if argv is not None else sys.argv[1:])
 
     install_runtime_logging(parsed.log_dir)
+    app_settings_service = build_default_app_settings_service()
+    audio_output_config = app_settings_service.resolve_audio_output_config()
+    ma3_config = app_settings_service.resolve_ma3_osc_runtime_config(
+        launch_overrides=AppSettingsLaunchOverrides(
+            ma3_osc_listen_host=parsed.ma3_osc_listen_host,
+            ma3_osc_listen_port=parsed.ma3_osc_listen_port,
+            ma3_osc_command_host=parsed.ma3_osc_command_host,
+            ma3_osc_command_port=parsed.ma3_osc_command_port,
+        )
+    )
 
     app = QApplication.instance() or QApplication([sys.argv[0], *qt_args])
+    ensure_qt_theme_installed(app)
     working_dir_root = parsed.working_dir_root
     if (
         working_dir_root is None
@@ -93,22 +109,25 @@ def main(argv: list[str] | None = None) -> int:
     ):
         working_dir_root = Path(tempfile.gettempdir()) / "EchoZero" / "smoke-working"
     sync_bridge = None
-    if parsed.ma3_osc_listen_port is not None or parsed.ma3_osc_command_port is not None:
+    if ma3_config.is_enabled:
         command_transport = None
-        if parsed.ma3_osc_command_port is not None:
-            command_transport = OSCCommandTransport(
-                parsed.ma3_osc_command_host,
-                parsed.ma3_osc_command_port,
+        if ma3_config.send.enabled and ma3_config.send.port is not None:
+            command_transport = OscUdpSendTransport(
+                ma3_config.send.host,
+                ma3_config.send.port,
+                path=ma3_config.send.path,
             )
         sync_bridge = MA3OSCBridge(
-            listen_host=parsed.ma3_osc_listen_host,
-            listen_port=0 if parsed.ma3_osc_listen_port is None else parsed.ma3_osc_listen_port,
-            timecode_no=parsed.ma3_osc_timecode,
+            listen_host=ma3_config.receive.host,
+            listen_port=ma3_config.receive.port,
+            listen_path=ma3_config.receive.path,
             command_transport=command_transport,
         )
     surface = build_launcher_surface(
         working_dir_root=working_dir_root,
         sync_bridge=sync_bridge,
+        app_settings_service=app_settings_service,
+        audio_output_config=audio_output_config,
     )
     widget = surface.widget
     widget.show()

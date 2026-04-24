@@ -17,7 +17,7 @@ def test_realistic_fixture_contains_core_layers_and_takes():
     assert len(by_title["Kick"].takes) >= 2
 
 
-def test_realistic_fixture_take_actions_include_overwrite_and_merge():
+def test_realistic_fixture_take_actions_include_overwrite_merge_and_delete():
     presentation = load_realistic_timeline_fixture()
 
     takes_with_actions = [take for layer in presentation.layers for take in layer.takes if take.actions]
@@ -25,7 +25,7 @@ def test_realistic_fixture_take_actions_include_overwrite_and_merge():
 
     for take in takes_with_actions:
         action_ids = {action.action_id for action in take.actions}
-        assert {"overwrite_main", "merge_main"} <= action_ids
+        assert {"overwrite_main", "merge_main", "delete_take"} <= action_ids
         assert {action.label for action in take.actions} <= set(TIMELINE_STYLE.fixture.take_action_labels.values())
 
 
@@ -74,3 +74,4 @@ def test_realistic_fixture_missing_action_labels_are_backfilled_from_style_token
     labels_by_id = {action.action_id: action.label for action in take.actions}
     assert labels_by_id["overwrite_main"] == fixture_take_action_label("overwrite_main")
     assert labels_by_id["merge_main"] == fixture_take_action_label("merge_main")
+    assert labels_by_id["delete_take"] == fixture_take_action_label("delete_take")

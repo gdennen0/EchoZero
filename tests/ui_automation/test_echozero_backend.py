@@ -6,7 +6,6 @@ from pathlib import Path
 
 from echozero.testing.analysis_mocks import (
     build_mock_analysis_service,
-    write_test_model,
     write_test_wav,
 )
 from ui_automation import AutomationSession, HarnessEchoZeroAutomationProvider
@@ -41,16 +40,16 @@ def test_echozero_backend_imports_song_and_exposes_timeline_targets():
         assert source_layer is not None
         assert source_layer.label == "Automation Song"
         assert any(action.action_id == "timeline.extract_stems" for action in snapshot.actions)
+        assert any(action.action_id == "timeline.extract_song_drum_events" for action in snapshot.actions)
         assert session.screenshot(target_id="shell.timeline").startswith(b"\x89PNG\r\n\x1a\n")
     finally:
         session.close()
         shutil.rmtree(temp_root, ignore_errors=True)
 
 
-def test_echozero_backend_drives_stems_events_and_classification_flow():
+def test_echozero_backend_drives_stems_events_onsets_and_classified_drums_flow():
     temp_root = _repo_local_temp_root()
     audio_path = write_test_wav(temp_root / "fixtures" / "automation-flow.wav")
-    model_path = write_test_model(temp_root / "fixtures" / "automation-model.pth")
     session = AutomationSession.attach(
         HarnessEchoZeroAutomationProvider(
             working_dir_root=temp_root / "working",
@@ -72,13 +71,9 @@ def test_echozero_backend_drives_stems_events_and_classification_flow():
         after_events = session.snapshot()
         assert any(target.kind == "event" for target in after_events.targets)
 
-        session.invoke(
-            "timeline.classify_drum_events",
-            target_id=drums_target.target_id,
-            params={"model_path": str(model_path)},
-        )
+        session.invoke("timeline.extract_classified_drums", target_id=drums_target.target_id)
 
-        classified_layer = session.find_target("Drum_Classified_Events")
+        classified_layer = session.find_target("Kick")
         assert classified_layer is not None
         assert classified_layer.kind == "layer"
     finally:
@@ -229,6 +224,78 @@ def test_echozero_backend_exposes_selected_object_capabilities():
         assert any(
             action.action_id == "timeline.extract_stems" for action in selected_object.actions
         )
+        assert any(
+            action.action_id == "timeline.extract_song_drum_events"
+            for action in selected_object.actions
+        )
+    finally:
+        session.close()
+        shutil.rmtree(temp_root, ignore_errors=True)
+
+
+def test_echozero_backend_switches_songs_and_song_versions():
+    temp_root = _repo_local_temp_root()
+    song_one_audio = write_test_wav(temp_root / "fixtures" / "automation-song-one.wav")
+    song_one_version_audio = write_test_wav(
+        temp_root / "fixtures" / "automation-song-one-festival.wav",
+        frames=8820,
+    )
+    song_two_audio = write_test_wav(
+        temp_root / "fixtures" / "automation-song-two.wav",
+        frames=13230,
+    )
+    session = AutomationSession.attach(
+        HarnessEchoZeroAutomationProvider(
+            working_dir_root=temp_root / "working",
+            analysis_service=build_mock_analysis_service(),
+        )
+    )
+
+    try:
+        first = session.invoke(
+            "song.add",
+            params={"title": "Song One", "audio_path": str(song_one_audio)},
+        )
+        song_one_id = next(
+            song["song_id"] for song in first.artifacts["songs"] if song["title"] == "Song One"
+        )
+        original_version_id = first.artifacts["active_song_version_id"]
+
+        second = session.invoke(
+            "song.version.add",
+            params={
+                "song_id": song_one_id,
+                "audio_path": str(song_one_version_audio),
+                "label": "Festival Edit",
+            },
+        )
+        festival_version_id = second.artifacts["active_song_version_id"]
+        assert festival_version_id != original_version_id
+        assert any(
+            version["label"] == "Festival Edit" for version in second.artifacts["song_versions"]
+        )
+
+        third = session.invoke(
+            "song.add",
+            params={"title": "Song Two", "audio_path": str(song_two_audio)},
+        )
+        song_two_id = next(
+            song["song_id"] for song in third.artifacts["songs"] if song["title"] == "Song Two"
+        )
+        assert third.artifacts["active_song_id"] == song_two_id
+
+        selected = session.invoke("song.select", params={"song_id": song_one_id})
+        assert selected.artifacts["active_song_id"] == song_one_id
+        assert selected.artifacts["active_song_version_id"] == festival_version_id
+        assert any(target.label == "Song One" for target in selected.targets)
+
+        switched = session.invoke(
+            "song.version.switch",
+            params={"song_version_id": original_version_id},
+        )
+        assert switched.artifacts["active_song_id"] == song_one_id
+        assert switched.artifacts["active_song_version_id"] == original_version_id
+        assert any(target.label == "Song One" for target in switched.targets)
     finally:
         session.close()
         shutil.rmtree(temp_root, ignore_errors=True)

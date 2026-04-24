@@ -22,6 +22,7 @@ from echozero.application.timeline.intents import (
     SelectPullSourceTrack,
     SelectPullTargetLayer,
     SelectPushTargetTrack,
+    SetPullImportMode,
 )
 
 
@@ -181,6 +182,23 @@ def test_confirm_pull_from_ma3_defaults_import_mode_and_keeps_fields():
     assert intent.selected_ma3_event_ids == ["ma3_evt_1", "ma3_evt_2"]
     assert intent.target_layer_id == LayerId("layer_target")
     assert intent.import_mode == "new_take"
+
+
+def test_confirm_pull_from_ma3_accepts_main_import_mode():
+    intent = ConfirmPullFromMA3(
+        source_track_coord="tc4_tg5_tr6",
+        selected_ma3_event_ids=["ma3_evt_1"],
+        target_layer_id=LayerId("layer_target"),
+        import_mode="main",
+    )
+
+    assert intent.import_mode == "main"
+
+
+def test_set_pull_import_mode_accepts_main():
+    intent = SetPullImportMode(import_mode="main")
+
+    assert intent.import_mode == "main"
 
 
 @pytest.mark.parametrize("source_track_coord", ["", "   "])

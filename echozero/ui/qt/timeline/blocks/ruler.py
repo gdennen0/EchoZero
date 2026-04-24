@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from math import ceil, floor
 
-from PyQt6.QtCore import QPointF, QRectF
+from PyQt6.QtCore import QPointF, QRectF, Qt
 from PyQt6.QtGui import QColor, QPainter, QPen, QPolygonF
 
 from echozero.application.presentation.models import TimelinePresentation
@@ -31,6 +31,13 @@ class RulerBlock:
 
         pps = max(1.0, presentation.pixels_per_second)
         content_width = max(1.0, rect.width() - layout.header_width)
+        self._paint_regions(
+            painter,
+            rect=rect,
+            presentation=presentation,
+            pixels_per_second=pps,
+            header_width=layout.header_width,
+        )
         for second, x in visible_ruler_seconds(
             scroll_x=presentation.scroll_x,
             pixels_per_second=pps,
@@ -57,6 +64,66 @@ class RulerBlock:
             painter.setPen(QPen(QColor(self.playhead_color_hex), 1))
             painter.setBrush(QColor(self.playhead_color_hex))
             painter.drawPolygon(head)
+
+    def _paint_regions(
+        self,
+        painter: QPainter,
+        *,
+        rect: QRectF,
+        presentation: TimelinePresentation,
+        pixels_per_second: float,
+        header_width: float,
+    ) -> None:
+        if not presentation.regions:
+            return
+        for index, region in enumerate(presentation.regions):
+            start_x = timeline_x_for_time(
+                region.start,
+                scroll_x=presentation.scroll_x,
+                pixels_per_second=pixels_per_second,
+                content_start_x=header_width,
+            )
+            end_x = timeline_x_for_time(
+                region.end,
+                scroll_x=presentation.scroll_x,
+                pixels_per_second=pixels_per_second,
+                content_start_x=header_width,
+            )
+            left = max(header_width, min(start_x, end_x))
+            right = min(rect.right(), max(start_x, end_x))
+            width = max(0.0, right - left)
+            if width <= 0.0:
+                continue
+
+            region_rect = QRectF(left, rect.top() + 1.0, width, max(1.0, rect.height() - 2.0))
+            fill_hex = (
+                region.color
+                or (self.style.region_even_hex if index % 2 == 0 else self.style.region_odd_hex)
+            )
+            fill_color = QColor(fill_hex)
+            fill_color.setAlpha(max(0, min(255, int(self.style.region_alpha))))
+            painter.fillRect(region_rect, fill_color)
+
+            border_color = QColor(self.style.region_border_hex)
+            border_color.setAlpha(110)
+            painter.setPen(QPen(border_color, 1))
+            painter.setBrush(QColor(0, 0, 0, 0))
+            painter.drawRect(region_rect)
+
+            if width >= 56.0:
+                label_color = QColor(self.style.region_label_hex)
+                label_color.setAlpha(175)
+                painter.setPen(label_color)
+                painter.drawText(
+                    region_rect.adjusted(6.0, 0.0, -6.0, 0.0),
+                    int(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft),
+                    region.label,
+                )
+
+            if region.is_selected:
+                selected_pen = QPen(QColor(self.playhead_color_hex), 1)
+                painter.setPen(selected_pen)
+                painter.drawRect(region_rect.adjusted(1.0, 1.0, -1.0, -1.0))
 
 
 def visible_ruler_seconds(

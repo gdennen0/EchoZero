@@ -6,6 +6,7 @@ from types import SimpleNamespace
 
 import echozero.ui.qt.launcher_surface as launcher_surface
 import run_echozero
+from echozero.application.settings import AppSettingsLaunchOverrides
 from PyQt6.QtWidgets import QMessageBox
 
 
@@ -29,6 +30,7 @@ class FakeWidget:
         self.show_calls = 0
         self.close_calls = 0
         self.presentation_updates: list[object] = []
+        self.external_presentation_updates: list[object] = []
         self.actions: list[object] = []
         self.close_events: list[object] = []
         FakeWidget.instances.append(self)
@@ -49,8 +51,16 @@ class FakeWidget:
         self.presentation = presentation
         self.presentation_updates.append(presentation)
 
+    def apply_external_presentation_update(self, presentation) -> None:
+        self.presentation = presentation
+        self.external_presentation_updates.append(presentation)
+        self.presentation_updates.append(presentation)
+
     def addAction(self, action) -> None:
         self.actions.append(action)
+
+    def set_runtime_audio_controller(self, runtime_audio) -> None:
+        self.runtime_audio = runtime_audio
 
     def closeEvent(self, event) -> None:
         self.close_events.append(event)
@@ -113,12 +123,30 @@ class FakeQApplication:
 
     def __init__(self, args: list[str]) -> None:
         self.args = list(args)
+        self._props: dict[str, object] = {}
+        self._stylesheet = ""
+        self._palette = None
         type(self).init_args.append(self.args)
 
     @classmethod
     def instance(cls):
         cls.instance_calls += 1
         return cls.instance_value
+
+    def property(self, name: str) -> object | None:
+        return self._props.get(name)
+
+    def setProperty(self, name: str, value: object) -> None:
+        self._props[name] = value
+
+    def setPalette(self, palette) -> None:
+        self._palette = palette
+
+    def setStyleSheet(self, stylesheet: str) -> None:
+        self._stylesheet = stylesheet
+
+    def styleSheet(self) -> str:
+        return self._stylesheet
 
     def exec(self) -> int:
         if type(self).exec_error is not None:
@@ -153,6 +181,65 @@ class FakeAutomationBridgeServer:
         self.stopped = True
 
 
+class FakeAppSettingsService:
+    def __init__(self) -> None:
+        self.audio_output_config = SimpleNamespace(sample_rate=48000)
+        self.ma3_config = SimpleNamespace(
+            is_enabled=False,
+            receive=SimpleNamespace(
+                enabled=False,
+                host="127.0.0.1",
+                port=0,
+                path="/ez/message",
+            ),
+            send=SimpleNamespace(
+                enabled=False,
+                host="127.0.0.1",
+                port=None,
+                path="/cmd",
+            ),
+        )
+        self.launch_overrides: list[AppSettingsLaunchOverrides] = []
+
+    def resolve_audio_output_config(self):
+        return self.audio_output_config
+
+    def resolve_ma3_osc_runtime_config(self, *, launch_overrides):
+        self.launch_overrides.append(launch_overrides)
+        return self.ma3_config
+
+
+class FakeOscUdpSendTransport:
+    instances: list["FakeOscUdpSendTransport"] = []
+
+    def __init__(self, host: str, port: int, *, path: str = "/") -> None:
+        self.host = host
+        self.port = port
+        self.path = path
+        type(self).instances.append(self)
+
+
+class FakeMA3OSCBridge:
+    instances: list["FakeMA3OSCBridge"] = []
+
+    def __init__(
+        self,
+        *,
+        listen_host,
+        listen_port,
+        listen_path="/ez/message",
+        command_transport=None,
+    ) -> None:
+        self.listen_host = listen_host
+        self.listen_port = listen_port
+        self.listen_path = listen_path
+        self.command_transport = command_transport
+        type(self).instances.append(self)
+
+    def shutdown(self) -> None:
+        return None
+
+
 def _install_launcher_fakes(monkeypatch, *, exec_result: int = 0, exec_error: Exception | None = None):
     FakeWidget.instances = []
     FakeQTimer.shots = []
@@ -163,8 +250,11 @@ def _install_launcher_fakes(monkeypatch, *, exec_result: int = 0, exec_error: Ex
     FakeQApplication.instance_calls = 0
     FakeQApplication.quit_calls = 0
     FakeAutomationBridgeServer.instances = []
+    FakeOscUdpSendTransport.instances = []
+    FakeMA3OSCBridge.instances = []
 
     runtime_audio = FakeRuntimeAudio()
+    app_settings_service = FakeAppSettingsService()
     runtime = SimpleNamespace(
         presentation=lambda: "presentation",
         dispatch=lambda intent: intent,
@@ -172,6 +262,7 @@ def _install_launcher_fakes(monkeypatch, *, exec_result: int = 0, exec_error: Ex
         shutdown=lambda: runtime_audio.shutdown(),
     )
     build_calls: list[dict[str, object]] = []
+    surface_calls: list[dict[str, object]] = []
 
     def fake_build_launcher_surface(*, working_dir_root=None, **_kwargs):
         build_calls.append(
@@ -179,11 +270,19 @@ def _install_launcher_fakes(monkeypatch, *, exec_result: int = 0, exec_error: Ex
                 "working_dir_root": working_dir_root,
             }
         )
+        surface_calls.append(
+            {
+                "working_dir_root": working_dir_root,
+                **_kwargs,
+            }
+        )
         widget = FakeWidget(runtime.presentation(), on_intent=runtime.dispatch, runtime_audio=runtime.runtime_audio)
         widget.resize(1440, 720)
         widget.setWindowTitle("EchoZero")
         launcher = SimpleNamespace(
             actions={
+                "undo": object(),
+                "redo": object(),
                 "new_project": object(),
                 "open_project": object(),
                 "save_project": object(),
@@ -199,16 +298,19 @@ def _install_launcher_fakes(monkeypatch, *, exec_result: int = 0, exec_error: Ex
     monkeypatch.setattr(run_echozero, "QApplication", FakeQApplication)
     monkeypatch.setattr(run_echozero, "QTimer", FakeQTimer)
     monkeypatch.setattr(run_echozero, "AutomationBridgeServer", FakeAutomationBridgeServer)
+    monkeypatch.setattr(run_echozero, "build_default_app_settings_service", lambda: app_settings_service)
+    monkeypatch.setattr(run_echozero, "OscUdpSendTransport", FakeOscUdpSendTransport)
+    monkeypatch.setattr(run_echozero, "MA3OSCBridge", FakeMA3OSCBridge)
     monkeypatch.setattr(
         run_echozero,
         "install_runtime_logging",
         lambda log_dir=None: log_calls.append(log_dir) or Path("C:/logs/session.log"),
     )
-    return runtime, runtime_audio, build_calls, log_calls
+    return runtime, runtime_audio, build_calls, log_calls, app_settings_service, surface_calls
 
 
 def test_run_echozero_main_wires_widget_and_smoke_timer(monkeypatch):
-    _, runtime_audio, build_calls, log_calls = _install_launcher_fakes(monkeypatch, exec_result=27)
+    _, runtime_audio, build_calls, log_calls, _, _ = _install_launcher_fakes(monkeypatch, exec_result=27)
 
     result = run_echozero.main(["--smoke-exit-seconds", "1.25", "--style", "fusion"])
 
@@ -226,8 +328,10 @@ def test_run_echozero_main_wires_widget_and_smoke_timer(monkeypatch):
     assert sorted(widget._launcher_actions.keys()) == [
         "new_project",
         "open_project",
+        "redo",
         "save_project",
         "save_project_as",
+        "undo",
     ]
     assert len(FakeQTimer.shots) == 1
     milliseconds, callback = FakeQTimer.shots[0]
@@ -239,7 +343,7 @@ def test_run_echozero_main_wires_widget_and_smoke_timer(monkeypatch):
 
 
 def test_run_echozero_main_skips_timer_when_not_requested(monkeypatch):
-    _, runtime_audio, build_calls, log_calls = _install_launcher_fakes(monkeypatch, exec_result=5)
+    _, runtime_audio, build_calls, log_calls, _, _ = _install_launcher_fakes(monkeypatch, exec_result=5)
 
     result = run_echozero.main([])
 
@@ -259,7 +363,7 @@ def test_run_echozero_main_skips_timer_when_not_requested(monkeypatch):
 
 
 def test_run_echozero_main_shuts_down_audio_on_exec_failure(monkeypatch):
-    _, runtime_audio, build_calls, log_calls = _install_launcher_fakes(monkeypatch, exec_error=RuntimeError("boom"))
+    _, runtime_audio, build_calls, log_calls, _, _ = _install_launcher_fakes(monkeypatch, exec_error=RuntimeError("boom"))
 
     try:
         run_echozero.main([])
@@ -278,7 +382,7 @@ def test_run_echozero_main_shuts_down_audio_on_exec_failure(monkeypatch):
 
 
 def test_run_echozero_main_starts_and_stops_automation_bridge(monkeypatch, capsys):
-    _, runtime_audio, build_calls, log_calls = _install_launcher_fakes(monkeypatch, exec_result=11)
+    _, runtime_audio, build_calls, log_calls, _, _ = _install_launcher_fakes(monkeypatch, exec_result=11)
 
     result = run_echozero.main(["--automation-port", "0"])
 
@@ -295,13 +399,65 @@ def test_run_echozero_main_starts_and_stops_automation_bridge(monkeypatch, capsy
 
 
 def test_run_echozero_main_writes_automation_info_file(monkeypatch, tmp_path):
-    _, _, _, _ = _install_launcher_fakes(monkeypatch, exec_result=0)
+    _, _, _, _, _, _ = _install_launcher_fakes(monkeypatch, exec_result=0)
     info_path = tmp_path / "automation" / "bridge.txt"
 
     result = run_echozero.main(["--automation-port", "0", "--automation-info-file", str(info_path)])
 
     assert result == 0
     assert info_path.read_text(encoding="utf-8").strip() == "http://127.0.0.1:43210"
+
+
+def test_run_echozero_main_uses_app_settings_service_for_launcher_and_ma3(monkeypatch):
+    _, _, _, _, app_settings_service, surface_calls = _install_launcher_fakes(
+        monkeypatch,
+        exec_result=0,
+    )
+    app_settings_service.ma3_config = SimpleNamespace(
+        is_enabled=True,
+        receive=SimpleNamespace(
+            enabled=True,
+            host="127.0.0.1",
+            port=7100,
+            path="/ez/message",
+        ),
+        send=SimpleNamespace(
+            enabled=True,
+            host="10.0.0.2",
+            port=9000,
+            path="/cmd",
+        ),
+    )
+
+    result = run_echozero.main(
+        [
+            "--ma3-osc-listen-port",
+            "7100",
+            "--ma3-osc-command-host",
+            "10.0.0.2",
+            "--ma3-osc-command-port",
+            "9000",
+        ]
+    )
+
+    assert result == 0
+    assert app_settings_service.launch_overrides == [
+        AppSettingsLaunchOverrides(
+            ma3_osc_listen_host=None,
+            ma3_osc_listen_port=7100,
+            ma3_osc_command_host="10.0.0.2",
+            ma3_osc_command_port=9000,
+        )
+    ]
+    assert surface_calls[0]["app_settings_service"] is app_settings_service
+    assert surface_calls[0]["audio_output_config"] is app_settings_service.audio_output_config
+    assert len(FakeOscUdpSendTransport.instances) == 1
+    assert FakeOscUdpSendTransport.instances[0].host == "10.0.0.2"
+    assert FakeOscUdpSendTransport.instances[0].port == 9000
+    assert FakeOscUdpSendTransport.instances[0].path == "/cmd"
+    assert len(FakeMA3OSCBridge.instances) == 1
+    assert FakeMA3OSCBridge.instances[0].listen_port == 7100
+    assert FakeMA3OSCBridge.instances[0].listen_path == "/ez/message"
 
 
 def test_launcher_actions_invoke_canonical_runtime_methods(monkeypatch):
@@ -333,12 +489,20 @@ def test_launcher_actions_invoke_canonical_runtime_methods(monkeypatch):
         calls.append(("save_project_as", Path(path)))
         runtime.project_path = Path(path)
 
+    def undo():
+        calls.append(("undo", None))
+
+    def redo():
+        calls.append(("redo", None))
+
     runtime.presentation = presentation
     runtime.dispatch = lambda intent: intent
     runtime.new_project = new_project
     runtime.open_project = open_project
     runtime.save_project = save_project
     runtime.save_project_as = save_project_as
+    runtime.undo = undo
+    runtime.redo = redo
 
     monkeypatch.setattr(launcher_surface, "QAction", FakeAction)
     monkeypatch.setattr(
@@ -356,6 +520,8 @@ def test_launcher_actions_invoke_canonical_runtime_methods(monkeypatch):
     launcher = run_echozero.LauncherController(runtime=runtime, widget=widget)
     launcher.install()
 
+    widget._launcher_actions["undo"].trigger()
+    widget._launcher_actions["redo"].trigger()
     widget._launcher_actions["new_project"].trigger()
     widget._launcher_actions["open_project"].trigger()
     widget._launcher_actions["save_project"].trigger()
@@ -364,13 +530,172 @@ def test_launcher_actions_invoke_canonical_runtime_methods(monkeypatch):
     widget._launcher_actions["save_project_as"].trigger()
 
     assert calls == [
+        ("undo", None),
+        ("redo", None),
         ("new_project", None),
         ("open_project", Path("C:/projects/opened.ez")),
         ("save_project", None),
         ("save_project_as", Path("C:/projects/saved-as.ez")),
         ("save_project_as", Path("C:/projects/saved-as.ez")),
     ]
-    assert widget.presentation_updates[:2] == ["after-new", "after-open"]
+    assert widget.external_presentation_updates[2:4] == ["after-new", "after-open"]
+    assert widget.presentation_updates[2:4] == ["after-new", "after-open"]
+
+
+def test_launcher_new_project_prompts_to_save_dirty_changes(monkeypatch):
+    calls: list[str] = []
+    runtime = SimpleNamespace(
+        runtime_audio=FakeRuntimeAudio(),
+        is_dirty=True,
+        project_path=Path("C:/projects/current.ez"),
+        presentation=lambda: "presentation",
+        dispatch=lambda intent: intent,
+    )
+    runtime.save_project = lambda: calls.append("save_project")
+    runtime.new_project = lambda: calls.append("new_project")
+
+    monkeypatch.setattr(launcher_surface, "QAction", FakeAction)
+    monkeypatch.setattr(
+        launcher_surface.QMessageBox,
+        "question",
+        lambda *args, **kwargs: QMessageBox.StandardButton.Save,
+    )
+
+    widget = FakeWidget(runtime.presentation(), on_intent=runtime.dispatch, runtime_audio=runtime.runtime_audio)
+    launcher = run_echozero.LauncherController(runtime=runtime, widget=widget)
+    launcher.install()
+
+    widget._launcher_actions["new_project"].trigger()
+
+    assert calls == ["save_project", "new_project"]
+
+
+def test_launcher_open_project_cancel_keeps_current_project(monkeypatch):
+    calls: list[tuple[str, object]] = []
+    runtime = SimpleNamespace(
+        runtime_audio=FakeRuntimeAudio(),
+        is_dirty=True,
+        project_path=Path("C:/projects/current.ez"),
+        presentation=lambda: "presentation",
+        dispatch=lambda intent: intent,
+    )
+    runtime.open_project = lambda path: calls.append(("open_project", Path(path)))
+
+    monkeypatch.setattr(launcher_surface, "QAction", FakeAction)
+    monkeypatch.setattr(
+        launcher_surface.QFileDialog,
+        "getOpenFileName",
+        lambda *args, **kwargs: ("C:/projects/opened.ez", run_echozero.PROJECT_FILE_FILTER),
+    )
+    monkeypatch.setattr(
+        launcher_surface.QMessageBox,
+        "question",
+        lambda *args, **kwargs: QMessageBox.StandardButton.Cancel,
+    )
+
+    widget = FakeWidget(runtime.presentation(), on_intent=runtime.dispatch, runtime_audio=runtime.runtime_audio)
+    launcher = run_echozero.LauncherController(runtime=runtime, widget=widget)
+    launcher.install()
+
+    widget._launcher_actions["open_project"].trigger()
+
+    assert calls == []
+
+
+def test_launcher_save_project_as_appends_ez_extension(monkeypatch):
+    calls: list[Path] = []
+    runtime = SimpleNamespace(
+        runtime_audio=FakeRuntimeAudio(),
+        is_dirty=False,
+        project_path=None,
+        presentation=lambda: "presentation",
+        dispatch=lambda intent: intent,
+    )
+    runtime.save_project_as = lambda path: calls.append(Path(path))
+
+    monkeypatch.setattr(launcher_surface, "QAction", FakeAction)
+    monkeypatch.setattr(
+        launcher_surface.QFileDialog,
+        "getSaveFileName",
+        lambda *args, **kwargs: ("C:/projects/saved-project", run_echozero.PROJECT_FILE_FILTER),
+    )
+
+    widget = FakeWidget(runtime.presentation(), on_intent=runtime.dispatch, runtime_audio=runtime.runtime_audio)
+    launcher = run_echozero.LauncherController(runtime=runtime, widget=widget)
+    launcher.install()
+
+    widget._launcher_actions["save_project_as"].trigger()
+
+    assert calls == [Path("C:/projects/saved-project.ez")]
+
+
+def test_launcher_open_project_reports_errors(monkeypatch):
+    errors: list[tuple[str, str]] = []
+    runtime = SimpleNamespace(
+        runtime_audio=FakeRuntimeAudio(),
+        is_dirty=False,
+        project_path=Path("C:/projects/current.ez"),
+        presentation=lambda: "presentation",
+        dispatch=lambda intent: intent,
+    )
+
+    def open_project(_path) -> None:
+        raise RuntimeError("bad archive")
+
+    runtime.open_project = open_project
+
+    monkeypatch.setattr(launcher_surface, "QAction", FakeAction)
+    monkeypatch.setattr(
+        launcher_surface.QFileDialog,
+        "getOpenFileName",
+        lambda *args, **kwargs: ("C:/projects/opened.ez", run_echozero.PROJECT_FILE_FILTER),
+    )
+    monkeypatch.setattr(
+        launcher_surface.QMessageBox,
+        "critical",
+        lambda _parent, title, message: errors.append((title, message)),
+    )
+
+    widget = FakeWidget(runtime.presentation(), on_intent=runtime.dispatch, runtime_audio=runtime.runtime_audio)
+    launcher = run_echozero.LauncherController(runtime=runtime, widget=widget)
+    launcher.install()
+
+    widget._launcher_actions["open_project"].trigger()
+
+    assert errors == [("Open Project Failed", "Open Project failed.\n\nbad archive")]
+
+
+def test_launcher_preferences_action_opens_dialog(monkeypatch):
+    runtime_audio = FakeRuntimeAudio()
+    dialog_calls: list[tuple[object, object]] = []
+    runtime = SimpleNamespace(
+        runtime_audio=runtime_audio,
+        app_settings_service=object(),
+        is_dirty=False,
+        project_path=None,
+        presentation=lambda: "presentation",
+        dispatch=lambda intent: intent,
+    )
+
+    class FakePreferencesDialog:
+        def __init__(self, service, *, parent=None) -> None:
+            self.service = service
+            self.parent = parent
+            dialog_calls.append((service, parent))
+
+        def exec(self) -> int:
+            return 1
+
+    monkeypatch.setattr(launcher_surface, "QAction", FakeAction)
+    monkeypatch.setattr(launcher_surface, "PreferencesDialog", FakePreferencesDialog)
+
+    widget = FakeWidget(runtime.presentation(), on_intent=runtime.dispatch, runtime_audio=runtime.runtime_audio)
+    launcher = run_echozero.LauncherController(runtime=runtime, widget=widget)
+    launcher.install()
+
+    widget._launcher_actions["preferences"].trigger()
+
+    assert dialog_calls == [(runtime.app_settings_service, widget)]
 
 
 def test_launcher_close_prompt_cancel_prevents_close(monkeypatch):
@@ -449,7 +774,7 @@ def test_launcher_close_prompt_discard_closes(monkeypatch):
     assert len(widget.close_events) == 1
 
 
-def test_launcher_demo_mode_actions_noop_safely(monkeypatch):
+def test_launcher_actions_noop_safely_without_project_controls(monkeypatch):
     runtime = SimpleNamespace(
         runtime_audio=FakeRuntimeAudio(),
         is_dirty=False,
@@ -463,6 +788,8 @@ def test_launcher_demo_mode_actions_noop_safely(monkeypatch):
     launcher = run_echozero.LauncherController(runtime=runtime, widget=widget)
     launcher.install()
 
+    assert widget._launcher_actions["undo"].trigger() is None
+    assert widget._launcher_actions["redo"].trigger() is None
     assert widget._launcher_actions["new_project"].trigger() is None
     assert widget._launcher_actions["open_project"].trigger() is None
     assert widget._launcher_actions["save_project"].trigger() is None

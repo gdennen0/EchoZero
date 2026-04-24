@@ -6,7 +6,8 @@ This directory contains grandMA3 Lua plugins for EchoZero integration.
 
 1. **API Reference**: `docs/MA3_LUA_API_REFERENCE.md` - Complete Lua API organized by purpose
 2. **Learnings**: `docs/MA3_LEARNINGS.md` - Practical gotchas and patterns discovered
-3. **Plugin Guide**: `docs/MA3_PLUGIN_DEVELOPMENT_GUIDE.md` - Full development guide
+3. **Sequence Prep**: `docs/MA3_SEQUENCE_MANAGEMENT.md` - MA3-side sequence listing, creation, assignment, and track prep contract
+4. **Plugin Guide**: `docs/MA3_PLUGIN_DEVELOPMENT_GUIDE.md` - Full development guide
 
 ## Directory Structure
 
@@ -21,13 +22,20 @@ MA3/
 
 ## Production Plugin
 
-### echozero_spine
+The current EchoZero MA3 plugin is a small bundle of Lua modules.
 
-The main EchoZero integration plugin for grandMA3.
+- **Repo source**: `MA3/plugins/`
+- **Active live bundle on this machine**:
+  `/Users/march/MALightingTechnology/gma3_library/datapools/plugins/EZ/`
+- **Core modules**:
+  - `echozero.lua` / `ez_core.lua` for the main EZ API
+  - `timecode.lua` for browse/query helpers
+  - `Sequence.lua` / `ez_sequence.lua` for sequence prep helpers
+  - `echozero_osc.lua` / `ez_osc.lua` for OSC transport
+  - `echozero_init.lua` / `ez_init.lua` for startup verification
 
-- **Location**: `plugins/echozero_spine/`
-- **Main File**: `echozero.lua` - Core plugin with all EZ.* functions
-- **Debug File**: `echozero_debug.lua` - Diagnostic and testing utilities
+The live MA3 bundle may use `ez_*` filenames while the repo source still uses
+the older `echozero_*` split. Keep behavior aligned when editing.
 
 **Key Functions:**
 ```lua
@@ -40,17 +48,47 @@ EZ.GetTimecodes()                   -- List all timecodes
 EZ.GetTrackGroups(tcNo)             -- List track groups
 EZ.GetTracks(tcNo, tgNo)            -- List tracks
 EZ.GetEvents(tcNo, tgNo, trackNo)   -- Get track events
+EZ.GetSequences(startNo, endNo)     -- List sequences, optionally filtered by range
+EZ.GetCurrentSongSequenceRange()    -- Resolve SpeedOfLight current-song range
 
 -- Manipulation
 EZ.CreateTrack(tcNo, tgNo, name)    -- Create new track
 EZ.AddEvent(tcNo, tgNo, trackNo, time, cmd)  -- Add event
 EZ.DeleteEvent(tcNo, tgNo, trackNo, idx)     -- Delete event
+EZ.CreateSequenceNextAvailable(name)         -- Create next free MA3 sequence
+EZ.CreateSequenceInCurrentSongRange(name)    -- Create sequence in current-song range
+EZ.AssignTrackSequence(tcNo, tgNo, trackNo, seqNo) -- Assign sequence to track
+EZ.PrepareTrackForEvents(tcNo, tgNo, trackNo)      -- Ensure TimeRange/CmdSubTrack
 
 -- Real-time Sync
 EZ.HookTrack(tcNo, tgNo, trackNo)   -- Start monitoring
 EZ.UnhookTrack(tcNo, tgNo, trackNo) -- Stop monitoring
 EZ.UnhookAll()                      -- Remove all hooks
 ```
+
+## EchoZero Cue Semantics v0
+
+For the current EchoZero MA3 push/pull lane, keep cue semantics intentionally narrow:
+
+- Push writes one-shot `Go` / `Goto` style command cues at the EchoZero event start time.
+- Pull reads MA3 events as one-shot command cues at their MA3 event time.
+- EchoZero does not yet model temp press/unpress behavior, paired off cues, or richer MA3 sequence semantics.
+- When MA3 provides event duration, EchoZero preserves it. When MA3 only provides event time, EchoZero imports a short one-shot event at that start time.
+
+This is a deliberate v0 contract for reliable sequence/timecode integration, not a claim that MA3 only supports this cue model.
+
+## Current App Contract (2026-04-23)
+
+- Push routing truth remains `EZ layer -> MA3 track coord`.
+- Push can prepare empty MA3 targets by assigning an existing sequence or creating a new one before write.
+- Active `SongVersion` records carry one MA3 timecode pool number.
+- New songs receive the next unused project-local MA3 timecode pool by default.
+- New versions inherit the source song version's MA3 timecode pool.
+- Pull defaults to the selected layer route when present; otherwise it defaults to the active song version's MA3 timecode pool.
+- Pull workspace browsing is TC-first: pick the MA3 timecode pool, then view every track group and track for that pool in one clickable workspace.
+- Pull import mode is destination-driven: new EZ layer targets import to `main`, while existing EZ layer targets import as a new take.
+- Pulling into a newly created or previously unlinked EZ event layer auto-links that layer back to the MA3 source track coord.
+- Batch pull planning can target `+ Create New Layer Per Source Track...` when multiple MA3 source tracks are selected.
 
 ## Development Tools
 
@@ -71,6 +109,7 @@ Located in `dev/`:
 |----------|-------------|
 | `MA3_LUA_API_REFERENCE.md` | Complete API reference, organized by category |
 | `MA3_LEARNINGS.md` | Practical gotchas and working patterns |
+| `MA3_SEQUENCE_MANAGEMENT.md` | Sequence helper contract and reply payloads for MA3 push prep |
 | `MA3_PLUGIN_DEVELOPMENT_GUIDE.md` | Full development walkthrough |
 
 ### Technical Details
@@ -86,9 +125,9 @@ Located in `dev/`:
 
 ## Installation
 
-1. Copy plugin to MA3:
+1. Copy the plugin bundle to MA3:
    ```
-   [MA3 Show]/datapools/plugins/echozero_spine/echozero.lua
+   [MA3 Show]/datapools/plugins/EZ/
    ```
 
 2. Load in grandMA3: **Setup > Plugins**
@@ -97,6 +136,14 @@ Located in `dev/`:
    ```
    Lua "EZ.Ping()"
    ```
+
+4. After editing plugin files, reload from disk with:
+   ```
+   RP
+   ```
+
+`RP` is the working reload command here. It is the short form of
+`ReloadAllPlugins`.
 
 ## For AI Agents
 
@@ -116,9 +163,10 @@ When working on MA3 integrations:
    - `docs/TIMECODE_STRUCTURE.md` - Hierarchy details
    - `docs/DataPool/` - Raw structure dumps
 
-4. **Examples**: Study `plugins/echozero_spine/echozero.lua`
-   - 1600+ lines of working patterns
-   - Hook system implementation
+4. **Examples**: Study `plugins/echozero.lua`, `plugins/timecode.lua`, and the
+   active live bundle under `gma3_library/datapools/plugins/EZ/`
+   - working browse/query patterns
+   - hook system implementation
    - OSC communication
 
 ## Testing

@@ -5,9 +5,14 @@ from dataclasses import dataclass, field
 from PyQt6.QtCore import QRectF, Qt
 from PyQt6.QtGui import QColor, QPainter, QFont
 
-from echozero.application.presentation.models import LayerPresentation, TakeActionPresentation, TakeLanePresentation
+from echozero.application.presentation.models import (
+    default_take_actions,
+    LayerPresentation,
+    TakeActionPresentation,
+    TakeLanePresentation,
+)
 from echozero.ui.qt.timeline.blocks.layouts import TakeRowLayout
-from echozero.ui.qt.timeline.style import TIMELINE_STYLE, TakeRowStyle, fixture_take_action_label
+from echozero.ui.qt.timeline.style import TIMELINE_STYLE, TakeRowStyle
 
 
 @dataclass(slots=True)
@@ -64,7 +69,8 @@ class TakeRowBlock:
             y = layout.options_area_rect.top() + 1
             h = max(12.0, layout.options_area_rect.height() - 2)
             for action in actions:
-                chip_w = max(74.0, min(108.0, 14 + (len(action.label) * 5.6)))
+                chip_label = action.compact_label or action.label
+                chip_w = max(52.0, min(96.0, 12 + (len(chip_label) * 5.2)))
                 rect = QRectF(x, y, chip_w, h)
                 if rect.right() > layout.options_area_rect.right() - 2:
                     break
@@ -78,7 +84,7 @@ class TakeRowBlock:
                 painter.drawText(
                     rect.adjusted(0, -1, 0, -1),
                     Qt.AlignmentFlag.AlignCenter | Qt.TextFlag.TextSingleLine,
-                    action.label,
+                    chip_label,
                 )
                 painter.setFont(prior_chip_font)
                 action_rects.append((rect, layer.layer_id, take.take_id, action.action_id))
@@ -94,13 +100,4 @@ class TakeRowBlock:
     def _actions_for_take(take: TakeLanePresentation) -> list[TakeActionPresentation]:
         if take.actions:
             return take.actions
-        return [
-            TakeActionPresentation(
-                action_id='overwrite_main',
-                label=fixture_take_action_label('overwrite_main'),
-            ),
-            TakeActionPresentation(
-                action_id='merge_main',
-                label=fixture_take_action_label('merge_main'),
-            ),
-        ]
+        return default_take_actions()

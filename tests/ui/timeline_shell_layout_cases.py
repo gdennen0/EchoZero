@@ -1,0 +1,16 @@
+from tests.ui.timeline_shell_support import (
+    test_demo_variants_include_take_lanes_open_and_zoom_states,
+    test_estimate_full_window_height_expanded_fixture_exceeds_default_capture_height,
+    test_fixture_exposes_stale_manual_and_sync_signals,
+    test_fixture_has_selected_layer_for_daw_style_audio_routing,
+    test_fixture_keeps_unique_event_ids_across_main_and_takes,
+    test_pipeline_context_actions_include_phase1_ids,
+    test_play_pause_seek_intents_update_presentation,
+    test_realistic_fixture_contains_song_stems_and_drum_classifiers,
+    test_ruler_is_separate_widget_from_scroll_canvas,
+    test_scroll_bounds_grow_with_zoom_level,
+    test_take_lanes_exist_without_inline_action_requirements,
+    test_timeline_span_estimate_uses_events_and_end_label,
+    test_timeline_widget_surfaces_pipeline_status_banner_from_presentation,
+    test_toggle_layer_expansion_round_trips,
+)

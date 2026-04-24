@@ -1,6 +1,11 @@
+from PyQt6.QtGui import QFont
+from PyQt6.QtWidgets import QApplication
+
 from echozero.application.presentation.models import LayerPresentation, LayerStatusPresentation
 from echozero.application.shared.enums import LayerKind
 from echozero.application.shared.ids import LayerId
+from echozero.ui.qt.timeline.blocks.layer_header import LayerHeaderBlock
+from echozero.ui.qt.timeline.blocks.layouts import MainRowLayout
 from echozero.ui.qt.timeline.widget import badge_tooltip_labels
 from echozero.ui.qt.timeline.widget import TimelineCanvas
 
@@ -48,3 +53,26 @@ def test_header_tooltip_includes_backed_status_and_provenance_metadata():
     assert "Output: drums" in tooltip
     assert "Run: run_42" in tooltip
     assert "Sync: Connected" in tooltip
+
+
+def test_main_row_layout_clips_title_before_control_buttons():
+    layout = MainRowLayout.create(top=10, width=900, header_width=320, row_height=72)
+
+    assert layout.title_rect.right() <= layout.controls_rect.left()
+
+
+def test_layer_header_elides_long_titles_to_available_width():
+    app = QApplication.instance() or QApplication([])
+    font = QFont()
+    font.setPointSize(11)
+
+    try:
+        rendered = LayerHeaderBlock._elided_title_text(
+            "Very Long Layer Name That Should Stop Before The Buttons",
+            font,
+            72.0,
+        )
+
+        assert rendered != "Very Long Layer Name That Should Stop Before The Buttons"
+    finally:
+        app.processEvents()

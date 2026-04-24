@@ -23,6 +23,7 @@ from echozero.application.timeline.models import (
     Layer,
     Take,
     Event,
+    EventRef,
     TimelineSelection,
     TimelineViewport,
     LayerSyncState,
@@ -110,6 +111,8 @@ def _to_event(record: EventRecord) -> Event:
         take_id=TakeId(record.take_id),
         start=record.start,
         end=record.end,
+        source_event_id=record.source_event_id,
+        parent_event_id=record.parent_event_id,
         payload_ref=record.payload_ref,
         label=record.label,
         color=record.color,
@@ -123,6 +126,8 @@ def _to_event_record(event: Event) -> EventRecord:
         take_id=str(event.take_id),
         start=event.start,
         end=event.end,
+        source_event_id=event.source_event_id,
+        parent_event_id=event.parent_event_id,
         payload_ref=event.payload_ref,
         label=event.label,
         color=event.color,
@@ -273,6 +278,14 @@ def to_timeline(record: TimelineRecord) -> Timeline:
         selection=TimelineSelection(
             selected_layer_id=LayerId(selection["selected_layer_id"]) if selection.get("selected_layer_id") else None,
             selected_take_id=TakeId(selection["selected_take_id"]) if selection.get("selected_take_id") else None,
+            selected_event_refs=[
+                EventRef(
+                    layer_id=LayerId(event_ref["layer_id"]),
+                    take_id=TakeId(event_ref["take_id"]),
+                    event_id=EventId(event_ref["event_id"]),
+                )
+                for event_ref in selection.get("selected_event_refs", [])
+            ],
             selected_event_ids=[EventId(event_id) for event_id in selection.get("selected_event_ids", [])],
         ),
         viewport=TimelineViewport(
@@ -297,6 +310,14 @@ def to_timeline_record(timeline: Timeline) -> TimelineRecord:
         selection={
             "selected_layer_id": str(timeline.selection.selected_layer_id) if timeline.selection.selected_layer_id else None,
             "selected_take_id": str(timeline.selection.selected_take_id) if timeline.selection.selected_take_id else None,
+            "selected_event_refs": [
+                {
+                    "layer_id": str(event_ref.layer_id),
+                    "take_id": str(event_ref.take_id),
+                    "event_id": str(event_ref.event_id),
+                }
+                for event_ref in timeline.selection.selected_event_refs
+            ],
             "selected_event_ids": [str(event_id) for event_id in timeline.selection.selected_event_ids],
         },
         viewport={

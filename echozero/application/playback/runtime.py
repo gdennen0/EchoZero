@@ -29,11 +29,9 @@ def _db_to_linear(gain_db: float) -> float:
     return float(10.0 ** (float(gain_db) / 20.0))
 
 
-def _load_mono_audio(path: str | Path) -> tuple[np.ndarray, int]:
+def _load_runtime_audio(path: str | Path) -> tuple[np.ndarray, int]:
     samples, sample_rate = sf.read(str(path), always_2d=False, dtype="float32")
     data = np.asarray(samples, dtype=np.float32)
-    if data.ndim > 1:
-        data = data.mean(axis=1)
     return data.astype(np.float32, copy=False), int(sample_rate)
 
 
@@ -62,7 +60,7 @@ class PresentationPlaybackRuntime:
         engine_factory: Callable[[], AudioEngine] | None = None,
         preview_engine: AudioEngine | None = None,
         preview_engine_factory: Callable[[], AudioEngine] | None = None,
-        audio_loader: Callable[[str | Path], tuple[np.ndarray, int]] = _load_mono_audio,
+        audio_loader: Callable[[str | Path], tuple[np.ndarray, int]] = _load_runtime_audio,
     ) -> None:
         self._engine = engine or (
             engine_factory() if engine_factory is not None else AudioEngine()
@@ -147,7 +145,7 @@ class PresentationPlaybackRuntime:
 
         start_sample = max(0, int(round(float(start_seconds) * sample_rate)))
         end_sample = max(start_sample, int(round(float(end_seconds) * sample_rate)))
-        end_sample = min(end_sample, int(source_buffer.size))
+        end_sample = min(end_sample, int(source_buffer.shape[0]))
         if end_sample <= start_sample:
             return False
 
@@ -406,11 +404,14 @@ class PresentationPlaybackRuntime:
         start_samples = [
             max(0, int(round(float(event.start) * sample_rate))) for event in active_events
         ]
-        total_samples = max(start_samples) + int(event_buffer.size)
-        rendered = np.zeros(total_samples, dtype=np.float32)
+        total_samples = max(start_samples) + int(event_buffer.shape[0])
+        if event_buffer.ndim == 1:
+            rendered = np.zeros(total_samples, dtype=np.float32)
+        else:
+            rendered = np.zeros((total_samples, event_buffer.shape[1]), dtype=np.float32)
 
         for start_sample in start_samples:
-            end_sample = start_sample + int(event_buffer.size)
+            end_sample = start_sample + int(event_buffer.shape[0])
             rendered[start_sample:end_sample] += event_buffer
 
         np.clip(rendered, -1.0, 1.0, out=rendered)

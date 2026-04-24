@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from PyQt6.QtCore import QRectF, Qt
-from PyQt6.QtGui import QColor, QPainter, QBrush, QFont
+from PyQt6.QtGui import QColor, QPainter, QBrush, QFont, QFontMetrics
 
 from echozero.application.presentation.models import LayerHeaderControlPresentation, LayerPresentation
 from echozero.ui.qt.timeline.style import LayerHeaderStyle, StatusChipStyle, TIMELINE_STYLE
@@ -46,7 +46,11 @@ class LayerHeaderBlock:
         title_font.setPointSize(self.style.title_font.point_size)
         painter.setFont(title_font)
         painter.setPen(QColor(self.style.dimmed_title_hex if dimmed else self.style.title_hex))
-        painter.drawText(slots.title_rect, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, layer.title)
+        painter.drawText(
+            slots.title_rect,
+            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter | Qt.TextFlag.TextSingleLine,
+            self._elided_title_text(layer.title, title_font, slots.title_rect.width()),
+        )
 
         self._draw_status_chips(painter, slots.status_rect, layer)
         control_rects = self._draw_header_controls(
@@ -73,6 +77,15 @@ class LayerHeaderBlock:
             )
             painter.setFont(prior_font)
         return HeaderHitTargets(control_rects=tuple(control_rects))
+
+    @staticmethod
+    def _elided_title_text(text: str, font: QFont, width: float) -> str:
+        metrics = QFontMetrics(font)
+        return metrics.elidedText(
+            str(text),
+            Qt.TextElideMode.ElideRight,
+            max(0, int(width)),
+        )
 
     def _draw_header_controls(
         self,

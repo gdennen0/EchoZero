@@ -137,6 +137,9 @@ class TestDetectOnsetsSuccess:
         assert e0.classifications == {}
         assert e0.metadata["threshold"] == 0.5
         assert e0.metadata["min_gap"] == 0.05
+        assert e0.metadata["method"] == "default"
+        assert e0.metadata["backtrack"] is True
+        assert e0.metadata["timing_offset_ms"] == 0.0
         assert e0.metadata["index"] == 0
         assert e0.origin == "onset1"
 
@@ -180,22 +183,45 @@ class TestDetectOnsetsSuccess:
 
     def test_settings_passed_to_onset_detect_fn(self) -> None:
         graph = _make_graph_with_chain(
-            onset_settings={"threshold": 0.8, "min_gap": 0.1}
+            onset_settings={
+                "threshold": 0.8,
+                "min_gap": 0.1,
+                "method": "hfc",
+                "backtrack": False,
+                "timing_offset_ms": -15.0,
+            }
         )
         context = _make_context(graph)
         context.set_output("load1", "audio_out", MOCK_AUDIO)
 
-        received_args: list[tuple[str, int, float, float]] = []
+        received_args: list[tuple[str, int, float, float, str, bool, float]] = []
 
-        def spy_fn(fp: str, sr: int, th: float, mg: float) -> list[float]:
-            received_args.append((fp, sr, th, mg))
+        def spy_fn(
+            fp: str,
+            sr: int,
+            th: float,
+            mg: float,
+            *,
+            method: str,
+            backtrack: bool,
+            timing_offset_ms: float,
+        ) -> list[float]:
+            received_args.append((fp, sr, th, mg, method, backtrack, timing_offset_ms))
             return [1.0]
 
         processor = DetectOnsetsProcessor(onset_detect_fn=spy_fn)
         processor.execute("onset1", context)
 
         assert len(received_args) == 1
-        assert received_args[0] == ("/test/audio.wav", 44100, 0.8, 0.1)
+        assert received_args[0] == (
+            "/test/audio.wav",
+            44100,
+            0.8,
+            0.1,
+            "hfc",
+            False,
+            -15.0,
+        )
 
     def test_default_settings_used_when_not_specified(self) -> None:
         graph = _make_graph_with_chain(onset_settings={})
@@ -294,4 +320,5 @@ class TestDetectOnsetsProgress:
         event = result.value.layers[0].events[0]
         assert event.metadata["threshold"] == 0.3
         assert event.metadata["min_gap"] == 0.02
-
+        assert event.metadata["method"] == "default"
+        assert event.metadata["backtrack"] is True

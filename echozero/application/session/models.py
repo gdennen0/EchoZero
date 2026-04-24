@@ -1,6 +1,9 @@
 """Session application models."""
 
+from __future__ import annotations
+
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
 
 from echozero.application.shared.ids import EventId, LayerId, ProjectId, SessionId, SongId, SongVersionId, TimelineId
 from echozero.application.sync.diff_service import SyncDiffRow, SyncDiffSummary
@@ -9,13 +12,45 @@ from echozero.application.mixer.models import MixerState
 from echozero.application.playback.models import PlaybackState
 from echozero.application.sync.models import SyncState
 
+if TYPE_CHECKING:
+    from echozero.application.timeline.pipeline_run_service import PipelineRunState
+
 
 @dataclass(slots=True)
 class ManualPushTrackOption:
     coord: str
     name: str
+    number: int | None = None
+    timecode_name: str | None = None
     note: str | None = None
     event_count: int | None = None
+    sequence_no: int | None = None
+
+
+@dataclass(slots=True)
+class ManualPushTimecodeOption:
+    number: int
+    name: str | None = None
+
+
+@dataclass(slots=True)
+class ManualPushTrackGroupOption:
+    number: int
+    name: str
+    track_count: int | None = None
+
+
+@dataclass(slots=True)
+class ManualPushSequenceOption:
+    number: int
+    name: str
+
+
+@dataclass(slots=True)
+class ManualPushSequenceRange:
+    start: int
+    end: int
+    song_label: str | None = None
 
 
 @dataclass(slots=True)
@@ -35,7 +70,13 @@ class ManualPushFlowState:
     push_mode_active: bool = False
     selected_layer_ids: list[LayerId] = field(default_factory=list)
     selected_event_ids: list[EventId] = field(default_factory=list)
+    available_timecodes: list[ManualPushTimecodeOption] = field(default_factory=list)
+    selected_timecode_no: int | None = None
+    available_track_groups: list[ManualPushTrackGroupOption] = field(default_factory=list)
+    selected_track_group_no: int | None = None
     available_tracks: list[ManualPushTrackOption] = field(default_factory=list)
+    available_sequences: list[ManualPushSequenceOption] = field(default_factory=list)
+    current_song_sequence_range: ManualPushSequenceRange | None = None
     target_track_coord: str | None = None
     transfer_mode: str = "merge"
     diff_gate_open: bool = False
@@ -46,8 +87,23 @@ class ManualPushFlowState:
 class ManualPullTrackOption:
     coord: str
     name: str
+    number: int | None = None
+    timecode_name: str | None = None
     note: str | None = None
     event_count: int | None = None
+
+
+@dataclass(slots=True)
+class ManualPullTimecodeOption:
+    number: int
+    name: str | None = None
+
+
+@dataclass(slots=True)
+class ManualPullTrackGroupOption:
+    number: int
+    name: str
+    track_count: int | None = None
 
 
 @dataclass(slots=True)
@@ -56,6 +112,7 @@ class ManualPullEventOption:
     label: str
     start: float | None = None
     end: float | None = None
+    cue_number: int | None = None
 
 
 @dataclass(slots=True)
@@ -82,6 +139,10 @@ class ManualPullDiffPreview:
 class ManualPullFlowState:
     dialog_open: bool = False
     workspace_active: bool = False
+    available_timecodes: list[ManualPullTimecodeOption] = field(default_factory=list)
+    selected_timecode_no: int | None = None
+    available_track_groups: list[ManualPullTrackGroupOption] = field(default_factory=list)
+    selected_track_group_no: int | None = None
     available_tracks: list[ManualPullTrackOption] = field(default_factory=list)
     selected_source_track_coords: list[str] = field(default_factory=list)
     active_source_track_coord: str | None = None
@@ -142,6 +203,7 @@ class Session:
     project_id: ProjectId
     active_song_id: SongId | None = None
     active_song_version_id: SongVersionId | None = None
+    active_song_version_ma3_timecode_pool_no: int | None = None
     active_timeline_id: TimelineId | None = None
     transport_state: TransportState = field(default_factory=TransportState)
     mixer_state: MixerState = field(default_factory=MixerState)
@@ -151,4 +213,5 @@ class Session:
     manual_pull_flow: ManualPullFlowState = field(default_factory=ManualPullFlowState)
     batch_transfer_plan: BatchTransferPlanState | None = None
     transfer_presets: list[TransferPresetState] = field(default_factory=list)
+    pipeline_runs: dict[str, PipelineRunState] = field(default_factory=dict)
     ui_prefs_ref: str | None = None

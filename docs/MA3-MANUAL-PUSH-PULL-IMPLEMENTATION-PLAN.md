@@ -1,6 +1,25 @@
 # MA3 Manual Push/Pull — Structural Plan & Implementation Guide
 
-_Last updated: 2026-04-11_
+Status: historical superseded plan
+Last reviewed: 2026-04-23
+
+This doc is kept as structural background only.
+If any workflow detail below disagrees with `docs/STATUS.md` or `MA3/README.md`,
+those current-truth docs win. That includes the current pull import rule:
+new-layer targets import to `main`, existing-layer targets import as a new take.
+
+Current repo truth now lives in:
+
+- `docs/STATUS.md`
+- `MA3/README.md`
+
+Active push-lane planning now lives in:
+
+- `docs/MA3-PUSH-V1-EXECUTION-PLAN.md`
+
+Sequence-prep design reference now lives in:
+
+- `docs/architecture/MA3-SEQUENCE-MANAGEMENT-DESIGN-2026-04-22.md`
 
 ## 1) Product Direction (Locked)
 

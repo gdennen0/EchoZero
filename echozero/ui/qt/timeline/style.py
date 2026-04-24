@@ -109,6 +109,10 @@ class TimelineCanvasStyle:
     row_divider_hex: str
     no_takes_hint_hex: str
     no_takes_hint_dimmed_hex: str
+    region_even_hex: str
+    region_odd_hex: str
+    region_alpha: int
+    region_selected_outline_hex: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -200,6 +204,11 @@ class RulerStyle:
     tick_hex: str
     grid_hex: str
     label_hex: str
+    region_even_hex: str
+    region_odd_hex: str
+    region_alpha: int
+    region_border_hex: str
+    region_label_hex: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -236,6 +245,10 @@ TIMELINE_STYLE = TimelineShellStyle(
         row_divider_hex="#252c38",
         no_takes_hint_hex="#8b97a8",
         no_takes_hint_dimmed_hex="#5f6977",
+        region_even_hex="#d9dee6",
+        region_odd_hex="#c9d0da",
+        region_alpha=16,
+        region_selected_outline_hex="#9fc3ff",
     ),
     playhead=TimelinePlayheadStyle(
         color_hex="#ff5f57",
@@ -375,6 +388,11 @@ TIMELINE_STYLE = TimelineShellStyle(
         tick_hex="#3b4352",
         grid_hex="#b8c0cc",
         label_hex="#b8c0cc",
+        region_even_hex="#d9dee6",
+        region_odd_hex="#c9d0da",
+        region_alpha=28,
+        region_border_hex="#9ea9b7",
+        region_label_hex="#d7dee8",
     ),
     fixture=TimelineFixtureStyle(
         default_sync_label="No sync",
@@ -399,6 +417,7 @@ TIMELINE_STYLE = TimelineShellStyle(
                 "overwrite_main": "Overwrite Main",
                 "merge_main": "Merge Main",
                 "promote_take": "Promote Take",
+                "delete_take": "Delete Take",
             }
         ),
     ),
@@ -441,6 +460,18 @@ def build_object_palette_stylesheet(style: ObjectPaletteStyle = TIMELINE_STYLE.o
         QLabel#{style.body_object_name} {{
             color: {style.body_hex};
             font-size: {style.body_font_px}px;
+        }}
+        QPlainTextEdit#{style.body_object_name} {{
+            color: {style.body_hex};
+            background: transparent;
+            border: none;
+            font-size: {style.body_font_px}px;
+            padding: 0;
+        }}
+        QSplitter#timeline_object_info_splitter::handle:vertical {{
+            background: {style.border_hex};
+            border-radius: 3px;
+            margin: 1px 120px;
         }}
         QPushButton {{
             background: {style.button_bg_hex};

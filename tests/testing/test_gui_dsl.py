@@ -53,8 +53,8 @@ def test_load_scenario_parses_real_input_pipeline_actions(tmp_path):
                         "params": {"layer_title": "Drums"},
                     },
                     {
-                        "action": "timeline.classify_drum_events",
-                        "params": {"layer_title": "Drums", "model_path": "C:/models/drums.pth"},
+                        "action": "timeline.extract_classified_drums",
+                        "params": {"layer_title": "Drums"},
                     },
                 ],
             }
@@ -68,7 +68,7 @@ def test_load_scenario_parses_real_input_pipeline_actions(tmp_path):
         "song.add",
         "timeline.extract_stems",
         "timeline.extract_drum_events",
-        "timeline.classify_drum_events",
+        "timeline.extract_classified_drums",
     ]
 
 
@@ -172,3 +172,38 @@ def test_load_scenario_rejects_classify_without_model_path(tmp_path):
 
     with pytest.raises(ValueError, match="model_path"):
         load_scenario(scenario_path)
+
+
+def test_load_scenario_accepts_song_switching_actions(tmp_path):
+    scenario_path = tmp_path / "song_switching.json"
+    scenario_path.write_text(
+        json.dumps(
+            {
+                "name": "Song Switching",
+                "steps": [
+                    {"action": "song.select", "params": {"song_title": "Song One"}},
+                    {
+                        "action": "song.version.switch",
+                        "params": {"version_label": "Festival Edit"},
+                    },
+                    {
+                        "action": "song.version.add",
+                        "params": {
+                            "song_title": "Song One",
+                            "audio_path": "C:/audio/song-one-festival.wav",
+                            "label": "Festival Edit",
+                        },
+                    },
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    scenario = load_scenario(scenario_path)
+
+    assert [step.action for step in scenario.steps] == [
+        "song.select",
+        "song.version.switch",
+        "song.version.add",
+    ]

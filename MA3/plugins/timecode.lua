@@ -1,5 +1,71 @@
 EZ = EZ or {}
 
+local function safeChildren(handle)
+    if not handle then
+        return {}
+    end
+    local ok, children = pcall(function() return handle:Children() end)
+    if ok and children then
+        return children
+    end
+    return {}
+end
+
+local function safeStringProperty(handle, propertyName)
+    if not handle or not propertyName then
+        return ""
+    end
+    local ok, value = pcall(function() return handle[propertyName] end)
+    if ok and value ~= nil then
+        return tostring(value)
+    end
+    return ""
+end
+
+local function safeSequenceNo(track)
+    if not track then
+        return nil
+    end
+    local okTarget, target = pcall(function() return track.target end)
+    if not okTarget or not target then
+        return nil
+    end
+    local okNo, seqNo = pcall(function() return target.no end)
+    if not okNo then
+        return nil
+    end
+    return tonumber(seqNo) or nil
+end
+
+local function countUserTracks(trackGroup)
+    local count = 0
+    local tracks = safeChildren(trackGroup)
+    for i = 1, #tracks do
+        local track = tracks[i]
+        if track and safeStringProperty(track, "name") ~= "Marker" then
+            count = count + 1
+        end
+    end
+    return count
+end
+
+local function countTrackEventsForBrowse(track)
+    local eventCount = 0
+    local timeRanges = safeChildren(track)
+    for trIdx = 1, #timeRanges do
+        local timeRange = timeRanges[trIdx]
+        local subTracks = safeChildren(timeRange)
+        for stIdx = 1, #subTracks do
+            local subTrack = subTracks[stIdx]
+            local subTrackName = safeStringProperty(subTrack, "name")
+            if string.find(subTrackName, "^CmdSubTrack") or string.find(subTrackName, "^FaderSubTrack") then
+                eventCount = eventCount + #safeChildren(subTrack)
+            end
+        end
+    end
+    return eventCount
+end
+
 -- PUBLIC API: TRACK DIAGNOSTICS
 -- Get detailed track info for debugging
 function EZ.GetTrackInfo(tcNo, tgNo, trackNo)
@@ -79,11 +145,17 @@ function EZ.GetTimecodes()
     local ok, children = pcall(function() return dp.Timecodes:Children() end)
     if ok and children then
         for _, tc in ipairs(children) do
-            table.insert(result, {
-                no = tc.no,
-                name = tc.name or ""
-            })
+            local tcNo = tonumber(tc and tc.no)
+            if tcNo and tcNo > 0 then
+                table.insert(result, {
+                    no = tcNo,
+                    name = safeStringProperty(tc, "name")
+                })
+            end
         end
+        table.sort(result, function(left, right)
+            return (left.no or 0) < (right.no or 0)
+        end)
         EZ.log(string.format("GetTimecodes() -> Found %d timecodes", #result))
     else
         EZ.log("ERROR: GetTimecodes() - Failed to get Timecodes children")
@@ -91,7 +163,11 @@ function EZ.GetTimecodes()
         return nil
     end
     
-    EZ.sendMessage("timecodes", "list", {count = #result, timecodes = result})
+    EZ.sendMessage("timecodes", "list", {
+        count = #result,
+        plugin_version = EZ._version,
+        timecodes = result
+    })
     return result
 end
 -- EZ.DebugTimecode moved to echozero_debug.lua
@@ -114,30 +190,26 @@ function EZ.GetTrackGroups(tcNo)
         for i = 1, #children do
             local tg = children[i]
             if tg then
-                -- Count tracks in this group (for info)
-                local trackCount = 0
-                local tgChildren = tg:Children()
-                if tgChildren then
-                    for j = 1, #tgChildren do
-                        if tgChildren[j] and tgChildren[j].name ~= "Marker" then
-                            trackCount = trackCount + 1
-                        end
-                    end
-                end
-                
+                local trackCount = countUserTracks(tg)
+                local tgName = safeStringProperty(tg, "name")
                 table.insert(result, {
                     no = i,  -- Use index as "no" since that's how we access it
-                    name = tg.name or "",
+                    name = tgName,
                     track_count = trackCount
                 })
-                EZ.log(string.format("    TG[%d]: '%s' (%d tracks)", i, tg.name or "", trackCount))
+                EZ.log(string.format("    TG[%d]: '%s' (%d tracks)", i, tgName, trackCount))
             end
         end
     else
         EZ.log("  WARNING: tc:Children() failed or returned nil")
     end
     EZ.log(string.format("GetTrackGroups(%d) -> %d groups, sending to EchoZero...", tcNo, #result))
-    local sendOk = EZ.sendMessage("trackgroups", "list", {tc = tcNo, count = #result, trackgroups = result})
+    local sendOk = EZ.sendMessage("trackgroups", "list", {
+        tc = tcNo,
+        count = #result,
+        plugin_version = EZ._version,
+        trackgroups = result
+    })
     if sendOk then
         EZ.log("  Message sent successfully")
     else
@@ -147,8 +219,8 @@ function EZ.GetTrackGroups(tcNo)
 end
 -- Get user-visible tracks (excludes system Marker track at index 1)
 -- Returns tracks with 1-based indexing (1 = first user track, which is MA3 index 2)
-function EZ.GetTracks(tcNo, tgNo)
-    EZ.log(string.format("GetTracks(%d, %d) called", tcNo, tgNo))
+function EZ.GetTracks(tcNo, tgNo, request_id)
+    EZ.log(string.format("GetTracks(%d, %d, %s) called", tcNo, tgNo, tostring(request_id)))
     local tg = EZ.getTG(tcNo, tgNo)
     if not tg then
         EZ.log(string.format("ERROR: TG %d.%d not found", tcNo, tgNo))
@@ -164,47 +236,73 @@ function EZ.GetTracks(tcNo, tgNo)
         local trackIdx = 0
         for i = 1, #children do
             local track = children[i]
+            local trackName = safeStringProperty(track, "name")
             -- Skip "Marker" entries (always at index 1)
-            if track and track.name ~= "Marker" then
+            if track and trackName ~= "Marker" then
                 trackIdx = trackIdx + 1
-                -- Count events in this track
-                local eventCount = 0
-                local timeRange = track:Children() and track:Children()[1]
-                if timeRange and string.find(timeRange.name or "", "^TimeRange") then
-                    local cmdSubTrack = timeRange:Children() and timeRange:Children()[1]
-                    if cmdSubTrack and string.find(cmdSubTrack.name or "", "^CmdSubTrack") then
-                        local events = cmdSubTrack:Children()
-                        if events then
-                            eventCount = #events
-                        end
-                    end
-                end
-                -- Extract sequence number from track.target
-                local sequenceNo = nil
-                if track.target then
-                    local targetStr = tostring(track.target)
-                    -- Parse "Sequence 123" format to extract number
-                    local seqMatch = string.match(targetStr, "Sequence%s+(%d+)")
-                    if seqMatch then
-                        sequenceNo = tonumber(seqMatch)
-                    end
-                end
+                local eventCount = countTrackEventsForBrowse(track)
+                local sequenceNo = safeSequenceNo(track)
+                local noteValue = safeStringProperty(track, "note")
                 table.insert(result, {
                     no = trackIdx,  -- User-visible track number (1-based, excluding Marker)
-                    name = track.name or "",
+                    name = trackName,
                     event_count = eventCount,
                     sequence_no = sequenceNo,  -- Sequence number if assigned, nil otherwise
-                    note = track.note or ""  -- EZ identity anchor (persists across reorder)
+                    note = noteValue  -- EZ identity anchor (persists across reorder)
                 })
-                EZ.log(string.format("    Track[%d]: '%s' (MA3 index %d, events=%d, seq=%s, note='%s')", trackIdx, track.name or "", i, eventCount, tostring(sequenceNo or "none"), track.note or ""))
+                EZ.log(string.format("    Track[%d]: '%s' (MA3 index %d, events=%d, seq=%s, note='%s')", trackIdx, trackName, i, eventCount, tostring(sequenceNo or "none"), noteValue))
             end
         end
         EZ.log(string.format("  Found %d tracks (excluded Marker entries)", #result))
     else
         EZ.log("  WARNING: tg:Children() failed or returned nil")
     end
-    EZ.log(string.format("GetTracks(%d,%d) -> %d tracks, sending to EchoZero...", tcNo, tgNo, #result))
-    local sendOk = EZ.sendMessage("tracks", "list", {tc = tcNo, tg = tgNo, count = #result, tracks = result})
+    local total = #result
+    local maxPer = 10
+    EZ.log(string.format("GetTracks(%d,%d) -> %d tracks, sending to EchoZero...", tcNo, tgNo, total))
+    if total > maxPer then
+        local totalChunks = math.ceil(total / maxPer)
+        for chunkIdx = 1, totalChunks do
+            local startIdx = (chunkIdx - 1) * maxPer + 1
+            local endIdx = math.min(startIdx + maxPer - 1, total)
+            local chunk = {}
+            for index = startIdx, endIdx do
+                table.insert(chunk, result[index])
+            end
+            local payload = {
+                tc = tcNo,
+                tg = tgNo,
+                count = total,
+                plugin_version = EZ._version,
+                offset = startIdx,
+                chunk_index = chunkIdx,
+                total_chunks = totalChunks,
+                tracks = chunk
+            }
+            if request_id ~= nil then
+                payload.request_id = request_id
+            end
+            local sendChunkOk = EZ.sendMessage("tracks", "list", payload)
+            if sendChunkOk then
+                EZ.log(string.format("  Chunk %d/%d sent successfully", chunkIdx, totalChunks))
+            else
+                EZ.log(string.format("  ERROR: Failed to send chunk %d/%d", chunkIdx, totalChunks))
+            end
+        end
+        return result
+    end
+
+    local payload = {
+        tc = tcNo,
+        tg = tgNo,
+        count = total,
+        plugin_version = EZ._version,
+        tracks = result
+    }
+    if request_id ~= nil then
+        payload.request_id = request_id
+    end
+    local sendOk = EZ.sendMessage("tracks", "list", payload)
     if sendOk then
         EZ.log("  Message sent successfully")
     else
@@ -426,6 +524,121 @@ end
 -- PUBLIC API: MANIPULATION
 -- =============================================================================
 
+-- Create a new timecode pool in the next available slot
+function EZ.CreateTimecode(timecodeName)
+    EZ.log(string.format("CreateTimecode(%s) called", tostring(timecodeName)))
+
+    local dp = EZ.getDP()
+    if not dp or not dp.Timecodes then
+        EZ.sendMessage("timecode", "error", {error = "Timecode pool unavailable"})
+        return nil
+    end
+
+    local desired = tostring(timecodeName or ""):gsub("^%s+", ""):gsub("%s+$", "")
+    local children = {}
+    local ok_children, resolved_children = pcall(function() return dp.Timecodes:Children() end)
+    if ok_children and resolved_children then
+        children = resolved_children
+    end
+
+    local used = {}
+    for _, tc in ipairs(children) do
+        local no = tonumber(tc and tc.no)
+        if no and no > 0 then
+            used[no] = true
+            if desired ~= "" and tc.name and tostring(tc.name):lower() == desired:lower() then
+                EZ.sendMessage("timecode", "exists", {no = no, name = tc.name})
+                return no
+            end
+        end
+    end
+
+    local next_no = 1
+    while used[next_no] do
+        next_no = next_no + 1
+    end
+
+    local created = nil
+    local ok_create = pcall(function() created = dp.Timecodes:Acquire() end)
+    if not ok_create or not created then
+        EZ.sendMessage("timecode", "error", {error = "Timecode create failed"})
+        return nil
+    end
+
+    local resolved_no = tonumber(created.no) or next_no
+    local resolved_name = desired ~= "" and desired or string.format("TC %d", resolved_no)
+    local ok_name = pcall(function() created.name = resolved_name end)
+    if not ok_name then
+        pcall(function() created:Set("name", resolved_name) end)
+    end
+
+    EZ.sendMessage("timecode", "created", {no = resolved_no, name = created.name or resolved_name})
+    return resolved_no
+end
+
+-- Create a new track group in a timecode pool
+function EZ.CreateTrackGroup(tcNo, trackGroupName)
+    EZ.log(string.format("CreateTrackGroup(%s, %s) called", tostring(tcNo), tostring(trackGroupName)))
+    local tc = EZ.getTC(tcNo)
+    if not tc then
+        EZ.sendMessage("trackgroup", "error", {tc = tcNo, error = "Timecode not found"})
+        return nil
+    end
+
+    local desired = tostring(trackGroupName or ""):gsub("^%s+", ""):gsub("%s+$", "")
+    local ok_children, children = pcall(function() return tc:Children() end)
+    if not ok_children or not children then
+        EZ.sendMessage("trackgroup", "error", {tc = tcNo, error = "Track group list unavailable"})
+        return nil
+    end
+
+    local used = {}
+    for tg_idx = 1, #children do
+        local tg = children[tg_idx]
+        used[tg_idx] = true
+        if desired ~= "" and tg and tg.name and tostring(tg.name):lower() == desired:lower() then
+            EZ.sendMessage("trackgroup", "exists", {tc = tcNo, tg = tg_idx, name = tg.name})
+            return tg_idx
+        end
+    end
+
+    local next_tg_no = 1
+    while used[next_tg_no] do
+        next_tg_no = next_tg_no + 1
+    end
+
+    local created = nil
+    local ok_create = pcall(function() created = tc:Acquire() end)
+    if not ok_create or not created then
+        EZ.sendMessage("trackgroup", "error", {tc = tcNo, error = "Track group create failed"})
+        return nil
+    end
+
+    local resolved_name = desired ~= "" and desired or string.format("Group %d", next_tg_no)
+    local ok_name = pcall(function() created.name = resolved_name end)
+    if not ok_name then
+        pcall(function() created:Set("name", resolved_name) end)
+    end
+
+    local created_tg_no = next_tg_no
+    local ok_refresh, refreshed = pcall(function() return tc:Children() end)
+    if ok_refresh and refreshed then
+        for tg_idx = 1, #refreshed do
+            local tg = refreshed[tg_idx]
+            if tg and tg.name and tostring(tg.name) == (created.name or resolved_name) then
+                created_tg_no = tg_idx
+            end
+        end
+    end
+
+    EZ.sendMessage(
+        "trackgroup",
+        "created",
+        {tc = tcNo, tg = created_tg_no, name = created.name or resolved_name}
+    )
+    return created_tg_no
+end
+
 -- Create a new track in a track group
 -- NOTE: track name is user-provided; MA3 will assign a new track number
 function EZ.CreateTrack(tcNo, tgNo, trackName)
@@ -480,32 +693,460 @@ function EZ.CreateTrack(tcNo, tgNo, trackName)
     return true
 end
 
+local CURRENT_SONG_SEQUENCE_RANGE_SIZE = 99
+
+local function getChildrenSafe(handle)
+    if not handle then
+        return {}
+    end
+    local ok, children = pcall(function() return handle:Children() end)
+    if ok and children then
+        return children
+    end
+    return {}
+end
+
+local function getClassSafe(handle)
+    if not handle or not handle.GetClass then
+        return nil
+    end
+    local ok, cls = pcall(function() return handle:GetClass() end)
+    if ok then
+        return cls
+    end
+    return nil
+end
+
+local function trimString(value)
+    return tostring(value or ""):gsub("^%s+", ""):gsub("%s+$", "")
+end
+
+local function escapeCmdString(value)
+    return tostring(value or ""):gsub('"', '\\"')
+end
+
+local function mergePayload(base, extra)
+    if not extra then
+        return base
+    end
+    for k, v in pairs(extra) do
+        base[k] = v
+    end
+    return base
+end
+
+local function findChildByClass(parent, className, ordinal)
+    local children = getChildrenSafe(parent)
+    local targetOrdinal = ordinal or 1
+    local seen = 0
+
+    for childIdx = 1, #children do
+        local child = children[childIdx]
+        if getClassSafe(child) == className then
+            seen = seen + 1
+            if seen == targetOrdinal then
+                return child, seen, childIdx
+            end
+        end
+    end
+
+    return nil, nil, nil
+end
+
+local function getTrackHandle(tcNo, tgNo, trackNo)
+    local ma3TrackNo = (trackNo or 0) + 1
+    return EZ.getTrack(tcNo, tgNo, ma3TrackNo), ma3TrackNo
+end
+
+local function getAssignedSequenceNo(track)
+    if not track or not track.target then
+        return nil
+    end
+
+    local okNo, directNo = pcall(function() return tonumber(track.target.no) end)
+    if okNo and directNo then
+        return directNo
+    end
+
+    local targetStr = tostring(track.target)
+    local seqMatch = string.match(targetStr, "Sequence%s+(%d+)")
+    if seqMatch then
+        return tonumber(seqMatch)
+    end
+
+    return nil
+end
+
+local function getSequenceHandle(seqNo)
+    local dp = EZ.getDP()
+    if not dp or not dp.Sequences then
+        return nil
+    end
+    local ok, sequence = pcall(function() return dp.Sequences[seqNo] end)
+    if ok then
+        return sequence
+    end
+    return nil
+end
+
+local function buildTrackError(tcNo, tgNo, trackNo, errorCode, extra, emitReply)
+    local payload = mergePayload({
+        tc = tcNo,
+        tg = tgNo,
+        track = trackNo,
+        error = errorCode
+    }, extra)
+    if emitReply ~= false then
+        EZ.sendMessage("track", "error", payload)
+    end
+    return false, payload
+end
+
+local function buildSequenceError(changeType, errorCode, extra)
+    local payload = mergePayload({error = errorCode}, extra)
+    EZ.sendMessage("sequence", changeType or "error", payload)
+    return nil, payload
+end
+
+local function buildSequenceRangeError(errorCode, extra)
+    local payload = mergePayload({error = errorCode}, extra)
+    EZ.sendMessage("sequence_range", "error", payload)
+    return nil, payload
+end
+
+local function countSequenceCues(sequence)
+    local cues = getChildrenSafe(sequence)
+    return #cues
+end
+
+local function listSequencesInRange(startNo, endNo)
+    local dp = EZ.getDP()
+    if not dp then
+        return nil, "datapool_unavailable"
+    end
+
+    if not dp.Sequences then
+        return {}, nil
+    end
+
+    local lower = tonumber(startNo)
+    local upper = tonumber(endNo)
+    if lower and upper and lower > upper then
+        lower, upper = upper, lower
+    end
+
+    local ok, children = pcall(function() return dp.Sequences:Children() end)
+    if not ok or not children then
+        return nil, "sequence_enumeration_failed"
+    end
+
+    local result = {}
+    for _, sequence in ipairs(children) do
+        local no = tonumber(sequence and sequence.no)
+        if no and (not lower or no >= lower) and (not upper or no <= upper) then
+            table.insert(result, {
+                no = no,
+                name = sequence.name or "",
+                cue_count = countSequenceCues(sequence)
+            })
+        end
+    end
+
+    table.sort(result, function(a, b) return (a.no or 0) < (b.no or 0) end)
+    return result, nil
+end
+
+local function resolveCurrentSongSequenceRange()
+    local okVars, globalVars = pcall(GlobalVars)
+    if not okVars or not globalVars then
+        return nil, "global_vars_unavailable"
+    end
+
+    local okSong, songLabel = pcall(function() return GetVar(globalVars, "song") end)
+    if not okSong then
+        return nil, "song_global_lookup_failed"
+    end
+
+    songLabel = trimString(songLabel)
+    if songLabel == "" then
+        return nil, "song_global_missing"
+    end
+
+    local sequences, listErr = listSequencesInRange()
+    if not sequences then
+        return nil, listErr
+    end
+
+    for _, sequence in ipairs(sequences) do
+        if trimString(sequence.name) == songLabel then
+            return {
+                song_label = songLabel,
+                start = sequence.no,
+                ["end"] = sequence.no + CURRENT_SONG_SEQUENCE_RANGE_SIZE
+            }, nil
+        end
+    end
+
+    return nil, "song_anchor_sequence_not_found"
+end
+
+local function findAvailableSequenceNo(startNo, endNo)
+    local dp = EZ.getDP()
+    if not dp then
+        return nil, "datapool_unavailable"
+    end
+
+    local lower = math.max(1, tonumber(startNo) or 1)
+    local upper = tonumber(endNo) or 9999
+    if lower > upper then
+        lower, upper = upper, lower
+    end
+
+    for seqNo = lower, upper do
+        if not getSequenceHandle(seqNo) then
+            return seqNo, nil
+        end
+    end
+
+    if endNo then
+        return nil, "no_free_sequence_in_range"
+    end
+
+    return nil, "no_available_sequence_numbers"
+end
+
+local function createSequenceAtNumber(seqNo, preferredName, mode)
+    local numericSeqNo = tonumber(seqNo)
+    if not numericSeqNo then
+        return buildSequenceError("error", "invalid_sequence_number", {no = seqNo, mode = mode})
+    end
+
+    if getSequenceHandle(numericSeqNo) then
+        return buildSequenceError("error", "sequence_already_exists", {no = numericSeqNo, mode = mode})
+    end
+
+    local cmdStr = string.format("Store Sequence %d", numericSeqNo)
+    local name = trimString(preferredName)
+    if name ~= "" then
+        cmdStr = cmdStr .. string.format(' /name="%s"', escapeCmdString(name))
+    end
+    cmdStr = cmdStr .. " /nc"
+
+    local ok, result = EZ.RunCommand(cmdStr, "feedback")
+    if not ok then
+        return buildSequenceError("error", "sequence_create_command_failed", {
+            no = numericSeqNo,
+            name = name,
+            mode = mode,
+            detail = result
+        })
+    end
+
+    local sequence = getSequenceHandle(numericSeqNo)
+    if not sequence then
+        return buildSequenceError("error", "sequence_create_verification_failed", {
+            no = numericSeqNo,
+            name = name,
+            mode = mode,
+            detail = result
+        })
+    end
+
+    local payload = {
+        no = numericSeqNo,
+        name = sequence.name or name,
+        mode = mode
+    }
+    EZ.sendMessage("sequence", "created", payload)
+    return payload
+end
+
+local function ensureTimeRange(track)
+    local timeRange, ordinal = findChildByClass(track, "TimeRange", 1)
+    local created = false
+
+    if not timeRange then
+        local okAcquire = pcall(function() track:Acquire("TimeRange") end)
+        if not okAcquire then
+            return nil, nil, "time_range_create_failed"
+        end
+        timeRange, ordinal = findChildByClass(track, "TimeRange", 1)
+        created = timeRange ~= nil
+    end
+
+    if not timeRange then
+        return nil, nil, "time_range_create_failed"
+    end
+
+    return timeRange, ordinal, nil, created
+end
+
+local function ensureCmdSubTrack(timeRange)
+    local cmdSubTrack = findChildByClass(timeRange, "CmdSubTrack", 1)
+    local created = false
+
+    if not cmdSubTrack then
+        local okAcquire = pcall(function() timeRange:Acquire("CmdSubTrack") end)
+        if not okAcquire then
+            pcall(function() timeRange:Append("CmdSubTrack") end)
+        end
+        cmdSubTrack = findChildByClass(timeRange, "CmdSubTrack", 1)
+        created = cmdSubTrack ~= nil
+    end
+
+    if not cmdSubTrack then
+        return nil, "cmd_subtrack_create_failed"
+    end
+
+    return cmdSubTrack, nil, created
+end
+
+local function prepareTrackForEventsInternal(tcNo, tgNo, trackNo, emitReply)
+    local track = getTrackHandle(tcNo, tgNo, trackNo)
+    if not track then
+        return buildTrackError(tcNo, tgNo, trackNo, "track_not_found", nil, emitReply)
+    end
+
+    local seqNo = getAssignedSequenceNo(track)
+    if not seqNo then
+        return buildTrackError(tcNo, tgNo, trackNo, "no_sequence_assigned", nil, emitReply)
+    end
+
+    local timeRange, timeRangeIdx, timeRangeErr, timeRangeCreated = ensureTimeRange(track)
+    if not timeRange then
+        return buildTrackError(tcNo, tgNo, trackNo, timeRangeErr or "time_range_create_failed", {seq = seqNo}, emitReply)
+    end
+
+    local cmdSubTrack, cmdErr, cmdCreated = ensureCmdSubTrack(timeRange)
+    if not cmdSubTrack then
+        return buildTrackError(tcNo, tgNo, trackNo, cmdErr or "cmd_subtrack_create_failed", {
+            seq = seqNo,
+            time_range_idx = timeRangeIdx
+        }, emitReply)
+    end
+
+    local payload = {
+        tc = tcNo,
+        tg = tgNo,
+        track = trackNo,
+        seq = seqNo,
+        time_range_idx = timeRangeIdx,
+        cmd_subtrack_ready = cmdSubTrack ~= nil
+    }
+    if timeRangeCreated then
+        payload.time_range_created = true
+    end
+    if cmdCreated then
+        payload.cmd_subtrack_created = true
+    end
+
+    if emitReply ~= false then
+        EZ.sendMessage("track", "prepared", payload)
+    end
+    return true, payload
+end
+
+-- PUBLIC API: SEQUENCE MANAGEMENT
+function EZ.GetSequences(startNo, endNo)
+    EZ.log(string.format("GetSequences(%s, %s) called", tostring(startNo), tostring(endNo)))
+
+    local result, err = listSequencesInRange(startNo, endNo)
+    if not result then
+        EZ.sendMessage("sequences", "error", {error = err})
+        return nil
+    end
+
+    EZ.sendMessage("sequences", "list", {
+        count = #result,
+        sequences = result
+    })
+    return result
+end
+
+function EZ.GetCurrentSongSequenceRange()
+    EZ.log("GetCurrentSongSequenceRange() called")
+
+    local payload, err = resolveCurrentSongSequenceRange()
+    if not payload then
+        return buildSequenceRangeError(err)
+    end
+
+    EZ.sendMessage("sequence_range", "current_song", payload)
+    return payload
+end
+
+function EZ.CreateSequenceNextAvailable(name)
+    EZ.log(string.format("CreateSequenceNextAvailable('%s') called", tostring(name or "")))
+
+    local seqNo, err = findAvailableSequenceNo(1)
+    if not seqNo then
+        return buildSequenceError("error", err, {mode = "next_available"})
+    end
+
+    return createSequenceAtNumber(seqNo, name, "next_available")
+end
+
+function EZ.CreateSequenceInCurrentSongRange(name)
+    EZ.log(string.format("CreateSequenceInCurrentSongRange('%s') called", tostring(name or "")))
+
+    local range, rangeErr = resolveCurrentSongSequenceRange()
+    if not range then
+        return buildSequenceRangeError(rangeErr)
+    end
+
+    local seqNo, err = findAvailableSequenceNo(range.start, range["end"])
+    if not seqNo then
+        return buildSequenceError("error", err, {
+            mode = "current_song_range",
+            song_label = range.song_label,
+            start = range.start,
+            ["end"] = range["end"]
+        })
+    end
+
+    return createSequenceAtNumber(seqNo, name, "current_song_range")
+end
+
 -- Add event to a track
 function EZ.AddEvent(tcNo, tgNo, trackNo, time, cmd)
     local one_second_internally = 16777216
-    local ma3TrackNo = (trackNo or 0) + 1
+    local track, ma3TrackNo = getTrackHandle(tcNo, tgNo, trackNo)
     
     -- Step 1: Get the track
-    local track = DataPool().Timecodes[tcNo][tgNo][ma3TrackNo]
     if not track then
         EZ.log(string.format("FATAL: AddEvent - Track not found at %d.%d.%d (MA3 index %d)", tcNo, tgNo, trackNo, ma3TrackNo))
         EZ.sendMessage("event", "error", {tc = tcNo, tg = tgNo, track = trackNo, error = "Track not found"})
         return false
     end
+
+    local ready, prepPayload = prepareTrackForEventsInternal(tcNo, tgNo, trackNo, false)
+    if not ready then
+        EZ.log(string.format("FATAL: AddEvent - Track prep failed for %d.%d.%d (%s)", tcNo, tgNo, trackNo, tostring(prepPayload and prepPayload.error or "unknown")))
+        EZ.sendMessage("event", "error", {
+            tc = tcNo,
+            tg = tgNo,
+            track = trackNo,
+            error = prepPayload and prepPayload.error or "track_prepare_failed"
+        })
+        return false
+    end
+
     -- Step 2: Check if time range exists
     local time_range = EZ.GetFirstTimeRange(track)
     if not time_range then
-        EZ.log(string.format("FATAL: AddEvent - No TimeRange found in track %d.%d.%d", tcNo, tgNo, trackNo))
-        EZ.sendMessage("event", "error", {tc = tcNo, tg = tgNo, track = trackNo, error = "No TimeRange - CreateTrack may have failed"})
+        EZ.log(string.format("FATAL: AddEvent - No TimeRange found in track %d.%d.%d after prep", tcNo, tgNo, trackNo))
+        EZ.sendMessage("event", "error", {tc = tcNo, tg = tgNo, track = trackNo, error = "No TimeRange"})
         return false
     end
+
     -- Step 3: Check if CmdSubTrack exists
     local cmd_subtrack = EZ.GetFirstCmdSubTrack(time_range)
     if not cmd_subtrack then
-        EZ.log(string.format("FATAL: AddEvent - No CmdSubTrack found in TimeRange (track %d.%d.%d)", tcNo, tgNo, trackNo))
-        EZ.sendMessage("event", "error", {tc = tcNo, tg = tgNo, track = trackNo, error = "No CmdSubTrack - Attempting to Aquire() CmdSubTrack"})
+        EZ.log(string.format("FATAL: AddEvent - No CmdSubTrack found in TimeRange after prep (track %d.%d.%d)", tcNo, tgNo, trackNo))
+        EZ.sendMessage("event", "error", {tc = tcNo, tg = tgNo, track = trackNo, error = "No CmdSubTrack"})
         return false
     end
+
     -- Step 4: Create the event
     local time_units = math.floor((tonumber(time) or 0) * one_second_internally)
     local event = cmd_subtrack:Acquire()
@@ -515,39 +1156,60 @@ function EZ.AddEvent(tcNo, tgNo, trackNo, time, cmd)
 end
 
 function EZ.AssignTrackSequence(tcNo, tgNo, trackNo, seqNo)
-    -- Track numbers are user-visible (1-based), MA3 index includes Marker at 1
-    local ma3TrackNo = (trackNo or 0) + 1
-    local track = DataPool().Timecodes[tcNo][tgNo][ma3TrackNo]
+    local numericSeqNo = tonumber(seqNo)
+    local track = getTrackHandle(tcNo, tgNo, trackNo)
     if not track then
-        EZ.log(string.format("ERROR: Track not found"))
-        return false
+        EZ.log(string.format("AssignTrackSequence: Track %d.%d.%d not found", tcNo, tgNo, trackNo))
+        return buildTrackError(tcNo, tgNo, trackNo, "track_not_found")
     end
-    local sequence = DataPool().Sequences[seqNo]
+
+    if not numericSeqNo then
+        return buildTrackError(tcNo, tgNo, trackNo, "invalid_sequence_number", {seq = seqNo})
+    end
+
+    local sequence = getSequenceHandle(numericSeqNo)
     if not sequence then
-        EZ.log(string.format("ERROR: Sequence not found"))
-        return false
+        EZ.log(string.format("AssignTrackSequence: Sequence %s not found", tostring(seqNo)))
+        return buildTrackError(tcNo, tgNo, trackNo, "sequence_not_found", {seq = numericSeqNo})
     end
-    EZ.log("AssignTrackSequence: seq found: " .. sequence.name)
-    track:Set('Target', sequence)
-    if tostring(track.target) == "Sequence " .. tostring(sequence.no) then
-        EZ.log(string.format("Assigned sequence %d to track %d", seqNo, trackNo))
-        EZ.sendMessage("track", "assigned", {
-            tc = tcNo, tg = tgNo, track = trackNo, seq = seqNo
+
+    local currentSeqNo = getAssignedSequenceNo(track)
+    if currentSeqNo == numericSeqNo then
+        local existingPayload = {tc = tcNo, tg = tgNo, track = trackNo, seq = numericSeqNo, changed = false}
+        EZ.sendMessage("track", "assigned", existingPayload)
+        return true, existingPayload
+    end
+
+    local okSet, err = pcall(function() track:Set("Target", sequence) end)
+    if not okSet then
+        return buildTrackError(tcNo, tgNo, trackNo, "sequence_assignment_failed", {
+            seq = numericSeqNo,
+            detail = tostring(err)
         })
-        return true
     end
-    EZ.log(string.format("ERROR: Failed to assign track %d to sequence %d", trackNo, seqNo))
-    EZ.sendMessage("track", "error", {
-        tc = tcNo, tg = tgNo, track = trackNo, error = "Failed to assign track to sequence"
-    })
-    return false
+
+    local assignedSeqNo = getAssignedSequenceNo(track)
+    if assignedSeqNo ~= numericSeqNo then
+        return buildTrackError(tcNo, tgNo, trackNo, "sequence_assignment_verification_failed", {
+            seq = numericSeqNo,
+            assigned_seq = assignedSeqNo
+        })
+    end
+
+    local payload = {tc = tcNo, tg = tgNo, track = trackNo, seq = numericSeqNo, changed = true}
+    EZ.sendMessage("track", "assigned", payload)
+    EZ.log(string.format("Assigned sequence %d to track %d.%d.%d", numericSeqNo, tcNo, tgNo, trackNo))
+    return true, payload
 end
 
 function EZ.CreateTimeRange(tcNo, tgNo, trackNo)
     -- Creates a new TimeRange in the track
-    local ma3TrackNo = trackNo + 1
-    local track = DataPool().Timecodes[tcNo][tgNo][ma3TrackNo]
-    local time_range = track:Acquire("TimeRange")
+    local track = getTrackHandle(tcNo, tgNo, trackNo)
+    if not track then
+        EZ.log(string.format("FATAL: CreateTimeRange - Track %d.%d.%d not found", tcNo, tgNo, trackNo))
+        return false
+    end
+    local time_range = select(1, ensureTimeRange(track))
     if not time_range then
         EZ.log(string.format("FATAL: CreateTimeRange - Failed to Acquire TimeRange in track %d.%d.%d", tcNo, tgNo, trackNo))
         return false
@@ -578,21 +1240,26 @@ function EZ.DeleteCmdSubTrack(tcNo, tgNo, trackNo, time_range_idx, cmd_subtrack_
 end
 
 function EZ.CreateCmdSubTrack(tcNo, tgNo, trackNo, time_range_idx)
-    -- Creates a new CmdSubTrack in the TimeRange using Acquire(), note it appears that this doesnt usually work without a sequence being assigned already
-    local ma3TrackNo = trackNo + 1
-    local track = DataPool().Timecodes[tcNo][tgNo][ma3TrackNo]
-    local time_ranges = track:Children()
-    local time_range = time_ranges[time_range_idx]
-    local expectedChildClass = EZ.GetExpectedChildClass(time_range)
-    EZ.log("Expected child class: " .. expectedChildClass)
-    EZ.log("Trying CreateCmdSubTrack Method 1")
-    time_range:Append('CmdSubTrack')
-    if #time_range:Children() > 0 then
-        EZ.log("CmdSubTrack created successfully")
-        return true
-    end 
-    EZ.log("CmdSubTrack could not be created, ensure sequence is assigned")
-    return false
+    local track = getTrackHandle(tcNo, tgNo, trackNo)
+    if not track then
+        EZ.log(string.format("CreateCmdSubTrack: Track %d.%d.%d not found", tcNo, tgNo, trackNo))
+        return false
+    end
+
+    local time_range = findChildByClass(track, "TimeRange", time_range_idx or 1)
+    if not time_range then
+        EZ.log(string.format("CreateCmdSubTrack: TimeRange %s not found in track %d.%d.%d", tostring(time_range_idx or 1), tcNo, tgNo, trackNo))
+        return false
+    end
+
+    local cmd_subtrack, err = ensureCmdSubTrack(time_range)
+    if not cmd_subtrack then
+        EZ.log(string.format("CreateCmdSubTrack: %s for track %d.%d.%d", tostring(err), tcNo, tgNo, trackNo))
+        return false
+    end
+
+    EZ.log(string.format("CreateCmdSubTrack: CmdSubTrack ready in track %d.%d.%d", tcNo, tgNo, trackNo))
+    return true
 end
 
 function EZ.GetExpectedChildClass(parent)
@@ -632,8 +1299,7 @@ end
 
 -- Verify track is ready for events (has sequence and TimeRange/CmdSubTrack)
 function EZ.VerifyTrackReady(tcNo, tgNo, trackNo)
-    local ma3TrackNo = (trackNo or 0) + 1
-    local track = DataPool().Timecodes[tcNo][tgNo][ma3TrackNo]
+    local track = getTrackHandle(tcNo, tgNo, trackNo)
     
     if not track then
         EZ.log(string.format("VerifyTrackReady: FAIL - Track %d.%d.%d not found", tcNo, tgNo, trackNo))
@@ -685,6 +1351,11 @@ function EZ.VerifyTrackReady(tcNo, tgNo, trackNo)
     
     EZ.log(string.format("VerifyTrackReady: OK - Track %d.%d.%d is ready for events", tcNo, tgNo, trackNo))
     return true, "Ready"
+end
+
+function EZ.PrepareTrackForEvents(tcNo, tgNo, trackNo)
+    EZ.log(string.format("PrepareTrackForEvents(%d, %d, %d) called", tcNo, tgNo, trackNo))
+    return prepareTrackForEventsInternal(tcNo, tgNo, trackNo, true)
 end
 
 -- PUBLIC API: TRACK NAME CHECKING

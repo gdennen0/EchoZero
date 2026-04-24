@@ -452,6 +452,40 @@ class TestAddSongVersion:
         assert len(versions) == 2
         session.close()
 
+    def test_new_version_carries_forward_ma3_timecode_pool(self, tmp_path: Path) -> None:
+        from dataclasses import replace
+
+        session = _create_session(tmp_path)
+        audio1 = _create_audio_file(tmp_path, "v1.wav")
+        audio2 = _create_audio_file(tmp_path, "v2.wav")
+
+        song, v1 = session.import_song(
+            "Test SongRecord", audio1, scan_fn=_mock_scan, default_templates=[]
+        )
+        session.song_versions.update(replace(v1, ma3_timecode_pool_no=113))
+        session.commit()
+
+        v2 = session.add_song_version(song.id, audio2, scan_fn=_mock_scan)
+
+        assert v2.ma3_timecode_pool_no == 113
+        session.close()
+
+    def test_import_song_assigns_next_unused_ma3_timecode_pool(self, tmp_path: Path) -> None:
+        session = _create_session(tmp_path)
+        audio1 = _create_audio_file(tmp_path, "song_a.wav")
+        audio2 = _create_audio_file(tmp_path, "song_b.wav")
+
+        _song_a, version_a = session.import_song(
+            "Song A", audio1, scan_fn=_mock_scan, default_templates=[]
+        )
+        _song_b, version_b = session.import_song(
+            "Song B", audio2, scan_fn=_mock_scan, default_templates=[]
+        )
+
+        assert version_a.ma3_timecode_pool_no == 1
+        assert version_b.ma3_timecode_pool_no == 2
+        session.close()
+
     def test_nonexistent_song_raises(self, tmp_path: Path) -> None:
         session = _create_session(tmp_path)
         audio = _create_audio_file(tmp_path)

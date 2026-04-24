@@ -22,7 +22,6 @@ from echozero.testing.analysis_mocks import (
     write_test_wav,
 )
 from echozero.testing.app_flow import AppFlowHarness
-from echozero.ui.qt.timeline.manual_pull import ManualPullTimelineSelectionResult
 from echozero.ui.qt.timeline.runtime_audio import TimelineRuntimeAudioController
 
 _TEST_TEMP_ROOT = Path("C:/Users/griff/.codex/memories/test_app_flow_harness")
@@ -135,6 +134,40 @@ def test_app_flow_harness_dispatch_and_launcher_actions():
         shutil.rmtree(temp_root, ignore_errors=True)
 
 
+def test_app_flow_harness_exposes_launcher_menus():
+    temp_root = _repo_local_temp_root()
+    harness = AppFlowHarness(working_dir_root=temp_root / "working-menus")
+
+    try:
+        menu_bar = harness.widget._launcher_menu_bar
+        assert menu_bar.isHidden() is False
+        assert [action.text() for action in menu_bar.actions()] == ["&File", "&Edit"]
+
+        file_menu = menu_bar.actions()[0].menu()
+        edit_menu = menu_bar.actions()[1].menu()
+
+        assert file_menu is not None
+        assert [
+            action.text()
+            for action in file_menu.actions()
+            if action.isSeparator() is False
+        ] == [
+            "&New Project",
+            "&Open Project",
+            "&Save Project",
+            "Save Project &As...",
+        ]
+        assert edit_menu is not None
+        assert [
+            action.text()
+            for action in edit_menu.actions()
+            if action.isSeparator() is False
+        ] == ["&Undo", "&Redo"]
+    finally:
+        harness.shutdown()
+        shutil.rmtree(temp_root, ignore_errors=True)
+
+
 def test_app_flow_harness_sync_with_simulated_ma3_connects_bridge():
     temp_root = _repo_local_temp_root()
     harness = AppFlowHarness(simulate_ma3=True, working_dir_root=temp_root / "working-sync")
@@ -162,6 +195,7 @@ def test_app_flow_harness_sync_push_transfer_updates_simulated_ma3_snapshot(monk
     harness = AppFlowHarness(simulate_ma3=True, working_dir_root=temp_root / "working-sync-push")
 
     try:
+        harness.enable_sync()
         presentation = harness.runtime.add_layer(LayerKind.EVENT, "Push Layer")
         harness.widget.set_presentation(presentation)
         harness._app.processEvents()
@@ -175,36 +209,34 @@ def test_app_flow_harness_sync_push_transfer_updates_simulated_ma3_snapshot(monk
             )
         )
 
-        harness.widget._trigger_contract_action(
-            _layer_contract_action(harness, layer_id, "push_to_ma3")
-        )
+        def _choose_ma3_push_option(_parent, _title, prompt, items, *_args):
+            if prompt == "Saved MA3 track":
+                return (next(item for item in items if "(tc1_tg2_tr4)" in item), True)
+            if "has no assigned MA3 sequence" in prompt:
+                return ("Create next available sequence", True)
+            if prompt == "Apply mode":
+                return ("Merge", True)
+            raise AssertionError(f"Unexpected MA3 push prompt: {prompt}")
+
         monkeypatch.setattr(
             "echozero.ui.qt.timeline.widget.QInputDialog.getItem",
-            lambda *args, **kwargs: ("Track 4 (tc1_tg2_tr4) - Lead [1 existing]", True),
-        )
-        monkeypatch.setattr(
-            "echozero.ui.qt.timeline.widget.QMessageBox.information",
-            lambda *args, **kwargs: None,
-        )
-
-        harness.widget._trigger_contract_action(
-            _layer_contract_action(harness, layer_id, "select_push_target_track")
+            _choose_ma3_push_option,
         )
         harness.widget._trigger_contract_action(
-            _layer_contract_action(harness, layer_id, "transfer.plan_apply")
+            _layer_contract_action(harness, layer_id, "send_layer_to_ma3")
         )
 
         assert harness.ma3_bridge is not None
         remote_events = harness.ma3_bridge.list_track_events("tc1_tg2_tr4")
         assert [event.label for event in remote_events] == ["Event", "Cue 9"]
-        assert harness.presentation().batch_transfer_plan is not None
-        assert harness.presentation().batch_transfer_plan.rows[0].status == "applied"
+        layer = next(layer for layer in harness.presentation().layers if layer.layer_id == layer_id)
+        assert layer.sync_target_label == "tc1_tg2_tr4"
     finally:
         harness.shutdown()
         shutil.rmtree(temp_root, ignore_errors=True)
 
 
-def test_app_flow_harness_sync_pull_transfer_imports_remote_events(monkeypatch):
+def test_app_flow_harness_layer_contract_hides_pull_actions_from_ui_surface():
     temp_root = _repo_local_temp_root()
     harness = AppFlowHarness(simulate_ma3=True, working_dir_root=temp_root / "working-sync-pull")
 
@@ -221,46 +253,21 @@ def test_app_flow_harness_sync_pull_transfer_imports_remote_events(monkeypatch):
                 time_range=TimeRange(0.25, 0.5),
             )
         )
-        harness.widget._trigger_contract_action(
-            _layer_contract_action(harness, layer_id, "pull_from_ma3")
+        contract = build_timeline_inspector_contract(
+            harness.widget.presentation,
+            hit_target=TimelineInspectorHitTarget(kind="layer", layer_id=layer_id),
         )
-        monkeypatch.setattr(
-            "echozero.ui.qt.timeline.widget.QInputDialog.getItem",
-            lambda *args, **kwargs: ("Track 3 (tc1_tg2_tr3) - Bass [2 events]", True),
-        )
-        monkeypatch.setattr(
-            "echozero.ui.qt.timeline.widget.QMessageBox.information",
-            lambda *args, **kwargs: None,
-        )
-        harness.widget._open_manual_pull_timeline_popup = (
-            lambda _flow: ManualPullTimelineSelectionResult(
-                selected_event_ids=["ma3_evt_1", "ma3_evt_2"],
-                target_layer_id=layer_id,
-                import_mode="new_take",
-            )
-        )
+        action_ids = {
+            action.action_id for section in contract.context_sections for action in section.actions
+        }
 
-        harness.widget._trigger_contract_action(
-            _layer_contract_action(harness, layer_id, "select_pull_source_tracks")
-        )
-        harness.widget._trigger_contract_action(
-            _layer_contract_action(harness, layer_id, "select_pull_source_events")
-        )
-        harness.widget._trigger_contract_action(
-            _layer_contract_action(harness, layer_id, "transfer.plan_apply")
-        )
-
-        target_layer = next(
-            layer for layer in harness.runtime._app.timeline.layers if layer.id == layer_id
-        )
-        imported_take = next(
-            take for take in target_layer.takes if str(take.id) != f"{layer_id}:main"
-        )
-        assert [event.label for event in imported_take.events] == ["Cue 1", "Cue 2"]
-        assert harness.presentation().selected_layer_id == layer_id
-        assert len(harness.presentation().selected_event_ids) == 2
-        assert harness.presentation().batch_transfer_plan is not None
-        assert harness.presentation().batch_transfer_plan.rows[0].status == "applied"
+        assert "route_layer_to_ma3_track" in action_ids
+        assert "send_layer_to_ma3" in action_ids
+        assert "send_selected_events_to_ma3" in action_ids
+        assert "send_to_different_track_once" in action_ids
+        assert "pull_from_ma3" not in action_ids
+        assert "select_pull_source_tracks" not in action_ids
+        assert "transfer.plan_apply" not in action_ids
     finally:
         harness.shutdown()
         shutil.rmtree(temp_root, ignore_errors=True)
@@ -271,14 +278,14 @@ def test_app_flow_harness_osc_loopback_helpers():
     harness = AppFlowHarness(simulate_ma3_osc=True, working_dir_root=temp_root / "working-osc")
 
     try:
-        harness.send_ma3_osc("/ma3/exec", 7, "flash")
-        capture = harness.wait_for_ma3_osc("/ma3/exec", timeout=1.0)
+        harness.send_ma3_osc("/cmd", 7, "flash")
+        capture = harness.wait_for_ma3_osc("/cmd", timeout=1.0)
 
         assert harness.ma3_osc_loopback is not None
         assert harness.ma3_osc_loopback.is_running is True
         assert capture is not None
         assert capture.args == (7, "flash")
-        assert [message.path for message in harness.ma3_osc_messages()] == ["/ma3/exec"]
+        assert [message.path for message in harness.ma3_osc_messages()] == ["/cmd"]
 
         harness.clear_ma3_osc()
         assert harness.ma3_osc_messages() == []

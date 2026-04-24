@@ -1,3 +1,8 @@
+"""Foundry CNN trainer runtime.
+Exists to train and evaluate the canonical CNN model from prepared dataset features.
+Connects Foundry training runs and artifact output to the CNN runtime model stack.
+"""
+
 from __future__ import annotations
 
 import copy

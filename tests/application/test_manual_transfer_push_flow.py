@@ -144,8 +144,14 @@ class _PushTrackListingSyncService(_SyncService):
         super().__init__()
         self._tracks = tracks
 
-    def list_push_track_options(self):
-        return list(self._tracks)
+    def list_push_track_options(self, *, timecode_no: int | None = None):
+        if timecode_no is None:
+            return list(self._tracks)
+        return [
+            track
+            for track in self._tracks
+            if track.coord.startswith(f"tc{int(timecode_no)}_")
+        ]
 
 
 class _AvailableTracksSyncService(_SyncService):
@@ -166,6 +172,7 @@ def _build_orchestrator(sync_service: SyncService | None = None):
     session = Session(
         id=SessionId("session_manual_push_flow"),
         project_id=ProjectId("project_manual_push_flow"),
+        active_song_version_ma3_timecode_pool_no=1,
         active_timeline_id=TimelineId("timeline_manual_push_flow"),
     )
     timeline = Timeline(
@@ -269,6 +276,14 @@ def test_open_push_intent_hydrates_available_tracks_from_sync_service_provider()
         ),
         ManualPushTrackOption(coord="tc1_tg1_tr2", name="Track 2"),
     ]
+    assert [(timecode.number, timecode.name) for timecode in session.manual_push_flow.available_timecodes] == [
+        (1, None)
+    ]
+    assert session.manual_push_flow.selected_timecode_no == 1
+    assert [(group.number, group.track_count) for group in session.manual_push_flow.available_track_groups] == [
+        (1, 2)
+    ]
+    assert session.manual_push_flow.selected_track_group_no == 1
 
 
 def test_open_push_intent_builds_rows_grouped_by_selected_source_layer():

@@ -1,3 +1,8 @@
+"""Foundry JSON repositories for datasets, runs, and reports.
+Exists to persist and load Foundry domain records from the local state directory.
+Connects Foundry application state and domain models to on-disk JSON storage.
+"""
+
 from __future__ import annotations
 
 import json

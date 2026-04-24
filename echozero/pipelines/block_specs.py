@@ -116,6 +116,7 @@ def Classify(**settings: Any) -> BlockSpec:
         name="Classify",
         input_ports=(
             PortSpec("events_in", PortType.EVENT, Direction.INPUT),
+            PortSpec("audio_in", PortType.AUDIO, Direction.INPUT),
         ),
         output_ports=(
             PortSpec("events_out", PortType.EVENT, Direction.OUTPUT),

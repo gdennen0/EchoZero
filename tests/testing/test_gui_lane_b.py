@@ -48,7 +48,7 @@ def test_lane_b_runner_executes_starter_scenario_and_writes_trace():
         enable_step = next(step for step in trace if step["action"] == "sync.enable")
         disable_step = next(step for step in trace if step["action"] == "sync.disable")
         classify_step = next(
-            step for step in trace if step["action"] == "timeline.classify_drum_events"
+            step for step in trace if step["action"] == "timeline.extract_classified_drums"
         )
 
         assert push_step["snapshot"]["push_mode_active"] is True
@@ -77,7 +77,7 @@ def test_lane_b_runner_executes_starter_scenario_and_writes_trace():
         assert disable_step["snapshot"]["sync_mode"] == "none"
         assert any(layer["title"] == "Drums" for layer in classify_step["snapshot"]["layers"])
         assert any(
-            layer["title"] == "Drum_Classified_Events"
+            layer["title"] == "Kick"
             for layer in classify_step["snapshot"]["layers"]
         )
 

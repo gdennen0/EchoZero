@@ -8,14 +8,19 @@ Used by ExecutionEngine when running blocks of type 'PyTorchAudioClassify'.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Callable
+from typing import Callable
 
 from echozero.domain.types import AudioData, Event, EventData, Layer
 from echozero.errors import ExecutionError, ValidationError
 from echozero.execution import ExecutionContext
-from echozero.inference_eval.runtime_preflight import resolve_runtime_model_path, run_runtime_preflight
 from echozero.progress import ProgressReport
 from echozero.result import Result, err, ok
+from echozero.runtime_models.loader import (
+    build_feature_tensor,
+    load_runtime_model,
+    predict_probabilities_batch,
+    resolve_device,
+)
 
 # Classifier function signature for DI
 ClassifyFn = Callable[
@@ -37,159 +42,78 @@ def _default_classify(
     device: str,
     batch_size: int,
 ) -> list[Event]:
-    """
-    Load a PyTorch model and classify events.
-    Requires torch installed. Model is expected to be a simple classifier
-    that takes an event time and optional audio context.
-    """
+    """Load a runtime model and classify events from onset-aligned audio windows."""
     try:
-        import torch
+        import librosa
         import numpy as np
+        import soundfile as sf
     except ImportError:
         raise ExecutionError(
-            "PyTorch is required for classification. Install with: pip install torch"
+            "PyTorch classification requires librosa and soundfile."
         )
 
-    # Load model
-    model_path = resolve_runtime_model_path(model_path)
-    if not model_path.exists():
-        raise ExecutionError(f"Model file not found: {model_path}")
+    if not audio_file:
+        raise ValidationError("PyTorchAudioClassify requires an audio file path.")
+    if batch_size <= 0:
+        raise ValidationError("batch_size must be a positive integer.")
 
-    if not str(model_path).endswith(".pth"):
-        raise ValidationError(f"Resolved model file must be .pth format, got {model_path}")
+    resolved_device = resolve_device(device)
+    runtime_model = load_runtime_model(model_path, device=resolved_device)
 
-    try:
-        # Load model state and config — weights_only=True prevents arbitrary code execution
-        # via malicious pickle payloads embedded in .pth files.
-        checkpoint = torch.load(model_path, map_location=device, weights_only=True)
-    except Exception as exc:
-        raise ExecutionError(
-            f"Failed to load model from {model_path}. "
-            f"Only SafeTensors/weights-only checkpoints are supported for security. "
-            f"Error: {exc}"
+    audio, file_sample_rate = sf.read(audio_file, dtype="float32", always_2d=False)
+    if audio.ndim > 1:
+        audio = audio.mean(axis=1)
+    if file_sample_rate != runtime_model.sample_rate:
+        audio = librosa.resample(
+            audio,
+            orig_sr=file_sample_rate,
+            target_sr=runtime_model.sample_rate,
         )
+    audio = audio.astype(np.float32)
 
-    if not isinstance(checkpoint, dict):
-        raise ExecutionError(f"Unexpected checkpoint format from {model_path}")
-
-    run_runtime_preflight(model_path, checkpoint)
-
-    try:
-        # Try to extract model and config from checkpoint
-        if "model_state_dict" in checkpoint:
-            model_state = checkpoint["model_state_dict"]
-            config = checkpoint.get("config", {})
-        else:
-            model_state = checkpoint
-            config = {}
-
-        # Build a simple model (the caller should provide one that matches their architecture)
-        # For now, we'll just load the state and assume a simple sequential or custom model
-        # In production, you'd define model_class in config and instantiate it
-        model_class_name = config.get("model_class", "SimpleClassifier")
-        num_classes = config.get("num_classes", 10)
-
-        # Create a minimal model that can be instantiated without the original class def
-        # For testing/demo, we use a mock that always returns a random class
-        model = _create_model_from_config(config, device)
-        if model_state:
-            model.load_state_dict(model_state)
-
-        model.eval()
-        model.to(device)
-    except Exception as exc:
-        raise ExecutionError(f"Failed to initialize model from {model_path}: {exc}")
-
-    # Classify each event
     classified_events: list[Event] = []
-    for event in events:
-        # For each event, the model gets the event time as input
-        # In a real scenario, you'd extract audio features around that time
-        try:
-            # Simple dummy classification: predict based on time
-            # In production, you'd extract mel-spectrogram or other features from audio
-            predicted_class = _predict_event_class(
-                event,
-                audio_file,
-                model,
-                config,
-                device,
-            )
+    for start_index in range(0, len(events), batch_size):
+        batch_events = events[start_index : start_index + batch_size]
+        batch_features = np.concatenate(
+            [
+                build_feature_tensor(
+                    audio=audio,
+                    event_time=float(event.time),
+                    sample_rate=runtime_model.sample_rate,
+                    max_length=runtime_model.max_length,
+                    n_fft=runtime_model.n_fft,
+                    hop_length=runtime_model.hop_length,
+                    n_mels=runtime_model.n_mels,
+                    fmax=runtime_model.fmax,
+                )
+                for event in batch_events
+            ],
+            axis=0,
+        )
+        probabilities = predict_probabilities_batch(runtime_model, batch_features)
 
-            # Update event with classification
-            classified_event = Event(
-                id=event.id,
-                time=event.time,
-                duration=event.duration,
-                classifications={
-                    "class": predicted_class,
-                    "confidence": 0.95,  # Dummy confidence
-                },
-                metadata={**event.metadata, "classified": True},
-                origin=event.origin,
+        for event, probability_row in zip(batch_events, probabilities, strict=False):
+            predicted_index = int(np.argmax(probability_row))
+            predicted_class = runtime_model.classes[predicted_index]
+            confidence = float(probability_row[predicted_index])
+            classified_events.append(
+                Event(
+                    id=event.id,
+                    time=event.time,
+                    duration=event.duration,
+                    classifications={
+                        "class": predicted_class,
+                        "confidence": round(confidence, 4),
+                    },
+                    metadata={
+                        **event.metadata,
+                        "classified": True,
+                        "source_model": Path(runtime_model.source_path).name,
+                    },
+                    origin=event.origin,
+                )
             )
-            classified_events.append(classified_event)
-        except Exception as exc:
-            # If classification fails for one event, still include it unclassified
-            classified_events.append(event)
-
     return classified_events
-
-
-def _create_model_from_config(
-    config: dict[str, Any],
-    device: str,
-) -> Any:
-    """Create a minimal model that can be loaded from config."""
-    try:
-        import torch
-        import torch.nn as nn
-    except ImportError:
-        raise ExecutionError("PyTorch is required")
-
-    num_classes = config.get("num_classes", 10)
-    input_size = config.get("input_size", 128)
-
-    # Create a simple feedforward model as fallback
-    class SimpleClassifier(nn.Module):
-        def __init__(self, input_size: int, num_classes: int) -> None:
-            super().__init__()
-            self.fc1 = nn.Linear(input_size, 64)
-            self.fc2 = nn.Linear(64, 32)
-            self.fc3 = nn.Linear(32, num_classes)
-            self.relu = nn.ReLU()
-
-        def forward(self, x: Any) -> Any:
-            x = self.relu(self.fc1(x))
-            x = self.relu(self.fc2(x))
-            return self.fc3(x)
-
-    return SimpleClassifier(input_size, num_classes)
-
-
-def _predict_event_class(
-    event: Event,
-    audio_file: str | None,
-    model: Any,
-    config: dict[str, Any],
-    device: str,
-) -> str:
-    """Predict the class for a single event."""
-    try:
-        import torch
-        import numpy as np
-    except ImportError:
-        return "unknown"
-
-    # For demo/testing: use a simple rule based on event time or metadata
-    # In production: extract mel-spectrogram around event.time from audio_file
-    time = event.time
-    if time < 1.0:
-        return "kick"
-    elif time < 3.0:
-        return "snare"
-    else:
-        return "hihat"
 
 
 class PyTorchAudioClassifyProcessor:

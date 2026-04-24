@@ -11,6 +11,7 @@ from echozero.application.playback.models import PlaybackState
 from echozero.application.playback.service import PlaybackService
 from echozero.application.session.models import Session
 from echozero.application.session.service import SessionService
+from echozero.application.settings import AudioOutputRuntimeConfig
 from echozero.application.shared.enums import PlaybackStatus, SyncMode
 from echozero.application.shared.ids import ProjectId, SessionId
 from echozero.application.sync.adapters import InMemorySyncService, MA3SyncAdapter, MA3SyncBridge
@@ -23,6 +24,7 @@ from echozero.application.timeline.assembler import TimelineAssembler
 from echozero.application.timeline.models import Layer
 from echozero.application.timeline.orchestrator import TimelineOrchestrator
 from echozero.application.timeline.queries import TimelineQueries
+from echozero.audio.engine import AudioEngine
 from echozero.persistence.session import ProjectStorage
 from echozero.ui.qt.app_shell_project_timeline import (
     apply_timeline_presentation_overlay,
@@ -144,24 +146,59 @@ class RuntimePlaybackService(PlaybackService):
         return self._session.playback_state
 
 
+def build_runtime_audio_controller(
+    audio_output_config: AudioOutputRuntimeConfig | None = None,
+) -> TimelineRuntimeAudioController:
+    """Build the canonical runtime-audio controller for one optional audio output config."""
+
+    if audio_output_config is None:
+        return TimelineRuntimeAudioController()
+
+    def _engine_factory() -> AudioEngine:
+        return AudioEngine(
+            sample_rate=audio_output_config.sample_rate,
+            channels=audio_output_config.channels,
+            stream_latency=audio_output_config.stream_latency,
+            stream_blocksize=audio_output_config.stream_blocksize,
+            prime_output_buffers_using_stream_callback=(
+                audio_output_config.prime_output_buffers_using_stream_callback
+            ),
+            output_device=audio_output_config.output_device,
+        )
+
+    return TimelineRuntimeAudioController(
+        engine_factory=_engine_factory,
+        preview_engine_factory=_engine_factory,
+    )
+
+
 def build_runtime_timeline_application(
     *,
     project_storage: ProjectStorage,
     sync_bridge: MA3SyncBridge | None,
     sync_service: SyncService | None,
     runtime_audio=None,
+    audio_output_config: AudioOutputRuntimeConfig | None = None,
 ) -> TimelineApplication:
     """Build the in-memory timeline application for the app shell runtime."""
     if runtime_audio is None:
-        runtime_audio = TimelineRuntimeAudioController()
+        runtime_audio = build_runtime_audio_controller(audio_output_config)
     timeline, overlay, active_song_id, active_song_version_id = build_project_native_baseline_timeline(
         project_storage
+    )
+    active_version = (
+        project_storage.song_versions.get(str(active_song_version_id))
+        if active_song_version_id is not None
+        else None
     )
     session = Session(
         id=SessionId(f"session_{project_storage.project.id}"),
         project_id=ProjectId(project_storage.project.id),
         active_song_id=active_song_id,
         active_song_version_id=active_song_version_id,
+        active_song_version_ma3_timecode_pool_no=(
+            active_version.ma3_timecode_pool_no if active_version is not None else None
+        ),
         active_timeline_id=timeline.id,
         transport_state=TransportState(
             is_playing=False,

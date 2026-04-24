@@ -6,9 +6,29 @@ from echozero.application.session.models import (
     Session,
 )
 from echozero.application.shared.enums import LayerKind
-from echozero.application.shared.ids import EventId, LayerId, ProjectId, SessionId, SongId, SongVersionId, TakeId, TimelineId
+from echozero.application.shared.ids import (
+    EventId,
+    LayerId,
+    ProjectId,
+    RegionId,
+    SessionId,
+    SongId,
+    SongVersionId,
+    TakeId,
+    TimelineId,
+)
 from echozero.application.timeline.assembler import TimelineAssembler
-from echozero.application.timeline.models import Event, Layer, LayerProvenance, LayerStatus, Take, Timeline
+from echozero.application.timeline.models import (
+    Event,
+    EventRef,
+    Layer,
+    LayerProvenance,
+    LayerStatus,
+    Take,
+    Timeline,
+    TimelineRegion,
+)
+from echozero.application.timeline.pipeline_run_service import PipelineRunState
 
 
 def _event(event_id: str, take_id: str, start: float) -> Event:
@@ -19,6 +39,73 @@ def _event(event_id: str, take_id: str, start: float) -> Event:
         end=start + 0.2,
         label=event_id,
     )
+
+
+def test_assembler_filters_pipeline_banner_to_active_song_version():
+    main_take = Take(
+        id=TakeId("take_main"),
+        layer_id=LayerId("layer_1"),
+        name="Main",
+        events=[_event("main_a", "take_main", 1.0)],
+    )
+    layer = Layer(
+        id=LayerId("layer_1"),
+        timeline_id=TimelineId("timeline_1"),
+        name="Kick",
+        kind=LayerKind.EVENT,
+        order_index=0,
+        takes=[main_take],
+    )
+    timeline = Timeline(
+        id=TimelineId("timeline_1"),
+        song_version_id=SongVersionId("version_1"),
+        layers=[layer],
+    )
+    session = Session(
+        id=SessionId("session_1"),
+        project_id=ProjectId("project_1"),
+        active_song_id=SongId("song_1"),
+        active_song_version_id=SongVersionId("version_1"),
+        active_timeline_id=timeline.id,
+        pipeline_runs={
+            "run_version_1": PipelineRunState(
+                run_id="run_version_1",
+                action_id="timeline.extract_stems",
+                workflow_id="layer.audio.extract_stems",
+                display_label="Extract Stems",
+                object_id="source_audio",
+                object_type="layer",
+                source_layer_id="source_audio",
+                song_id="song_1",
+                song_version_id="version_1",
+                status="running",
+                message="Executing pipeline",
+                percent=0.2,
+                started_at=10.0,
+            ),
+            "run_version_2": PipelineRunState(
+                run_id="run_version_2",
+                action_id="timeline.extract_stems",
+                workflow_id="layer.audio.extract_stems",
+                display_label="Extract Stems",
+                object_id="source_audio",
+                object_type="layer",
+                source_layer_id="source_audio",
+                song_id="song_1",
+                song_version_id="version_2",
+                status="running",
+                message="Executing pipeline",
+                percent=0.6,
+                started_at=20.0,
+            ),
+        },
+    )
+
+    assembled = TimelineAssembler().assemble(timeline, session)
+
+    assert assembled.pipeline_run_banner is not None
+    assert assembled.pipeline_run_banner.run_id == "run_version_1"
+    assert assembled.pipeline_run_banner.percent == 0.2
 
 
 def test_assembler_uses_main_take_as_truth_even_when_alt_take_selected():
@@ -142,6 +229,68 @@ def test_assembler_preserves_independent_selection_and_playback_target_fields():
     assert assembled.layers[1].is_playback_active is True
 
 
+def test_assembler_projects_regions_in_sorted_order_with_selection_state():
+    main_take = Take(
+        id=TakeId("take_main"),
+        layer_id=LayerId("layer_1"),
+        name="Main",
+        events=[_event("main_a", "take_main", 1.0)],
+    )
+    layer = Layer(
+        id=LayerId("layer_1"),
+        timeline_id=TimelineId("timeline_1"),
+        name="Kick",
+        kind=LayerKind.EVENT,
+        order_index=0,
+        takes=[main_take],
+    )
+    timeline = Timeline(
+        id=TimelineId("timeline_1"),
+        song_version_id=SongVersionId("version_1"),
+        layers=[layer],
+        regions=[
+            TimelineRegion(
+                id=RegionId("region_b"),
+                start=4.0,
+                end=5.0,
+                label="Chorus",
+                color="#aaccee",
+                order_index=1,
+                kind="song",
+            ),
+            TimelineRegion(
+                id=RegionId("region_a"),
+                start=1.0,
+                end=2.0,
+                label="Verse",
+                order_index=0,
+                kind="structure",
+            ),
+        ],
+    )
+    timeline.selection.selected_region_id = RegionId("region_b")
+
+    session = Session(
+        id=SessionId("session_1"),
+        project_id=ProjectId("project_1"),
+        active_song_id=SongId("song_1"),
+        active_song_version_id=SongVersionId("version_1"),
+        active_timeline_id=timeline.id,
+    )
+
+    assembled = TimelineAssembler().assemble(timeline, session)
+
+    assert [region.region_id for region in assembled.regions] == [
+        RegionId("region_a"),
+        RegionId("region_b"),
+    ]
+    assert assembled.selected_region_id == RegionId("region_b")
+    assert assembled.regions[0].is_selected is False
+    assert assembled.regions[1].is_selected is True
+    assert assembled.regions[1].color == "#aaccee"
+    assert assembled.regions[0].kind == "structure"
+
+
 def test_assembler_marks_take_lane_selection_and_playback_target_independently():
     main_take = Take(
         id=TakeId("take_main"),
@@ -199,6 +348,59 @@ def test_assembler_marks_take_lane_selection_and_playback_target_independently()
     assert selected_lane.is_playback_active is False
     assert active_lane.is_selected is False
     assert active_lane.is_playback_active is True
+
+
+def test_assembler_adds_selection_to_main_action_when_take_has_selected_events():
+    main_take = Take(
+        id=TakeId("take_main"),
+        layer_id=LayerId("layer_1"),
+        name="Main",
+        events=[_event("main_a", "take_main", 1.0)],
+    )
+    alt_take = Take(
+        id=TakeId("take_alt"),
+        layer_id=LayerId("layer_1"),
+        name="Alt",
+        events=[_event("alt_a", "take_alt", 2.0)],
+    )
+    layer = Layer(
+        id=LayerId("layer_1"),
+        timeline_id=TimelineId("timeline_1"),
+        name="Kick",
+        kind=LayerKind.EVENT,
+        order_index=0,
+        takes=[main_take, alt_take],
+    )
+    timeline = Timeline(
+        id=TimelineId("timeline_1"),
+        song_version_id=SongVersionId("version_1"),
+        layers=[layer],
+    )
+    timeline.selection.selected_layer_id = layer.id
+    timeline.selection.selected_layer_ids = [layer.id]
+    timeline.selection.selected_take_id = alt_take.id
+    timeline.selection.selected_event_refs = [
+        EventRef(layer_id=layer.id, take_id=alt_take.id, event_id=alt_take.events[0].id)
+    ]
+    timeline.selection.selected_event_ids = [alt_take.events[0].id]
+
+    session = Session(
+        id=SessionId("session_1"),
+        project_id=ProjectId("project_1"),
+        active_song_id=SongId("song_1"),
+        active_song_version_id=SongVersionId("version_1"),
+        active_timeline_id=timeline.id,
+    )
+
+    assembled = TimelineAssembler().assemble(timeline, session)
+    take_lane = assembled.layers[0].takes[0]
+
+    assert {action.action_id for action in take_lane.actions} >= {
+        "add_selection_to_main",
+        "overwrite_main",
+        "merge_main",
+        "delete_take",
+    }
 
 
 def test_assembler_maps_application_backed_status_and_provenance_to_presentation():
@@ -325,8 +527,8 @@ def test_assembler_maps_sync_target_and_batch_transfer_plan_to_presentation():
             source_track_coord="tc1_tg2_tr5",
             selected_ma3_event_ids=["ma3_evt_1"],
             selected_ma3_event_ids_by_track={"tc1_tg2_tr5": ["ma3_evt_1"]},
-            import_mode="main",
-            import_mode_by_source_track={"tc1_tg2_tr5": "main"},
+            import_mode="new_take",
+            import_mode_by_source_track={"tc1_tg2_tr5": "new_take"},
             target_layer_id_by_source_track={"tc1_tg2_tr5": LayerId("layer_1")},
         ),
         batch_transfer_plan=BatchTransferPlanState(
@@ -351,7 +553,7 @@ def test_assembler_maps_sync_target_and_batch_transfer_plan_to_presentation():
                     target_label="Snare",
                     source_track_coord="tc1_tg2_tr5",
                     target_layer_id=LayerId("layer_1"),
-                    import_mode="main",
+                    import_mode="new_take",
                     selected_ma3_event_ids=["ma3_evt_1"],
                     selected_count=1,
                     status="blocked",
@@ -383,7 +585,7 @@ def test_assembler_maps_sync_target_and_batch_transfer_plan_to_presentation():
     assert assembled.batch_transfer_plan.rows[0].selected_count == 2
     assert assembled.batch_transfer_plan.rows[1].source_track_coord == "tc1_tg2_tr5"
     assert assembled.batch_transfer_plan.rows[1].target_layer_id == LayerId("layer_1")
-    assert assembled.batch_transfer_plan.rows[1].import_mode == "main"
+    assert assembled.batch_transfer_plan.rows[1].import_mode == "new_take"
     assert assembled.batch_transfer_plan.rows[1].selected_ma3_event_ids == ["ma3_evt_1"]
     assert assembled.batch_transfer_plan.rows[1].issue == "Target layer required"
 

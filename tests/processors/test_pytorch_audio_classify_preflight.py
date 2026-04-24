@@ -2,23 +2,24 @@ from __future__ import annotations
 
 import json
 import shutil
-import sys
-import types
+import wave
 from pathlib import Path
 from uuid import uuid4
 
 import pytest
+import numpy as np
 
 from echozero.domain.enums import BlockCategory, Direction, PortType
 from echozero.domain.graph import Graph
-from echozero.domain.types import Block, BlockSettings, Connection, Event, EventData, Layer, Port
+from echozero.domain.types import AudioData, Block, BlockSettings, Connection, Event, EventData, Layer, Port
 from echozero.errors import ValidationError
 from echozero.execution import ExecutionContext
 from echozero.inference_eval.runtime_preflight import checkpoint_contract_fingerprint, run_runtime_preflight
-from echozero.processors import pytorch_audio_classify as classify_module
 from echozero.processors.pytorch_audio_classify import PyTorchAudioClassifyProcessor, _default_classify
 from echozero.progress import RuntimeBus
 from echozero.result import Err
+from echozero.runtime_models import loader as runtime_loader
+from echozero.runtime_models.architectures import SimpleCnnRuntimeModel
 
 
 _TEST_TMP_ROOT = Path(__file__).resolve().parents[2] / ".processor-test-tmp"
@@ -43,7 +44,15 @@ def _event_out() -> Port:
     return Port(name="events_out", port_type=PortType.EVENT, direction=Direction.OUTPUT)
 
 
-def _make_graph(model_path: str) -> Graph:
+def _audio_in() -> Port:
+    return Port(name="audio_in", port_type=PortType.AUDIO, direction=Direction.INPUT)
+
+
+def _audio_out() -> Port:
+    return Port(name="audio_out", port_type=PortType.AUDIO, direction=Direction.OUTPUT)
+
+
+def _make_graph(model_path: str, *, include_audio: bool = False) -> Graph:
     graph = Graph()
     onset_block = Block(
         id="onset1",
@@ -58,12 +67,23 @@ def _make_graph(model_path: str) -> Graph:
         name="PyTorch Audio Classify",
         block_type="PyTorchAudioClassify",
         category=BlockCategory.PROCESSOR,
-        input_ports=(_event_in(),),
+        input_ports=(_event_in(), _audio_in()),
         output_ports=(_event_out(),),
         settings=BlockSettings({"model_path": model_path}),
     )
     graph.add_block(onset_block)
     graph.add_block(classify_block)
+    if include_audio:
+        graph.add_block(
+            Block(
+                id="load1",
+                name="Load Audio",
+                block_type="LoadAudio",
+                category=BlockCategory.PROCESSOR,
+                input_ports=(),
+                output_ports=(_audio_out(),),
+            )
+        )
     graph.add_connection(
         Connection(
             source_block_id="onset1",
@@ -72,6 +92,15 @@ def _make_graph(model_path: str) -> Graph:
             target_input_name="events_in",
         )
     )
+    if include_audio:
+        graph.add_connection(
+            Connection(
+                source_block_id="load1",
+                source_output_name="audio_out",
+                target_block_id="classify1",
+                target_input_name="audio_in",
+            )
+        )
     return graph
 
 
@@ -143,10 +172,51 @@ def _write_manifest(directory: Path, payload: dict[str, object]) -> Path:
     return path
 
 
-def _install_fake_torch(monkeypatch: pytest.MonkeyPatch, checkpoint: dict[str, object]) -> None:
-    fake_torch = types.ModuleType("torch")
-    fake_torch.load = lambda *args, **kwargs: checkpoint
-    monkeypatch.setitem(sys.modules, "torch", fake_torch)
+def _write_wav(path: Path, *, seconds: float = 0.25, sample_rate: int = 22050) -> Path:
+    frames = max(1, int(round(seconds * sample_rate)))
+    timeline = np.linspace(0.0, seconds, frames, endpoint=False)
+    samples = (0.3 * np.sin(2.0 * np.pi * 220.0 * timeline) * 32767.0).astype(np.int16)
+    with wave.open(str(path), "wb") as handle:
+        handle.setnchannels(1)
+        handle.setsampwidth(2)
+        handle.setframerate(sample_rate)
+        handle.writeframes(samples.tobytes())
+    return path
+
+
+def _write_runtime_model(local_tmp_path: Path) -> Path:
+    try:
+        import torch
+    except ImportError:
+        pytest.skip("torch not installed")
+
+    model_path = local_tmp_path / "model.pth"
+    classes = ["kick", "snare"]
+    model = SimpleCnnRuntimeModel(num_classes=len(classes))
+    state_dict = model.state_dict()
+    for tensor in state_dict.values():
+        tensor.zero_()
+    state_dict["classifier.3.bias"] = torch.tensor([0.1, 1.5], dtype=torch.float32)
+    checkpoint = {
+        "model_state_dict": state_dict,
+        "classes": classes,
+        "classification_mode": "multiclass",
+        "preprocessing": {
+            "sampleRate": 22050,
+            "maxLength": 22050,
+            "nFft": 2048,
+            "hopLength": 512,
+            "nMels": 128,
+            "fmax": 8000,
+        },
+        "trainer": "cnn_melspec_v1",
+    }
+    torch.save(checkpoint, model_path)
+    _write_manifest(
+        local_tmp_path,
+        _manifest(model_path.name, fingerprint=checkpoint_contract_fingerprint(checkpoint)),
+    )
+    return model_path
 
 
 def test_runtime_preflight_rejects_missing_manifest(local_tmp_path: Path) -> None:
@@ -287,13 +357,8 @@ def test_default_classify_runs_preflight_once_per_model_load(
     local_tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    model_path = local_tmp_path / "model.pth"
-    model_path.write_bytes(b"weights")
-    checkpoint = _checkpoint()
-    _write_manifest(
-        local_tmp_path,
-        _manifest(model_path.name, fingerprint=checkpoint_contract_fingerprint(checkpoint)),
-    )
+    model_path = _write_runtime_model(local_tmp_path)
+    audio_path = _write_wav(local_tmp_path / "audio.wav")
 
     calls: list[tuple[Path, dict[str, object]]] = []
 
@@ -301,55 +366,43 @@ def test_default_classify_runs_preflight_once_per_model_load(
         assert consumer == "PyTorchAudioClassify"
         calls.append((Path(model), loaded_checkpoint))
 
-    class _FakeModel:
-        def load_state_dict(self, state: object) -> None:
-            assert state == {}
-
-        def eval(self) -> None:
-            return None
-
-        def to(self, device: str) -> "_FakeModel":
-            assert device == "cpu"
-            return self
-
-    monkeypatch.setattr(classify_module, "run_runtime_preflight", spy_preflight)
-    monkeypatch.setattr(classify_module, "_create_model_from_config", lambda config, device: _FakeModel())
-    monkeypatch.setattr(classify_module, "_predict_event_class", lambda *args, **kwargs: "kick")
-    _install_fake_torch(monkeypatch, checkpoint)
+    monkeypatch.setattr(runtime_loader, "run_runtime_preflight", spy_preflight)
 
     classified = _default_classify(
         list(_events().layers[0].events),
-        audio_file=None,
+        audio_file=str(audio_path),
         model_path=str(model_path),
         device="cpu",
-        batch_size=32,
+        batch_size=2,
     )
 
     assert len(classified) == 3
     assert len(calls) == 1
     assert calls[0][0] == model_path
-    assert calls[0][1] is checkpoint
+    assert all(event.classifications["class"] == "snare" for event in classified)
 
 
 def test_processor_returns_validation_error_when_preflight_fails(
     local_tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    model_path = local_tmp_path / "model.pth"
-    model_path.write_bytes(b"weights")
-    checkpoint = _checkpoint()
+    model_path = _write_runtime_model(local_tmp_path)
+    audio_path = _write_wav(local_tmp_path / "audio.wav")
 
     monkeypatch.setattr(
-        classify_module,
+        runtime_loader,
         "run_runtime_preflight",
         lambda *args, **kwargs: (_ for _ in ()).throw(ValidationError("bundle mismatch")),
     )
-    monkeypatch.setattr(classify_module, "_create_model_from_config", lambda config, device: object())
-    _install_fake_torch(monkeypatch, checkpoint)
 
-    graph = _make_graph(str(model_path))
+    graph = _make_graph(str(model_path), include_audio=True)
     context = _make_context(graph)
     context.set_output("onset1", "events_out", _events())
+    context.set_output(
+        "load1",
+        "audio_out",
+        AudioData(sample_rate=22050, duration=0.25, file_path=str(audio_path), channel_count=1),
+    )
 
     result = PyTorchAudioClassifyProcessor().execute("classify1", context)
 

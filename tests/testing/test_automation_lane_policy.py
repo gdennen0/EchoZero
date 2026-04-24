@@ -28,13 +28,20 @@ def test_public_echozero_provider_name_points_to_live_client():
     assert EchoZeroAutomationProvider is LiveEchoZeroAutomationProvider
 
 
-def test_canonical_runtime_sources_do_not_import_demo_app():
+def test_canonical_runtime_sources_do_not_import_timeline_support_surfaces():
     runtime_sources = [
         Path("/Users/march/Documents/GitHub/EchoZero/run_echozero.py"),
         Path("/Users/march/Documents/GitHub/EchoZero/echozero/ui/qt/launcher_surface.py"),
         Path("/Users/march/Documents/GitHub/EchoZero/echozero/ui/qt/app_shell.py"),
     ]
+    forbidden_imports = (
+        "timeline.demo_app",
+        "timeline.fixture_loader",
+        "timeline.real_data_fixture",
+        "timeline.test_harness",
+    )
 
     for source_path in runtime_sources:
         source = source_path.read_text(encoding="utf-8")
-        assert "timeline.demo_app" not in source
+        for forbidden_import in forbidden_imports:
+            assert forbidden_import not in source

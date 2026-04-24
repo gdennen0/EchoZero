@@ -159,8 +159,14 @@ class _SyncService(SyncService):
     def align_transport(self, transport: TransportState) -> TransportState:
         return transport
 
-    def list_push_track_options(self):
-        return list(self._push_tracks)
+    def list_push_track_options(self, *, timecode_no: int | None = None):
+        if timecode_no is None:
+            return list(self._push_tracks)
+        return [
+            track
+            for track in self._push_tracks
+            if track.coord.startswith(f"tc{int(timecode_no)}_")
+        ]
 
     def list_pull_track_options(self):
         return list(self._pull_tracks)
@@ -200,6 +206,7 @@ def _build_orchestrator(sync_service: SyncService):
     session = Session(
         id=SessionId("session_transfer_plan_batch"),
         project_id=ProjectId("project_transfer_plan_batch"),
+        active_song_version_ma3_timecode_pool_no=1,
         active_timeline_id=TimelineId("timeline_transfer_plan_batch"),
     )
     kick_layer = Layer(
@@ -330,7 +337,7 @@ def test_apply_transfer_plan_imports_pull_rows_and_marks_applied():
     assert session.batch_transfer_plan.blocked_count == 0
 
 
-def test_apply_transfer_plan_imports_pull_row_into_main_when_row_mode_is_main():
+def test_apply_transfer_plan_existing_layer_pull_still_creates_new_take_when_mode_is_forced():
     tracks = [ManualPullTrackOption(coord="tc1_tg2_tr3", name="Track 3")]
     events_by_track = {
         "tc1_tg2_tr3": [
@@ -357,11 +364,13 @@ def test_apply_transfer_plan_imports_pull_row_into_main_when_row_mode_is_main():
 
     orchestrator.handle(timeline, ApplyTransferPlan(plan_id=plan_id))
 
-    assert len(target_layer.takes) == 1
+    assert len(target_layer.takes) == 2
     assert [str(event.id) for event in target_layer.takes[0].events] == [
         "take_kick:ma3:tc1_tg2_tr3:ma3_evt_1:1",
-        "take_kick:ma3:tc1_tg2_tr3:ma3_evt_2:2",
-        "take_kick:ma3:tc1_tg2_tr3:ma3_evt_1:1:2",
+    ]
+    assert [str(event.id) for event in target_layer.takes[-1].events] == [
+        "layer_kick:ma3_pull:1:ma3:tc1_tg2_tr3:ma3_evt_2:2",
+        "layer_kick:ma3_pull:1:ma3:tc1_tg2_tr3:ma3_evt_1:1",
     ]
     assert session.batch_transfer_plan is not None
     assert session.batch_transfer_plan.rows[0].status == "applied"
@@ -527,8 +536,12 @@ def test_apply_transfer_plan_create_new_layer_per_source_track_creates_distinct_
     assert [layer.name for layer in created_layers] == ["Track 3", "Track 4"]
     assert len(created_layers) == 2
     assert created_layers[0].id != created_layers[1].id
-    assert [len(layer.takes) for layer in created_layers] == [2, 2]
-    assert [layer.takes[1].source_ref for layer in created_layers] == ["tc1_tg2_tr3", "tc1_tg2_tr4"]
+    assert [len(layer.takes) for layer in created_layers] == [1, 1]
+    assert [layer.takes[0].source_ref for layer in created_layers] == [None, None]
+    assert [
+        [event.payload_ref for event in layer.takes[0].events]
+        for layer in created_layers
+    ] == [["ma3_evt_1"], ["ma3_evt_2"]]
     assert session.batch_transfer_plan is not None
     assert [row.status for row in session.batch_transfer_plan.rows] == ["applied", "applied"]
     assert session.batch_transfer_plan.applied_count == 2

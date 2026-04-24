@@ -1,5 +1,8 @@
 # Agent Context
 
+Status: active canonical orientation reference
+Last verified: 2026-04-21
+
 This file is the compact knowledge base for code agents working in EchoZero 2.
 It condenses the current canonical docs plus the most useful decisions and backlog intent from the planning and audit docs that were removed during cleanup.
 
@@ -232,6 +235,36 @@ MA3 knowledge worth preserving for agents:
 - critical gotchas live in `MA3/MA3_INTEGRATION_PITFALLS.md`
 - current repo rule is still main-only sync
 - if you change sync behavior, keep the UI thin and the app-layer contract explicit
+
+## 2026-04-19 Milestone Snapshot
+
+As of main commit `2c9caba`, the following product slices are live and should be
+treated as current repo reality rather than backlog intent:
+
+- object-action / pipeline settings editing is now a real Stage Zero workflow;
+  inspector action stacks scroll, object-primary pipeline actions also surface
+  from selected audio-layer headers in the workspace, and the bounded settings
+  dialog is the canonical editor for object-stage settings
+- event layers now have a baseline editor toolset in the workspace:
+  `Select`, `Draw`, `Erase`, snap/grid modes, create/delete, drag-move,
+  marquee multi-select, and delete-key removal
+- the inspector/object palette can preview the selected event clip through the
+  runtime audio path; do not treat event-audio preview as a future-only feature
+- the EZ-side MA3 transfer stack now includes the production OSC backend in
+  `echozero/infrastructure/sync/ma3_osc.py`; `run_echozero.py` accepts OSC
+  listen / command / timecode flags and the simulator exercises the same
+  production EZ OSC path
+- MA3 pull UX still uses the `Import from MA3` timeline dialog flow:
+  source-track selection first, then event selection; do not assume the old
+  separate MA3 browser still exists
+- proof for this milestone ran through focused timeline/UI tests plus
+  `appflow`, `appflow-sync`, `appflow-osc`, `appflow-protocol`, and
+  `appflow-all`; real MA3 hardware validation remains a separate release/signoff
+  requirement
+- likely next cleanup after this milestone is UI-system polish: bring the new
+  mode bar, settings dialog, inspector sections, and workspace action affordances
+  fully back under the shared token/surface hierarchy so new features do not
+  drift visually
 
 ## Current Likely Remaining Work
 

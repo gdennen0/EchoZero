@@ -40,9 +40,19 @@ EXTRACT_STEMS_DESCRIPTOR = ActionDescriptor(
     pipeline_template_id="stem_separation",
     binding_resolver_id="extract_stems",
 )
+EXTRACT_SONG_DRUM_EVENTS_DESCRIPTOR = ActionDescriptor(
+    action_id="timeline.extract_song_drum_events",
+    label="Extract Drum Events",
+    object_types=("layer",),
+    groups=("object_action", "tools"),
+    params_schema={"layer_id": "required"},
+    workflow_id="layer.audio.extract_song_drum_events",
+    pipeline_template_id="extract_song_drum_events",
+    binding_resolver_id="extract_song_drum_events",
+)
 EXTRACT_DRUM_EVENTS_DESCRIPTOR = ActionDescriptor(
     action_id="timeline.extract_drum_events",
-    label="Extract Drum Events",
+    label="Extract Onsets",
     object_types=("layer",),
     groups=("object_action", "tools"),
     params_schema={"layer_id": "required"},
@@ -78,6 +88,7 @@ _DESCRIPTORS_BY_ID: dict[str, ActionDescriptor] = {
     for descriptor in (
         SONG_ADD_DESCRIPTOR,
         EXTRACT_STEMS_DESCRIPTOR,
+        EXTRACT_SONG_DRUM_EVENTS_DESCRIPTOR,
         EXTRACT_DRUM_EVENTS_DESCRIPTOR,
         CLASSIFY_DRUM_EVENTS_DESCRIPTOR,
         EXTRACT_CLASSIFIED_DRUMS_DESCRIPTOR,
@@ -117,16 +128,22 @@ def object_action_descriptors() -> tuple[ActionDescriptor, ...]:
     return tuple(descriptor for descriptor in action_descriptors() if "object_action" in descriptor.groups)
 
 
-def pipeline_actions_for_audio_layer(*, is_stem_capable: bool, is_drum_capable: bool) -> tuple[ActionDescriptor, ...]:
+def pipeline_actions_for_audio_layer(
+    *,
+    is_stem_capable: bool,
+    is_drum_capable: bool,
+    is_song_drum_capable: bool = False,
+) -> tuple[ActionDescriptor, ...]:
     descriptors: list[ActionDescriptor] = []
     if is_stem_capable:
         descriptors.append(EXTRACT_STEMS_DESCRIPTOR)
+    if is_song_drum_capable:
+        descriptors.append(EXTRACT_SONG_DRUM_EVENTS_DESCRIPTOR)
     if is_drum_capable:
         descriptors.extend(
             (
                 EXTRACT_CLASSIFIED_DRUMS_DESCRIPTOR,
                 EXTRACT_DRUM_EVENTS_DESCRIPTOR,
-                CLASSIFY_DRUM_EVENTS_DESCRIPTOR,
             )
         )
     return tuple(descriptors)

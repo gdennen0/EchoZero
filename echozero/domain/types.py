@@ -44,6 +44,8 @@ class Event:
     classifications: dict[str, Any]
     metadata: dict[str, Any]
     origin: str
+    source_event_id: str | None = None
+    parent_event_id: str | None = None
 
     def __post_init__(self) -> None:
         if self.time < 0:
