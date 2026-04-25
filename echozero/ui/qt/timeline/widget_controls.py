@@ -9,7 +9,15 @@ from collections.abc import Callable
 from typing import cast
 
 from PyQt6.QtCore import QRectF, Qt, pyqtSignal
-from PyQt6.QtGui import QColor, QMouseEvent, QPainter, QPaintEvent, QPen
+from PyQt6.QtGui import (
+    QColor,
+    QMouseEvent,
+    QPaintEvent,
+    QPainter,
+    QPen,
+    QResizeEvent,
+    QShowEvent,
+)
 from PyQt6.QtWidgets import (
     QButtonGroup,
     QHBoxLayout,
@@ -19,7 +27,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from echozero.application.presentation.models import TimelinePresentation
+from echozero.application.presentation.models import RegionPresentation, TimelinePresentation
 from echozero.application.timeline.intents import Pause, Play, Stop, TimelineIntent
 from echozero.ui.FEEL import (
     LAYER_HEADER_WIDTH_PX,
@@ -46,15 +54,36 @@ class TimelineEditorModeBar(QWidget):
     """Compact editor-mode strip for timeline tools and shell actions."""
 
     edit_mode_changed = pyqtSignal(str)
+    fix_action_changed = pyqtSignal(str)
     snap_toggled = pyqtSignal(bool)
     grid_mode_changed = pyqtSignal(str)
     settings_requested = pyqtSignal()
+    pipeline_settings_requested = pyqtSignal()
     regions_requested = pyqtSignal()
+    _COMPACT_WIDTH_THRESHOLD_PX = 1400
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setObjectName("timelineEditorModeBar")
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self._compact_mode = False
+        self._toolbar_labels: list[QLabel] = []
+        self._mode_labels_full: dict[str, str] = {
+            "select": "↖ Select",
+            "move": "↔ Move",
+            "draw": "+ Draw",
+            "fix": "🩹 Fix",
+            "region": "R Region",
+            "erase": "- Erase",
+        }
+        self._mode_labels_compact: dict[str, str] = {
+            "select": "↖",
+            "move": "↔",
+            "draw": "+",
+            "fix": "🩹",
+            "region": "R",
+            "erase": "-",
+        }
         layout = QHBoxLayout(self)
         layout.setContentsMargins(
             TIMELINE_EDITOR_BAR_PADDING_X_PX,
@@ -68,6 +97,9 @@ class TimelineEditorModeBar(QWidget):
         self._button_group = QButtonGroup(self)
         self._button_group.setExclusive(True)
         self._mode_buttons: dict[str, QPushButton] = {}
+        self._fix_action_group = QButtonGroup(self)
+        self._fix_action_group.setExclusive(True)
+        self._fix_action_buttons: dict[str, QPushButton] = {}
         mode_group = QWidget(self)
         mode_group.setObjectName("timelineEditorModeGroup")
         mode_group.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Fixed)
@@ -75,17 +107,21 @@ class TimelineEditorModeBar(QWidget):
         mode_label = QLabel("Edit", mode_group)
         mode_label.setProperty("timelineToolbarLabel", True)
         mode_label.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+        self._toolbar_labels.append(mode_label)
         mode_layout.addWidget(mode_label, 0, Qt.AlignmentFlag.AlignVCenter)
-        for mode, label in (
-            ("select", "Select"),
-            ("move", "Move"),
-            ("draw", "Draw"),
-            ("region", "Region"),
-            ("erase", "Erase"),
-        ):
-            button = QPushButton(label, mode_group)
+        mode_tooltips = {
+            "select": "Select mode",
+            "move": "Move selected events",
+            "draw": "Draw new events",
+            "fix": "Fix assistant mode",
+            "region": "Edit timeline regions",
+            "erase": "Erase selected events",
+        }
+        for mode in ("select", "move", "draw", "erase", "fix", "region"):
+            button = QPushButton(self._mode_labels_full[mode], mode_group)
             button.setProperty("timelineModeButton", True)
             button.setCheckable(True)
+            button.setToolTip(mode_tooltips[mode])
             button.clicked.connect(
                 lambda _checked=False, mode_name=mode: self.edit_mode_changed.emit(mode_name)
             )
@@ -101,18 +137,67 @@ class TimelineEditorModeBar(QWidget):
         assist_label = QLabel("Guides", assist_group)
         assist_label.setProperty("timelineToolbarLabel", True)
         assist_label.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+        self._toolbar_labels.append(assist_label)
         assist_layout.addWidget(assist_label, 0, Qt.AlignmentFlag.AlignVCenter)
 
-        self._snap_button = QPushButton("Snap", assist_group)
+        self._snap_button = QPushButton("⌁ Snap", assist_group)
         self._snap_button.setObjectName("timelineEditorSnapButton")
         self._snap_button.setCheckable(True)
+        self._snap_button.setToolTip("Toggle snap to timeline grid")
         self._snap_button.clicked.connect(lambda checked: self.snap_toggled.emit(bool(checked)))
         assist_layout.addWidget(self._snap_button, 0, Qt.AlignmentFlag.AlignVCenter)
 
-        self._grid_button = QPushButton("Grid: Auto", assist_group)
+        self._grid_button = QPushButton("▦ Grid: Auto", assist_group)
         self._grid_button.setObjectName("timelineEditorGridButton")
+        self._grid_button.setToolTip("Cycle grid mode")
         self._grid_button.clicked.connect(self._cycle_grid_mode)
         assist_layout.addWidget(self._grid_button, 0, Qt.AlignmentFlag.AlignVCenter)
+
+        self._fix_remove_button = QPushButton("−", assist_group)
+        self._fix_remove_button.setObjectName("timelineEditorFixRemoveButton")
+        self._fix_remove_button.setCheckable(True)
+        self._fix_remove_button.setToolTip("Fix mode tool: remove false event (shortcut: Z)")
+        self._fix_remove_button.clicked.connect(
+            lambda _checked=False: self.fix_action_changed.emit("remove")
+        )
+        assist_layout.addWidget(self._fix_remove_button, 0, Qt.AlignmentFlag.AlignVCenter)
+        self._fix_action_group.addButton(self._fix_remove_button)
+        self._fix_action_buttons["remove"] = self._fix_remove_button
+
+        self._fix_select_button = QPushButton("◉", assist_group)
+        self._fix_select_button.setObjectName("timelineEditorFixSelectButton")
+        self._fix_select_button.setCheckable(True)
+        self._fix_select_button.setToolTip(
+            "Fix mode tool: normal click/select + preview (shortcut: Shift+X)"
+        )
+        self._fix_select_button.clicked.connect(
+            lambda _checked=False: self.fix_action_changed.emit("select")
+        )
+        assist_layout.addWidget(self._fix_select_button, 0, Qt.AlignmentFlag.AlignVCenter)
+        self._fix_action_group.addButton(self._fix_select_button)
+        self._fix_action_buttons["select"] = self._fix_select_button
+
+        self._fix_promote_button = QPushButton("+", assist_group)
+        self._fix_promote_button.setObjectName("timelineEditorFixPromoteButton")
+        self._fix_promote_button.setCheckable(True)
+        self._fix_promote_button.setToolTip(
+            "Fix mode tool: promote missing event (shortcut: X)"
+        )
+        self._fix_promote_button.clicked.connect(
+            lambda _checked=False: self.fix_action_changed.emit("promote")
+        )
+        assist_layout.addWidget(self._fix_promote_button, 0, Qt.AlignmentFlag.AlignVCenter)
+        self._fix_action_group.addButton(self._fix_promote_button)
+        self._fix_action_buttons["promote"] = self._fix_promote_button
+
+        self._fix_promote_button.setEnabled(False)
+        self._fix_remove_button.setEnabled(False)
+        self._fix_select_button.setEnabled(False)
+        self._fix_select_button.setChecked(True)
+        self._fix_promote_button.setVisible(False)
+        self._fix_remove_button.setVisible(False)
+        self._fix_select_button.setVisible(False)
+
         layout.addWidget(assist_group, 0, Qt.AlignmentFlag.AlignVCenter)
         layout.addStretch(1)
 
@@ -123,24 +208,40 @@ class TimelineEditorModeBar(QWidget):
         shell_label = QLabel("Shell", shell_group)
         shell_label.setProperty("timelineToolbarLabel", True)
         shell_label.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+        self._toolbar_labels.append(shell_label)
         shell_layout.addWidget(shell_label, 0, Qt.AlignmentFlag.AlignVCenter)
-        self._settings_button = QPushButton("Settings", shell_group)
+        self._settings_button = QPushButton("⚙ Settings", shell_group)
         self._settings_button.setObjectName("timelineEditorSettingsButton")
+        self._settings_button.setToolTip("Open application preferences")
         self._settings_button.clicked.connect(self.settings_requested.emit)
         shell_layout.addWidget(self._settings_button, 0, Qt.AlignmentFlag.AlignVCenter)
-        self._regions_button = QPushButton("Regions", shell_group)
+        self._pipeline_settings_button = QPushButton("Pipeline", shell_group)
+        self._pipeline_settings_button.setObjectName("timelineEditorPipelineSettingsButton")
+        self._pipeline_settings_button.setToolTip("Open reusable pipeline stage settings")
+        self._pipeline_settings_button.clicked.connect(self.pipeline_settings_requested.emit)
+        shell_layout.addWidget(
+            self._pipeline_settings_button,
+            0,
+            Qt.AlignmentFlag.AlignVCenter,
+        )
+        self._regions_button = QPushButton("▤ Regions", shell_group)
         self._regions_button.setObjectName("timelineEditorRegionsButton")
+        self._regions_button.setToolTip("Open timeline regions manager")
         self._regions_button.clicked.connect(self.regions_requested.emit)
         shell_layout.addWidget(self._regions_button, 0, Qt.AlignmentFlag.AlignVCenter)
         layout.addWidget(shell_group, 0, Qt.AlignmentFlag.AlignVCenter)
 
         self._grid_modes: tuple[TimelineGridMode, ...] = (TimelineGridMode.AUTO,)
         self._grid_mode = TimelineGridMode.AUTO
+        self._set_shell_button_labels(compact=False)
+        self._set_mode_button_labels(compact=False)
+        self._apply_button_width_hints(compact=False)
 
     def set_state(
         self,
         *,
         edit_mode: str,
+        fix_action: str = "select",
         snap_enabled: bool,
         grid_mode: str,
         beat_available: bool,
@@ -158,10 +259,19 @@ class TimelineEditorModeBar(QWidget):
             button.blockSignals(True)
             button.setChecked(mode_name == edit_mode)
             button.blockSignals(False)
+        resolved_fix_action = self._normalize_fix_action(fix_action)
+        fix_action_enabled = edit_mode == "fix"
+        for action_name, button in self._fix_action_buttons.items():
+            button.blockSignals(True)
+            button.setEnabled(fix_action_enabled)
+            button.setChecked(action_name == resolved_fix_action)
+            button.setVisible(fix_action_enabled)
+            button.blockSignals(False)
         self._snap_button.blockSignals(True)
         self._snap_button.setChecked(bool(snap_enabled))
         self._snap_button.blockSignals(False)
-        self._grid_button.setText(f"Grid: {self._grid_mode.value.title()}")
+        self._sync_grid_button_text()
+        self._sync_grid_button_tooltip()
 
     def _cycle_grid_mode(self) -> None:
         if not self._grid_modes:
@@ -172,8 +282,110 @@ class TimelineEditorModeBar(QWidget):
             current_index = 0
         next_mode = self._grid_modes[(current_index + 1) % len(self._grid_modes)]
         self._grid_mode = next_mode
-        self._grid_button.setText(f"Grid: {next_mode.value.title()}")
+        self._sync_grid_button_text()
+        self._sync_grid_button_tooltip()
         self.grid_mode_changed.emit(next_mode.value)
+
+    def resizeEvent(self, event: QResizeEvent | None) -> None:
+        super().resizeEvent(event)
+        should_compact = self._should_compact()
+        self._set_compact_mode(should_compact)
+
+    def showEvent(self, event: QShowEvent | None) -> None:
+        super().showEvent(event)
+        self._set_compact_mode(self._should_compact())
+
+    def _set_compact_mode(self, enabled: bool) -> None:
+        if self._compact_mode == enabled:
+            return
+        self._compact_mode = enabled
+        self.setProperty("compact", enabled)
+        for label in self._toolbar_labels:
+            label.setVisible(not enabled)
+        self._set_mode_button_labels(compact=enabled)
+        self._set_shell_button_labels(compact=enabled)
+        self._apply_button_width_hints(compact=enabled)
+        self._sync_grid_button_text()
+        self._sync_grid_button_tooltip()
+        self._repolish_toolbar_widgets()
+        self.updateGeometry()
+        self.update()
+
+    def _should_compact(self) -> bool:
+        if not self.isVisible():
+            return False
+        host_width = (
+            self.parentWidget().width() if self.parentWidget() is not None else self.width()
+        )
+        return host_width < self._COMPACT_WIDTH_THRESHOLD_PX
+
+    def _set_mode_button_labels(self, *, compact: bool) -> None:
+        labels = self._mode_labels_compact if compact else self._mode_labels_full
+        for mode, button in self._mode_buttons.items():
+            button.setText(labels.get(mode, self._mode_labels_full.get(mode, mode.title())))
+
+    def _set_shell_button_labels(self, *, compact: bool) -> None:
+        if compact:
+            self._settings_button.setText("⚙")
+            self._pipeline_settings_button.setText("P")
+            self._regions_button.setText("▤")
+            return
+        self._settings_button.setText("⚙ Settings")
+        self._pipeline_settings_button.setText("Pipeline")
+        self._regions_button.setText("▤ Regions")
+
+    def _apply_button_width_hints(self, *, compact: bool) -> None:
+        mode_width = 32 if compact else 78
+        snap_width = 34 if compact else 78
+        grid_width = 44 if compact else 102
+        shell_width = 34 if compact else 104
+        fix_small_width = 22 if compact else 30
+        fix_select_width = 28 if compact else 36
+
+        for button in self._mode_buttons.values():
+            button.setMinimumWidth(mode_width)
+        self._snap_button.setMinimumWidth(snap_width)
+        self._grid_button.setMinimumWidth(grid_width)
+        self._settings_button.setMinimumWidth(shell_width)
+        self._pipeline_settings_button.setMinimumWidth(shell_width)
+        self._regions_button.setMinimumWidth(shell_width)
+        self._fix_remove_button.setMinimumWidth(fix_small_width)
+        self._fix_promote_button.setMinimumWidth(fix_small_width)
+        self._fix_select_button.setMinimumWidth(fix_select_width)
+
+    def _repolish_toolbar_widgets(self) -> None:
+        widgets: tuple[QWidget, ...] = (
+            self,
+            self._snap_button,
+            self._grid_button,
+            self._settings_button,
+            self._pipeline_settings_button,
+            self._regions_button,
+            self._fix_remove_button,
+            self._fix_select_button,
+            self._fix_promote_button,
+            *tuple(self._mode_buttons.values()),
+        )
+        for widget in widgets:
+            style = widget.style()
+            if style is None:
+                continue
+            style.unpolish(widget)
+            style.polish(widget)
+            widget.update()
+
+    def _sync_grid_button_text(self) -> None:
+        mode_label = self._grid_mode.value.title()
+        if self._compact_mode:
+            compact_label = {"Auto": "A", "Beat": "B", "Off": "O"}.get(mode_label, mode_label)
+            self._grid_button.setText(f"▦{compact_label}")
+            return
+        self._grid_button.setText(f"▦ Grid: {mode_label}")
+
+    def _sync_grid_button_tooltip(self) -> None:
+        self._grid_button.setToolTip(
+            f"Cycle grid mode (current: {self._grid_mode.value.title()})"
+        )
 
     def _create_group_layout(self, parent: QWidget) -> QHBoxLayout:
         layout = QHBoxLayout(parent)
@@ -186,6 +398,13 @@ class TimelineEditorModeBar(QWidget):
         layout.setSpacing(TIMELINE_EDITOR_GROUP_SPACING_PX)
         layout.setAlignment(Qt.AlignmentFlag.AlignVCenter)
         return layout
+
+    @staticmethod
+    def _normalize_fix_action(action: str) -> str:
+        normalized = str(action or "select").strip().lower()
+        if normalized in {"remove", "promote"}:
+            return normalized
+        return "select"
 
 
 class TransportBar(QWidget):
@@ -245,6 +464,8 @@ class TransportBar(QWidget):
 class TimelineRuler(QWidget):
     seek_requested = pyqtSignal(float)
     region_span_requested = pyqtSignal(float, float)
+    region_selected = pyqtSignal(object)
+    region_edit_requested = pyqtSignal(object)
 
     def __init__(
         self,
@@ -299,17 +520,43 @@ class TimelineRuler(QWidget):
             event.button() == Qt.MouseButton.LeftButton
             and event.position().x() >= self._header_width
         ):
-            self._dragging = True
-            current_time = self._seek_time_at_x(event.position().x())
             if self._edit_mode == "region":
+                hit_region = self._region_at_x(event.position().x())
+                if hit_region is not None:
+                    self._dragging = False
+                    self._drag_anchor_time = None
+                    self._drag_current_time = None
+                    self.region_selected.emit(hit_region.region_id)
+                    self.update()
+                    event.accept()
+                    return
+                self._dragging = True
+                current_time = self._seek_time_at_x(event.position().x())
                 self._drag_anchor_time = current_time
                 self._drag_current_time = current_time
                 self.update()
             else:
+                self._dragging = True
+                current_time = self._seek_time_at_x(event.position().x())
                 self.seek_requested.emit(current_time)
             event.accept()
             return
         super().mousePressEvent(event)
+
+    def mouseDoubleClickEvent(self, event: QMouseEvent | None) -> None:
+        if (
+            event is not None
+            and event.button() == Qt.MouseButton.LeftButton
+            and self._edit_mode == "region"
+            and event.position().x() >= self._header_width
+        ):
+            hit_region = self._region_at_x(event.position().x())
+            if hit_region is not None:
+                self.region_selected.emit(hit_region.region_id)
+                self.region_edit_requested.emit(hit_region.region_id)
+                event.accept()
+                return
+        super().mouseDoubleClickEvent(event)
 
     def mouseMoveEvent(self, event: QMouseEvent | None) -> None:
         if event is None:
@@ -393,6 +640,30 @@ class TimelineRuler(QWidget):
         painter.setPen(QPen(border, 1))
         painter.setBrush(Qt.BrushStyle.NoBrush)
         painter.drawRect(preview_rect.adjusted(0.5, 0.5, -0.5, -0.5))
+
+    def _region_at_x(self, x: float) -> RegionPresentation | None:
+        if x < float(self._header_width):
+            return None
+        for region in reversed(self.presentation.regions):
+            start_x = timeline_x_for_time(
+                float(region.start),
+                scroll_x=self.presentation.scroll_x,
+                pixels_per_second=self.presentation.pixels_per_second,
+                content_start_x=self._header_width,
+            )
+            end_x = timeline_x_for_time(
+                float(region.end),
+                scroll_x=self.presentation.scroll_x,
+                pixels_per_second=self.presentation.pixels_per_second,
+                content_start_x=self._header_width,
+            )
+            left = min(start_x, end_x)
+            right = max(start_x, end_x)
+            if right - left <= 0.0:
+                continue
+            if left <= x <= right:
+                return region
+        return None
 
 
 __all__ = ["TimelineEditorModeBar", "TimelineRuler", "TransportBar"]

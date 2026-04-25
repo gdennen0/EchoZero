@@ -55,7 +55,9 @@ class HarnessEchoZeroAutomationProvider:
             analysis_service=self.analysis_service,
             sync_service=self.sync_service,
         )
-        harness.widget.resize(self.window_width, self.window_height)
+        # Force the requested viewport size; the launcher shell advertises a wide
+        # minimum size that would otherwise hide horizontal-scroll behavior.
+        harness.widget.setFixedSize(self.window_width, self.window_height)
         harness.widget.show()
         harness._app.processEvents()
         return EchoZeroAutomationBackend(harness)
@@ -308,6 +310,36 @@ class EchoZeroAutomationBackend:
         automation_objects = self._automation_objects_from_contract(contract, contract_actions)
         focused_target_id = self._focused_target_id(selection)
         focused_object_id = automation_objects[0].object_id if automation_objects else None
+        active_song_title = next(
+            (
+                song.title
+                for song in presentation.available_songs
+                if song.song_id == presentation.active_song_id
+            ),
+            None,
+        )
+        playback_state = self._harness.runtime.session.playback_state
+        transport_artifact = {
+            "is_playing": bool(presentation.is_playing),
+            "playhead_seconds": float(presentation.playhead),
+            "current_time_label": str(getattr(presentation, "current_time_label", "")),
+        }
+        playback_artifact = {
+            "status": playback_state.status.value,
+            "active_layer_id": playback_state.active_layer_id,
+            "active_take_id": playback_state.active_take_id,
+            "active_sources": [
+                {
+                    "layer_id": source.layer_id,
+                    "take_id": source.take_id,
+                    "source_ref": source.source_ref,
+                    "mode": source.mode.value,
+                }
+                for source in playback_state.active_sources
+            ],
+            "latency_ms": float(playback_state.latency_ms),
+            "backend_name": playback_state.backend_name,
+        }
 
         return AutomationSnapshot(
             app="EchoZero",
@@ -325,7 +357,10 @@ class EchoZeroAutomationBackend:
             artifacts={
                 "project_title": presentation.title,
                 "active_song_id": presentation.active_song_id,
+                "active_song_title": active_song_title,
                 "active_song_version_id": presentation.active_song_version_id,
+                "transport": transport_artifact,
+                "playback": playback_artifact,
                 "songs": [
                     {
                         "song_id": song.song_id,
@@ -496,7 +531,8 @@ class EchoZeroAutomationBackend:
             raise ValueError(f"Unsupported drag target: {target_id}")
         source_point = source_rect.center().toPoint()
         destination_point = self._resolve_drag_destination(destination, source_point)
-        self._drag_canvas(self._harness.widget._canvas, source_point, destination_point)
+        with self._temporary_canvas_edit_mode_for_drag(target_id):
+            self._drag_canvas(self._harness.widget._canvas, source_point, destination_point)
         return self.snapshot()
 
     def scroll(
@@ -682,6 +718,23 @@ class EchoZeroAutomationBackend:
         restore = getattr(self._harness, "restore_dialog_paths", None)
         if callable(restore):
             restore()
+
+    @contextmanager
+    def _temporary_canvas_edit_mode_for_drag(self, target_id: str):
+        if not target_id.startswith("timeline.event:"):
+            yield
+            return
+        current_mode = str(getattr(self._harness.widget, "_edit_mode", "select") or "select")
+        if current_mode == "move":
+            yield
+            return
+        self._harness.widget._set_edit_mode("move")
+        QApplication.processEvents()
+        try:
+            yield
+        finally:
+            self._harness.widget._set_edit_mode(current_mode)
+            QApplication.processEvents()
 
     @contextmanager
     def _dialog_overrides(

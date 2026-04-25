@@ -21,7 +21,8 @@ from echozero.application.playback.models import (
     PlaybackTimingSnapshot,
 )
 from echozero.application.presentation.models import TimelinePresentation
-from echozero.application.shared.enums import LayerKind, PlaybackMode, PlaybackStatus
+from echozero.application.shared.enums import PlaybackMode, PlaybackStatus
+from echozero.application.shared.layer_kinds import is_event_like_layer_kind
 from echozero.audio.engine import AudioEngine
 
 
@@ -381,7 +382,7 @@ class PresentationPlaybackRuntime:
     @staticmethod
     def _is_event_slice_layer(layer: object) -> bool:
         return bool(
-            getattr(layer, "kind", None) == LayerKind.EVENT
+            is_event_like_layer_kind(getattr(layer, "kind", None))
             and getattr(layer, "playback_enabled", False)
             and getattr(layer, "playback_mode", None) == PlaybackMode.EVENT_SLICE
             and getattr(layer, "playback_source_ref", None)

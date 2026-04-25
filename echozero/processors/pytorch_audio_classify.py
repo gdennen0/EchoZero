@@ -16,6 +16,7 @@ from echozero.execution import ExecutionContext
 from echozero.progress import ProgressReport
 from echozero.result import Result, err, ok
 from echozero.runtime_models.loader import (
+    build_model_artifact_reference,
     build_feature_tensor,
     load_runtime_model,
     predict_probabilities_batch,
@@ -59,6 +60,7 @@ def _default_classify(
 
     resolved_device = resolve_device(device)
     runtime_model = load_runtime_model(model_path, device=resolved_device)
+    model_artifact = build_model_artifact_reference(runtime_model)
 
     audio, file_sample_rate = sf.read(audio_file, dtype="float32", always_2d=False)
     if audio.ndim > 1:
@@ -104,11 +106,13 @@ def _default_classify(
                     classifications={
                         "class": predicted_class,
                         "confidence": round(confidence, 4),
+                        "model_artifact": model_artifact,
                     },
                     metadata={
                         **event.metadata,
                         "classified": True,
                         "source_model": Path(runtime_model.source_path).name,
+                        "model_artifact": model_artifact,
                     },
                     origin=event.origin,
                 )

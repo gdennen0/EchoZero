@@ -6,6 +6,7 @@ from enum import Enum
 class LayerKind(str, Enum):
     AUDIO = "audio"
     EVENT = "event"
+    MARKER = "marker"
     AUTOMATION = "automation"
     REFERENCE = "reference"
     GROUP = "group"

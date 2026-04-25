@@ -7,19 +7,20 @@ from __future__ import annotations
 
 import copy
 import json
+import warnings
 from pathlib import Path
 from threading import Event
 from typing import Callable, Protocol
 
 import librosa
 import numpy as np
-import soundfile as sf
 import torch
 from sklearn.linear_model import SGDClassifier
 from sklearn.metrics import accuracy_score, confusion_matrix, log_loss, precision_recall_fscore_support
 from sklearn.preprocessing import StandardScaler
 
 from echozero.foundry.domain import DatasetSample, DatasetVersion, TrainRun
+from echozero.foundry.services.audio_source_validation import InvalidAudioSourceError, load_audio_source
 from echozero.foundry.services.training_runtime import (
     compute_config_fingerprint,
     configure_reproducibility,
@@ -189,6 +190,15 @@ def run_baseline_training(
         label_to_index=label_to_index,
         cancel_event=cancel_event,
     )
+    if len(train_y_raw) < 2:
+        raise ValueError("baseline trainer has fewer than two usable training samples after skipping invalid source audio")
+    observed_train_labels = {class_names[index] for index in np.unique(train_y_raw)}
+    if observed_train_labels != set(class_names):
+        missing = sorted(set(class_names) - observed_train_labels)
+        raise ValueError(
+            "baseline trainer skipped invalid source audio and training split lost required classes: "
+            + ", ".join(missing)
+        )
     val_x, val_y = host._build_features(
         val_samples,
         sample_rate=sample_rate,
@@ -213,6 +223,8 @@ def run_baseline_training(
         label_to_index=label_to_index,
         cancel_event=cancel_event,
     )
+    if eval_samples and len(eval_y) == 0:
+        raise ValueError("baseline trainer has no usable evaluation samples after skipping invalid source audio")
     synthetic_eval_x, synthetic_eval_y = host._build_features(
         synthetic_eval_samples,
         sample_rate=sample_rate,
@@ -347,23 +359,29 @@ def run_baseline_training(
     exports_dir = run.exports_dir(host._root)
     exports_dir.mkdir(parents=True, exist_ok=True)
     model_path = exports_dir / "model.pth"
+    inference_preprocessing = {
+        "datasetVersionId": str(data_spec.get("datasetVersionId") or dataset_version.id),
+        "sampleRate": sample_rate,
+        "maxLength": max_length,
+        "nFft": n_fft,
+        "hopLength": hop_length,
+        "nMels": n_mels,
+        "fmax": fmax,
+    }
     torch.save(
         {
             "schema": "foundry.baseline_model.v1",
             "trainer": "baseline_sgd_melspec_v1_5",
             "classes": class_names,
             "classification_mode": run.spec["classificationMode"],
+            "model_type": str((run.spec.get("model") or {}).get("type") or "baseline_sgd"),
             "coef": classifier.coef_.astype(np.float32),
             "intercept": classifier.intercept_.astype(np.float32),
             "scaler_mean": scaler.mean_.astype(np.float32),
             "scaler_scale": scaler.scale_.astype(np.float32),
+            "inference_preprocessing": dict(inference_preprocessing),
             "preprocessing": {
-                "sampleRate": sample_rate,
-                "maxLength": max_length,
-                "nFft": n_fft,
-                "hopLength": hop_length,
-                "nMels": n_mels,
-                "fmax": fmax,
+                **inference_preprocessing,
                 "featurePooling": ["mean", "std", "max"],
             },
             "training": {
@@ -780,7 +798,15 @@ def build_features(
     labels: list[int] = []
     for sample in samples:
         ensure_not_canceled_fn(cancel_event)
-        audio = load_audio_fn(Path(sample.audio_ref))
+        try:
+            audio = load_audio_fn(Path(sample.audio_ref))
+        except InvalidAudioSourceError as exc:
+            warnings.warn(
+                f"Skipping invalid dataset sample {sample.sample_id} ({sample.audio_ref}): {exc}",
+                RuntimeWarning,
+                stacklevel=2,
+            )
+            continue
         mel = librosa.feature.melspectrogram(
             y=audio,
             sr=sample_rate,
@@ -799,6 +825,9 @@ def build_features(
         features.append(pooled)
         labels.append(label_to_index[sample.label])
 
+    if not features:
+        feature_size = n_mels * 3
+        return np.empty((0, feature_size), dtype=np.float32), np.empty((0,), dtype=np.int64)
     return np.vstack(features), np.asarray(labels, dtype=np.int64)
 
 
@@ -812,19 +841,7 @@ def ensure_not_canceled(
 
 
 def load_audio(path: Path, *, sample_rate: int, max_length: int) -> np.ndarray:
-    audio, file_sample_rate = sf.read(path, dtype="float32", always_2d=False)
-    if audio.ndim > 1:
-        audio = audio.mean(axis=1)
-    if file_sample_rate != sample_rate:
-        audio = librosa.resample(audio, orig_sr=file_sample_rate, target_sr=sample_rate)
-    if len(audio) > max_length:
-        audio = audio[:max_length]
-    elif len(audio) < max_length:
-        audio = np.pad(audio, (0, max_length - len(audio)))
-    peak = float(np.max(np.abs(audio))) if len(audio) else 0.0
-    if peak > 0:
-        audio = audio / peak
-    audio = audio.astype(np.float32)
+    audio = load_audio_source(path, sample_rate=sample_rate, max_length=max_length)
     ensure_finite_array("baseline/audio", audio, context=str(path))
     return audio
 

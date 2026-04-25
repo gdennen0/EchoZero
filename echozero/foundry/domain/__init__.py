@@ -10,6 +10,16 @@ from .entities import (
     TrainRun,
     TrainRunStatus,
 )
+from .review import (
+    ReviewDecision,
+    ReviewDecisionKind,
+    ReviewItem,
+    ReviewOutcome,
+    ReviewPolarity,
+    ReviewSignal,
+    ReviewSession,
+    build_review_decision,
+)
 
 __all__ = [
     "Artifact",
@@ -20,6 +30,14 @@ __all__ = [
     "DatasetVersion",
     "EvalReport",
     "ModelArtifact",
+    "ReviewDecision",
+    "ReviewDecisionKind",
+    "ReviewItem",
+    "ReviewOutcome",
+    "ReviewPolarity",
+    "ReviewSignal",
+    "ReviewSession",
+    "build_review_decision",
     "TrainRun",
     "TrainRunStatus",
 ]

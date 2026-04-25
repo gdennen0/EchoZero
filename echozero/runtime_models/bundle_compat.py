@@ -19,7 +19,7 @@ def upgrade_installed_runtime_bundles(models_dir: Path) -> int:
         weights_path = _resolve_weights_path(manifest_path)
         if weights_path is None or not weights_path.exists():
             continue
-        if backfill_manifest_fingerprint(manifest_path, weights_path):
+        if sync_manifest_fingerprint(manifest_path, weights_path):
             upgraded += 1
     return upgraded
 
@@ -32,6 +32,14 @@ def backfill_manifest_fingerprint(manifest_path: Path, weights_path: Path) -> bo
     fingerprint = manifest.get("sharedContractFingerprint")
     if isinstance(fingerprint, str) and fingerprint.strip():
         return False
+    return sync_manifest_fingerprint(manifest_path, weights_path)
+
+
+def sync_manifest_fingerprint(manifest_path: Path, weights_path: Path) -> bool:
+    """Repair one manifest so it matches the checkpoint-derived shared contract fingerprint."""
+    manifest = _load_manifest(manifest_path)
+    if manifest is None:
+        return False
     try:
         import torch
         checkpoint = torch.load(weights_path, map_location="cpu", weights_only=True)
@@ -39,8 +47,12 @@ def backfill_manifest_fingerprint(manifest_path: Path, weights_path: Path) -> bo
         return False
     if not isinstance(checkpoint, dict):
         return False
+    expected_fingerprint = checkpoint_contract_fingerprint(checkpoint)
+    fingerprint = manifest.get("sharedContractFingerprint")
+    if isinstance(fingerprint, str) and fingerprint.strip() == expected_fingerprint:
+        return False
     updated_manifest = dict(manifest)
-    updated_manifest["sharedContractFingerprint"] = checkpoint_contract_fingerprint(checkpoint)
+    updated_manifest["sharedContractFingerprint"] = expected_fingerprint
     manifest_path.write_text(json.dumps(updated_manifest, indent=2), encoding="utf-8")
     return True
 

@@ -16,6 +16,8 @@ from echozero.application.timeline.object_actions import (
     ObjectActionSettingsPlan,
     ObjectActionSettingsScopeState,
     ObjectActionSettingsSession,
+    ResetSessionDefaults,
+    SaveSessionToDefaults,
 )
 from echozero.ui.FEEL import (
     TIMELINE_EDITOR_BUTTON_MIN_HEIGHT_PX,
@@ -24,6 +26,7 @@ from echozero.ui.FEEL import (
     TIMELINE_OBJECT_INFO_SPLITTER_HANDLE_PX,
     TIMELINE_TRANSPORT_HEIGHT_PX,
 )
+from echozero.ui.qt.pipeline_settings_browser_dialog import PipelineSettingsBrowserDialog
 from echozero.ui.qt.settings_dialog import ActionSettingsDialog
 from echozero.ui.qt.settings_form import ActionSettingsForm
 from echozero.ui.qt.timeline.blocks.event_lane import EventLaneBlock
@@ -431,12 +434,12 @@ def test_action_settings_dialog_makes_scope_explicit_in_title_and_copy_target():
     )
     try:
         assert dialog.objectName() == "actionSettingsDialog"
-        assert dialog.windowTitle() == "Pipeline Settings: This Version · Extract Stems"
+        assert dialog.windowTitle() == "Pipeline Settings · Extract Stems"
         assert dialog._header.property("section") is True
-        assert dialog._title.text() == "Extract Stems"
-        assert dialog._copy_group.title() == "Copy Settings Into This Version"
-        assert dialog._stage_group.title() == "Stage Settings: Extract Stems"
-        assert "Scope: This Version" in dialog._context.text()
+        assert dialog._title.text() == "Pipeline Settings"
+        assert dialog._copy_group.title() == "Copy to This Version"
+        assert dialog._stage_group.title() == "Extract Stems"
+        assert "This Version" in dialog._context.text()
         assert dialog._buttons.button(QDialogButtonBox.StandardButton.Save).property(
             "appearance"
         ) == ("subtle")
@@ -478,10 +481,323 @@ def test_action_settings_dialog_uses_bounded_section_surfaces():
     )
     try:
         assert dialog._scope_group.property("section") is True
+        assert dialog._scope_group.property("compact") is True
         assert dialog._copy_group.property("section") is True
+        assert dialog._copy_group.property("compact") is True
         assert dialog._stage_group.property("section") is True
         assert dialog._apply_copy.property("appearance") == "subtle"
+        assert dialog._save_defaults.property("appearance") == "subtle"
         assert dialog._copy_preview.objectName() == "actionSettingsCopyPreview"
+        assert dialog._reset_defaults.isEnabled() is False
+    finally:
+        dialog.close()
+        app.processEvents()
+
+
+def test_action_settings_dialog_reset_defaults_dispatches_session_command():
+    app = QApplication.instance() or QApplication([])
+    dispatched: list[object] = []
+    session = ObjectActionSettingsSession(
+        session_id="session_reset",
+        action_id="timeline.extract_stems",
+        object_id="source_audio",
+        object_type="layer",
+        scope="version",
+        plan=ObjectActionSettingsPlan(
+            action_id="timeline.extract_stems",
+            title="Extract Stems",
+            object_id="source_audio",
+            object_type="layer",
+            pipeline_template_id="stem_separation",
+            editable_fields=(
+                ObjectActionSettingField(
+                    key="model",
+                    label="Model",
+                    value="mdx_extra_q",
+                    default_value="latest_model",
+                    persisted_value="mdx_extra_q",
+                    is_dirty=False,
+                ),
+            ),
+        ),
+        scope_states=(
+            ObjectActionSettingsScopeState(
+                scope="version",
+                label="This Version",
+                field_values=(
+                    ObjectActionSessionFieldValue(
+                        key="model",
+                        persisted_value="mdx_extra_q",
+                        draft_value="mdx_extra_q",
+                    ),
+                ),
+                can_run=True,
+            ),
+        ),
+    )
+    dialog = ActionSettingsDialog(
+        session,
+        dispatch_command=lambda _session_id, command: (
+            dispatched.append(command) or session
+        ),
+    )
+    try:
+        assert dialog._reset_defaults.property("appearance") == "subtle"
+        assert dialog._reset_defaults.text() == "Reset to Defaults"
+        assert dialog._reset_defaults.isEnabled() is True
+
+        dialog._reset_defaults.click()
+
+        assert len(dispatched) == 1
+        assert isinstance(dispatched[0], ResetSessionDefaults)
+    finally:
+        dialog.close()
+        app.processEvents()
+
+
+def test_action_settings_dialog_save_to_defaults_dispatches_session_command():
+    app = QApplication.instance() or QApplication([])
+    dispatched: list[object] = []
+    session = ObjectActionSettingsSession(
+        session_id="session_save_defaults",
+        action_id="timeline.extract_stems",
+        object_id="source_audio",
+        object_type="layer",
+        scope="version",
+        plan=ObjectActionSettingsPlan(
+            action_id="timeline.extract_stems",
+            title="Extract Stems",
+            object_id="source_audio",
+            object_type="layer",
+            pipeline_template_id="stem_separation",
+            editable_fields=(
+                ObjectActionSettingField(
+                    key="model",
+                    label="Model",
+                    value="mdx_extra",
+                    default_value="latest_model",
+                    persisted_value="latest_model",
+                    is_dirty=True,
+                ),
+            ),
+        ),
+        scope_states=(
+            ObjectActionSettingsScopeState(
+                scope="version",
+                label="This Version",
+                field_values=(
+                    ObjectActionSessionFieldValue(
+                        key="model",
+                        persisted_value="latest_model",
+                        draft_value="mdx_extra",
+                    ),
+                ),
+                can_run=True,
+            ),
+            ObjectActionSettingsScopeState(
+                scope="song_default",
+                label="Song Default",
+                field_values=(
+                    ObjectActionSessionFieldValue(
+                        key="model",
+                        persisted_value="latest_model",
+                        draft_value="latest_model",
+                    ),
+                ),
+                can_run=False,
+            ),
+        ),
+    )
+    dialog = ActionSettingsDialog(
+        session,
+        dispatch_command=lambda _session_id, command: (
+            dispatched.append(command) or session
+        ),
+    )
+    try:
+        assert dialog._save_defaults.text() == "Save to Defaults"
+        assert dialog._save_defaults.isEnabled() is True
+
+        dialog._save_defaults.click()
+
+        assert len(dispatched) == 1
+        assert isinstance(dispatched[0], SaveSessionToDefaults)
+    finally:
+        dialog.close()
+        app.processEvents()
+
+
+def test_pipeline_settings_browser_dialog_renders_stages_and_disables_run_without_target():
+    app = QApplication.instance() or QApplication([])
+    model_field = ObjectActionSettingField(
+        key="model",
+        label="Model",
+        value="latest_model",
+        default_value="latest_model",
+        persisted_value="latest_model",
+    )
+    field_values = (
+        ObjectActionSessionFieldValue(
+            key="model",
+            persisted_value="latest_model",
+            draft_value="latest_model",
+        ),
+    )
+    stems_session = ObjectActionSettingsSession(
+        session_id="pipeline_stems",
+        action_id="timeline.extract_stems",
+        object_id="",
+        object_type="layer",
+        scope="version",
+        plan=ObjectActionSettingsPlan(
+            action_id="timeline.extract_stems",
+            title="Extract Stems",
+            object_id="",
+            object_type="layer",
+            pipeline_template_id="stem_separation",
+            editable_fields=(model_field,),
+            summary="No target layer selected · This Version",
+        ),
+        scope_states=(
+            ObjectActionSettingsScopeState(
+                scope="version",
+                label="This Version",
+                field_values=field_values,
+                can_run=False,
+            ),
+        ),
+        can_save=True,
+        can_save_and_run=False,
+        run_disabled_reason="Select a target layer before running this stage.",
+    )
+    drums_session = ObjectActionSettingsSession(
+        session_id="pipeline_drums",
+        action_id="timeline.extract_drum_events",
+        object_id="",
+        object_type="layer",
+        scope="version",
+        plan=ObjectActionSettingsPlan(
+            action_id="timeline.extract_drum_events",
+            title="Extract Onsets",
+            object_id="",
+            object_type="layer",
+            pipeline_template_id="onset_detection",
+            editable_fields=(model_field,),
+            summary="No target layer selected · This Version",
+        ),
+        scope_states=(
+            ObjectActionSettingsScopeState(
+                scope="version",
+                label="This Version",
+                field_values=field_values,
+                can_run=False,
+            ),
+        ),
+        can_save=True,
+        can_save_and_run=False,
+        run_disabled_reason="Select a target layer before running this stage.",
+    )
+
+    dialog = PipelineSettingsBrowserDialog(
+        (stems_session, drums_session),
+        dispatch_command=lambda session_id, _command: (
+            stems_session if session_id == stems_session.session_id else drums_session
+        ),
+    )
+    try:
+        assert dialog._action_list.count() == 2
+        assert dialog._stage_group.title() == "Extract Stems"
+        assert dialog._require_button(QDialogButtonBox.StandardButton.Apply).isEnabled() is False
+
+        dialog._action_list.setCurrentRow(1)
+        app.processEvents()
+
+        assert dialog._stage_group.title() == "Extract Onsets"
+    finally:
+        dialog.close()
+        app.processEvents()
+
+
+def test_pipeline_settings_browser_dialog_honors_initial_action_selection():
+    app = QApplication.instance() or QApplication([])
+    model_field = ObjectActionSettingField(
+        key="model",
+        label="Model",
+        value="latest_model",
+        default_value="latest_model",
+        persisted_value="latest_model",
+    )
+    field_values = (
+        ObjectActionSessionFieldValue(
+            key="model",
+            persisted_value="latest_model",
+            draft_value="latest_model",
+        ),
+    )
+    stems_session = ObjectActionSettingsSession(
+        session_id="pipeline_stems",
+        action_id="timeline.extract_stems",
+        object_id="",
+        object_type="layer",
+        scope="version",
+        plan=ObjectActionSettingsPlan(
+            action_id="timeline.extract_stems",
+            title="Extract Stems",
+            object_id="",
+            object_type="layer",
+            pipeline_template_id="stem_separation",
+            editable_fields=(model_field,),
+            summary="No target layer selected · This Version",
+        ),
+        scope_states=(
+            ObjectActionSettingsScopeState(
+                scope="version",
+                label="This Version",
+                field_values=field_values,
+                can_run=False,
+            ),
+        ),
+        can_save=True,
+        can_save_and_run=False,
+        run_disabled_reason="Select a target layer before running this stage.",
+    )
+    drums_session = ObjectActionSettingsSession(
+        session_id="pipeline_drums",
+        action_id="timeline.extract_drum_events",
+        object_id="",
+        object_type="layer",
+        scope="version",
+        plan=ObjectActionSettingsPlan(
+            action_id="timeline.extract_drum_events",
+            title="Extract Onsets",
+            object_id="",
+            object_type="layer",
+            pipeline_template_id="onset_detection",
+            editable_fields=(model_field,),
+            summary="No target layer selected · This Version",
+        ),
+        scope_states=(
+            ObjectActionSettingsScopeState(
+                scope="version",
+                label="This Version",
+                field_values=field_values,
+                can_run=False,
+            ),
+        ),
+        can_save=True,
+        can_save_and_run=False,
+        run_disabled_reason="Select a target layer before running this stage.",
+    )
+
+    dialog = PipelineSettingsBrowserDialog(
+        (stems_session, drums_session),
+        dispatch_command=lambda session_id, _command: (
+            stems_session if session_id == stems_session.session_id else drums_session
+        ),
+        initial_action_id="timeline.extract_drum_events",
+    )
+    try:
+        assert dialog._stage_group.title() == "Extract Onsets"
     finally:
         dialog.close()
         app.processEvents()
@@ -503,12 +819,28 @@ def test_timeline_editor_mode_bar_groups_tools_and_syncs_state():
         assert bar.findChild(QWidget, "timelineEditorAssistGroup") is not None
         assert bar.findChild(QWidget, "timelineEditorShellGroup") is not None
         assert bar._settings_button.objectName() == "timelineEditorSettingsButton"
+        assert (
+            bar._pipeline_settings_button.objectName()
+            == "timelineEditorPipelineSettingsButton"
+        )
         assert bar._regions_button.objectName() == "timelineEditorRegionsButton"
-        assert bar._mode_buttons["move"].text() == "Move"
-        assert bar._mode_buttons["region"].text() == "Region"
+        assert list(bar._mode_buttons.keys()) == [
+            "select",
+            "move",
+            "draw",
+            "erase",
+            "fix",
+            "region",
+        ]
+        assert bar._mode_buttons["move"].text() == "↔ Move"
+        assert bar._mode_buttons["draw"].text() == "+ Draw"
+        assert bar._mode_buttons["erase"].text() == "- Erase"
+        assert bar._mode_buttons["fix"].text() == "🩹 Fix"
+        assert bar._mode_buttons["region"].text() == "R Region"
+        assert bar._fix_action_buttons["select"].objectName() == "timelineEditorFixSelectButton"
         assert bar._mode_buttons["draw"].isChecked()
         assert bar._snap_button.isChecked()
-        assert bar._grid_button.text() == "Grid: Beat"
+        assert bar._grid_button.text() == "▦ Grid: Beat"
     finally:
         bar.close()
         app.processEvents()
@@ -526,6 +858,91 @@ def test_timeline_editor_mode_bar_emits_regions_requested_signal():
         assert emitted == [True]
     finally:
         bar.close()
+        app.processEvents()
+
+
+def test_timeline_editor_mode_bar_emits_pipeline_settings_requested_signal():
+    app = QApplication.instance() or QApplication([])
+    bar = TimelineEditorModeBar()
+    emitted: list[bool] = []
+    try:
+        bar.pipeline_settings_requested.connect(lambda: emitted.append(True))
+
+        bar._pipeline_settings_button.click()
+
+        assert emitted == [True]
+    finally:
+        bar.close()
+        app.processEvents()
+
+
+def test_timeline_editor_mode_bar_switches_to_compact_density_when_narrow():
+    app = QApplication.instance() or QApplication([])
+    bar = TimelineEditorModeBar()
+    try:
+        bar.set_state(
+            edit_mode="select",
+            snap_enabled=True,
+            grid_mode="auto",
+            beat_available=True,
+        )
+        bar.resize(900, 56)
+        bar.show()
+        app.processEvents()
+
+        assert bar.property("compact") is True
+        assert bar._mode_buttons["select"].text() == "↖"
+        assert bar._mode_buttons["move"].text() == "↔"
+        assert bar._settings_button.text() == "⚙"
+        assert bar._pipeline_settings_button.text() == "P"
+        assert bar._grid_button.text().startswith("▦")
+        assert bar._fix_action_buttons["select"].isVisible() is False
+    finally:
+        bar.close()
+        app.processEvents()
+
+
+def test_timeline_editor_pipeline_button_routes_to_pipeline_settings_browser(monkeypatch):
+    app = QApplication.instance() or QApplication([])
+    widget = TimelineWidget(_song_switching_presentation())
+    opened: list[bool] = []
+    try:
+        monkeypatch.setattr(
+            widget._action_router,
+            "open_pipeline_settings_browser",
+            lambda: opened.append(True),
+        )
+
+        widget._editor_bar._pipeline_settings_button.click()
+
+        assert opened == [True]
+    finally:
+        widget.close()
+        app.processEvents()
+
+
+def test_open_object_action_settings_routes_to_pipeline_settings_browser(monkeypatch):
+    app = QApplication.instance() or QApplication([])
+    widget = TimelineWidget(_song_switching_presentation())
+    captured: list[InspectorAction | None] = []
+    try:
+        monkeypatch.setattr(
+            widget._action_router,
+            "_open_pipeline_settings_browser",
+            lambda *, preferred_action: captured.append(preferred_action),
+        )
+
+        action = InspectorAction(
+            action_id="timeline.extract_stems",
+            label="Extract Stems",
+            kind="settings",
+            params={"layer_id": "source_audio"},
+        )
+        widget._action_router.open_object_action_settings(action)
+
+        assert captured == [action]
+    finally:
+        widget.close()
         app.processEvents()
 
 
@@ -666,6 +1083,102 @@ def test_action_settings_form_emits_field_value_changed_for_operator_edits():
         app.processEvents()
 
 
+def test_action_settings_form_shows_threshold_tooltips_on_label_and_input():
+    app = QApplication.instance() or QApplication([])
+    form = ActionSettingsForm()
+    try:
+        form.set_plan(
+            ObjectActionSettingsPlan(
+                action_id="timeline.extract_stems",
+                title="Extract Stems",
+                object_id="source_audio",
+                object_type="layer",
+                pipeline_template_id="stem_separation",
+                editable_fields=(
+                    ObjectActionSettingField(
+                        key="threshold",
+                        label="Threshold",
+                        value=0.3,
+                        default_value=0.3,
+                        widget="number",
+                        min_value=0.0,
+                        max_value=1.0,
+                        step=0.05,
+                    ),
+                ),
+            )
+        )
+
+        widget_tooltip = form._inputs["threshold"].toolTip()
+        label = next(
+            widget
+            for widget in form.findChildren(QLabel)
+            if widget.text() == "Threshold"
+        )
+
+        assert "Threshold strictness" in widget_tooltip
+        assert "Range: 0 to 1" in widget_tooltip
+        assert "Default: 0.3" in widget_tooltip
+        assert label.toolTip() == widget_tooltip
+    finally:
+        form.close()
+        app.processEvents()
+
+
+def test_action_settings_form_switching_plans_keeps_single_section_title():
+    app = QApplication.instance() or QApplication([])
+    form = ActionSettingsForm()
+    try:
+        form.show()
+        app.processEvents()
+        form.set_plan(
+            ObjectActionSettingsPlan(
+                action_id="timeline.extract_stems",
+                title="Extract Stems",
+                object_id="source_audio",
+                object_type="layer",
+                pipeline_template_id="stem_separation",
+                editable_fields=(
+                    ObjectActionSettingField(
+                        key="alpha",
+                        label="Alpha",
+                        value="a",
+                        default_value="a",
+                    ),
+                ),
+            )
+        )
+        form.set_plan(
+            ObjectActionSettingsPlan(
+                action_id="timeline.extract_drum_events",
+                title="Extract Onsets",
+                object_id="source_audio",
+                object_type="layer",
+                pipeline_template_id="onset_detection",
+                editable_fields=(
+                    ObjectActionSettingField(
+                        key="beta",
+                        label="Beta",
+                        value="b",
+                        default_value="b",
+                    ),
+                ),
+            )
+        )
+        app.processEvents()
+
+        visible_stage_titles = [
+            label
+            for label in form.findChildren(QLabel)
+            if label.text() == "Stage Settings" and label.isVisible()
+        ]
+        assert len(visible_stage_titles) == 1
+        assert set(form._inputs.keys()) == {"beta"}
+    finally:
+        form.close()
+        app.processEvents()
+
+
 def test_timeline_scroll_area_stylesheet_uses_shared_tokens():
     stylesheet = build_timeline_scroll_area_stylesheet()
 
@@ -726,6 +1239,24 @@ def test_timeline_widget_song_browser_splitter_restores_resized_width():
         widget._song_browser_panel.toggle_collapsed()
         app.processEvents()
         assert widget._shell_splitter.sizes()[0] >= 220
+    finally:
+        widget.close()
+        app.processEvents()
+
+
+def test_timeline_widget_can_condense_width_below_legacy_canvas_floor():
+    app = QApplication.instance() or QApplication([])
+    widget = TimelineWidget(_song_switching_presentation())
+    try:
+        widget.resize(1600, 900)
+        widget.show()
+        app.processEvents()
+
+        widget.resize(1280, 900)
+        app.processEvents()
+
+        assert widget.width() <= 1280
+        assert widget._canvas.minimumWidth() < 600
     finally:
         widget.close()
         app.processEvents()

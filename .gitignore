@@ -148,3 +148,6 @@ IDENTITY.md
 SOUL.md
 TOOLS.md
 USER.md
+
+# Local repo-root runtime state
+/project.ez

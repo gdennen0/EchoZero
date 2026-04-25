@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Mapping, Sequence
 
+from .constants import REQUIRED_PREPROCESSING_KEYS
 from .core import (
     EvalContract,
     EvalCore,
@@ -13,6 +14,16 @@ from .core import (
     InferenceRequest,
     contract_fingerprint,
 )
+
+
+def _runtime_preprocessing_from_run_spec(data: Mapping[str, Any] | None) -> dict[str, Any]:
+    if not isinstance(data, Mapping):
+        return {}
+    return {
+        key: data[key]
+        for key in sorted(REQUIRED_PREPROCESSING_KEYS)
+        if key in data
+    }
 
 
 @dataclass(slots=True)
@@ -29,7 +40,7 @@ class FoundrySharedAdapter:
         class_map: Sequence[str],
     ) -> InferenceContract:
         data = run_spec.get("data")
-        preprocessing = dict(data) if isinstance(data, Mapping) else {}
+        preprocessing = _runtime_preprocessing_from_run_spec(data)
         model = run_spec.get("model")
         model_signature = None
         if isinstance(model, Mapping):

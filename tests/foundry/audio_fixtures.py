@@ -22,6 +22,16 @@ def write_percussion_dataset(root: Path, *, sample_rate: int = 22050, sample_cou
         )
 
 
+def write_zero_byte_audio_file(path: Path) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(b"")
+
+
+def write_unreadable_audio_file(path: Path, *, payload: bytes = b"not-a-real-audio-file") -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(payload)
+
+
 def _kick_wave(index: int, sample_rate: int) -> np.ndarray:
     duration = 0.18 + (index * 0.005)
     t = np.linspace(0.0, duration, int(sample_rate * duration), endpoint=False, dtype=np.float32)

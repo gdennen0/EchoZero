@@ -133,6 +133,10 @@ def BinaryDrumClassify(**settings: Any) -> BlockSpec:
         input_ports=(
             PortSpec("audio_in", PortType.AUDIO, Direction.INPUT),
             PortSpec("events_in", PortType.EVENT, Direction.INPUT),
+            PortSpec("kick_audio_in", PortType.AUDIO, Direction.INPUT),
+            PortSpec("snare_audio_in", PortType.AUDIO, Direction.INPUT),
+            PortSpec("kick_events_in", PortType.EVENT, Direction.INPUT),
+            PortSpec("snare_events_in", PortType.EVENT, Direction.INPUT),
         ),
         output_ports=(
             PortSpec("events_out", PortType.EVENT, Direction.OUTPUT),

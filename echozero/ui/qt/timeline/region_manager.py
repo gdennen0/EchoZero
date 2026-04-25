@@ -37,6 +37,83 @@ class RegionDraft:
     kind: str = "custom"
 
 
+@dataclass(slots=True)
+class RegionProperties:
+    label: str
+    start: float
+    end: float
+    color: str | None = None
+
+
+class RegionPropertiesDialog(QDialog):
+    """Edit one existing region's core properties."""
+
+    def __init__(
+        self,
+        draft: RegionDraft,
+        parent: QWidget | None = None,
+    ) -> None:
+        super().__init__(parent)
+        self.setWindowTitle("Edit Region")
+        self.resize(360, 220)
+
+        root = QVBoxLayout(self)
+        root.setContentsMargins(12, 12, 12, 12)
+        root.setSpacing(10)
+
+        title = QLabel("Edit region properties", self)
+        title.setProperty("timelineToolbarLabel", True)
+        root.addWidget(title)
+
+        form = QFormLayout()
+        form.setContentsMargins(0, 0, 0, 0)
+        form.setSpacing(6)
+        root.addLayout(form)
+
+        self._label_input = QLineEdit(self)
+        self._label_input.setText(draft.label)
+        form.addRow("Name", self._label_input)
+
+        self._start_input = QDoubleSpinBox(self)
+        self._start_input.setDecimals(3)
+        self._start_input.setRange(0.0, 24 * 60 * 60)
+        self._start_input.setValue(float(draft.start))
+        form.addRow("Start (s)", self._start_input)
+
+        self._end_input = QDoubleSpinBox(self)
+        self._end_input.setDecimals(3)
+        self._end_input.setRange(0.001, 24 * 60 * 60)
+        self._end_input.setValue(float(draft.end))
+        form.addRow("End (s)", self._end_input)
+
+        self._color_input = QLineEdit(self)
+        self._color_input.setPlaceholderText("#RRGGBB (optional)")
+        self._color_input.setText(draft.color or "")
+        form.addRow("Color", self._color_input)
+
+        root.addStretch(1)
+
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel,
+            parent=self,
+        )
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        root.addWidget(buttons)
+
+    def values(self) -> RegionProperties:
+        label = self._label_input.text().strip() or "Region"
+        start = max(0.0, float(self._start_input.value()))
+        end = max(start + 0.001, float(self._end_input.value()))
+        color = self._color_input.text().strip() or None
+        return RegionProperties(
+            label=label,
+            start=start,
+            end=end,
+            color=color,
+        )
+
+
 class RegionManagerDialog(QDialog):
     """Edit timeline regions as a flat list of labeled time spans."""
 
@@ -270,4 +347,4 @@ class RegionManagerDialog(QDialog):
             color=color or None,
             kind=kind,
         )
-__all__ = ["RegionDraft", "RegionManagerDialog"]
+__all__ = ["RegionDraft", "RegionManagerDialog", "RegionProperties", "RegionPropertiesDialog"]

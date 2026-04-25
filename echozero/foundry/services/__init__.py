@@ -9,6 +9,9 @@ if TYPE_CHECKING:
     from .dataset_service import DatasetService
     from .eval_service import EvalService
     from .query_service import FoundryQueryService
+    from .review_session_service import ReviewSessionService
+    from .review_signal_service import ReviewSignalService
+    from .runtime_bundle_install_service import RuntimeBundleInstallService
     from .run_notification_service import RunNotificationService
     from .run_spec_validator import RunSpecValidator
     from .run_telemetry_service import RunTelemetryService
@@ -25,6 +28,9 @@ __all__ = [
     "CnnTrainer",
     "CrnnTrainer",
     "FoundryQueryService",
+    "ReviewSessionService",
+    "ReviewSignalService",
+    "RuntimeBundleInstallService",
     "RunNotificationService",
     "RunSpecValidator",
     "RunTelemetryService",
@@ -42,6 +48,12 @@ _LAZY_EXPORTS = {
     "CnnTrainer": ("echozero.foundry.services.cnn_trainer", "CnnTrainer"),
     "CrnnTrainer": ("echozero.foundry.services.crnn_trainer", "CrnnTrainer"),
     "FoundryQueryService": ("echozero.foundry.services.query_service", "FoundryQueryService"),
+    "ReviewSessionService": ("echozero.foundry.services.review_session_service", "ReviewSessionService"),
+    "ReviewSignalService": ("echozero.foundry.services.review_signal_service", "ReviewSignalService"),
+    "RuntimeBundleInstallService": (
+        "echozero.foundry.services.runtime_bundle_install_service",
+        "RuntimeBundleInstallService",
+    ),
     "RunNotificationService": ("echozero.foundry.services.run_notification_service", "RunNotificationService"),
     "RunSpecValidator": ("echozero.foundry.services.run_spec_validator", "RunSpecValidator"),
     "RunTelemetryService": ("echozero.foundry.services.run_telemetry_service", "RunTelemetryService"),

@@ -16,6 +16,7 @@ class HeaderSlots:
     subtitle_rect: QRectF
     status_rect: QRectF
     controls_rect: QRectF
+    active_rect: QRectF
     toggle_rect: QRectF
     metadata_rect: QRectF
 
@@ -38,7 +39,13 @@ class LayerHeaderBlock:
         dimmed: bool = False,
     ) -> HeaderHitTargets:
         rect = slots.rect
-        fill_hex = self.style.selected_background_hex if layer.is_selected and not dimmed else self.style.dimmed_background_hex if dimmed else self.style.background_hex
+        fill_hex = (
+            self.style.selected_background_hex
+            if layer.is_selected and not dimmed
+            else self.style.dimmed_background_hex
+            if dimmed
+            else self.style.background_hex
+        )
         painter.fillRect(rect, QColor(fill_hex))
 
         title_font = QFont()
@@ -56,6 +63,7 @@ class LayerHeaderBlock:
         control_rects = self._draw_header_controls(
             painter,
             slots.controls_rect,
+            slots.active_rect,
             layer.header_controls,
             dimmed=dimmed,
         )
@@ -63,7 +71,11 @@ class LayerHeaderBlock:
         if layer.takes:
             painter.setPen(QColor(self.style.toggle_border_hex))
             painter.setBrush(QBrush(QColor(self.style.toggle_fill_hex)))
-            painter.drawRoundedRect(slots.toggle_rect, self.style.toggle_corner_radius, self.style.toggle_corner_radius)
+            painter.drawRoundedRect(
+                slots.toggle_rect,
+                self.style.toggle_corner_radius,
+                self.style.toggle_corner_radius,
+            )
             painter.setPen(QColor(self.style.toggle_text_hex))
             prior_font = painter.font()
             toggle_font = QFont(prior_font)
@@ -91,6 +103,7 @@ class LayerHeaderBlock:
         self,
         painter: QPainter,
         controls_rect: QRectF,
+        active_rect: QRectF,
         controls: list[LayerHeaderControlPresentation],
         *,
         dimmed: bool,
@@ -98,7 +111,21 @@ class LayerHeaderBlock:
         control_rects: list[tuple[str, QRectF]] = []
         x = controls_rect.left()
         for control in controls:
+            if control.control_id == "set_active_playback_target":
+                rect = QRectF(active_rect)
+                self._draw_active_symbol_button(
+                    painter,
+                    rect,
+                    active=control.active,
+                    dimmed=dimmed,
+                )
+                control_rects.append((control.control_id, rect))
+                continue
             width = self._control_width(control)
+            if x + width > controls_rect.right():
+                width = max(0.0, controls_rect.right() - x)
+            if width <= 0.0:
+                break
             rect = QRectF(x, controls_rect.top(), width, 18)
             if control.kind == "toggle":
                 self._draw_active_button(
@@ -126,9 +153,19 @@ class LayerHeaderBlock:
         return max(40.0, 10.0 + (len(control.label) * 7.0))
 
     def _draw_status_chips(self, painter: QPainter, rect: QRectF, layer: LayerPresentation) -> None:
+        if rect.height() < 10:
+            return
         x = rect.left()
         if layer.status.stale:
-            x = self._draw_chip(painter, QRectF(x, rect.top(), 46, 16), 'STALE', self.style.status.stale) + 6
+            x = (
+                self._draw_chip(
+                    painter,
+                    QRectF(x, rect.top(), 46, 16),
+                    'STALE',
+                    self.style.status.stale,
+                )
+                + 6
+            )
         if layer.status.manually_modified:
             self._draw_chip(painter, QRectF(x, rect.top(), 52, 16), 'EDITED', self.style.status.edited)
 
@@ -142,7 +179,11 @@ class LayerHeaderBlock:
         chip_font.setPointSize(style.font.point_size)
         chip_font.setBold(style.font.bold)
         painter.setFont(chip_font)
-        painter.drawText(rect.adjusted(0, -1, 0, -1), Qt.AlignmentFlag.AlignCenter | Qt.TextFlag.TextSingleLine, text)
+        painter.drawText(
+            rect.adjusted(0, -1, 0, -1),
+            Qt.AlignmentFlag.AlignCenter | Qt.TextFlag.TextSingleLine,
+            text,
+        )
         painter.setFont(prior_font)
         return rect.right()
 
@@ -176,6 +217,34 @@ class LayerHeaderBlock:
         )
         painter.setFont(prior_font)
 
+    def _draw_active_symbol_button(
+        self,
+        painter: QPainter,
+        rect: QRectF,
+        *,
+        active: bool,
+        dimmed: bool,
+    ) -> None:
+        button_style = self.style.mute_solo
+        state_style = button_style.active if active else button_style.inactive
+        fill_hex = state_style.fill_hex
+        if dimmed and not active:
+            fill_hex = button_style.dimmed_inactive_fill_hex
+        painter.setPen(QColor(button_style.border_hex))
+        painter.setBrush(QBrush(QColor(fill_hex)))
+        painter.drawRoundedRect(rect, button_style.corner_radius, button_style.corner_radius)
+
+        symbol_rect = rect.adjusted(4.0, 4.0, -4.0, -4.0)
+        symbol_color = QColor(state_style.text_hex)
+        if dimmed and not active:
+            symbol_color = QColor(self.style.dimmed_title_hex)
+        painter.setPen(symbol_color)
+        if active:
+            painter.setBrush(QBrush(symbol_color))
+        else:
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.drawEllipse(symbol_rect)
+
     def _draw_action_button(self, painter: QPainter, rect: QRectF, label: str, *, dimmed: bool) -> None:
         button_style = self.style.mute_solo
         fill_hex = button_style.inactive.fill_hex
@@ -190,5 +259,9 @@ class LayerHeaderBlock:
         button_font.setPointSize(max(7, button_style.font.point_size - 1))
         button_font.setBold(button_style.font.bold)
         painter.setFont(button_font)
-        painter.drawText(rect.adjusted(0, -1, 0, -1), Qt.AlignmentFlag.AlignCenter | Qt.TextFlag.TextSingleLine, label)
+        painter.drawText(
+            rect.adjusted(0, -1, 0, -1),
+            Qt.AlignmentFlag.AlignCenter | Qt.TextFlag.TextSingleLine,
+            label,
+        )
         painter.setFont(prior_font)

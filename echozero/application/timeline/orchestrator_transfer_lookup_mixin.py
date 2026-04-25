@@ -20,7 +20,7 @@ from echozero.application.session.models import (
     ManualPushTrackGroupOption,
     ManualPushTrackOption,
 )
-from echozero.application.shared.enums import LayerKind
+from echozero.application.shared.layer_kinds import is_event_like_layer_kind
 from echozero.application.shared.ids import LayerId
 from echozero.application.timeline.ma3_push_intents import MA3SequenceRefreshRangeMode
 from echozero.application.timeline.models import Timeline
@@ -287,7 +287,7 @@ class TimelineOrchestratorTransferLookupMixin:
         targets = [
             ManualPullTargetOption(layer_id=layer.id, name=layer.name)
             for layer in sorted(timeline.layers, key=lambda value: value.order_index)
-            if layer.kind == LayerKind.EVENT
+            if is_event_like_layer_kind(layer.kind)
             and layer.presentation_hints.visible
             and not layer.presentation_hints.locked
         ]

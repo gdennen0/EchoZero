@@ -542,6 +542,81 @@ def test_launcher_actions_invoke_canonical_runtime_methods(monkeypatch):
     assert widget.presentation_updates[2:4] == ["after-new", "after-open"]
 
 
+def test_launcher_exposes_questionable_review_action_when_runtime_supports_it(monkeypatch):
+    review_calls: list[dict[str, object]] = []
+    opened_urls: list[str] = []
+    info_messages: list[tuple[str, str]] = []
+    phone_review_events: list[str] = []
+    runtime = SimpleNamespace(
+        runtime_audio=FakeRuntimeAudio(),
+        is_dirty=False,
+        project_path=Path("C:/projects/current.ez"),
+        session=SimpleNamespace(active_song_version_id="ver_active"),
+        presentation=lambda: "presentation",
+        dispatch=lambda intent: intent,
+    )
+    runtime.open_project_review_session = lambda **kwargs: review_calls.append(kwargs) or SimpleNamespace(
+        url="http://127.0.0.1:8421/?sessionId=rev_demo",
+        desktop_url="http://127.0.0.1:8421/?sessionId=rev_demo",
+        phone_url="http://192.168.1.44:8421/?sessionId=rev_demo",
+    )
+    runtime.enable_phone_review_service = lambda: phone_review_events.append("enable")
+    runtime.disable_phone_review_service = lambda: phone_review_events.append("disable")
+
+    monkeypatch.setattr(launcher_surface, "QAction", FakeAction)
+    monkeypatch.setattr(
+        "echozero.ui.qt.launcher_review_actions.QDesktopServices.openUrl",
+        lambda url: opened_urls.append(url.toString()) or True,
+    )
+    monkeypatch.setattr(
+        "echozero.ui.qt.launcher_review_actions.QMessageBox.information",
+        lambda _parent, title, message: info_messages.append((title, message)),
+    )
+
+    widget = FakeWidget(runtime.presentation(), on_intent=runtime.dispatch, runtime_audio=runtime.runtime_audio)
+    launcher = run_echozero.LauncherController(runtime=runtime, widget=widget)
+    launcher.install()
+
+    assert "open_project_review" in widget._launcher_actions
+    assert "open_project_review_all" in widget._launcher_actions
+    assert "enable_phone_review_service" in widget._launcher_actions
+    assert "disable_phone_review_service" in widget._launcher_actions
+
+    widget._launcher_actions["enable_phone_review_service"].trigger()
+    widget._launcher_actions["open_project_review"].trigger()
+    widget._launcher_actions["open_project_review_all"].trigger()
+    widget._launcher_actions["disable_phone_review_service"].trigger()
+
+    assert opened_urls == [
+        "http://127.0.0.1:8421/?sessionId=rev_demo",
+        "http://127.0.0.1:8421/?sessionId=rev_demo",
+    ]
+    assert info_messages == [
+        (
+            "Phone Review Ready",
+            "Desktop review opened.\n\nPhone URL:\nhttp://192.168.1.44:8421/?sessionId=rev_demo",
+        ),
+        (
+            "Phone Review Ready",
+            "Desktop review opened.\n\nPhone URL:\nhttp://192.168.1.44:8421/?sessionId=rev_demo",
+        ),
+    ]
+    assert phone_review_events == ["enable", "disable"]
+    assert review_calls == [
+        {
+            "song_version_id": "ver_active",
+            "review_mode": "questionables",
+            "questionable_score_threshold": 0.8,
+            "item_limit": 25,
+        },
+        {
+            "song_version_id": "ver_active",
+            "review_mode": "all_events",
+            "item_limit": None,
+        },
+    ]
+
+
 def test_launcher_new_project_prompts_to_save_dirty_changes(monkeypatch):
     calls: list[str] = []
     runtime = SimpleNamespace(
@@ -663,6 +738,126 @@ def test_launcher_open_project_reports_errors(monkeypatch):
     widget._launcher_actions["open_project"].trigger()
 
     assert errors == [("Open Project Failed", "Open Project failed.\n\nbad archive")]
+
+
+def test_launcher_open_project_tracks_recent_projects(monkeypatch):
+    class _RecentSettings:
+        def __init__(self) -> None:
+            self._recent: list[Path] = [Path("C:/projects/older.ez")]
+            self.remember_calls: list[Path] = []
+            self.forget_calls: list[Path] = []
+
+        def recent_project_paths(self):
+            return tuple(self._recent)
+
+        def remember_recent_project_path(self, path, *, limit=10):
+            candidate = Path(path)
+            self.remember_calls.append(candidate)
+            self._recent = [entry for entry in self._recent if entry != candidate]
+            self._recent.insert(0, candidate)
+            self._recent = self._recent[:limit]
+            return tuple(self._recent)
+
+        def forget_recent_project_path(self, path):
+            candidate = Path(path)
+            self.forget_calls.append(candidate)
+            self._recent = [entry for entry in self._recent if entry != candidate]
+            return tuple(self._recent)
+
+    calls: list[Path] = []
+    settings = _RecentSettings()
+    runtime = SimpleNamespace(
+        runtime_audio=FakeRuntimeAudio(),
+        app_settings_service=settings,
+        is_dirty=False,
+        project_path=Path("C:/projects/current.ez"),
+        presentation=lambda: "presentation",
+        dispatch=lambda intent: intent,
+    )
+
+    def open_project(path) -> None:
+        candidate = Path(path)
+        calls.append(candidate)
+        runtime.project_path = candidate
+
+    runtime.open_project = open_project
+
+    monkeypatch.setattr(launcher_surface, "QAction", FakeAction)
+    monkeypatch.setattr(
+        launcher_surface.QFileDialog,
+        "getOpenFileName",
+        lambda *args, **kwargs: ("C:/projects/opened.ez", run_echozero.PROJECT_FILE_FILTER),
+    )
+
+    widget = FakeWidget(runtime.presentation(), on_intent=runtime.dispatch, runtime_audio=runtime.runtime_audio)
+    launcher = run_echozero.LauncherController(runtime=runtime, widget=widget, app_settings_service=settings)
+    launcher.install()
+
+    widget._launcher_actions["open_project"].trigger()
+
+    assert calls == [Path("C:/projects/opened.ez")]
+    assert settings.remember_calls[-1] == Path("C:/projects/opened.ez")
+    assert not settings.forget_calls
+    assert "open_recent_project::0" in launcher._recent_menu_actions
+
+
+def test_launcher_open_recent_project_path_forgets_failed_entry(monkeypatch):
+    class _RecentSettings:
+        def __init__(self) -> None:
+            self._recent: list[Path] = [Path("C:/projects/broken.ez")]
+            self.remember_calls: list[Path] = []
+            self.forget_calls: list[Path] = []
+
+        def recent_project_paths(self):
+            return tuple(self._recent)
+
+        def remember_recent_project_path(self, path, *, limit=10):
+            candidate = Path(path)
+            self.remember_calls.append(candidate)
+            self._recent = [entry for entry in self._recent if entry != candidate]
+            self._recent.insert(0, candidate)
+            self._recent = self._recent[:limit]
+            return tuple(self._recent)
+
+        def forget_recent_project_path(self, path):
+            candidate = Path(path)
+            self.forget_calls.append(candidate)
+            self._recent = [entry for entry in self._recent if entry != candidate]
+            return tuple(self._recent)
+
+    errors: list[tuple[str, str]] = []
+    settings = _RecentSettings()
+    runtime = SimpleNamespace(
+        runtime_audio=FakeRuntimeAudio(),
+        app_settings_service=settings,
+        is_dirty=False,
+        project_path=Path("C:/projects/current.ez"),
+        presentation=lambda: "presentation",
+        dispatch=lambda intent: intent,
+    )
+
+    def open_project(_path) -> None:
+        raise RuntimeError("missing project")
+
+    runtime.open_project = open_project
+
+    monkeypatch.setattr(launcher_surface, "QAction", FakeAction)
+    monkeypatch.setattr(
+        launcher_surface.QMessageBox,
+        "critical",
+        lambda _parent, title, message: errors.append((title, message)),
+    )
+
+    widget = FakeWidget(runtime.presentation(), on_intent=runtime.dispatch, runtime_audio=runtime.runtime_audio)
+    launcher = run_echozero.LauncherController(runtime=runtime, widget=widget, app_settings_service=settings)
+    launcher.install()
+
+    result = launcher.open_recent_project_path(Path("C:/projects/broken.ez"))
+
+    assert result is False
+    assert settings.remember_calls == []
+    assert settings.forget_calls == [Path("C:/projects/broken.ez")]
+    assert errors == [("Open Project Failed", "Open Project failed.\n\nmissing project")]
 
 
 def test_launcher_preferences_action_opens_dialog(monkeypatch):

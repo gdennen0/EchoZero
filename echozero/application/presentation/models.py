@@ -351,6 +351,8 @@ class EventPresentation:
     muted: bool = False
     is_selected: bool = False
     badges: list[str] = field(default_factory=list)
+    source_event_id: str | None = None
+    payload_ref: str | None = None
 
     @property
     def duration(self) -> float:

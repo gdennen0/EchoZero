@@ -12,13 +12,13 @@ from echozero.persistence.entities import PipelineConfigRecord, SongDefaultPipel
 from echozero.persistence.session import ProjectStorage
 from echozero.pipelines.registry import get_registry
 from echozero.result import Err
-from echozero.services.orchestrator import AnalysisService
+from echozero.services.orchestrator import Orchestrator
 
 ObjectActionConfigRecord: TypeAlias = PipelineConfigRecord | SongDefaultPipelineConfigRecord
 
 
 class ScopedConfigShell(Protocol):
-    _analysis_service: AnalysisService
+    _analysis_service: Orchestrator
 
     @property
     def project_storage(self) -> ProjectStorage: ...
@@ -202,6 +202,12 @@ def hydrate_object_action_config_defaults(
         for key, value in defaults.items()
         if not str(config.knob_values.get(key, "")).strip()
     }
+    assignment_mode = str(config.knob_values.get("assignment_mode", "")).strip().lower()
+    if "assignment_mode" in template.knobs and assignment_mode not in {
+        "independent",
+        "exclusive_max",
+    }:
+        updates["assignment_mode"] = "independent"
     if not updates:
         return config
     updated = config.with_knob_values(updates, knob_metadata=template.knobs)

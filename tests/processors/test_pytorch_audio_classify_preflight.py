@@ -380,6 +380,17 @@ def test_default_classify_runs_preflight_once_per_model_load(
     assert len(calls) == 1
     assert calls[0][0] == model_path
     assert all(event.classifications["class"] == "snare" for event in classified)
+    assert all(event.metadata["source_model"] == "model.pth" for event in classified)
+    assert all(event.metadata["model_artifact"]["schema"] == "echozero.model_artifact_ref.v1" for event in classified)
+    assert all(
+        event.metadata["model_artifact"]["artifactIdentity"]["sharedContractFingerprint"]
+        == checkpoint_contract_fingerprint(_checkpoint())
+        for event in classified
+    )
+    assert all(
+        event.classifications["model_artifact"]["displayIdentity"]["weightsFile"] == "model.pth"
+        for event in classified
+    )
 
 
 def test_processor_returns_validation_error_when_preflight_fails(

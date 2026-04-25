@@ -62,10 +62,27 @@ def test_finalize_artifact_persists_shared_contract_fingerprint(tmp_path: Path) 
     expected = create_foundry_adapter().contract_fingerprint_from_run_spec(run.spec, class_map=version.class_map)
 
     assert artifact.manifest["sharedContractFingerprint"] == expected
+    assert artifact.manifest["artifactIdentity"] == {
+        "artifactId": artifact.id,
+        "runId": run.id,
+        "datasetVersionId": version.id,
+        "specHash": run.spec_hash,
+        "sharedContractFingerprint": expected,
+    }
+    assert artifact.manifest["displayIdentity"] == {
+        "artifactId": artifact.id,
+        "runId": run.id,
+        "datasetVersionId": version.id,
+        "weightsFile": "model.pth",
+        "classes": list(version.class_map),
+        "classificationMode": "multiclass",
+        "consumer": "PyTorchAudioClassify",
+    }
 
     persisted = ModelArtifactRepository(tmp_path).get(artifact.id)
     assert persisted is not None
     assert persisted.manifest["sharedContractFingerprint"] == expected
+    assert persisted.manifest["artifactIdentity"] == artifact.manifest["artifactIdentity"]
 
 
 def test_validate_compatibility_rejects_shared_contract_fingerprint_mismatch(tmp_path: Path) -> None:

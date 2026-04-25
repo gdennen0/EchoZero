@@ -17,7 +17,7 @@ from echozero.application.timeline.object_actions import ObjectActionService
 from echozero.application.timeline.pipeline_run_service import PipelineRunService
 from echozero.infrastructure.osc import OscUdpSendTransport
 from echozero.persistence.session import ProjectStorage
-from echozero.services.orchestrator import AnalysisService
+from echozero.services.orchestrator import Orchestrator
 from echozero.ui.qt.app_shell_runtime_services import build_runtime_audio_controller
 from echozero.ui.qt.app_shell_timeline_state import clear_selected_events, resolve_event_clip_preview
 
@@ -53,7 +53,7 @@ class RuntimeAudioController(Protocol):
 
 class RuntimeSupportShell(Protocol):
     _app: TimelineApplication
-    _analysis_service: AnalysisService
+    _analysis_service: Orchestrator
     _object_action_settings: ObjectActionService
     _pipeline_runs: PipelineRunService
     _sync_bridge: MA3SyncBridge | None

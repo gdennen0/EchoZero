@@ -57,6 +57,7 @@ class _WorkspaceBuildHost(Protocol):
     _build_dataset_box: Callable[[], QWidget]
     _build_training_box: Callable[[], QWidget]
     _build_artifact_box: Callable[[], QWidget]
+    _build_review_box: Callable[[], QWidget]
     _build_past_runs_box: Callable[[], QWidget]
     _build_activity_box: Callable[[], QWidget]
     _build_run_table: Callable[..., QTableWidget]
@@ -103,6 +104,7 @@ class FoundryWindowWorkspaceBuildMixin:
         tabs.addTab(host._build_training_box(), "Run")
         tabs.addTab(host._build_past_runs_box(), "Past Runs")
         tabs.addTab(host._build_artifact_box(), "Artifacts")
+        tabs.addTab(host._build_review_box(), "Review")
         tabs.addTab(host._build_activity_box(), "Activity")
         return tabs
 
@@ -250,6 +252,9 @@ class FoundryWindowWorkspaceBuildMixin:
         host._root = Path(candidate)
         host.workspace_path.setText(str(host._root))
         host._refresh_workspace_state()
+        on_review_root_switched = getattr(host, "_on_review_root_switched", None)
+        if callable(on_review_root_switched):
+            on_review_root_switched()
         host._set_status(f"Workspace switched to: {host._root}")
 
 

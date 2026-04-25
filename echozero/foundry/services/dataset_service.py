@@ -2,11 +2,24 @@ from __future__ import annotations
 
 import hashlib
 import json
+from collections import Counter
 from pathlib import Path
 from uuid import uuid4
 
 from echozero.foundry.domain import CurationState, Dataset, DatasetSample, DatasetVersion
+from echozero.foundry.domain.review import (
+    ReviewDecision,
+    ReviewDecisionKind,
+    ReviewOutcome,
+    ReviewSession,
+    ReviewSignal,
+)
 from echozero.foundry.persistence import DatasetRepository, DatasetVersionRepository
+from echozero.foundry.services.audio_source_validation import (
+    InvalidAudioSourceError,
+    inspect_audio_source,
+)
+from echozero.foundry.services.review_audio_clip_service import ReviewAudioClipService
 from echozero.foundry.services.split_balance_service import SplitBalanceService
 
 
@@ -16,10 +29,12 @@ class DatasetService:
         root: Path,
         dataset_repo: DatasetRepository | None = None,
         version_repo: DatasetVersionRepository | None = None,
+        clip_service: ReviewAudioClipService | None = None,
     ):
         self._root = root
         self._datasets = dataset_repo or DatasetRepository(root)
         self._versions = version_repo or DatasetVersionRepository(root)
+        self._clip_service = clip_service or ReviewAudioClipService()
 
     def create_dataset(
         self,
@@ -58,6 +73,8 @@ class DatasetService:
 
         samples: list[DatasetSample] = []
         content_groups: dict[str, list[str]] = {}
+        skipped_sources: list[dict[str, str]] = []
+        skipped_reason_counts: Counter[str] = Counter()
         for class_dir in sorted(p for p in base.iterdir() if p.is_dir()):
             label = class_dir.name
             for file in sorted(class_dir.rglob("*")):
@@ -67,7 +84,35 @@ class DatasetService:
                     continue
                 rel_path = file.relative_to(base).as_posix()
                 rel = file.resolve().as_posix()
-                content_hash = hashlib.sha256(file.read_bytes()).hexdigest()
+                try:
+                    audio_metadata = inspect_audio_source(file)
+                    content_hash = hashlib.sha256(file.read_bytes()).hexdigest()
+                except InvalidAudioSourceError as exc:
+                    skipped_reason_counts[exc.code] += 1
+                    skipped_sources.append(
+                        {
+                            "path": rel,
+                            "relative_path": rel_path,
+                            "filename": file.name,
+                            "label_from_path": label,
+                            "reason_code": exc.code,
+                            "reason": str(exc),
+                        }
+                    )
+                    continue
+                except OSError as exc:
+                    skipped_reason_counts["unreadable"] += 1
+                    skipped_sources.append(
+                        {
+                            "path": rel,
+                            "relative_path": rel_path,
+                            "filename": file.name,
+                            "label_from_path": label,
+                            "reason_code": "unreadable",
+                            "reason": f"audio source bytes could not be read: {exc}",
+                        }
+                    )
+                    continue
                 sample_id = f"sm_{uuid4().hex[:12]}"
                 content_groups.setdefault(content_hash, []).append(sample_id)
                 samples.append(
@@ -75,6 +120,7 @@ class DatasetService:
                         sample_id=sample_id,
                         audio_ref=rel,
                         label=label,
+                        duration_ms=audio_metadata.duration_ms,
                         content_hash=content_hash,
                         source_provenance={
                             "kind": "folder_import",
@@ -92,6 +138,11 @@ class DatasetService:
                 )
 
         if not samples:
+            if skipped_sources:
+                raise ValueError(
+                    f"No valid audio samples found in dataset folder: {base} "
+                    f"(skipped {len(skipped_sources)} invalid file(s))"
+                )
             raise ValueError(f"No audio samples found in dataset folder: {base}")
 
         existing = self._versions.list_for_dataset(dataset_id)
@@ -125,6 +176,8 @@ class DatasetService:
                 for label in class_map
             },
             "duplicate_content_hashes": sum(1 for ids in content_groups.values() if len(ids) > 1),
+            "skipped_invalid_count": len(skipped_sources),
+            "skipped_invalid_by_reason": dict(sorted(skipped_reason_counts.items())),
         }
         dataset_manifest = {
             "schema": "foundry.dataset_manifest.v1",
@@ -136,6 +189,7 @@ class DatasetService:
             "content_groups": {key: sorted(ids) for key, ids in sorted(content_groups.items())},
             "synthetic_sample_ids": [s.sample_id for s in samples if s.is_synthetic],
             "real_sample_ids": [s.sample_id for s in samples if not s.is_synthetic],
+            "skipped_sources": skipped_sources,
         }
 
         version = DatasetVersion(
@@ -162,6 +216,116 @@ class DatasetService:
 
     def list_versions(self, dataset_id: str) -> list[DatasetVersion]:
         return self._versions.list_for_dataset(dataset_id)
+
+    def materialize_review_signal(
+        self,
+        session: ReviewSession,
+        signal: ReviewSignal,
+    ) -> dict[str, object]:
+        """Persist training-ready samples for one explicit review signal when possible."""
+        if signal.review_outcome == ReviewOutcome.PENDING or signal.review_decision is None:
+            return {"status": "skipped", "reason": "pending_review"}
+
+        result = self._build_review_materialization_samples(session=session, signal=signal)
+        if not result["samples"]:
+            return {
+                "status": "skipped",
+                "reason": result["reason"],
+                "details": self._serialize_materialization_details(result["details"]),
+            }
+
+        dataset = self._get_or_create_review_dataset(session=session, signal=signal)
+        existing_versions = self._versions.list_for_dataset(dataset.id)
+        prior_version = existing_versions[-1] if existing_versions else None
+        existing_samples = [] if prior_version is None else list(prior_version.samples)
+        retained_samples = [
+            sample
+            for sample in existing_samples
+            if sample.source_provenance.get("review_signal_id") != signal.id
+        ]
+        next_samples = retained_samples + list(result["samples"])
+        next_version_num = (existing_versions[-1].version + 1) if existing_versions else 1
+        class_map = sorted({sample.label for sample in next_samples})
+        content_groups = self._content_groups(next_samples)
+        dataset_manifest = {
+            "schema": "foundry.review_dataset_manifest.v1",
+            "review_dataset_key": dataset.metadata.get("review_dataset_key"),
+            "source_kind": dataset.source_kind,
+            "source_ref": dataset.source_ref,
+            "deterministic_order": [sample.sample_id for sample in next_samples],
+            "content_hash_algorithm": "sha256",
+            "content_groups": content_groups,
+            "real_sample_ids": [sample.sample_id for sample in next_samples if not sample.is_synthetic],
+            "synthetic_sample_ids": [sample.sample_id for sample in next_samples if sample.is_synthetic],
+            "review_signal_ids": sorted(
+                {
+                    str(sample.source_provenance.get("review_signal_id"))
+                    for sample in next_samples
+                    if sample.source_provenance.get("review_signal_id")
+                }
+            ),
+            "latest_signal_id": signal.id,
+        }
+        stats = {
+            "sample_count": len(next_samples),
+            "real_sample_count": sum(1 for sample in next_samples if not sample.is_synthetic),
+            "synthetic_sample_count": sum(1 for sample in next_samples if sample.is_synthetic),
+            "class_counts": {
+                label: sum(1 for sample in next_samples if sample.label == label)
+                for label in class_map
+            },
+            "review_positive_count": sum(
+                1
+                for sample in next_samples
+                if sample.source_provenance.get("review_polarity") == "positive"
+            ),
+            "review_negative_count": sum(
+                1
+                for sample in next_samples
+                if sample.source_provenance.get("review_polarity") == "negative"
+            ),
+            "materialized_signal_count": len(dataset_manifest["review_signal_ids"]),
+            "latest_signal_id": signal.id,
+        }
+        version = DatasetVersion(
+            id=f"dsv_{uuid4().hex[:12]}",
+            dataset_id=dataset.id,
+            version=next_version_num,
+            manifest_hash=self.compute_manifest_hash(next_samples),
+            sample_rate=int((prior_version.sample_rate if prior_version is not None else 22050)),
+            audio_standard=(
+                prior_version.audio_standard if prior_version is not None else "mono_wav_pcm16"
+            ),
+            class_map=class_map,
+            samples=next_samples,
+            taxonomy=(
+                prior_version.taxonomy
+                if prior_version is not None
+                else self._build_review_taxonomy(class_map)
+            ),
+            label_policy=(
+                prior_version.label_policy
+                if prior_version is not None
+                else self._build_review_label_policy(class_map)
+            ),
+            manifest=dataset_manifest,
+            stats=stats,
+            lineage={
+                "kind": "review_signal_materialization",
+                "source_signal_id": signal.id,
+                "source_version_id": prior_version.id if prior_version is not None else None,
+            },
+        )
+        saved_version = self._versions.save(version)
+        return {
+            "status": "materialized",
+            "dataset_id": dataset.id,
+            "dataset_name": dataset.name,
+            "version_id": saved_version.id,
+            "sample_ids": [sample.sample_id for sample in result["samples"]],
+            "sample_count": len(result["samples"]),
+            "details": self._serialize_materialization_details(result["details"]),
+        }
 
     def update_version_plans(self, version_id: str, *, split_plan: dict, balance_plan: dict) -> DatasetVersion:
         version = self._versions.get(version_id)
@@ -290,6 +454,297 @@ class DatasetService:
     def compute_manifest_hash(cls, samples: list[DatasetSample]) -> str:
         manifest = cls._canonical_manifest_rows(samples)
         return hashlib.sha256(json.dumps(manifest, sort_keys=True).encode("utf-8")).hexdigest()
+
+    def _get_or_create_review_dataset(
+        self,
+        *,
+        session: ReviewSession,
+        signal: ReviewSignal,
+    ) -> Dataset:
+        dataset_key = self._review_dataset_key(session=session, signal=signal)
+        for dataset in self._datasets.list():
+            if dataset.source_kind != "review_signal":
+                continue
+            if dataset.metadata.get("review_dataset_key") == dataset_key:
+                return dataset
+        dataset_name = self._review_dataset_name(session=session, signal=signal)
+        return self.create_dataset(
+            dataset_name,
+            source_kind="review_signal",
+            source_ref=session.source_ref,
+            metadata={
+                "schema": "foundry.review_dataset.v1",
+                "review_dataset_key": dataset_key,
+                "queue_source_kind": session.metadata.get("queue_source_kind", "manual_review"),
+                "project_ref": signal.source_provenance.get("project_ref"),
+                "source_session_id": session.id,
+            },
+        )
+
+    def _build_review_materialization_samples(
+        self,
+        *,
+        session: ReviewSession,
+        signal: ReviewSignal,
+    ) -> dict[str, object]:
+        decision = signal.review_decision
+        if decision is None:
+            return {"samples": [], "reason": "missing_review_decision", "details": []}
+        details: list[dict[str, object]] = []
+        samples: list[DatasetSample] = []
+        for lane in self._training_lanes(signal, decision):
+            sample_result = self._build_review_sample(
+                session=session,
+                signal=signal,
+                decision=decision,
+                lane=lane,
+            )
+            details.append(sample_result)
+            sample = sample_result.get("sample")
+            if isinstance(sample, DatasetSample):
+                samples.append(sample)
+        if samples:
+            return {"samples": samples, "reason": None, "details": details}
+        reason = next(
+            (
+                str(detail.get("reason"))
+                for detail in details
+                if isinstance(detail, dict) and detail.get("reason")
+            ),
+            "no_eligible_training_samples",
+        )
+        return {"samples": [], "reason": reason, "details": details}
+
+    def _build_review_sample(
+        self,
+        *,
+        session: ReviewSession,
+        signal: ReviewSignal,
+        decision: ReviewDecision,
+        lane: str,
+    ) -> dict[str, object]:
+        audio_result = self._resolve_review_sample_audio(
+            session=session,
+            signal=signal,
+            decision=decision,
+            lane=lane,
+        )
+        audio_path = audio_result.get("audio_path")
+        if not isinstance(audio_path, Path):
+            return {
+                "lane": lane,
+                "status": "skipped",
+                "reason": audio_result.get("reason", "missing_audio"),
+            }
+        label = self._review_sample_label(signal=signal, decision=decision, lane=lane)
+        if label is None:
+            return {
+                "lane": lane,
+                "status": "skipped",
+                "reason": "missing_label",
+            }
+        try:
+            metadata = inspect_audio_source(audio_path)
+            content_hash = hashlib.sha256(audio_path.read_bytes()).hexdigest()
+        except InvalidAudioSourceError as exc:
+            return {
+                "lane": lane,
+                "status": "skipped",
+                "reason": exc.code,
+            }
+        except OSError:
+            return {
+                "lane": lane,
+                "status": "skipped",
+                "reason": "unreadable",
+            }
+        sample = DatasetSample(
+            sample_id=self._review_sample_id(signal_id=signal.id, lane=lane),
+            audio_ref=str(audio_path.resolve()),
+            label=label,
+            duration_ms=metadata.duration_ms,
+            content_hash=content_hash,
+            source_provenance={
+                "kind": "review_signal_materialization",
+                "review_signal_id": signal.id,
+                "review_session_id": session.id,
+                "review_polarity": lane,
+                "review_outcome": signal.review_outcome.value,
+                "review_decision_kind": decision.kind.value,
+                "project_writeback": signal.source_provenance.get("project_writeback"),
+                **dict(signal.source_provenance),
+            },
+            group_id=f"content:{content_hash}",
+            is_synthetic=False,
+            synthetic_provenance={},
+            quality_flags=[
+                "reviewed",
+                f"review_{lane}",
+                f"decision_{decision.kind.value}",
+            ],
+            curation_state=CurationState.ACCEPTED,
+        )
+        return {
+            "lane": lane,
+            "status": "materialized",
+            "sample": sample,
+            "audio_ref": sample.audio_ref,
+        }
+
+    def _resolve_review_sample_audio(
+        self,
+        *,
+        session: ReviewSession,
+        signal: ReviewSignal,
+        decision: ReviewDecision,
+        lane: str,
+    ) -> dict[str, object]:
+        if lane == "negative":
+            original_path = Path(signal.audio_path).expanduser()
+            if original_path.exists():
+                return {"audio_path": original_path}
+            return {"reason": "missing_original_audio"}
+        if decision.kind == ReviewDecisionKind.MISSED_EVENT_ADDED:
+            return self._resolve_materialized_review_clip(
+                signal=signal,
+                clip_stem=f"{signal.id}_{lane}",
+                start_ms=decision.corrected_start_ms,
+                end_ms=decision.corrected_end_ms,
+                reason="missing_created_event_materialization",
+            )
+        if not decision.training_eligibility.requires_materialized_correction:
+            original_path = Path(signal.audio_path).expanduser()
+            if original_path.exists():
+                return {"audio_path": original_path}
+            return {"reason": "missing_original_audio"}
+        return self._resolve_materialized_review_clip(
+            signal=signal,
+            clip_stem=f"{signal.id}_{lane}",
+            start_ms=decision.corrected_start_ms,
+            end_ms=decision.corrected_end_ms,
+            reason="missing_materialized_correction",
+        )
+
+    def _resolve_materialized_review_clip(
+        self,
+        *,
+        signal: ReviewSignal,
+        clip_stem: str,
+        start_ms: float | None,
+        end_ms: float | None,
+        reason: str,
+    ) -> dict[str, object]:
+        source_audio_ref = signal.source_provenance.get("source_audio_ref")
+        if not isinstance(source_audio_ref, str) or not source_audio_ref.strip():
+            return {"reason": reason}
+        if start_ms is None or end_ms is None:
+            return {"reason": reason}
+        clip_path = self._clip_service.materialize_event_clip(
+            source_audio_path=Path(source_audio_ref),
+            clip_cache_dir=self._root / "foundry" / "cache" / "review_training_samples",
+            clip_stem=clip_stem,
+            start_seconds=float(start_ms) / 1000.0,
+            end_seconds=float(end_ms) / 1000.0,
+        )
+        if clip_path is None:
+            return {"reason": reason}
+        return {"audio_path": clip_path}
+
+    @staticmethod
+    def _review_sample_label(
+        *,
+        signal: ReviewSignal,
+        decision: ReviewDecision,
+        lane: str,
+    ) -> str | None:
+        if lane == "negative":
+            label = signal.target_class or signal.predicted_label
+        else:
+            label = decision.corrected_label or signal.target_class or signal.predicted_label
+        text = str(label).strip() if label is not None else ""
+        return text or None
+
+    @staticmethod
+    def _training_lanes(signal: ReviewSignal, decision: ReviewDecision) -> list[str]:
+        lanes: list[str] = []
+        if decision.training_eligibility.allows_negative_signal:
+            lanes.append("negative")
+        if decision.training_eligibility.allows_positive_signal:
+            lanes.append("positive")
+        if not lanes and signal.review_outcome == ReviewOutcome.CORRECT:
+            lanes.append("positive")
+        return lanes
+
+    @staticmethod
+    def _review_sample_id(*, signal_id: str, lane: str) -> str:
+        digest = hashlib.sha1(f"{signal_id}|{lane}".encode("utf-8")).hexdigest()[:16]
+        return f"rsm_{digest}"
+
+    @staticmethod
+    def _review_dataset_key(
+        *,
+        session: ReviewSession,
+        signal: ReviewSignal,
+    ) -> str:
+        queue_kind = str(session.metadata.get("queue_source_kind", "manual_review")).strip() or "manual_review"
+        project_ref = str(signal.source_provenance.get("project_ref", "")).strip()
+        if project_ref:
+            return f"{queue_kind}:{project_ref}"
+        return f"{queue_kind}:{session.id}"
+
+    @staticmethod
+    def _review_dataset_name(
+        *,
+        session: ReviewSession,
+        signal: ReviewSignal,
+    ) -> str:
+        project_name = str(signal.source_provenance.get("project_name", "")).strip()
+        if project_name:
+            return f"Review Samples - {project_name}"
+        return f"Review Samples - {session.name}"
+
+    @staticmethod
+    def _content_groups(samples: list[DatasetSample]) -> dict[str, list[str]]:
+        groups: dict[str, list[str]] = {}
+        for sample in samples:
+            key = sample.group_id or f"content:{sample.content_hash}"
+            groups.setdefault(key, []).append(sample.sample_id)
+        return {key: sorted(sample_ids) for key, sample_ids in sorted(groups.items())}
+
+    @staticmethod
+    def _build_review_taxonomy(class_map: list[str]) -> dict[str, object]:
+        return {
+            "schema": "foundry.taxonomy.v1",
+            "namespace": "percussion.one_shot",
+            "version": 1,
+            "labels": [
+                {"id": label, "display_name": label.replace("_", " "), "aliases": []}
+                for label in class_map
+            ],
+        }
+
+    @staticmethod
+    def _build_review_label_policy(class_map: list[str]) -> dict[str, object]:
+        return {
+            "schema": "foundry.label_policy.v1",
+            "classification_mode": "multiclass",
+            "unit": "one_shot",
+            "allowed_labels": class_map,
+            "unknown_label": None,
+        }
+
+    @staticmethod
+    def _serialize_materialization_details(details: list[dict[str, object]]) -> list[dict[str, object]]:
+        serialized: list[dict[str, object]] = []
+        for detail in details:
+            row = dict(detail)
+            sample = row.pop("sample", None)
+            if isinstance(sample, DatasetSample):
+                row["sample_id"] = sample.sample_id
+                row["label"] = sample.label
+                row["audio_ref"] = sample.audio_ref
+            serialized.append(row)
+        return serialized
 
     @classmethod
     def validate_version_integrity(cls, version: DatasetVersion) -> dict:

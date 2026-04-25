@@ -1,5 +1,5 @@
 """
-Tests for the services layer: AnalysisService and SetlistProcessor.
+Tests for the services layer: Orchestrator and SetlistProcessor.
 Exists because the services layer bridges engine execution and persistence — tests
 verify the full orchestration from template lookup through pipeline execution to
 layer/take persistence, using mock executors for isolation from real audio.
@@ -22,7 +22,7 @@ from echozero.persistence.entities import PipelineConfigRecord, SongRecord, Song
 from echozero.persistence.session import ProjectStorage
 from echozero.pipelines.registry import get_registry
 from echozero.result import Err, Ok, err, ok
-from echozero.services.orchestrator import AnalysisResult, Orchestrator as AnalysisService
+from echozero.services.orchestrator import AnalysisResult, Orchestrator
 from echozero.services.setlist import SetlistProcessor, SetlistResult
 
 
@@ -175,16 +175,16 @@ def _create_session_with_songs(
 
 
 # ---------------------------------------------------------------------------
-# AnalysisService — success path
+# Orchestrator — success path
 # ---------------------------------------------------------------------------
 
 
-class TestAnalysisServiceSuccess:
+class TestOrchestratorSuccess:
     """Verify successful analysis creates layers and takes."""
 
     def test_analyze_creates_layers_and_takes(self, tmp_path: Any) -> None:
         session, song, version = _create_session_with_song(tmp_path)
-        service = AnalysisService(get_registry(), _default_executors())
+        service = Orchestrator(get_registry(), _default_executors())
 
         result = service.analyze(session, version.id, "onset_detection")
 
@@ -213,7 +213,7 @@ class TestAnalysisServiceSuccess:
 
     def test_analyze_take_contains_correct_events(self, tmp_path: Any) -> None:
         session, song, version = _create_session_with_song(tmp_path)
-        service = AnalysisService(get_registry(), _default_executors())
+        service = Orchestrator(get_registry(), _default_executors())
 
         result = service.analyze(session, version.id, "onset_detection")
         assert isinstance(result, Ok)
@@ -233,7 +233,7 @@ class TestAnalysisServiceSuccess:
 
     def test_analyze_take_source_records_provenance(self, tmp_path: Any) -> None:
         session, song, version = _create_session_with_song(tmp_path)
-        service = AnalysisService(get_registry(), _default_executors())
+        service = Orchestrator(get_registry(), _default_executors())
 
         result = service.analyze(session, version.id, "onset_detection")
         assert isinstance(result, Ok)
@@ -251,7 +251,7 @@ class TestAnalysisServiceSuccess:
 
     def test_analyze_result_ids_match_persisted(self, tmp_path: Any) -> None:
         session, song, version = _create_session_with_song(tmp_path)
-        service = AnalysisService(get_registry(), _default_executors())
+        service = Orchestrator(get_registry(), _default_executors())
 
         result = service.analyze(session, version.id, "onset_detection")
         assert isinstance(result, Ok)
@@ -267,16 +267,16 @@ class TestAnalysisServiceSuccess:
 
 
 # ---------------------------------------------------------------------------
-# AnalysisService — error handling
+# Orchestrator — error handling
 # ---------------------------------------------------------------------------
 
 
-class TestAnalysisServiceErrors:
+class TestOrchestratorErrors:
     """Verify error handling for invalid inputs."""
 
     def test_nonexistent_song_version(self, tmp_path: Any) -> None:
         session = ProjectStorage.create_new("Test", working_dir_root=tmp_path)
-        service = AnalysisService(get_registry(), _default_executors())
+        service = Orchestrator(get_registry(), _default_executors())
 
         result = service.analyze(session, "nonexistent_id", "onset_detection")
 
@@ -288,7 +288,7 @@ class TestAnalysisServiceErrors:
 
     def test_nonexistent_pipeline(self, tmp_path: Any) -> None:
         session, song, version = _create_session_with_song(tmp_path)
-        service = AnalysisService(get_registry(), _default_executors())
+        service = Orchestrator(get_registry(), _default_executors())
 
         result = service.analyze(session, version.id, "nonexistent_pipeline")
 
@@ -300,7 +300,7 @@ class TestAnalysisServiceErrors:
 
     def test_invalid_bindings_wrong_type(self, tmp_path: Any) -> None:
         session, song, version = _create_session_with_song(tmp_path)
-        service = AnalysisService(get_registry(), _default_executors())
+        service = Orchestrator(get_registry(), _default_executors())
 
         result = service.analyze(
             session, version.id, "onset_detection",
@@ -318,7 +318,7 @@ class TestAnalysisServiceErrors:
             "LoadAudio": FailingExecutor(),
             "DetectOnsets": MockDetectOnsetsExecutor(),
         }
-        service = AnalysisService(get_registry(), executors)
+        service = Orchestrator(get_registry(), executors)
 
         result = service.analyze(session, version.id, "onset_detection")
 
@@ -331,7 +331,7 @@ class TestAnalysisServiceErrors:
         session, song, version = _create_session_with_song(tmp_path)
         # Only register load_audio, missing detect_onsets
         executors: dict[str, Any] = {"LoadAudio": MockLoadAudioExecutor()}
-        service = AnalysisService(get_registry(), executors)
+        service = Orchestrator(get_registry(), executors)
 
         result = service.analyze(session, version.id, "onset_detection")
 
@@ -341,11 +341,11 @@ class TestAnalysisServiceErrors:
 
 
 # ---------------------------------------------------------------------------
-# AnalysisService — bindings
+# Orchestrator — bindings
 # ---------------------------------------------------------------------------
 
 
-class TestAnalysisServiceBindings:
+class TestOrchestratorBindings:
     """Verify binding application and auto-binding."""
 
     def test_custom_bindings_applied_to_graph(self, tmp_path: Any) -> None:
@@ -355,7 +355,7 @@ class TestAnalysisServiceBindings:
             "LoadAudio": MockLoadAudioExecutor(),
             "DetectOnsets": capturing_executor,
         }
-        service = AnalysisService(get_registry(), executors)
+        service = Orchestrator(get_registry(), executors)
 
         result = service.analyze(
             session, version.id, "onset_detection",
@@ -392,7 +392,7 @@ class TestAnalysisServiceBindings:
             "LoadAudio": capturing,
             "DetectOnsets": MockDetectOnsetsExecutor(),
         }
-        service = AnalysisService(get_registry(), executors)
+        service = Orchestrator(get_registry(), executors)
 
         result = service.analyze(session, version.id, "onset_detection")
 
@@ -403,7 +403,7 @@ class TestAnalysisServiceBindings:
 
     def test_unknown_binding_key_fails_validation(self, tmp_path: Any) -> None:
         session, song, version = _create_session_with_song(tmp_path)
-        service = AnalysisService(get_registry(), _default_executors())
+        service = Orchestrator(get_registry(), _default_executors())
 
         result = service.analyze(
             session, version.id, "onset_detection",
@@ -418,16 +418,16 @@ class TestAnalysisServiceBindings:
 
 
 # ---------------------------------------------------------------------------
-# AnalysisService — re-run behavior
+# Orchestrator — re-run behavior
 # ---------------------------------------------------------------------------
 
 
-class TestAnalysisServiceReRun:
+class TestOrchestratorReRun:
     """Verify re-run behavior with existing layers."""
 
     def test_first_run_creates_main_take(self, tmp_path: Any) -> None:
         session, song, version = _create_session_with_song(tmp_path)
-        service = AnalysisService(get_registry(), _default_executors())
+        service = Orchestrator(get_registry(), _default_executors())
 
         service.analyze(session, version.id, "onset_detection")
 
@@ -441,7 +441,7 @@ class TestAnalysisServiceReRun:
 
     def test_rerun_adds_non_main_take(self, tmp_path: Any) -> None:
         session, song, version = _create_session_with_song(tmp_path)
-        service = AnalysisService(get_registry(), _default_executors())
+        service = Orchestrator(get_registry(), _default_executors())
 
         # First run
         result1 = service.analyze(session, version.id, "onset_detection")
@@ -467,7 +467,7 @@ class TestAnalysisServiceReRun:
 
     def test_rerun_does_not_duplicate_layer(self, tmp_path: Any) -> None:
         session, song, version = _create_session_with_song(tmp_path)
-        service = AnalysisService(get_registry(), _default_executors())
+        service = Orchestrator(get_registry(), _default_executors())
 
         # Run three times
         service.analyze(session, version.id, "onset_detection")
@@ -484,16 +484,16 @@ class TestAnalysisServiceReRun:
 
 
 # ---------------------------------------------------------------------------
-# AnalysisService — progress callback
+# Orchestrator — progress callback
 # ---------------------------------------------------------------------------
 
 
-class TestAnalysisServiceProgress:
+class TestOrchestratorProgress:
     """Verify progress callback behavior."""
 
     def test_progress_callback_called(self, tmp_path: Any) -> None:
         session, song, version = _create_session_with_song(tmp_path)
-        service = AnalysisService(get_registry(), _default_executors())
+        service = Orchestrator(get_registry(), _default_executors())
 
         progress_calls: list[tuple[str, float]] = []
 
@@ -515,17 +515,17 @@ class TestAnalysisServiceProgress:
 
 
 # ---------------------------------------------------------------------------
-# AnalysisService — persistence round-trip
+# Orchestrator — persistence round-trip
 # ---------------------------------------------------------------------------
 
 
-class TestAnalysisServiceRoundTrip:
+class TestOrchestratorRoundTrip:
     """Verify full persistence round-trip: create, analyze, close, reopen, verify."""
 
     def test_full_round_trip(self, tmp_path: Any) -> None:
         # Create and analyze
         session, song, version = _create_session_with_song(tmp_path)
-        service = AnalysisService(get_registry(), _default_executors())
+        service = Orchestrator(get_registry(), _default_executors())
 
         result = service.analyze(session, version.id, "onset_detection")
         assert isinstance(result, Ok)
@@ -559,7 +559,7 @@ class TestAnalysisServiceRoundTrip:
 def _create_pipeline_config(session, song_version_id, template_id="onset_detection"):
     """Helper: create a PipelineConfigRecord via Orchestrator.create_config and return the ID."""
     from echozero.result import unwrap
-    service = AnalysisService(get_registry(), _default_executors())
+    service = Orchestrator(get_registry(), _default_executors())
     result = service.create_config(session, song_version_id, template_id)
     config = unwrap(result)
     return config.id
@@ -570,7 +570,7 @@ class TestSetlistProcessorSuccess:
 
     def test_process_all_songs_succeed(self, tmp_path: Any) -> None:
         session, songs, versions = _create_session_with_songs(tmp_path, count=3)
-        service = AnalysisService(get_registry(), _default_executors())
+        service = Orchestrator(get_registry(), _default_executors())
         processor = SetlistProcessor(service)
 
         config_ids = [_create_pipeline_config(session, v.id) for v in versions]
@@ -588,7 +588,7 @@ class TestSetlistProcessorSuccess:
 
     def test_single_song(self, tmp_path: Any) -> None:
         session, song, version = _create_session_with_song(tmp_path)
-        service = AnalysisService(get_registry(), _default_executors())
+        service = Orchestrator(get_registry(), _default_executors())
         processor = SetlistProcessor(service)
 
         config_ids = [_create_pipeline_config(session, version.id)]
@@ -612,7 +612,7 @@ class TestSetlistProcessorFailure:
 
     def test_one_failure_continues_processing(self, tmp_path: Any) -> None:
         session, songs, versions = _create_session_with_songs(tmp_path, count=3)
-        service = AnalysisService(get_registry(), _default_executors())
+        service = Orchestrator(get_registry(), _default_executors())
         processor = SetlistProcessor(service)
 
         # Create valid configs for songs 0 and 2, use a bad ID for song 1
@@ -635,7 +635,7 @@ class TestSetlistProcessorFailure:
 
     def test_all_fail(self, tmp_path: Any) -> None:
         session = ProjectStorage.create_new("Test", working_dir_root=tmp_path)
-        service = AnalysisService(get_registry(), _default_executors())
+        service = Orchestrator(get_registry(), _default_executors())
         processor = SetlistProcessor(service)
 
         config_ids = [f"bad_id_{i}" for i in range(3)]
@@ -660,7 +660,7 @@ class TestSetlistProcessorProgress:
 
     def test_progress_called_per_song(self, tmp_path: Any) -> None:
         session, songs, versions = _create_session_with_songs(tmp_path, count=3)
-        service = AnalysisService(get_registry(), _default_executors())
+        service = Orchestrator(get_registry(), _default_executors())
         processor = SetlistProcessor(service)
 
         config_ids = [_create_pipeline_config(session, v.id) for v in versions]
@@ -690,7 +690,7 @@ class TestSetlistProcessorEmpty:
 
     def test_empty_list_returns_zero_summary(self, tmp_path: Any) -> None:
         session = ProjectStorage.create_new("Test", working_dir_root=tmp_path)
-        service = AnalysisService(get_registry(), _default_executors())
+        service = Orchestrator(get_registry(), _default_executors())
         processor = SetlistProcessor(service)
 
         result = processor.process_setlist(session, config_ids=[])
@@ -714,7 +714,7 @@ class TestSetlistProcessorRoundTrip:
 
     def test_process_all_and_verify_persisted(self, tmp_path: Any) -> None:
         session, songs, versions = _create_session_with_songs(tmp_path, count=3)
-        service = AnalysisService(get_registry(), _default_executors())
+        service = Orchestrator(get_registry(), _default_executors())
         processor = SetlistProcessor(service)
 
         config_ids = [_create_pipeline_config(session, v.id) for v in versions]
@@ -739,4 +739,3 @@ class TestSetlistProcessorRoundTrip:
             assert isinstance(takes[0].data, EventData)
 
         session2.close()
-

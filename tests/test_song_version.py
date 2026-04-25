@@ -15,14 +15,17 @@ from typing import Any
 
 import pytest
 
-from echozero.persistence.audio import AudioMetadata
+from echozero.domain.types import AudioData
+from echozero.persistence.audio import AudioImportOptions, AudioMetadata
 from echozero.persistence.entities import (
+    LayerRecord,
     PipelineConfigRecord,
     SongDefaultPipelineConfigRecord,
     SongRecord,
     SongVersionRecord,
 )
 from echozero.persistence.session import ProjectStorage
+from echozero.takes import Take
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -111,6 +114,54 @@ def _make_pipeline_config(
     )
 
 
+def _make_layer_record(
+    *,
+    song_version_id: str,
+    name: str,
+    order: int,
+    parent_layer_id: str | None = None,
+) -> LayerRecord:
+    now = datetime.now(timezone.utc)
+    return LayerRecord(
+        id=uuid.uuid4().hex,
+        song_version_id=song_version_id,
+        name=name,
+        layer_type="manual",
+        color="#445566",
+        order=order,
+        visible=True,
+        locked=False,
+        parent_layer_id=parent_layer_id,
+        source_pipeline=None,
+        created_at=now,
+        state_flags={"manual_kind": "event"},
+        provenance={},
+    )
+
+
+def _make_audio_take(
+    *,
+    label: str,
+    is_main: bool,
+) -> Take:
+    return Take(
+        id=uuid.uuid4().hex,
+        label=label,
+        data=AudioData(
+            sample_rate=44100,
+            duration=12.0,
+            file_path=f"audio/{uuid.uuid4().hex}.wav",
+            channel_count=2,
+        ),
+        origin="user",
+        source=None,
+        created_at=datetime.now(timezone.utc),
+        is_main=is_main,
+        is_archived=False,
+        notes="",
+    )
+
+
 # ---------------------------------------------------------------------------
 # Tests
 # ---------------------------------------------------------------------------
@@ -154,6 +205,120 @@ class TestAudioMetadata:
 
         assert v2.duration_seconds == 240.0
         assert v2.original_sample_rate == 48000
+        session.close()
+
+
+class TestLtcImportPreprocessing:
+    """Verify import-time LTC stripping is applied through the shared version path."""
+
+    def test_import_song_strips_detected_ltc_channel_before_copy(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        session = _create_session(tmp_path)
+        source = _create_audio_file(tmp_path, "ltc-stereo.wav")
+        staged_program = tmp_path / "ltc-program-staged.wav"
+        staged_program.write_bytes(b"RIFF_PROGRAM")
+        staged_ltc = tmp_path / "ltc-timecode-staged.wav"
+        staged_ltc.write_bytes(b"RIFF_TIMECODE")
+
+        monkeypatch.setattr(
+            "echozero.persistence.audio.detect_ltc_channel",
+            lambda _path: "left",
+        )
+        monkeypatch.setattr(
+            "echozero.persistence.audio.compute_audio_hash",
+            lambda _path: "a" * 64,
+        )
+
+        def _fake_write(_path: Path, *, working_dir: Path, channel_index: int) -> Path:
+            if channel_index == 1:
+                return staged_program
+            return staged_ltc
+
+        monkeypatch.setattr(
+            "echozero.persistence.audio._write_import_channel_copy",
+            _fake_write,
+        )
+
+        def _scan(path: Path) -> AudioMetadata:
+            if path == source:
+                return AudioMetadata(duration_seconds=180.0, sample_rate=48000, channel_count=2)
+            return AudioMetadata(duration_seconds=180.0, sample_rate=48000, channel_count=1)
+
+        song, version = session.import_song(
+            "LTC Song",
+            source,
+            default_templates=[],
+            audio_import_options=AudioImportOptions(strip_ltc_timecode=True),
+            scan_fn=_scan,
+        )
+        imported_path = session.working_dir / version.audio_file
+        split_dir = session.working_dir / "audio" / "split_channels"
+        retained_program = split_dir / f"{'a' * 16}_program_right.wav"
+        retained_ltc = split_dir / f"{'a' * 16}_ltc_left.wav"
+
+        assert imported_path.read_bytes() == b"RIFF_PROGRAM"
+        assert retained_program.read_bytes() == b"RIFF_PROGRAM"
+        assert retained_ltc.read_bytes() == b"RIFF_TIMECODE"
+        assert not staged_program.exists()
+        assert not staged_ltc.exists()
+        assert song.active_version_id == version.id
+        session.close()
+
+    def test_ltc_channel_flip_extracts_left_audio_when_ltc_is_right(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        session = _create_session(tmp_path)
+        source = _create_audio_file(tmp_path, "flipped-ltc.wav")
+        staged_program = tmp_path / "flipped-program-staged.wav"
+        staged_program.write_bytes(b"RIFF_LEFT_PROGRAM")
+        staged_ltc = tmp_path / "flipped-timecode-staged.wav"
+        staged_ltc.write_bytes(b"RIFF_RIGHT_TIMECODE")
+        captured_channel_indices: list[int] = []
+
+        monkeypatch.setattr(
+            "echozero.persistence.audio.detect_ltc_channel",
+            lambda _path: "right",
+        )
+        monkeypatch.setattr(
+            "echozero.persistence.audio.compute_audio_hash",
+            lambda _path: "b" * 64,
+        )
+
+        def _fake_write(_path: Path, *, working_dir: Path, channel_index: int) -> Path:
+            captured_channel_indices.append(channel_index)
+            if channel_index == 0:
+                return staged_program
+            return staged_ltc
+
+        monkeypatch.setattr(
+            "echozero.persistence.audio._write_import_channel_copy",
+            _fake_write,
+        )
+
+        song, version = session.import_song(
+            "Flipped LTC Song",
+            source,
+            default_templates=[],
+            audio_import_options=AudioImportOptions(strip_ltc_timecode=True),
+            scan_fn=_mock_scan,
+        )
+        imported_path = session.working_dir / version.audio_file
+        split_dir = session.working_dir / "audio" / "split_channels"
+        retained_program = split_dir / f"{'b' * 16}_program_left.wav"
+        retained_ltc = split_dir / f"{'b' * 16}_ltc_right.wav"
+
+        assert captured_channel_indices == [0, 1]
+        assert imported_path.read_bytes() == b"RIFF_LEFT_PROGRAM"
+        assert retained_program.read_bytes() == b"RIFF_LEFT_PROGRAM"
+        assert retained_ltc.read_bytes() == b"RIFF_RIGHT_TIMECODE"
+        assert not staged_program.exists()
+        assert not staged_ltc.exists()
+        assert song.active_version_id == version.id
         session.close()
 
 
@@ -208,7 +373,6 @@ class TestDefaultTemplates:
         configs = session.pipeline_configs.list_by_version(v1.id)
         assert len(configs) == 0
         session.close()
-
     def test_add_version_copies_song_defaults_not_active_version(self, tmp_path: Path) -> None:
         """add_song_version uses song defaults as the source of effective settings."""
         session = _create_session(tmp_path)
@@ -234,6 +398,41 @@ class TestDefaultTemplates:
 
         assert len(v2_configs) == 1
         assert v2_configs[0].template_id == "custom"
+        session.close()
+
+
+class TestSetlistReorder:
+    """Verify project-level song reordering persists through versioning storage."""
+
+    def test_reorder_songs_updates_song_order(self, tmp_path: Path) -> None:
+        session = _create_session(tmp_path)
+        audio_a = _create_audio_file(tmp_path, "a.wav")
+        audio_b = _create_audio_file(tmp_path, "b.wav")
+        audio_c = _create_audio_file(tmp_path, "c.wav")
+
+        song_a, _ = session.import_song("A", audio_a, default_templates=[], scan_fn=_mock_scan)
+        song_b, _ = session.import_song("B", audio_b, default_templates=[], scan_fn=_mock_scan)
+        song_c, _ = session.import_song("C", audio_c, default_templates=[], scan_fn=_mock_scan)
+
+        session.reorder_songs([song_c.id, song_a.id, song_b.id])
+        ordered = session.songs.list_by_project(session.project.id)
+
+        assert [song.id for song in ordered] == [song_c.id, song_a.id, song_b.id]
+        session.close()
+
+    def test_reorder_songs_rejects_missing_ids(self, tmp_path: Path) -> None:
+        session = _create_session(tmp_path)
+        audio_a = _create_audio_file(tmp_path, "a.wav")
+        audio_b = _create_audio_file(tmp_path, "b.wav")
+
+        song_a, _ = session.import_song("A", audio_a, default_templates=[], scan_fn=_mock_scan)
+        song_b, _ = session.import_song("B", audio_b, default_templates=[], scan_fn=_mock_scan)
+
+        with pytest.raises(ValueError, match="requires one ID for every song"):
+            session.reorder_songs([song_a.id])
+
+        with pytest.raises(ValueError, match="requires the same song IDs"):
+            session.reorder_songs([song_a.id, "ghost-song-id"])
         session.close()
 
 
@@ -484,6 +683,86 @@ class TestAddSongVersion:
 
         assert version_a.ma3_timecode_pool_no == 1
         assert version_b.ma3_timecode_pool_no == 2
+        session.close()
+
+    def test_new_version_does_not_copy_layers_by_default(self, tmp_path: Path) -> None:
+        session = _create_session(tmp_path)
+        audio1 = _create_audio_file(tmp_path, "v1.wav")
+        audio2 = _create_audio_file(tmp_path, "v2.wav")
+
+        song, v1 = session.import_song("Test SongRecord", audio1, scan_fn=_mock_scan, default_templates=[])
+        source_layer = _make_layer_record(song_version_id=v1.id, name="Drums", order=0)
+        session.layers.create(source_layer)
+        session.takes.create(source_layer.id, _make_audio_take(label="Take 1", is_main=True))
+        session.commit()
+
+        v2 = session.add_song_version(song.id, audio2, scan_fn=_mock_scan)
+
+        assert session.layers.list_by_version(v2.id) == []
+        session.close()
+
+    def test_can_transfer_all_layers_to_new_version(self, tmp_path: Path) -> None:
+        session = _create_session(tmp_path)
+        audio1 = _create_audio_file(tmp_path, "v1.wav")
+        audio2 = _create_audio_file(tmp_path, "v2.wav")
+
+        song, v1 = session.import_song("Test SongRecord", audio1, scan_fn=_mock_scan, default_templates=[])
+        parent_layer = _make_layer_record(song_version_id=v1.id, name="Drums", order=0)
+        child_layer = _make_layer_record(
+            song_version_id=v1.id,
+            name="Snare Hits",
+            order=1,
+            parent_layer_id=parent_layer.id,
+        )
+        session.layers.create(parent_layer)
+        session.layers.create(child_layer)
+        session.takes.create(parent_layer.id, _make_audio_take(label="Main", is_main=True))
+        session.takes.create(parent_layer.id, _make_audio_take(label="Alt", is_main=False))
+        session.takes.create(child_layer.id, _make_audio_take(label="Main", is_main=True))
+        session.commit()
+
+        v2 = session.add_song_version(song.id, audio2, transfer_layers=True, scan_fn=_mock_scan)
+
+        copied_layers = session.layers.list_by_version(v2.id)
+        assert [layer.name for layer in copied_layers] == ["Drums", "Snare Hits"]
+        assert all(layer.id not in {parent_layer.id, child_layer.id} for layer in copied_layers)
+        copied_by_name = {layer.name: layer for layer in copied_layers}
+        assert copied_by_name["Snare Hits"].parent_layer_id == copied_by_name["Drums"].id
+        copied_parent_takes = session.takes.list_by_layer(copied_by_name["Drums"].id)
+        assert [take.label for take in copied_parent_takes] == ["Main", "Alt"]
+        assert [take.is_main for take in copied_parent_takes] == [True, False]
+        session.close()
+
+    def test_can_transfer_selected_layers_to_new_version(self, tmp_path: Path) -> None:
+        session = _create_session(tmp_path)
+        audio1 = _create_audio_file(tmp_path, "v1.wav")
+        audio2 = _create_audio_file(tmp_path, "v2.wav")
+
+        song, v1 = session.import_song("Test SongRecord", audio1, scan_fn=_mock_scan, default_templates=[])
+        drums = _make_layer_record(song_version_id=v1.id, name="Drums", order=0)
+        bass = _make_layer_record(song_version_id=v1.id, name="Bass", order=1)
+        fx = _make_layer_record(song_version_id=v1.id, name="FX", order=2)
+        session.layers.create(drums)
+        session.layers.create(bass)
+        session.layers.create(fx)
+        session.takes.create(drums.id, _make_audio_take(label="Take 1", is_main=True))
+        session.takes.create(bass.id, _make_audio_take(label="Take 1", is_main=True))
+        session.takes.create(fx.id, _make_audio_take(label="Take 1", is_main=True))
+        session.commit()
+
+        v2 = session.add_song_version(
+            song.id,
+            audio2,
+            transfer_layers=True,
+            transfer_layer_ids=[bass.id, "missing-layer-id"],
+            scan_fn=_mock_scan,
+        )
+
+        copied_layers = session.layers.list_by_version(v2.id)
+        assert [layer.name for layer in copied_layers] == ["Bass"]
+        copied_takes = session.takes.list_by_layer(copied_layers[0].id)
+        assert len(copied_takes) == 1
+        assert copied_takes[0].label == "Take 1"
         session.close()
 
     def test_nonexistent_song_raises(self, tmp_path: Path) -> None:

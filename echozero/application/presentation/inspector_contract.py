@@ -104,6 +104,24 @@ def build_timeline_inspector_contract(
             has_selected_events=bool(presentation.selected_event_ids),
         )
 
+    if presentation.selected_event_refs:
+        selected_ref = presentation.selected_event_refs[-1]
+        event_match = _find_event(
+            presentation,
+            layer_id=selected_ref.layer_id,
+            take_id=selected_ref.take_id,
+            event_id=selected_ref.event_id,
+        )
+        if event_match is not None:
+            layer, take, event = event_match
+            return _event_contract(
+                presentation,
+                layer=layer,
+                take=take,
+                event=event,
+                hit_target=None,
+            )
+
     if presentation.selected_event_ids and presentation.selected_layer_id is not None:
         selected_event_id = presentation.selected_event_ids[0]
         event_match = _find_selected_event(presentation, selected_event_id)

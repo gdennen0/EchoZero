@@ -6,6 +6,8 @@ Connects inspector actions to app intents and runtime shell callbacks on the can
 from __future__ import annotations
 
 from collections.abc import Callable
+import inspect
+from pathlib import Path
 from typing import Protocol, cast
 
 from PyQt6.QtWidgets import QFileDialog, QInputDialog, QMessageBox, QWidget
@@ -35,13 +37,22 @@ from echozero.application.timeline.intents import (
 )
 from echozero.application.timeline.object_actions import canonical_action_id
 
+_AUDIO_FILE_DIALOG_FILTER = "Audio Files (*.wav *.mp3 *.flac *.aiff *.aif *.ogg);;All Files (*)"
+
 
 class _TimelineRuntimeShell(Protocol):
     def presentation(self) -> TimelinePresentation: ...
 
 
 class _AddSongRuntimeShell(_TimelineRuntimeShell, Protocol):
-    def add_song_from_path(self, title: str, audio_path: str) -> TimelinePresentation | None: ...
+    def add_song_from_path(
+        self,
+        title: str,
+        audio_path: str,
+        *,
+        run_import_pipeline: bool | None = None,
+        import_pipeline_action_ids: tuple[str, ...] | None = None,
+    ) -> TimelinePresentation | None: ...
 
 
 class _SelectSongRuntimeShell(_TimelineRuntimeShell, Protocol):
@@ -59,7 +70,26 @@ class _AddSongVersionRuntimeShell(_TimelineRuntimeShell, Protocol):
         audio_path: str,
         *,
         label: str | None = None,
+        transfer_layers: bool = False,
+        transfer_layer_ids: list[str] | None = None,
+        run_import_pipeline: bool | None = None,
+        import_pipeline_action_ids: tuple[str, ...] | None = None,
     ) -> TimelinePresentation | None: ...
+
+
+class _MoveSongRuntimeShell(_TimelineRuntimeShell, Protocol):
+    def move_song(self, song_id: str, *, steps: int) -> TimelinePresentation | None: ...
+
+
+class _ReorderSongsRuntimeShell(_TimelineRuntimeShell, Protocol):
+    def reorder_songs(self, song_ids: list[str]) -> TimelinePresentation | None: ...
+
+
+class _SongVersionTransferLookupRuntimeShell(_TimelineRuntimeShell, Protocol):
+    def list_song_version_transfer_layers(
+        self,
+        song_id: str,
+    ) -> list[tuple[str, str]]: ...
 
 
 class _DeleteSongRuntimeShell(_TimelineRuntimeShell, Protocol):
@@ -99,6 +129,17 @@ class _PreviewEventRuntimeShell(_TimelineRuntimeShell, Protocol):
         take_id: TakeId | None,
         event_id: EventId,
     ) -> None: ...
+
+
+class _RunObjectActionRuntimeShell(_TimelineRuntimeShell, Protocol):
+    def run_object_action(
+        self,
+        action_id: str,
+        params: dict[str, object],
+        *,
+        object_id: LayerId,
+        object_type: str,
+    ) -> TimelinePresentation: ...
 
 
 def _coerce_layer_id(value: object) -> LayerId | None:
@@ -156,6 +197,149 @@ class _ContractActionHost(Protocol):
 
 
 class TimelineWidgetContractActionMixin:
+    def _default_song_title_from_audio_path(self, audio_path: str) -> str:
+        stem = Path(audio_path).stem.strip()
+        return stem or "Imported Song"
+
+    def _resolve_audio_picker_start_directory(self) -> str:
+        configured_value = getattr(self, "_last_audio_picker_directory", "")
+        if isinstance(configured_value, str) and configured_value.strip():
+            return configured_value
+        return ""
+
+    def _remember_audio_picker_directory(self, audio_path: str) -> None:
+        selected_parent = Path(audio_path).expanduser().parent
+        setattr(self, "_last_audio_picker_directory", str(selected_parent))
+
+    def _prompt_for_audio_path(self, *, title: str) -> str | None:
+        host = cast(_ContractActionHost, self)
+        audio_path, _ = host._file_dialog.getOpenFileName(
+            host._widget,
+            title,
+            self._resolve_audio_picker_start_directory(),
+            _AUDIO_FILE_DIALOG_FILTER,
+        )
+        if not audio_path:
+            return None
+        self._remember_audio_picker_directory(audio_path)
+        return audio_path
+
+    def _run_configured_import_pipeline_actions(
+        self,
+        *,
+        runtime: _TimelineRuntimeShell,
+        source_label: str,
+    ) -> None:
+        host = cast(_ContractActionHost, self)
+        resolver = getattr(self, "_configured_import_pipeline_actions", None)
+        runner = getattr(self, "_run_import_pipeline_actions", None)
+        if not callable(resolver):
+            return
+        action_ids = resolver(runtime)
+        if not action_ids:
+            return
+        if callable(runner):
+            runner(
+                runtime=runtime,
+                source_label=source_label,
+                action_ids=action_ids,
+            )
+            return
+        source_layer_id = self._resolve_import_source_audio_layer_id(runtime)
+        if source_layer_id is None:
+            return
+        run_runtime = cast(_RunObjectActionRuntimeShell | None, runtime)
+        if run_runtime is None or not callable(getattr(run_runtime, "run_object_action", None)):
+            return
+        for action_id in action_ids:
+            try:
+                updated = run_runtime.run_object_action(
+                    action_id,
+                    {},
+                    object_id=source_layer_id,
+                    object_type="layer",
+                )
+            except Exception as exc:
+                host._message_box.warning(
+                    host._widget,
+                    "Import Pipeline Actions",
+                    f"{source_label}: {exc}",
+                )
+                continue
+            host._set_presentation(updated if updated is not None else runtime.presentation())
+
+    @staticmethod
+    def _resolve_import_source_audio_layer_id(
+        runtime: _TimelineRuntimeShell,
+    ) -> LayerId | None:
+        presentation = runtime.presentation()
+        for layer in presentation.layers:
+            if str(layer.layer_id).strip() == "source_audio":
+                return cast(LayerId, layer.layer_id)
+        for layer in presentation.layers:
+            if layer.kind is LayerKind.AUDIO:
+                return cast(LayerId, layer.layer_id)
+        return None
+
+    def _configured_import_pipeline_action_ids(
+        self,
+        runtime: _TimelineRuntimeShell,
+    ) -> tuple[str, ...] | None:
+        resolver = getattr(self, "_configured_import_pipeline_actions", None)
+        if not callable(resolver):
+            return None
+        try:
+            action_ids = resolver(runtime)
+        except Exception:
+            return ()
+        if not action_ids:
+            return ()
+        return tuple(
+            action_id.strip()
+            for action_id in action_ids
+            if isinstance(action_id, str) and action_id.strip()
+        )
+
+    @staticmethod
+    def _method_supports_any_kwargs(
+        method: Callable[..., object],
+        *kwargs: str,
+    ) -> bool:
+        try:
+            signature = inspect.signature(method)
+        except (TypeError, ValueError):
+            return True
+        parameters = signature.parameters
+        if any(
+            parameter.kind is inspect.Parameter.VAR_KEYWORD
+            for parameter in parameters.values()
+        ):
+            return True
+        return any(keyword in parameters for keyword in kwargs)
+
+    @staticmethod
+    def _invoke_with_supported_kwargs(
+        method: Callable[..., object],
+        *args: object,
+        **kwargs: object,
+    ) -> object:
+        try:
+            signature = inspect.signature(method)
+        except (TypeError, ValueError):
+            return method(*args, **kwargs)
+        parameters = signature.parameters
+        if any(
+            parameter.kind is inspect.Parameter.VAR_KEYWORD
+            for parameter in parameters.values()
+        ):
+            return method(*args, **kwargs)
+        supported_kwargs = {
+            key: value
+            for key, value in kwargs.items()
+            if key in parameters
+        }
+        return method(*args, **supported_kwargs)
+
     def trigger_contract_action(self, action: InspectorAction) -> None:
         """Execute one inspector contract action against the widget/runtime surface."""
         host = cast(_ContractActionHost, self)
@@ -214,6 +398,9 @@ class TimelineWidgetContractActionMixin:
             return
         if action_id == "add_event_layer":
             self._run_add_layer_action(LayerKind.EVENT)
+            return
+        if action_id == "add_marker_layer":
+            self._run_add_layer_action(LayerKind.MARKER)
             return
         if action_id == "delete_layer":
             self._run_delete_layer_action(params)
@@ -295,23 +482,54 @@ class TimelineWidgetContractActionMixin:
                 "This runtime does not support adding songs from a path.",
             )
             return
-        title, accepted = host._input_dialog.getText(host._widget, "Add Song", "Song title")
-        if not accepted or not title.strip():
-            return
-        audio_path, _ = host._file_dialog.getOpenFileName(
-            host._widget,
-            "Select Audio File",
-            "",
-            "Audio Files (*.wav *.mp3 *.flac *.aiff *.aif *.ogg);;All Files (*)",
-        )
+        audio_path = self._prompt_for_audio_path(title="Select Audio File")
         if not audio_path:
             return
+        title = self._default_song_title_from_audio_path(audio_path)
+        configured_action_ids = self._configured_import_pipeline_action_ids(runtime)
+        canonical_import = getattr(self, "_invoke_add_song_from_path", None)
+        if callable(canonical_import) and configured_action_ids is not None:
+            try:
+                handled = canonical_import(
+                    runtime,
+                    title.strip(),
+                    audio_path,
+                    run_import_pipeline=bool(configured_action_ids),
+                    pipeline_action_ids=configured_action_ids or None,
+                )
+            except Exception as exc:
+                host._message_box.warning(host._widget, "Add Song", str(exc))
+                return
+            if not bool(handled):
+                return
+            return
+        supports_native_pipeline_control = self._method_supports_any_kwargs(
+            runtime.add_song_from_path,
+            "run_import_pipeline",
+            "import_pipeline_action_ids",
+        )
+        call_kwargs: dict[str, object] = {}
+        if configured_action_ids is not None:
+            call_kwargs["run_import_pipeline"] = bool(configured_action_ids)
+            call_kwargs["import_pipeline_action_ids"] = (
+                configured_action_ids or None
+            )
         try:
-            updated = runtime.add_song_from_path(title.strip(), audio_path)
+            updated = self._invoke_with_supported_kwargs(
+                runtime.add_song_from_path,
+                title.strip(),
+                audio_path,
+                **call_kwargs,
+            )
         except Exception as exc:
             host._message_box.warning(host._widget, "Add Song", str(exc))
             return
         host._set_presentation(updated if updated is not None else runtime.presentation())
+        if configured_action_ids and not supports_native_pipeline_control:
+            self._run_configured_import_pipeline_actions(
+                runtime=runtime,
+                source_label=Path(audio_path).name,
+            )
 
     def add_song_from_dialog(self) -> None:
         self._run_add_song_from_path_action()
@@ -457,13 +675,9 @@ class TimelineWidgetContractActionMixin:
         label = params.get("label")
         resolved_label = label.strip() if isinstance(label, str) and label.strip() else None
         audio_path = params.get("audio_path")
+        prompt_for_transfer = False
         if not isinstance(audio_path, str) or not audio_path.strip():
-            audio_path, _ = host._file_dialog.getOpenFileName(
-                host._widget,
-                "Select Audio File",
-                "",
-                "Audio Files (*.wav *.mp3 *.flac *.aiff *.aif *.ogg);;All Files (*)",
-            )
+            audio_path = self._prompt_for_audio_path(title="Select Audio File")
             if not audio_path:
                 return
             text_value, accepted = host._input_dialog.getText(
@@ -474,12 +688,65 @@ class TimelineWidgetContractActionMixin:
             if not accepted:
                 return
             resolved_label = text_value.strip() or None
+            prompt_for_transfer = True
+        transfer_options = self._resolve_add_song_version_transfer_options(
+            runtime=runtime,
+            song_id=song_id,
+            params=params,
+            prompt_user=prompt_for_transfer,
+        )
+        if transfer_options is None:
+            return
+        transfer_layers, transfer_layer_ids = transfer_options
+        configured_action_ids = self._configured_import_pipeline_action_ids(runtime)
+        canonical_import = getattr(self, "_invoke_add_song_version", None)
+        if callable(canonical_import) and configured_action_ids is not None:
+            try:
+                handled = canonical_import(
+                    runtime,
+                    song_id,
+                    audio_path,
+                    label=resolved_label,
+                    transfer_layers=transfer_layers,
+                    transfer_layer_ids=transfer_layer_ids,
+                    run_import_pipeline=bool(configured_action_ids),
+                    pipeline_action_ids=configured_action_ids or None,
+                )
+            except Exception as exc:
+                host._message_box.warning(host._widget, "Add Version", str(exc))
+                return
+            if not bool(handled):
+                return
+            return
+        call_kwargs: dict[str, object] = {"label": resolved_label}
+        if transfer_layers:
+            call_kwargs["transfer_layers"] = True
+            if transfer_layer_ids is not None:
+                call_kwargs["transfer_layer_ids"] = transfer_layer_ids
+        supports_native_pipeline_control = self._method_supports_any_kwargs(
+            runtime.add_song_version,
+            "run_import_pipeline",
+            "import_pipeline_action_ids",
+        )
+        if configured_action_ids is not None:
+            call_kwargs["run_import_pipeline"] = bool(configured_action_ids)
+            call_kwargs["import_pipeline_action_ids"] = configured_action_ids or None
         try:
-            updated = runtime.add_song_version(song_id, audio_path, label=resolved_label)
+            updated = self._invoke_with_supported_kwargs(
+                runtime.add_song_version,
+                song_id,
+                audio_path,
+                **call_kwargs,
+            )
         except Exception as exc:
             host._message_box.warning(host._widget, "Add Version", str(exc))
             return
         host._set_presentation(updated if updated is not None else runtime.presentation())
+        if configured_action_ids and not supports_native_pipeline_control:
+            self._run_configured_import_pipeline_actions(
+                runtime=runtime,
+                source_label=Path(audio_path).name,
+            )
 
     def add_song_version(self, song_id: str) -> None:
         self._run_add_song_version_action({"song_id": song_id})
@@ -703,12 +970,17 @@ class TimelineWidgetContractActionMixin:
             return
 
         if "timecode_pool_no" in params:
-            raw_selected_pool_no = params.get("timecode_pool_no")
-            selected_pool_no = (
-                None
-                if raw_selected_pool_no in {None, "", 0}
-                else int(raw_selected_pool_no)
-            )
+            try:
+                selected_pool_no = self._parse_ma3_timecode_pool_input(
+                    params.get("timecode_pool_no")
+                )
+            except ValueError:
+                host._message_box.warning(
+                    host._widget,
+                    "Set MA3 TC Pool",
+                    "Enter a numeric MA3 timecode pool (for example: 113 or TC113).",
+                )
+                return
         else:
             timecodes = runtime.list_ma3_timecode_pools()
             options: list[tuple[str, int | None]] = [("None (Unconfigured)", None)]
@@ -719,6 +991,7 @@ class TimelineWidgetContractActionMixin:
                 )
                 for timecode_no, name in timecodes
             )
+            option_lookup = {label: value for label, value in options}
             current_pool_no = presentation.active_song_version_ma3_timecode_pool_no
             default_index = next(
                 (
@@ -731,21 +1004,28 @@ class TimelineWidgetContractActionMixin:
             chosen_label, accepted = host._input_dialog.getItem(
                 host._widget,
                 "Set MA3 TC Pool",
-                "Song version MA3 timecode pool",
+                (
+                    "Song version MA3 timecode pool\n"
+                    "Select a discovered pool or type one manually (for example: 113)."
+                ),
                 [label for label, _value in options],
                 default_index,
-                False,
+                True,
             )
             if not accepted:
                 return
-            selected_pool_no = next(
-                (
-                    value
-                    for label, value in options
-                    if label == chosen_label
-                ),
-                current_pool_no,
-            )
+            if chosen_label in option_lookup:
+                selected_pool_no = option_lookup[chosen_label]
+            else:
+                try:
+                    selected_pool_no = self._parse_ma3_timecode_pool_input(chosen_label)
+                except ValueError:
+                    host._message_box.warning(
+                        host._widget,
+                        "Set MA3 TC Pool",
+                        "Enter a numeric MA3 timecode pool (for example: 113 or TC113).",
+                    )
+                    return
         try:
             updated = runtime.set_song_version_ma3_timecode_pool(
                 song_version_id.strip(),
@@ -755,6 +1035,193 @@ class TimelineWidgetContractActionMixin:
             host._message_box.warning(host._widget, "Set MA3 TC Pool", str(exc))
             return
         host._set_presentation(updated if updated is not None else runtime.presentation())
+
+    def _resolve_add_song_version_transfer_options(
+        self,
+        *,
+        runtime: _TimelineRuntimeShell,
+        song_id: str,
+        params: dict[str, object],
+        prompt_user: bool,
+    ) -> tuple[bool, list[str] | None] | None:
+        host = cast(_ContractActionHost, self)
+        explicit_transfer_layers = params.get("transfer_layers")
+        explicit_layer_ids = self._coerce_transfer_layer_ids(params.get("transfer_layer_ids"))
+        if isinstance(explicit_transfer_layers, bool) or explicit_layer_ids is not None:
+            if explicit_transfer_layers is False:
+                return False, None
+            if explicit_layer_ids is not None:
+                return True, explicit_layer_ids
+            return bool(explicit_transfer_layers), None
+        if not prompt_user:
+            return False, None
+
+        available_layers = self._resolve_transfer_layers_for_song_version(
+            runtime=runtime,
+            song_id=song_id,
+        )
+        if not available_layers:
+            return False, None
+        transfer_mode_options = [
+            "Do not transfer layers",
+            "Transfer all layers",
+            "Choose layers to transfer",
+        ]
+        selected_mode, accepted = host._input_dialog.getItem(
+            host._widget,
+            "Add Version",
+            (
+                "Layer transfer options\n"
+                "(the source song layer is excluded automatically)"
+            ),
+            transfer_mode_options,
+            1,
+            False,
+        )
+        if not accepted:
+            return None
+        if selected_mode == transfer_mode_options[0]:
+            return False, None
+        if selected_mode == transfer_mode_options[1]:
+            return True, None
+
+        selected_layer_ids = self._prompt_selected_transfer_layer_ids(available_layers)
+        if selected_layer_ids is None:
+            return None
+        if not selected_layer_ids:
+            return False, None
+        return True, selected_layer_ids
+
+    def _resolve_transfer_layers_for_song_version(
+        self,
+        *,
+        runtime: _TimelineRuntimeShell,
+        song_id: str,
+    ) -> list[tuple[str, str]]:
+        host = cast(_ContractActionHost, self)
+        runtime_lookup = cast(_SongVersionTransferLookupRuntimeShell | None, runtime)
+        if runtime_lookup is not None and callable(
+            getattr(runtime_lookup, "list_song_version_transfer_layers", None)
+        ):
+            try:
+                raw_layers = runtime_lookup.list_song_version_transfer_layers(song_id)
+            except Exception:
+                raw_layers = []
+            resolved_layers = [
+                (layer_id.strip(), layer_label.strip() or f"Layer {index + 1}")
+                for index, (layer_id, layer_label) in enumerate(raw_layers)
+                if isinstance(layer_id, str) and layer_id.strip()
+            ]
+            if resolved_layers:
+                return resolved_layers
+
+        presentation = host._get_presentation()
+        if presentation.active_song_id != song_id:
+            return []
+        return [
+            (str(layer.layer_id), layer.title.strip() or f"Layer {index + 1}")
+            for index, layer in enumerate(presentation.layers)
+            if str(layer.layer_id) != "source_audio"
+        ]
+
+    def _prompt_selected_transfer_layer_ids(
+        self,
+        available_layers: list[tuple[str, str]],
+    ) -> list[str] | None:
+        host = cast(_ContractActionHost, self)
+        layer_lines = "\n".join(
+            f"{index + 1}. {label}"
+            for index, (_layer_id, label) in enumerate(available_layers)
+        )
+        while True:
+            selected_text, accepted = host._input_dialog.getText(
+                host._widget,
+                "Select Layers",
+                (
+                    "Choose layers to transfer by number (comma-separated).\n"
+                    'Use "all" for every layer.\n\n'
+                    f"{layer_lines}"
+                ),
+            )
+            if not accepted:
+                return None
+            selected_ids = self._parse_selected_transfer_layer_ids(
+                selected_text,
+                available_layers=available_layers,
+            )
+            if selected_ids is not None:
+                return selected_ids
+            host._message_box.warning(
+                host._widget,
+                "Select Layers",
+                "Use comma-separated numbers like 1,2,4 or ranges like 1-3.",
+            )
+
+    @staticmethod
+    def _parse_selected_transfer_layer_ids(
+        selection_text: str,
+        *,
+        available_layers: list[tuple[str, str]],
+    ) -> list[str] | None:
+        normalized = selection_text.strip()
+        if not normalized:
+            return []
+        if normalized.lower() == "all":
+            return [layer_id for layer_id, _label in available_layers]
+
+        selected_numbers: list[int] = []
+        max_index = len(available_layers)
+        for raw_token in normalized.split(","):
+            token = raw_token.strip()
+            if not token:
+                continue
+            if "-" in token:
+                start_token, end_token = token.split("-", 1)
+                try:
+                    start = int(start_token.strip())
+                    end = int(end_token.strip())
+                except ValueError:
+                    return None
+                if start < 1 or end < 1 or start > max_index or end > max_index:
+                    return None
+                step = 1 if start <= end else -1
+                selected_numbers.extend(range(start, end + step, step))
+                continue
+            try:
+                value = int(token)
+            except ValueError:
+                return None
+            if value < 1 or value > max_index:
+                return None
+            selected_numbers.append(value)
+
+        ordered_unique_numbers: list[int] = []
+        seen_numbers: set[int] = set()
+        for value in selected_numbers:
+            if value in seen_numbers:
+                continue
+            ordered_unique_numbers.append(value)
+            seen_numbers.add(value)
+        return [available_layers[value - 1][0] for value in ordered_unique_numbers]
+
+    @staticmethod
+    def _coerce_transfer_layer_ids(value: object) -> list[str] | None:
+        if value is None:
+            return None
+        if isinstance(value, str):
+            return [
+                token.strip()
+                for token in value.split(",")
+                if token.strip()
+            ]
+        if isinstance(value, (list, tuple)):
+            normalized = [
+                item.strip()
+                for item in value
+                if isinstance(item, str) and item.strip()
+            ]
+            return normalized
+        return None
 
     def _resolve_song_id_for_new_version(self) -> str | None:
         host = cast(_ContractActionHost, self)
@@ -826,3 +1293,33 @@ class TimelineWidgetContractActionMixin:
         if version.ma3_timecode_pool_no is None:
             return version.label
         return f"{version.label} · TC{version.ma3_timecode_pool_no}"
+
+    @staticmethod
+    def _parse_ma3_timecode_pool_input(value: object) -> int | None:
+        if value is None:
+            return None
+        if isinstance(value, bool):
+            raise ValueError("MA3 timecode pool must be numeric.")
+        if isinstance(value, int):
+            return value if value > 0 else None
+        if isinstance(value, float):
+            if not value.is_integer():
+                raise ValueError("MA3 timecode pool must be a whole number.")
+            parsed_float = int(value)
+            return parsed_float if parsed_float > 0 else None
+        if isinstance(value, str):
+            normalized = value.strip()
+            if not normalized:
+                return None
+            if normalized.upper().startswith("TC"):
+                normalized = normalized[2:].strip()
+            if normalized.startswith("#"):
+                normalized = normalized[1:].strip()
+            if not normalized:
+                return None
+            try:
+                parsed_text = int(normalized)
+            except ValueError as exc:
+                raise ValueError("MA3 timecode pool must be numeric.") from exc
+            return parsed_text if parsed_text > 0 else None
+        raise ValueError("MA3 timecode pool must be numeric.")

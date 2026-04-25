@@ -67,3 +67,39 @@ def test_foundry_and_echozero_adapters_ignore_source_mapping_order_for_equivalen
     echozero_fingerprint = create_echozero_adapter().contract_fingerprint_from_checkpoint(checkpoint)
 
     assert foundry_fingerprint == echozero_fingerprint
+
+
+def test_foundry_and_echozero_adapters_ignore_training_only_preprocessing_keys() -> None:
+    class_map = ("snare", "other")
+    run_spec = {
+        "classificationMode": "binary",
+        "data": {
+            "datasetVersionId": "dsv_live",
+            "sampleRate": 22050,
+            "maxLength": 22050,
+            "nFft": 2048,
+            "hopLength": 512,
+            "nMels": 128,
+            "fmax": 8000,
+        },
+        "model": {"type": "crnn"},
+    }
+    checkpoint = {
+        "model_type": "crnn",
+        "classification_mode": "binary",
+        "classes": ["snare", "other"],
+        "inference_preprocessing": {
+            "datasetVersionId": "dsv_live",
+            "sampleRate": 22050,
+            "maxLength": 22050,
+            "nFft": 2048,
+            "hopLength": 512,
+            "nMels": 128,
+            "fmax": 8000,
+        },
+    }
+
+    foundry_fingerprint = create_foundry_adapter().contract_fingerprint_from_run_spec(run_spec, class_map=class_map)
+    echozero_fingerprint = create_echozero_adapter().contract_fingerprint_from_checkpoint(checkpoint)
+
+    assert foundry_fingerprint == echozero_fingerprint

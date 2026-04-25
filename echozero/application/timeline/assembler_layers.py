@@ -188,6 +188,8 @@ def _assemble_events(
             label=event.label,
             color=event.color,
             muted=event.muted,
+            source_event_id=event.source_event_id,
+            payload_ref=event.payload_ref,
             is_selected=(
                 (
                     str(layer_id),

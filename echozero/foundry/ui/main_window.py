@@ -14,7 +14,9 @@ from PyQt6.QtGui import QCloseEvent, QDesktopServices
 from PyQt6.QtWidgets import QApplication, QMainWindow, QSplitter, QVBoxLayout, QWidget
 
 from echozero.foundry import FoundryApp
+from echozero.foundry.review_server_controller import ReviewServerController
 from echozero.foundry.ui.main_window_dataset_mixin import FoundryWindowDatasetMixin
+from echozero.foundry.ui.main_window_review_mixin import FoundryWindowReviewMixin
 from echozero.foundry.ui.main_window_run_mixin import FoundryWindowRunMixin
 from echozero.foundry.ui.main_window_worker import _RunWorker
 from echozero.foundry.ui.main_window_workspace_mixin import FoundryWindowWorkspaceMixin
@@ -24,6 +26,7 @@ from echozero.ui.style.qt import ensure_qt_theme_installed
 
 class FoundryWindow(
     FoundryWindowDatasetMixin,
+    FoundryWindowReviewMixin,
     FoundryWindowRunMixin,
     FoundryWindowWorkspaceMixin,
     QMainWindow,
@@ -38,6 +41,7 @@ class FoundryWindow(
         ensure_qt_theme_installed()
         self._root = Path(root)
         self._app = FoundryApp(self._root)
+        self._review_server_controller = ReviewServerController()
         self._app.activity.set_listener(self._on_activity)
         self._show_error_dialogs = os.environ.get("QT_QPA_PLATFORM", "").lower() != "offscreen"
 
@@ -84,12 +88,14 @@ class FoundryWindow(
 
         self._load_defaults()
         self._refresh_workspace_state()
+        self._refresh_review_sessions()
         self._set_status(f"Workspace ready: {self._root}")
 
     def closeEvent(self, event: QCloseEvent | None) -> None:
         self._run_poll_timer.stop()
         if self._run_cancel_event is not None:
             self._run_cancel_event.set()
+        self._review_server_controller.stop()
         self._app.activity.set_listener(None)
         self._app.activity.dispose()
         if self._run_thread is not None:

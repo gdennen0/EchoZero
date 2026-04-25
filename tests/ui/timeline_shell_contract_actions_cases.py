@@ -1,5 +1,6 @@
 from tests.ui.timeline_shell_support import (
     test_contract_add_event_layer_action_calls_runtime,
+    test_contract_add_marker_layer_action_calls_runtime,
     test_contract_add_song_action_calls_runtime,
     test_contract_add_song_legacy_alias_still_calls_runtime,
     test_contract_add_song_version_action_calls_runtime,
@@ -10,8 +11,11 @@ from tests.ui.timeline_shell_support import (
     test_contract_select_song_action_calls_runtime,
     test_contract_switch_song_version_action_calls_runtime,
     test_timeline_drop_import_adds_song_when_no_active_song,
+    test_timeline_drop_import_multiple_files_prompts_and_imports_in_natural_order,
     test_timeline_drop_import_does_nothing_when_new_version_is_declined,
     test_timeline_drop_import_offers_new_version_when_song_is_loaded,
+    test_timeline_drop_import_runs_configured_import_pipeline_actions,
+    test_song_browser_move_actions_call_runtime_setlist_reorder,
     test_timeline_song_browser_targeted_drop_can_import_new_song,
     test_timeline_song_browser_targeted_drop_prompts_for_hovered_song,
     test_unknown_registered_object_action_routes_through_runtime,

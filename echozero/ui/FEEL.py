@@ -74,12 +74,12 @@ HOVER_DELAY_MS = 150  # Delay before hover effects appear
 
 TIMELINE_TRANSPORT_HEIGHT_PX = 40  # Compact transport strip height above the ruler
 TIMELINE_TRANSPORT_BUTTON_HEIGHT_PX = 26  # Painted play/stop button height in transport
-TIMELINE_EDITOR_BAR_PADDING_X_PX = 12  # Horizontal padding around the editor toolbar strip
-TIMELINE_EDITOR_BAR_PADDING_Y_PX = 6  # Vertical padding around the editor toolbar strip
-TIMELINE_EDITOR_GROUP_PADDING_X_PX = 8  # Horizontal padding inside each toolbar group
-TIMELINE_EDITOR_GROUP_PADDING_Y_PX = 5  # Vertical padding inside each toolbar group
-TIMELINE_EDITOR_GROUP_SPACING_PX = 6  # Gap between toolbar labels and controls
-TIMELINE_EDITOR_BUTTON_MIN_HEIGHT_PX = 26  # Compact minimum button height in the editor toolbar
+TIMELINE_EDITOR_BAR_PADDING_X_PX = 8  # Horizontal padding around the editor toolbar strip
+TIMELINE_EDITOR_BAR_PADDING_Y_PX = 4  # Vertical padding around the editor toolbar strip
+TIMELINE_EDITOR_GROUP_PADDING_X_PX = 6  # Horizontal padding inside each toolbar group
+TIMELINE_EDITOR_GROUP_PADDING_Y_PX = 3  # Vertical padding inside each toolbar group
+TIMELINE_EDITOR_GROUP_SPACING_PX = 4  # Gap between toolbar labels and controls
+TIMELINE_EDITOR_BUTTON_MIN_HEIGHT_PX = 22  # Dense minimum button height in the editor toolbar
 TIMELINE_OBJECT_INFO_METADATA_MIN_HEIGHT_PX = 28  # Compact starting body height for inspector facts
 TIMELINE_OBJECT_INFO_METADATA_DEFAULT_HEIGHT_PX = 84  # Initial inspector metadata pane height
 TIMELINE_OBJECT_INFO_SPLITTER_HANDLE_PX = 6  # Grab area for resizing inspector metadata vs actions
@@ -94,12 +94,12 @@ RULER_TICK_COLOR = "#666666"  # Tick mark color
 # =============================================================================
 
 LAYER_HEADER_WIDTH_PX = 320  # Width of layer name sidebar
-LAYER_ROW_HEIGHT_PX = 72  # Default height per main layer row
+LAYER_ROW_HEIGHT_PX = 60  # Fallback default height per main layer row
 TAKE_ROW_HEIGHT_PX = 44  # Height of subordinate take rows
 LAYER_HEADER_TOP_PADDING_PX = 8  # Top offset before first lane row
 EVENT_BAR_HEIGHT_PX = 22  # Event pill/bar height inside rows
 TIMELINE_RIGHT_PADDING_PX = 240  # Extra right scroll padding beyond content span
-LAYER_ROW_MIN_HEIGHT_PX = 24  # Minimum when collapsed
+LAYER_ROW_MIN_HEIGHT_PX = 40  # Fallback minimum for resizable main rows
 LAYER_SEPARATOR_PX = 1  # Divider line between layers
 LAYER_ACTIVE_HIGHLIGHT_ALPHA = 15  # Subtle highlight on focused layer
 

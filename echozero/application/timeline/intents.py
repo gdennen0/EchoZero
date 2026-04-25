@@ -218,6 +218,9 @@ class CreateEvent(TimelineIntent):
     take_id: TakeId | None = None
     label: str = "Event"
     cue_number: int = 1
+    source_event_id: str | None = None
+    payload_ref: str | None = None
+    color: str | None = None
 
     def __post_init__(self) -> None:
         if self.layer_id is None or not str(self.layer_id).strip():
@@ -233,6 +236,15 @@ class CreateEvent(TimelineIntent):
         if cue_number < 1:
             raise ValueError(f"CreateEvent cue_number must be >= 1, got {cue_number}")
         self.cue_number = cue_number
+        if self.source_event_id is not None:
+            source_event_id = str(self.source_event_id).strip()
+            self.source_event_id = source_event_id or None
+        if self.payload_ref is not None:
+            payload_ref = str(self.payload_ref).strip()
+            self.payload_ref = payload_ref or None
+        if self.color is not None:
+            color = str(self.color).strip()
+            self.color = color or None
 
 
 @dataclass(slots=True)
@@ -253,11 +265,19 @@ class MoveEvent(TimelineIntent):
 class MoveSelectedEvents(TimelineIntent):
     delta_seconds: float
     target_layer_id: LayerId | None = None
+    copy_selected: bool = False
 
 
 @dataclass(slots=True)
 class MoveSelectedEventsToAdjacentLayer(TimelineIntent):
     direction: int
+
+
+@dataclass(slots=True)
+class ReorderLayer(TimelineIntent):
+    source_layer_id: LayerId
+    target_after_layer_id: LayerId | None
+    insert_at_start: bool = False
 
 
 @dataclass(slots=True)

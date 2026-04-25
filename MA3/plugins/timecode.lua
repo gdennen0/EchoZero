@@ -1108,7 +1108,8 @@ function EZ.CreateSequenceInCurrentSongRange(name)
 end
 
 -- Add event to a track
-function EZ.AddEvent(tcNo, tgNo, trackNo, time, cmd)
+-- eventName/cueNo/cueLabel are optional metadata fields.
+function EZ.AddEvent(tcNo, tgNo, trackNo, time, cmd, eventName, cueNo, cueLabel)
     local one_second_internally = 16777216
     local track, ma3TrackNo = getTrackHandle(tcNo, tgNo, trackNo)
     
@@ -1152,6 +1153,32 @@ function EZ.AddEvent(tcNo, tgNo, trackNo, time, cmd)
     local event = cmd_subtrack:Acquire()
     event:Set("Time", time_units)
     event:Set("Cmd", cmd or "")
+
+    local resolvedName = tostring(eventName or cueLabel or ""):gsub("^%s+", ""):gsub("%s+$", "")
+    if resolvedName ~= "" then
+        local ok_name = pcall(function() event.name = resolvedName end)
+        if not ok_name then
+            pcall(function() event:Set("Name", resolvedName) end)
+        end
+    end
+
+    local numericCueNo = tonumber(cueNo)
+    if numericCueNo and numericCueNo > 0 then
+        local ok_set_cue_no = pcall(function() event:Set("CueNo", numericCueNo) end)
+        if not ok_set_cue_no then
+            pcall(function() event.cueNo = numericCueNo end)
+            pcall(function() event.cueno = numericCueNo end)
+        end
+    end
+
+    local resolvedCueLabel = tostring(cueLabel or eventName or ""):gsub("^%s+", ""):gsub("%s+$", "")
+    if resolvedCueLabel ~= "" then
+        local ok_set_cue_name = pcall(function() event:Set("CueName", resolvedCueLabel) end)
+        if not ok_set_cue_name then
+            pcall(function() event.cueName = resolvedCueLabel end)
+        end
+    end
+
     return true
 end
 

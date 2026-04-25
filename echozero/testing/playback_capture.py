@@ -186,6 +186,9 @@ def _write_video_with_audio(*, frames_dir: Path, audio_path: Path, output_path: 
         str(frames_dir / "%04d.png"),
         "-i",
         str(audio_path),
+        # libx264 requires even frame dimensions; Qt grabs can land on odd sizes.
+        "-vf",
+        "scale=trunc(iw/2)*2:trunc(ih/2)*2",
         "-c:v",
         "libx264",
         "-pix_fmt",

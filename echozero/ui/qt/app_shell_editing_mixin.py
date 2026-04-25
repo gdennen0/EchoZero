@@ -26,6 +26,7 @@ from echozero.application.timeline.intents import (
     MoveEvent,
     MoveSelectedEvents,
     NudgeSelectedEvents,
+    ReorderLayer,
     SetGain,
     SetLayerLiveSyncPauseReason,
     SetLayerLiveSyncState,
@@ -60,6 +61,7 @@ _DIRTYING_INTENT_TYPES = (
     MoveEvent,
     MoveSelectedEvents,
     NudgeSelectedEvents,
+    ReorderLayer,
     SetGain,
     SetLayerMA3Route,
     SetLayerLiveSyncPauseReason,
@@ -93,6 +95,8 @@ class AppShellEditingShell(Protocol):
     ) -> TimelinePresentation: ...
 
     def _store_manual_layer(self, layer: Layer) -> None: ...
+
+    def _sync_storage_backed_timeline(self) -> None: ...
 
     def _sync_runtime_audio_from_presentation(self, presentation: TimelinePresentation) -> None: ...
 
@@ -219,6 +223,8 @@ class AppShellEditingMixin:
             )
 
         presentation = self._app.dispatch(intent)
+        if isinstance(intent, ToggleLayerExpanded):
+            self._sync_storage_backed_timeline()
         if is_history_barrier_intent(intent):
             self._clear_history()
         if isinstance(intent, _DIRTYING_INTENT_TYPES):

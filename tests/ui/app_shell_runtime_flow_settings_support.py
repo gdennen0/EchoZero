@@ -27,6 +27,9 @@ def test_app_shell_runtime_describes_stem_action_settings():
         assert dict(plan.locked_bindings)["audio_file"]
         assert [field.key for field in plan.editable_fields] == ["model", "device"]
         assert [field.key for field in plan.advanced_fields] == ["shifts", "two_stems"]
+        model_field = next(field for field in plan.editable_fields if field.key == "model")
+        assert model_field.default_value == "latest_model"
+        assert "latest_model" in {option.value for option in model_field.options}
         assert plan.has_prior_outputs is False
         assert plan.run_label == "Run"
     finally:
@@ -131,7 +134,7 @@ def test_app_shell_runtime_song_default_scope_edits_song_defaults_only():
         )
 
         assert any(
-            field.key == "model" and field.value == "htdemucs"
+            field.key == "model" and field.value == "latest_model"
             for field in version_plan.editable_fields
         )
         assert any(
@@ -230,6 +233,50 @@ def test_app_shell_runtime_object_action_session_discovers_scope_and_copy_source
         shutil.rmtree(temp_root, ignore_errors=True)
 
 
+def test_app_shell_runtime_object_action_session_without_layer_saves_but_disables_run():
+    temp_root = _repo_local_temp_root()
+    runtime = build_app_shell(
+        working_dir_root=temp_root / "working",
+        analysis_service=build_mock_analysis_service(),
+    )
+
+    try:
+        audio_path = write_test_wav(temp_root / "fixtures" / "session-no-layer.wav")
+        runtime.add_song_from_path("Session No Layer", audio_path)
+
+        session = runtime.open_object_action_session(
+            "timeline.extract_stems",
+            {},
+            object_type="layer",
+        )
+        assert session.plan.object_id == ""
+        assert session.can_save is True
+        assert session.can_save_and_run is False
+        assert session.run_disabled_reason == "Select a target layer before running this stage."
+
+        session = runtime.dispatch_object_action_command(
+            session.session_id,
+            ReplaceSessionValues({"model": "mdx_extra_q"}),
+        )
+        session = runtime.dispatch_object_action_command(session.session_id, SaveSession())
+        refreshed = runtime.describe_object_action(
+            "timeline.extract_stems",
+            {},
+            object_type="layer",
+            scope="version",
+        )
+        assert any(
+            field.key == "model" and field.value == "mdx_extra_q"
+            for field in refreshed.editable_fields
+        )
+
+        with pytest.raises(ValueError, match="Select a target layer before running this stage."):
+            runtime.dispatch_object_action_command(session.session_id, RunSession())
+    finally:
+        runtime.shutdown()
+        shutil.rmtree(temp_root, ignore_errors=True)
+
+
 def test_app_shell_runtime_object_action_session_commands_save_preview_copy_and_run():
     temp_root = _repo_local_temp_root()
     analysis_service = build_mock_analysis_service()
@@ -300,6 +347,97 @@ def test_app_shell_runtime_object_action_session_commands_save_preview_copy_and_
         assert captured
         assert captured[-1] is not None
         assert "audio_file" in captured[-1]
+    finally:
+        runtime.shutdown()
+        shutil.rmtree(temp_root, ignore_errors=True)
+
+
+def test_app_shell_runtime_object_action_session_reset_defaults_restores_template_values():
+    temp_root = _repo_local_temp_root()
+    runtime = build_app_shell(
+        working_dir_root=temp_root / "working",
+        analysis_service=build_mock_analysis_service(),
+    )
+
+    try:
+        audio_path = write_test_wav(temp_root / "fixtures" / "session-reset-defaults.wav")
+        runtime.add_song_from_path("Session Reset Defaults", audio_path)
+
+        session = runtime.open_object_action_session(
+            "timeline.extract_stems",
+            {"layer_id": "source_audio"},
+            object_id="source_audio",
+            object_type="layer",
+        )
+        defaults = {
+            field.key: field.default_value
+            for field in (*session.plan.editable_fields, *session.plan.advanced_fields)
+        }
+
+        session = runtime.dispatch_object_action_command(
+            session.session_id,
+            ReplaceSessionValues({"model": "mdx_extra", "shifts": 3}),
+        )
+        assert session.values["model"] == "mdx_extra"
+        assert session.values["shifts"] == 3
+        assert session.has_unsaved_changes is True
+
+        session = runtime.dispatch_object_action_command(
+            session.session_id,
+            ResetSessionDefaults(),
+        )
+        assert session.values["model"] == defaults["model"]
+        assert session.values["shifts"] == defaults["shifts"]
+        assert session.has_unsaved_changes is False
+    finally:
+        runtime.shutdown()
+        shutil.rmtree(temp_root, ignore_errors=True)
+
+
+def test_app_shell_runtime_object_action_session_save_to_defaults_persists_song_defaults():
+    temp_root = _repo_local_temp_root()
+    runtime = build_app_shell(
+        working_dir_root=temp_root / "working",
+        analysis_service=build_mock_analysis_service(),
+    )
+
+    try:
+        audio_path = write_test_wav(temp_root / "fixtures" / "session-save-defaults.wav")
+        runtime.add_song_from_path("Session Save Defaults", audio_path)
+
+        session = runtime.open_object_action_session(
+            "timeline.extract_stems",
+            {"layer_id": "source_audio"},
+            object_id="source_audio",
+            object_type="layer",
+        )
+        session = runtime.dispatch_object_action_command(
+            session.session_id,
+            ReplaceSessionValues({"model": "mdx_extra", "device": "cpu"}),
+        )
+
+        session = runtime.dispatch_object_action_command(
+            session.session_id,
+            SaveSessionToDefaults(),
+        )
+        assert session.scope == "version"
+        assert session.values["model"] == "mdx_extra"
+
+        default_plan = runtime.describe_object_action(
+            "timeline.extract_stems",
+            {"layer_id": "source_audio"},
+            object_id="source_audio",
+            object_type="layer",
+            scope="song_default",
+        )
+        assert any(
+            field.key == "model" and field.value == "mdx_extra"
+            for field in default_plan.editable_fields
+        )
+        assert any(
+            field.key == "device" and field.value == "cpu"
+            for field in default_plan.editable_fields
+        )
     finally:
         runtime.shutdown()
         shutil.rmtree(temp_root, ignore_errors=True)
@@ -433,7 +571,9 @@ def test_app_shell_runtime_object_action_session_run_requests_background_pipelin
         shutil.rmtree(temp_root, ignore_errors=True)
 
 
-def test_app_shell_runtime_object_action_session_classify_uses_descriptor_bound_runtime_bindings():
+def test_app_shell_runtime_object_action_session_classify_uses_descriptor_bound_runtime_bindings(
+    monkeypatch,
+):
     temp_root = _repo_local_temp_root()
     analysis_service = build_mock_analysis_service()
     captured: list[dict[str, object] | None] = []
@@ -449,6 +589,14 @@ def test_app_shell_runtime_object_action_session_classify_uses_descriptor_bound_
     runtime = build_app_shell(
         working_dir_root=temp_root / "working",
         analysis_service=analysis_service,
+    )
+    fake_models_root = temp_root / "models"
+    fake_models_root.mkdir(parents=True, exist_ok=True)
+    installed_manifest = fake_models_root / "installed-classifier.manifest.json"
+    installed_manifest.write_text("{}", encoding="utf-8")
+    monkeypatch.setattr(
+        "echozero.application.timeline.object_action_settings_service.ensure_installed_models_dir",
+        lambda: fake_models_root,
     )
 
     try:
@@ -492,6 +640,13 @@ def test_app_shell_runtime_object_action_session_classify_uses_descriptor_bound_
             field.key == "classify_model_path" and field.value == str(model_path)
             for field in plan.editable_fields
         )
+        model_field = next(field for field in plan.editable_fields if field.key == "classify_model_path")
+        assert model_field.widget == "dropdown"
+        assert {option.value for option in model_field.options} >= {
+            "",
+            str(installed_manifest),
+            str(model_path),
+        }
     finally:
         runtime.shutdown()
         shutil.rmtree(temp_root, ignore_errors=True)
@@ -544,12 +699,29 @@ def test_app_shell_runtime_extract_classified_drums_settings_expose_model_fields
             "kick_model_path",
             "snare_model_path",
             "classify_device",
-            "onset_threshold",
-            "onset_min_gap",
-            "onset_method",
-            "onset_backtrack",
-            "onset_timing_offset_ms",
-            "positive_threshold",
+            "kick_positive_threshold",
+            "snare_positive_threshold",
+            "kick_filter_enabled",
+            "kick_filter_freq",
+            "kick_onset_threshold",
+            "snare_filter_enabled",
+            "snare_filter_freq",
+            "snare_onset_threshold",
+        ]
+        assert [field.key for field in plan.advanced_fields] == [
+            "kick_filter_type",
+            "kick_onset_min_gap",
+            "kick_onset_method",
+            "kick_onset_backtrack",
+            "kick_onset_timing_offset_ms",
+            "snare_filter_type",
+            "snare_onset_min_gap",
+            "snare_onset_method",
+            "snare_onset_backtrack",
+            "snare_onset_timing_offset_ms",
+            "assignment_mode",
+            "winner_margin",
+            "event_match_window_ms",
         ]
         assert [key for key, _value in plan.locked_bindings] == ["audio_file"]
         assert any(
@@ -559,6 +731,123 @@ def test_app_shell_runtime_extract_classified_drums_settings_expose_model_fields
         assert any(
             field.key == "snare_model_path" and field.value == str(snare_manifest)
             for field in plan.editable_fields
+        )
+        kick_field = next(field for field in plan.editable_fields if field.key == "kick_model_path")
+        snare_field = next(field for field in plan.editable_fields if field.key == "snare_model_path")
+        assert kick_field.widget == "dropdown"
+        assert snare_field.widget == "dropdown"
+        assert {option.value for option in kick_field.options} >= {
+            "",
+            str(kick_manifest),
+            str(snare_manifest),
+        }
+        assert {option.value for option in snare_field.options} >= {
+            "",
+            str(kick_manifest),
+            str(snare_manifest),
+        }
+    finally:
+        runtime.shutdown()
+        shutil.rmtree(temp_root, ignore_errors=True)
+
+
+def test_app_shell_runtime_extract_classified_drums_hydrates_legacy_assignment_mode(monkeypatch):
+    from echozero.domain.types import BlockSettings
+    from echozero.serialization import deserialize_graph, serialize_graph
+
+    temp_root = _repo_local_temp_root()
+    runtime = build_app_shell(
+        working_dir_root=temp_root / "working",
+        analysis_service=build_mock_analysis_service(),
+    )
+
+    fake_models_root = temp_root / "models"
+    fake_models_root.mkdir(parents=True, exist_ok=True)
+    kick_manifest = fake_models_root / "kick.manifest.json"
+    snare_manifest = fake_models_root / "snare.manifest.json"
+    kick_manifest.write_text("{}", encoding="utf-8")
+    snare_manifest.write_text("{}", encoding="utf-8")
+
+    monkeypatch.setattr(
+        "echozero.application.timeline.object_action_settings_service.ensure_installed_models_dir",
+        lambda: fake_models_root,
+    )
+    monkeypatch.setattr(
+        "echozero.application.timeline.object_action_settings_service.upgrade_installed_runtime_bundles",
+        lambda _models_dir: None,
+    )
+    monkeypatch.setattr(
+        "echozero.application.timeline.object_action_settings_service.resolve_installed_binary_drum_bundles",
+        lambda: {
+            "kick": type("Bundle", (), {"manifest_path": kick_manifest})(),
+            "snare": type("Bundle", (), {"manifest_path": snare_manifest})(),
+        },
+    )
+
+    try:
+        audio_path = write_test_wav(temp_root / "fixtures" / "classified-legacy-assignment.wav")
+        runtime.add_song_from_path("Classified Legacy Assignment", audio_path)
+        after_stems = runtime.extract_stems("source_audio")
+        drums_layer = next(layer for layer in after_stems.layers if layer.title == "Drums")
+
+        runtime.describe_object_action(
+            "timeline.extract_classified_drums",
+            {"layer_id": drums_layer.layer_id},
+            object_id=drums_layer.layer_id,
+            object_type="layer",
+        )
+
+        song_version_id = str(runtime.session.active_song_version_id)
+        config = next(
+            candidate
+            for candidate in runtime.project_storage.pipeline_configs.list_by_version(song_version_id)
+            if candidate.template_id == "extract_classified_drums"
+        )
+
+        graph = deserialize_graph(json.loads(config.graph_json))
+        classify = graph.blocks["classify_drums"]
+        graph.replace_block(
+            replace(
+                classify,
+                settings=BlockSettings(
+                    {
+                        **dict(classify.settings),
+                        "assignment_mode": "exclusive_max",
+                    }
+                ),
+            )
+        )
+        legacy_knobs = dict(config.knob_values)
+        legacy_knobs.pop("assignment_mode", None)
+        legacy_config = replace(
+            config,
+            graph_json=json.dumps(serialize_graph(graph)),
+            knob_values=legacy_knobs,
+        )
+        runtime.project_storage.pipeline_configs.update(legacy_config)
+        runtime.project_storage.commit()
+
+        refreshed = runtime.describe_object_action(
+            "timeline.extract_classified_drums",
+            {"layer_id": drums_layer.layer_id},
+            object_id=drums_layer.layer_id,
+            object_type="layer",
+        )
+        assignment_field = next(
+            field for field in refreshed.advanced_fields if field.key == "assignment_mode"
+        )
+        assert assignment_field.value == "independent"
+
+        persisted = next(
+            candidate
+            for candidate in runtime.project_storage.pipeline_configs.list_by_version(song_version_id)
+            if candidate.template_id == "extract_classified_drums"
+        )
+        assert persisted.knob_values.get("assignment_mode") == "independent"
+        persisted_pipeline = persisted.to_pipeline()
+        assert (
+            persisted_pipeline.graph.blocks["classify_drums"].settings.get("assignment_mode")
+            == "independent"
         )
     finally:
         runtime.shutdown()
@@ -610,16 +899,37 @@ def test_app_shell_runtime_extract_song_drum_events_settings_expose_model_fields
         assert [field.key for field in plan.editable_fields] == [
             "model",
             "device",
+            "include_drums_stem_layer",
+            "include_bass_stem_layer",
+            "include_vocals_stem_layer",
+            "include_other_stem_layer",
             "kick_model_path",
             "snare_model_path",
-            "onset_threshold",
-            "onset_min_gap",
-            "onset_method",
-            "onset_backtrack",
-            "onset_timing_offset_ms",
-            "positive_threshold",
+            "kick_positive_threshold",
+            "snare_positive_threshold",
+            "kick_filter_enabled",
+            "kick_filter_freq",
+            "kick_onset_threshold",
+            "snare_filter_enabled",
+            "snare_filter_freq",
+            "snare_onset_threshold",
         ]
-        assert [field.key for field in plan.advanced_fields] == ["shifts"]
+        assert [field.key for field in plan.advanced_fields] == [
+            "shifts",
+            "kick_filter_type",
+            "kick_onset_min_gap",
+            "kick_onset_method",
+            "kick_onset_backtrack",
+            "kick_onset_timing_offset_ms",
+            "snare_filter_type",
+            "snare_onset_min_gap",
+            "snare_onset_method",
+            "snare_onset_backtrack",
+            "snare_onset_timing_offset_ms",
+            "assignment_mode",
+            "winner_margin",
+            "event_match_window_ms",
+        ]
         assert [key for key, _value in plan.locked_bindings] == ["audio_file"]
         assert any(
             field.key == "kick_model_path" and field.value == str(kick_manifest)
@@ -629,6 +939,20 @@ def test_app_shell_runtime_extract_song_drum_events_settings_expose_model_fields
             field.key == "snare_model_path" and field.value == str(snare_manifest)
             for field in plan.editable_fields
         )
+        kick_field = next(field for field in plan.editable_fields if field.key == "kick_model_path")
+        snare_field = next(field for field in plan.editable_fields if field.key == "snare_model_path")
+        assert kick_field.widget == "dropdown"
+        assert snare_field.widget == "dropdown"
+        assert {option.value for option in kick_field.options} >= {
+            "",
+            str(kick_manifest),
+            str(snare_manifest),
+        }
+        assert {option.value for option in snare_field.options} >= {
+            "",
+            str(kick_manifest),
+            str(snare_manifest),
+        }
     finally:
         runtime.shutdown()
         shutil.rmtree(temp_root, ignore_errors=True)

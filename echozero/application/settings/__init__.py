@@ -24,6 +24,7 @@ from echozero.application.settings.models import (
     OscReceiveRuntimeConfig,
     OscSendPreferences,
     OscSendRuntimeConfig,
+    SongImportPreferences,
 )
 from echozero.application.settings.page_builder import (
     build_app_settings_page,
@@ -50,6 +51,7 @@ __all__ = [
     "OscReceiveRuntimeConfig",
     "OscSendPreferences",
     "OscSendRuntimeConfig",
+    "SongImportPreferences",
     "build_app_settings_page",
     "SettingsField",
     "SettingsFieldSurface",

@@ -138,6 +138,7 @@ def test_inspector_contract_no_selection_state():
     assert render_inspector_contract_text(contract) == "No timeline object selected."
     assert "send_layer_to_ma3" not in action_ids
     assert "add_event_layer" in action_ids
+    assert "add_marker_layer" in action_ids
     assert "add_automation_layer" not in action_ids
     assert "add_reference_layer" not in action_ids
 

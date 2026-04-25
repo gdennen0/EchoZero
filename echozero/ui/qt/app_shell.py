@@ -33,17 +33,19 @@ from echozero.application.timeline.object_actions import (
     ObjectActionService,
 )
 from echozero.domain.types import AudioData
+from echozero.foundry.review_server_controller import ReviewServerController
 from echozero.models.runtime_bundle_selection import resolve_installed_binary_drum_bundles  # noqa: F401
 from echozero.persistence.session import ProjectStorage
 from echozero.pipelines.registry import get_registry
 from echozero.processors import (
+    AudioFilterProcessor,
     DetectOnsetsProcessor,
     LoadAudioProcessor,
     PyTorchAudioClassifyProcessor,
     SeparateAudioProcessor,
 )
 from echozero.processors.binary_drum_classify import BinaryDrumClassifyProcessor
-from echozero.services.orchestrator import AnalysisService
+from echozero.services.orchestrator import Orchestrator
 from echozero.ui.qt.app_shell_editing_mixin import AppShellEditingMixin
 from echozero.ui.qt.app_shell_history import (
     DEFAULT_HISTORY_LIMIT as _DEFAULT_HISTORY_LIMIT,
@@ -123,14 +125,15 @@ class AppShellRuntime(
         project_path: Path | None = None,
         sync_bridge: MA3SyncBridge | None = None,
         sync_service: SyncService | None = None,
-        analysis_service: AnalysisService | None = None,
+        analysis_service: Orchestrator | None = None,
         app_settings_service: AppSettingsService | None = None,
         audio_output_config: AudioOutputRuntimeConfig | None = None,
     ) -> None:
         self._sync_bridge = sync_bridge
         self._sync_service_override = sync_service
-        self._analysis_service = analysis_service or _build_runtime_analysis_service()
+        self._analysis_service = analysis_service or _build_runtime_orchestrator()
         self._app_settings_service = app_settings_service
+        self._review_server_controller = ReviewServerController()
         self._history = UndoHistory(limit=_DEFAULT_HISTORY_LIMIT)
         self._is_dirty = False
         self._draft_layers: list[Layer] = []
@@ -164,6 +167,21 @@ class AppShellRuntime(
     @property
     def is_dirty(self) -> bool:
         return self._is_dirty or self.project_storage.is_dirty()
+
+    def is_phone_review_service_enabled(self) -> bool:
+        """Return whether project-backed phone review is enabled for this runtime."""
+
+        return self._review_server_controller.is_enabled
+
+    def enable_phone_review_service(self) -> None:
+        """Enable the phone review server control path for this runtime."""
+
+        self._review_server_controller.enable()
+
+    def disable_phone_review_service(self) -> None:
+        """Disable the phone review server control path for this runtime."""
+
+        self._review_server_controller.disable()
 
     def presentation(self) -> TimelinePresentation:
         return self._app.presentation()
@@ -238,6 +256,7 @@ class AppShellRuntime(
         _sync_storage_backed_timeline(self)
 
     def shutdown(self) -> None:
+        self._review_server_controller.stop()
         _shutdown_runtime(self)
 
     def enable_sync(self, mode: SyncMode = SyncMode.MA3) -> SyncState:
@@ -270,7 +289,7 @@ def build_app_shell(
     *,
     sync_bridge: MA3SyncBridge | None = None,
     sync_service: SyncService | None = None,
-    analysis_service: AnalysisService | None = None,
+    analysis_service: Orchestrator | None = None,
     working_dir_root: Path | None = None,
     initial_project_name: str = "EchoZero Project",
     app_settings_service: AppSettingsService | None = None,
@@ -290,11 +309,12 @@ def build_app_shell(
     )
 
 
-def _build_runtime_analysis_service() -> AnalysisService:
-    return AnalysisService(
+def _build_runtime_orchestrator() -> Orchestrator:
+    return Orchestrator(
         get_registry(),
         {
             "LoadAudio": LoadAudioProcessor(),
+            "AudioFilter": AudioFilterProcessor(),
             "SeparateAudio": SeparateAudioProcessor(),
             "DetectOnsets": DetectOnsetsProcessor(),
             "PyTorchAudioClassify": PyTorchAudioClassifyProcessor(),

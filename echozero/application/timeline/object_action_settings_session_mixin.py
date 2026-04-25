@@ -26,9 +26,11 @@ from echozero.application.timeline.object_actions.session import (
     ObjectActionSettingsScopeState,
     ObjectActionSettingsSession,
     PreviewCopySource,
+    ResetSessionDefaults,
     ReplaceSessionValues,
     RunSession,
     SaveAndRunSession,
+    SaveSessionToDefaults,
     SaveSession,
     SetSessionFieldValue,
 )
@@ -185,6 +187,10 @@ class ObjectActionSettingsSessionMixin(ObjectActionSettingsCopyMixin):
                     settings_session,
                     source_id=command.source_id,
                 )
+            elif isinstance(command, ResetSessionDefaults):
+                updated = self._reset_session_defaults(settings_session)
+            elif isinstance(command, SaveSessionToDefaults):
+                updated = self._save_session_to_defaults(settings_session)
             elif isinstance(command, SaveSession):
                 self._save_session_scope(settings_session)
                 updated = self._rebuild_session(settings_session)
@@ -300,10 +306,10 @@ class ObjectActionSettingsSessionMixin(ObjectActionSettingsCopyMixin):
             run_disabled_reason=(
                 "This stage is already running."
                 if run_is_active
-                else (
-                    ""
-                    if current_scope_state.can_run
-                    else "Reruns use this version's effective settings. Switch to This Version to run."
+                else self._run_disabled_reason(
+                    action_id=action_id,
+                    scope=effective_scope,
+                    plan=current_plan,
                 )
             ),
         )
@@ -361,10 +367,44 @@ class ObjectActionSettingsSessionMixin(ObjectActionSettingsCopyMixin):
                 scope=scope,
                 label=self._scope_label(scope),
                 field_values=field_values,
-                can_run=scope == "version",
+                can_run=self._scope_can_run(
+                    action_id=action_id,
+                    scope=scope,
+                    plan=plan,
+                ),
             ),
             plan,
         )
+
+    @staticmethod
+    def _scope_can_run(
+        *,
+        action_id: str,
+        scope: str,
+        plan: ObjectActionSettingsPlan,
+    ) -> bool:
+        if scope != "version":
+            return False
+        workflow = workflow_descriptor_for_action(action_id)
+        if workflow is None:
+            return True
+        if "layer_id" in workflow.params_schema and not str(plan.object_id).strip():
+            return False
+        return True
+
+    @staticmethod
+    def _run_disabled_reason(
+        *,
+        action_id: str,
+        scope: str,
+        plan: ObjectActionSettingsPlan,
+    ) -> str:
+        if scope != "version":
+            return "Reruns use this version's effective settings. Switch to This Version to run."
+        workflow = workflow_descriptor_for_action(action_id)
+        if workflow is not None and "layer_id" in workflow.params_schema and not str(plan.object_id).strip():
+            return "Select a target layer before running this stage."
+        return ""
 
     def _split_session_params(
         self,
@@ -421,6 +461,19 @@ class ObjectActionSettingsSessionMixin(ObjectActionSettingsCopyMixin):
             drafts_by_scope=drafts_by_scope,
         )
 
+    def _reset_session_defaults(
+        self,
+        settings_session: ObjectActionSettingsSession,
+    ) -> ObjectActionSettingsSession:
+        defaults = {
+            field.key: field.default_value
+            for field in (
+                *settings_session.plan.editable_fields,
+                *settings_session.plan.advanced_fields,
+            )
+        }
+        return self._replace_session_values(settings_session, values=defaults)
+
     def _save_session_scope(
         self,
         settings_session: ObjectActionSettingsSession,
@@ -433,14 +486,30 @@ class ObjectActionSettingsSessionMixin(ObjectActionSettingsCopyMixin):
             scope=settings_session.scope,
         )
 
+    def _save_session_to_defaults(
+        self,
+        settings_session: ObjectActionSettingsSession,
+    ) -> ObjectActionSettingsSession:
+        if "song_default" not in settings_session.available_scopes:
+            raise ValueError("Saving to defaults requires an active song.")
+        self.save(
+            settings_session.action_id,
+            {**self._session_object_params(settings_session), **settings_session.values},
+            object_id=settings_session.object_id,
+            object_type=settings_session.object_type,
+            scope="song_default",
+        )
+        return self._rebuild_session(settings_session)
+
     def _save_and_run_session(
         self,
         settings_session: ObjectActionSettingsSession,
     ) -> None:
-        if settings_session.scope != "version":
-            raise ValueError(
-                "Reruns use this version's effective settings. Switch to This Version to run."
+        if not settings_session.can_save_and_run:
+            reason = settings_session.run_disabled_reason or (
+                "This stage cannot run in the current session scope."
             )
+            raise ValueError(reason)
         self._save_session_scope(settings_session)
         self.run(
             settings_session.action_id,

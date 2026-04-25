@@ -5,18 +5,24 @@ Connects ProjectStorage lifecycle and baseline timeline reloads to the Stage Zer
 
 from __future__ import annotations
 
+import logging
 from dataclasses import replace
 from pathlib import Path
 from typing import Protocol
 
 from echozero.application.presentation.models import TimelinePresentation
 from echozero.application.session.models import Session
+from echozero.application.settings import AppSettingsService
+from echozero.application.shared.enums import LayerKind
 from echozero.application.shared.ids import SongId, SongVersionId
 from echozero.application.sync.adapters import MA3SyncBridge
 from echozero.application.sync.service import SyncService
 from echozero.application.timeline.app import TimelineApplication
 from echozero.application.timeline.models import Layer
+from echozero.application.timeline.object_actions import descriptor_for_action
 from echozero.application.timeline.pipeline_run_service import PipelineRunService
+from echozero.foundry.review_server_controller import ReviewServerController
+from echozero.persistence.audio import AudioImportOptions
 from echozero.persistence.entities import SongRecord, SongVersionRecord
 from echozero.persistence.session import ProjectStorage
 from echozero.ui.qt.app_shell_project_timeline import (
@@ -26,6 +32,8 @@ from echozero.ui.qt.app_shell_project_timeline import (
 from echozero.ui.qt.app_shell_runtime_services import build_runtime_timeline_application
 from echozero.ui.qt.app_shell_timeline_state import restore_timeline_targets
 
+logger = logging.getLogger(__name__)
+
 
 class ProjectLifecycleShell(Protocol):
     _app: TimelineApplication
@@ -33,8 +41,10 @@ class ProjectLifecycleShell(Protocol):
     _is_dirty: bool
     _last_pipeline_run_revision: int
     _pipeline_runs: PipelineRunService
+    _review_server_controller: ReviewServerController
     _sync_bridge: MA3SyncBridge | None
     _sync_service_override: SyncService | None
+    _app_settings_service: AppSettingsService | None
     project_path: Path | None
     project_storage: ProjectStorage
 
@@ -56,6 +66,15 @@ class ProjectLifecycleShell(Protocol):
 
     def _sync_runtime_audio_from_presentation(self, presentation: TimelinePresentation) -> None: ...
 
+    def run_object_action(
+        self,
+        action_id: str,
+        params: dict[str, object] | None = None,
+        *,
+        object_id: object | None = None,
+        object_type: str | None = None,
+    ) -> TimelinePresentation: ...
+
 
 def new_project(shell: ProjectLifecycleShell, name: str = "EchoZero Project") -> None:
     working_dir_root = shell.project_storage.working_dir.parent
@@ -63,6 +82,7 @@ def new_project(shell: ProjectLifecycleShell, name: str = "EchoZero Project") ->
         name=name,
         working_dir_root=working_dir_root,
     )
+    shell._review_server_controller.stop()
     _install_project_runtime(
         shell,
         project_storage=project_storage,
@@ -104,6 +124,7 @@ def open_project(shell: ProjectLifecycleShell, path: str | Path) -> None:
             target_path,
             working_dir_root=working_dir_root,
         )
+    shell._review_server_controller.stop()
     _install_project_runtime(
         shell,
         project_storage=project_storage,
@@ -123,11 +144,16 @@ def add_song_from_path(
     shell: ProjectLifecycleShell,
     title: str,
     audio_path: str | Path,
+    *,
+    run_import_pipeline: bool | None = None,
+    import_pipeline_action_ids: tuple[str, ...] | None = None,
 ) -> TimelinePresentation:
     carried_draft_layers = bool(shell._draft_layers)
+    audio_import_options = _resolve_audio_import_options(shell)
     song, version = shell.project_storage.import_song(
         title=title,
         audio_source=Path(audio_path),
+        audio_import_options=audio_import_options,
     )
     shell._materialize_draft_layers(song_version_id=str(version.id))
     refresh_from_storage(
@@ -137,6 +163,11 @@ def add_song_from_path(
     )
     if carried_draft_layers:
         shell._select_active_source_layer()
+    _run_song_import_pipeline_actions(
+        shell,
+        run_import_pipeline=run_import_pipeline,
+        import_pipeline_action_ids=import_pipeline_action_ids,
+    )
     shell._is_dirty = True
     shell._clear_history()
     return shell.presentation()
@@ -200,16 +231,24 @@ def add_song_version(
     *,
     label: str | None = None,
     activate: bool = True,
+    transfer_layers: bool = False,
+    transfer_layer_ids: list[str] | None = None,
+    run_import_pipeline: bool | None = None,
+    import_pipeline_action_ids: tuple[str, ...] | None = None,
 ) -> TimelinePresentation:
     song_record = shell.project_storage.songs.get(str(song_id))
     if song_record is None:
         raise ValueError(f"SongRecord not found: {song_id}")
 
+    audio_import_options = _resolve_audio_import_options(shell)
     version = shell.project_storage.add_song_version(
         song_record.id,
         Path(audio_path),
         label=label,
         activate=activate,
+        transfer_layers=transfer_layers,
+        transfer_layer_ids=transfer_layer_ids,
+        audio_import_options=audio_import_options,
     )
     updated_song = shell.project_storage.songs.get(song_record.id)
     active_version_id = (
@@ -222,9 +261,71 @@ def add_song_version(
         active_song_id=SongId(song_record.id),
         active_song_version_id=active_version_id,
     )
+    _run_song_import_pipeline_actions(
+        shell,
+        run_import_pipeline=run_import_pipeline,
+        import_pipeline_action_ids=import_pipeline_action_ids,
+    )
     shell._is_dirty = True
     shell._clear_history()
     return shell.presentation()
+
+
+def list_song_version_transfer_layers(
+    shell: ProjectLifecycleShell,
+    song_id: str | SongId,
+) -> list[tuple[str, str]]:
+    song_record = shell.project_storage.songs.get(str(song_id))
+    if song_record is None:
+        raise ValueError(f"SongRecord not found: {song_id}")
+    if song_record.active_version_id is None:
+        return []
+
+    return [
+        (layer.id, layer.name)
+        for layer in shell.project_storage.layers.list_by_version(song_record.active_version_id)
+    ]
+
+
+def reorder_songs(
+    shell: ProjectLifecycleShell,
+    song_ids: list[str],
+) -> TimelinePresentation:
+    shell.project_storage.reorder_songs(song_ids)
+    active_song_id, active_song_version_id = _selection_after_song_reorder(shell, song_ids)
+    refresh_from_storage(
+        shell,
+        active_song_id=active_song_id,
+        active_song_version_id=active_song_version_id,
+    )
+    shell._is_dirty = True
+    shell._clear_history()
+    return shell.presentation()
+
+
+def move_song(
+    shell: ProjectLifecycleShell,
+    song_id: str | SongId,
+    *,
+    steps: int,
+) -> TimelinePresentation:
+    songs = shell.project_storage.songs.list_by_project(shell.project_storage.project.id)
+    if not songs:
+        return shell.presentation()
+    song_ids = [song.id for song in songs]
+    resolved_song_id = str(song_id)
+    if resolved_song_id not in song_ids:
+        raise ValueError(f"SongRecord not found: {song_id}")
+    if steps == 0:
+        return shell.presentation()
+
+    current_index = song_ids.index(resolved_song_id)
+    target_index = max(0, min(len(song_ids) - 1, current_index + int(steps)))
+    if target_index == current_index:
+        return shell.presentation()
+
+    song_ids.insert(target_index, song_ids.pop(current_index))
+    return reorder_songs(shell, song_ids)
 
 
 def delete_song(
@@ -430,6 +531,106 @@ def _optional_positive_int(value: object) -> int | None:
     return resolved if resolved > 0 else None
 
 
+def _resolve_audio_import_options(shell: ProjectLifecycleShell) -> AudioImportOptions:
+    settings_service = getattr(shell, "_app_settings_service", None)
+    if settings_service is None:
+        return AudioImportOptions(strip_ltc_timecode=True)
+    try:
+        preferences = settings_service.preferences()
+    except Exception:
+        return AudioImportOptions(strip_ltc_timecode=True)
+    return AudioImportOptions(
+        strip_ltc_timecode=bool(preferences.song_import.strip_ltc_timecode),
+    )
+
+
+def _resolve_song_import_pipeline_action_ids(
+    shell: ProjectLifecycleShell,
+    *,
+    run_import_pipeline: bool | None,
+    import_pipeline_action_ids: tuple[str, ...] | None,
+) -> tuple[str, ...]:
+    if run_import_pipeline is False:
+        return ()
+    if import_pipeline_action_ids is not None:
+        return _canonical_import_pipeline_action_ids(import_pipeline_action_ids)
+
+    settings_service = getattr(shell, "_app_settings_service", None)
+    if settings_service is None:
+        return ()
+    try:
+        preferences = settings_service.preferences()
+    except Exception:
+        return ()
+    return _canonical_import_pipeline_action_ids(
+        preferences.song_import.pipeline_action_ids
+    )
+
+
+def _canonical_import_pipeline_action_ids(
+    action_ids: tuple[str, ...],
+) -> tuple[str, ...]:
+    resolved: list[str] = []
+    seen: set[str] = set()
+    for action_id in action_ids:
+        text = action_id.strip() if isinstance(action_id, str) else ""
+        if not text:
+            continue
+        descriptor = descriptor_for_action(text)
+        if descriptor is None:
+            continue
+        canonical_id = descriptor.action_id
+        if canonical_id in seen:
+            continue
+        seen.add(canonical_id)
+        resolved.append(canonical_id)
+    return tuple(resolved)
+
+
+def _resolve_import_source_audio_layer_id(shell: ProjectLifecycleShell) -> object | None:
+    presentation = shell.presentation()
+    for layer in presentation.layers:
+        if str(layer.layer_id) == "source_audio":
+            return layer.layer_id
+    for layer in presentation.layers:
+        if layer.kind is LayerKind.AUDIO:
+            return layer.layer_id
+    return "source_audio"
+
+
+def _run_song_import_pipeline_actions(
+    shell: ProjectLifecycleShell,
+    *,
+    run_import_pipeline: bool | None,
+    import_pipeline_action_ids: tuple[str, ...] | None,
+) -> None:
+    action_ids = _resolve_song_import_pipeline_action_ids(
+        shell,
+        run_import_pipeline=run_import_pipeline,
+        import_pipeline_action_ids=import_pipeline_action_ids,
+    )
+    if not action_ids:
+        return
+
+    source_layer_id = _resolve_import_source_audio_layer_id(shell)
+    if source_layer_id is None:
+        return
+
+    for action_id in action_ids:
+        try:
+            shell.run_object_action(
+                action_id,
+                object_id=source_layer_id,
+                object_type="layer",
+            )
+        except Exception as exc:
+            logger.warning(
+                "Import pipeline action '%s' failed: %s",
+                action_id,
+                exc,
+            )
+
+
 def _selection_after_song_delete(
     shell: ProjectLifecycleShell,
     deleted_song_id: str,
@@ -477,6 +678,30 @@ def _selection_after_song_version_delete(
     if next_version is not None:
         return SongId(song_id), SongVersionId(next_version.id)
     return _selection_after_song_delete(shell, song_id)
+
+
+def _selection_after_song_reorder(
+    shell: ProjectLifecycleShell,
+    ordered_song_ids: list[str],
+) -> tuple[SongId | None, SongVersionId | None]:
+    if not ordered_song_ids:
+        return None, None
+
+    current_song_id = str(shell.session.active_song_id) if shell.session.active_song_id is not None else None
+    if current_song_id in ordered_song_ids:
+        selected_song_id = current_song_id
+    else:
+        selected_song_id = ordered_song_ids[0]
+
+    song_record = shell.project_storage.songs.get(selected_song_id)
+    if song_record is None:
+        return None, None
+    selected_version_id = (
+        SongVersionId(song_record.active_version_id)
+        if song_record.active_version_id is not None
+        else None
+    )
+    return SongId(song_record.id), selected_version_id
 
 
 def _adjacent_song_record(

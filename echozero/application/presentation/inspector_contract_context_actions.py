@@ -23,6 +23,7 @@ from echozero.application.presentation.models import (
     default_take_actions,
 )
 from echozero.application.shared.enums import LayerKind
+from echozero.application.shared.layer_kinds import is_event_like_layer_kind
 from echozero.application.timeline.event_batch_scope import (
     EventBatchScope,
     event_batch_scope_params,
@@ -217,6 +218,11 @@ def shared_context_sections(
                     InspectorAction(
                         action_id="add_event_layer",
                         label="Add Event Layer",
+                        group="tools",
+                    ),
+                    InspectorAction(
+                        action_id="add_marker_layer",
+                        label="Add Marker Layer",
                         group="tools",
                     ),
                     InspectorAction(
@@ -606,7 +612,7 @@ def is_song_drum_capable_layer(layer: LayerPresentation) -> bool:
 
 
 def layer_supports_ma3_transfer(layer: LayerPresentation) -> bool:
-    return layer.kind is LayerKind.EVENT and layer.main_take_id is not None
+    return is_event_like_layer_kind(layer.kind) and layer.main_take_id is not None
 
 
 def preview_transfer_plan_label(plan: BatchTransferPlanPresentation) -> str:

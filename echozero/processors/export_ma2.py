@@ -17,6 +17,7 @@ from __future__ import annotations
 import os
 from typing import Any, Callable
 
+from echozero.application.playback.timecode import TimebaseSpec, TimecodeCodec
 from echozero.domain.types import EventData
 from echozero.errors import ExecutionError, ValidationError
 from echozero.execution import ExecutionContext
@@ -28,25 +29,67 @@ from echozero.result import Result, err, ok
 # MA2 timecode helpers
 # ---------------------------------------------------------------------------
 
-VALID_FRAME_RATES = {24, 25, 30}
+VALID_FRAME_RATES = (24.0, 25.0, 29.97, 30.0)
 
 
-def seconds_to_timecode(seconds: float, frame_rate: int = 30) -> str:
+def _coerce_frame_rate(frame_rate: object) -> float:
+    """Normalize one frame rate setting into a supported canonical value."""
+
+    try:
+        resolved = float(frame_rate)
+    except (TypeError, ValueError):
+        raise ValueError(f"Invalid frame_rate {frame_rate!r}") from None
+    for candidate in VALID_FRAME_RATES:
+        if abs(resolved - candidate) <= 1e-6:
+            return float(candidate)
+    raise ValueError(
+        f"Invalid frame_rate {frame_rate}. Valid: {VALID_FRAME_RATES}"
+    )
+
+
+def _timecode_codec_for_frame_rate(
+    frame_rate: float | int,
+    *,
+    drop_frame: bool = False,
+) -> TimecodeCodec:
+    """Build the canonical timecode codec for one export frame-rate setting."""
+
+    return TimecodeCodec(
+        TimebaseSpec.from_legacy_fps(
+            frame_rate,
+            drop_frame=drop_frame,
+        )
+    )
+
+
+def _format_frame_rate_for_xml(frame_rate: float | int) -> str:
+    """Render frameRate attribute values without noisy trailing decimals."""
+
+    resolved = float(frame_rate)
+    if resolved.is_integer():
+        return str(int(resolved))
+    return str(resolved)
+
+
+def seconds_to_timecode(
+    seconds: float,
+    frame_rate: float | int = 30,
+    *,
+    drop_frame: bool = False,
+) -> str:
     """Convert seconds to timecode string HH:MM:SS.FF."""
-    total_frames = int(round(seconds * frame_rate))
-    ff = total_frames % frame_rate
-    total_seconds = total_frames // frame_rate
-    ss = total_seconds % 60
-    total_minutes = total_seconds // 60
-    mm = total_minutes % 60
-    hh = total_minutes // 60
-    return f"{hh:02d}:{mm:02d}:{ss:02d}.{ff:02d}"
+
+    codec = _timecode_codec_for_frame_rate(frame_rate, drop_frame=drop_frame)
+    total_frames = codec.seconds_to_frames(seconds)
+    return codec.format_timecode_from_frames(total_frames, frame_separator=".")
 
 
 def build_ma2_xml(
     events: list[dict[str, Any]],
-    frame_rate: int = 30,
+    frame_rate: float | int = 30,
     track_name: str = "EchoZero",
+    *,
+    drop_frame: bool = False,
 ) -> str:
     """Build a grandMA2 timecode XML string from event dicts.
 
@@ -57,11 +100,15 @@ def build_ma2_xml(
     """
     lines = [
         '<?xml version="1.0" encoding="UTF-8"?>',
-        f'<MA2Timecode frameRate="{frame_rate}" trackName="{track_name}">',
+        f'<MA2Timecode frameRate="{_format_frame_rate_for_xml(frame_rate)}" trackName="{track_name}">',
     ]
 
     for i, evt in enumerate(events):
-        tc = seconds_to_timecode(evt["time"], frame_rate)
+        tc = seconds_to_timecode(
+            evt["time"],
+            frame_rate,
+            drop_frame=drop_frame,
+        )
         label = evt.get("label", f"Event {i}")
         cue = evt.get("cue", str(i + 1))
         lines.append(
@@ -138,6 +185,7 @@ class ExportMA2Processor:
         settings = block.settings
         output_path = settings.get("output_path")
         frame_rate = settings.get("frame_rate", 30)
+        drop_frame = bool(settings.get("drop_frame", False))
         track_name = settings.get("track_name", "EchoZero")
 
         # Validate
@@ -145,10 +193,14 @@ class ExportMA2Processor:
             return err(ValidationError(
                 f"Block '{block_id}' is missing required setting 'output_path'"
             ))
-        if frame_rate not in VALID_FRAME_RATES:
-            return err(ValidationError(
-                f"Invalid frame_rate {frame_rate}. Valid: {VALID_FRAME_RATES}"
-            ))
+        try:
+            resolved_frame_rate = _coerce_frame_rate(frame_rate)
+            _timecode_codec_for_frame_rate(
+                resolved_frame_rate,
+                drop_frame=drop_frame,
+            )
+        except ValueError as exc:
+            return err(ValidationError(str(exc)))
 
         # Flatten all events from all layers, sorted by time
         all_events: list[dict[str, Any]] = []
@@ -183,8 +235,9 @@ class ExportMA2Processor:
         # Build XML
         xml_content = build_ma2_xml(
             events=all_events,
-            frame_rate=frame_rate,
+            frame_rate=resolved_frame_rate,
             track_name=track_name,
+            drop_frame=drop_frame,
         )
 
         # Write to disk
@@ -205,5 +258,3 @@ class ExportMA2Processor:
         )
 
         return ok(written_path)
-
-

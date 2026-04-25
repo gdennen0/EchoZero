@@ -271,7 +271,7 @@ def test_ma3_osc_bridge_recovers_missing_cmd_subtrack_once_before_retrying_add_e
     assert "EZ.CreateCmdSubTrack(1, 2, 5, 1)" in bridge.commands
     events = bridge.list_track_events("tc1_tg2_tr5")
     assert len(events) == 1
-    assert events[0].label == "Cue 5"
+    assert events[0].label == "Kick"
     assert events[0].cmd == "Go+ Cue 5"
     assert events[0].cue_number == 5
 
@@ -340,13 +340,13 @@ def test_ma3_osc_bridge_creates_assigns_and_prepares_track_for_push_without_cmd_
     assert created.number == 13
     assert created.name == "Song A - Lead"
     assert track.sequence_no == 13
-    assert [event.label for event in events] == ["Cue 27"]
+    assert [event.label for event in events] == ["Lead"]
     assert [event.cmd for event in events] == ["Go+ Cue 27"]
     assert [event.cue_number for event in events] == [27]
     assert "EZ.CreateSequenceInCurrentSongRange('Song A - Lead')" in bridge.commands
     assert "EZ.AssignTrackSequence(1, 2, 4, 13)" in bridge.commands
     assert "EZ.PrepareTrackForEvents(1, 2, 4)" in bridge.commands
-    assert "EZ.AddEvent(1, 2, 4, 0.5, 'Go+ Cue 27')" in bridge.commands
+    assert "EZ.AddEvent(1, 2, 4, 0.5, 'Go+ Cue 27', 'Lead', 27, 'Lead')" in bridge.commands
     assert "EZ.CreateCmdSubTrack(1, 2, 4, 1)" not in bridge.commands
 
 
@@ -426,6 +426,6 @@ def test_ma3_osc_bridge_overwrite_waits_for_delayed_clear_before_rewriting_track
 
     events = bridge.list_track_events("tc1_tg2_tr3")
 
-    assert [event.label for event in events] == ["Cue 7"]
+    assert [event.label for event in events] == ["Lead"]
     assert [event.cmd for event in events] == ["Go+ Cue 7"]
     assert [event.cue_number for event in events] == [7]

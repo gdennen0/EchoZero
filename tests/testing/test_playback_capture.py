@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import shutil
+import tempfile
 import uuid
 from pathlib import Path
 
@@ -16,8 +17,14 @@ from echozero.ui.qt.timeline.runtime_audio import TimelineRuntimeAudioController
 _TEST_TEMP_ROOT = Path("C:/Users/griff/.codex/memories/test_playback_capture")
 
 
+def _resolved_test_temp_root() -> Path:
+    if _TEST_TEMP_ROOT.is_absolute():
+        return _TEST_TEMP_ROOT
+    return Path(tempfile.gettempdir()) / ".codex" / "memories" / "test_playback_capture"
+
+
 def _repo_local_temp_root() -> Path:
-    root = _TEST_TEMP_ROOT / uuid.uuid4().hex
+    root = _resolved_test_temp_root() / uuid.uuid4().hex
     root.mkdir(parents=True, exist_ok=True)
     return root.resolve()
 

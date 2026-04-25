@@ -10,7 +10,7 @@ from PyQt6.QtWidgets import QApplication
 
 from echozero.application.shared.enums import SyncMode
 from echozero.application.sync.service import SyncService
-from echozero.services.orchestrator import AnalysisService
+from echozero.services.orchestrator import Orchestrator
 from echozero.testing.ma3 import OSCLoopback, OSCMessageCapture, SimulatedMA3Bridge
 from echozero.ui.qt.app_shell import AppShellRuntime
 from echozero.ui.qt.launcher_surface import build_launcher_surface
@@ -26,7 +26,7 @@ class AppFlowHarness:
         simulate_ma3_osc: bool = False,
         working_dir_root: Path | None = None,
         initial_project_name: str = "EchoZero Test Project",
-        analysis_service: AnalysisService | None = None,
+        analysis_service: Orchestrator | None = None,
         sync_service: SyncService | None = None,
     ) -> None:
         os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")

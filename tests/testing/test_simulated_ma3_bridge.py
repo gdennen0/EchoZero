@@ -137,7 +137,7 @@ def test_simulated_ma3_bridge_overwrite_push_replaces_track_events():
     )
 
     events = bridge.list_track_events("tc1_tg2_tr3")
-    assert [event.label for event in events] == ["Cue 7", "Cue 8"]
+    assert [event.label for event in events] == ["A", "B"]
     assert [event.cue_number for event in events] == [7, 8]
     assert [event.cmd for event in events] == ["Go+ Cue 7", "Go+ Cue 8"]
     assert all(event.event_id.startswith("tc1_tg2_tr3:evt:") for event in events)

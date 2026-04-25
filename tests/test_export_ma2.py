@@ -47,6 +47,13 @@ class TestSecondsToTimecode:
         # 0.5s at 25fps = 12.5 → rounds to 12 frames
         assert seconds_to_timecode(0.5, 25) == "00:00:00.12"
 
+    def test_29_97_ndf(self):
+        assert seconds_to_timecode(1.0, 29.97) == "00:00:01.00"
+
+    def test_29_97_drop_frame_minute_skip(self):
+        # 1800 frames at 29.97fps lands on DF boundary 00:01:00.02
+        assert seconds_to_timecode(60.06, 29.97, drop_frame=True) == "00:01:00.02"
+
 
 class TestBuildMA2XML:
     def test_empty_events(self):
@@ -76,6 +83,10 @@ class TestBuildMA2XML:
     def test_frame_rate_in_header(self):
         xml = build_ma2_xml([], frame_rate=25)
         assert 'frameRate="25"' in xml
+
+    def test_29_97_frame_rate_in_header(self):
+        xml = build_ma2_xml([], frame_rate=29.97)
+        assert 'frameRate="29.97"' in xml
 
 
 # ---------------------------------------------------------------------------
@@ -168,6 +179,42 @@ class TestExportMA2Processor:
         result, _ = self._build_and_run(frame_rate=60)
         assert is_err(result)
 
+    def test_invalid_drop_frame_for_30fps(self):
+        g = Graph()
+        g.add_block(Block(
+            id="source", name="Source", block_type="EventSource",
+            category=BlockCategory.PROCESSOR,
+            input_ports=(), output_ports=(
+                Port("events_out", PortType.EVENT, Direction.OUTPUT),
+            ),
+        ))
+        g.add_block(Block(
+            id="export", name="Export", block_type="ExportMA2",
+            category=BlockCategory.PROCESSOR,
+            input_ports=(Port("events_in", PortType.EVENT, Direction.INPUT),),
+            output_ports=(),
+            settings=BlockSettings({
+                "output_path": "/tmp/test.xml",
+                "frame_rate": 30,
+                "drop_frame": True,
+            }),
+        ))
+        g.add_connection(Connection("source", "events_out", "export", "events_in"))
+
+        bus = RuntimeBus()
+        engine = ExecutionEngine(g, bus)
+
+        class FakeSource:
+            def execute(self, block_id, context):
+                from echozero.result import ok
+                return ok(_make_event_data())
+
+        engine.register_executor("EventSource", FakeSource())
+        engine.register_executor("ExportMA2", ExportMA2Processor(lambda c, p: p))
+
+        result = engine.run(GraphPlanner().plan(g))
+        assert is_err(result)
+
     def test_missing_output_path(self):
         g = Graph()
         g.add_block(Block(
@@ -213,4 +260,3 @@ class TestExportMA2Processor:
         engine.register_executor("ExportMA2", ExportMA2Processor(lambda c, p: p))
         result = engine.run(GraphPlanner().plan(g))
         assert is_err(result)
-

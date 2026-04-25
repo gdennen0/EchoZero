@@ -142,22 +142,11 @@ class TakeRepository(BaseRepository[Take]):
         """Serialize a TakeSource to a JSON string, or None."""
         if source is None:
             return None
-        return json.dumps({
-            "block_id": source.block_id,
-            "block_type": source.block_type,
-            "settings_snapshot": source.settings_snapshot,
-            "run_id": source.run_id,
-        })
+        return json.dumps(source.to_dict())
 
     @staticmethod
     def _deserialize_source(raw: str | None) -> TakeSource | None:
         """Reconstruct a TakeSource from a JSON string, or None."""
         if raw is None:
             return None
-        data = json.loads(raw)
-        return TakeSource(
-            block_id=data["block_id"],
-            block_type=data["block_type"],
-            settings_snapshot=data["settings_snapshot"],
-            run_id=data["run_id"],
-        )
+        return TakeSource.from_dict(json.loads(raw))

@@ -24,6 +24,35 @@
     "datasetVersionId": { "type": "string" },
     "specHash": { "type": "string" },
     "sharedContractFingerprint": { "type": "string" },
+    "artifactIdentity": {
+      "type": "object",
+      "required": [
+        "artifactId",
+        "runId",
+        "datasetVersionId",
+        "specHash",
+        "sharedContractFingerprint"
+      ],
+      "properties": {
+        "artifactId": { "type": "string" },
+        "runId": { "type": "string" },
+        "datasetVersionId": { "type": "string" },
+        "specHash": { "type": "string" },
+        "sharedContractFingerprint": { "type": "string" }
+      }
+    },
+    "displayIdentity": {
+      "type": "object",
+      "properties": {
+        "artifactId": { "type": "string" },
+        "runId": { "type": "string" },
+        "datasetVersionId": { "type": "string" },
+        "weightsFile": { "type": "string" },
+        "classes": { "type": "array", "items": { "type": "string" } },
+        "classificationMode": { "type": "string" },
+        "consumer": { "type": "string" }
+      }
+    },
     "weightsPath": { "type": "string" },
     "classes": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
     "classificationMode": { "enum": ["multiclass", "binary", "positive_vs_other"] },

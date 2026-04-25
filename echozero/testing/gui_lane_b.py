@@ -27,9 +27,9 @@ from echozero.application.timeline.intents import (
     SelectPullTargetLayer,
     SetPullImportMode,
 )
-from echozero.services.orchestrator import AnalysisService
+from echozero.services.orchestrator import Orchestrator
 from echozero.testing.analysis_mocks import (
-    build_mock_analysis_service,
+    build_mock_orchestrator,
     write_test_model,
     write_test_wav,
 )
@@ -93,7 +93,7 @@ class GuiLaneBRunner:
         output_dir: Path | None = None,
         record_video: bool = False,
         fps: int = 8,
-        analysis_service: AnalysisService | None = None,
+        analysis_service: Orchestrator | None = None,
         use_mock_analysis: bool = True,
     ):
         self._scenario = scenario
@@ -115,7 +115,7 @@ class GuiLaneBRunner:
         harness = AppFlowHarness(
             initial_project_name=self._scenario.name,
             working_dir_root=self._run_temp_root / "gui-lane-b-working",
-            analysis_service=self._resolved_analysis_service(),
+            analysis_service=self._resolved_orchestrator(),
             sync_service=_LaneBSyncService(),
         )
         _render_for_hit_testing(harness)
@@ -192,11 +192,11 @@ class GuiLaneBRunner:
             harness.launcher.confirm_close = lambda: True  # type: ignore[method-assign]
             harness.shutdown()
 
-    def _resolved_analysis_service(self) -> AnalysisService | None:
+    def _resolved_orchestrator(self) -> Orchestrator | None:
         if self._analysis_service is not None:
             return self._analysis_service
         if self._use_mock_analysis:
-            return build_mock_analysis_service()
+            return build_mock_orchestrator()
         return None
 
     def _execute_step(
@@ -304,7 +304,7 @@ class GuiLaneBRunner:
                 )
             direction = str(params.get("direction", "")).lower()
             if direction == "push":
-                trigger_layer_contract_action(harness, layer.layer_id, "push_to_ma3")
+                self._open_push_workspace(harness, layer_id=str(layer.layer_id))
             elif direction == "pull":
                 if harness.presentation().manual_push_flow.push_mode_active:
                     harness.widget._dispatch(ExitPushToMA3Mode())
@@ -371,6 +371,21 @@ class GuiLaneBRunner:
             raise ValueError(f"Unsupported action: {action}")
         _render_for_hit_testing(harness)
 
+    @staticmethod
+    def _open_push_workspace(harness: AppFlowHarness, *, layer_id: str) -> None:
+        last_error: Exception | None = None
+        for action_id in ("send_layer_to_ma3", "push_to_ma3", "send_to_ma3"):
+            try:
+                trigger_layer_contract_action(harness, layer_id, action_id)
+                return
+            except RuntimeError as exc:
+                last_error = exc
+                if "could not find inspector action" not in str(exc).lower():
+                    raise
+        if last_error is not None:
+            raise last_error
+        raise RuntimeError("Lane B could not open push workspace.")
+
     def _resolve_step_params(self, params: dict[str, object]) -> dict[str, object]:
         resolved: dict[str, object] = {}
         for key, value in params.items():
@@ -396,7 +411,7 @@ def run_scenario_file(
     output_dir: str | Path | None = None,
     record_video: bool = False,
     fps: int = 8,
-    analysis_service: AnalysisService | None = None,
+    analysis_service: Orchestrator | None = None,
     use_mock_analysis: bool = True,
 ) -> list[dict[str, object]]:
     scenario = load_scenario(scenario_path)

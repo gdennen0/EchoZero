@@ -83,6 +83,7 @@ def test_build_manual_layer_record_tracks_manual_kind_and_ui_state():
     assert record.visible is False
     assert record.locked is True
     assert record.state_flags["manual_kind"] == "event"
+    assert record.state_flags["take_lanes_expanded"] is False
 
 
 def test_runtime_take_data_serializes_event_metadata():
@@ -104,6 +105,17 @@ def test_runtime_take_data_serializes_event_metadata():
     }
     assert serialized.source_event_id == "src_evt"
     assert serialized.parent_event_id == "parent_evt"
+
+
+def test_runtime_take_data_serializes_marker_layer_events():
+    layer = _event_layer()
+    layer.kind = LayerKind.MARKER
+
+    data = runtime_take_data(layer, layer.takes[0])
+
+    assert len(data.layers) == 1
+    assert data.layers[0].events[0].metadata["cue_number"] == 1
+    assert data.layers[0].events[0].classifications == {"label": "Kick"}
 
 
 def test_events_from_take_restores_cue_number_from_metadata():
@@ -159,6 +171,7 @@ def test_runtime_layer_record_updates_state_flags_and_provenance():
         color="#00ff00",
         visible=False,
         locked=True,
+        expanded=True,
     )
     existing = LayerRecord(
         id="layer_runtime",
@@ -187,6 +200,7 @@ def test_runtime_layer_record_updates_state_flags_and_provenance():
     assert updated.state_flags["manually_modified"] is True
     assert updated.state_flags["stale_reason"] == "source changed"
     assert updated.state_flags["manual_kind"] == "event"
+    assert updated.state_flags["take_lanes_expanded"] is True
     assert updated.provenance == {
         "source_layer_id": "source_audio",
         "source_song_version_id": "song_version_source",

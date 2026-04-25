@@ -53,7 +53,7 @@ EZ.GetCurrentSongSequenceRange()    -- Resolve SpeedOfLight current-song range
 
 -- Manipulation
 EZ.CreateTrack(tcNo, tgNo, name)    -- Create new track
-EZ.AddEvent(tcNo, tgNo, trackNo, time, cmd)  -- Add event
+EZ.AddEvent(tcNo, tgNo, trackNo, time, cmd[, eventName[, cueNo[, cueLabel]]])  -- Add event
 EZ.DeleteEvent(tcNo, tgNo, trackNo, idx)     -- Delete event
 EZ.CreateSequenceNextAvailable(name)         -- Create next free MA3 sequence
 EZ.CreateSequenceInCurrentSongRange(name)    -- Create sequence in current-song range

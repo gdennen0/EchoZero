@@ -29,6 +29,7 @@ from echozero.application.timeline.intents import (
     CreateEvent,
     DeleteEvents,
     DuplicateSelectedEvents,
+    ReorderLayer,
     MoveSelectedEventsToAdjacentLayer,
     MoveSelectedEvents,
     NudgeSelectedEvents,
@@ -231,9 +232,14 @@ class TimelineWidgetContractMixin:
         self: _TimelineWidgetContractHost,
         delta_seconds: float,
         target_layer_id: LayerId | None,
+        copy_selected: bool = False,
     ) -> None:
         self._dispatch(
-            MoveSelectedEvents(delta_seconds=delta_seconds, target_layer_id=target_layer_id)
+            MoveSelectedEvents(
+                delta_seconds=delta_seconds,
+                target_layer_id=target_layer_id,
+                copy_selected=copy_selected,
+            )
         )
 
     def _move_selected_events_to_adjacent_layer(
@@ -243,6 +249,20 @@ class TimelineWidgetContractMixin:
         if direction == 0:
             return
         self._dispatch(MoveSelectedEventsToAdjacentLayer(direction=direction))
+
+    def _reorder_layer(
+        self: _TimelineWidgetContractHost,
+        source_layer_id: LayerId,
+        target_after_layer_id: LayerId | None,
+        insert_at_start: bool = False,
+    ) -> None:
+        self._dispatch(
+            ReorderLayer(
+                source_layer_id=source_layer_id,
+                target_after_layer_id=target_after_layer_id,
+                insert_at_start=insert_at_start,
+            )
+        )
 
     def _set_active_playback_target(
         self: _TimelineWidgetContractHost,
@@ -297,6 +317,48 @@ class TimelineWidgetContractMixin:
             for event_id in self.presentation.selected_event_ids
             if event_id in allowed_event_ids
         ]
+
+    def _preview_selected_event_clip(self: _TimelineWidgetContractHost) -> None:
+        action = self._selected_event_preview_action()
+        if action is None or not action.enabled:
+            return
+        self._handle_contract_action(action)
+
+    def _selected_event_preview_action(
+        self: _TimelineWidgetContractHost,
+    ) -> InspectorAction | None:
+        hit_target = self._preview_event_hit_target_for_selection(self.presentation)
+        contract = (
+            build_timeline_inspector_contract(self.presentation, hit_target=hit_target)
+            if hit_target is not None
+            else build_timeline_inspector_contract(self.presentation)
+        )
+        for section in contract.context_sections:
+            for action in section.actions:
+                if action.action_id == "preview_event_clip":
+                    return action
+        return None
+
+    @staticmethod
+    def _preview_event_hit_target_for_selection(
+        presentation: TimelinePresentation,
+    ) -> TimelineInspectorHitTarget | None:
+        if presentation.selected_event_refs:
+            selected_ref = presentation.selected_event_refs[-1]
+            return TimelineInspectorHitTarget(
+                kind="event",
+                layer_id=selected_ref.layer_id,
+                take_id=selected_ref.take_id,
+                event_id=selected_ref.event_id,
+            )
+        if not presentation.selected_event_ids:
+            return None
+        return TimelineInspectorHitTarget(
+            kind="event",
+            layer_id=presentation.selected_layer_id,
+            take_id=presentation.selected_take_id,
+            event_id=presentation.selected_event_ids[-1],
+        )
 
     def _preview_active_transfer_plan(self: _TimelineWidgetContractHost) -> None:
         plan = self.presentation.batch_transfer_plan

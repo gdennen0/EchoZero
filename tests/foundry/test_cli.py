@@ -184,3 +184,72 @@ def test_cli_ui_launches_foundry_window(tmp_path: Path, monkeypatch: pytest.Monk
 
     assert main(["--root", str(tmp_path), "ui"]) == 0
     assert captured_root == [tmp_path]
+
+
+def test_cli_installs_runtime_bundle_from_artifact_id(tmp_path: Path, capsys) -> None:
+    try:
+        import torch
+    except ImportError:
+        pytest.skip("torch not installed")
+
+    exports_dir = tmp_path / "workspace" / "exports"
+    exports_dir.mkdir(parents=True, exist_ok=True)
+    weights_path = exports_dir / "model.pth"
+    manifest_path = exports_dir / "art_live.manifest.json"
+    models_dir = tmp_path / "models"
+
+    torch.save(
+        {
+            "classes": ["snare", "other"],
+            "classification_mode": "binary",
+            "preprocessing": {
+                "sampleRate": 22050,
+                "maxLength": 22050,
+                "nFft": 2048,
+                "hopLength": 512,
+                "nMels": 128,
+                "fmax": 8000,
+            },
+            "schema": "foundry.crnn_model.v1",
+            "trainer": "crnn_melspec_v1",
+            "model_state_dict": {},
+        },
+        weights_path,
+    )
+    manifest_path.write_text(
+        json.dumps(
+            {
+                "artifactId": "art_live",
+                "runId": "run_live",
+                "weightsPath": "model.pth",
+                "classes": ["snare", "other"],
+                "classificationMode": "binary",
+                "sharedContractFingerprint": "bad-fingerprint",
+                "inferencePreprocessing": {
+                    "sampleRate": 22050,
+                    "maxLength": 22050,
+                    "nFft": 2048,
+                    "hopLength": 512,
+                    "nMels": 128,
+                    "fmax": 8000,
+                },
+                "runtime": {"consumer": "PyTorchAudioClassify"},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    assert main(
+        [
+            "--root",
+            str(tmp_path),
+            "install-runtime-bundle",
+            "art_live",
+            "--models-dir",
+            str(models_dir),
+        ]
+    ) == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["label"] == "snare"
+    assert payload["bundle_name"] == "binary-drum-snare"
+    assert (models_dir / "binary_drum_bundles.json").exists()

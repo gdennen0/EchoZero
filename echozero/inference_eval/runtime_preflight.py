@@ -175,6 +175,15 @@ def _checkpoint_preprocessing(checkpoint: Mapping[str, Any]) -> dict[str, Any]:
     return {}
 
 
+def _checkpoint_runtime_preprocessing(checkpoint: Mapping[str, Any]) -> dict[str, Any]:
+    preprocessing = _checkpoint_preprocessing(checkpoint)
+    return {
+        key: preprocessing[key]
+        for key in sorted(REQUIRED_PREPROCESSING_KEYS)
+        if key in preprocessing
+    }
+
+
 def _checkpoint_classes(checkpoint: Mapping[str, Any]) -> tuple[str, ...]:
     classes = checkpoint.get("classes")
     if isinstance(classes, list):
@@ -237,7 +246,7 @@ def _validate_checkpoint_completeness_for_manifest(checkpoint: Mapping[str, Any]
 
 def checkpoint_contract_fingerprint(checkpoint: Mapping[str, Any]) -> str:
     inference_contract = InferenceContract(
-        preprocessing=_checkpoint_preprocessing(checkpoint),
+        preprocessing=_checkpoint_runtime_preprocessing(checkpoint),
         class_map=_checkpoint_classes(checkpoint),
         model_signature=_checkpoint_model_signature(checkpoint),
     )

@@ -7,7 +7,7 @@ from echozero.domain.types import AudioData, Event as DomainEvent, EventData, La
 from echozero.execution import ExecutionContext
 from echozero.pipelines.registry import get_registry
 from echozero.result import ok
-from echozero.services.orchestrator import AnalysisService
+from echozero.services.orchestrator import Orchestrator
 
 
 def _write_pcm16_mono_wav(path: Path, samples: list[int], sample_rate: int) -> Path:
@@ -94,6 +94,28 @@ class _MockSeparateAudioExecutor:
         return ok(stems)
 
 
+class _MockAudioFilterExecutor:
+    def execute(self, block_id: str, context: ExecutionContext):
+        audio = context.get_input(block_id, "audio_in", AudioData)
+        assert audio is not None
+        base = Path(str(audio.file_path)).parent
+        filtered_path = write_test_tone_wav(
+            base / f"{block_id}.wav",
+            frequency_hz=110.0 if "kick" in block_id else 220.0,
+            amplitude=0.35,
+            duration_seconds=max(float(audio.duration), 0.1),
+            sample_rate=int(audio.sample_rate),
+        )
+        return ok(
+            AudioData(
+                sample_rate=int(audio.sample_rate),
+                duration=float(audio.duration),
+                file_path=str(filtered_path),
+                channel_count=int(audio.channel_count),
+            )
+        )
+
+
 class _MockDetectOnsetsExecutor:
     def execute(self, _block_id: str, _context: ExecutionContext):
         event = DomainEvent(
@@ -141,9 +163,9 @@ class _MockClassifyExecutor:
 
 class _MockBinaryDrumClassifyExecutor:
     def execute(self, block_id: str, context: ExecutionContext):
-        event_data = context.get_input(block_id, "events_in", EventData)
-        assert event_data is not None
-        input_events = tuple(event for layer in event_data.layers for event in layer.events)
+        block = context.graph.blocks[block_id]
+        target_class = str(block.settings.get("target_class", "")).strip().lower()
+        input_events = _merged_binary_drum_input_events(block_id, context)
         kick_events: list[DomainEvent] = []
         snare_events: list[DomainEvent] = []
         for event in input_events:
@@ -167,6 +189,12 @@ class _MockBinaryDrumClassifyExecutor:
                     origin="binary_classify:snare",
                 )
             )
+        if target_class == "kick":
+            return ok(EventData(layers=(DomainLayer(id="kick", name="kick", events=tuple(kick_events)),)))
+        if target_class == "snare":
+            return ok(
+                EventData(layers=(DomainLayer(id="snare", name="snare", events=tuple(snare_events)),))
+            )
         return ok(
             EventData(
                 layers=(
@@ -177,14 +205,42 @@ class _MockBinaryDrumClassifyExecutor:
         )
 
 
-def build_mock_analysis_service() -> AnalysisService:
-    return AnalysisService(
+def build_mock_orchestrator() -> Orchestrator:
+    return Orchestrator(
         get_registry(),
         {
             "LoadAudio": _MockLoadAudioExecutor(),
             "SeparateAudio": _MockSeparateAudioExecutor(),
+            "AudioFilter": _MockAudioFilterExecutor(),
             "DetectOnsets": _MockDetectOnsetsExecutor(),
             "PyTorchAudioClassify": _MockClassifyExecutor(),
             "BinaryDrumClassify": _MockBinaryDrumClassifyExecutor(),
         },
     )
+
+
+build_mock_analysis_service = build_mock_orchestrator
+
+
+def _merged_binary_drum_input_events(
+    block_id: str,
+    context: ExecutionContext,
+) -> tuple[DomainEvent, ...]:
+    event_batches: list[EventData] = []
+    for port_name in ("events_in", "kick_events_in", "snare_events_in"):
+        event_data = context.get_input(block_id, port_name, EventData)
+        if event_data is not None:
+            event_batches.append(event_data)
+
+    assert event_batches
+    merged: list[DomainEvent] = []
+    seen: set[tuple[str, float, float]] = set()
+    for event_data in event_batches:
+        for layer in event_data.layers:
+            for event in layer.events:
+                key = (str(event.id), float(event.time), float(event.duration))
+                if key in seen:
+                    continue
+                seen.add(key)
+                merged.append(event)
+    return tuple(merged)

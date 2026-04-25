@@ -24,6 +24,7 @@ from echozero.processors.separate_audio import (
     SeparateAudioProcessor,
     StemResult,
     _detect_device,
+    resolve_demucs_model_name,
 )
 from echozero.progress import ProgressReport, RuntimeBus
 from echozero.result import Err, Ok, is_err, is_ok
@@ -69,6 +70,10 @@ def _make_separator_block(
     device: str = "cpu",
     shifts: int = 1,
     two_stems: str | None = None,
+    include_drums_stem_layer: bool = False,
+    include_bass_stem_layer: bool = False,
+    include_vocals_stem_layer: bool = False,
+    include_other_stem_layer: bool = False,
     output_format: str = "wav",
     mp3_bitrate: int = 320,
     working_dir: str | None = None,
@@ -81,6 +86,10 @@ def _make_separator_block(
         "output_format": output_format,
         "mp3_bitrate": mp3_bitrate,
         "working_dir": settings_working_dir,
+        "include_drums_stem_layer": include_drums_stem_layer,
+        "include_bass_stem_layer": include_bass_stem_layer,
+        "include_vocals_stem_layer": include_vocals_stem_layer,
+        "include_other_stem_layer": include_other_stem_layer,
     }
     if two_stems is not None:
         settings["two_stems"] = two_stems
@@ -230,6 +239,39 @@ class TestSeparateAudioBasic:
         assert is_ok(result)
         assert set(result.value.keys()) == {"drums_out", "no_drums_out"}
 
+    def test_non_drum_stem_selection_forces_full_stem_separation(self):
+        """Requesting bass/vocals/other stems overrides two_stems to full separation."""
+        captured: dict[str, Any] = {}
+
+        def capture_fn(
+            input_file, model_name, device, shifts, two_stems,
+            output_dir, output_format, mp3_bitrate,
+        ):
+            captured["two_stems"] = two_stems
+            return _mock_separate_fn(
+                input_file, model_name, device, shifts, two_stems,
+                output_dir, output_format, mp3_bitrate,
+            )
+
+        proc = SeparateAudioProcessor(separate_fn=capture_fn)
+        sep = _make_separator_block(two_stems="drums", include_bass_stem_layer=True)
+        ctx, _ = _make_context_with_audio(sep)
+
+        result = proc.execute(sep.id, ctx)
+        assert is_ok(result)
+        assert captured["two_stems"] is None
+        assert set(result.value.keys()) == {"drums_out", "bass_out", "other_out", "vocals_out"}
+
+    def test_two_stems_none_string_is_treated_as_full_separation(self):
+        """two_stems='none' is normalized to full-stem separation."""
+        proc = SeparateAudioProcessor(separate_fn=_mock_separate_fn)
+        sep = _make_separator_block(two_stems="none")
+        ctx, _ = _make_context_with_audio(sep)
+
+        result = proc.execute(sep.id, ctx)
+        assert is_ok(result)
+        assert set(result.value.keys()) == {"drums_out", "bass_out", "other_out", "vocals_out"}
+
     def test_6_stem_model(self):
         """htdemucs_6s returns 6 stems including guitar and piano."""
         proc = SeparateAudioProcessor(separate_fn=_mock_separate_fn)
@@ -288,6 +330,34 @@ class TestSeparateAudioBasic:
         assert is_ok(result)
         for audio_data in result.value.values():
             assert os.path.isfile(audio_data.file_path)
+
+    def test_latest_model_alias_resolves_to_concrete_model(self):
+        """latest_model settings are coerced to a concrete Demucs model before execution."""
+        captured: dict[str, Any] = {}
+
+        def capture_fn(
+            input_file, model_name, device, shifts, two_stems,
+            output_dir, output_format, mp3_bitrate,
+        ):
+            captured["model_name"] = model_name
+            return _mock_separate_fn(
+                input_file,
+                model_name,
+                device,
+                shifts,
+                two_stems,
+                output_dir,
+                output_format,
+                mp3_bitrate,
+            )
+
+        proc = SeparateAudioProcessor(separate_fn=capture_fn)
+        sep = _make_separator_block(model="latest_model")
+        ctx, _ = _make_context_with_audio(sep)
+        result = proc.execute(sep.id, ctx)
+
+        assert is_ok(result)
+        assert captured["model_name"] == "htdemucs_ft"
 
 
 # ---------------------------------------------------------------------------
@@ -512,6 +582,9 @@ class TestDemucsModels:
     def test_default_model_exists(self):
         assert "htdemucs" in DEMUCS_MODELS
 
+    def test_latest_model_alias_points_to_valid_model(self):
+        assert resolve_demucs_model_name("latest_model") in DEMUCS_MODELS
+
 
 # ---------------------------------------------------------------------------
 # Tests: Device detection
@@ -531,4 +604,3 @@ class TestDeviceDetection:
         # auto resolves to either cuda or cpu
         result = _detect_device("auto")
         assert result in ("cpu", "cuda")
-

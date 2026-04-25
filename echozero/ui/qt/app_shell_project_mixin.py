@@ -9,21 +9,30 @@ from pathlib import Path
 
 from echozero.application.presentation.models import TimelinePresentation
 from echozero.application.shared.ids import SongId, SongVersionId
+from echozero.foundry.domain.review import ReviewPolarity
 from echozero.ui.qt.app_shell_project_lifecycle import (
     ProjectLifecycleShell,
     add_song_from_path,
     add_song_version,
     delete_song,
     delete_song_version,
+    list_song_version_transfer_layers,
     list_ma3_timecode_pools,
+    move_song,
     new_project,
     open_project,
     refresh_from_storage,
+    reorder_songs,
     save_project,
     save_project_as,
     select_song,
     set_song_version_ma3_timecode_pool,
     switch_song_version,
+)
+from echozero.ui.qt.app_shell_project_review import (
+    ProjectReviewLaunch,
+    create_project_review_session,
+    open_project_review_session,
 )
 
 
@@ -44,8 +53,17 @@ class AppShellProjectMixin:
         self: ProjectLifecycleShell,
         title: str,
         audio_path: str | Path,
+        *,
+        run_import_pipeline: bool | None = None,
+        import_pipeline_action_ids: tuple[str, ...] | None = None,
     ) -> TimelinePresentation:
-        return add_song_from_path(self, title, audio_path)
+        return add_song_from_path(
+            self,
+            title,
+            audio_path,
+            run_import_pipeline=run_import_pipeline,
+            import_pipeline_action_ids=import_pipeline_action_ids,
+        )
 
     def select_song(
         self: ProjectLifecycleShell,
@@ -66,6 +84,10 @@ class AppShellProjectMixin:
         *,
         label: str | None = None,
         activate: bool = True,
+        transfer_layers: bool = False,
+        transfer_layer_ids: list[str] | None = None,
+        run_import_pipeline: bool | None = None,
+        import_pipeline_action_ids: tuple[str, ...] | None = None,
     ) -> TimelinePresentation:
         return add_song_version(
             self,
@@ -73,7 +95,32 @@ class AppShellProjectMixin:
             audio_path,
             label=label,
             activate=activate,
+            transfer_layers=transfer_layers,
+            transfer_layer_ids=transfer_layer_ids,
+            run_import_pipeline=run_import_pipeline,
+            import_pipeline_action_ids=import_pipeline_action_ids,
         )
+
+    def list_song_version_transfer_layers(
+        self: ProjectLifecycleShell,
+        song_id: str | SongId,
+    ) -> list[tuple[str, str]]:
+        return list_song_version_transfer_layers(self, song_id)
+
+
+    def reorder_songs(
+        self: ProjectLifecycleShell,
+        song_ids: list[str],
+    ) -> TimelinePresentation:
+        return reorder_songs(self, song_ids)
+
+    def move_song(
+        self: ProjectLifecycleShell,
+        song_id: str | SongId,
+        *,
+        steps: int,
+    ) -> TimelinePresentation:
+        return move_song(self, song_id, steps=steps)
 
     def delete_song(
         self: ProjectLifecycleShell,
@@ -113,4 +160,52 @@ class AppShellProjectMixin:
             self,
             active_song_id=active_song_id,
             active_song_version_id=active_song_version_id,
+        )
+
+    def create_project_review_session(
+        self: ProjectLifecycleShell,
+        *,
+        name: str | None = None,
+        song_id: str | None = None,
+        song_version_id: str | None = None,
+        layer_id: str | None = None,
+        polarity: ReviewPolarity = ReviewPolarity.POSITIVE,
+        review_mode: str | None = None,
+        questionable_score_threshold: float | None = None,
+        item_limit: int | None = None,
+    ):
+        return create_project_review_session(
+            self,
+            name=name,
+            song_id=song_id,
+            song_version_id=song_version_id,
+            layer_id=layer_id,
+            polarity=polarity,
+            review_mode=review_mode,
+            questionable_score_threshold=questionable_score_threshold,
+            item_limit=item_limit,
+        )
+
+    def open_project_review_session(
+        self: ProjectLifecycleShell,
+        *,
+        name: str | None = None,
+        song_id: str | None = None,
+        song_version_id: str | None = None,
+        layer_id: str | None = None,
+        polarity: ReviewPolarity = ReviewPolarity.POSITIVE,
+        review_mode: str | None = None,
+        questionable_score_threshold: float | None = None,
+        item_limit: int | None = None,
+    ) -> ProjectReviewLaunch:
+        return open_project_review_session(
+            self,
+            name=name,
+            song_id=song_id,
+            song_version_id=song_version_id,
+            layer_id=layer_id,
+            polarity=polarity,
+            review_mode=review_mode,
+            questionable_score_threshold=questionable_score_threshold,
+            item_limit=item_limit,
         )

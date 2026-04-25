@@ -13,6 +13,7 @@ from pathlib import Path
 from echozero.errors import ValidationError
 
 from .paths import ensure_installed_models_dir
+from .runtime_bundle_index import IndexedBinaryDrumBundle, load_binary_drum_bundle_index
 
 
 @dataclass(frozen=True, slots=True)
@@ -33,21 +34,18 @@ def resolve_installed_binary_drum_bundles(
     """Resolve one installed one-vs-rest runtime bundle per requested drum label."""
     root = models_dir or ensure_installed_models_dir()
     manifests = sorted(root.glob("*/*.manifest.json"))
+    indexed_bundles = load_binary_drum_bundle_index(root)
     bundles: dict[str, InstalledRuntimeBundle] = {}
 
     for label in labels:
+        indexed_bundle = _resolve_indexed_bundle(root, indexed_bundles.get(label), label=label)
+        if indexed_bundle is not None:
+            bundles[label] = indexed_bundle
+            continue
         matches: list[InstalledRuntimeBundle] = []
         for manifest_path in manifests:
             manifest = _load_manifest(manifest_path)
-            if manifest is None:
-                continue
-            classes = manifest.get("classes")
-            if not isinstance(classes, list):
-                continue
-            normalized_classes = tuple(str(value).strip().lower() for value in classes)
-            if label not in normalized_classes or "other" not in normalized_classes:
-                continue
-            if len(normalized_classes) != 2:
+            if not _manifest_matches_label(manifest, label=label):
                 continue
             weights_path = _resolve_weights_path(manifest_path, manifest.get("weightsPath"))
             if weights_path is None or not weights_path.exists():
@@ -77,6 +75,30 @@ def resolve_installed_binary_drum_bundles(
     return bundles
 
 
+def _resolve_indexed_bundle(
+    root: Path,
+    record: IndexedBinaryDrumBundle | None,
+    *,
+    label: str,
+) -> InstalledRuntimeBundle | None:
+    if record is None:
+        return None
+    bundle_dir = (root / record.bundle_dir).resolve()
+    manifest_path = (bundle_dir / record.manifest_file).resolve()
+    weights_path = (bundle_dir / record.weights_file).resolve()
+    if not manifest_path.exists() or not weights_path.exists():
+        return None
+    manifest = _load_manifest(manifest_path)
+    if not _manifest_matches_label(manifest, label=label):
+        return None
+    return InstalledRuntimeBundle(
+        label=label,
+        manifest_path=manifest_path,
+        weights_path=weights_path,
+        bundle_dir=bundle_dir,
+    )
+
+
 def _load_manifest(path: Path) -> dict[str, object] | None:
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
@@ -85,6 +107,20 @@ def _load_manifest(path: Path) -> dict[str, object] | None:
     if not isinstance(payload, dict):
         return None
     return payload
+
+
+def _manifest_matches_label(manifest: dict[str, object] | None, *, label: str) -> bool:
+    if manifest is None:
+        return False
+    classes = manifest.get("classes")
+    if not isinstance(classes, list):
+        return False
+    normalized_classes = tuple(str(value).strip().lower() for value in classes)
+    return (
+        len(normalized_classes) == 2
+        and label in normalized_classes
+        and "other" in normalized_classes
+    )
 
 
 def _resolve_weights_path(manifest_path: Path, raw_weights_path: object) -> Path | None:

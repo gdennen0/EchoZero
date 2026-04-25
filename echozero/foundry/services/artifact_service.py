@@ -70,17 +70,19 @@ class ArtifactService:
                 json.dumps(run_summary_payload, indent=2, sort_keys=True),
                 encoding="utf-8",
             )
+        created_at = datetime.now(UTC).isoformat()
+        shared_contract_fingerprint = self._shared_adapter.contract_fingerprint_from_run_spec(
+            run.spec,
+            class_map=dataset_version.class_map,
+        )
+        runtime_payload = manifest.get("runtime")
+        runtime = {
+            "consumer": "PyTorchAudioClassify",
+            "backend": run.backend,
+            "device": run.device,
+            **(dict(runtime_payload) if isinstance(runtime_payload, dict) else {}),
+        }
         manifest = {
-            "schema": "foundry.artifact_manifest.v1",
-            "artifactId": artifact_id,
-            "runId": run_id,
-            "createdAt": datetime.now(UTC).isoformat(),
-            "datasetVersionId": dataset_version.id,
-            "specHash": run.spec_hash,
-            "sharedContractFingerprint": self._shared_adapter.contract_fingerprint_from_run_spec(
-                run.spec,
-                class_map=dataset_version.class_map,
-            ),
             "taxonomy": dataset_version.taxonomy,
             "labelPolicy": dataset_version.label_policy,
             "syntheticProvenance": {
@@ -89,14 +91,25 @@ class ArtifactService:
                 "syntheticSampleCount": int(dataset_version.stats.get("synthetic_sample_count", 0)),
                 "realSampleCount": int(dataset_version.stats.get("real_sample_count", 0)),
             },
-            "runtime": {
-                "consumer": "PyTorchAudioClassify",
-                "backend": run.backend,
-                "device": run.device,
-            },
             "promotionGate": promotion_result,
             **manifest,
+            "runtime": runtime,
+            "schema": "foundry.artifact_manifest.v1",
+            "artifactId": artifact_id,
+            "runId": run_id,
+            "createdAt": created_at,
+            "datasetVersionId": dataset_version.id,
+            "specHash": run.spec_hash,
+            "sharedContractFingerprint": shared_contract_fingerprint,
         }
+        manifest["artifactIdentity"] = self._build_artifact_identity(
+            artifact_id=artifact_id,
+            run_id=run_id,
+            dataset_version_id=dataset_version.id,
+            spec_hash=run.spec_hash,
+            shared_contract_fingerprint=shared_contract_fingerprint,
+        )
+        manifest["displayIdentity"] = self._build_display_identity(manifest)
         if comparison_summary is not None:
             manifest["referenceComparison"] = comparison_summary
         manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
@@ -112,6 +125,48 @@ class ArtifactService:
             consumer_hints={"consumer": "PyTorchAudioClassify"},
         )
         return self._artifact_repo.save(artifact)
+
+    @staticmethod
+    def _build_artifact_identity(
+        *,
+        artifact_id: str,
+        run_id: str,
+        dataset_version_id: str,
+        spec_hash: str,
+        shared_contract_fingerprint: str,
+    ) -> dict[str, str]:
+        return {
+            "artifactId": artifact_id,
+            "runId": run_id,
+            "datasetVersionId": dataset_version_id,
+            "specHash": spec_hash,
+            "sharedContractFingerprint": shared_contract_fingerprint,
+        }
+
+    @staticmethod
+    def _build_display_identity(manifest: dict[str, Any]) -> dict[str, Any]:
+        runtime = manifest.get("runtime")
+        consumer = runtime.get("consumer") if isinstance(runtime, dict) else None
+        weights_path = manifest.get("weightsPath")
+        weights_file = (
+            Path(weights_path).name
+            if isinstance(weights_path, str) and weights_path.strip()
+            else None
+        )
+        classes = manifest.get("classes")
+        return {
+            key: value
+            for key, value in {
+                "artifactId": manifest.get("artifactId"),
+                "runId": manifest.get("runId"),
+                "datasetVersionId": manifest.get("datasetVersionId"),
+                "weightsFile": weights_file,
+                "classes": list(classes) if isinstance(classes, list) else [],
+                "classificationMode": manifest.get("classificationMode"),
+                "consumer": consumer,
+            }.items()
+            if value is not None and value != []
+        }
 
     @staticmethod
     def _load_json(path: Path) -> dict:
@@ -338,6 +393,32 @@ class ArtifactService:
                             code="shared_contract_fingerprint_mismatch",
                             path="manifest.sharedContractFingerprint",
                             message="manifest.sharedContractFingerprint must match the originating shared contract fingerprint",
+                        )
+            artifact_identity = m.get("artifactIdentity")
+            if isinstance(artifact_identity, dict) and dataset_version is not None:
+                expected_fingerprint = self._shared_adapter.contract_fingerprint_from_run_spec(
+                    run.spec,
+                    class_map=dataset_version.class_map,
+                )
+                expected_identity = self._build_artifact_identity(
+                    artifact_id=artifact.id,
+                    run_id=run.id,
+                    dataset_version_id=run.dataset_version_id,
+                    spec_hash=run.spec_hash,
+                    shared_contract_fingerprint=expected_fingerprint,
+                )
+                for key in (
+                    "artifactId",
+                    "runId",
+                    "datasetVersionId",
+                    "specHash",
+                    "sharedContractFingerprint",
+                ):
+                    if artifact_identity.get(key) != expected_identity.get(key):
+                        _add_error(
+                            code="artifact_identity_mismatch",
+                            path=f"manifest.artifactIdentity.{key}",
+                            message=f"manifest.artifactIdentity.{key} must match the canonical artifact identity",
                         )
 
         if consumer == "PyTorchAudioClassify":

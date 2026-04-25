@@ -5,6 +5,7 @@ from tests.ui.app_shell_runtime_flow_support import (
     test_app_shell_runtime_import_song_creates_default_pipeline_configs,
     test_app_shell_runtime_open_project_failure_keeps_current_project_live,
     test_app_shell_runtime_open_project_replaces_live_project_state,
+    test_app_shell_runtime_move_song_and_reorder_songs_update_setlist_order,
     test_app_shell_runtime_new_save_open_reopen_flow,
     test_app_shell_runtime_open_project_clears_stale_selected_event_refs,
     test_app_shell_runtime_open_project_preserves_playback_target_when_still_valid,

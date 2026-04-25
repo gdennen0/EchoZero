@@ -5,7 +5,9 @@ Connects typed settings pages to editable Qt widgets with consistent advanced-fi
 
 from __future__ import annotations
 
-from PyQt6.QtCore import pyqtSignal
+from collections.abc import Sequence
+
+from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -38,18 +40,19 @@ class SettingsPageForm(QWidget):
         super().__init__(parent)
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
-        root.setSpacing(8)
+        root.setSpacing(6)
 
         self._scroll = QScrollArea(self)
         self._scroll.setWidgetResizable(True)
         self._scroll.setFrameShape(QFrame.Shape.NoFrame)
+        self._scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         root.addWidget(self._scroll)
 
         self._content = QWidget(self._scroll)
         self._scroll.setWidget(self._content)
         self._content_layout = QVBoxLayout(self._content)
         self._content_layout.setContentsMargins(0, 0, 0, 0)
-        self._content_layout.setSpacing(10)
+        self._content_layout.setSpacing(6)
 
         self._inputs: dict[str, QWidget] = {}
         self._page: SettingsPage | None = None
@@ -118,15 +121,12 @@ class SettingsPageForm(QWidget):
             return
         form = QFormLayout()
         form.setContentsMargins(0, 0, 0, 0)
-        form.setHorizontalSpacing(8)
-        form.setVerticalSpacing(6)
+        form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
+        form.setLabelAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+        form.setHorizontalSpacing(6)
+        form.setVerticalSpacing(4)
         for field in fields:
-            widget = self._build_field_widget(field)
-            widget.setEnabled(field.enabled)
-            if field.description:
-                widget.setToolTip(field.description)
-            self._inputs[field.key] = widget
-            form.addRow(field.label, widget)
+            self._add_form_field_row(form, field)
         self._content_layout.addLayout(form)
 
     def _add_advanced_section(self, fields: tuple[SettingsField, ...]) -> None:
@@ -139,22 +139,19 @@ class SettingsPageForm(QWidget):
         container.setVisible(show_advanced)
         container_layout = QVBoxLayout(container)
         container_layout.setContentsMargins(0, 0, 0, 0)
-        container_layout.setSpacing(10)
+        container_layout.setSpacing(6)
 
         title = QLabel("Advanced", container)
         container_layout.addWidget(title)
 
         form = QFormLayout()
         form.setContentsMargins(0, 0, 0, 0)
-        form.setHorizontalSpacing(8)
-        form.setVerticalSpacing(6)
+        form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
+        form.setLabelAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+        form.setHorizontalSpacing(6)
+        form.setVerticalSpacing(4)
         for field in fields:
-            widget = self._build_field_widget(field)
-            widget.setEnabled(field.enabled)
-            if field.description:
-                widget.setToolTip(field.description)
-            self._inputs[field.key] = widget
-            form.addRow(field.label, widget)
+            self._add_form_field_row(form, field)
         container_layout.addLayout(form)
         self._content_layout.addWidget(container)
 
@@ -163,17 +160,23 @@ class SettingsPageForm(QWidget):
     def _clear_sections(self) -> None:
         while self._content_layout.count():
             item = self._content_layout.takeAt(0)
-            widget = item.widget()
-            child_layout = item.layout()
-            if widget is not None:
-                widget.deleteLater()
-                continue
-            if child_layout is not None:
-                while child_layout.count():
-                    child_item = child_layout.takeAt(0)
-                    child_widget = child_item.widget()
-                    if child_widget is not None:
-                        child_widget.deleteLater()
+            self._dispose_layout_item(item)
+
+    def _dispose_layout_item(self, item) -> None:
+        widget = item.widget()
+        if widget is not None:
+            widget.hide()
+            widget.setParent(None)
+            widget.deleteLater()
+            return
+
+        child_layout = item.layout()
+        if child_layout is None:
+            return
+        while child_layout.count():
+            child_item = child_layout.takeAt(0)
+            self._dispose_layout_item(child_item)
+        child_layout.deleteLater()
 
     def _build_field_widget(self, field: SettingsField) -> QWidget:
         if field.widget is SettingsFieldWidget.DROPDOWN:
@@ -233,6 +236,102 @@ class SettingsPageForm(QWidget):
             lambda _text, key=field.key, widget=line_edit: self._emit_field_value_changed(key, widget)
         )
         return line_edit
+
+    def _add_form_field_row(self, form: QFormLayout, field: SettingsField) -> None:
+        widget = self._build_field_widget(field)
+        widget.setEnabled(field.enabled)
+        tooltip = self._field_tooltip_text(field)
+        label = QLabel(field.label, self._content)
+        if tooltip:
+            widget.setToolTip(tooltip)
+            widget.setStatusTip(tooltip)
+            label.setToolTip(tooltip)
+            label.setStatusTip(tooltip)
+        self._inputs[field.key] = widget
+        form.addRow(label, widget)
+
+    @staticmethod
+    def _field_tooltip_text(field: SettingsField) -> str:
+        lines: list[str] = []
+        description = str(field.description or "").strip()
+        if description:
+            lines.append(description)
+        else:
+            threshold_hint = SettingsPageForm._threshold_tooltip_hint(field)
+            if threshold_hint:
+                lines.append(threshold_hint)
+
+        range_line = SettingsPageForm._field_range_line(field)
+        if range_line:
+            lines.append(range_line)
+        default_line = SettingsPageForm._field_default_line(field)
+        if default_line:
+            lines.append(default_line)
+        return "\n".join(lines)
+
+    @staticmethod
+    def _threshold_tooltip_hint(field: SettingsField) -> str:
+        key_and_label = f"{field.key} {field.label}".lower()
+        if "threshold" not in key_and_label:
+            return ""
+        if "positive_threshold" in key_and_label or "classification" in key_and_label:
+            return (
+                "Classification confidence cutoff. Lower values accept more candidates;"
+                " higher values accept fewer."
+            )
+        if "onset_threshold" in key_and_label or "detection" in key_and_label:
+            return (
+                "Onset detection sensitivity. Lower values detect more candidate events;"
+                " higher values detect fewer."
+            )
+        return "Threshold strictness. Lower values detect more events; higher values detect fewer."
+
+    @staticmethod
+    def _field_range_line(field: SettingsField) -> str:
+        if field.min_value is None and field.max_value is None:
+            return ""
+        if field.min_value is None:
+            value = SettingsPageForm._format_tooltip_scalar(field.max_value)
+            return f"Max: {value}{SettingsPageForm._tooltip_unit_suffix(field.units)}"
+        if field.max_value is None:
+            value = SettingsPageForm._format_tooltip_scalar(field.min_value)
+            return f"Min: {value}{SettingsPageForm._tooltip_unit_suffix(field.units)}"
+        min_value = SettingsPageForm._format_tooltip_scalar(field.min_value)
+        max_value = SettingsPageForm._format_tooltip_scalar(field.max_value)
+        return f"Range: {min_value} to {max_value}{SettingsPageForm._tooltip_unit_suffix(field.units)}"
+
+    @staticmethod
+    def _field_default_line(field: SettingsField) -> str:
+        if field.default_value is None:
+            return ""
+        formatted = SettingsPageForm._format_tooltip_value(field.default_value, options=field.options)
+        if not formatted:
+            return ""
+        return f"Default: {formatted}"
+
+    @staticmethod
+    def _tooltip_unit_suffix(units: str) -> str:
+        unit_text = str(units or "").strip()
+        return f" {unit_text}" if unit_text else ""
+
+    @staticmethod
+    def _format_tooltip_scalar(value: object) -> str:
+        if isinstance(value, float):
+            return format(value, "g")
+        return str(value)
+
+    @staticmethod
+    def _format_tooltip_value(value: object, *, options: Sequence[object]) -> str:
+        for option in options:
+            option_value = getattr(option, "value", None)
+            if option_value == value:
+                label = str(getattr(option, "label", "")).strip()
+                return label or str(value)
+        if isinstance(value, bool):
+            return "On" if value else "Off"
+        if isinstance(value, float):
+            return format(value, "g")
+        return str(value)
 
     def _emit_field_value_changed(self, key: str, widget: QWidget) -> None:
         if self._suspend_field_events:

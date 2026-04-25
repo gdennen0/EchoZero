@@ -26,6 +26,22 @@ VALID_FILTER_TYPES = {
     "peak": "Peak (peaking EQ): boosts/cuts frequencies around center",
 }
 
+
+def _coerce_enabled(value: object) -> bool:
+    """Parse user-facing toggle values into a stable boolean."""
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return bool(value)
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in {"0", "false", "off", "no"}:
+            return False
+        if normalized in {"1", "true", "on", "yes"}:
+            return True
+    return bool(value)
+
+
 # Filter function signature for DI
 FilterFn = Callable[
     [
@@ -218,6 +234,18 @@ class AudioFilterProcessor:
             return err(ExecutionError(f"Block not found: {block_id}"))
 
         settings = block.settings
+        enabled = _coerce_enabled(settings.get("enabled", True))
+        if not enabled:
+            context.progress_bus.publish(
+                ProgressReport(
+                    block_id=block_id,
+                    phase="audio_filter",
+                    percent=1.0,
+                    message="Filtering bypassed",
+                )
+            )
+            return ok(audio)
+
         filter_type = settings.get("filter_type")
         freq = settings.get("freq")
         gain_db = settings.get("gain_db", 0.0)
@@ -294,5 +322,4 @@ class AudioFilterProcessor:
                 channel_count=audio.channel_count,
             )
         )
-
 

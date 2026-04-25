@@ -14,7 +14,7 @@ from echozero.application.session.models import (
     ManualPushTrackGroupOption,
     ManualPushTrackOption,
 )
-from echozero.application.shared.enums import LayerKind
+from echozero.application.shared.layer_kinds import is_event_like_layer_kind
 from echozero.application.shared.ids import LayerId
 from echozero.application.timeline.ma3_push_intents import (
     AssignMA3TrackSequence,
@@ -483,5 +483,5 @@ class TimelineOrchestratorMA3PushMixin:
 
     @staticmethod
     def _require_ma3_event_layer(layer: Layer, *, action_name: str) -> None:
-        if layer.kind is not LayerKind.EVENT:
+        if not is_event_like_layer_kind(layer.kind):
             raise ValueError(f"{action_name} requires an event layer")

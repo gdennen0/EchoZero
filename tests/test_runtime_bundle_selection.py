@@ -5,8 +5,12 @@ from pathlib import Path
 
 import pytest
 
+from echozero.models.runtime_bundle_index import (
+    IndexedBinaryDrumBundle,
+    save_binary_drum_bundle_index,
+)
 from echozero.models.runtime_bundle_selection import resolve_installed_binary_drum_bundles
-from echozero.runtime_models.bundle_compat import backfill_manifest_fingerprint
+from echozero.runtime_models.bundle_compat import backfill_manifest_fingerprint, sync_manifest_fingerprint
 
 
 def _write_bundle(root: Path, name: str, classes: list[str]) -> Path:
@@ -54,6 +58,27 @@ def test_bundle_resolution_does_not_mutate_manifest(tmp_path: Path) -> None:
     resolve_installed_binary_drum_bundles(models_dir=tmp_path)
 
     assert manifest_path.read_text(encoding="utf-8") == before
+
+
+def test_resolution_prefers_indexed_bundle_over_ambiguous_folder_scan(tmp_path: Path) -> None:
+    _write_bundle(tmp_path, "kick_bundle", ["kick", "other"])
+    _write_bundle(tmp_path, "snare_bundle_old", ["snare", "other"])
+    indexed_manifest = _write_bundle(tmp_path, "binary-drum-snare", ["snare", "other"])
+    save_binary_drum_bundle_index(
+        tmp_path,
+        {
+            "snare": IndexedBinaryDrumBundle(
+                label="snare",
+                bundle_dir="binary-drum-snare",
+                manifest_file=indexed_manifest.name,
+                weights_file="model.pth",
+            )
+        },
+    )
+
+    bundles = resolve_installed_binary_drum_bundles(models_dir=tmp_path)
+
+    assert bundles["snare"].manifest_path == indexed_manifest.resolve()
 
 
 def test_backfill_manifest_fingerprint_is_explicit_upgrade_step(tmp_path: Path) -> None:
@@ -108,3 +133,59 @@ def test_backfill_manifest_fingerprint_is_explicit_upgrade_step(tmp_path: Path) 
     assert backfill_manifest_fingerprint(manifest_path, weights_path) is True
     payload = json.loads(manifest_path.read_text(encoding="utf-8"))
     assert payload["sharedContractFingerprint"]
+
+
+def test_sync_manifest_fingerprint_repairs_mismatched_value(tmp_path: Path) -> None:
+    bundle_dir = tmp_path / "snare_bundle"
+    bundle_dir.mkdir(parents=True, exist_ok=True)
+    weights_path = bundle_dir / "model.pth"
+    manifest_path = bundle_dir / "snare_bundle.manifest.json"
+
+    try:
+        import torch
+    except ImportError:
+        pytest.skip("torch not installed")
+
+    torch.save(
+        {
+            "classes": ["snare", "other"],
+            "classification_mode": "binary",
+            "preprocessing": {
+                "datasetVersionId": "dsv_ignore_me",
+                "sampleRate": 22050,
+                "maxLength": 22050,
+                "nFft": 2048,
+                "hopLength": 512,
+                "nMels": 128,
+                "fmax": 8000,
+            },
+            "schema": "foundry.crnn_model.v1",
+            "trainer": "crnn_melspec_v1",
+            "model_state_dict": {},
+        },
+        weights_path,
+    )
+    manifest_path.write_text(
+        json.dumps(
+            {
+                "weightsPath": "model.pth",
+                "classes": ["snare", "other"],
+                "classificationMode": "binary",
+                "sharedContractFingerprint": "bad-fingerprint",
+                "inferencePreprocessing": {
+                    "sampleRate": 22050,
+                    "maxLength": 22050,
+                    "nFft": 2048,
+                    "hopLength": 512,
+                    "nMels": 128,
+                    "fmax": 8000,
+                },
+                "runtime": {"consumer": "PyTorchAudioClassify"},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    assert sync_manifest_fingerprint(manifest_path, weights_path) is True
+    payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+    assert payload["sharedContractFingerprint"] != "bad-fingerprint"

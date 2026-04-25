@@ -1,7 +1,7 @@
 # EchoZero Status
 
 Status: active canonical current-state reference
-Last verified: 2026-04-23
+Last verified: 2026-04-25
 
 Use this file to answer one question quickly: what is true in the repo now.
 This file is not a plan, board, or historical design note.
@@ -26,6 +26,26 @@ When older docs disagree with current implementation, start here, then verify in
 - `echozero/application/timeline/orchestrator.py` owns intent handling and truth mutation.
 - `echozero/application/timeline/assembler.py` owns presentation shaping.
 - Widgets must not invent alternate truth or bypass the application contract.
+- Song import defaults are machine-local app preferences (`Song Import` section), including:
+  - import-time pipeline actions
+  - import-time LTC channel strip behavior
+- Setlist drag/drop accepts files and folders (recursive audio discovery) and resolves multi-file imports in natural order.
+- Multi-file import prompts for destination mode (append, before/after target song, or versions on target song when applicable).
+- Multi-file import can run import-pipeline actions through the same queued action path as context-menu runs.
+- Single-file add-song/add-version imports can use that same queued action path when runtime request/state/switch support is available.
+- Batch import pipeline execution is ordered:
+  - songs/versions import first
+  - queued per-song pipeline actions execute sequentially in import order
+- Queued pipeline progress is surfaced in the main timeline pipeline status banner.
+- Import pipeline actions can run for each imported file on:
+  - drag/drop imports
+  - add-song dialog imports
+  - add-version dialog imports
+- Stereo files with detected single-channel LTC are auto-split:
+  - program channel is imported as song audio
+  - both program and LTC mono artifacts are retained in `audio/split_channels/`
+  - left/right flipped LTC/program layouts are supported
+- Setlist ordering supports move up/down, drag reorder, and batch move top/bottom.
 
 ## Sync
 
@@ -108,6 +128,7 @@ When older docs disagree with current implementation, start here, then verify in
 - `AGENTS.md`
 - `docs/AGENT-CONTEXT.md`
 - `docs/TESTING.md`
+- `docs/SONG-IMPORT-BATCH-LTC-WORKFLOW.md`
 - `echozero/application/timeline/README.md`
 - `echozero/application/presentation/README.md`
 - `echozero/ui/qt/timeline/README.md`

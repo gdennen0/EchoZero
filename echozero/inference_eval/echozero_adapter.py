@@ -3,7 +3,27 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Mapping, Sequence
 
+from .constants import REQUIRED_PREPROCESSING_KEYS
 from .core import EvalCore, InferenceContract, InferenceCore, contract_fingerprint
+
+
+def _runtime_preprocessing_from_checkpoint(checkpoint: Mapping[str, Any]) -> dict[str, Any]:
+    preprocessing = checkpoint.get("inference_preprocessing")
+    if not isinstance(preprocessing, Mapping):
+        preprocessing = {}
+    return {
+        key: preprocessing[key]
+        for key in sorted(REQUIRED_PREPROCESSING_KEYS)
+        if key in preprocessing
+    }
+
+
+def _classification_mode_from_checkpoint(checkpoint: Mapping[str, Any]) -> str:
+    for key in ("classification_mode", "classificationMode"):
+        value = checkpoint.get(key)
+        if isinstance(value, str) and value.strip():
+            return value
+    return "multiclass"
 
 
 @dataclass(slots=True)
@@ -20,9 +40,7 @@ class EchoZeroSharedAdapter:
         class_map: Sequence[str] | None = None,
         model_signature: str | None = None,
     ) -> InferenceContract:
-        preprocessing = checkpoint.get("inference_preprocessing")
-        if not isinstance(preprocessing, Mapping):
-            preprocessing = {}
+        preprocessing = _runtime_preprocessing_from_checkpoint(checkpoint)
 
         resolved_class_map: tuple[str, ...]
         if class_map is not None:
@@ -64,7 +82,7 @@ class EchoZeroSharedAdapter:
         # EchoZero runtime-only path uses default eval scaffold until explicit eval lane is wired.
         from .core import EvalContract
 
-        eval_contract = EvalContract()
+        eval_contract = EvalContract(classification_mode=_classification_mode_from_checkpoint(checkpoint))
         return contract_fingerprint(inference_contract, eval_contract)
 
 

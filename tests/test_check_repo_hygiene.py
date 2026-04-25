@@ -44,6 +44,31 @@ def test_module_size_failures_reports_guarded_file_over_limit(tmp_path: Path) ->
     ]
 
 
+def test_tracked_ez_failures_allow_explicit_allowlist_entries() -> None:
+    module = _load_hygiene_module()
+
+    failures = module.tracked_ez_failures(
+        ["fixtures/template.ez", "docs/STATUS.md"],
+        allowlist=("fixtures/template.ez",),
+    )
+
+    assert failures == []
+
+
+def test_tracked_ez_failures_report_non_allowlisted_archives() -> None:
+    module = _load_hygiene_module()
+
+    failures = module.tracked_ez_failures(
+        ["project.ez", "fixtures/template.ez"],
+        allowlist=("fixtures/template.ez",),
+    )
+
+    assert failures == [
+        "tracked .ez archives must be explicitly allowlisted:",
+        "  - project.ez",
+    ]
+
+
 def test_canonical_runtime_support_import_failures_accept_clean_runtime_sources(tmp_path: Path) -> None:
     module = _load_hygiene_module()
     runtime_file = tmp_path / "echozero" / "ui" / "qt" / "app_shell.py"

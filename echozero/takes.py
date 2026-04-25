@@ -28,13 +28,199 @@ from echozero.domain.types import AudioData, EventData, Event
 
 
 @dataclass(frozen=True)
+class TakeArtifact:
+    """One canonical artifact reference attached to a generated take."""
+
+    schema: str = "echozero.model-artifact.v1"
+    role: str = ""
+    kind: str = ""
+    locator: str = ""
+    content_type: str | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "schema": self.schema,
+            "role": self.role,
+            "kind": self.kind,
+            "locator": self.locator,
+            "content_type": self.content_type,
+        }
+
+    @classmethod
+    def from_dict(cls, payload: dict[str, Any]) -> TakeArtifact:
+        return cls(
+            schema=str(payload.get("schema") or "echozero.model-artifact.v1"),
+            role=str(payload.get("role") or ""),
+            kind=str(payload.get("kind") or ""),
+            locator=str(payload.get("locator") or ""),
+            content_type=(
+                None
+                if payload.get("content_type") in (None, "")
+                else str(payload.get("content_type"))
+            ),
+        )
+
+
+@dataclass(frozen=True)
+class TakeAnalysisBuild:
+    """Canonical build identity for one generated take."""
+
+    schema: str = "echozero.analysis-build.v1"
+    build_id: str | None = None
+    execution_id: str | None = None
+    pipeline_id: str | None = None
+    pipeline_config_id: str | None = None
+    block_id: str | None = None
+    block_type: str | None = None
+    output_name: str | None = None
+    data_type: str | None = None
+    generated_at: str | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "schema": self.schema,
+            "build_id": self.build_id,
+            "execution_id": self.execution_id,
+            "pipeline_id": self.pipeline_id,
+            "pipeline_config_id": self.pipeline_config_id,
+            "block_id": self.block_id,
+            "block_type": self.block_type,
+            "output_name": self.output_name,
+            "data_type": self.data_type,
+            "generated_at": self.generated_at,
+        }
+
+    @classmethod
+    def from_dict(cls, payload: dict[str, Any]) -> TakeAnalysisBuild:
+        return cls(
+            schema=str(payload.get("schema") or "echozero.analysis-build.v1"),
+            build_id=_optional_text(payload.get("build_id")),
+            execution_id=_optional_text(payload.get("execution_id")),
+            pipeline_id=_optional_text(payload.get("pipeline_id")),
+            pipeline_config_id=_optional_text(payload.get("pipeline_config_id")),
+            block_id=_optional_text(payload.get("block_id")),
+            block_type=_optional_text(payload.get("block_type")),
+            output_name=_optional_text(payload.get("output_name")),
+            data_type=_optional_text(payload.get("data_type")),
+            generated_at=_optional_text(payload.get("generated_at")),
+        )
+
+    @classmethod
+    def from_legacy(
+        cls,
+        *,
+        block_id: str,
+        block_type: str,
+        settings_snapshot: dict[str, Any],
+        run_id: str,
+    ) -> TakeAnalysisBuild:
+        return cls(
+            build_id=(
+                _optional_text(settings_snapshot.get("analysis_build_id"))
+                or _optional_text(run_id)
+            ),
+            execution_id=(
+                _optional_text(settings_snapshot.get("execution_id"))
+                or _optional_text(run_id)
+            ),
+            pipeline_id=_optional_text(settings_snapshot.get("pipeline_id")),
+            pipeline_config_id=_optional_text(settings_snapshot.get("pipeline_config_id")),
+            block_id=_optional_text(block_id),
+            block_type=_optional_text(block_type),
+            output_name=_optional_text(settings_snapshot.get("output_name")),
+            data_type=_optional_text(settings_snapshot.get("data_type")),
+            generated_at=_optional_text(settings_snapshot.get("generated_at")),
+        )
+
+
+def _optional_text(value: Any) -> str | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text or None
+
+
+@dataclass(frozen=True)
 class TakeSource:
-    """What pipeline run produced this take. Purely informational."""
+    """What exact analysis build produced this take."""
 
     block_id: str
     block_type: str
     settings_snapshot: dict[str, Any]
     run_id: str
+    analysis_build: TakeAnalysisBuild | None = None
+    artifacts: tuple[TakeArtifact, ...] = ()
+    schema: str = "echozero.take-source.v1"
+
+    def __post_init__(self) -> None:
+        settings_snapshot = dict(self.settings_snapshot or {})
+        object.__setattr__(self, "settings_snapshot", settings_snapshot)
+
+        analysis_build = self.analysis_build
+        if isinstance(analysis_build, dict):
+            analysis_build = TakeAnalysisBuild.from_dict(analysis_build)
+        if analysis_build is None:
+            analysis_build = TakeAnalysisBuild.from_legacy(
+                block_id=self.block_id,
+                block_type=self.block_type,
+                settings_snapshot=settings_snapshot,
+                run_id=self.run_id,
+            )
+        object.__setattr__(self, "analysis_build", analysis_build)
+
+        normalized_artifacts: list[TakeArtifact] = []
+        for artifact in self.artifacts:
+            if isinstance(artifact, TakeArtifact):
+                normalized_artifacts.append(artifact)
+                continue
+            if isinstance(artifact, dict):
+                normalized_artifacts.append(TakeArtifact.from_dict(artifact))
+                continue
+            raise TypeError(f"Unsupported take artifact provenance: {type(artifact)!r}")
+        if not normalized_artifacts:
+            source_audio_path = _optional_text(settings_snapshot.get("source_audio_path"))
+            if source_audio_path is not None:
+                normalized_artifacts.append(
+                    TakeArtifact(
+                        role="source_audio",
+                        kind="audio_file",
+                        locator=source_audio_path,
+                        content_type="audio/*",
+                    )
+                )
+        object.__setattr__(self, "artifacts", tuple(normalized_artifacts))
+
+    def to_dict(self) -> dict[str, Any]:
+        payload: dict[str, Any] = {
+            "schema": self.schema,
+            "block_id": self.block_id,
+            "block_type": self.block_type,
+            "settings_snapshot": dict(self.settings_snapshot),
+            "run_id": self.run_id,
+        }
+        if self.analysis_build is not None:
+            payload["analysis_build"] = self.analysis_build.to_dict()
+        if self.artifacts:
+            payload["artifacts"] = [artifact.to_dict() for artifact in self.artifacts]
+        return payload
+
+    @classmethod
+    def from_dict(cls, payload: dict[str, Any]) -> TakeSource:
+        build_payload = payload.get("analysis_build") or {}
+        return cls(
+            block_id=str(payload.get("block_id") or build_payload.get("block_id") or ""),
+            block_type=str(payload.get("block_type") or build_payload.get("block_type") or ""),
+            settings_snapshot=dict(payload.get("settings_snapshot") or {}),
+            run_id=str(
+                payload.get("run_id")
+                or build_payload.get("execution_id")
+                or build_payload.get("build_id")
+                or ""
+            ),
+            analysis_build=build_payload or None,
+            artifacts=tuple(payload.get("artifacts") or ()),
+            schema=str(payload.get("schema") or "echozero.take-source.v1"),
+        )
 
 
 # ---------------------------------------------------------------------------

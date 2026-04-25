@@ -14,7 +14,7 @@ from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING
 
 from echozero.result import is_err, unwrap
-from echozero.services.orchestrator import AnalysisService
+from echozero.services.orchestrator import Orchestrator
 
 if TYPE_CHECKING:
     from echozero.application.session.models import Session
@@ -90,7 +90,7 @@ class PipelineRunService:
         *,
         project_storage_getter: Callable[[], ProjectStorage],
         session_getter: Callable[[], Session],
-        analysis_service: AnalysisService,
+        analysis_service: Orchestrator,
         prepare_run: Callable[[str, dict[str, object] | None, object | None, str | None, str | None], PreparedPipelineRun],
         persist_generated_source_layer_id: Callable[..., None],
         max_workers: int = 4,

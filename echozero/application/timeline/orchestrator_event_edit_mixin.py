@@ -5,7 +5,7 @@ Connects selected event context to atomic event-edit and take-edit operations on
 
 from __future__ import annotations
 
-from echozero.application.shared.enums import LayerKind
+from echozero.application.shared.layer_kinds import is_event_like_layer_kind
 from echozero.application.shared.ids import EventId, LayerId, TakeId
 from echozero.application.shared.ranges import TimeRange
 from echozero.application.timeline.models import Event, EventRef, Layer, Take, Timeline
@@ -26,9 +26,12 @@ class TimelineOrchestratorEventEditMixin(TimelineOrchestratorSelectionStateMixin
         time_range: TimeRange,
         label: str,
         cue_number: int,
+        source_event_id: str | None = None,
+        payload_ref: str | None = None,
+        color: str | None = None,
     ) -> None:
         layer = self._find_layer(timeline, layer_id)
-        if layer.kind is not LayerKind.EVENT or layer.presentation_hints.locked:
+        if not is_event_like_layer_kind(layer.kind) or layer.presentation_hints.locked:
             return
 
         target_take = (
@@ -44,6 +47,9 @@ class TimelineOrchestratorEventEditMixin(TimelineOrchestratorSelectionStateMixin
             end=float(time_range.end),
             cue_number=cue_number,
             label=label,
+            source_event_id=source_event_id,
+            payload_ref=payload_ref,
+            color=color,
         )
         target_take.events = self._sorted_events([*target_take.events, new_event])
         timeline.selection.selected_layer_id = layer.id
@@ -196,6 +202,7 @@ class TimelineOrchestratorEventEditMixin(TimelineOrchestratorSelectionStateMixin
         timeline: Timeline,
         delta_seconds: float,
         target_layer_id: LayerId | None,
+        copy_selected: bool = False,
     ) -> None:
         selected_refs = self._selected_event_refs(timeline)
         if not selected_refs:
@@ -216,11 +223,95 @@ class TimelineOrchestratorEventEditMixin(TimelineOrchestratorSelectionStateMixin
             transfer_target = self._find_layer(timeline, target_layer_id)
             if (
                 transfer_target.kind != records[0].layer.kind
-                or transfer_target.kind.value != "event"
+                or not is_event_like_layer_kind(transfer_target.kind)
                 or transfer_target.presentation_hints.locked
                 or not transfer_target.presentation_hints.visible
             ):
                 return
+
+        if copy_selected:
+            existing_ids = self._all_event_ids(timeline)
+            copied_refs: list[EventRef] = []
+            if transfer_target is None:
+                affected_takes: dict[TakeId, Take] = {}
+                for record in records:
+                    duplicate_id = self._next_duplicate_event_id(
+                        record.take,
+                        record.event,
+                        existing_ids,
+                    )
+                    duplicate = Event(
+                        id=duplicate_id,
+                        take_id=record.take.id,
+                        start=record.event.start + applied_delta,
+                        end=record.event.end + applied_delta,
+                        cue_number=record.event.cue_number,
+                        source_event_id=record.event.source_event_id,
+                        parent_event_id=str(record.event.id),
+                        payload_ref=record.event.payload_ref,
+                        label=record.event.label,
+                        color=record.event.color,
+                        muted=record.event.muted,
+                    )
+                    record.take.events.append(duplicate)
+                    affected_takes[record.take.id] = record.take
+                    existing_ids.add(str(duplicate.id))
+                    copied_refs.append(
+                        self._event_ref(record.layer.id, record.take.id, duplicate.id)
+                    )
+
+                self._sort_take_events(*affected_takes.values())
+                if source_layer_id is None and records:
+                    source_layer_id = records[0].layer.id
+                timeline.selection.selected_layer_id = source_layer_id
+                timeline.selection.selected_layer_ids = (
+                    [] if source_layer_id is None else [source_layer_id]
+                )
+                timeline.selection.selected_take_id = self._resolve_selected_take_id(
+                    (
+                        self._find_layer(timeline, source_layer_id)
+                        if source_layer_id is not None
+                        else records[0].layer
+                    ),
+                    copied_refs,
+                    fallback_take_id=timeline.selection.selected_take_id,
+                )
+                self._set_selected_event_refs(timeline, copied_refs)
+                return
+
+            target_take = self._main_take(transfer_target)
+            if target_take is None:
+                return
+
+            for record in records:
+                duplicate_id = self._next_duplicate_event_id(
+                    target_take,
+                    record.event,
+                    existing_ids,
+                )
+                duplicate = Event(
+                    id=duplicate_id,
+                    take_id=target_take.id,
+                    start=record.event.start + applied_delta,
+                    end=record.event.end + applied_delta,
+                    cue_number=record.event.cue_number,
+                    source_event_id=record.event.source_event_id,
+                    parent_event_id=str(record.event.id),
+                    payload_ref=record.event.payload_ref,
+                    label=record.event.label,
+                    color=record.event.color,
+                    muted=record.event.muted,
+                )
+                target_take.events.append(duplicate)
+                existing_ids.add(str(duplicate.id))
+                copied_refs.append(self._event_ref(transfer_target.id, target_take.id, duplicate.id))
+
+            self._sort_take_events(target_take)
+            timeline.selection.selected_layer_id = transfer_target.id
+            timeline.selection.selected_layer_ids = [transfer_target.id]
+            timeline.selection.selected_take_id = target_take.id
+            self._set_selected_event_refs(timeline, copied_refs)
+            return
 
         affected_takes: dict[TakeId, Take] = {}
         if transfer_target is None:
@@ -276,6 +367,74 @@ class TimelineOrchestratorEventEditMixin(TimelineOrchestratorSelectionStateMixin
                 for record in records
             ],
         )
+
+    def _handle_reorder_layer(
+        self,
+        timeline: Timeline,
+        *,
+        source_layer_id: LayerId,
+        target_after_layer_id: LayerId | None,
+        insert_at_start: bool,
+    ) -> None:
+        if str(source_layer_id) == "source_audio":
+            return
+
+        ordered_layers = sorted(timeline.layers, key=lambda layer: layer.order_index)
+        source_index = next(
+            (index for index, layer in enumerate(ordered_layers) if layer.id == source_layer_id),
+            None,
+        )
+        if source_index is None:
+            return
+
+        source_layer = ordered_layers[source_index]
+        remaining_layers = [
+            layer for layer in ordered_layers if layer.id != source_layer_id
+        ]
+
+        normalized_insert_at_start = bool(insert_at_start)
+        target_after = target_after_layer_id
+        if normalized_insert_at_start:
+            target_after = None
+
+        if target_after is None:
+            if normalized_insert_at_start:
+                next_layers = [source_layer, *remaining_layers]
+            else:
+                next_layers = [*remaining_layers, source_layer]
+        else:
+            if target_after == source_layer.id:
+                return
+            target_index = next(
+                (index for index, layer in enumerate(remaining_layers) if layer.id == target_after),
+                None,
+            )
+            if target_index is None:
+                return
+            next_layers = list(remaining_layers)
+            next_layers.insert(target_index + 1, source_layer)
+
+        source_audio_layer = next(
+            (layer for layer in next_layers if str(layer.id) == "source_audio"),
+            None,
+        )
+        if source_audio_layer is not None and next_layers:
+            if next_layers[0].id != source_audio_layer.id:
+                next_layers = [
+                    source_audio_layer,
+                    *(
+                        layer
+                        for layer in next_layers
+                        if layer.id != source_audio_layer.id
+                    ),
+                ]
+
+        if tuple(layer.id for layer in ordered_layers) == tuple(layer.id for layer in next_layers):
+            return
+
+        for index, layer in enumerate(next_layers):
+            layer.order_index = index
+        timeline.layers = next_layers
 
     def _handle_move_selected_events_to_adjacent_layer(
         self,

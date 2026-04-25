@@ -10,6 +10,9 @@ from typing import Protocol
 
 from echozero.application.presentation.models import LayerPresentation, TimelinePresentation
 from echozero.application.shared.enums import LayerKind
+from echozero.application.timeline.object_action_model_picker_options import (
+    build_runtime_model_picker_options,
+)
 from echozero.application.timeline.object_actions.descriptors import ActionDescriptor, workflow_descriptor_for_action
 from echozero.application.timeline.object_actions.settings import (
     ObjectActionSettingField,
@@ -137,6 +140,8 @@ def resolve_object_action_object_bindings(
         raise ValueError(
             f"Unsupported object action binding resolver '{workflow.binding_resolver_id}' for '{action_id}'."
         )
+    if "layer_id" in workflow.params_schema and layer_id is None:
+        return {}
     layer = shell._require_layer(layer_id) if "layer_id" in workflow.params_schema else None
     return resolver(layer=layer, params=params)
 
@@ -177,6 +182,15 @@ def build_object_action_setting_fields(
             continue
         persisted_value = persisted_values.get(key, defaults.get(key, knob.default))
         value = resolved_params.get(key, persisted_value)
+        widget_name = _knob_widget_name(knob.widget)
+        options = tuple(
+            ObjectActionSettingOption(value=option, label=option.replace("_", " ").title())
+            for option in (knob.options or ())
+        )
+        model_options = build_runtime_model_picker_options(knob=knob, value=value)
+        if model_options:
+            widget_name = "dropdown"
+            options = model_options
         fields.append(
             ObjectActionSettingField(
                 key=key,
@@ -185,7 +199,7 @@ def build_object_action_setting_fields(
                 default_value=knob.default,
                 persisted_value=persisted_value,
                 is_dirty=value != persisted_value,
-                widget=_knob_widget_name(knob.widget),
+                widget=widget_name,
                 description=knob.description,
                 advanced=knob.advanced,
                 placeholder=knob.placeholder,
@@ -193,10 +207,7 @@ def build_object_action_setting_fields(
                 min_value=knob.min_value,
                 max_value=knob.max_value,
                 step=knob.step,
-                options=tuple(
-                    ObjectActionSettingOption(value=option, label=option.replace("_", " ").title())
-                    for option in (knob.options or ())
-                ),
+                options=options,
             )
         )
     return tuple(fields)

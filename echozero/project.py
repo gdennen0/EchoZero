@@ -367,6 +367,7 @@ class Project:
         artist: str = "",
         label: str = "Original",
         default_templates: list[str] | None = None,
+        audio_import_options: Any = None,
         scan_fn: Any = None,
     ) -> tuple[SongRecord, SongVersionRecord]:
         """Import an audio file as a new song with default pipeline configs.
@@ -377,6 +378,7 @@ class Project:
             artist: Artist name (optional).
             label: Version label (default "Original").
             default_templates: Template IDs to create configs for. None = all registered.
+            audio_import_options: Optional import-time audio preprocessing options.
             scan_fn: Optional injectable for audio scanning (testing).
 
         Returns:
@@ -388,6 +390,7 @@ class Project:
             artist=artist,
             label=label,
             default_templates=default_templates,
+            audio_import_options=audio_import_options,
             scan_fn=scan_fn,
         )
 
@@ -397,6 +400,9 @@ class Project:
         audio_source: Path,
         label: str | None = None,
         activate: bool = True,
+        transfer_layers: bool = False,
+        transfer_layer_ids: list[str] | None = None,
+        audio_import_options: Any = None,
         scan_fn: Any = None,
     ) -> SongVersionRecord:
         """Add a new version of an existing song and copy pipeline configs.
@@ -406,6 +412,9 @@ class Project:
             audio_source: Path to the new audio file.
             label: Human-readable label. Auto-generated if None.
             activate: If True, set the new version as active.
+            transfer_layers: If True, copy persisted layers from the source version.
+            transfer_layer_ids: Optional subset of layer IDs to copy when transfer_layers is True.
+            audio_import_options: Optional import-time audio preprocessing options.
             scan_fn: Optional injectable for audio scanning (testing).
 
         Returns:
@@ -416,6 +425,9 @@ class Project:
             audio_source=audio_source,
             label=label,
             activate=activate,
+            transfer_layers=transfer_layers,
+            transfer_layer_ids=transfer_layer_ids,
+            audio_import_options=audio_import_options,
             scan_fn=scan_fn,
         )
 

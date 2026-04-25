@@ -2,11 +2,17 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from echozero.foundry.app import FoundryApp
 from echozero.foundry.domain import CurationState
 from echozero.foundry.persistence import DatasetVersionRepository
 from echozero.foundry.services.dataset_service import DatasetService
-from tests.foundry.audio_fixtures import write_percussion_dataset
+from tests.foundry.audio_fixtures import (
+    write_percussion_dataset,
+    write_unreadable_audio_file,
+    write_zero_byte_audio_file,
+)
 
 
 def test_dataset_ingest_plan_and_curation(tmp_path: Path):
@@ -140,3 +146,34 @@ def test_dataset_version_integrity_detects_manifest_drift(tmp_path: Path):
 
     assert report["ok"] is False
     assert any("manifest_hash" in error for error in report["errors"])
+
+
+def test_dataset_ingest_skips_invalid_audio_and_records_manifest_stats(tmp_path: Path):
+    dataset_dir = tmp_path / "dataset"
+    write_percussion_dataset(dataset_dir, sample_count=1)
+    write_zero_byte_audio_file(dataset_dir / "kick" / "bad_zero.wav")
+    write_unreadable_audio_file(dataset_dir / "snare" / "bad_text.wav")
+
+    app = FoundryApp(tmp_path)
+    dataset = app.datasets.create_dataset("Graceful Ingest", source_kind="folder_import")
+    version = app.datasets.ingest_from_folder(dataset.id, dataset_dir)
+
+    assert version.stats["sample_count"] == 2
+    assert version.stats["skipped_invalid_count"] == 2
+    assert version.stats["skipped_invalid_by_reason"] == {"unreadable": 1, "zero_byte": 1}
+    assert sorted(item["relative_path"] for item in version.manifest["skipped_sources"]) == [
+        "kick/bad_zero.wav",
+        "snare/bad_text.wav",
+    ]
+
+
+def test_dataset_ingest_rejects_folders_with_only_invalid_audio(tmp_path: Path):
+    dataset_dir = tmp_path / "dataset"
+    write_zero_byte_audio_file(dataset_dir / "kick" / "bad_zero.wav")
+    write_unreadable_audio_file(dataset_dir / "snare" / "bad_text.wav")
+
+    app = FoundryApp(tmp_path)
+    dataset = app.datasets.create_dataset("Only Invalid", source_kind="folder_import")
+
+    with pytest.raises(ValueError, match="No valid audio samples found"):
+        app.datasets.ingest_from_folder(dataset.id, dataset_dir)

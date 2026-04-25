@@ -36,6 +36,42 @@ def test_app_shell_runtime_extract_stems_persists_audio_layers_and_takes():
         shutil.rmtree(temp_root, ignore_errors=True)
 
 
+def test_app_shell_runtime_pipeline_runs_do_not_auto_save_projects(monkeypatch):
+    temp_root = _repo_local_temp_root()
+    runtime = build_app_shell(
+        working_dir_root=temp_root / "working",
+        analysis_service=build_mock_analysis_service(),
+    )
+
+    assert isinstance(runtime, AppShellRuntime)
+    assert runtime.project_storage._autosave_timer is None
+    save_calls = 0
+    save_as_calls: list[Path] = []
+
+    def _capture_save() -> None:
+        nonlocal save_calls
+        save_calls += 1
+
+    def _capture_save_as(path) -> None:
+        save_as_calls.append(Path(path))
+
+    monkeypatch.setattr(runtime.project_storage, "save", _capture_save)
+    monkeypatch.setattr(runtime.project_storage, "save_as", _capture_save_as)
+
+    try:
+        audio_path = write_test_wav(temp_root / "fixtures" / "import.wav")
+        runtime.add_song_from_path("Imported Song", audio_path)
+        runtime.extract_stems("source_audio")
+
+        assert save_calls == 0
+        assert save_as_calls == []
+        assert runtime.project_storage._autosave_timer is None
+        assert sorted(temp_root.glob("*.ez")) == []
+    finally:
+        runtime.shutdown()
+        shutil.rmtree(temp_root, ignore_errors=True)
+
+
 def test_app_shell_runtime_extract_stems_passes_explicit_source_audio_binding():
     temp_root = _repo_local_temp_root()
     analysis_service = build_mock_analysis_service()
@@ -311,13 +347,100 @@ def test_app_shell_runtime_extract_song_drum_events_from_source_audio(monkeypatc
         assert "Kick" in titles
         assert "Snare" in titles
         assert all(layer.status.source_layer_id == "source_audio" for layer in event_layers)
-        assert detect_executor.audio_paths
-        assert binary_executor.audio_paths
-        assert Path(detect_executor.audio_paths[-1]).name == "drums.wav"
-        assert Path(binary_executor.audio_paths[-1]).name == "drums.wav"
-        assert detect_executor.audio_paths[-1] != str(audio_path)
-        assert binary_executor.audio_paths[-1] != str(audio_path)
+        assert all(layer.source_audio_path for layer in event_layers)
+        assert all(
+            Path(str(layer.source_audio_path)).name == "drums.wav"
+            for layer in event_layers
+        )
+        detect_calls = {
+            (block_id, Path(audio_path).name) for block_id, audio_path in detect_executor.calls
+        }
+        assert ("kick_onsets", "kick_filter.wav") in detect_calls
+        assert ("snare_onsets", "snare_filter.wav") in detect_calls
+        assert [(block_id, target_class, Path(audio_path).name) for block_id, target_class, audio_path in binary_executor.calls] == [
+            ("classify_drums", "", "drums.wav"),
+        ]
         assert runtime.is_dirty is True
+    finally:
+        runtime.shutdown()
+        shutil.rmtree(temp_root, ignore_errors=True)
+
+
+def test_app_shell_runtime_extract_song_drum_events_adds_selected_stem_layers(monkeypatch):
+    temp_root = _repo_local_temp_root()
+    analysis_service = build_mock_analysis_service()
+    detect_executor = _CaptureDetectOnsetsAudioExecutor()
+    binary_executor = _CaptureBinaryDrumClassifyAudioExecutor()
+    analysis_service._executors["DetectOnsets"] = detect_executor
+    analysis_service._executors["BinaryDrumClassify"] = binary_executor
+    runtime = build_app_shell(
+        working_dir_root=temp_root / "working",
+        analysis_service=analysis_service,
+    )
+
+    fake_models_root = temp_root / "models"
+    fake_models_root.mkdir(parents=True, exist_ok=True)
+    kick_manifest = fake_models_root / "kick.manifest.json"
+    snare_manifest = fake_models_root / "snare.manifest.json"
+    kick_manifest.write_text("{}", encoding="utf-8")
+    snare_manifest.write_text("{}", encoding="utf-8")
+
+    monkeypatch.setattr(
+        "echozero.application.timeline.object_action_settings_service.ensure_installed_models_dir",
+        lambda: fake_models_root,
+    )
+    monkeypatch.setattr(
+        "echozero.application.timeline.object_action_settings_service.upgrade_installed_runtime_bundles",
+        lambda _models_dir: None,
+    )
+    monkeypatch.setattr(
+        "echozero.application.timeline.object_action_settings_service.resolve_installed_binary_drum_bundles",
+        lambda: {
+            "kick": type("Bundle", (), {"manifest_path": kick_manifest})(),
+            "snare": type("Bundle", (), {"manifest_path": snare_manifest})(),
+        },
+    )
+
+    assert isinstance(runtime, AppShellRuntime)
+
+    try:
+        audio_path = write_test_wav(temp_root / "fixtures" / "song-drums-with-stems.wav")
+        runtime.add_song_from_path("Song Drums", audio_path)
+        runtime.save_object_action_settings(
+            "timeline.extract_song_drum_events",
+            {
+                "layer_id": "source_audio",
+                "include_bass_stem_layer": True,
+                "include_vocals_stem_layer": True,
+            },
+            object_id="source_audio",
+            object_type="layer",
+            scope="version",
+        )
+
+        presentation = runtime.extract_song_drum_events("source_audio")
+
+        audio_layers = [layer for layer in presentation.layers if layer.kind.name == "AUDIO"]
+        audio_titles = {layer.title for layer in audio_layers}
+        assert "Bass" in audio_titles
+        assert "Vocals" in audio_titles
+        assert "Drums" not in audio_titles
+        assert "Other" not in audio_titles
+
+        bass_layer = next(layer for layer in audio_layers if layer.title == "Bass")
+        vocals_layer = next(layer for layer in audio_layers if layer.title == "Vocals")
+        assert Path(str(bass_layer.source_audio_path)).name == "bass.wav"
+        assert Path(str(vocals_layer.source_audio_path)).name == "vocals.wav"
+        assert bass_layer.status.source_layer_id == "source_audio"
+        assert vocals_layer.status.source_layer_id == "source_audio"
+
+        event_layers = [layer for layer in presentation.layers if layer.kind.name == "EVENT"]
+        event_titles = {layer.title for layer in event_layers}
+        assert "Kick" in event_titles
+        assert "Snare" in event_titles
+        assert [(block_id, target_class, Path(audio_path).name) for block_id, target_class, audio_path in binary_executor.calls] == [
+            ("classify_drums", "", "drums.wav"),
+        ]
     finally:
         runtime.shutdown()
         shutil.rmtree(temp_root, ignore_errors=True)
@@ -748,8 +871,14 @@ def test_app_shell_runtime_extract_classified_drums_persists_kick_and_snare_laye
         assert "Snare" in titles
         assert any(layer.events and layer.events[0].label == "Kick" for layer in event_layers)
         assert any(layer.events and layer.events[0].label == "Snare" for layer in event_layers)
-        assert detect_executor.audio_paths[-1] == str(drums_layer.source_audio_path)
-        assert binary_executor.audio_paths[-1] == str(drums_layer.source_audio_path)
+        detect_calls = {
+            (block_id, Path(audio_path).name) for block_id, audio_path in detect_executor.calls
+        }
+        assert ("kick_onsets", "kick_filter.wav") in detect_calls
+        assert ("snare_onsets", "snare_filter.wav") in detect_calls
+        assert binary_executor.calls == [
+            ("classify_drums", "", str(drums_layer.source_audio_path)),
+        ]
     finally:
         runtime.shutdown()
         shutil.rmtree(temp_root, ignore_errors=True)

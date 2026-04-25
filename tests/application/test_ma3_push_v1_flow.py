@@ -779,6 +779,31 @@ def test_push_layer_to_ma3_uses_saved_route_and_layer_main_events():
     assert session.manual_push_flow.selected_event_ids == [EventId("evt_1"), EventId("evt_2")]
 
 
+def test_push_layer_to_ma3_accepts_marker_layers():
+    orchestrator, timeline, session, sync_service = _build_orchestrator(saved_route="tc1_tg2_tr3")
+    timeline.layers[0].kind = LayerKind.MARKER
+
+    orchestrator.handle(
+        timeline,
+        PushLayerToMA3(
+            layer_id="layer_kick",
+            scope=MA3PushScope.LAYER_MAIN,
+            target_mode=MA3PushTargetMode.SAVED_ROUTE,
+            apply_mode=MA3PushApplyMode.MERGE,
+        ),
+    )
+
+    assert sync_service.push_calls == [
+        {
+            "target_track_coord": "tc1_tg2_tr3",
+            "selected_event_ids": [EventId("evt_1"), EventId("evt_2")],
+            "transfer_mode": "merge",
+        }
+    ]
+    assert session.manual_push_flow.target_track_coord == "tc1_tg2_tr3"
+    assert session.manual_push_flow.selected_event_ids == [EventId("evt_1"), EventId("evt_2")]
+
+
 def test_push_layer_to_ma3_one_shot_selected_events_does_not_mutate_saved_route():
     orchestrator, timeline, _session, sync_service = _build_orchestrator(saved_route="tc1_tg2_tr3")
 

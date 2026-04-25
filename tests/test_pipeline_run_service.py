@@ -24,7 +24,7 @@ def _wait_until(predicate, *, timeout: float = 5.0) -> bool:
     return predicate()
 
 
-class _BlockingAnalysisService:
+class _BlockingOrchestrator:
     def __init__(self) -> None:
         self.started = threading.Event()
         self.release = threading.Event()
@@ -52,7 +52,7 @@ class _BlockingAnalysisService:
         )
 
 
-class _FailingAnalysisService:
+class _FailingOrchestrator:
     def execute(self, _session, _config_id, runtime_bindings=None, on_progress=None):
         if on_progress is not None:
             on_progress("Executing pipeline", 0.2)
@@ -91,7 +91,7 @@ def _build_service(*, analysis_service, persisted_calls: list[tuple[object, obje
 
 def test_pipeline_run_service_request_run_returns_immediately_and_completes():
     persisted_calls: list[tuple[object, object]] = []
-    analysis_service = _BlockingAnalysisService()
+    analysis_service = _BlockingOrchestrator()
     service, _session = _build_service(
         analysis_service=analysis_service,
         persisted_calls=persisted_calls,
@@ -136,7 +136,7 @@ def test_pipeline_run_service_request_run_returns_immediately_and_completes():
 
 def test_pipeline_run_service_blocks_only_conflicting_subjects():
     persisted_calls: list[tuple[object, object]] = []
-    analysis_service = _BlockingAnalysisService()
+    analysis_service = _BlockingOrchestrator()
     service, _session = _build_service(
         analysis_service=analysis_service,
         persisted_calls=persisted_calls,
@@ -173,7 +173,7 @@ def test_pipeline_run_service_blocks_only_conflicting_subjects():
 
 def test_pipeline_run_service_scopes_subjects_and_visibility_by_song_version():
     persisted_calls: list[tuple[object, object]] = []
-    analysis_service = _BlockingAnalysisService()
+    analysis_service = _BlockingOrchestrator()
     service, session = _build_service(
         analysis_service=analysis_service,
         persisted_calls=persisted_calls,
@@ -225,7 +225,7 @@ def test_pipeline_run_service_scopes_subjects_and_visibility_by_song_version():
 def test_pipeline_run_service_failed_runs_remain_observable():
     persisted_calls: list[tuple[object, object]] = []
     service, _session = _build_service(
-        analysis_service=_FailingAnalysisService(),
+        analysis_service=_FailingOrchestrator(),
         persisted_calls=persisted_calls,
     )
 

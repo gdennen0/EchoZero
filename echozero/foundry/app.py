@@ -17,6 +17,7 @@ from echozero.foundry.persistence import (
     DatasetRepository,
     EvalReportRepository,
     ModelArtifactRepository,
+    ReviewSessionRepository,
 )
 from echozero.foundry.presentation import FoundryActivityFeed
 from echozero.foundry.services import (
@@ -24,6 +25,8 @@ from echozero.foundry.services import (
     DatasetService,
     EvalService,
     FoundryQueryService,
+    ReviewSessionService,
+    RuntimeBundleInstallService,
     SplitBalanceService,
     TrainRunService,
 )
@@ -42,11 +45,14 @@ class FoundryApp:
         self._dataset_repo = DatasetRepository(root)
         self._artifact_repo = ModelArtifactRepository(root)
         self._eval_repo = EvalReportRepository(root)
+        self._review_repo = ReviewSessionRepository(root)
 
         self.datasets = DatasetService(root, dataset_repo=self._dataset_repo)
         self.split_balance = SplitBalanceService()
         self.eval = EvalService(self._eval_repo)
         self.artifacts = ArtifactService(root, artifact_repository=self._artifact_repo)
+        self.reviews = ReviewSessionService(root, repository=self._review_repo)
+        self.runtime_bundles = RuntimeBundleInstallService(root, artifact_repository=self._artifact_repo)
         self.runs = TrainRunService(root, eval_service=self.eval, artifact_service=self.artifacts)
         self.queries = FoundryQueryService(
             dataset_repo=self._dataset_repo,

@@ -45,6 +45,20 @@ def _run_spec(version_id: str, *, model_type: str | None = None) -> dict:
     return payload
 
 
+def _load_checkpoint(path: Path) -> dict[str, object]:
+    try:
+        import torch
+    except ImportError:
+        pytest.skip("torch not installed")
+    try:
+        payload = torch.load(path, map_location="cpu", weights_only=True)
+    except Exception:
+        # Local test artifacts may include numpy payloads that are not on torch's safe globals allowlist.
+        payload = torch.load(path, map_location="cpu", weights_only=False)
+    assert isinstance(payload, dict)
+    return payload
+
+
 def _mark_train_samples_synthetic(root: Path, version_id: str) -> tuple[object, list[str]]:
     repo = DatasetVersionRepository(root)
     version = repo.get(version_id)
@@ -223,9 +237,15 @@ def test_run_lifecycle_executes_training_and_writes_artifacts(tmp_path: Path):
 
     checkpoints = sorted(run.checkpoints_dir(tmp_path).glob("epoch_*.json"))
     assert len(checkpoints) == 2
-    assert (run.exports_dir(tmp_path) / "model.pth").exists()
+    model_path = run.exports_dir(tmp_path) / "model.pth"
+    assert model_path.exists()
     assert (run.exports_dir(tmp_path) / "metrics.json").exists()
     assert (run.exports_dir(tmp_path) / "run_summary.json").exists()
+    checkpoint_payload = _load_checkpoint(model_path)
+    assert checkpoint_payload["model_type"] == "baseline_sgd"
+    preprocessing = checkpoint_payload.get("preprocessing")
+    assert isinstance(preprocessing, dict)
+    assert preprocessing["datasetVersionId"] == version.id
     telemetry_latest = run.run_dir(tmp_path) / "telemetry.latest.json"
     telemetry_jsonl = run.run_dir(tmp_path) / "telemetry.jsonl"
     assert telemetry_latest.exists()
@@ -258,8 +278,14 @@ def test_crnn_run_lifecycle_executes_training_and_writes_artifacts(tmp_path: Pat
     assert run.status == TrainRunStatus.COMPLETED
 
     exports = run.exports_dir(tmp_path)
-    assert (exports / "model.pth").exists()
+    model_path = exports / "model.pth"
+    assert model_path.exists()
     assert (exports / "metrics.json").exists()
+    checkpoint_payload = _load_checkpoint(model_path)
+    assert checkpoint_payload["model_type"] == "crnn"
+    preprocessing = checkpoint_payload.get("preprocessing")
+    assert isinstance(preprocessing, dict)
+    assert preprocessing["datasetVersionId"] == version.id
     metrics = json.loads((exports / "metrics.json").read_text(encoding="utf-8"))
     assert metrics["trainerOptions"]["trainerProfile"] == "crnn_v1"
 

@@ -6,6 +6,7 @@ from pathlib import Path
 
 from echozero.foundry import FoundryApp
 from echozero.foundry.persistence import EvalReportRepository, ModelArtifactRepository, migrate_foundry_state
+from echozero.foundry.review_server import serve_review_session
 from echozero.foundry.ui import run_foundry_ui
 
 
@@ -21,6 +22,32 @@ def build_parser() -> argparse.ArgumentParser:
     ingest = sub.add_parser("ingest-folder")
     ingest.add_argument("dataset_id")
     ingest.add_argument("folder")
+
+    review_import = sub.add_parser("import-review-session")
+    review_import.add_argument("items_path")
+    review_import.add_argument("--name")
+    review_import.add_argument("--session-id")
+
+    review_project = sub.add_parser("create-project-review-session")
+    review_project.add_argument("project_path")
+    review_project.add_argument("--name")
+    review_project.add_argument("--session-id")
+    review_project.add_argument("--song-id")
+    review_project.add_argument("--song-version-id")
+    review_project.add_argument("--layer-id")
+    review_project.add_argument("--questionable-score-threshold", type=float)
+    review_project.add_argument("--item-limit", type=int)
+
+    review_import_folder = sub.add_parser("import-review-folder")
+    review_import_folder.add_argument("folder")
+    review_import_folder.add_argument("--name")
+    review_import_folder.add_argument("--session-id")
+    review_import_folder.add_argument("--target-class")
+
+    review_serve = sub.add_parser("serve-review-session")
+    review_serve.add_argument("session_id")
+    review_serve.add_argument("--host", default="127.0.0.1")
+    review_serve.add_argument("--port", type=int, default=8421)
 
     plan = sub.add_parser("plan-version")
     plan.add_argument("version_id")
@@ -99,6 +126,12 @@ def build_parser() -> argparse.ArgumentParser:
     art.add_argument("run_id")
     art.add_argument("manifest_json")
 
+    install_runtime = sub.add_parser("install-runtime-bundle")
+    install_runtime.add_argument("artifact_ref")
+    install_runtime.add_argument("--label")
+    install_runtime.add_argument("--bundle-name")
+    install_runtime.add_argument("--models-dir", type=Path)
+
     val = sub.add_parser("validate-artifact")
     val.add_argument("artifact_id")
 
@@ -130,6 +163,47 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps({"version_id": version.id, "samples": len(version.samples)}, indent=2))
         return 0
 
+    if args.command == "import-review-session":
+        session = app.reviews.import_session_file(
+            args.items_path,
+            name=args.name,
+            session_id=args.session_id,
+        )
+        _print_review_session_summary(session)
+        return 0
+
+    if args.command == "create-project-review-session":
+        session = app.reviews.create_project_session(
+            args.project_path,
+            name=args.name,
+            session_id=args.session_id,
+            song_id=args.song_id,
+            song_version_id=args.song_version_id,
+            layer_id=args.layer_id,
+            questionable_score_threshold=args.questionable_score_threshold,
+            item_limit=args.item_limit,
+        )
+        _print_review_session_summary(session)
+        return 0
+
+    if args.command == "import-review-folder":
+        session = app.reviews.import_session_folder(
+            args.folder,
+            name=args.name,
+            session_id=args.session_id,
+            target_class=args.target_class,
+        )
+        _print_review_session_summary(session)
+        return 0
+
+    if args.command == "serve-review-session":
+        return serve_review_session(
+            args.root,
+            args.session_id,
+            host=args.host,
+            port=args.port,
+        )
+
     if args.command == "plan-version":
         planned = app.plan_version(
             args.version_id,
@@ -139,7 +213,8 @@ def main(argv: list[str] | None = None) -> int:
             balance_strategy=args.balance,
         )
         print(json.dumps(planned, indent=2))
-        return 0
+    return 0
+
 
     if args.command == "train-folder":
         dataset = app.datasets.create_dataset(args.name, source_ref=str(Path(args.folder).resolve()))
@@ -251,6 +326,29 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "finalize-artifact":
         artifact = app.finalize_artifact(args.run_id, json.loads(args.manifest_json))
         print(json.dumps({"artifact_id": artifact.id, "path": str(artifact.path)}, indent=2))
+        return 0
+
+    if args.command == "install-runtime-bundle":
+        bundle = app.runtime_bundles.install_binary_drum_artifact(
+            args.artifact_ref,
+            bundle_label=args.label,
+            bundle_name=args.bundle_name,
+            models_dir=args.models_dir,
+        )
+        print(
+            json.dumps(
+                {
+                    "label": bundle.label,
+                    "bundle_name": bundle.bundle_name,
+                    "bundle_dir": str(bundle.bundle_dir),
+                    "manifest_path": str(bundle.manifest_path),
+                    "weights_path": str(bundle.weights_path),
+                    "artifact_id": bundle.artifact_id,
+                    "run_id": bundle.run_id,
+                },
+                indent=2,
+            )
+        )
         return 0
 
     if args.command == "validate-artifact":
@@ -371,6 +469,20 @@ def _parse_per_class_recall_floors(entries: list[str]) -> dict[str, float]:
             raise ValueError(f"Invalid --gate-per-class-recall-floor value: {entry}")
         floors[label.strip()] = float(raw_value)
     return floors
+
+
+def _print_review_session_summary(session) -> None:
+    print(
+        json.dumps(
+            {
+                "session_id": session.id,
+                "name": session.name,
+                "items": len(session.items),
+                "classes": session.class_map,
+            },
+            indent=2,
+        )
+    )
 
 
 if __name__ == "__main__":

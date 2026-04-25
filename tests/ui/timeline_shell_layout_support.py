@@ -3,6 +3,7 @@ Exists to keep fixture and presentation coverage separate from action and intera
 Connects the compatibility wrapper to the bounded layout support slice.
 """
 
+from PyQt6.QtGui import QAction
 from tests.ui.timeline_shell_shared_support import *  # noqa: F401,F403
 
 def test_demo_variants_include_take_lanes_open_and_zoom_states():
@@ -163,6 +164,42 @@ def test_timeline_widget_surfaces_pipeline_status_banner_from_presentation():
         widget.close()
 
 
+def test_timeline_widget_file_menu_shows_open_recent_project_submenu():
+    app = QApplication.instance() or QApplication([])
+    widget = TimelineWidget(build_demo_app().presentation())
+    try:
+        actions = {
+            "new_project": QAction("&New Project", widget),
+            "open_project": QAction("&Open Project", widget),
+            "open_recent_project::0": QAction("1. alpha.ez (C:/projects/alpha.ez)", widget),
+            "open_recent_project::1": QAction("2. bravo.ez (C:/projects/bravo.ez)", widget),
+            "save_project": QAction("&Save Project", widget),
+            "save_project_as": QAction("Save Project &As...", widget),
+        }
+
+        widget.configure_launcher_actions(actions)
+        menu_actions = widget._launcher_menu_bar.actions()
+        assert menu_actions
+        file_menu = menu_actions[0].menu()
+        assert file_menu is not None
+
+        recent_menu_entries = [
+            action
+            for action in file_menu.actions()
+            if action.menu() is not None and "Recent" in action.text()
+        ]
+        assert len(recent_menu_entries) == 1
+        recent_menu = recent_menu_entries[0].menu()
+        assert recent_menu is not None
+        assert [action.text() for action in recent_menu.actions()] == [
+            "1. alpha.ez (C:/projects/alpha.ez)",
+            "2. bravo.ez (C:/projects/bravo.ez)",
+        ]
+    finally:
+        widget.close()
+        app.processEvents()
+
+
 
 def test_pipeline_context_actions_include_phase1_ids():
     presentation = _audio_pipeline_presentation()
@@ -201,6 +238,7 @@ def test_pipeline_context_actions_include_phase1_ids():
 
     assert "song.add" in empty_action_ids
     assert "add_event_layer" in empty_action_ids
+    assert "add_marker_layer" in empty_action_ids
     assert "add_automation_layer" not in empty_action_ids
     assert "add_reference_layer" not in empty_action_ids
     assert "song.add" not in song_action_ids

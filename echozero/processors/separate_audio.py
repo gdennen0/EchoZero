@@ -57,10 +57,21 @@ DEMUCS_MODELS: dict[str, dict[str, Any]] = {
     },
 }
 
+DEMUCS_MODEL_ALIASES: dict[str, str] = {
+    "latest_model": "htdemucs_ft",
+}
+
+DEFAULT_DEMUCS_MODEL = "latest_model"
+
 VALID_DEVICES = {"auto", "cpu", "cuda"}
 VALID_TWO_STEMS = {"vocals", "drums", "bass", "other"}
 VALID_OUTPUT_FORMATS = {"wav", "mp3"}
 VALID_MP3_BITRATES = {128, 192, 320}
+
+
+def resolve_demucs_model_name(model_name: str) -> str:
+    """Resolve user-facing stem-model aliases to concrete Demucs model ids."""
+    return DEMUCS_MODEL_ALIASES.get(model_name, model_name)
 
 
 def cleanup_stem_temp_dirs(working_dir: Path) -> int:
@@ -395,17 +406,31 @@ class SeparateAudioProcessor:
             return err(ExecutionError(f"Block not found: {block_id}"))
 
         settings = block.settings
-        model = settings.get("model", "htdemucs")
+        model = str(settings.get("model", DEFAULT_DEMUCS_MODEL))
+        resolved_model = resolve_demucs_model_name(model)
         device_setting = settings.get("device", "auto")
         shifts = settings.get("shifts", 1)
         two_stems = settings.get("two_stems", None)
+        if isinstance(two_stems, str):
+            normalized_two_stems = two_stems.strip().lower()
+            if not normalized_two_stems or normalized_two_stems == "none":
+                two_stems = None
+            else:
+                two_stems = normalized_two_stems
+        include_bass_stem_layer = bool(settings.get("include_bass_stem_layer", False))
+        include_vocals_stem_layer = bool(settings.get("include_vocals_stem_layer", False))
+        include_other_stem_layer = bool(settings.get("include_other_stem_layer", False))
+        if include_bass_stem_layer or include_vocals_stem_layer or include_other_stem_layer:
+            # Full stem outputs are required whenever a non-drums stem is requested.
+            two_stems = None
         output_format = settings.get("output_format", "wav")
         mp3_bitrate = settings.get("mp3_bitrate", 320)
 
         # Validate settings
-        if model not in DEMUCS_MODELS:
+        if resolved_model not in DEMUCS_MODELS:
+            valid_models = tuple(sorted({*DEMUCS_MODELS.keys(), *DEMUCS_MODEL_ALIASES.keys()}))
             return err(ValidationError(
-                f"Unknown model '{model}'. Valid: {', '.join(DEMUCS_MODELS.keys())}"
+                f"Unknown model '{model}'. Valid: {', '.join(valid_models)}"
             ))
         if device_setting not in VALID_DEVICES:
             return err(ValidationError(
@@ -446,7 +471,7 @@ class SeparateAudioProcessor:
                 block_id=block_id,
                 phase="separate_audio",
                 percent=0.1,
-                message=f"Separating with {model} on {device}",
+                message=f"Separating with {resolved_model} on {device}",
             )
         )
 
@@ -454,7 +479,7 @@ class SeparateAudioProcessor:
         try:
             stem_results = self._separate_fn(
                 input_file=audio.file_path,
-                model_name=model,
+                model_name=resolved_model,
                 device=device,
                 shifts=shifts,
                 two_stems=two_stems,
@@ -507,4 +532,3 @@ class SeparateAudioProcessor:
         )
 
         return ok(outputs)
-

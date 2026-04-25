@@ -6,6 +6,8 @@ Used by app processors and future model-selection/install services.
 
 from __future__ import annotations
 
+import json
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -32,6 +34,8 @@ class LoadedRuntimeModel:
     fmax: int
     device: str
     source_path: Path
+    manifest_path: Path | None = None
+    artifact_manifest: dict[str, Any] | None = None
 
 
 def resolve_device(device: str) -> str:
@@ -58,6 +62,7 @@ def load_runtime_model(model_path: str | Path, *, device: str = "auto") -> Loade
     if not isinstance(checkpoint, dict):
         raise ExecutionError(f"Unexpected checkpoint format from {resolved_model_path}")
     run_runtime_preflight(resolved_model_path, checkpoint)
+    manifest_path, artifact_manifest = _resolve_runtime_artifact_manifest(resolved_model_path)
 
     classes = tuple(str(value).strip().lower() for value in checkpoint.get("classes", ()))
     if not classes:
@@ -89,7 +94,28 @@ def load_runtime_model(model_path: str | Path, *, device: str = "auto") -> Loade
         fmax=fmax,
         device=resolved_device,
         source_path=resolved_model_path,
+        manifest_path=manifest_path,
+        artifact_manifest=artifact_manifest,
     )
+
+
+def build_model_artifact_reference(runtime_model: LoadedRuntimeModel) -> dict[str, Any]:
+    """Build structured model-artifact provenance for classified runtime events."""
+    manifest = runtime_model.artifact_manifest or {}
+    artifact_identity = _artifact_identity_from_manifest(manifest)
+    display_identity = _display_identity_from_manifest(
+        manifest,
+        artifact_identity=artifact_identity,
+        source_path=runtime_model.source_path,
+    )
+    reference: dict[str, Any] = {
+        "schema": "echozero.model_artifact_ref.v1",
+    }
+    if artifact_identity:
+        reference["artifactIdentity"] = artifact_identity
+    if display_identity:
+        reference["displayIdentity"] = display_identity
+    return reference
 
 
 def instantiate_runtime_model(*, state_dict: dict[str, Any], n_mels: int, num_classes: int) -> Any:
@@ -171,3 +197,90 @@ def predict_probabilities_batch(
         logits = runtime_model.model(torch.from_numpy(features).to(runtime_model.device))
         probabilities = torch.softmax(logits, dim=1).cpu().numpy()
     return probabilities.astype(np.float32)
+
+
+def _resolve_runtime_artifact_manifest(model_path: Path) -> tuple[Path | None, dict[str, Any] | None]:
+    resolved_model_path = model_path.resolve()
+    matches: list[tuple[Path, dict[str, Any]]] = []
+    for manifest_path in sorted(resolved_model_path.parent.glob("*.manifest.json")):
+        manifest = _load_manifest(manifest_path)
+        if manifest is None:
+            continue
+        target_path = _resolve_manifest_weights_path(manifest_path, manifest)
+        if target_path == resolved_model_path:
+            matches.append((manifest_path.resolve(), manifest))
+    if len(matches) != 1:
+        return None, None
+    return matches[0]
+
+
+def _load_manifest(path: Path) -> dict[str, Any] | None:
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, TypeError, ValueError):
+        return None
+    if not isinstance(payload, Mapping):
+        return None
+    return dict(payload)
+
+
+def _resolve_manifest_weights_path(manifest_path: Path, manifest: Mapping[str, Any]) -> Path | None:
+    raw_weights_path = manifest.get("weightsPath")
+    if not isinstance(raw_weights_path, str) or not raw_weights_path.strip():
+        return None
+    weights_path = Path(raw_weights_path)
+    if weights_path.is_absolute():
+        return weights_path.resolve()
+    return (manifest_path.parent / weights_path).resolve()
+
+
+def _artifact_identity_from_manifest(manifest: Mapping[str, Any]) -> dict[str, Any]:
+    nested = manifest.get("artifactIdentity")
+    if isinstance(nested, Mapping):
+        return dict(nested)
+
+    identity: dict[str, Any] = {}
+    for source_key in (
+        "artifactId",
+        "runId",
+        "datasetVersionId",
+        "specHash",
+        "sharedContractFingerprint",
+    ):
+        value = manifest.get(source_key)
+        if value is None:
+            continue
+        identity[source_key] = value
+    return identity
+
+
+def _display_identity_from_manifest(
+    manifest: Mapping[str, Any],
+    *,
+    artifact_identity: Mapping[str, Any],
+    source_path: Path,
+) -> dict[str, Any]:
+    nested = manifest.get("displayIdentity")
+    if isinstance(nested, Mapping):
+        return dict(nested)
+
+    raw_runtime = manifest.get("runtime")
+    runtime = dict(raw_runtime) if isinstance(raw_runtime, Mapping) else {}
+    raw_classes = manifest.get("classes")
+    classes = [str(value) for value in raw_classes] if isinstance(raw_classes, list) else []
+    raw_weights_path = manifest.get("weightsPath")
+    weights_path = str(raw_weights_path) if isinstance(raw_weights_path, str) and raw_weights_path.strip() else None
+    display_identity: dict[str, Any] = {
+        "artifactId": artifact_identity.get("artifactId"),
+        "runId": artifact_identity.get("runId"),
+        "datasetVersionId": artifact_identity.get("datasetVersionId"),
+        "weightsFile": Path(weights_path).name if weights_path else source_path.name,
+        "classes": classes,
+        "classificationMode": manifest.get("classificationMode"),
+        "consumer": runtime.get("consumer"),
+    }
+    return {
+        key: value
+        for key, value in display_identity.items()
+        if value is not None and value != []
+    }

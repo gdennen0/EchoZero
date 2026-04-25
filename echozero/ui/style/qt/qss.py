@@ -158,7 +158,7 @@ def build_object_info_panel_qss(tokens: ShellTokens = SHELL_TOKENS) -> str:
 def build_timeline_editor_bar_qss(tokens: ShellTokens = SHELL_TOKENS) -> str:
     scales = tokens.scales
     root = "QWidget#timelineEditorModeBar"
-    compact_padding_v = max(4, scales.field_padding_v - 2)
+    compact_padding_v = max(2, scales.field_padding_v - 4)
     return f"""
         {root} {{
             background: {tokens.panel_bg};
@@ -174,7 +174,7 @@ def build_timeline_editor_bar_qss(tokens: ShellTokens = SHELL_TOKENS) -> str:
         }}
         {root} QLabel[timelineToolbarLabel='true'] {{
             color: {tokens.text_secondary};
-            font-size: 11px;
+            font-size: 10px;
             font-weight: 600;
             padding: {compact_padding_v}px 2px {compact_padding_v}px 0;
             min-height: {TIMELINE_EDITOR_BUTTON_MIN_HEIGHT_PX}px;
@@ -182,7 +182,11 @@ def build_timeline_editor_bar_qss(tokens: ShellTokens = SHELL_TOKENS) -> str:
         {root} QPushButton[timelineModeButton='true'],
         {root} QPushButton#timelineEditorSnapButton,
         {root} QPushButton#timelineEditorGridButton,
-        {root} QPushButton#timelineEditorSettingsButton {{
+        {root} QPushButton#timelineEditorSettingsButton,
+        {root} QPushButton#timelineEditorRegionsButton,
+        {root} QPushButton#timelineEditorFixRemoveButton,
+        {root} QPushButton#timelineEditorFixSelectButton,
+        {root} QPushButton#timelineEditorFixPromoteButton {{
             background: {tokens.control_bg};
             border: {scales.border_width}px solid {tokens.control_border};
             border-radius: {scales.button_radius}px;
@@ -190,15 +194,26 @@ def build_timeline_editor_bar_qss(tokens: ShellTokens = SHELL_TOKENS) -> str:
             padding: {compact_padding_v}px {scales.field_padding_h}px;
             min-height: {TIMELINE_EDITOR_BUTTON_MIN_HEIGHT_PX}px;
             font-weight: 600;
+            font-size: 10px;
         }}
         {root} QPushButton[timelineModeButton='true'] {{
             min-width: 72px;
         }}
         {root} QPushButton#timelineEditorGridButton {{
-            min-width: 90px;
+            min-width: 96px;
         }}
-        {root} QPushButton#timelineEditorSettingsButton {{
-            min-width: 88px;
+        {root} QPushButton#timelineEditorSettingsButton,
+        {root} QPushButton#timelineEditorRegionsButton {{
+            min-width: 98px;
+        }}
+        {root} QPushButton#timelineEditorFixRemoveButton,
+        {root} QPushButton#timelineEditorFixPromoteButton {{
+            min-width: 30px;
+            padding-left: {max(4, scales.field_padding_h - 3)}px;
+            padding-right: {max(4, scales.field_padding_h - 3)}px;
+        }}
+        {root} QPushButton#timelineEditorFixSelectButton {{
+            min-width: 34px;
         }}
         {root} QPushButton[timelineModeButton='true']:checked,
         {root} QPushButton#timelineEditorSnapButton:checked {{
@@ -209,7 +224,11 @@ def build_timeline_editor_bar_qss(tokens: ShellTokens = SHELL_TOKENS) -> str:
         {root} QPushButton[timelineModeButton='true']:disabled,
         {root} QPushButton#timelineEditorSnapButton:disabled,
         {root} QPushButton#timelineEditorGridButton:disabled,
-        {root} QPushButton#timelineEditorSettingsButton:disabled {{
+        {root} QPushButton#timelineEditorSettingsButton:disabled,
+        {root} QPushButton#timelineEditorRegionsButton:disabled,
+        {root} QPushButton#timelineEditorFixRemoveButton:disabled,
+        {root} QPushButton#timelineEditorFixSelectButton:disabled,
+        {root} QPushButton#timelineEditorFixPromoteButton:disabled {{
             color: {tokens.control_text_disabled};
             border-color: {tokens.panel_border};
             background: {tokens.control_bg_disabled};
@@ -217,8 +236,26 @@ def build_timeline_editor_bar_qss(tokens: ShellTokens = SHELL_TOKENS) -> str:
         {root} QPushButton[timelineModeButton='true']:focus,
         {root} QPushButton#timelineEditorSnapButton:focus,
         {root} QPushButton#timelineEditorGridButton:focus,
-        {root} QPushButton#timelineEditorSettingsButton:focus {{
+        {root} QPushButton#timelineEditorSettingsButton:focus,
+        {root} QPushButton#timelineEditorRegionsButton:focus,
+        {root} QPushButton#timelineEditorFixRemoveButton:focus,
+        {root} QPushButton#timelineEditorFixSelectButton:focus,
+        {root} QPushButton#timelineEditorFixPromoteButton:focus {{
             border-color: {tokens.control_border_active};
+        }}
+        {root}[compact='true'] QPushButton[timelineModeButton='true'],
+        {root}[compact='true'] QPushButton#timelineEditorGridButton,
+        {root}[compact='true'] QPushButton#timelineEditorSettingsButton,
+        {root}[compact='true'] QPushButton#timelineEditorRegionsButton,
+        {root}[compact='true'] QPushButton#timelineEditorFixSelectButton {{
+            min-width: 28px;
+            padding-left: {max(4, scales.field_padding_h - 4)}px;
+            padding-right: {max(4, scales.field_padding_h - 4)}px;
+            font-size: 9px;
+        }}
+        {root}[compact='true'] QPushButton#timelineEditorSnapButton {{
+            min-width: 32px;
+            font-size: 9px;
         }}
     """
 
@@ -279,15 +316,9 @@ def build_action_settings_dialog_qss(tokens: ShellTokens = SHELL_TOKENS) -> str:
             border: {scales.border_width}px solid {tokens.panel_border};
             border-radius: {scales.panel_radius}px;
         }}
-        {root} QLabel#actionSettingsDialogEyebrow {{
-            color: {tokens.text_secondary};
-            font-size: 11px;
-            font-weight: 700;
-            padding: 0;
-        }}
         {root} QLabel#actionSettingsDialogTitle {{
             color: {tokens.text_primary};
-            font-size: 16px;
+            font-size: 13px;
             font-weight: 700;
         }}
         {root} QLabel#actionSettingsDialogContext,
@@ -300,21 +331,25 @@ def build_action_settings_dialog_qss(tokens: ShellTokens = SHELL_TOKENS) -> str:
             border: {scales.border_width}px solid {tokens.panel_border};
             border-radius: {scales.panel_radius}px;
             color: {tokens.text_secondary};
-            padding: {scales.section_padding}px;
+            padding: 8px 10px;
         }}
         {root} QGroupBox[section='true'] {{
             background: {tokens.panel_alt_bg};
             border: {scales.border_width}px solid {tokens.section_border};
             border-radius: {scales.panel_radius}px;
-            margin-top: 14px;
-            padding: 14px;
+            margin-top: 10px;
+            padding: 10px;
             color: {tokens.text_primary};
             font-weight: 600;
         }}
+        {root} QGroupBox[section='true'][compact='true'] {{
+            margin-top: 8px;
+            padding: 8px;
+        }}
         {root} QGroupBox[section='true']::title {{
             subcontrol-origin: margin;
-            left: 10px;
-            padding: 0 4px;
+            left: 8px;
+            padding: 0 2px;
         }}
         {root} QLabel {{
             color: {tokens.text_primary};
@@ -342,7 +377,7 @@ def build_action_settings_dialog_qss(tokens: ShellTokens = SHELL_TOKENS) -> str:
         }}
         {root} QPushButton {{
             padding: {scales.field_padding_v}px {scales.field_padding_h}px;
-            min-height: 28px;
+            min-height: 24px;
             font-weight: 600;
         }}
         {root} QPushButton:disabled {{
@@ -369,7 +404,7 @@ def build_action_settings_dialog_qss(tokens: ShellTokens = SHELL_TOKENS) -> str:
             selection-background-color: {tokens.control_bg_active};
             selection-color: {tokens.text_primary};
             padding: {scales.field_padding_v}px {scales.field_padding_h}px;
-            min-height: 28px;
+            min-height: 24px;
         }}
         {root} QPushButton:focus,
         {root} QLineEdit:focus,
@@ -382,7 +417,7 @@ def build_action_settings_dialog_qss(tokens: ShellTokens = SHELL_TOKENS) -> str:
         }}
         {root} QDialogButtonBox#actionSettingsButtons {{
             border-top: {scales.border_width}px solid {tokens.panel_border};
-            padding-top: {scales.layout_gap}px;
+            padding-top: 6px;
         }}
     """
 
@@ -422,14 +457,11 @@ def build_song_browser_panel_qss(tokens: ShellTokens = SHELL_TOKENS) -> str:
             color: {tokens.control_text};
             font-weight: 600;
         }}
-        {root} QPushButton#songBrowserQuickAddButton,
-        {root} QToolButton#songBrowserCollapseButton {{
-            padding: 0;
-        }}
         {root} QPushButton#songBrowserQuickAddButton {{
             min-width: 28px;
             max-width: 28px;
             min-height: 28px;
+            padding: 0;
         }}
         {root} QToolButton#songBrowserCollapseButton {{
             min-width: 24px;
@@ -437,36 +469,87 @@ def build_song_browser_panel_qss(tokens: ShellTokens = SHELL_TOKENS) -> str:
             min-height: 24px;
             font-size: 12px;
             font-weight: 700;
+            padding: 0;
         }}
         {root}[collapsed=true] QToolButton#songBrowserCollapseButton {{
             background: {tokens.panel_bg};
             border-color: {tokens.control_border};
             color: {tokens.text_primary};
         }}
+        {root} QWidget#songBrowserActiveCard,
+        {root} QWidget#songBrowserBatchBar {{
+            background: {tokens.panel_alt_bg};
+            border: {scales.border_width}px solid {tokens.section_border};
+            border-radius: {scales.panel_radius}px;
+        }}
+        {root} QLabel#songBrowserActiveCaption {{
+            color: {tokens.text_secondary};
+            font-size: 10px;
+            font-weight: 600;
+            text-transform: uppercase;
+        }}
+        {root} QLabel#songBrowserActiveSongTitle {{
+            color: {tokens.text_primary};
+            font-size: 13px;
+            font-weight: 700;
+        }}
+        {root} QLabel#songBrowserActiveSongVersion,
+        {root} QLabel#songBrowserSongsMeta,
+        {root} QLabel#songBrowserBatchMeta {{
+            color: {tokens.text_secondary};
+            font-size: 11px;
+        }}
+        {root} QLabel#songBrowserSectionTitle {{
+            color: {tokens.text_primary};
+            font-size: 11px;
+            font-weight: 700;
+            text-transform: uppercase;
+        }}
+        {root} QPushButton#songBrowserAddVersionButton,
+        {root} QPushButton#songBrowserBatchSelectAll,
+        {root} QPushButton#songBrowserBatchClear,
+        {root} QPushButton#songBrowserBatchMoveTop,
+        {root} QPushButton#songBrowserBatchMoveBottom,
+        {root} QPushButton#songBrowserBatchDelete {{
+            background: {tokens.control_bg};
+            border: {scales.border_width}px solid {tokens.control_border};
+            border-radius: {scales.button_radius}px;
+            color: {tokens.control_text};
+            font-size: 11px;
+            font-weight: 600;
+            min-height: 24px;
+            padding: 0 8px;
+        }}
+        {root} QPushButton#songBrowserBatchDelete {{
+            background: {tokens.control_bg_active};
+            border-color: {tokens.control_border_active};
+            color: {tokens.text_primary};
+        }}
         {root} QPushButton:focus,
         {root} QToolButton:focus,
-        {root} QTreeWidget:focus {{
+        {root} QTreeWidget:focus,
+        {root} QListWidget:focus {{
             border-color: {tokens.control_border_active};
         }}
-        {root} QTreeWidget#songBrowserTree {{
+        {root} QTreeWidget#songBrowserSongList,
+        {root} QListWidget#songBrowserVersionList {{
             background: {tokens.panel_alt_bg};
             border: {scales.border_width}px solid {tokens.section_border};
             border-radius: {scales.panel_radius}px;
             color: {tokens.text_primary};
             outline: none;
-            padding: 6px 0;
+            padding: 4px 0;
         }}
-        {root} QTreeWidget#songBrowserTree::item {{
+        {root} QTreeWidget#songBrowserSongList::item,
+        {root} QListWidget#songBrowserVersionList::item {{
             padding: 6px 10px;
             border-radius: {max(4, scales.button_radius - 2)}px;
             margin: 1px 6px;
         }}
-        {root} QTreeWidget#songBrowserTree::item:selected {{
-            background: transparent;
+        {root} QTreeWidget#songBrowserSongList::item:selected,
+        {root} QListWidget#songBrowserVersionList::item:selected {{
+            background: {tokens.control_bg_active};
             color: {tokens.text_primary};
-        }}
-        {root} QTreeWidget#songBrowserTree::branch {{
-            background: transparent;
         }}
     """
 

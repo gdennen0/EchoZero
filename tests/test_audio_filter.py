@@ -285,6 +285,42 @@ class TestAudioFilterSuccess:
         assert len(received_args) == 1
         assert received_args[0][3] == 1.0  # Q should be 1.0
 
+    def test_disabled_filter_bypasses_processing_and_returns_input_audio(self) -> None:
+        graph = _make_graph_with_filter(filter_settings={"enabled": False})
+        context = _make_context(graph)
+        context.set_output("load1", "audio_out", MOCK_AUDIO)
+
+        calls: list[tuple[Any, ...]] = []
+
+        def spy_fn(
+            file_path: str,
+            sample_rate: int,
+            filter_type: str,
+            freq: float,
+            gain_db: float,
+            Q: float,
+        ) -> tuple[str, int, float]:
+            calls.append((file_path, sample_rate, filter_type, freq, gain_db, Q))
+            return "/tmp/out.wav", sample_rate, 5.0
+
+        processor = AudioFilterProcessor(filter_fn=spy_fn)
+        result = processor.execute("filter1", context)
+
+        assert isinstance(result, Ok)
+        assert calls == []
+        assert result.value == MOCK_AUDIO
+
+    def test_disabled_filter_accepts_false_like_string(self) -> None:
+        graph = _make_graph_with_filter(filter_settings={"enabled": "false"})
+        context = _make_context(graph)
+        context.set_output("load1", "audio_out", MOCK_AUDIO)
+
+        processor = AudioFilterProcessor(filter_fn=_mock_filter_fn)
+        result = processor.execute("filter1", context)
+
+        assert isinstance(result, Ok)
+        assert result.value == MOCK_AUDIO
+
 
 # ---------------------------------------------------------------------------
 # Error paths
@@ -461,3 +497,26 @@ class TestAudioFilterProgress:
         assert reports[0].block_id == "filter1"
         assert reports[-1].percent == 1.0
 
+    def test_bypass_progress_reports_complete(self) -> None:
+        graph = _make_graph_with_filter(filter_settings={"enabled": False})
+        runtime_bus = RuntimeBus()
+        context = ExecutionContext(
+            execution_id="test-run",
+            graph=graph,
+            progress_bus=runtime_bus,
+        )
+        context.set_output("load1", "audio_out", MOCK_AUDIO)
+
+        reports: list[ProgressReport] = []
+        runtime_bus.subscribe(
+            lambda r: reports.append(r) if isinstance(r, ProgressReport) else None
+        )
+
+        processor = AudioFilterProcessor(filter_fn=_mock_filter_fn)
+        result = processor.execute("filter1", context)
+
+        assert isinstance(result, Ok)
+        assert len(reports) >= 2
+        assert reports[0].percent == 0.0
+        assert reports[-1].percent == 1.0
+        assert reports[-1].message == "Filtering bypassed"

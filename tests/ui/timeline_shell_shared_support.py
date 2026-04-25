@@ -37,6 +37,7 @@ from echozero.application.presentation.models import (
     ManualPushSequenceRangePresentation,
     ManualPushTrackOptionPresentation,
     PipelineRunBannerPresentation,
+    RegionPresentation,
     SongOptionPresentation,
     SongVersionOptionPresentation,
     TakeLanePresentation,
@@ -44,7 +45,7 @@ from echozero.application.presentation.models import (
     TransferPresetPresentation,
 )
 from echozero.application.shared.enums import LayerKind
-from echozero.application.shared.ids import EventId, LayerId, TakeId, TimelineId
+from echozero.application.shared.ids import EventId, LayerId, RegionId, TakeId, TimelineId
 from echozero.application.sync.models import LiveSyncState
 from echozero.application.timeline.event_batch_scope import EventBatchScope
 from echozero.application.timeline.intents import (
@@ -80,11 +81,13 @@ from echozero.application.timeline.intents import (
     SelectEveryOtherEvents,
     SelectEvent,
     SelectLayer,
+    SelectRegion,
     SelectPullSourceEvents,
     SelectPullSourceTrack,
     SelectPullSourceTracks,
     SelectPullTargetLayer,
     SelectPushTargetTrack,
+    SelectTake,
     SetActivePlaybackTarget,
     SetGain,
     SetLayerLiveSyncPauseReason,
@@ -94,6 +97,7 @@ from echozero.application.timeline.intents import (
     SetSelectedEvents,
     Stop,
     ToggleLayerExpanded,
+    UpdateRegion,
 )
 from echozero.application.timeline.ma3_push_intents import (
     AssignMA3TrackSequence,
@@ -1274,7 +1278,11 @@ def _click_transport_rect(widget: TimelineWidget, key: str) -> None:
     QApplication.processEvents()
 
 
-def _mouse_drag(target, points: list[QPoint]) -> None:
+def _mouse_drag(
+    target,
+    points: list[QPoint],
+    modifiers: Qt.KeyboardModifier = Qt.KeyboardModifier.NoModifier,
+) -> None:
     first = points[0]
     QApplication.sendEvent(
         target,
@@ -1285,7 +1293,7 @@ def _mouse_drag(target, points: list[QPoint]) -> None:
             QPointF(first),
             Qt.MouseButton.LeftButton,
             Qt.MouseButton.LeftButton,
-            Qt.KeyboardModifier.NoModifier,
+            modifiers,
         ),
     )
     for point in points[1:]:
@@ -1298,7 +1306,7 @@ def _mouse_drag(target, points: list[QPoint]) -> None:
                 QPointF(point),
                 Qt.MouseButton.NoButton,
                 Qt.MouseButton.LeftButton,
-                Qt.KeyboardModifier.NoModifier,
+                modifiers,
             ),
         )
     last = points[-1]
@@ -1311,7 +1319,7 @@ def _mouse_drag(target, points: list[QPoint]) -> None:
             QPointF(last),
             Qt.MouseButton.LeftButton,
             Qt.MouseButton.NoButton,
-            Qt.KeyboardModifier.NoModifier,
+            modifiers,
         ),
     )
     QApplication.processEvents()

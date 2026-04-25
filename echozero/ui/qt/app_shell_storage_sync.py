@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 from typing import Protocol
 
 from echozero.application.session.models import Session
-from echozero.application.shared.enums import LayerKind
+from echozero.application.shared.layer_kinds import is_event_like_layer_kind
 from echozero.application.shared.ids import LayerId
 from echozero.application.timeline.app import TimelineApplication
 from echozero.application.timeline.models import Layer
@@ -130,7 +130,7 @@ def sync_storage_backed_timeline(shell: StorageSyncShell) -> None:
         layer
         for layer in shell._app.timeline.layers
         if layer.id != LayerId("source_audio")
-        and (layer.kind is LayerKind.EVENT or str(layer.id) in existing_records)
+        and (is_event_like_layer_kind(layer.kind) or str(layer.id) in existing_records)
     ]
     runtime_layer_ids = {str(layer.id) for layer in runtime_layers}
 
@@ -207,7 +207,7 @@ def _sync_empty_main_take(
 ) -> None:
     existing_main = next((take for take in existing_takes.values() if take.is_main), None)
     if existing_main is None:
-        if layer.kind is not LayerKind.EVENT:
+        if not is_event_like_layer_kind(layer.kind):
             return
         empty_main = PersistedTake.create(
             data=EventData(layers=()),
@@ -221,7 +221,9 @@ def _sync_empty_main_take(
         shell.project_storage.takes.update(
             replace(
                 existing_main,
-                data=EventData(layers=()) if layer.kind is LayerKind.EVENT else existing_main.data,
+                data=EventData(layers=())
+                if is_event_like_layer_kind(layer.kind)
+                else existing_main.data,
                 is_main=True,
             )
         )

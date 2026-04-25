@@ -59,12 +59,73 @@ class LayerStatus:
 
 
 @dataclass(slots=True)
+class LayerArtifactProvenance:
+    schema: str = "echozero.model-artifact.v1"
+    role: str = ""
+    kind: str = ""
+    locator: str = ""
+    content_type: str | None = None
+
+
+@dataclass(slots=True)
+class LayerAnalysisBuildProvenance:
+    schema: str = "echozero.analysis-build.v1"
+    build_id: str | None = None
+    execution_id: str | None = None
+    pipeline_id: str | None = None
+    pipeline_config_id: str | None = None
+    block_id: str | None = None
+    block_type: str | None = None
+    output_name: str | None = None
+    data_type: str | None = None
+    generated_at: str | None = None
+
+
+@dataclass(slots=True)
 class LayerProvenance:
     source_layer_id: LayerId | None = None
     source_song_version_id: SongVersionId | None = None
     source_run_id: str | None = None
     pipeline_id: str | None = None
     output_name: str | None = None
+    analysis_build: LayerAnalysisBuildProvenance | None = None
+    artifacts: tuple[LayerArtifactProvenance, ...] = field(default_factory=tuple)
+
+    def __post_init__(self) -> None:
+        build = self.analysis_build
+        if isinstance(build, dict):
+            build = LayerAnalysisBuildProvenance(**build)
+
+        if build is None and any(
+            value is not None
+            for value in (self.source_run_id, self.pipeline_id, self.output_name)
+        ):
+            build = LayerAnalysisBuildProvenance(
+                build_id=self.source_run_id,
+                execution_id=self.source_run_id,
+                pipeline_id=self.pipeline_id,
+                output_name=self.output_name,
+            )
+
+        if build is not None:
+            if self.source_run_id is None:
+                self.source_run_id = build.execution_id or build.build_id
+            if self.pipeline_id is None:
+                self.pipeline_id = build.pipeline_id
+            if self.output_name is None:
+                self.output_name = build.output_name
+        self.analysis_build = build
+
+        normalized_artifacts: list[LayerArtifactProvenance] = []
+        for artifact in self.artifacts:
+            if isinstance(artifact, LayerArtifactProvenance):
+                normalized_artifacts.append(artifact)
+                continue
+            if isinstance(artifact, dict):
+                normalized_artifacts.append(LayerArtifactProvenance(**artifact))
+                continue
+            raise TypeError(f"Unsupported layer artifact provenance: {type(artifact)!r}")
+        self.artifacts = tuple(normalized_artifacts)
 
 
 @dataclass(frozen=True, slots=True)

@@ -8,6 +8,7 @@ from __future__ import annotations
 import copy
 import json
 import time
+import warnings
 from dataclasses import dataclass
 from pathlib import Path
 from threading import Event
@@ -21,6 +22,7 @@ from sklearn.metrics import accuracy_score, confusion_matrix, log_loss, precisio
 from echozero.foundry.domain import DatasetSample, DatasetVersion, TrainRun
 from echozero.runtime_models.architectures import SimpleCnnRuntimeModel
 from echozero.foundry.services.baseline_trainer import BaselineTrainer, BaselineTrainingResult, RunCanceledError
+from echozero.foundry.services.audio_source_validation import InvalidAudioSourceError
 from echozero.foundry.services.training_runtime import (
     compute_config_fingerprint,
     configure_reproducibility,
@@ -116,6 +118,15 @@ class CnnTrainer:
             label_to_index=label_to_index,
             cancel_event=cancel_event,
         )
+        if len(train_ds.y) < 2:
+            raise ValueError("cnn trainer has fewer than two usable training samples after skipping invalid source audio")
+        observed_train_labels = {class_names[index] for index in np.unique(train_ds.y)}
+        if observed_train_labels != set(class_names):
+            missing = sorted(set(class_names) - observed_train_labels)
+            raise ValueError(
+                "cnn trainer skipped invalid source audio and training split lost required classes: "
+                + ", ".join(missing)
+            )
         val_ds = self._build_dataset(
             val_samples,
             sample_rate=sample_rate,
@@ -140,6 +151,8 @@ class CnnTrainer:
             label_to_index=label_to_index,
             cancel_event=cancel_event,
         )
+        if eval_samples and len(eval_ds.y) == 0:
+            raise ValueError("cnn trainer has no usable evaluation samples after skipping invalid source audio")
         synthetic_eval_ds = self._build_dataset(
             synthetic_eval_samples,
             sample_rate=sample_rate,
@@ -250,21 +263,25 @@ class CnnTrainer:
 
         run.exports_dir(self._root).mkdir(parents=True, exist_ok=True)
         model_path = run.exports_dir(self._root) / "model.pth"
+        inference_preprocessing = {
+            "datasetVersionId": str(data_spec.get("datasetVersionId") or dataset_version.id),
+            "sampleRate": sample_rate,
+            "maxLength": max_length,
+            "nFft": n_fft,
+            "hopLength": hop_length,
+            "nMels": n_mels,
+            "fmax": fmax,
+        }
         torch.save(
             {
                 "schema": "foundry.cnn_model.v1",
                 "trainer": "cnn_melspec_v1",
                 "classes": class_names,
                 "classification_mode": run.spec["classificationMode"],
+                "model_type": str((run.spec.get("model") or {}).get("type") or "cnn"),
                 "model_state_dict": model.state_dict(),
-                "preprocessing": {
-                    "sampleRate": sample_rate,
-                    "maxLength": max_length,
-                    "nFft": n_fft,
-                    "hopLength": hop_length,
-                    "nMels": n_mels,
-                    "fmax": fmax,
-                },
+                "inference_preprocessing": dict(inference_preprocessing),
+                "preprocessing": dict(inference_preprocessing),
                 "training": {
                     "epochs": epochs,
                     "completedEpochs": len(checkpoint_metrics),
@@ -448,7 +465,15 @@ class CnnTrainer:
         target_frames: int | None = None
         for sample in samples:
             self._ensure_not_canceled(cancel_event)
-            audio = BaselineTrainer._load_audio(Path(sample.audio_ref), sample_rate=sample_rate, max_length=max_length)
+            try:
+                audio = BaselineTrainer._load_audio(Path(sample.audio_ref), sample_rate=sample_rate, max_length=max_length)
+            except InvalidAudioSourceError as exc:
+                warnings.warn(
+                    f"Skipping invalid dataset sample {sample.sample_id} ({sample.audio_ref}): {exc}",
+                    RuntimeWarning,
+                    stacklevel=2,
+                )
+                continue
             mel = librosa.feature.melspectrogram(
                 y=audio,
                 sr=sample_rate,
@@ -477,6 +502,11 @@ class CnnTrainer:
             features.append(feature)
             labels.append(label_to_index[sample.label])
 
+        if not features:
+            return _TensorDataset(
+                x=np.empty((0, 1, n_mels, 1), dtype=np.float32),
+                y=np.empty((0,), dtype=np.int64),
+            )
         return _TensorDataset(
             x=np.stack(features).astype(np.float32),
             y=np.asarray(labels, dtype=np.int64),

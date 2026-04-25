@@ -196,6 +196,8 @@ def _events_signature(events: list[Event]) -> AssemblerSignature:
                 str(event.take_id),
                 float(event.start),
                 float(event.end),
+                str(event.label),
+                int(event.cue_number),
                 bool(event.muted),
             )
             for event in events

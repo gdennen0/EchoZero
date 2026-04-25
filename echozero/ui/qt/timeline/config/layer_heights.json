@@ -1,0 +1,16 @@
+{
+  "default_main_row_height_px": 60,
+  "take_row_height_px": 44,
+  "min_main_row_height_px": 40,
+  "max_main_row_height_px": 220,
+  "resize_handle_hit_padding_px": 5,
+  "layer_kind_main_row_height_px": {
+    "audio": 64,
+    "event": 56,
+    "marker": 52,
+    "automation": 52,
+    "reference": 56,
+    "group": 60,
+    "sync": 56
+  }
+}

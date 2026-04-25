@@ -13,8 +13,15 @@ from typing import Protocol, cast
 from PyQt6.QtGui import QResizeEvent
 from PyQt6.QtWidgets import QFrame, QLabel, QScrollArea, QScrollBar, QWidget
 
+from echozero.application.playback.timecode import format_clock_label
 from echozero.application.presentation.models import TimelinePresentation
-from echozero.application.timeline.intents import Seek, Stop, TimelineIntent
+from echozero.application.timeline.intents import (
+    Seek,
+    SelectAdjacentEventInSelectedLayer,
+    Stop,
+    TimelineIntent,
+)
+from echozero.application.timeline.models import EventRef
 from echozero.ui.FEEL import (
     TIMELINE_ZOOM_MAX_PPS,
     TIMELINE_ZOOM_MIN_PPS,
@@ -50,6 +57,7 @@ class _TimelineWidgetRuntimeHost(Protocol):
     _runtime_playhead_floor: float | None
     _runtime_timing_snapshot: RuntimeAudioTimingSnapshot | None
     _edit_mode: str
+    _fix_action: str
     _snap_enabled: bool
     _grid_mode: str
     _scroll: QScrollArea
@@ -228,12 +236,14 @@ class TimelineWidgetRuntimeMixin:
             self._grid_mode = TimelineGridMode.AUTO.value
         self._editor_bar.set_state(
             edit_mode=self._edit_mode,
+            fix_action=self._fix_action,
             snap_enabled=self._snap_enabled,
             grid_mode=self._grid_mode,
             beat_available=beat_available,
         )
         self._canvas.set_editor_state(
             edit_mode=self._edit_mode,
+            fix_action=self._fix_action,
             snap_enabled=self._snap_enabled,
             grid_mode=self._grid_mode,
         )
@@ -270,9 +280,16 @@ class TimelineWidgetRuntimeMixin:
 
     def _set_edit_mode(self: _TimelineWidgetRuntimeHost, mode: str) -> None:
         normalized = (mode or "select").strip().lower()
-        if normalized not in {"select", "draw", "erase", "move", "region"}:
+        if normalized not in {"select", "draw", "erase", "move", "region", "fix"}:
             return
         self._edit_mode = normalized
+        self._sync_editor_state()
+
+    def _set_fix_action(self: _TimelineWidgetRuntimeHost, action: str) -> None:
+        normalized = (action or "select").strip().lower()
+        if normalized not in {"promote", "remove", "select"}:
+            normalized = "select"
+        self._fix_action = normalized
         self._sync_editor_state()
 
     def _set_snap_enabled(self: _TimelineWidgetRuntimeHost, enabled: bool) -> None:
@@ -384,7 +401,80 @@ class TimelineWidgetRuntimeMixin:
                 is_playing=runtime_playing,
                 current_time_label=_format_time_label(runtime_time),
             )
+        if isinstance(intent, SelectAdjacentEventInSelectedLayer):
+            updated = self._with_selected_event_centered(updated)
         self.set_presentation(updated)
+
+    def _with_selected_event_centered(
+        self: _TimelineWidgetRuntimeHost,
+        presentation: TimelinePresentation,
+    ) -> TimelinePresentation:
+        center_time_seconds = self._selected_event_center_seconds(presentation)
+        if center_time_seconds is None:
+            return presentation
+
+        viewport_widget = self._scroll.viewport()
+        viewport = max(1, viewport_widget.width() if viewport_widget is not None else self.width())
+        header_width = self._canvas._header_width
+        content_width = max(1.0, float(viewport - header_width))
+        pixels_per_second = max(1.0, float(presentation.pixels_per_second))
+        target_scroll = max(0.0, (center_time_seconds * pixels_per_second) - (content_width * 0.5))
+        _, max_scroll = compute_scroll_bounds(
+            presentation,
+            viewport,
+            header_width=header_width,
+        )
+        clamped_scroll = max(0.0, min(target_scroll, float(max_scroll)))
+        return replace(presentation, scroll_x=clamped_scroll)
+
+    @staticmethod
+    def _event_center_seconds_for_ref(
+        presentation: TimelinePresentation,
+        event_ref: EventRef,
+    ) -> float | None:
+        for layer in presentation.layers:
+            if layer.layer_id != event_ref.layer_id:
+                continue
+
+            if layer.main_take_id == event_ref.take_id:
+                for event in layer.events:
+                    if event.event_id == event_ref.event_id:
+                        return 0.5 * (float(event.start) + float(event.end))
+
+            for take in layer.takes:
+                if take.take_id != event_ref.take_id:
+                    continue
+                for event in take.events:
+                    if event.event_id == event_ref.event_id:
+                        return 0.5 * (float(event.start) + float(event.end))
+            return None
+        return None
+
+    @staticmethod
+    def _selected_event_center_seconds(
+        presentation: TimelinePresentation,
+    ) -> float | None:
+        if presentation.selected_event_refs:
+            selected_ref = presentation.selected_event_refs[-1]
+            resolved = TimelineWidgetRuntimeMixin._event_center_seconds_for_ref(
+                presentation,
+                selected_ref,
+            )
+            if resolved is not None:
+                return resolved
+
+        if not presentation.selected_event_ids:
+            return None
+        selected_event_id = presentation.selected_event_ids[-1]
+        for layer in presentation.layers:
+            for event in layer.events:
+                if event.event_id == selected_event_id:
+                    return 0.5 * (float(event.start) + float(event.end))
+            for take in layer.takes:
+                for event in take.events:
+                    if event.event_id == selected_event_id:
+                        return 0.5 * (float(event.start) + float(event.end))
+        return None
 
     def _on_runtime_tick(self: _TimelineWidgetRuntimeHost) -> None:
         runtime = self._resolve_runtime_shell()
@@ -493,9 +583,7 @@ class TimelineWidgetRuntimeMixin:
 
 
 def _format_time_label(seconds: float) -> str:
-    mins = int(seconds // 60)
-    secs = seconds - mins * 60
-    return f"{mins:02d}:{secs:05.2f}"
+    return format_clock_label(seconds)
 
 
 __all__ = ["TimelineWidgetRuntimeMixin"]

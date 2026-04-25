@@ -18,6 +18,7 @@ from echozero.application.timeline.object_actions import (
     ObjectActionSettingsSession,
     RunSession,
     SaveAndRunSession,
+    SaveSessionToDefaults,
     SaveSession,
 )
 from echozero.application.timeline.pipeline_run_service import PipelineRunService, PipelineRunState
@@ -172,9 +173,10 @@ def dispatch_object_action_command(
 ) -> ObjectActionSettingsSession:
     if isinstance(command, (RunSession, SaveAndRunSession)):
         current = shell._object_action_settings.refresh_session(session_id)
-        if current.scope != "version":
+        if not current.can_save_and_run:
             raise ValueError(
-                "Reruns use this version's effective settings. Switch to This Version to run."
+                current.run_disabled_reason
+                or "This stage cannot run in the current session scope."
             )
         saved = shell._object_action_settings.dispatch_command(session_id, SaveSession())
         shell._clear_history()
@@ -189,7 +191,7 @@ def dispatch_object_action_command(
         return shell._object_action_settings.refresh_session(session_id)
 
     session = shell._object_action_settings.dispatch_command(session_id, command)
-    if isinstance(command, (SaveSession, ApplyCopySource)):
+    if isinstance(command, (SaveSession, SaveSessionToDefaults, ApplyCopySource)):
         shell._is_dirty = True
         shell._clear_history()
     return session

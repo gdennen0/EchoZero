@@ -33,9 +33,11 @@ from echozero.application.timeline.object_actions import (
     ApplyCopySource,
     ChangeSessionScope,
     PreviewCopySource,
+    ResetSessionDefaults,
     ReplaceSessionValues,
     RunSession,
     SaveAndRunSession,
+    SaveSessionToDefaults,
     SaveSession,
     SetSessionFieldValue,
 )
@@ -113,9 +115,9 @@ def _wait_until(predicate, *, timeout: float = 5.0) -> bool:
 
 class _CollidingBinaryDrumClassifyExecutor:
     def execute(self, block_id: str, context):
-        event_data = context.get_input(block_id, "events_in", EventData)
-        assert event_data is not None
-        input_events = tuple(event for layer in event_data.layers for event in layer.events)
+        block = context.graph.blocks[block_id]
+        target_class = str(block.settings.get("target_class", "")).strip().lower()
+        input_events = _merged_binary_drum_input_events(block_id, context)
         kick_events: list[DomainEvent] = []
         snare_events: list[DomainEvent] = []
         for event in input_events:
@@ -139,6 +141,12 @@ class _CollidingBinaryDrumClassifyExecutor:
                     origin="binary_classify:snare",
                 )
             )
+        if target_class == "kick":
+            return ok(EventData(layers=(DomainLayer(id="kick", name="kick", events=tuple(kick_events)),)))
+        if target_class == "snare":
+            return ok(
+                EventData(layers=(DomainLayer(id="snare", name="snare", events=tuple(snare_events)),))
+            )
         return ok(
             EventData(
                 layers=(
@@ -152,11 +160,14 @@ class _CollidingBinaryDrumClassifyExecutor:
 class _CaptureDetectOnsetsAudioExecutor:
     def __init__(self) -> None:
         self.audio_paths: list[str] = []
+        self.calls: list[tuple[str, str]] = []
 
     def execute(self, block_id: str, context):
         audio = context.get_input(block_id, "audio_in", AudioData)
         assert audio is not None
-        self.audio_paths.append(str(audio.file_path))
+        audio_path = str(audio.file_path)
+        self.audio_paths.append(audio_path)
+        self.calls.append((block_id, audio_path))
         event = DomainEvent(
             id="evt_1",
             time=0.25,
@@ -214,14 +225,17 @@ class _ThresholdAwareDetectOnsetsExecutor:
 class _CaptureBinaryDrumClassifyAudioExecutor:
     def __init__(self) -> None:
         self.audio_paths: list[str] = []
+        self.calls: list[tuple[str, str, str]] = []
 
     def execute(self, block_id: str, context):
         audio = context.get_input(block_id, "audio_in", AudioData)
         assert audio is not None
-        self.audio_paths.append(str(audio.file_path))
-        event_data = context.get_input(block_id, "events_in", EventData)
-        assert event_data is not None
-        input_events = tuple(event for layer in event_data.layers for event in layer.events)
+        block = context.graph.blocks[block_id]
+        target_class = str(block.settings.get("target_class", "")).strip().lower()
+        audio_path = str(audio.file_path)
+        self.audio_paths.append(audio_path)
+        self.calls.append((block_id, target_class, audio_path))
+        input_events = _merged_binary_drum_input_events(block_id, context)
         kick_events: list[DomainEvent] = []
         snare_events: list[DomainEvent] = []
         for event in input_events:
@@ -244,6 +258,12 @@ class _CaptureBinaryDrumClassifyAudioExecutor:
                     metadata={**event.metadata, "classified": True},
                     origin="binary_classify:snare",
                 )
+            )
+        if target_class == "kick":
+            return ok(EventData(layers=(DomainLayer(id="kick", name="kick", events=tuple(kick_events)),)))
+        if target_class == "snare":
+            return ok(
+                EventData(layers=(DomainLayer(id="snare", name="snare", events=tuple(snare_events)),))
             )
         return ok(
             EventData(
@@ -296,6 +316,30 @@ def _assert_waveform_registered(waveform_key: str | None) -> None:
     cached = get_cached_waveform(waveform_key)
     assert cached is not None
     assert cached.peaks.size > 0
+
+
+def _merged_binary_drum_input_events(
+    block_id: str,
+    context,
+) -> tuple[DomainEvent, ...]:
+    event_batches: list[EventData] = []
+    for port_name in ("events_in", "kick_events_in", "snare_events_in"):
+        event_data = context.get_input(block_id, port_name, EventData)
+        if event_data is not None:
+            event_batches.append(event_data)
+
+    assert event_batches
+    merged: list[DomainEvent] = []
+    seen: set[tuple[str, float, float]] = set()
+    for event_data in event_batches:
+        for layer in event_data.layers:
+            for event in layer.events:
+                key = (str(event.id), float(event.time), float(event.duration))
+                if key in seen:
+                    continue
+                seen.add(key)
+                merged.append(event)
+    return tuple(merged)
 
 
 

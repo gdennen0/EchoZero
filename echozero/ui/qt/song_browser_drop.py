@@ -8,16 +8,20 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
+import re
 
 from PyQt6.QtCore import pyqtSignal
 from PyQt6.QtGui import QDragEnterEvent, QDragMoveEvent, QDropEvent
 from PyQt6.QtWidgets import QPushButton, QTreeWidget, QTreeWidgetItem, QWidget
 
 _DROPPABLE_AUDIO_SUFFIXES = frozenset({".wav", ".mp3", ".flac", ".aiff", ".aif", ".ogg"})
+_NATURAL_TOKEN_PATTERN = re.compile(r"(\d+)")
 
 
 def dropped_audio_paths(
     event: QDragEnterEvent | QDragMoveEvent | QDropEvent,
+    *,
+    include_directory_audio: bool = False,
 ) -> tuple[str, ...]:
     """Extract one or more local audio file paths from a Qt drop event."""
 
@@ -31,14 +35,65 @@ def dropped_audio_paths(
         if not url.isLocalFile():
             continue
         local_path = Path(url.toLocalFile())
-        if not local_path.is_file() or local_path.suffix.lower() not in _DROPPABLE_AUDIO_SUFFIXES:
+        if local_path.is_file():
+            if local_path.suffix.lower() not in _DROPPABLE_AUDIO_SUFFIXES:
+                continue
+            resolved = str(local_path)
+            if resolved in seen:
+                continue
+            seen.add(resolved)
+            paths.append(resolved)
             continue
-        resolved = str(local_path)
-        if resolved in seen:
-            continue
-        seen.add(resolved)
-        paths.append(resolved)
+        if include_directory_audio and local_path.is_dir():
+            for audio_file in _audio_files_in_directory(local_path):
+                resolved = str(audio_file)
+                if resolved in seen:
+                    continue
+                seen.add(resolved)
+                paths.append(resolved)
     return tuple(paths)
+
+
+def has_droppable_audio(
+    event: QDragEnterEvent | QDragMoveEvent | QDropEvent,
+) -> bool:
+    """True when the event has local audio files or folders that can resolve to audio."""
+
+    mime_data = event.mimeData()
+    if mime_data is None or not mime_data.hasUrls():
+        return False
+    for url in mime_data.urls():
+        if not url.isLocalFile():
+            continue
+        local_path = Path(url.toLocalFile())
+        if local_path.is_dir():
+            return True
+        if local_path.is_file() and local_path.suffix.lower() in _DROPPABLE_AUDIO_SUFFIXES:
+            return True
+    return False
+
+
+def _audio_files_in_directory(directory: Path) -> tuple[Path, ...]:
+    discovered = [
+        candidate
+        for candidate in directory.rglob("*")
+        if candidate.is_file() and candidate.suffix.lower() in _DROPPABLE_AUDIO_SUFFIXES
+    ]
+    discovered.sort(key=lambda path: _natural_sort_key(str(path.relative_to(directory))))
+    return tuple(discovered)
+
+
+def _natural_sort_key(value: str) -> tuple[object, ...]:
+    tokens = _NATURAL_TOKEN_PATTERN.split(value.lower())
+    key: list[object] = []
+    for token in tokens:
+        if not token:
+            continue
+        if token.isdigit():
+            key.append(int(token))
+        else:
+            key.append(token)
+    return tuple(key)
 
 
 @dataclass(frozen=True, slots=True)
@@ -62,7 +117,7 @@ class SongBrowserAddButton(QPushButton):
     def dragEnterEvent(self, event: QDragEnterEvent | None) -> None:
         if event is None:
             return
-        if dropped_audio_paths(event):
+        if has_droppable_audio(event):
             event.acceptProposedAction()
             return
         event.ignore()
@@ -70,7 +125,7 @@ class SongBrowserAddButton(QPushButton):
     def dragMoveEvent(self, event: QDragMoveEvent | None) -> None:
         if event is None:
             return
-        if dropped_audio_paths(event):
+        if has_droppable_audio(event):
             event.acceptProposedAction()
             return
         event.ignore()
@@ -78,7 +133,7 @@ class SongBrowserAddButton(QPushButton):
     def dropEvent(self, event: QDropEvent | None) -> None:
         if event is None:
             return
-        paths = dropped_audio_paths(event)
+        paths = dropped_audio_paths(event, include_directory_audio=True)
         if not paths:
             event.ignore()
             return
@@ -103,25 +158,25 @@ class SongBrowserTree(QTreeWidget):
     def dragEnterEvent(self, event: QDragEnterEvent | None) -> None:
         if event is None:
             return
-        if dropped_audio_paths(event):
+        if has_droppable_audio(event):
             event.acceptProposedAction()
             return
-        event.ignore()
+        super().dragEnterEvent(event)
 
     def dragMoveEvent(self, event: QDragMoveEvent | None) -> None:
         if event is None:
             return
-        if dropped_audio_paths(event):
+        if has_droppable_audio(event):
             event.acceptProposedAction()
             return
-        event.ignore()
+        super().dragMoveEvent(event)
 
     def dropEvent(self, event: QDropEvent | None) -> None:
         if event is None:
             return
-        paths = dropped_audio_paths(event)
+        paths = dropped_audio_paths(event, include_directory_audio=True)
         if not paths:
-            event.ignore()
+            super().dropEvent(event)
             return
         target_song_id, target_song_title = self._resolve_song_target(
             self.itemAt(event.position().toPoint())
@@ -141,4 +196,5 @@ __all__ = [
     "SongBrowserAudioDrop",
     "SongBrowserTree",
     "dropped_audio_paths",
+    "has_droppable_audio",
 ]

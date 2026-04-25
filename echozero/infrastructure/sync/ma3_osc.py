@@ -906,6 +906,13 @@ class MA3OSCBridge:
         for raw_event in selected_events or []:
             snapshot = coerce_event_snapshot(raw_event)
             command = self._event_command_text(snapshot)
+            event_name = str(snapshot.label or "").strip() or None
+            cue_number = (
+                int(snapshot.cue_number)
+                if snapshot.cue_number is not None and int(snapshot.cue_number) > 0
+                else None
+            )
+            cue_label = event_name
             if mode == "merge":
                 fingerprint = self._event_fingerprint(snapshot)
                 if fingerprint in existing_fingerprints:
@@ -920,6 +927,9 @@ class MA3OSCBridge:
                 track_no=track_no,
                 start=start,
                 command=command,
+                event_name=event_name,
+                cue_number=cue_number,
+                cue_label=cue_label,
             )
             if first_event:
                 self._recover_missing_cmd_subtrack_if_needed(
@@ -929,6 +939,9 @@ class MA3OSCBridge:
                     track_no=track_no,
                     start=start,
                     command=command,
+                    event_name=event_name,
+                    cue_number=cue_number,
+                    cue_label=cue_label,
                     after_index=send_start_index,
                 )
                 first_event = False
@@ -943,14 +956,31 @@ class MA3OSCBridge:
         track_no: int,
         start: float,
         command: str,
+        event_name: str | None = None,
+        cue_number: int | None = None,
+        cue_label: str | None = None,
     ) -> None:
+        event_name_arg = (
+            "nil"
+            if event_name is None
+            else _format_lua_string(event_name)
+        )
+        cue_number_arg = "nil" if cue_number is None else str(int(cue_number))
+        cue_label_arg = (
+            "nil"
+            if cue_label is None
+            else _format_lua_string(cue_label)
+        )
         self._send_command(
-            "EZ.AddEvent({tc}, {tg}, {track}, {start}, {command})".format(
+            "EZ.AddEvent({tc}, {tg}, {track}, {start}, {command}, {event_name}, {cue_number}, {cue_label})".format(
                 tc=tc_no,
                 tg=tg_no,
                 track=track_no,
                 start=_format_lua_number(start),
                 command=_format_lua_string(command),
+                event_name=event_name_arg,
+                cue_number=cue_number_arg,
+                cue_label=cue_label_arg,
             )
         )
 
@@ -963,6 +993,9 @@ class MA3OSCBridge:
         track_no: int,
         start: float,
         command: str,
+        event_name: str | None,
+        cue_number: int | None,
+        cue_label: str | None,
         after_index: int,
     ) -> None:
         error = self._wait_for_track_event_error(
@@ -987,6 +1020,9 @@ class MA3OSCBridge:
             track_no=track_no,
             start=start,
             command=command,
+            event_name=event_name,
+            cue_number=cue_number,
+            cue_label=cue_label,
         )
         retry_error = self._wait_for_track_event_error(
             coord,

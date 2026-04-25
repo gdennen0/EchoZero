@@ -26,6 +26,7 @@ from echozero.ui.qt.launcher_surface import (
     build_launcher_surface,
 )
 from echozero.ui.qt.runtime_logging import install_runtime_logging
+from echozero.ui.qt.window_geometry import fit_window_to_available_screen
 from echozero.ui.style.qt import ensure_qt_theme_installed
 
 
@@ -131,6 +132,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     widget = surface.widget
     widget.show()
+    fit_window_to_available_screen(widget)
     bridge = None
     if parsed.automation_port is not None:
         bridge = AutomationBridgeServer(

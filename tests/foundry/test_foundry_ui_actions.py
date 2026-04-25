@@ -13,6 +13,7 @@ from echozero.foundry.domain import TrainRunStatus
 from echozero.foundry.services.baseline_trainer import RunCanceledError
 from echozero.foundry.ui.main_window import FoundryWindow
 from tests.foundry.audio_fixtures import write_percussion_dataset
+from tests.foundry.test_review_project_queue_builder import _build_project_review_fixture
 
 
 def _qt_app() -> QApplication:
@@ -235,6 +236,44 @@ def test_foundry_window_latest_artifact_package_reports_missing_path(tmp_path: P
     window._open_latest_artifact_package()
 
     assert "Latest artifact package is missing on disk" in window.status_line.text()
+
+    window.close()
+    qt_app.processEvents()
+
+
+def test_foundry_window_creates_and_opens_project_review_batches(tmp_path: Path, monkeypatch):
+    _ez_path, working_dir, _refs = _build_project_review_fixture(tmp_path)
+    qt_app = _qt_app()
+    window = FoundryWindow(working_dir)
+    opened_urls: list[str] = []
+
+    monkeypatch.setattr(
+        "echozero.foundry.ui.main_window_review_mixin.QDesktopServices.openUrl",
+        staticmethod(lambda url: opened_urls.append(url.toString()) or True),
+    )
+
+    window.review_source_path.setText(str(working_dir))
+    window.review_session_name.setText("Questionable Project Hits")
+    window.review_phone_service_enabled.setChecked(True)
+    window.review_score_threshold.setValue(0.8)
+    window.review_item_limit.setValue(2)
+
+    window._create_review_batch()
+
+    assert window.review_session_list.count() == 1
+    current_item = window.review_session_list.currentItem()
+    assert current_item is not None
+    session_id = current_item.data(Qt.ItemDataRole.UserRole)
+    assert session_id is not None
+    assert window._review_server_controller.is_enabled is True
+    assert "Questionable Max Score: 0.80" in window.review_summary.toPlainText()
+    assert "Review Mode: questionables" in window.review_summary.toPlainText()
+    assert "Selected / Total: 2 / 4" in window.review_summary.toPlainText()
+
+    window._open_selected_review_session()
+
+    assert opened_urls
+    assert f"sessionId={session_id}" in opened_urls[0]
 
     window.close()
     qt_app.processEvents()

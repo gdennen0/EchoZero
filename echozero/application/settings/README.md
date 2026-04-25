@@ -4,6 +4,7 @@ This package owns machine-local EchoZero preferences.
 
 Use it for settings that belong to the operator environment rather than project truth:
 - audio output device and stream behavior
+- song import defaults (LTC strip + import pipeline actions)
 - MA3 OSC receive/send endpoints
 - future local UI or workstation preferences
 
@@ -34,6 +35,27 @@ That lets future settings areas reuse the same pattern without inventing widget-
 - `echozero/infrastructure/sync/ma3_osc.py` stays focused on MA3 protocol behavior on top of that generic OSC lane.
 - Preferences only edit the local config JSON; they do not live-apply runtime changes from the shell surface.
 - MA3 OSC and audio output changes are persisted immediately but apply on the next launcher start.
+
+## Song Import Defaults
+
+The `Song Import` settings section is machine-local and affects both song and version import paths:
+
+- dialog-based add song
+- dialog-based add version
+- drag/drop add song
+- drag/drop add version
+- multi-file folder import
+
+Current controls:
+
+- `import.strip_ltc_timecode`: auto-detect one LTC channel in stereo audio and import the program channel.
+- `import.pipeline_action.<action_id>` toggles: run configured import-safe pipeline actions after each import.
+
+The action toggle inventory is descriptor-driven via
+`import_safe_pipeline_action_descriptors()` and intentionally constrained to import-safe object actions.
+
+For current runtime behavior details and rework seams, see
+`docs/SONG-IMPORT-BATCH-LTC-WORKFLOW.md`.
 
 ## Surfacing Strategy
 

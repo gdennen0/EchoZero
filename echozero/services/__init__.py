@@ -12,12 +12,12 @@ from echozero.services.setlist import SetlistProcessor, SetlistResult
 if TYPE_CHECKING:
     from echozero.services.foundry_orchestrator import FoundryOrchestrator
 
-# Backward-compat alias
+# Legacy import shim for external consumers; internal code should use Orchestrator.
 AnalysisService = Orchestrator
 
 __all__ = [
     "Orchestrator",
-    "AnalysisService",  # backward compat
+    "AnalysisService",
     "AnalysisResult",
     "SetlistProcessor",
     "SetlistResult",

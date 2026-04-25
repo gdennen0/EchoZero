@@ -693,7 +693,15 @@ class _SimulatedMA3OSCServer:
         self._clear_track(coord, int(tc_no), int(tg_no), int(track_no))
 
     def _handle_AddEvent(
-        self, tc_no: int, tg_no: int, track_no: int, start: float, cmd: str
+        self,
+        tc_no: int,
+        tg_no: int,
+        track_no: int,
+        start: float,
+        cmd: str,
+        event_name: str | None = None,
+        cue_no: int | None = None,
+        cue_label: str | None = None,
     ) -> None:
         coord = format_track_coord(int(tc_no), int(tg_no), int(track_no))
         if not self._cmd_subtrack_ready_by_coord.get(coord, True):
@@ -711,8 +719,18 @@ class _SimulatedMA3OSCServer:
         events = self._events_by_coord.setdefault(coord, [])
         next_id = self._next_event_id(coord)
         command = str(cmd or "")
-        cue_number = _cue_number_from_command(command)
-        label = _event_label_from_command(command, cue_number)
+        resolved_cue_number = None
+        try:
+            resolved_cue_number = int(cue_no) if cue_no is not None else None
+        except (TypeError, ValueError):
+            resolved_cue_number = None
+        cue_number = (
+            resolved_cue_number
+            if resolved_cue_number is not None and resolved_cue_number > 0
+            else _cue_number_from_command(command)
+        )
+        explicit_label = str(event_name or cue_label or "").strip()
+        label = explicit_label or _event_label_from_command(command, cue_number)
         snapshot = MA3EventSnapshot(
             event_id=next_id,
             label=label,

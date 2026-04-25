@@ -455,6 +455,29 @@ def test_select_adjacent_event_in_selected_layer_uses_current_take_context():
     assert timeline.selection.selected_event_ids == [alt_take.events[0].id]
 
 
+def test_select_adjacent_event_without_selection_uses_playhead_position():
+    orchestrator, timeline, layer, _main_take, alt_take = _build_orchestrator_and_timeline()
+    timeline.selection.selected_layer_id = layer.id
+    timeline.selection.selected_layer_ids = [layer.id]
+    timeline.selection.selected_take_id = alt_take.id
+    timeline.selection.selected_event_ids = []
+    timeline.selection.selected_event_refs = []
+
+    orchestrator.transport_service.seek(1.5)
+    orchestrator.handle(timeline, SelectAdjacentEventInSelectedLayer(direction=1))
+
+    assert timeline.selection.selected_layer_id == layer.id
+    assert timeline.selection.selected_take_id == alt_take.id
+    assert timeline.selection.selected_event_ids == [alt_take.events[1].id]
+
+    timeline.selection.selected_event_ids = []
+    timeline.selection.selected_event_refs = []
+    orchestrator.transport_service.seek(2.1)
+    orchestrator.handle(timeline, SelectAdjacentEventInSelectedLayer(direction=-1))
+
+    assert timeline.selection.selected_event_ids == [alt_take.events[0].id]
+
+
 def test_clear_selection_clears_events_and_take_without_dropping_selected_layer():
     orchestrator, timeline, layer, _main_take, alt_take = _build_orchestrator_and_timeline()
     timeline.selection.selected_layer_id = layer.id
@@ -1045,6 +1068,77 @@ def test_move_selected_events_transfers_to_target_main_take():
     assert timeline.selection.selected_layer_id == target_layer.id
     assert timeline.selection.selected_take_id == target_take.id
     assert timeline.selection.selected_event_ids == [EventId("alt_1")]
+
+
+def test_move_selected_events_with_copy_selected_duplicates_in_place():
+    orchestrator, timeline, layer, main_take, _alt_take = _build_orchestrator_and_timeline()
+    timeline.selection.selected_layer_id = layer.id
+    timeline.selection.selected_take_id = main_take.id
+    timeline.selection.selected_event_ids = [main_take.events[0].id]
+
+    orchestrator.handle(
+        timeline,
+        MoveSelectedEvents(delta_seconds=0.5, copy_selected=True),
+    )
+
+    assert [event.id for event in main_take.events] == [
+        EventId("main_1"),
+        EventId("take_main:dup:main_1:1"),
+        EventId("main_2"),
+    ]
+    duplicate = next(
+        event for event in main_take.events if event.id == EventId("take_main:dup:main_1:1")
+    )
+    original = next(event for event in main_take.events if event.id == EventId("main_1"))
+    assert original.start == 1.0
+    assert original.end == 1.2
+    assert duplicate.start == 1.5
+    assert duplicate.end == 1.7
+    assert timeline.selection.selected_layer_id == layer.id
+    assert timeline.selection.selected_take_id == main_take.id
+    assert timeline.selection.selected_event_ids == [EventId("take_main:dup:main_1:1")]
+
+
+def test_move_selected_events_with_copy_selected_to_target_layer_keeps_originals():
+    orchestrator, timeline, layer, _main_take, alt_take = _build_orchestrator_and_timeline()
+    target_take = Take(
+        id=TakeId("take_snare_main"),
+        layer_id=LayerId("layer_snare"),
+        name="Main",
+        events=[_event("snare_1", "take_snare_main", 3.0)],
+    )
+    target_layer = Layer(
+        id=LayerId("layer_snare"),
+        timeline_id=timeline.id,
+        name="Snare",
+        kind=LayerKind.EVENT,
+        order_index=1,
+        takes=[target_take],
+    )
+    timeline.layers.append(target_layer)
+    timeline.selection.selected_layer_id = layer.id
+    timeline.selection.selected_take_id = alt_take.id
+    timeline.selection.selected_event_ids = [alt_take.events[0].id]
+
+    orchestrator.handle(
+        timeline,
+        MoveSelectedEvents(
+            delta_seconds=0.25,
+            target_layer_id=target_layer.id,
+            copy_selected=True,
+        ),
+    )
+
+    assert [event.id for event in alt_take.events] == [EventId("alt_1"), EventId("alt_2")]
+    assert [event.id for event in target_take.events] == [
+        EventId("take_snare_main:dup:alt_1:1"),
+        EventId("snare_1"),
+    ]
+    assert target_take.events[0].start == 1.5
+    assert target_take.events[0].end == 1.7
+    assert timeline.selection.selected_layer_id == target_layer.id
+    assert timeline.selection.selected_take_id == target_take.id
+    assert timeline.selection.selected_event_ids == [EventId("take_snare_main:dup:alt_1:1")]
 
 
 def test_move_selected_events_rejects_locked_or_hidden_transfer_targets():

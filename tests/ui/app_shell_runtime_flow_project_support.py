@@ -83,6 +83,60 @@ def test_app_shell_runtime_new_save_open_reopen_flow():
         shutil.rmtree(temp_root, ignore_errors=True)
 
 
+def test_app_shell_runtime_persists_take_lane_expansion_state_across_save_and_open():
+    temp_root = _repo_local_temp_root()
+    working_root = temp_root / "working"
+    save_path = temp_root / "lane-state.ez"
+
+    runtime = build_app_shell(
+        working_dir_root=working_root,
+        initial_project_name="Lane State Runtime",
+    )
+
+    assert isinstance(runtime, AppShellRuntime)
+
+    try:
+        audio = write_test_wav(temp_root / "fixtures" / "lane-state.wav")
+        runtime.add_song_from_path("Lane State Song", audio)
+        runtime.add_layer(LayerKind.EVENT, "Lane Manual")
+        layer = next(
+            lane for lane in runtime.presentation().layers if lane.title == "Lane Manual"
+        )
+        layer_id = layer.layer_id
+
+        assert layer.is_expanded is False
+
+        runtime.dispatch(ToggleLayerExpanded(layer_id))
+        expanded_lane = next(
+            lane for lane in runtime.presentation().layers if lane.layer_id == layer_id
+        )
+        assert expanded_lane.is_expanded is True
+
+        runtime.save_project_as(save_path)
+        runtime.open_project(save_path)
+        reopened_expanded = next(
+            lane for lane in runtime.presentation().layers if lane.title == "Lane Manual"
+        )
+        assert reopened_expanded.is_expanded is True
+        layer_id = reopened_expanded.layer_id
+
+        runtime.dispatch(ToggleLayerExpanded(layer_id))
+        collapsed_lane = next(
+            lane for lane in runtime.presentation().layers if lane.layer_id == layer_id
+        )
+        assert collapsed_lane.is_expanded is False
+
+        runtime.save_project()
+        runtime.open_project(save_path)
+        reopened_collapsed = next(
+            lane for lane in runtime.presentation().layers if lane.title == "Lane Manual"
+        )
+        assert reopened_collapsed.is_expanded is False
+    finally:
+        runtime.shutdown()
+        shutil.rmtree(temp_root, ignore_errors=True)
+
+
 def test_app_shell_runtime_open_project_replaces_live_project_state():
     temp_root = _repo_local_temp_root()
     working_root = temp_root / "working"
@@ -212,6 +266,7 @@ def test_app_shell_runtime_exposes_transfer_surface_actions():
         }
         assert "song.add" in empty_action_ids
         assert "add_event_layer" in empty_action_ids
+        assert "add_marker_layer" in empty_action_ids
         assert "add_automation_layer" not in empty_action_ids
         assert "add_reference_layer" not in empty_action_ids
 
@@ -341,6 +396,47 @@ def test_app_shell_runtime_add_song_version_copies_configs_and_switches_versions
         assert runtime.project_storage.songs.get(song_id).active_version_id == version_1_id
         assert str(runtime.session.active_song_version_id) == version_1_id
         assert switched.end_time_label == "00:00.10"
+    finally:
+        runtime.shutdown()
+        shutil.rmtree(temp_root, ignore_errors=True)
+
+
+def test_app_shell_runtime_add_song_version_can_transfer_selected_layers():
+    temp_root = _repo_local_temp_root()
+    runtime = build_app_shell(working_dir_root=temp_root / "working")
+
+    assert isinstance(runtime, AppShellRuntime)
+
+    try:
+        runtime.add_song_from_path(
+            "Versioned Song",
+            write_test_wav(temp_root / "fixtures" / "version-1.wav", frames=4410),
+        )
+        runtime.add_layer(LayerKind.EVENT, "Kick Events")
+        runtime.add_layer(LayerKind.EVENT, "Snare Events")
+        assert runtime.session.active_song_id is not None
+        assert runtime.session.active_song_version_id is not None
+
+        song_id = str(runtime.session.active_song_id)
+        version_1_id = str(runtime.session.active_song_version_id)
+        source_layers = runtime.project_storage.layers.list_by_version(version_1_id)
+        snare_layer = next(layer for layer in source_layers if layer.name == "Snare Events")
+
+        runtime.add_song_version(
+            song_id,
+            write_test_wav(temp_root / "fixtures" / "version-2.wav", frames=8820),
+            label="Transfer Edit",
+            transfer_layers=True,
+            transfer_layer_ids=[snare_layer.id],
+        )
+
+        version_2_id = str(runtime.session.active_song_version_id)
+        transferred_layers = runtime.project_storage.layers.list_by_version(version_2_id)
+        assert [layer.name for layer in transferred_layers] == ["Snare Events"]
+        assert [layer.title for layer in runtime.presentation().layers] == [
+            "Versioned Song",
+            "Snare Events",
+        ]
     finally:
         runtime.shutdown()
         shutil.rmtree(temp_root, ignore_errors=True)
@@ -568,6 +664,39 @@ def test_app_shell_runtime_delete_song_version_switches_versions_and_deletes_las
         assert runtime.session.active_song_version_id is None
         assert emptied.layers == []
         assert runtime.project_storage.songs.get(song_id) is None
+    finally:
+        runtime.shutdown()
+        shutil.rmtree(temp_root, ignore_errors=True)
+
+
+def test_app_shell_runtime_move_song_and_reorder_songs_update_setlist_order():
+    temp_root = _repo_local_temp_root()
+    runtime = build_app_shell(working_dir_root=temp_root / "working")
+
+    assert isinstance(runtime, AppShellRuntime)
+
+    try:
+        runtime.add_song_from_path(
+            "Song One",
+            write_test_wav(temp_root / "fixtures" / "setlist-move-1.wav", frames=4410),
+        )
+        song_1_id = str(runtime.session.active_song_id)
+        runtime.add_song_from_path(
+            "Song Two",
+            write_test_wav(temp_root / "fixtures" / "setlist-move-2.wav", frames=4410),
+        )
+        song_2_id = str(runtime.session.active_song_id)
+        runtime.add_song_from_path(
+            "Song Three",
+            write_test_wav(temp_root / "fixtures" / "setlist-move-3.wav", frames=4410),
+        )
+        song_3_id = str(runtime.session.active_song_id)
+
+        moved = runtime.move_song(song_3_id, steps=-2)
+        assert [song.song_id for song in moved.available_songs] == [song_3_id, song_1_id, song_2_id]
+
+        reordered = runtime.reorder_songs([song_2_id, song_3_id, song_1_id])
+        assert [song.song_id for song in reordered.available_songs] == [song_2_id, song_3_id, song_1_id]
     finally:
         runtime.shutdown()
         shutil.rmtree(temp_root, ignore_errors=True)

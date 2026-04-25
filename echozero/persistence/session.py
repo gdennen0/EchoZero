@@ -203,6 +203,7 @@ class ProjectStorage(ProjectStorageVersioningMixin, ProjectStorageRuntimeMixin):
 
         conn = sqlite3.connect(str(db_path), check_same_thread=False)
         _setup_connection(conn)
+        init_db(conn)
 
         repo = ProjectRepository(conn)
         projects = repo.list()

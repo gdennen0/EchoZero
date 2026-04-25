@@ -16,6 +16,7 @@ from PyQt6.QtWidgets import (
     QGroupBox,
     QLabel,
     QPushButton,
+    QSizePolicy,
     QVBoxLayout,
     QWidget,
 )
@@ -25,7 +26,9 @@ from echozero.application.timeline.object_actions import (
     ChangeSessionScope,
     ObjectActionSettingsSession,
     PreviewCopySource,
+    ResetSessionDefaults,
     SaveAndRunSession,
+    SaveSessionToDefaults,
     SaveSession,
     SetSessionFieldValue,
 )
@@ -48,24 +51,22 @@ class ActionSettingsDialog(QDialog):
         ensure_qt_theme_installed()
         self._session = session
         self._dispatch_command = dispatch_command
-        self.resize(640, 560)
+        self.resize(560, 460)
+        self.setMinimumWidth(520)
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(16, 16, 16, 16)
-        layout.setSpacing(12)
+        layout.setContentsMargins(12, 12, 12, 12)
+        layout.setSpacing(6)
 
         self._header = QFrame(self)
         self._header.setObjectName("actionSettingsDialogHeader")
         self._header.setProperty("section", True)
         header_layout = QVBoxLayout(self._header)
-        header_layout.setContentsMargins(14, 14, 14, 14)
-        header_layout.setSpacing(6)
-        self._eyebrow = QLabel("PIPELINE SETTINGS", self._header)
-        self._eyebrow.setObjectName("actionSettingsDialogEyebrow")
-        header_layout.addWidget(self._eyebrow)
+        header_layout.setContentsMargins(8, 8, 8, 8)
+        header_layout.setSpacing(2)
         self._title = QLabel(self._header)
         self._title.setObjectName("actionSettingsDialogTitle")
-        self._title.setWordWrap(True)
+        self._title.setWordWrap(False)
         header_layout.addWidget(self._title)
         self._context = QLabel(self._header)
         self._context.setObjectName("actionSettingsDialogContext")
@@ -73,44 +74,58 @@ class ActionSettingsDialog(QDialog):
         header_layout.addWidget(self._context)
         layout.addWidget(self._header)
 
-        self._scope_group = QGroupBox("Editing Scope", self)
+        self._scope_group = QGroupBox("Version", self)
         self._scope_group.setProperty("section", True)
+        self._scope_group.setProperty("compact", True)
         scope_layout = QGridLayout(self._scope_group)
-        scope_layout.addWidget(QLabel("Scope", self._scope_group), 0, 0)
+        scope_layout.setContentsMargins(0, 0, 0, 0)
+        scope_layout.setHorizontalSpacing(8)
+        scope_layout.setVerticalSpacing(2)
+        scope_layout.setColumnStretch(1, 1)
+        scope_layout.addWidget(QLabel("Edit", self._scope_group), 0, 0)
         self._scope = QComboBox(self._scope_group)
         self._scope.currentIndexChanged.connect(self._on_scope_changed)
         scope_layout.addWidget(self._scope, 0, 1)
-        self._scope_hint = QLabel(self._scope_group)
-        self._scope_hint.setObjectName("actionSettingsDialogHint")
-        self._scope_hint.setWordWrap(True)
-        scope_layout.addWidget(self._scope_hint, 1, 0, 1, 2)
-        layout.addWidget(self._scope_group)
 
-        self._copy_group = QGroupBox(self)
+        self._copy_group = QGroupBox("Copy", self)
         self._copy_group.setProperty("section", True)
+        self._copy_group.setProperty("compact", True)
         copy_layout = QGridLayout(self._copy_group)
-        copy_layout.addWidget(QLabel("Source", self._copy_group), 0, 0)
+        copy_layout.setContentsMargins(0, 0, 0, 0)
+        copy_layout.setHorizontalSpacing(8)
+        copy_layout.setVerticalSpacing(2)
+        copy_layout.setColumnStretch(1, 1)
+        copy_layout.addWidget(QLabel("From", self._copy_group), 0, 0)
         self._copy_source = QComboBox(self._copy_group)
         self._copy_source.currentIndexChanged.connect(self._on_copy_source_changed)
         copy_layout.addWidget(self._copy_source, 0, 1)
-        self._apply_copy = QPushButton("Use Source Values", self._copy_group)
+        self._apply_copy = QPushButton("Apply", self._copy_group)
         self._set_button_appearance(self._apply_copy, "subtle")
         self._apply_copy.clicked.connect(self._on_apply_copy)
         copy_layout.addWidget(self._apply_copy, 0, 2)
-        self._copy_hint = QLabel(self._copy_group)
-        self._copy_hint.setObjectName("actionSettingsDialogHint")
-        self._copy_hint.setWordWrap(True)
-        copy_layout.addWidget(self._copy_hint, 1, 0, 1, 3)
         self._copy_preview = QLabel(self._copy_group)
         self._copy_preview.setObjectName("actionSettingsCopyPreview")
         self._copy_preview.setWordWrap(True)
-        copy_layout.addWidget(self._copy_preview, 2, 0, 1, 3)
-        layout.addWidget(self._copy_group)
+        self._copy_preview.setVisible(False)
+        copy_layout.addWidget(self._copy_preview, 1, 0, 1, 3)
+
+        controls_layout = QGridLayout()
+        controls_layout.setContentsMargins(0, 0, 0, 0)
+        controls_layout.setHorizontalSpacing(8)
+        controls_layout.setVerticalSpacing(0)
+        controls_layout.setColumnStretch(0, 1)
+        controls_layout.setColumnStretch(1, 2)
+        controls_layout.addWidget(self._scope_group, 0, 0)
+        controls_layout.addWidget(self._copy_group, 0, 1)
+        layout.addLayout(controls_layout)
 
         self._stage_group = QGroupBox(self)
         self._stage_group.setProperty("section", True)
         settings_layout = QVBoxLayout(self._stage_group)
+        settings_layout.setContentsMargins(0, 0, 0, 0)
+        settings_layout.setSpacing(6)
         self._form = ActionSettingsForm(self._stage_group)
+        self._form.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self._form.field_value_changed.connect(self._on_field_value_changed)
         settings_layout.addWidget(self._form)
         layout.addWidget(self._stage_group, 1)
@@ -122,6 +137,14 @@ class ActionSettingsDialog(QDialog):
             self,
         )
         self._buttons.setObjectName("actionSettingsButtons")
+        self._save_defaults = QPushButton("Save to Defaults", self)
+        self._set_button_appearance(self._save_defaults, "subtle")
+        self._save_defaults.clicked.connect(self._on_save_defaults)
+        self._buttons.addButton(self._save_defaults, QDialogButtonBox.ButtonRole.ActionRole)
+        self._reset_defaults = QPushButton("Reset to Defaults", self)
+        self._set_button_appearance(self._reset_defaults, "subtle")
+        self._reset_defaults.clicked.connect(self._on_reset_defaults)
+        self._buttons.addButton(self._reset_defaults, QDialogButtonBox.ButtonRole.ResetRole)
         save_button = self._require_button(QDialogButtonBox.StandardButton.Save)
         self._set_button_appearance(save_button, "subtle")
         save_button.clicked.connect(self._on_save)
@@ -138,7 +161,7 @@ class ActionSettingsDialog(QDialog):
     def _render_session(self, session: ObjectActionSettingsSession) -> None:
         self._session = session
         self.setWindowTitle(self._dialog_title(session))
-        self._title.setText(session.plan.title)
+        self._title.setText("Pipeline Settings")
         self._form.set_plan(session.plan)
         self._context.setText(self._context_text(session))
         self._scope.blockSignals(True)
@@ -153,7 +176,7 @@ class ActionSettingsDialog(QDialog):
 
         self._copy_source.blockSignals(True)
         self._copy_source.clear()
-        self._copy_source.addItem("Choose Source", "")
+        self._copy_source.addItem("Select...", "")
         for source in session.copy_sources:
             self._copy_source.addItem(source.label, source.source_id)
         selected = session.selected_copy_source_id or ""
@@ -164,17 +187,34 @@ class ActionSettingsDialog(QDialog):
         self._sync_session_controls(session)
 
     def _sync_session_controls(self, session: ObjectActionSettingsSession) -> None:
-        self._copy_group.setTitle(f"Copy Settings Into {session.current_scope_state.label}")
-        self._stage_group.setTitle(f"Stage Settings: {session.plan.title}")
-        self._scope_hint.setText(self._scope_hint_text(session))
+        self._copy_group.setTitle(f"Copy to {session.current_scope_state.label}")
+        self._stage_group.setTitle(session.plan.title)
+        scope_hint = self._scope_hint_text(session)
+        self._scope_group.setToolTip(scope_hint)
+        self._scope.setToolTip(scope_hint)
         self._copy_group.setVisible(bool(session.copy_sources))
         self._apply_copy.setEnabled(bool(session.copy_sources) and bool(self._copy_source.currentData()))
-        self._copy_hint.setText(self._copy_hint_text(session))
+        copy_hint = self._copy_hint_text(session)
+        self._copy_group.setToolTip(copy_hint)
+        self._copy_source.setToolTip(copy_hint)
+        self._apply_copy.setToolTip(copy_hint)
         self._require_button(QDialogButtonBox.StandardButton.Save).setEnabled(session.can_save)
         run_button = self._require_button(QDialogButtonBox.StandardButton.Apply)
         run_button.setEnabled(session.can_save_and_run)
         run_button.setToolTip(session.run_disabled_reason)
-        self._copy_preview.setText(self._copy_preview_text(session))
+        can_save_defaults = self._can_save_defaults(session)
+        self._save_defaults.setEnabled(can_save_defaults)
+        self._save_defaults.setToolTip(
+            self._save_defaults_hint_text(session, can_save=can_save_defaults)
+        )
+        can_reset_defaults = self._can_reset_defaults(session)
+        self._reset_defaults.setEnabled(can_reset_defaults)
+        self._reset_defaults.setToolTip(
+            self._reset_hint_text(session, can_reset=can_reset_defaults)
+        )
+        preview_text = self._copy_preview_text(session)
+        self._copy_preview.setVisible(bool(preview_text))
+        self._copy_preview.setText(preview_text)
 
     def _on_field_value_changed(self, key: str, value: object) -> None:
         self._session = self._dispatch_command(
@@ -194,8 +234,12 @@ class ActionSettingsDialog(QDialog):
         self._apply_copy.setEnabled(bool(self._copy_source.currentData()))
         source_id = self._copy_source.currentData()
         if not source_id:
+            self._copy_preview.setVisible(False)
             self._copy_preview.setText("")
-            self._copy_hint.setText(self._copy_hint_text(self._session))
+            hint_text = self._copy_hint_text(self._session)
+            self._copy_group.setToolTip(hint_text)
+            self._copy_source.setToolTip(hint_text)
+            self._apply_copy.setToolTip(hint_text)
             return
         self._render_session(self._dispatch_command(self._session.session_id, PreviewCopySource(source_id)))
 
@@ -208,6 +252,16 @@ class ActionSettingsDialog(QDialog):
     def _on_save(self) -> None:
         self._dispatch_command(self._session.session_id, SaveSession())
         self.accept()
+
+    def _on_save_defaults(self) -> None:
+        self._render_session(
+            self._dispatch_command(self._session.session_id, SaveSessionToDefaults())
+        )
+
+    def _on_reset_defaults(self) -> None:
+        self._render_session(
+            self._dispatch_command(self._session.session_id, ResetSessionDefaults())
+        )
 
     def _on_run(self) -> None:
         self._dispatch_command(self._session.session_id, SaveAndRunSession())
@@ -230,21 +284,21 @@ class ActionSettingsDialog(QDialog):
 
     @staticmethod
     def _dialog_title(session: ObjectActionSettingsSession) -> str:
-        return f"Pipeline Settings: {session.current_scope_state.label} · {session.plan.title}"
+        return f"Pipeline Settings · {session.plan.title}"
 
     @staticmethod
     def _context_text(session: ObjectActionSettingsSession) -> str:
         target_summary = session.plan.summary or session.plan.object_id or session.plan.object_type
         status = (
-            "Unsaved changes are ready to save."
+            "Unsaved changes"
             if session.has_unsaved_changes
-            else "Stored settings are up to date."
+            else "Up to date"
         )
-        return "\n".join(
+        return " · ".join(
             (
-                f"Stage: {session.plan.title}",
+                session.plan.title,
+                session.current_scope_state.label,
                 f"Target: {target_summary}",
-                f"Scope: {session.current_scope_state.label}",
                 status,
             )
         )
@@ -260,6 +314,39 @@ class ActionSettingsDialog(QDialog):
             "This Version is the live copy for the current version. "
             "Save here to rerun this stage on what you are editing now."
         )
+
+    @staticmethod
+    def _can_save_defaults(session: ObjectActionSettingsSession) -> bool:
+        return "song_default" in session.available_scopes and session.scope != "song_default"
+
+    @staticmethod
+    def _save_defaults_hint_text(
+        session: ObjectActionSettingsSession,
+        *,
+        can_save: bool,
+    ) -> str:
+        if "song_default" not in session.available_scopes:
+            return "Saving to defaults requires an active song."
+        if can_save:
+            return "Save current stage values into this song's defaults."
+        return "You are already editing song defaults."
+
+    @staticmethod
+    def _can_reset_defaults(session: ObjectActionSettingsSession) -> bool:
+        fields = (*session.plan.editable_fields, *session.plan.advanced_fields)
+        return any(field.value != field.default_value for field in fields)
+
+    @staticmethod
+    def _reset_hint_text(
+        session: ObjectActionSettingsSession,
+        *,
+        can_reset: bool,
+    ) -> str:
+        if not (*session.plan.editable_fields, *session.plan.advanced_fields):
+            return "This stage has no editable settings."
+        if can_reset:
+            return "Reset all stage settings in this scope to template defaults."
+        return "All settings in this scope already match template defaults."
 
     def _copy_hint_text(self, session: ObjectActionSettingsSession) -> str:
         if not session.copy_sources:
@@ -282,8 +369,11 @@ class ActionSettingsDialog(QDialog):
         count = len(preview.changes)
         noun = "setting" if count == 1 else "settings"
         lines = [f"{preview.summary} · {count} {noun} will change"]
+        preview_limit = 4
         lines.extend(
             f"{key.replace('_', ' ').title()}: {before} -> {after}"
-            for key, before, after in preview.changes
+            for key, before, after in preview.changes[:preview_limit]
         )
+        if count > preview_limit:
+            lines.append(f"...and {count - preview_limit} more settings.")
         return "\n".join(lines)

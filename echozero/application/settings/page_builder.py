@@ -22,6 +22,8 @@ from echozero.application.settings.models import (
     MA3OscPreferences,
     OscReceivePreferences,
     OscSendPreferences,
+    SongImportPreferences,
+    import_safe_pipeline_action_descriptors,
 )
 
 
@@ -60,7 +62,7 @@ def build_app_settings_page(
         key="app_preferences",
         title="Application Settings",
         summary=(
-            "Machine-local defaults for EchoZero audio output and OSC integration. "
+            "Machine-local defaults for EchoZero audio output, song import, and OSC integration. "
             "This surface edits the local config file only."
         ),
         sections=tuple(
@@ -77,6 +79,10 @@ def build_app_settings_page(
                 ),
                 _osc_send_section(
                     preferences.ma3_osc.send,
+                    include_hidden=include_hidden,
+                ),
+                _song_import_section(
+                    preferences.song_import,
                     include_hidden=include_hidden,
                 ),
             )
@@ -264,6 +270,47 @@ def _osc_send_section(
                 step=1,
             ),
         ),
+        include_hidden=include_hidden,
+    )
+
+
+def _song_import_section(
+    song_import: SongImportPreferences,
+    *,
+    include_hidden: bool,
+) -> SettingsSection:
+    configured_action_ids = set(song_import.pipeline_action_ids)
+    action_fields = tuple(
+        SettingsField(
+            key=f"import.pipeline_action.{descriptor.action_id}",
+            label=f"Run {descriptor.label}",
+            value=descriptor.action_id in configured_action_ids,
+            default_value=False,
+            widget=SettingsFieldWidget.TOGGLE,
+            description=(
+                f'Automatically run "{descriptor.label}" after each imported song/version.'
+            ),
+        )
+        for descriptor in import_safe_pipeline_action_descriptors()
+    )
+    return _section(
+        key="song_import",
+        title="Song Import",
+        description="Default behavior when adding songs or versions from audio files.",
+        fields=(
+            SettingsField(
+                key="import.strip_ltc_timecode",
+                label="Auto Strip LTC Channel",
+                value=song_import.strip_ltc_timecode,
+                default_value=True,
+                widget=SettingsFieldWidget.TOGGLE,
+                description=(
+                    "When enabled, stereo files with one LTC channel are auto-converted "
+                    "to the program-audio channel (L/R auto-detected)."
+                ),
+            ),
+        )
+        + action_fields,
         include_hidden=include_hidden,
     )
 

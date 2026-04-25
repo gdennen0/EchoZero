@@ -29,20 +29,30 @@ from PyQt6.QtWidgets import (
 from echozero.application.presentation.models import TimelinePresentation
 from echozero.application.shared.ranges import TimeRange
 from echozero.application.timeline.intents import (
+    CreateEvent,
     CreateRegion,
     DeleteRegion,
+    SelectRegion,
     TimelineIntent,
     UpdateRegion,
 )
 from echozero.application.settings import AppSettingsService
 from echozero.models.paths import ensure_installed_models_dir
-from echozero.ui.qt.song_browser_drop import SongBrowserAudioDrop, dropped_audio_paths
+from echozero.ui.qt.song_browser_drop import (
+    SongBrowserAudioDrop,
+    dropped_audio_paths,
+    has_droppable_audio,
+)
 from echozero.ui.qt.song_browser_panel import SongBrowserPanel
 from echozero.ui.qt.timeline.manual_pull import (
     ManualPullTimelineDialog,
     ManualPullTimelineSelectionResult,
 )
-from echozero.ui.qt.timeline.region_manager import RegionDraft, RegionManagerDialog
+from echozero.ui.qt.timeline.region_manager import (
+    RegionDraft,
+    RegionManagerDialog,
+    RegionPropertiesDialog,
+)
 from echozero.ui.qt.timeline.object_info_panel import ObjectInfoPanel
 from echozero.ui.qt.timeline.runtime_audio import (
     RuntimeAudioTimingSnapshot,
@@ -88,6 +98,7 @@ class TimelineWidget(TimelineWidgetRuntimeMixin, TimelineWidgetContractMixin, QW
         self._runtime_playhead_floor: float | None = None
         self._runtime_timing_snapshot: RuntimeAudioTimingSnapshot | None = None
         self._edit_mode = "select"
+        self._fix_action = "select"
         self._snap_enabled = True
         self._grid_mode = TimelineGridMode.AUTO.value
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
@@ -121,9 +132,13 @@ class TimelineWidget(TimelineWidgetRuntimeMixin, TimelineWidgetContractMixin, QW
 
         self._editor_bar = TimelineEditorModeBar(self)
         self._editor_bar.edit_mode_changed.connect(self._set_edit_mode)
+        self._editor_bar.fix_action_changed.connect(self._set_fix_action)
         self._editor_bar.snap_toggled.connect(self._set_snap_enabled)
         self._editor_bar.grid_mode_changed.connect(self._set_grid_mode)
         self._editor_bar.settings_requested.connect(self._open_preferences_dialog)
+        self._editor_bar.pipeline_settings_requested.connect(
+            self._open_pipeline_settings_browser
+        )
         self._editor_bar.regions_requested.connect(self._open_region_manager_dialog)
         left_layout.addWidget(self._editor_bar)
 
@@ -152,6 +167,7 @@ class TimelineWidget(TimelineWidgetRuntimeMixin, TimelineWidgetContractMixin, QW
         self._scroll.setWidgetResizable(True)
         self._scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self._canvas.layer_clicked.connect(self._select_layer)
+        self._canvas.layer_reorder_requested.connect(self._reorder_layer)
         self._canvas.select_adjacent_layer_requested.connect(self._select_adjacent_layer)
         self._canvas.active_clicked.connect(self._set_active_playback_target)
         self._canvas.pipeline_actions_clicked.connect(self._open_layer_pipeline_actions)
@@ -180,13 +196,18 @@ class TimelineWidget(TimelineWidgetRuntimeMixin, TimelineWidgetContractMixin, QW
         self._canvas.nudge_requested.connect(self._nudge_selected_events)
         self._canvas.duplicate_requested.connect(self._duplicate_selected_events)
         self._canvas.edit_mode_requested.connect(self._set_edit_mode)
+        self._canvas.fix_action_requested.connect(self._set_fix_action)
+        self._canvas.fix_promote_requested.connect(self._promote_fix_onset_event)
         self._canvas.snap_toggle_requested.connect(self._toggle_snap_enabled)
         self._canvas.grid_mode_cycle_requested.connect(self._cycle_grid_mode)
         self._canvas.preview_transfer_plan_requested.connect(self._preview_active_transfer_plan)
         self._canvas.apply_transfer_plan_requested.connect(self._apply_active_transfer_plan)
         self._canvas.cancel_transfer_plan_requested.connect(self._cancel_active_transfer_plan)
+        self._canvas.preview_selected_event_clip_requested.connect(self._preview_selected_event_clip)
         self._ruler.seek_requested.connect(self._seek)
         self._ruler.region_span_requested.connect(self._create_region_from_ruler_span)
+        self._ruler.region_selected.connect(self._select_region_from_ruler)
+        self._ruler.region_edit_requested.connect(self._edit_region_from_ruler)
         self._scroll.setWidget(self._canvas)
         self.setFocusProxy(self._canvas)
         left_layout.addWidget(self._scroll)
@@ -251,9 +272,27 @@ class TimelineWidget(TimelineWidgetRuntimeMixin, TimelineWidgetContractMixin, QW
         self._song_browser_panel.add_song_version_requested.connect(
             self._action_router.add_song_version
         )
+        self._song_browser_panel.move_song_up_requested.connect(
+            self._action_router.move_song_up
+        )
+        self._song_browser_panel.move_song_down_requested.connect(
+            self._action_router.move_song_down
+        )
         self._song_browser_panel.delete_song_requested.connect(self._action_router.delete_song)
         self._song_browser_panel.delete_song_version_requested.connect(
             self._action_router.delete_song_version
+        )
+        self._song_browser_panel.batch_move_songs_to_top_requested.connect(
+            self._action_router.move_songs_to_top
+        )
+        self._song_browser_panel.batch_move_songs_to_bottom_requested.connect(
+            self._action_router.move_songs_to_bottom
+        )
+        self._song_browser_panel.batch_delete_songs_requested.connect(
+            self._action_router.delete_songs
+        )
+        self._song_browser_panel.songs_reordered_requested.connect(
+            self._action_router.reorder_songs
         )
         self._song_browser_panel.audio_paths_dropped.connect(self._handle_song_browser_drop)
         self._song_browser_panel.collapsed_changed.connect(
@@ -276,11 +315,52 @@ class TimelineWidget(TimelineWidgetRuntimeMixin, TimelineWidgetContractMixin, QW
         if action is not None:
             action.trigger()
 
+    def _open_pipeline_settings_browser(self) -> None:
+        self._action_router.open_pipeline_settings_browser()
+
     def _open_region_manager_dialog(self) -> None:
         dialog = RegionManagerDialog(self.presentation, parent=self)
         if dialog.exec() != RegionManagerDialog.DialogCode.Accepted:
             return
         self._apply_region_manager_changes(dialog.region_drafts())
+
+    def _promote_fix_onset_event(
+        self,
+        layer_id: object,
+        take_id: object,
+        start_seconds: float,
+        end_seconds: float,
+        source_event_id: str,
+    ) -> None:
+        start = max(0.0, min(float(start_seconds), float(end_seconds)))
+        end = max(start + 0.01, max(float(start_seconds), float(end_seconds)))
+        label = self._default_fix_event_label(layer_id)
+        source_id = str(source_event_id).strip()
+        self._dispatch(
+            CreateEvent(
+                layer_id=layer_id,
+                take_id=take_id,
+                time_range=TimeRange(start=start, end=end),
+                label=label,
+                source_event_id=source_id or None,
+                payload_ref=source_id or None,
+            )
+        )
+
+    def _default_fix_event_label(self, layer_id: object) -> str:
+        layer = next(
+            (candidate for candidate in self.presentation.layers if candidate.layer_id == layer_id),
+            None,
+        )
+        if layer is None:
+            return "Event"
+        label = str(layer.title or "").strip()
+        lower = label.lower()
+        for suffix in (" events", " event", " layer", " lane"):
+            if lower.endswith(suffix):
+                label = label[: -len(suffix)].strip()
+                break
+        return label or "Event"
 
     def _create_region_from_ruler_span(self, start_seconds: float, end_seconds: float) -> None:
         start = max(0.0, min(float(start_seconds), float(end_seconds)))
@@ -290,6 +370,54 @@ class TimelineWidget(TimelineWidgetRuntimeMixin, TimelineWidgetContractMixin, QW
             CreateRegion(
                 time_range=TimeRange(start=start, end=end),
                 label=label,
+            )
+        )
+
+    def _select_region_from_ruler(self, region_id: object) -> None:
+        target_region_id = next(
+            (
+                region.region_id
+                for region in self.presentation.regions
+                if region.region_id == region_id
+            ),
+            None,
+        )
+        if target_region_id is None:
+            return
+        self._dispatch(SelectRegion(region_id=target_region_id))
+
+    def _edit_region_from_ruler(self, region_id: object) -> None:
+        target = next(
+            (
+                region
+                for region in self.presentation.regions
+                if region.region_id == region_id
+            ),
+            None,
+        )
+        if target is None:
+            return
+        dialog = RegionPropertiesDialog(
+            RegionDraft(
+                region_id=target.region_id,
+                start=float(target.start),
+                end=float(target.end),
+                label=target.label,
+                color=target.color,
+                kind=target.kind,
+            ),
+            parent=self,
+        )
+        if dialog.exec() != RegionPropertiesDialog.DialogCode.Accepted:
+            return
+        values = dialog.values()
+        self._dispatch(
+            UpdateRegion(
+                region_id=target.region_id,
+                time_range=TimeRange(start=float(values.start), end=float(values.end)),
+                label=values.label,
+                color=values.color,
+                kind=target.kind,
             )
         )
 
@@ -355,9 +483,14 @@ class TimelineWidget(TimelineWidgetRuntimeMixin, TimelineWidgetContractMixin, QW
             return
         self._add_menu_action(file_menu, actions, "new_project")
         self._add_menu_action(file_menu, actions, "open_project")
+        self._add_recent_project_menu(file_menu, actions)
         file_menu.addSeparator()
         self._add_menu_action(file_menu, actions, "save_project")
         self._add_menu_action(file_menu, actions, "save_project_as")
+        self._add_menu_action(file_menu, actions, "enable_phone_review_service")
+        self._add_menu_action(file_menu, actions, "disable_phone_review_service")
+        self._add_menu_action(file_menu, actions, "open_project_review")
+        self._add_menu_action(file_menu, actions, "open_project_review_all")
 
         edit_menu = self._launcher_menu_bar.addMenu("&Edit")
         if edit_menu is None:
@@ -376,6 +509,23 @@ class TimelineWidget(TimelineWidgetRuntimeMixin, TimelineWidgetContractMixin, QW
         action = actions.get(action_id)
         if action is not None:
             menu.addAction(action)
+
+    @staticmethod
+    def _add_recent_project_menu(menu: QMenu, actions: Mapping[str, QAction]) -> None:
+        recent_action_ids = [
+            action_id
+            for action_id in actions
+            if action_id.startswith("open_recent_project::")
+        ]
+        if not recent_action_ids:
+            return
+        recent_menu = menu.addMenu("Open &Recent Project")
+        if recent_menu is None:
+            return
+        for action_id in recent_action_ids:
+            action = actions.get(action_id)
+            if action is not None:
+                recent_menu.addAction(action)
 
     def dragEnterEvent(self, event: QDragEnterEvent | None) -> None:
         if event is not None and self._accept_song_drag(event):
@@ -417,14 +567,14 @@ class TimelineWidget(TimelineWidgetRuntimeMixin, TimelineWidgetContractMixin, QW
         self,
         event: QDragEnterEvent | QDragMoveEvent,
     ) -> bool:
-        if self._dropped_audio_paths(event):
+        if has_droppable_audio(event):
             event.acceptProposedAction()
             return True
         event.ignore()
         return False
 
     def _handle_song_drop_event(self, event: QDropEvent) -> bool:
-        audio_paths = self._dropped_audio_paths(event)
+        audio_paths = self._dropped_audio_paths(event, include_directory_audio=True)
         if not audio_paths:
             event.ignore()
             return False
@@ -442,15 +592,8 @@ class TimelineWidget(TimelineWidgetRuntimeMixin, TimelineWidgetContractMixin, QW
     ) -> bool:
         if not audio_paths:
             return False
-        if len(audio_paths) > 1:
-            QMessageBox.warning(
-                self,
-                "Add Song",
-                "Drop one audio file at a time.",
-            )
-            return True
-        return self._action_router.import_dropped_audio_path(
-            audio_paths[0],
+        return self._action_router.import_dropped_audio_paths(
+            audio_paths,
             force_new_song=force_new_song,
             target_song_id=target_song_id,
             target_song_title=target_song_title,
@@ -496,8 +639,13 @@ class TimelineWidget(TimelineWidgetRuntimeMixin, TimelineWidgetContractMixin, QW
     @staticmethod
     def _dropped_audio_paths(
         event: QDragEnterEvent | QDragMoveEvent | QDropEvent,
+        *,
+        include_directory_audio: bool = False,
     ) -> tuple[str, ...]:
-        return dropped_audio_paths(event)
+        return dropped_audio_paths(
+            event,
+            include_directory_audio=include_directory_audio,
+        )
 
 
 __all__ = [

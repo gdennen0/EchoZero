@@ -154,6 +154,7 @@ def test_app_flow_harness_exposes_launcher_menus():
         ] == [
             "&New Project",
             "&Open Project",
+            "Open &Recent Project",
             "&Save Project",
             "Save Project &As...",
         ]

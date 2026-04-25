@@ -18,6 +18,18 @@ The runtime path is real product code, but several support modules here are inte
 Canonical app path:
 `run_echozero.py` -> `echozero/ui/qt/app_shell.py` -> this package
 
+## Song Import + Setlist Reorder
+
+The timeline Qt surface also owns the operator-facing import and setlist reorder flows:
+
+- folder/file drag-drop routing and multi-file import prompts
+- import-mode selection (append, before/after target, target-song versions)
+- import pipeline-action prompt and dispatch wiring
+- setlist move up/down, drag reorder, and batch move actions
+
+Implementation and persistence/runtime details are documented in
+`docs/SONG-IMPORT-BATCH-LTC-WORKFLOW.md`.
+
 ## Support-Only Surfaces
 
 These are useful, but they are not canonical runtime truth:

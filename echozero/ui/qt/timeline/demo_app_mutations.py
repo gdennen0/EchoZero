@@ -21,6 +21,7 @@ from echozero.application.presentation.models import (
     TakeLanePresentation,
     TimelinePresentation,
 )
+from echozero.application.shared.layer_kinds import is_event_like_layer_kind
 from echozero.application.shared.ids import EventId
 from echozero.application.sync.service import SyncService
 
@@ -223,7 +224,7 @@ def open_pull_workspace(
     target_options = [
         ManualPullTargetOptionPresentation(layer_id=layer.layer_id, name=layer.title)
         for layer in presentation.layers
-        if layer.kind.name == "EVENT"
+        if is_event_like_layer_kind(layer.kind)
     ]
     return replace(
         presentation,

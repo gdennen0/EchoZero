@@ -28,6 +28,7 @@ from echozero.application.timeline.intents import (
     DuplicateSelectedEvents,
     MoveEvent,
     MoveSelectedEvents,
+    ReorderLayer,
     NudgeSelectedEvents,
     SelectTake,
     SetGain,
@@ -103,6 +104,7 @@ def is_undoable_intent(intent: object) -> bool:
             DuplicateSelectedEvents,
             MoveEvent,
             MoveSelectedEvents,
+            ReorderLayer,
             NudgeSelectedEvents,
             SetGain,
             TrimEvent,
@@ -132,6 +134,7 @@ def is_storage_backed_undoable_intent(intent: object) -> bool:
             DuplicateSelectedEvents,
             MoveEvent,
             MoveSelectedEvents,
+            ReorderLayer,
             NudgeSelectedEvents,
             TrimEvent,
             UpdateRegion,
@@ -164,6 +167,8 @@ def history_label_for_intent(intent: object) -> str | None:
         return "Move Event"
     if isinstance(intent, MoveSelectedEvents):
         return "Move Events"
+    if isinstance(intent, ReorderLayer):
+        return "Reorder Layer"
     if isinstance(intent, NudgeSelectedEvents):
         return "Nudge Events"
     if isinstance(intent, SetGain):

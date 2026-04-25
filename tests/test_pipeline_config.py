@@ -561,19 +561,35 @@ class TestMapsToSetting:
 
         updated = config.with_knob_values(
             {
-                "onset_threshold": 0.05,
-                "onset_method": "complex",
+                "kick_filter_enabled": False,
+                "kick_filter_freq": 140.0,
+                "snare_onset_method": "complex",
                 "classify_device": "cpu",
             },
             knob_metadata=template.knobs,
         )
 
         pipeline = updated.to_pipeline()
-        detect = pipeline.graph.blocks["detect_onsets"]
+        kick_filter = pipeline.graph.blocks["kick_filter"]
+        snare_filter = pipeline.graph.blocks["snare_filter"]
+        kick_onsets = pipeline.graph.blocks["kick_onsets"]
+        snare_onsets = pipeline.graph.blocks["snare_onsets"]
         classify = pipeline.graph.blocks["classify_drums"]
-        assert detect.settings.get("threshold") == 0.05
-        assert detect.settings.get("method") == "complex"
+        assert kick_filter.settings.get("enabled") is False
+        assert kick_filter.settings.get("freq") == 140.0
+        assert snare_filter.settings.get("freq") == 180.0
+        assert kick_onsets.settings.get("method") == "default"
+        assert snare_onsets.settings.get("method") == "complex"
         assert classify.settings.get("device") == "cpu"
+        classify_inputs = {
+            connection.target_input_name
+            for connection in pipeline.graph.connections
+            if connection.target_block_id == "classify_drums"
+        }
+        assert "kick_events_in" in classify_inputs
+        assert "snare_events_in" in classify_inputs
+        assert "kick_audio_in" not in classify_inputs
+        assert "snare_audio_in" not in classify_inputs
 
     def test_extract_song_drum_events_knobs_update_separator_detect_and_classify_blocks(
         self, session, song_version
@@ -587,7 +603,9 @@ class TestMapsToSetting:
             {
                 "model": "mdx_extra",
                 "device": "cpu",
-                "onset_threshold": 0.05,
+                "kick_onset_threshold": 0.05,
+                "snare_filter_enabled": False,
+                "snare_filter_freq": 240.0,
                 "positive_threshold": 0.65,
             },
             knob_metadata=template.knobs,
@@ -595,13 +613,26 @@ class TestMapsToSetting:
 
         pipeline = updated.to_pipeline()
         separate = pipeline.graph.blocks["separate_drums"]
-        detect = pipeline.graph.blocks["detect_onsets"]
+        kick_onsets = pipeline.graph.blocks["kick_onsets"]
+        snare_filter = pipeline.graph.blocks["snare_filter"]
         classify = pipeline.graph.blocks["classify_drums"]
         assert separate.settings.get("model") == "mdx_extra"
         assert separate.settings.get("device") == "cpu"
-        assert detect.settings.get("threshold") == 0.05
+        assert kick_onsets.settings.get("threshold") == 0.05
+        assert snare_filter.settings.get("enabled") is False
+        assert snare_filter.settings.get("freq") == 240.0
         assert classify.settings.get("device") == "cpu"
-        assert classify.settings.get("positive_threshold") == 0.65
+        assert classify.settings.get("kick_positive_threshold") == 0.5
+        assert classify.settings.get("snare_positive_threshold") == 0.65
+        classify_inputs = {
+            connection.target_input_name
+            for connection in pipeline.graph.connections
+            if connection.target_block_id == "classify_drums"
+        }
+        assert "kick_events_in" in classify_inputs
+        assert "snare_events_in" in classify_inputs
+        assert "kick_audio_in" not in classify_inputs
+        assert "snare_audio_in" not in classify_inputs
 
 
 class TestConfigToFromPipeline:

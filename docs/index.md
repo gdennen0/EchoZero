@@ -18,6 +18,7 @@ Audio analysis workstation for live lighting design.
 - [Testing Scenario Schema](TESTING-SCENARIO-SCHEMA.md) — Preferred scenario file shape built on canonical primitives
 - [Testing Migration Map](TESTING-MIGRATION-MAP.md) — Explicit migration path from current test/demo surfaces
 - [Object Pipeline Action Architecture](OBJECT-PIPELINE-ACTION-ARCHITECTURE.md) — Refactor spec for object-owned pipeline workflows and generic action execution
+- [Song Import Batch + LTC Workflow](SONG-IMPORT-BATCH-LTC-WORKFLOW.md) — Implemented behavior map for folder import, import actions, and LTC stripping
 - [Release Checklist](RELEASE-CHECKLIST.md) — Release signoff checklist
 - [Unified Plan](UNIFIED-IMPLEMENTATION-PLAN.md) — Canonical implementation direction
 - [Architecture](ARCHITECTURE.md) — System design and structure  

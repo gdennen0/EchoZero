@@ -24,6 +24,7 @@ FORBIDDEN_LEGACY_FILES = (
     "main.py",
     "main_qt.py",
 )
+TRACKED_EZ_ALLOWLIST: tuple[str, ...] = ()
 REQUIRED_FILES = (
     "docs/STATUS.md",
     "docs/LLM-CLEANUP-BOARD.md",
@@ -230,6 +231,25 @@ def tracked_path_failures(tracked: Iterable[str]) -> list[str]:
     return failures
 
 
+def tracked_ez_failures(
+    tracked: Iterable[str],
+    *,
+    allowlist: Iterable[str] = TRACKED_EZ_ALLOWLIST,
+) -> list[str]:
+    allowed_paths = {path.replace("\\", "/") for path in allowlist}
+    offenders = [
+        path.replace("\\", "/")
+        for path in tracked
+        if path.replace("\\", "/").endswith(".ez") and path.replace("\\", "/") not in allowed_paths
+    ]
+    if not offenders:
+        return []
+    return [
+        "tracked .ez archives must be explicitly allowlisted:",
+        *(f"  - {item}" for item in offenders),
+    ]
+
+
 def required_file_failures(repo_root: Path, *, required_files: Iterable[str] = REQUIRED_FILES) -> list[str]:
     failures: list[str] = []
     for relative_path in required_files:
@@ -301,6 +321,7 @@ def collect_hygiene_failures(repo_root: Path, *, tracked: list[str] | None = Non
     tracked_files = tracked if tracked is not None else _git_ls_files(repo_root)
     failures: list[str] = []
     failures.extend(tracked_path_failures(tracked_files))
+    failures.extend(tracked_ez_failures(tracked_files))
     failures.extend(required_file_failures(repo_root))
     failures.extend(module_header_failures(repo_root))
     failures.extend(module_size_failures(repo_root))

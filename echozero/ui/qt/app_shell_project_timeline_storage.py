@@ -51,15 +51,31 @@ def ensure_registered_waveform(key: str, audio_path: Path) -> str | None:
 def audio_presentation_fields(project_storage: ProjectStorage, take) -> AudioPresentationFields:
     """Build audio presentation fields for one take when it carries audio data."""
 
-    if not isinstance(take.data, AudioData):
+    audio_file_path = _take_source_audio_file_path(take)
+    if audio_file_path is None:
         return AudioPresentationFields()
-    audio_path = resolve_project_audio_path(project_storage, take.data.file_path)
+    audio_path = resolve_project_audio_path(project_storage, audio_file_path)
     waveform_key = ensure_registered_waveform(f"take-{take.id}", audio_path)
+    source_audio_path = str(audio_path)
     return AudioPresentationFields(
         waveform_key=waveform_key,
-        source_audio_path=str(audio_path),
-        playback_source_ref=str(audio_path),
+        source_audio_path=source_audio_path,
+        playback_source_ref=source_audio_path,
     )
+
+
+def _take_source_audio_file_path(take) -> str | None:
+    if isinstance(take.data, AudioData):
+        return str(take.data.file_path)
+    source = getattr(take, "source", None)
+    if source is None:
+        return None
+    settings_snapshot = getattr(source, "settings_snapshot", {}) or {}
+    source_audio_path = settings_snapshot.get("source_audio_path")
+    if source_audio_path is None:
+        return None
+    candidate = str(source_audio_path).strip()
+    return candidate or None
 
 
 def build_storage_layer(
@@ -133,11 +149,26 @@ def build_storage_layer(
         presentation_hints=LayerPresentationHints(
             visible=bool(layer_record.visible),
             locked=bool(layer_record.locked),
-            expanded=len(timeline_takes) > 1,
+            expanded=layer_take_lanes_expanded(layer_record),
             color=layer_record.color,
         ),
     )
     return layer, main_audio, take_audio
+
+
+def layer_take_lanes_expanded(layer_record) -> bool:
+    """Resolve persisted take-lane expansion state, defaulting to collapsed."""
+
+    state_flags = getattr(layer_record, "state_flags", {}) or {}
+    if "take_lanes_expanded" in state_flags:
+        return bool(state_flags.get("take_lanes_expanded"))
+    if "expanded" in state_flags:
+        return bool(state_flags.get("expanded"))
+    if "take_selector_expanded" in state_flags:
+        return bool(state_flags.get("take_selector_expanded"))
+    if "collapsed" in state_flags:
+        return not bool(state_flags.get("collapsed"))
+    return False
 
 
 def take_kind(take) -> LayerKind:
@@ -190,7 +221,10 @@ def events_from_take(take) -> list[Event]:
             cue_number=event_cue_number(event),
             source_event_id=event.source_event_id or str(event.id),
             parent_event_id=event.parent_event_id,
+            payload_ref=event_payload_ref(event),
             label=event_label(event),
+            color=event_color(event),
+            muted=event_muted(event),
         )
         for layer_id, event_index, event in projected_events
     ]
@@ -238,6 +272,32 @@ def event_cue_number(event: DomainEvent) -> int:
     except (TypeError, ValueError):
         return 1
     return cue_number if cue_number >= 1 else 1
+
+
+def event_payload_ref(event: DomainEvent) -> str | None:
+    """Resolve a stable payload reference when one is available in metadata."""
+
+    raw_value = event.metadata.get("payload_ref")
+    if raw_value is None:
+        return None
+    payload_ref = str(raw_value).strip()
+    return payload_ref or None
+
+
+def event_color(event: DomainEvent) -> str | None:
+    """Resolve persisted event color metadata, if present."""
+
+    raw_value = event.metadata.get("color")
+    if raw_value is None:
+        return None
+    color = str(raw_value).strip()
+    return color or None
+
+
+def event_muted(event: DomainEvent) -> bool:
+    """Resolve persisted event mute metadata."""
+
+    return bool(event.metadata.get("muted", False))
 
 
 def source_ref(source) -> str | None:

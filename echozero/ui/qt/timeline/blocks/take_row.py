@@ -36,8 +36,14 @@ class TakeRowBlock:
         options_open: bool,
         dimmed: bool = False,
     ) -> TakeRowHitTargets:
-        painter.fillRect(layout.row_rect, QColor(self.style.dimmed_row_fill_hex if dimmed else self.style.row_fill_hex))
-        painter.fillRect(layout.header_rect, QColor(self.style.dimmed_header_fill_hex if dimmed else self.style.header_fill_hex))
+        row_fill_hex = self.style.dimmed_row_fill_hex if dimmed else (
+            self.style.selected_row_fill_hex if take.is_selected else self.style.row_fill_hex
+        )
+        header_fill_hex = self.style.dimmed_header_fill_hex if dimmed else (
+            self.style.selected_header_fill_hex if take.is_selected else self.style.header_fill_hex
+        )
+        painter.fillRect(layout.row_rect, QColor(row_fill_hex))
+        painter.fillRect(layout.header_rect, QColor(header_fill_hex))
         painter.fillRect(0, int(layout.row_rect.bottom()), int(layout.row_rect.width()), 1, QColor(self.style.divider_hex))
 
         painter.setPen(QColor(self.style.dimmed_label_hex if dimmed else self.style.label_hex))

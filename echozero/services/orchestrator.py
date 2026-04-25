@@ -26,8 +26,12 @@ from echozero.pipelines.pipeline import Pipeline
 from echozero.pipelines.registry import PipelineRegistry
 from echozero.progress import RuntimeBus
 from echozero.result import Err, Result, err, is_err, ok, unwrap
-from echozero.services.provenance import initialize_generated_layer_state
-from echozero.takes import Take, TakeSource
+from echozero.services.provenance import (
+    build_analysis_build,
+    build_model_artifact,
+    initialize_generated_layer_state,
+)
+from echozero.takes import Take, TakeAnalysisBuild, TakeArtifact, TakeSource
 
 _DEFAULT_TAKE_LABEL_PATTERN = re.compile(r"^take\s+(\d+)$", re.IGNORECASE)
 _LAYER_NAME_NORMALIZATION_PATTERN = re.compile(r"\s+")
@@ -50,6 +54,9 @@ class AnalysisResult:
     layer_ids: list[str]
     take_ids: list[str]
     duration_ms: float
+    pipeline_config_id: str | None = None
+    analysis_build_id: str | None = None
+    execution_id: str | None = None
 
 
 def _assign_event_instance_id(event: DomainEvent) -> DomainEvent:
@@ -90,6 +97,8 @@ def _next_default_take_label(existing_takes: list[Take]) -> str:
 
 
 class Orchestrator:
+    """Run persisted pipeline configurations and map outputs back into project storage."""
+
     PersistenceHandler = Callable[..., tuple[list[str], list[str]]]
     DEFAULT_MAX_TAKES_PER_LAYER = 20
 
@@ -229,13 +238,18 @@ class Orchestrator:
             on_progress("Persisting results", 0.8)
 
         with session.locked():
+            generated_at = datetime.now(timezone.utc)
+            analysis_build_id = self._analysis_build_id(config.id, plan.execution_id)
             layer_ids, take_ids = self._persist_outputs(
                 pipeline=pipeline,
                 raw_outputs=raw_outputs,
                 session=session,
                 song_version_id=config.song_version_id,
                 pipeline_id=config.template_id,
+                pipeline_config_id=config.id,
                 execution_id=plan.execution_id,
+                analysis_build_id=analysis_build_id,
+                generated_at=generated_at,
             )
 
             session.commit()
@@ -252,6 +266,9 @@ class Orchestrator:
                 layer_ids=layer_ids,
                 take_ids=take_ids,
                 duration_ms=duration_ms,
+                pipeline_config_id=config.id,
+                analysis_build_id=analysis_build_id,
+                execution_id=plan.execution_id,
             )
         )
 
@@ -287,15 +304,30 @@ class Orchestrator:
         session: ProjectStorage,
         song_version_id: str,
         pipeline_id: str,
+        pipeline_config_id: str,
         execution_id: str,
+        analysis_build_id: str,
+        generated_at: datetime,
     ) -> tuple[list[str], list[str]]:
         all_layer_ids: list[str] = []
         all_take_ids: list[str] = []
 
         custom_mappings = {m.output_name: m for m in self._output_mappings.get(pipeline_id, [])}
+        config = session.pipeline_configs.get(pipeline_config_id)
+        knob_values = dict(config.knob_values) if config is not None else {}
+        selected_extract_song_stems = self._selected_extract_song_drum_stem_outputs(
+            pipeline_id=pipeline_id,
+            knob_values=knob_values,
+        )
 
         for pipeline_output in pipeline.outputs:
             name = pipeline_output.name
+            if (
+                selected_extract_song_stems is not None
+                and name in self._extract_song_drum_stem_output_names()
+                and name not in selected_extract_song_stems
+            ):
+                continue
             port_ref = pipeline_output.port_ref
             data = self._resolve_output(port_ref, raw_outputs)
             if data is None:
@@ -321,6 +353,11 @@ class Orchestrator:
             extra_params = mapping.params if mapping else {}
             block = pipeline.graph.blocks.get(port_ref.block_id)
             block_type = block.block_type if block else ""
+            source_audio_path = self._resolve_connected_audio_input_path(
+                pipeline=pipeline,
+                raw_outputs=raw_outputs,
+                block_id=port_ref.block_id,
+            )
 
             handler = self._persistence_handlers.get(target)
             if handler is None:
@@ -332,17 +369,44 @@ class Orchestrator:
                 session=session,
                 song_version_id=song_version_id,
                 pipeline_id=pipeline_id,
+                pipeline_config_id=pipeline_config_id,
                 execution_id=execution_id,
+                analysis_build_id=analysis_build_id,
+                generated_at=generated_at,
                 block_id=port_ref.block_id,
                 block_type=block_type,
                 label=label,
                 output_name=name,
+                source_audio_path=source_audio_path,
                 **extra_params,
             )
             all_layer_ids.extend(layer_ids)
             all_take_ids.extend(take_ids)
 
         return all_layer_ids, all_take_ids
+
+    @staticmethod
+    def _extract_song_drum_stem_output_names() -> tuple[str, ...]:
+        return ("drums", "bass", "vocals", "other")
+
+    def _selected_extract_song_drum_stem_outputs(
+        self,
+        *,
+        pipeline_id: str,
+        knob_values: dict[str, Any],
+    ) -> set[str] | None:
+        if pipeline_id != "extract_song_drum_events":
+            return None
+        selected: set[str] = set()
+        if bool(knob_values.get("include_drums_stem_layer", False)):
+            selected.add("drums")
+        if bool(knob_values.get("include_bass_stem_layer", False)):
+            selected.add("bass")
+        if bool(knob_values.get("include_vocals_stem_layer", False)):
+            selected.add("vocals")
+        if bool(knob_values.get("include_other_stem_layer", False)):
+            selected.add("other")
+        return selected
 
     @staticmethod
     def _resolve_audio_path(session: ProjectStorage, audio_file: str) -> str:
@@ -359,6 +423,29 @@ class Orchestrator:
         if isinstance(block_output, dict):
             return block_output.get(port_ref.port_name)
         return block_output
+
+    @staticmethod
+    def _resolve_connected_audio_input_path(
+        *,
+        pipeline: Pipeline,
+        raw_outputs: dict[str, Any],
+        block_id: str,
+    ) -> str | None:
+        for connection in pipeline.graph.connections:
+            if connection.target_block_id != block_id or connection.target_input_name != "audio_in":
+                continue
+            upstream_output = raw_outputs.get(connection.source_block_id)
+            if isinstance(upstream_output, dict):
+                upstream_output = upstream_output.get(connection.source_output_name)
+            if isinstance(upstream_output, AudioData):
+                candidate = str(upstream_output.file_path).strip()
+                if candidate:
+                    return candidate
+        return None
+
+    @staticmethod
+    def _analysis_build_id(pipeline_config_id: str, execution_id: str) -> str:
+        return f"{pipeline_config_id}:{execution_id}"
 
     @staticmethod
     def _resolve_target(data: Any, mapping: OutputMapping | None) -> str | None:
@@ -409,11 +496,15 @@ class Orchestrator:
         layer_name: str,
         order: int,
         pipeline_id: str,
+        pipeline_config_id: str,
         block_id: str,
+        block_type: str,
         output_name: str,
         data_type: str,
         execution_id: str,
+        analysis_build_id: str,
         now,
+        source_audio_path: str | None = None,
     ) -> LayerRecord:
         base = LayerRecord(
             id=layer_record_id,
@@ -425,22 +516,37 @@ class Orchestrator:
             visible=True,
             locked=False,
             parent_layer_id=None,
-            source_pipeline={
-                "pipeline_id": pipeline_id,
-                "block_id": block_id,
-                "output_name": output_name,
-                "data_type": data_type,
-            },
+            source_pipeline=None,
             created_at=now,
         )
         return initialize_generated_layer_state(
             base,
             pipeline_id=pipeline_id,
+            pipeline_config_id=pipeline_config_id,
             output_name=output_name,
             block_id=block_id,
+            block_type=block_type,
             data_type=data_type,
+            analysis_build_id=analysis_build_id,
             source_song_version_id=song_version_id,
             source_run_id=execution_id,
+            generated_at=now,
+            source_audio_path=source_audio_path,
+        )
+
+    @staticmethod
+    def _take_source_artifacts(source_audio_path: str | None) -> tuple[TakeArtifact, ...]:
+        if source_audio_path is None or not str(source_audio_path).strip():
+            return ()
+        return (
+            TakeArtifact.from_dict(
+                build_model_artifact(
+                    role="source_audio",
+                    kind="audio_file",
+                    locator=str(source_audio_path).strip(),
+                    content_type="audio/*",
+                )
+            ),
         )
 
     def _handle_persist_as_layer_take(
@@ -449,16 +555,20 @@ class Orchestrator:
         session: ProjectStorage,
         song_version_id: str,
         pipeline_id: str,
+        pipeline_config_id: str,
         execution_id: str,
+        analysis_build_id: str,
+        generated_at: datetime,
         block_id: str,
         block_type: str,
         label: str = "",
         output_name: str = "",
+        source_audio_path: str | None = None,
         **_,
     ) -> tuple[list[str], list[str]]:
         layer_ids: list[str] = []
         take_ids: list[str] = []
-        now = datetime.now(timezone.utc)
+        now = generated_at
 
         for domain_layer in event_data.layers:
             layer_name = (
@@ -500,11 +610,15 @@ class Orchestrator:
                     layer_name=layer_name,
                     order=order,
                     pipeline_id=pipeline_id,
+                    pipeline_config_id=pipeline_config_id,
                     block_id=block_id,
+                    block_type=block_type,
                     output_name=output_name,
                     data_type="event",
                     execution_id=execution_id,
+                    analysis_build_id=analysis_build_id,
                     now=now,
+                    source_audio_path=source_audio_path,
                 )
                 session.layers.create(layer_record)
                 is_main = True
@@ -516,6 +630,30 @@ class Orchestrator:
             take_label = label or _next_default_take_label(
                 session.takes.list_by_layer(layer_record_id)
             )
+            settings_snapshot: dict[str, Any] = {
+                "pipeline_id": pipeline_id,
+                "pipeline_config_id": pipeline_config_id,
+                "output_name": output_name,
+                "data_type": "event",
+                "analysis_build_id": analysis_build_id,
+                "execution_id": execution_id,
+                "generated_at": generated_at.isoformat(),
+            }
+            if source_audio_path is not None and str(source_audio_path).strip():
+                settings_snapshot["source_audio_path"] = str(source_audio_path)
+            analysis_build = TakeAnalysisBuild.from_dict(
+                build_analysis_build(
+                    pipeline_id=pipeline_id,
+                    pipeline_config_id=pipeline_config_id,
+                    block_id=block_id,
+                    block_type=block_type,
+                    output_name=output_name,
+                    data_type="event",
+                    execution_id=execution_id,
+                    build_id=analysis_build_id,
+                    generated_at=generated_at,
+                )
+            )
 
             take = Take.create(
                 data=layer_event_data,
@@ -524,8 +662,10 @@ class Orchestrator:
                 source=TakeSource(
                     block_id=block_id,
                     block_type=block_type,
-                    settings_snapshot={"pipeline_id": pipeline_id, "output_name": output_name},
+                    settings_snapshot=settings_snapshot,
                     run_id=execution_id,
+                    analysis_build=analysis_build,
+                    artifacts=self._take_source_artifacts(source_audio_path),
                 ),
                 is_main=is_main,
             )
@@ -541,16 +681,20 @@ class Orchestrator:
         session: ProjectStorage,
         song_version_id: str,
         pipeline_id: str,
+        pipeline_config_id: str,
         execution_id: str,
+        analysis_build_id: str,
+        generated_at: datetime,
         block_id: str,
         block_type: str,
         label: str = "",
         output_name: str = "",
+        source_audio_path: str | None = None,
         **_,
     ) -> tuple[list[str], list[str]]:
         layer_ids: list[str] = []
         take_ids: list[str] = []
-        now = datetime.now(timezone.utc)
+        now = generated_at
 
         layer_name = output_name if output_name else label or "Audio"
         existing_layers = session.layers.list_by_version(song_version_id)
@@ -585,17 +729,45 @@ class Orchestrator:
                 layer_name=layer_name,
                 order=order,
                 pipeline_id=pipeline_id,
+                pipeline_config_id=pipeline_config_id,
                 block_id=block_id,
+                block_type=block_type,
                 output_name=output_name,
                 data_type="audio",
                 execution_id=execution_id,
+                analysis_build_id=analysis_build_id,
                 now=now,
+                source_audio_path=source_audio_path,
             )
             session.layers.create(layer_record)
             is_main = True
 
         layer_ids.append(layer_record_id)
         take_label = label or _next_default_take_label(session.takes.list_by_layer(layer_record_id))
+        settings_snapshot: dict[str, Any] = {
+            "pipeline_id": pipeline_id,
+            "pipeline_config_id": pipeline_config_id,
+            "output_name": output_name,
+            "data_type": "audio",
+            "analysis_build_id": analysis_build_id,
+            "execution_id": execution_id,
+            "generated_at": generated_at.isoformat(),
+        }
+        if source_audio_path is not None and str(source_audio_path).strip():
+            settings_snapshot["source_audio_path"] = str(source_audio_path)
+        analysis_build = TakeAnalysisBuild.from_dict(
+            build_analysis_build(
+                pipeline_id=pipeline_id,
+                pipeline_config_id=pipeline_config_id,
+                block_id=block_id,
+                block_type=block_type,
+                output_name=output_name,
+                data_type="audio",
+                execution_id=execution_id,
+                build_id=analysis_build_id,
+                generated_at=generated_at,
+            )
+        )
         take = Take.create(
             data=audio_data,
             label=take_label,
@@ -603,8 +775,10 @@ class Orchestrator:
             source=TakeSource(
                 block_id=block_id,
                 block_type=block_type,
-                settings_snapshot={"pipeline_id": pipeline_id, "output_name": output_name},
+                settings_snapshot=settings_snapshot,
                 run_id=execution_id,
+                analysis_build=analysis_build,
+                artifacts=self._take_source_artifacts(source_audio_path),
             ),
             is_main=is_main,
         )
@@ -631,6 +805,3 @@ class Orchestrator:
                     layer_record_id,
                     self._max_takes_per_layer,
                 )
-
-
-AnalysisService = Orchestrator

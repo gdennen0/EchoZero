@@ -220,6 +220,52 @@ class TestSessionOpenDb:
         finally:
             session2.close()
 
+    def test_open_db_repairs_missing_timeline_regions_table(self, tmp_root):
+        wd = tmp_root / "legacy_missing_regions"
+        wd.mkdir(parents=True)
+        conn = sqlite3.connect(str(wd / "project.db"))
+        now = _now().isoformat()
+        conn.executescript(
+            """
+            CREATE TABLE IF NOT EXISTS _meta (
+                key TEXT PRIMARY KEY,
+                value TEXT
+            );
+            CREATE TABLE IF NOT EXISTS projects (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                sample_rate INTEGER NOT NULL DEFAULT 44100,
+                bpm REAL,
+                bpm_confidence REAL,
+                timecode_fps REAL,
+                graph_json TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+            """
+        )
+        conn.execute(
+            "INSERT INTO projects "
+            "(id, name, sample_rate, bpm, bpm_confidence, timecode_fps, graph_json, created_at, updated_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            ("project_legacy", "Legacy", 44100, None, None, None, None, now, now),
+        )
+        conn.commit()
+        conn.close()
+
+        session = ProjectStorage.open_db(wd)
+        try:
+            assert session.timeline_regions.list_by_version("version_missing") == []
+            tables = {
+                row[0]
+                for row in session.db.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table'"
+                ).fetchall()
+            }
+            assert "timeline_regions" in tables
+        finally:
+            session.close()
+
 
 # ---------------------------------------------------------------------------
 # Transaction control

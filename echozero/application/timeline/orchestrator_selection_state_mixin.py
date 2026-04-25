@@ -283,10 +283,14 @@ class TimelineOrchestratorSelectionStateMixin:
             for event_ref in self._selected_event_refs(timeline)
             if event_ref.layer_id == layer.id and event_ref.take_id == take.id
         ]
+        playhead_seconds = None
+        if not selected_refs:
+            playhead_seconds = float(self.transport_service.get_state().playhead)
         target_event = self._adjacent_event_for_selection(
             self._ordered_events(take),
             selected_refs,
             direction=step,
+            playhead_seconds=playhead_seconds,
         )
         if target_event is None:
             return
@@ -579,6 +583,7 @@ class TimelineOrchestratorSelectionStateMixin:
         selected_refs: list[EventRef],
         *,
         direction: int,
+        playhead_seconds: float | None = None,
     ) -> Event | None:
         if not ordered_events:
             return None
@@ -589,19 +594,53 @@ class TimelineOrchestratorSelectionStateMixin:
 
         selected_ids = {event_ref.event_id for event_ref in selected_refs}
         if not selected_ids:
-            return ordered_events[0] if step > 0 else ordered_events[-1]
+            return TimelineOrchestratorSelectionStateMixin._adjacent_event_for_playhead(
+                ordered_events,
+                direction=step,
+                playhead_seconds=playhead_seconds,
+            )
 
         selected_indices = [
             index for index, event in enumerate(ordered_events) if event.id in selected_ids
         ]
         if not selected_indices:
-            return ordered_events[0] if step > 0 else ordered_events[-1]
+            return TimelineOrchestratorSelectionStateMixin._adjacent_event_for_playhead(
+                ordered_events,
+                direction=step,
+                playhead_seconds=playhead_seconds,
+            )
 
         anchor_index = max(selected_indices) if step > 0 else min(selected_indices)
         target_index = anchor_index + step
         if target_index < 0 or target_index >= len(ordered_events):
             return None
         return ordered_events[target_index]
+
+    @staticmethod
+    def _adjacent_event_for_playhead(
+        ordered_events: list[Event],
+        *,
+        direction: int,
+        playhead_seconds: float | None,
+    ) -> Event | None:
+        if not ordered_events:
+            return None
+        if playhead_seconds is None:
+            return ordered_events[0] if direction > 0 else ordered_events[-1]
+
+        playhead = float(playhead_seconds)
+        if direction > 0:
+            for event in ordered_events:
+                center = 0.5 * (float(event.start) + float(event.end))
+                if center >= playhead:
+                    return event
+            return None
+
+        for event in reversed(ordered_events):
+            center = 0.5 * (float(event.start) + float(event.end))
+            if center <= playhead:
+                return event
+        return None
 
     def _find_layer(self, timeline: Timeline, layer_id: LayerId) -> Layer:
         for layer in timeline.layers:

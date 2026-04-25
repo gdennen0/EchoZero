@@ -32,6 +32,9 @@ from echozero.ui.qt.app_shell_project_timeline_overlay import (
     format_time,
     layer_badges,
 )
+from echozero.ui.qt.app_shell_project_timeline_selection import (
+    resolve_project_timeline_selection,
+)
 from echozero.ui.qt.app_shell_project_timeline_storage import (
     audio_presentation_fields,
     build_storage_layer,
@@ -60,62 +63,25 @@ def build_project_native_baseline_timeline(
     """Build the canonical runtime timeline and overlay from the active project state."""
 
     project = project_storage.project
-    songs = project_storage.songs.list_by_project(project.id)
-    versions_by_song_id = {
-        song.id: project_storage.song_versions.list_by_song(song.id) for song in songs
-    }
-    active_versions_by_song_id = {
-        song.id: next(
-            (version for version in versions_by_song_id.get(song.id, []) if version.id == song.active_version_id),
-            None,
-        )
-        for song in songs
-    }
-    version_counts_by_song_id = {
-        song.id: len(versions_by_song_id.get(song.id, [])) for song in songs
-    }
-    requested_song_id = str(active_song_id) if active_song_id is not None else None
-    requested_version_id = (
-        str(active_song_version_id) if active_song_version_id is not None else None
+    selection = resolve_project_timeline_selection(
+        project_storage,
+        active_song_id=active_song_id,
+        active_song_version_id=active_song_version_id,
     )
-
-    active_song = None
-    active_version = None
-    if requested_version_id is not None:
-        active_version = project_storage.song_versions.get(requested_version_id)
-        if active_version is not None:
-            active_song = project_storage.songs.get(active_version.song_id)
-    if active_song is None and requested_song_id is not None:
-        active_song = next((song for song in songs if song.id == requested_song_id), None)
-    if active_song is None:
-        active_song = next((song for song in songs if song.active_version_id), None)
-    if (
-        active_song is not None
-        and active_version is None
-        and active_song.active_version_id is not None
-    ):
-        active_version = project_storage.song_versions.get(active_song.active_version_id)
+    active_song = selection.active_song
+    version = selection.active_version
 
     if active_song is None:
         return (
             build_empty_project_timeline(project_storage),
             empty_overlay(
                 project.name,
-                available_songs=available_song_options(
-                    songs,
-                    active_song_id=None,
-                    active_versions_by_song_id=active_versions_by_song_id,
-                    versions_by_song_id=versions_by_song_id,
-                    version_counts_by_song_id=version_counts_by_song_id,
-                ),
+                available_songs=selection.available_songs,
             ),
             None,
             None,
         )
 
-    version = active_version
-    if version is None and active_song.active_version_id is not None:
-        version = project_storage.song_versions.get(active_song.active_version_id)
     if version is None:
         return (
             build_empty_project_timeline(project_storage),
@@ -123,33 +89,13 @@ def build_project_native_baseline_timeline(
                 project.name,
                 active_song_id=active_song.id,
                 active_song_title=active_song.title,
-                available_songs=available_song_options(
-                    songs,
-                    active_song_id=active_song.id,
-                    active_versions_by_song_id=active_versions_by_song_id,
-                    versions_by_song_id=versions_by_song_id,
-                    version_counts_by_song_id=version_counts_by_song_id,
-                ),
-                available_song_versions=available_song_version_options(
-                    versions_by_song_id.get(active_song.id, []),
-                    active_song_version_id=None,
-                ),
+                available_songs=selection.available_songs,
+                available_song_versions=selection.available_song_versions,
             ),
             SongId(active_song.id),
             None,
         )
 
-    available_songs = available_song_options(
-        songs,
-        active_song_id=active_song.id,
-        active_versions_by_song_id=active_versions_by_song_id,
-        versions_by_song_id=versions_by_song_id,
-        version_counts_by_song_id=version_counts_by_song_id,
-    )
-    available_song_versions = available_song_version_options(
-        versions_by_song_id.get(active_song.id, []),
-        active_song_version_id=version.id,
-    )
     timeline_id = TimelineId(f"timeline_{project.id}")
     source_audio_path = resolve_project_audio_path(project_storage, version.audio_file)
     waveform_key = ensure_registered_waveform(f"song-{version.id}", source_audio_path)
@@ -242,8 +188,8 @@ def build_project_native_baseline_timeline(
             active_song_version_id=version.id,
             active_song_version_label=version.label,
             active_song_version_ma3_timecode_pool_no=version.ma3_timecode_pool_no,
-            available_songs=available_songs,
-            available_song_versions=available_song_versions,
+            available_songs=selection.available_songs,
+            available_song_versions=selection.available_song_versions,
             layer_audio=layer_audio,
             take_audio=take_audio,
         ),

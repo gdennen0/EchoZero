@@ -85,6 +85,7 @@ from echozero.application.timeline.intents import (
     MoveSelectedEventsToAdjacentLayer,
     MoveSelectedEvents,
     NudgeSelectedEvents,
+    ReorderLayer,
     OpenPullFromMA3Dialog,
     OpenPushToMA3Dialog,
     Pause,
@@ -261,6 +262,9 @@ class TimelineOrchestrator(
                 time_range=intent.time_range,
                 label=intent.label,
                 cue_number=intent.cue_number,
+                source_event_id=intent.source_event_id,
+                payload_ref=intent.payload_ref,
+                color=intent.color,
             )
 
         elif isinstance(intent, DeleteEvents):
@@ -275,12 +279,21 @@ class TimelineOrchestrator(
                 timeline,
                 delta_seconds=float(intent.delta_seconds),
                 target_layer_id=intent.target_layer_id,
+                copy_selected=bool(intent.copy_selected),
             )
 
         elif isinstance(intent, MoveSelectedEventsToAdjacentLayer):
             self._handle_move_selected_events_to_adjacent_layer(
                 timeline,
                 direction=intent.direction,
+            )
+
+        elif isinstance(intent, ReorderLayer):
+            self._handle_reorder_layer(
+                timeline,
+                source_layer_id=intent.source_layer_id,
+                target_after_layer_id=intent.target_after_layer_id,
+                insert_at_start=intent.insert_at_start,
             )
 
         elif isinstance(intent, ToggleLayerExpanded):

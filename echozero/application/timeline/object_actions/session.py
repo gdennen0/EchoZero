@@ -217,6 +217,20 @@ class ApplyCopySource(ObjectActionSessionCommand):
 
 
 @dataclass(slots=True, frozen=True)
+class ResetSessionDefaults(ObjectActionSessionCommand):
+    """Reset editable settings in the current scope back to their defaults."""
+
+    pass
+
+
+@dataclass(slots=True, frozen=True)
+class SaveSessionToDefaults(ObjectActionSessionCommand):
+    """Persist current draft values into this song's default settings scope."""
+
+    pass
+
+
+@dataclass(slots=True, frozen=True)
 class SaveSession(ObjectActionSessionCommand):
     """Persist the current scope draft values."""
 

@@ -15,6 +15,7 @@ from typing import Protocol, cast
 
 from echozero.persistence.dirty import DirtyTracker
 from echozero.persistence.entities import (
+    LayerRecord,
     PipelineConfigRecord,
     ProjectRecord,
     SongDefaultPipelineConfigRecord,
@@ -22,10 +23,12 @@ from echozero.persistence.entities import (
     SongVersionRecord,
 )
 from echozero.persistence.repositories import (
+    LayerRepository,
     PipelineConfigRepository,
     SongDefaultPipelineConfigRepository,
     SongRepository,
     SongVersionRepository,
+    TakeRepository,
 )
 
 
@@ -47,6 +50,12 @@ class _ProjectStorageVersioningHost(Protocol):
 
     @property
     def song_default_pipeline_configs(self) -> SongDefaultPipelineConfigRepository: ...
+
+    @property
+    def layers(self) -> LayerRepository: ...
+
+    @property
+    def takes(self) -> TakeRepository: ...
 
     def _check_closed(self) -> None: ...
 
@@ -74,22 +83,43 @@ class ProjectStorageVersioningMixin:
         label: str,
         *,
         ma3_timecode_pool_no: int | None = None,
+        audio_import_options: object | None = None,
         scan_fn: object | None = None,
     ) -> SongVersionRecord:
         """Shared version factory for audio-backed song versions."""
 
         host = cast(_ProjectStorageVersioningHost, self)
         from echozero.errors import ValidationError
-        from echozero.persistence.audio import import_audio, scan_audio_metadata
+        from echozero.persistence.audio import (
+            AudioImportOptions,
+            cleanup_prepared_audio,
+            import_audio,
+            prepare_audio_for_import,
+            scan_audio_metadata,
+        )
 
+        import_options = (
+            cast(AudioImportOptions, audio_import_options)
+            if isinstance(audio_import_options, AudioImportOptions)
+            else AudioImportOptions()
+        )
+        prepared_source = prepare_audio_for_import(
+            audio_source,
+            host.working_dir,
+            options=import_options,
+            scan_fn=scan_fn,
+        )
         try:
-            scan_audio_metadata(audio_source, scan_fn=scan_fn)
+            scan_audio_metadata(prepared_source.source_path, scan_fn=scan_fn)
         except Exception as exc:
             raise ValidationError(f"Invalid audio file '{audio_source.name}': {exc}") from exc
 
-        audio_rel_path, audio_hash = import_audio(audio_source, host.working_dir)
-        full_audio_path = host.working_dir / audio_rel_path
-        metadata = scan_audio_metadata(full_audio_path, scan_fn=scan_fn)
+        try:
+            audio_rel_path, audio_hash = import_audio(prepared_source.source_path, host.working_dir)
+            full_audio_path = host.working_dir / audio_rel_path
+            metadata = scan_audio_metadata(full_audio_path, scan_fn=scan_fn)
+        finally:
+            cleanup_prepared_audio(prepared_source)
 
         version = SongVersionRecord(
             id=uuid.uuid4().hex,
@@ -112,6 +142,7 @@ class ProjectStorageVersioningMixin:
         artist: str = "",
         label: str = "Original",
         default_templates: list[str] | None = None,
+        audio_import_options: object | None = None,
         scan_fn: object | None = None,
     ) -> tuple[SongRecord, SongVersionRecord]:
         """Import an audio file as a new song with default pipeline configs."""
@@ -136,6 +167,7 @@ class ProjectStorageVersioningMixin:
                 audio_source,
                 label,
                 ma3_timecode_pool_no=self._next_default_ma3_timecode_pool_no(),
+                audio_import_options=audio_import_options,
                 scan_fn=scan_fn,
             )
             updated_song = dataclass_replace(song, active_version_id=version.id)
@@ -203,15 +235,111 @@ class ProjectStorageVersioningMixin:
             new_config_ids.append(materialized.id)
         return new_config_ids
 
+    def _selected_source_layers_for_transfer(
+        self,
+        source_layers: list[LayerRecord],
+        layer_ids_to_transfer: list[str] | None,
+    ) -> list[LayerRecord]:
+        if layer_ids_to_transfer is None:
+            return list(source_layers)
+        selected_ids = {
+            layer_id.strip()
+            for layer_id in layer_ids_to_transfer
+            if isinstance(layer_id, str) and layer_id.strip()
+        }
+        if not selected_ids:
+            return []
+        return [layer for layer in source_layers if layer.id in selected_ids]
+
+    def _copy_layer_takes(
+        self,
+        *,
+        source_layer_id: str,
+        target_layer_id: str,
+        created_at: datetime,
+    ) -> None:
+        host = cast(_ProjectStorageVersioningHost, self)
+        for source_take in host.takes.list_by_layer(source_layer_id):
+            host.takes.create(
+                target_layer_id,
+                dataclass_replace(
+                    source_take,
+                    id=uuid.uuid4().hex,
+                    created_at=created_at,
+                ),
+            )
+
+    def _copy_version_layers(
+        self,
+        *,
+        source_song_version_id: str,
+        target_song_version_id: str,
+        layer_ids_to_transfer: list[str] | None,
+    ) -> list[str]:
+        host = cast(_ProjectStorageVersioningHost, self)
+        source_layers = host.layers.list_by_version(source_song_version_id)
+        selected_source_layers = self._selected_source_layers_for_transfer(
+            source_layers,
+            layer_ids_to_transfer,
+        )
+        if not selected_source_layers:
+            return []
+
+        now = datetime.now(timezone.utc)
+        copied_layer_ids: list[str] = []
+        layer_id_map = {
+            source_layer.id: uuid.uuid4().hex
+            for source_layer in selected_source_layers
+        }
+        for order_index, source_layer in enumerate(selected_source_layers):
+            new_layer_id = layer_id_map[source_layer.id]
+            copied_layer = LayerRecord(
+                id=new_layer_id,
+                song_version_id=target_song_version_id,
+                name=source_layer.name,
+                layer_type=source_layer.layer_type,
+                color=source_layer.color,
+                order=order_index,
+                visible=source_layer.visible,
+                locked=source_layer.locked,
+                parent_layer_id=(
+                    layer_id_map.get(source_layer.parent_layer_id)
+                    if source_layer.parent_layer_id is not None
+                    else None
+                ),
+                source_pipeline=(
+                    dict(source_layer.source_pipeline)
+                    if source_layer.source_pipeline is not None
+                    else None
+                ),
+                created_at=now,
+                state_flags=dict(source_layer.state_flags),
+                provenance=dict(source_layer.provenance),
+            )
+            host.layers.create(copied_layer)
+            self._copy_layer_takes(
+                source_layer_id=source_layer.id,
+                target_layer_id=new_layer_id,
+                created_at=now,
+            )
+            copied_layer_ids.append(new_layer_id)
+        return copied_layer_ids
+
     def add_song_version(
         self,
         song_id: str,
         audio_source: Path,
         label: str | None = None,
         activate: bool = True,
+        transfer_layers: bool = False,
+        transfer_layer_ids: list[str] | None = None,
+        audio_import_options: object | None = None,
         scan_fn: object | None = None,
     ) -> SongVersionRecord:
-        """Add a new version of an existing song and copy song defaults into it."""
+        """Add a new version of an existing song and copy song defaults into it.
+
+        Optionally clones persisted layers and takes from the source version.
+        """
 
         host = cast(_ProjectStorageVersioningHost, self)
         host._check_closed()
@@ -238,9 +366,16 @@ class ProjectStorageVersioningMixin:
                 audio_source,
                 label,
                 ma3_timecode_pool_no=source_version.ma3_timecode_pool_no,
+                audio_import_options=audio_import_options,
                 scan_fn=scan_fn,
             )
             new_config_ids = self._copy_song_default_configs_to_version(song_id, version.id)
+            if transfer_layers:
+                self._copy_version_layers(
+                    source_song_version_id=source_version_id,
+                    target_song_version_id=version.id,
+                    layer_ids_to_transfer=transfer_layer_ids,
+                )
 
             from echozero.services.provenance import build_song_version_rebuild_plan
 
@@ -258,6 +393,60 @@ class ProjectStorageVersioningMixin:
             host.db.commit()
             host.dirty_tracker.mark_dirty(song_id)
             return version
+
+    def reorder_songs(self, song_ids: list[str]) -> None:
+        """Persist one full setlist ordering for the active project."""
+
+        host = cast(_ProjectStorageVersioningHost, self)
+        host._check_closed()
+
+        with host._lock:
+            existing_song_ids = [
+                song.id for song in host.songs.list_by_project(host.project.id)
+            ]
+            if len(song_ids) != len(existing_song_ids):
+                raise ValueError(
+                    "reorder_songs requires one ID for every song in the setlist."
+                )
+            if set(song_ids) != set(existing_song_ids):
+                raise ValueError(
+                    "reorder_songs requires the same song IDs currently in the setlist."
+                )
+
+            host.songs.reorder(host.project.id, song_ids)
+            host.db.commit()
+            for song_id in song_ids:
+                host.dirty_tracker.mark_dirty(song_id)
+
+    def move_song(self, song_id: str, direction: int) -> None:
+        """Move one song up/down in the setlist by one slot."""
+
+        host = cast(_ProjectStorageVersioningHost, self)
+        host._check_closed()
+
+        if direction not in {-1, 1}:
+            raise ValueError("move_song direction must be -1 or 1.")
+
+        with host._lock:
+            songs = list(host.songs.list_by_project(host.project.id))
+            current_index = next(
+                (index for index, song in enumerate(songs) if song.id == song_id),
+                None,
+            )
+            if current_index is None:
+                raise ValueError(f"SongRecord not found: {song_id}")
+
+            target_index = max(0, min(len(songs) - 1, current_index + direction))
+            if target_index == current_index:
+                return
+
+            moved = songs.pop(current_index)
+            songs.insert(target_index, moved)
+            ordered_song_ids = [song.id for song in songs]
+            host.songs.reorder(host.project.id, ordered_song_ids)
+            host.db.commit()
+            for changed_song_id in ordered_song_ids:
+                host.dirty_tracker.mark_dirty(changed_song_id)
 
     def delete_song(self, song_id: str) -> None:
         """Delete one song and reorder the remaining setlist entries."""

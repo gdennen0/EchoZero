@@ -18,9 +18,9 @@ from echozero.pipelines.registry import pipeline_template
         'audio_file': knob("", label="Audio File",
                             widget=KnobWidget.FILE_PICKER,
                             file_types=(".wav", ".mp3", ".flac", ".aiff")),
-        'model': knob("htdemucs", label="Model",
+        'model': knob("latest_model", label="Model",
                        widget=KnobWidget.DROPDOWN,
-                       options=("htdemucs", "htdemucs_ft", "mdx_extra", "mdx_extra_q")),
+                       options=("latest_model", "htdemucs", "htdemucs_ft", "mdx_extra", "mdx_extra_q")),
         'device': knob("auto", label="Device",
                         widget=KnobWidget.DROPDOWN,
                         options=("auto", "cpu", "cuda", "mps")),
@@ -37,7 +37,7 @@ from echozero.pipelines.registry import pipeline_template
 )
 def build_stem_separation(
     audio_file="",
-    model="htdemucs",
+    model="latest_model",
     device="auto",
     shifts=1,
     two_stems="none",

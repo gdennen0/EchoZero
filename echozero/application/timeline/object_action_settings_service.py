@@ -42,7 +42,7 @@ from echozero.persistence.session import ProjectStorage
 from echozero.pipelines.registry import get_registry
 from echozero.result import Err, unwrap
 from echozero.runtime_models.bundle_compat import upgrade_installed_runtime_bundles  # noqa: F401
-from echozero.services.orchestrator import AnalysisResult, AnalysisService
+from echozero.services.orchestrator import AnalysisResult, Orchestrator
 
 __all__ = [
     "ObjectActionSettingsService",
@@ -66,7 +66,7 @@ class ObjectActionSettingsService(
         session_getter: Callable[[], Session],
         presentation_getter: Callable[[], TimelinePresentation],
         require_layer: Callable[[object], LayerPresentation],
-        analysis_service: AnalysisService,
+        analysis_service: Orchestrator,
         active_run_lookup: Callable[[str, object | None, str | None], PipelineRunState | None] | None = None,
     ) -> None:
         self._project_storage_getter = project_storage_getter
@@ -145,8 +145,8 @@ class ObjectActionSettingsService(
 
             resolved_params = self._resolve_params(action_id, params, object_id=object_id, object_type=object_type)
             layer_id = resolved_params.get("layer_id")
-            if "layer_id" in workflow.params_schema and layer_id is None:
-                raise ValueError(f"{action_id} requires a target layer.")
+            requires_layer = "layer_id" in workflow.params_schema
+            missing_target_layer = requires_layer and layer_id is None
 
             template = get_registry().get(pipeline_template_id)
             if template is None:
@@ -176,7 +176,7 @@ class ObjectActionSettingsService(
                 (key, self._format_locked_binding_value(value))
                 for key, value in sorted(object_bindings.items())
             )
-            summary = layer.title if layer is not None else workflow.label
+            summary = layer.title if layer is not None else "No target layer selected"
             active_run = self._lookup_active_run(
                 action_id,
                 object_id=(object_id if object_id is not None else layer_id),
@@ -184,11 +184,16 @@ class ObjectActionSettingsService(
             )
             is_running = PipelineRunService.is_active(active_run)
             run_label = "Run Again" if has_prior_outputs else "Run"
-            warnings: tuple[str, ...] = ()
+            warnings: tuple[str, ...] = (
+                (
+                    "Select a target layer to run this action. "
+                    "You can still save reusable pipeline settings now."
+                ),
+            ) if missing_target_layer else ()
             if is_running:
                 run_label = "Running..."
             elif active_run is not None and active_run.status == "failed" and active_run.error:
-                warnings = (active_run.error,)
+                warnings = (*warnings, active_run.error)
             return ObjectActionSettingsPlan(
                 action_id=action_id,
                 title=workflow.label,
@@ -376,9 +381,31 @@ class ObjectActionSettingsService(
         object_type: str | None,
     ) -> dict[str, object]:
         resolved_params = dict(params or {})
-        if object_type == "layer" and object_id is not None and "layer_id" not in resolved_params:
-            resolved_params["layer_id"] = object_id
+        normalized_layer_id = ObjectActionSettingsService._normalize_optional_object_id(
+            resolved_params.get("layer_id")
+        )
+        if normalized_layer_id is None:
+            resolved_params.pop("layer_id", None)
+        else:
+            resolved_params["layer_id"] = normalized_layer_id
+
+        normalized_object_id = ObjectActionSettingsService._normalize_optional_object_id(object_id)
+        if (
+            object_type == "layer"
+            and normalized_object_id is not None
+            and "layer_id" not in resolved_params
+        ):
+            resolved_params["layer_id"] = normalized_object_id
         return resolved_params
+
+    @staticmethod
+    def _normalize_optional_object_id(value: object | None) -> object | None:
+        if value is None:
+            return None
+        if isinstance(value, str):
+            normalized = value.strip()
+            return normalized or None
+        return value
 
     def _lookup_active_run(
         self,

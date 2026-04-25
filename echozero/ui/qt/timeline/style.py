@@ -158,8 +158,10 @@ class TakeActionChipStyle:
 @dataclass(frozen=True, slots=True)
 class TakeRowStyle:
     row_fill_hex: str
+    selected_row_fill_hex: str
     dimmed_row_fill_hex: str
     header_fill_hex: str
+    selected_header_fill_hex: str
     dimmed_header_fill_hex: str
     divider_hex: str
     label_hex: str
@@ -344,8 +346,10 @@ TIMELINE_STYLE = TimelineShellStyle(
     ),
     take_row=TakeRowStyle(
         row_fill_hex="#121821",
+        selected_row_fill_hex="#1a212b",
         dimmed_row_fill_hex="#0f141b",
         header_fill_hex="#171d26",
+        selected_header_fill_hex="#202833",
         dimmed_header_fill_hex="#141922",
         divider_hex="#222936",
         label_hex="#aeb8c6",

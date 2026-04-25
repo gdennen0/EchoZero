@@ -97,11 +97,12 @@ class LayerRecord:
     Carries UI state (color, order, visible, locked) that the pipeline engine ignores.
 
     Provenance/freshness notes:
-    - source_pipeline stores generation provenance (pipeline_id, output_name, block_id, data_type)
+    - provenance["analysis_build"] is the canonical generated-analysis identity payload
+    - source_pipeline mirrors key build fields for compatibility with older readers
     - state_flags stores editor/application state that is not engine concern
       Examples: stale, manually_modified, source_main_changed, derived
-    - provenance stores richer source identity hooks for future UI inspection/remap work
-      Examples: source_layer_id, source_song_version_id, source_run_id, source_output_name
+    - provenance also stores richer source identity hooks for future UI inspection/remap work
+      Examples: source_layer_id, source_song_version_id, source_run_id, artifacts
     """
 
     id: str

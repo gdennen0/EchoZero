@@ -23,6 +23,9 @@ from echozero.application.settings.models import (
     OscReceiveRuntimeConfig,
     OscSendPreferences,
     OscSendRuntimeConfig,
+    SongImportPreferences,
+    canonical_import_pipeline_action_ids,
+    import_safe_pipeline_action_descriptors,
 )
 from echozero.application.settings.page_builder import (
     build_app_settings_page,
@@ -108,6 +111,11 @@ class AppSettingsService:
                 current.ma3_osc,
                 updates,
             ),
+            song_import=self._updated_song_import_preferences(
+                current.song_import,
+                updates,
+            ),
+            recent_project_paths=current.recent_project_paths,
         )
         return self.replace_preferences(next_preferences)
 
@@ -121,6 +129,7 @@ class AppSettingsService:
 
         audio_changed = current.audio_output != preferences.audio_output
         osc_changed = current.ma3_osc != preferences.ma3_osc
+        song_import_changed = current.song_import != preferences.song_import
         restart_reasons = self._restart_reasons(
             audio_changed=audio_changed,
             osc_changed=osc_changed,
@@ -129,6 +138,7 @@ class AppSettingsService:
             preferences=preferences,
             audio_changed=audio_changed,
             osc_changed=osc_changed,
+            song_import_changed=song_import_changed,
             restart_required=bool(restart_reasons),
             restart_reasons=restart_reasons,
         )
@@ -189,6 +199,72 @@ class AppSettingsService:
             ),
         )
 
+    def recent_project_paths(self) -> tuple[Path, ...]:
+        """Return the current machine-local recent project list in display order."""
+
+        return tuple(
+            Path(path_text)
+            for path_text in self._preferences.recent_project_paths
+            if str(path_text).strip()
+        )
+
+    def remember_recent_project_path(
+        self,
+        path: str | Path,
+        *,
+        limit: int = 10,
+    ) -> tuple[Path, ...]:
+        """Put one project path at the top of the machine-local recent-project list."""
+
+        normalized = self._normalize_recent_project_path(path)
+        if normalized is None:
+            return self.recent_project_paths()
+
+        max_entries = max(1, int(limit))
+        normalized_key = self._recent_project_path_key(normalized)
+        ordered: list[str] = [normalized]
+        for candidate in self._preferences.recent_project_paths:
+            if self._recent_project_path_key(candidate) == normalized_key:
+                continue
+            text = str(candidate).strip()
+            if text:
+                ordered.append(text)
+            if len(ordered) >= max_entries:
+                break
+
+        self.replace_preferences(
+            AppPreferences(
+                audio_output=self._preferences.audio_output,
+                ma3_osc=self._preferences.ma3_osc,
+                song_import=self._preferences.song_import,
+                recent_project_paths=tuple(ordered),
+            )
+        )
+        return self.recent_project_paths()
+
+    def forget_recent_project_path(self, path: str | Path) -> tuple[Path, ...]:
+        """Remove one project path from the machine-local recent-project list."""
+
+        normalized = self._normalize_recent_project_path(path)
+        if normalized is None:
+            return self.recent_project_paths()
+
+        normalized_key = self._recent_project_path_key(normalized)
+        filtered = tuple(
+            candidate
+            for candidate in self._preferences.recent_project_paths
+            if self._recent_project_path_key(candidate) != normalized_key
+        )
+        self.replace_preferences(
+            AppPreferences(
+                audio_output=self._preferences.audio_output,
+                ma3_osc=self._preferences.ma3_osc,
+                song_import=self._preferences.song_import,
+                recent_project_paths=filtered,
+            )
+        )
+        return self.recent_project_paths()
+
     def _updated_audio_preferences(
         self,
         current: AudioOutputPreferences,
@@ -247,6 +323,95 @@ class AppSettingsService:
             ),
         )
 
+    @staticmethod
+    def _updated_song_import_preferences(
+        current: SongImportPreferences,
+        updates: Mapping[str, object],
+    ) -> SongImportPreferences:
+        pipeline_action_ids = AppSettingsService._updated_song_import_pipeline_action_ids(
+            current,
+            updates,
+        )
+        return SongImportPreferences(
+            strip_ltc_timecode=bool(
+                updates.get("import.strip_ltc_timecode", current.strip_ltc_timecode)
+            ),
+            pipeline_action_ids=pipeline_action_ids,
+        )
+
+    @staticmethod
+    def _updated_song_import_pipeline_action_ids(
+        current: SongImportPreferences,
+        updates: Mapping[str, object],
+    ) -> tuple[str, ...]:
+        if "import.pipeline_action_ids" in updates:
+            raw_action_ids = updates.get("import.pipeline_action_ids")
+            action_ids = AppSettingsService._coerce_pipeline_action_ids(raw_action_ids)
+        else:
+            action_ids = current.pipeline_action_ids
+
+        selected_action_ids = list(canonical_import_pipeline_action_ids(action_ids))
+        for descriptor in import_safe_pipeline_action_descriptors():
+            key = f"import.pipeline_action.{descriptor.action_id}"
+            if key not in updates:
+                continue
+            selected_action_ids = AppSettingsService._set_action_enabled(
+                selected_action_ids,
+                descriptor.action_id,
+                bool(updates.get(key)),
+            )
+
+        selected_action_ids = AppSettingsService._apply_legacy_import_toggle_overrides(
+            selected_action_ids,
+            updates,
+        )
+        return canonical_import_pipeline_action_ids(selected_action_ids)
+
+    @staticmethod
+    def _coerce_pipeline_action_ids(value: object) -> tuple[str, ...]:
+        if isinstance(value, str):
+            tokens = [token.strip() for token in value.split(",")]
+            return tuple(token for token in tokens if token)
+        if isinstance(value, (list, tuple, set)):
+            resolved: list[str] = []
+            for token in value:
+                text = str(token).strip()
+                if text:
+                    resolved.append(text)
+            return tuple(resolved)
+        return ()
+
+    @staticmethod
+    def _apply_legacy_import_toggle_overrides(
+        selected_action_ids: list[str],
+        updates: Mapping[str, object],
+    ) -> list[str]:
+        legacy_toggles = (
+            ("import.run_extract_stems", "timeline.extract_stems"),
+            ("import.run_extract_song_drum_events", "timeline.extract_song_drum_events"),
+        )
+        resolved = list(selected_action_ids)
+        for key, action_id in legacy_toggles:
+            if key not in updates:
+                continue
+            resolved = AppSettingsService._set_action_enabled(
+                resolved,
+                action_id,
+                bool(updates.get(key)),
+            )
+        return resolved
+
+    @staticmethod
+    def _set_action_enabled(
+        action_ids: list[str],
+        action_id: str,
+        enabled: bool,
+    ) -> list[str]:
+        resolved = [candidate for candidate in action_ids if candidate != action_id]
+        if enabled:
+            resolved.append(action_id)
+        return resolved
+
     def _validate(self, preferences: AppPreferences) -> None:
         audio = preferences.audio_output
         if audio.sample_rate is not None and audio.sample_rate <= 0:
@@ -274,9 +439,10 @@ class AppSettingsService:
                 )
         if send.port is not None and not (1 <= send.port <= 65535):
             raise AppSettingsValidationError("OSC send target port must be between 1 and 65535.")
+
     @staticmethod
     def _values_from_preferences(preferences: AppPreferences) -> dict[str, object]:
-        return {
+        values: dict[str, object] = {
             "audio.output_device": preferences.audio_output.output_device or "",
             "audio.sample_rate": preferences.audio_output.sample_rate or 0,
             "audio.output_channels": preferences.audio_output.output_channels or 0,
@@ -291,7 +457,19 @@ class AppSettingsService:
             "osc_send.enabled": preferences.ma3_osc.send.enabled,
             "osc_send.host": preferences.ma3_osc.send.host,
             "osc_send.port": preferences.ma3_osc.send.port or 0,
+            "import.strip_ltc_timecode": preferences.song_import.strip_ltc_timecode,
+            "import.run_extract_stems": preferences.song_import.run_extract_stems,
+            "import.run_extract_song_drum_events": (
+                preferences.song_import.run_extract_song_drum_events
+            ),
+            "import.pipeline_action_ids": preferences.song_import.pipeline_action_ids,
         }
+        configured_action_ids = set(preferences.song_import.pipeline_action_ids)
+        for descriptor in import_safe_pipeline_action_descriptors():
+            values[f"import.pipeline_action.{descriptor.action_id}"] = (
+                descriptor.action_id in configured_action_ids
+            )
+        return values
 
     @staticmethod
     def _restart_reasons(*, audio_changed: bool, osc_changed: bool) -> tuple[str, ...]:
@@ -342,6 +520,15 @@ class AppSettingsService:
         except (TypeError, ValueError):
             return current
         return resolved if resolved > 0 else None
+
+    @staticmethod
+    def _normalize_recent_project_path(path: str | Path) -> str | None:
+        text = str(path).strip()
+        return text or None
+
+    @staticmethod
+    def _recent_project_path_key(path: str) -> str:
+        return str(path).strip().replace("\\", "/").lower()
 
 
 def build_default_app_settings_service(path: Path | None = None) -> AppSettingsService:

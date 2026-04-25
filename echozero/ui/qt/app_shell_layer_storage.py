@@ -11,6 +11,7 @@ from datetime import datetime, timezone
 from typing import Iterable
 
 from echozero.application.shared.enums import LayerKind
+from echozero.application.shared.layer_kinds import is_event_like_layer_kind
 from echozero.application.shared.ids import LayerId
 from echozero.application.timeline.models import (
     Layer,
@@ -76,7 +77,10 @@ def build_manual_layer_record(
         parent_layer_id=None,
         source_pipeline=None,
         created_at=datetime.now(timezone.utc),
-        state_flags={"manual_kind": layer.kind.value},
+        state_flags={
+            "manual_kind": layer.kind.value,
+            "take_lanes_expanded": bool(layer.presentation_hints.expanded),
+        },
         provenance={},
     )
 
@@ -87,7 +91,7 @@ def manual_layer_take_data(layer: Layer) -> EventData:
 
 
 def runtime_take_data(layer: Layer, take: RuntimeTake | None) -> EventData:
-    if layer.kind is not LayerKind.EVENT or take is None:
+    if not is_event_like_layer_kind(layer.kind) or take is None:
         return EventData(layers=())
     domain_events = tuple(
         DomainEvent(
@@ -136,6 +140,7 @@ def runtime_layer_record(
         state_flags.pop("stale_reason", None)
     if existing.layer_type == "manual":
         state_flags["manual_kind"] = layer.kind.value
+    state_flags["take_lanes_expanded"] = bool(layer.presentation_hints.expanded)
 
     provenance = dict(existing.provenance)
     if layer.provenance.source_layer_id is not None:
@@ -188,7 +193,7 @@ def persisted_take_from_runtime_take(
     is_main: bool,
 ) -> PersistedTake:
     if existing is not None:
-        if layer.kind is not LayerKind.EVENT:
+        if not is_event_like_layer_kind(layer.kind):
             return replace(existing, label=take.name or existing.label, is_main=is_main)
         return replace(
             existing,
