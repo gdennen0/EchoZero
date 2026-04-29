@@ -28,7 +28,14 @@ from PyQt6.QtWidgets import (
 )
 
 from echozero.application.presentation.models import RegionPresentation, TimelinePresentation
-from echozero.application.timeline.intents import Pause, Play, Stop, TimelineIntent
+from echozero.application.shared.enums import FollowMode
+from echozero.application.timeline.intents import (
+    Pause,
+    Play,
+    SetFollowCursorEnabled,
+    Stop,
+    TimelineIntent,
+)
 from echozero.ui.FEEL import (
     LAYER_HEADER_WIDTH_PX,
     RULER_HEIGHT_PX,
@@ -55,10 +62,13 @@ class TimelineEditorModeBar(QWidget):
 
     edit_mode_changed = pyqtSignal(str)
     fix_action_changed = pyqtSignal(str)
+    fix_nav_include_demoted_toggled = pyqtSignal(bool)
     snap_toggled = pyqtSignal(bool)
     grid_mode_changed = pyqtSignal(str)
     settings_requested = pyqtSignal()
+    osc_settings_requested = pyqtSignal()
     pipeline_settings_requested = pyqtSignal()
+    sections_requested = pyqtSignal()
     regions_requested = pyqtSignal()
     _COMPACT_WIDTH_THRESHOLD_PX = 1400
 
@@ -156,7 +166,7 @@ class TimelineEditorModeBar(QWidget):
         self._fix_remove_button = QPushButton("−", assist_group)
         self._fix_remove_button.setObjectName("timelineEditorFixRemoveButton")
         self._fix_remove_button.setCheckable(True)
-        self._fix_remove_button.setToolTip("Fix mode tool: remove false event (shortcut: Z)")
+        self._fix_remove_button.setToolTip("Fix mode tool: demote false event (shortcut: Z)")
         self._fix_remove_button.clicked.connect(
             lambda _checked=False: self.fix_action_changed.emit("remove")
         )
@@ -190,13 +200,26 @@ class TimelineEditorModeBar(QWidget):
         self._fix_action_group.addButton(self._fix_promote_button)
         self._fix_action_buttons["promote"] = self._fix_promote_button
 
+        self._fix_include_demoted_button = QPushButton("D Demoted", assist_group)
+        self._fix_include_demoted_button.setObjectName("timelineEditorFixDemotedNavButton")
+        self._fix_include_demoted_button.setCheckable(True)
+        self._fix_include_demoted_button.setToolTip(
+            "Fix mode navigation: include demoted events in arrow key selection (shortcut: D)"
+        )
+        self._fix_include_demoted_button.clicked.connect(
+            lambda checked: self.fix_nav_include_demoted_toggled.emit(bool(checked))
+        )
+        assist_layout.addWidget(self._fix_include_demoted_button, 0, Qt.AlignmentFlag.AlignVCenter)
+
         self._fix_promote_button.setEnabled(False)
         self._fix_remove_button.setEnabled(False)
         self._fix_select_button.setEnabled(False)
+        self._fix_include_demoted_button.setEnabled(False)
         self._fix_select_button.setChecked(True)
         self._fix_promote_button.setVisible(False)
         self._fix_remove_button.setVisible(False)
         self._fix_select_button.setVisible(False)
+        self._fix_include_demoted_button.setVisible(False)
 
         layout.addWidget(assist_group, 0, Qt.AlignmentFlag.AlignVCenter)
         layout.addStretch(1)
@@ -215,6 +238,11 @@ class TimelineEditorModeBar(QWidget):
         self._settings_button.setToolTip("Open application preferences")
         self._settings_button.clicked.connect(self.settings_requested.emit)
         shell_layout.addWidget(self._settings_button, 0, Qt.AlignmentFlag.AlignVCenter)
+        self._osc_settings_button = QPushButton("OSC", shell_group)
+        self._osc_settings_button.setObjectName("timelineEditorOscSettingsButton")
+        self._osc_settings_button.setToolTip("Open OSC settings")
+        self._osc_settings_button.clicked.connect(self.osc_settings_requested.emit)
+        shell_layout.addWidget(self._osc_settings_button, 0, Qt.AlignmentFlag.AlignVCenter)
         self._pipeline_settings_button = QPushButton("Pipeline", shell_group)
         self._pipeline_settings_button.setObjectName("timelineEditorPipelineSettingsButton")
         self._pipeline_settings_button.setToolTip("Open reusable pipeline stage settings")
@@ -224,6 +252,11 @@ class TimelineEditorModeBar(QWidget):
             0,
             Qt.AlignmentFlag.AlignVCenter,
         )
+        self._sections_button = QPushButton("§ Sections", shell_group)
+        self._sections_button.setObjectName("timelineEditorSectionsButton")
+        self._sections_button.setToolTip("Open sections manager")
+        self._sections_button.clicked.connect(self.sections_requested.emit)
+        shell_layout.addWidget(self._sections_button, 0, Qt.AlignmentFlag.AlignVCenter)
         self._regions_button = QPushButton("▤ Regions", shell_group)
         self._regions_button.setObjectName("timelineEditorRegionsButton")
         self._regions_button.setToolTip("Open timeline regions manager")
@@ -235,6 +268,7 @@ class TimelineEditorModeBar(QWidget):
         self._grid_mode = TimelineGridMode.AUTO
         self._set_shell_button_labels(compact=False)
         self._set_mode_button_labels(compact=False)
+        self._sync_fix_include_demoted_button_label(enabled=False)
         self._apply_button_width_hints(compact=False)
 
     def set_state(
@@ -242,6 +276,7 @@ class TimelineEditorModeBar(QWidget):
         *,
         edit_mode: str,
         fix_action: str = "select",
+        fix_nav_include_demoted: bool = False,
         snap_enabled: bool,
         grid_mode: str,
         beat_available: bool,
@@ -267,6 +302,12 @@ class TimelineEditorModeBar(QWidget):
             button.setChecked(action_name == resolved_fix_action)
             button.setVisible(fix_action_enabled)
             button.blockSignals(False)
+        self._fix_include_demoted_button.blockSignals(True)
+        self._fix_include_demoted_button.setEnabled(fix_action_enabled)
+        self._fix_include_demoted_button.setChecked(bool(fix_nav_include_demoted))
+        self._fix_include_demoted_button.setVisible(fix_action_enabled)
+        self._fix_include_demoted_button.blockSignals(False)
+        self._sync_fix_include_demoted_button_label(enabled=bool(fix_nav_include_demoted))
         self._snap_button.blockSignals(True)
         self._snap_button.setChecked(bool(snap_enabled))
         self._snap_button.blockSignals(False)
@@ -304,6 +345,9 @@ class TimelineEditorModeBar(QWidget):
             label.setVisible(not enabled)
         self._set_mode_button_labels(compact=enabled)
         self._set_shell_button_labels(compact=enabled)
+        self._sync_fix_include_demoted_button_label(
+            enabled=bool(self._fix_include_demoted_button.isChecked())
+        )
         self._apply_button_width_hints(compact=enabled)
         self._sync_grid_button_text()
         self._sync_grid_button_tooltip()
@@ -327,31 +371,47 @@ class TimelineEditorModeBar(QWidget):
     def _set_shell_button_labels(self, *, compact: bool) -> None:
         if compact:
             self._settings_button.setText("⚙")
+            self._osc_settings_button.setText("O")
             self._pipeline_settings_button.setText("P")
+            self._sections_button.setText("§")
             self._regions_button.setText("▤")
             return
         self._settings_button.setText("⚙ Settings")
+        self._osc_settings_button.setText("OSC")
         self._pipeline_settings_button.setText("Pipeline")
+        self._sections_button.setText("§ Sections")
         self._regions_button.setText("▤ Regions")
 
+    def _sync_fix_include_demoted_button_label(self, *, enabled: bool) -> None:
+        if self._compact_mode:
+            self._fix_include_demoted_button.setText(f"D {'On' if enabled else 'Off'}")
+            return
+        self._fix_include_demoted_button.setText(
+            f"D Demoted {'On' if enabled else 'Off'}"
+        )
+
     def _apply_button_width_hints(self, *, compact: bool) -> None:
-        mode_width = 32 if compact else 78
-        snap_width = 34 if compact else 78
-        grid_width = 44 if compact else 102
-        shell_width = 34 if compact else 104
+        mode_width = 32 if compact else 58
+        snap_width = 34 if compact else 64
+        grid_width = 44 if compact else 84
+        shell_width = 34 if compact else 88
         fix_small_width = 22 if compact else 30
         fix_select_width = 28 if compact else 36
+        fix_toggle_width = 48 if compact else 90
 
         for button in self._mode_buttons.values():
             button.setMinimumWidth(mode_width)
         self._snap_button.setMinimumWidth(snap_width)
         self._grid_button.setMinimumWidth(grid_width)
         self._settings_button.setMinimumWidth(shell_width)
+        self._osc_settings_button.setMinimumWidth(shell_width)
         self._pipeline_settings_button.setMinimumWidth(shell_width)
+        self._sections_button.setMinimumWidth(shell_width)
         self._regions_button.setMinimumWidth(shell_width)
         self._fix_remove_button.setMinimumWidth(fix_small_width)
         self._fix_promote_button.setMinimumWidth(fix_small_width)
         self._fix_select_button.setMinimumWidth(fix_select_width)
+        self._fix_include_demoted_button.setMinimumWidth(fix_toggle_width)
 
     def _repolish_toolbar_widgets(self) -> None:
         widgets: tuple[QWidget, ...] = (
@@ -359,11 +419,14 @@ class TimelineEditorModeBar(QWidget):
             self._snap_button,
             self._grid_button,
             self._settings_button,
+            self._osc_settings_button,
             self._pipeline_settings_button,
+            self._sections_button,
             self._regions_button,
             self._fix_remove_button,
             self._fix_select_button,
             self._fix_promote_button,
+            self._fix_include_demoted_button,
             *tuple(self._mode_buttons.values()),
         )
         for widget in widgets:
@@ -450,6 +513,15 @@ class TransportBar(QWidget):
             return
         if (stop_rect := self._control_rects.get("stop")) is not None and stop_rect.contains(pos):
             self._dispatch(Stop())
+            return
+        if (follow_rect := self._control_rects.get("follow")) is not None and follow_rect.contains(
+            pos
+        ):
+            self._dispatch(
+                SetFollowCursorEnabled(
+                    enabled=self.presentation.follow_mode == FollowMode.OFF,
+                )
+            )
             return
         super().mousePressEvent(event)
 

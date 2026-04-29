@@ -13,7 +13,16 @@ from echozero.application.presentation.models import TimelinePresentation
 from echozero.application.session.models import Session
 from echozero.application.sync.models import SyncState
 from echozero.application.sync.service import SyncService
-from echozero.application.timeline.intents import Pause, Play, Seek, SetActivePlaybackTarget, SetGain, Stop, TimelineIntent
+from echozero.application.timeline.intents import (
+    Pause,
+    Play,
+    Seek,
+    SetActivePlaybackTarget,
+    SetGain,
+    SetLayerOutputBus,
+    Stop,
+    TimelineIntent,
+)
 from echozero.application.timeline.orchestrator import TimelineOrchestrator
 from echozero.application.timeline.queries import TimelineQueries
 from echozero.application.timeline.models import Timeline
@@ -85,7 +94,7 @@ class TimelineApplication:
         if runtime_audio is None:
             return
 
-        if isinstance(intent, (SetGain, SetActivePlaybackTarget)):
+        if isinstance(intent, (SetGain, SetActivePlaybackTarget, SetLayerOutputBus)):
             runtime_audio.apply_mix_state(presentation)
 
     def _sync_runtime_state(self, presentation: TimelinePresentation) -> None:

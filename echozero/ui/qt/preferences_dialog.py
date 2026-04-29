@@ -19,6 +19,7 @@ from PyQt6.QtWidgets import (
 from echozero.application.settings import (
     AppSettingsService,
     AppSettingsValidationError,
+    SettingsPage,
 )
 from echozero.ui.qt.settings_page_form import SettingsPageForm
 from echozero.ui.style.qt import ensure_qt_theme_installed
@@ -94,6 +95,17 @@ class PreferencesDialog(QDialog):
 
     def _render_page(self) -> None:
         page = self._settings_service.describe()
+        page = SettingsPage(
+            key=page.key,
+            title=page.title,
+            summary=page.summary,
+            sections=tuple(
+                section
+                for section in page.sections
+                if section.key not in {"osc_receive", "osc_send"}
+            ),
+            warnings=page.warnings,
+        )
         self.setWindowTitle(page.title)
         self._title.setText(page.title)
         self._summary.setText(page.summary)

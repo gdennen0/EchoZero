@@ -6,6 +6,7 @@ import threading
 import pytest
 
 from echozero.application.timeline.models import Event
+from echozero.infrastructure.osc import OscUdpSendTransport
 from echozero.infrastructure.sync.ma3_osc import (
     MA3OSCBridge,
     format_ma3_lua_command,
@@ -13,6 +14,7 @@ from echozero.infrastructure.sync.ma3_osc import (
 )
 from echozero.infrastructure.sync.ma3_adapter import MA3SequenceSnapshot, MA3TrackSnapshot
 from echozero.testing.ma3 import SimulatedMA3Bridge
+from echozero.testing.ma3.simulator import _SimulatedMA3OSCServer
 
 
 def test_parse_ma3_osc_payload_keeps_json_fields_and_pipe_containing_raw_values():
@@ -169,6 +171,29 @@ def test_ma3_osc_bridge_wraps_commands_for_ma3_builtin_cmd_path():
         bridge.shutdown()
 
 
+def test_ma3_osc_bridge_uses_routable_target_when_listener_binds_wildcard_host():
+    server = _SimulatedMA3OSCServer().start()
+    bridge = MA3OSCBridge(
+        listen_host="0.0.0.0",
+        listen_port=0,
+        command_transport=OscUdpSendTransport(*server.endpoint, path="/cmd"),
+    )
+
+    try:
+        timecodes = bridge.list_timecodes()
+
+        assert [(timecode.number, timecode.name) for timecode in timecodes] == [(1, "Song A")]
+        target_command = next(
+            (command for command in server.commands if command.startswith("EZ.SetTarget(")),
+            "",
+        )
+        assert target_command
+        assert "0.0.0.0" not in target_command
+    finally:
+        bridge.shutdown()
+        server.stop()
+
+
 def test_ma3_osc_bridge_can_send_raw_console_commands_for_plugin_reload():
     class _CaptureTransport:
         def __init__(self) -> None:
@@ -274,6 +299,37 @@ def test_ma3_osc_bridge_recovers_missing_cmd_subtrack_once_before_retrying_add_e
     assert events[0].label == "Kick"
     assert events[0].cmd == "Go+ Cue 5"
     assert events[0].cue_number == 5
+
+
+def test_ma3_osc_bridge_preserves_float_cue_numbers_in_commands_and_snapshots():
+    bridge = SimulatedMA3Bridge()
+    bridge.set_tracks(
+        [
+            MA3TrackSnapshot(coord="tc1_tg2_tr5", name="Track 5", note="Empty", event_count=0),
+        ]
+    )
+    bridge.set_track_events({"tc1_tg2_tr5": []})
+
+    bridge.apply_push_transfer(
+        target_track_coord="tc1_tg2_tr5",
+        selected_events=[
+            Event(
+                id="evt_1",
+                take_id="take_1",
+                start=1.0,
+                end=1.1,
+                cue_number=5.5,
+                label="Kick",
+            )
+        ],
+        transfer_mode="overwrite",
+    )
+
+    events = bridge.list_track_events("tc1_tg2_tr5")
+
+    assert events[0].cmd == "Go+ Cue 5.5"
+    assert events[0].cue_number == 5.5
+    assert "EZ.AddEvent(1, 2, 5, 1, 'Go+ Cue 5.5', 'Kick', 5.5, 'Kick')" in bridge.commands
 
 
 def test_ma3_osc_bridge_surfaces_sequence_assignment_prerequisite_when_cmd_subtrack_retry_fails():

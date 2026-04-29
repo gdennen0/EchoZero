@@ -45,7 +45,7 @@ _VERSION_SONG_ID_ROLE = Qt.ItemDataRole.UserRole + 4
 _ROW_NUMBER_COLUMN = 0
 _SONG_TITLE_COLUMN = 1
 _ROW_NUMBER_COLUMN_WIDTH = 38
-_PANEL_COLLAPSED_WIDTH = 64
+_PANEL_COLLAPSED_WIDTH = 56
 _PANEL_DEFAULT_EXPANDED_WIDTH = 300
 _PANEL_MIN_EXPANDED_WIDTH = 240
 _PANEL_MAX_EXPANDED_WIDTH = 460
@@ -225,33 +225,38 @@ class SongBrowserPanel(QWidget):
         self._batch_meta.setObjectName("songBrowserBatchMeta")
         batch_layout.addWidget(self._batch_meta, 1)
 
-        self._select_all_button = QPushButton("Select All", self._batch_bar)
+        self._select_all_button = QPushButton("[*]", self._batch_bar)
         self._select_all_button.setObjectName("songBrowserBatchSelectAll")
         self._select_all_button.setProperty("appearance", "subtle")
+        self._select_all_button.setToolTip("Select all songs")
         self._select_all_button.clicked.connect(self._select_all_songs)
         batch_layout.addWidget(self._select_all_button)
 
-        self._clear_selection_button = QPushButton("Clear", self._batch_bar)
+        self._clear_selection_button = QPushButton("[ ]", self._batch_bar)
         self._clear_selection_button.setObjectName("songBrowserBatchClear")
         self._clear_selection_button.setProperty("appearance", "subtle")
+        self._clear_selection_button.setToolTip("Clear song selection")
         self._clear_selection_button.clicked.connect(self._clear_song_selection)
         batch_layout.addWidget(self._clear_selection_button)
 
-        self._batch_top_button = QPushButton("Move Top", self._batch_bar)
+        self._batch_top_button = QPushButton("^^", self._batch_bar)
         self._batch_top_button.setObjectName("songBrowserBatchMoveTop")
         self._batch_top_button.setProperty("appearance", "subtle")
+        self._batch_top_button.setToolTip("Move selected songs to top")
         self._batch_top_button.clicked.connect(self._emit_batch_move_songs_to_top)
         batch_layout.addWidget(self._batch_top_button)
 
-        self._batch_bottom_button = QPushButton("Move Bottom", self._batch_bar)
+        self._batch_bottom_button = QPushButton("vv", self._batch_bar)
         self._batch_bottom_button.setObjectName("songBrowserBatchMoveBottom")
         self._batch_bottom_button.setProperty("appearance", "subtle")
+        self._batch_bottom_button.setToolTip("Move selected songs to bottom")
         self._batch_bottom_button.clicked.connect(self._emit_batch_move_songs_to_bottom)
         batch_layout.addWidget(self._batch_bottom_button)
 
-        self._batch_delete_button = QPushButton("Delete", self._batch_bar)
+        self._batch_delete_button = QPushButton("X", self._batch_bar)
         self._batch_delete_button.setObjectName("songBrowserBatchDelete")
         self._batch_delete_button.setProperty("appearance", "subtle")
+        self._batch_delete_button.setToolTip("Delete selected songs")
         self._batch_delete_button.clicked.connect(self._emit_batch_delete_songs)
         batch_layout.addWidget(self._batch_delete_button)
 

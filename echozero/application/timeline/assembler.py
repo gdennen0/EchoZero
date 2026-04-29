@@ -9,6 +9,8 @@ from dataclasses import dataclass, field
 from echozero.application.presentation.models import (
     LayerPresentation,
     RegionPresentation,
+    SectionCuePresentation,
+    SectionRegionPresentation,
     TimelinePresentation,
 )
 from echozero.application.session.models import Session
@@ -25,7 +27,7 @@ from echozero.application.timeline.assembler_transfers import (
     assemble_pipeline_run_banner,
     assemble_transfer_presets,
 )
-from echozero.application.timeline.models import Timeline
+from echozero.application.timeline.models import Timeline, derive_section_regions
 from echozero.perf import timed
 
 __all__ = ["TimelineAssembler"]
@@ -58,6 +60,8 @@ class TimelineAssembler:
                 timeline_id=timeline.id,
                 title=f"Timeline {timeline.id}",
                 layers=layers,
+                section_cues=self._assemble_section_cues(timeline),
+                section_regions=self._assemble_section_regions(timeline),
                 playhead=session.transport_state.playhead,
                 is_playing=session.transport_state.is_playing,
                 loop_region=timeline.loop_region,
@@ -68,6 +72,7 @@ class TimelineAssembler:
                 selected_event_refs=list(state.selected_event_refs),
                 active_playback_layer_id=state.active_playback_layer_id,
                 active_playback_take_id=state.active_playback_take_id,
+                playback_output_channels=max(0, int(session.playback_state.output_channels)),
                 selected_event_ids=list(state.selected_event_ids),
                 selected_region_id=timeline.selection.selected_region_id,
                 regions=self._assemble_regions(timeline),
@@ -108,4 +113,39 @@ class TimelineAssembler:
                 is_selected=region.id == selected_region_id,
             )
             for region in ordered
+        ]
+
+    @staticmethod
+    def _assemble_section_cues(timeline: Timeline) -> list[SectionCuePresentation]:
+        ordered = sorted(
+            enumerate(timeline.section_cues),
+            key=lambda item: (float(item[1].start), int(item[0]), str(item[1].id)),
+        )
+        return [
+            SectionCuePresentation(
+                cue_id=cue.id,
+                start=float(cue.start),
+                cue_ref=cue.cue_ref,
+                name=cue.name,
+                color=cue.color,
+                notes=cue.notes,
+                payload_ref=cue.payload_ref,
+            )
+            for _index, cue in ordered
+        ]
+
+    @staticmethod
+    def _assemble_section_regions(timeline: Timeline) -> list[SectionRegionPresentation]:
+        return [
+            SectionRegionPresentation(
+                cue_id=region.cue_id,
+                start=float(region.start),
+                end=float(region.end),
+                cue_ref=region.cue_ref,
+                name=region.name,
+                color=region.color,
+                notes=region.notes,
+                payload_ref=region.payload_ref,
+            )
+            for region in derive_section_regions(timeline.section_cues, timeline_end=timeline.end)
         ]

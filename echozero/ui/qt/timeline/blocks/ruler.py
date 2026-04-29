@@ -74,6 +74,13 @@ class RulerBlock:
         pixels_per_second: float,
         header_width: float,
     ) -> None:
+        self._paint_section_regions(
+            painter,
+            rect=rect,
+            presentation=presentation,
+            pixels_per_second=pixels_per_second,
+            header_width=header_width,
+        )
         if not presentation.regions:
             return
         for index, region in enumerate(presentation.regions):
@@ -124,6 +131,65 @@ class RulerBlock:
                 selected_pen = QPen(QColor(self.playhead_color_hex), 1)
                 painter.setPen(selected_pen)
                 painter.drawRect(region_rect.adjusted(1.0, 1.0, -1.0, -1.0))
+
+    def _paint_section_regions(
+        self,
+        painter: QPainter,
+        *,
+        rect: QRectF,
+        presentation: TimelinePresentation,
+        pixels_per_second: float,
+        header_width: float,
+    ) -> None:
+        if not presentation.section_regions:
+            return
+        for index, region in enumerate(presentation.section_regions):
+            start_x = timeline_x_for_time(
+                region.start,
+                scroll_x=presentation.scroll_x,
+                pixels_per_second=pixels_per_second,
+                content_start_x=header_width,
+            )
+            end_x = timeline_x_for_time(
+                region.end,
+                scroll_x=presentation.scroll_x,
+                pixels_per_second=pixels_per_second,
+                content_start_x=header_width,
+            )
+            left = max(header_width, min(start_x, end_x))
+            right = min(rect.right(), max(start_x, end_x))
+            width = max(0.0, right - left)
+            if width <= 0.0:
+                continue
+
+            section_rect = QRectF(left, rect.top() + 1.0, width, max(1.0, rect.height() - 2.0))
+            fill_hex = (
+                region.color
+                or (
+                    self.style.section_even_hex
+                    if index % 2 == 0
+                    else self.style.section_odd_hex
+                )
+            )
+            fill_color = QColor(fill_hex)
+            fill_color.setAlpha(max(0, min(255, int(self.style.section_alpha))))
+            painter.fillRect(section_rect, fill_color)
+            painter.setPen(QPen(QColor(self.style.section_boundary_hex), 2))
+            painter.drawLine(
+                int(round(left)),
+                int(round(rect.top() + 1.0)),
+                int(round(left)),
+                int(round(rect.bottom() - 1.0)),
+            )
+            if width >= 72.0:
+                label = region.cue_ref if region.name.casefold() == region.cue_ref.casefold() else f"{region.cue_ref} {region.name}"
+                label_color = QColor(self.style.section_label_hex)
+                painter.setPen(label_color)
+                painter.drawText(
+                    section_rect.adjusted(6.0, 0.0, -6.0, 0.0),
+                    int(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft),
+                    label,
+                )
 
 
 def visible_ruler_seconds(

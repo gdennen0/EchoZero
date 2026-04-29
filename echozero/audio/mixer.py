@@ -14,7 +14,31 @@ from echozero.audio.layer import AudioLayer
 # Leave headroom for host-chosen callback sizes when sounddevice runs with
 # blocksize=0 on real hardware.
 _MAX_SCRATCH_FRAMES = 32768
-_MAX_OUTPUT_CHANNELS = 2
+_MAX_OUTPUT_CHANNELS = 16
+
+
+def _resolve_output_bus_span(output_bus: str | None, output_channels: int) -> tuple[int, int]:
+    """Resolve one zero-based output channel span from a layer output bus token."""
+
+    if output_channels <= 1:
+        return (0, 1)
+    if output_bus is None:
+        return (0, min(2, output_channels))
+
+    token = output_bus.strip().lower()
+    if not token.startswith("outputs_"):
+        return (0, min(2, output_channels))
+    parts = token.split("_")
+    if len(parts) != 3 or (not parts[1].isdigit()) or (not parts[2].isdigit()):
+        return (0, min(2, output_channels))
+
+    start = max(1, int(parts[1])) - 1
+    end = max(start + 1, int(parts[2])) - 1
+    if start >= output_channels:
+        return (-1, 0)
+    resolved_end = min(end, output_channels - 1)
+    width = max(0, resolved_end - start + 1)
+    return (start, width)
 
 
 class Mixer:
@@ -203,18 +227,32 @@ class Mixer:
                 if layer.muted:
                     continue
 
-            # A1: use separate layer scratch so it never overlaps with `out`
             if out.ndim == 1:
+                target_start, target_width = _resolve_output_bus_span(layer.output_bus, 1)
+                if target_start != 0 or target_width <= 0:
+                    continue
                 layer_buf = self._layer_scratch[:frames]
-            else:
-                if out.shape[1] > self._layer_scratch_multichannel.shape[1]:
-                    raise ValueError(
-                        f"channels ({out.shape[1]}) > supported output channels "
-                        f"({self._layer_scratch_multichannel.shape[1]})"
-                    )
-                layer_buf = self._layer_scratch_multichannel[:frames, :out.shape[1]]
+                # A1: use separate layer scratch so it never overlaps with `out`
+                layer.read_into(layer_buf, position, frames)
+                out += layer_buf * layer.volume
+                continue
+
+            output_channels = out.shape[1]
+            target_start, target_width = _resolve_output_bus_span(
+                layer.output_bus,
+                output_channels,
+            )
+            if target_width <= 0:
+                continue
+            if target_width > self._layer_scratch_multichannel.shape[1]:
+                raise ValueError(
+                    f"output bus width ({target_width}) exceeds scratch channels "
+                    f"({self._layer_scratch_multichannel.shape[1]})"
+                )
+            layer_buf = self._layer_scratch_multichannel[:frames, :target_width]
+            # A1: use separate layer scratch so it never overlaps with `out`
             layer.read_into(layer_buf, position, frames)
-            out += layer_buf * layer.volume
+            out[:, target_start:target_start + target_width] += layer_buf * layer.volume
 
         out *= self._master_volume
 

@@ -20,16 +20,20 @@ from echozero.application.session.models import (
     ManualPushTrackGroupOption,
     ManualPushTrackOption,
 )
+from echozero.application.shared.cue_numbers import parse_positive_cue_number
+from echozero.application.shared.enums import LayerKind
 from echozero.application.shared.layer_kinds import is_event_like_layer_kind
 from echozero.application.shared.ids import LayerId
 from echozero.application.timeline.ma3_push_intents import MA3SequenceRefreshRangeMode
 from echozero.application.timeline.models import Timeline
 
 _PULL_TARGET_CREATE_NEW_LAYER_ID = LayerId("__manual_pull__:create_new_layer")
+_PULL_TARGET_CREATE_NEW_SECTION_LAYER_ID = LayerId("__manual_pull__:create_new_section_layer")
 _PULL_TARGET_CREATE_NEW_LAYER_PER_SOURCE_TRACK_ID = LayerId(
     "__manual_pull__:create_new_layer_per_source_track"
 )
 _PULL_TARGET_CREATE_NEW_LAYER_NAME = "+ Create New Layer..."
+_PULL_TARGET_CREATE_NEW_SECTION_LAYER_NAME = "+ Create Section Layer..."
 _PULL_TARGET_CREATE_NEW_LAYER_PER_SOURCE_TRACK_NAME = "+ Create New Layer Per Source Track..."
 
 
@@ -285,7 +289,7 @@ class TimelineOrchestratorTransferLookupMixin:
         include_create_per_source_track: bool = False,
     ) -> list[ManualPullTargetOption]:
         targets = [
-            ManualPullTargetOption(layer_id=layer.id, name=layer.name)
+            ManualPullTargetOption(layer_id=layer.id, name=layer.name, kind=layer.kind)
             for layer in sorted(timeline.layers, key=lambda value: value.order_index)
             if is_event_like_layer_kind(layer.kind)
             and layer.presentation_hints.visible
@@ -295,6 +299,14 @@ class TimelineOrchestratorTransferLookupMixin:
             ManualPullTargetOption(
                 layer_id=_PULL_TARGET_CREATE_NEW_LAYER_ID,
                 name=_PULL_TARGET_CREATE_NEW_LAYER_NAME,
+                kind=LayerKind.EVENT,
+            )
+        )
+        targets.append(
+            ManualPullTargetOption(
+                layer_id=_PULL_TARGET_CREATE_NEW_SECTION_LAYER_ID,
+                name=_PULL_TARGET_CREATE_NEW_SECTION_LAYER_NAME,
+                kind=LayerKind.SECTION,
             )
         )
         if include_create_per_source_track:
@@ -302,6 +314,7 @@ class TimelineOrchestratorTransferLookupMixin:
                 ManualPullTargetOption(
                     layer_id=_PULL_TARGET_CREATE_NEW_LAYER_PER_SOURCE_TRACK_ID,
                     name=_PULL_TARGET_CREATE_NEW_LAYER_PER_SOURCE_TRACK_NAME,
+                    kind=LayerKind.EVENT,
                 )
             )
         return targets
@@ -524,15 +537,33 @@ class TimelineOrchestratorTransferLookupMixin:
             cue_number = TimelineOrchestratorTransferLookupMixin._track_option_value(
                 raw_event, "cueNo"
             )
+        cue_ref = TimelineOrchestratorTransferLookupMixin._track_option_value(raw_event, "cue_ref")
+        if cue_ref in {None, ""}:
+            cue_ref = TimelineOrchestratorTransferLookupMixin._track_option_value(
+                raw_event, "cueRef"
+            )
+        color = TimelineOrchestratorTransferLookupMixin._track_option_value(raw_event, "color")
+        notes = TimelineOrchestratorTransferLookupMixin._track_option_value(raw_event, "notes")
+        if notes in {None, ""}:
+            notes = TimelineOrchestratorTransferLookupMixin._track_option_value(raw_event, "note")
+        payload_ref = TimelineOrchestratorTransferLookupMixin._track_option_value(
+            raw_event, "payload_ref"
+        )
+        if payload_ref in {None, ""}:
+            payload_ref = TimelineOrchestratorTransferLookupMixin._track_option_value(
+                raw_event, "payloadRef"
+            )
 
         return ManualPullEventOption(
             event_id=str(event_id or ""),
             label=str(label or event_id or ""),
             start=None if start is None else float(start),
             end=None if end is None else float(end),
-            cue_number=TimelineOrchestratorTransferLookupMixin._coerce_optional_positive_int(
-                cue_number
-            ),
+            cue_number=parse_positive_cue_number(cue_number),
+            cue_ref=None if cue_ref in {None, ""} else str(cue_ref),
+            color=None if color in {None, ""} else str(color),
+            notes=None if notes in {None, ""} else str(notes),
+            payload_ref=None if payload_ref in {None, ""} else str(payload_ref),
         )
 
     @staticmethod

@@ -18,12 +18,14 @@ from echozero.application.session.models import (
     Session,
 )
 from echozero.application.session.service import SessionService
+from echozero.application.shared.enums import LayerKind
 from echozero.application.shared.ids import EventId, TakeId
 from echozero.application.sync.diff_service import SyncDiffService
 from echozero.application.timeline.models import Event, EventRef, Layer, Timeline
 from echozero.application.timeline.orchestrator_transfer_lookup_mixin import (
     _PULL_TARGET_CREATE_NEW_LAYER_ID,
     _PULL_TARGET_CREATE_NEW_LAYER_PER_SOURCE_TRACK_ID,
+    _PULL_TARGET_CREATE_NEW_SECTION_LAYER_ID,
 )
 
 _KEEP_TRANSFER_PLAN_ISSUE = object()
@@ -101,12 +103,20 @@ class _TransferPlanHost(Protocol):
 
 class TimelineOrchestratorTransferPlanMixin:
     @staticmethod
-    def _manual_pull_import_mode_for_target_layer(target_layer_id: str | None) -> str:
+    def _manual_pull_import_mode_for_target_layer(
+        timeline: Timeline,
+        target_layer_id: str | None,
+    ) -> str:
         if target_layer_id in {
             _PULL_TARGET_CREATE_NEW_LAYER_ID,
+            _PULL_TARGET_CREATE_NEW_SECTION_LAYER_ID,
             _PULL_TARGET_CREATE_NEW_LAYER_PER_SOURCE_TRACK_ID,
         }:
             return "main"
+        if target_layer_id is not None:
+            for layer in timeline.layers:
+                if layer.id == target_layer_id and layer.kind is LayerKind.SECTION:
+                    return "main"
         return "new_take"
 
     def _require_active_transfer_plan(
@@ -540,7 +550,10 @@ class TimelineOrchestratorTransferPlanMixin:
             track = tracks_by_coord[coord]
             selected_event_ids = list(flow.selected_ma3_event_ids_by_track.get(coord, []))
             target_layer_id = flow.target_layer_id_by_source_track.get(coord)
-            import_mode = self._manual_pull_import_mode_for_target_layer(target_layer_id)
+            import_mode = self._manual_pull_import_mode_for_target_layer(
+                timeline,
+                target_layer_id,
+            )
             if not selected_event_ids and target_layer_id is None:
                 status = "blocked"
                 issue = "Select source events and target layer mapping"

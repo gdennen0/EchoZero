@@ -444,14 +444,11 @@ class _TimelineCanvasInteractionMixin:
     def _context_action_visible_for_hit_kind(action: InspectorAction, hit_kind: str) -> bool:
         group = (action.group or "").strip().lower()
         kind = (hit_kind or "").strip().lower()
-        if kind == "event" and group == "transfer":
-            return action.action_id == "send_selected_events_to_ma3"
-
         allowed_groups_by_kind = {
             "timeline": {"tools", "transport"},
             "layer": {"batch", "layer", "gain", "pipeline", "transfer", "live_sync", "transport"},
-            "take": {"batch", "take", "transport"},
-            "event": {"batch", "selection", "take", "transport"},
+            "take": {"batch", "take", "transfer", "transport"},
+            "event": {"batch", "selection", "take", "transfer", "transport"},
         }
         allowed = allowed_groups_by_kind.get(kind)
         if allowed is None:
@@ -626,6 +623,32 @@ class _TimelineCanvasInteractionMixin:
             self.edit_mode_requested.emit("fix")
             event.accept()
             return
+        if (
+            self._edit_mode == "fix"
+            and not has_primary
+            and has_shift
+            and event.key() == Qt.Key.Key_Z
+        ):
+            selected_events = self._selected_event_shortcut_payload()
+            if selected_events:
+                self.fix_demote_selected_requested.emit(selected_events)
+            else:
+                self.fix_action_requested.emit("remove")
+            event.accept()
+            return
+        if (
+            self._edit_mode == "fix"
+            and not has_primary
+            and has_shift
+            and event.key() == Qt.Key.Key_C
+        ):
+            selected_events = self._selected_event_shortcut_payload()
+            if selected_events:
+                self.fix_promote_selected_requested.emit(selected_events)
+            else:
+                self.fix_action_requested.emit("promote")
+            event.accept()
+            return
         if self._edit_mode == "fix" and not has_primary and event.key() == Qt.Key.Key_Z:
             self.fix_action_requested.emit("remove")
             event.accept()
@@ -636,6 +659,10 @@ class _TimelineCanvasInteractionMixin:
             return
         if self._edit_mode == "fix" and not has_primary and event.key() == Qt.Key.Key_C:
             self.fix_action_requested.emit("promote")
+            event.accept()
+            return
+        if self._edit_mode == "fix" and not has_primary and event.key() == Qt.Key.Key_D:
+            self.fix_nav_include_demoted_toggle_requested.emit()
             event.accept()
             return
         if (
@@ -675,6 +702,13 @@ class _TimelineCanvasInteractionMixin:
             return
         super().keyPressEvent(event)
 
+    def _selected_event_shortcut_payload(self: Any) -> list[EventRef] | list[EventId]:
+        if self.presentation.selected_event_refs:
+            return list(self.presentation.selected_event_refs)
+        if self.presentation.selected_event_ids:
+            return list(self.presentation.selected_event_ids)
+        return []
+
     def _handle_mode_specific_key_press(self: Any, event: QKeyEvent, *, steps: int) -> bool:
         if self._edit_mode == "fix":
             return self._handle_fix_mode_key_press(event)
@@ -687,7 +721,7 @@ class _TimelineCanvasInteractionMixin:
                     or self.presentation.selected_layer_id is not None
                     or bool(self.presentation.selected_layer_ids)
                 ):
-                    self.select_adjacent_event_requested.emit(-1)
+                    self.select_adjacent_event_requested.emit(-1, False)
                 return True
             if event.key() == Qt.Key.Key_Right:
                 if (
@@ -696,13 +730,13 @@ class _TimelineCanvasInteractionMixin:
                     or self.presentation.selected_layer_id is not None
                     or bool(self.presentation.selected_layer_ids)
                 ):
-                    self.select_adjacent_event_requested.emit(1)
+                    self.select_adjacent_event_requested.emit(1, False)
                 return True
             if event.key() in (Qt.Key.Key_Comma, Qt.Key.Key_Less):
-                self.select_adjacent_event_requested.emit(-1)
+                self.select_adjacent_event_requested.emit(-1, False)
                 return True
             if event.key() in (Qt.Key.Key_Period, Qt.Key.Key_Greater):
-                self.select_adjacent_event_requested.emit(1)
+                self.select_adjacent_event_requested.emit(1, False)
                 return True
             if event.key() == Qt.Key.Key_Up:
                 self.select_adjacent_layer_requested.emit(-1)
@@ -735,7 +769,7 @@ class _TimelineCanvasInteractionMixin:
                 or self.presentation.selected_layer_id is not None
                 or bool(self.presentation.selected_layer_ids)
             ):
-                self.select_adjacent_event_requested.emit(-1)
+                self.select_adjacent_event_requested.emit(-1, self._fix_nav_include_demoted)
             return True
         if event.key() == Qt.Key.Key_Right:
             if (
@@ -744,7 +778,7 @@ class _TimelineCanvasInteractionMixin:
                 or self.presentation.selected_layer_id is not None
                 or bool(self.presentation.selected_layer_ids)
             ):
-                self.select_adjacent_event_requested.emit(1)
+                self.select_adjacent_event_requested.emit(1, self._fix_nav_include_demoted)
             return True
         if event.key() in (Qt.Key.Key_Comma, Qt.Key.Key_Less):
             return self._navigate_fix_overlay_selection(-1)
@@ -767,7 +801,10 @@ class _TimelineCanvasInteractionMixin:
                 or self.presentation.selected_layer_id is not None
                 or bool(self.presentation.selected_layer_ids)
             ):
-                self.select_adjacent_event_requested.emit(1 if direction > 0 else -1)
+                self.select_adjacent_event_requested.emit(
+                    1 if direction > 0 else -1,
+                    self._fix_nav_include_demoted,
+                )
                 return True
             return False
 
@@ -1309,10 +1346,14 @@ class _TimelineCanvasInteractionMixin:
                 self.delete_events_requested.emit(event_refs)
             return
         if normalized_action == "promote":
+            event_refs = self._event_refs_intersecting_rect(rect)
+            if event_refs:
+                self.fix_promote_selected_requested.emit(event_refs)
             fix_rects = self._fix_rects_intersecting_rect(rect, only_unmatched=True)
             if not fix_rects:
                 return
-            for _rect, layer_id, take_id, source_event_id, start, end, _matched in fix_rects:
+            if len(fix_rects) == 1:
+                _rect, layer_id, take_id, source_event_id, start, end, _matched = fix_rects[0]
                 self.fix_promote_requested.emit(
                     layer_id,
                     take_id,
@@ -1320,6 +1361,18 @@ class _TimelineCanvasInteractionMixin:
                     float(end),
                     source_event_id,
                 )
+            else:
+                payload = [
+                    (
+                        layer_id,
+                        take_id,
+                        float(start),
+                        float(end),
+                        source_event_id,
+                    )
+                    for _rect, layer_id, take_id, source_event_id, start, end, _matched in fix_rects
+                ]
+                self.fix_promote_batch_requested.emit(payload)
             self._set_focused_fix_overlay(fix_rects[-1])
             return
         self._apply_event_marquee_selection(rect, modifiers=modifiers)

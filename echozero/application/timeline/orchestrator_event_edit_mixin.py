@@ -5,13 +5,25 @@ Connects selected event context to atomic event-edit and take-edit operations on
 
 from __future__ import annotations
 
+from copy import deepcopy
+
+from echozero.application.shared.cue_numbers import CueNumber, cue_number_text
+from echozero.application.shared.enums import LayerKind
 from echozero.application.shared.layer_kinds import is_event_like_layer_kind
 from echozero.application.shared.ids import EventId, LayerId, TakeId
 from echozero.application.shared.ranges import TimeRange
-from echozero.application.timeline.models import Event, EventRef, Layer, Take, Timeline
+from echozero.application.timeline.models import (
+    Event,
+    EventRef,
+    Layer,
+    Take,
+    Timeline,
+    cue_number_from_ref,
+)
 from echozero.application.timeline.orchestrator_selection_state_mixin import (
     TimelineOrchestratorSelectionStateMixin,
 )
+from echozero.application.timeline.intents import ReplaceSectionCues, SectionCueEdit, TrimEvent, UpdateEventLabel
 
 
 class TimelineOrchestratorEventEditMixin(TimelineOrchestratorSelectionStateMixin):
@@ -25,13 +37,48 @@ class TimelineOrchestratorEventEditMixin(TimelineOrchestratorSelectionStateMixin
         take_id: TakeId | None,
         time_range: TimeRange,
         label: str,
-        cue_number: int,
+        cue_number: CueNumber,
         source_event_id: str | None = None,
         payload_ref: str | None = None,
         color: str | None = None,
     ) -> None:
         layer = self._find_layer(timeline, layer_id)
         if not is_event_like_layer_kind(layer.kind) or layer.presentation_hints.locked:
+            return
+
+        if layer.kind is LayerKind.SECTION:
+            target_take = self._resolve_or_create_main_take(layer)
+            section_start = float(time_range.start)
+            section_cue_number = self._next_section_cue_number(target_take)
+            cue_suffix = cue_number_text(section_cue_number) or str(section_cue_number)
+            normalized_label = str(label or "").strip()
+            section_label = (
+                f"Section {cue_suffix}"
+                if not normalized_label or normalized_label.casefold() == "event"
+                else normalized_label
+            )
+            new_event = Event(
+                id=self._next_created_event_id(timeline, target_take),
+                take_id=target_take.id,
+                start=section_start,
+                end=section_start + 0.08,
+                origin="manual_added",
+                classifications={"label": section_label} if section_label else {},
+                metadata={},
+                cue_number=section_cue_number,
+                label=section_label,
+                cue_ref=f"Q{cue_suffix}",
+                source_event_id=source_event_id,
+                payload_ref=payload_ref,
+                color=color,
+            )
+            target_take.events = self._sorted_events([*target_take.events, new_event])
+            timeline.selection.selected_layer_id = layer.id
+            timeline.selection.selected_layer_ids = [layer.id]
+            timeline.selection.selected_take_id = target_take.id
+            self._set_selected_event_refs(
+                timeline, [self._event_ref(layer.id, target_take.id, new_event.id)]
+            )
             return
 
         target_take = (
@@ -45,6 +92,9 @@ class TimelineOrchestratorEventEditMixin(TimelineOrchestratorSelectionStateMixin
             take_id=target_take.id,
             start=float(time_range.start),
             end=float(time_range.end),
+            origin="manual_added",
+            classifications={"label": label} if label else {},
+            metadata={},
             cue_number=cue_number,
             label=label,
             source_event_id=source_event_id,
@@ -58,6 +108,13 @@ class TimelineOrchestratorEventEditMixin(TimelineOrchestratorSelectionStateMixin
         self._set_selected_event_refs(
             timeline, [self._event_ref(layer.id, target_take.id, new_event.id)]
         )
+
+    @staticmethod
+    def _next_section_cue_number(take: Take) -> CueNumber:
+        if not take.events:
+            return 1
+        highest_existing = max(float(event.cue_number) for event in take.events)
+        return max(1, int(highest_existing) + 1)
 
     def _handle_delete_events(
         self,
@@ -126,6 +183,173 @@ class TimelineOrchestratorEventEditMixin(TimelineOrchestratorSelectionStateMixin
             [] if fallback_layer_id is None else [fallback_layer_id]
         )
         timeline.selection.selected_take_id = None
+
+    def _handle_trim_event(
+        self,
+        timeline: Timeline,
+        *,
+        event_id: EventId,
+        new_range: TimeRange,
+    ) -> None:
+        records = self._selected_event_records(
+            timeline,
+            self._resolve_event_refs_by_ids(
+                timeline,
+                [event_id],
+                preferred_layer_ids=list(timeline.selection.selected_layer_ids),
+                preferred_take_id=timeline.selection.selected_take_id,
+            ),
+        )
+        if not records:
+            return
+
+        for record in records:
+            if record.event.id != event_id:
+                continue
+            record.event.start = float(new_range.start)
+            record.event.end = float(new_range.end)
+            record.take.events = self._sorted_events(record.take.events)
+            timeline.selection.selected_layer_id = record.layer.id
+            timeline.selection.selected_layer_ids = [record.layer.id]
+            timeline.selection.selected_take_id = record.take.id
+            self._set_selected_event_refs(
+                timeline,
+                [self._event_ref(record.layer.id, record.take.id, record.event.id)],
+            )
+            return
+
+    def _handle_update_event_label(
+        self,
+        timeline: Timeline,
+        *,
+        event_id: EventId,
+        label: str,
+        layer_id: LayerId | None = None,
+        take_id: TakeId | None = None,
+    ) -> None:
+        preferred_layer_ids = [layer_id] if layer_id is not None else list(
+            timeline.selection.selected_layer_ids
+        )
+        preferred_take_id = take_id if take_id is not None else timeline.selection.selected_take_id
+        records = self._selected_event_records(
+            timeline,
+            self._resolve_event_refs_by_ids(
+                timeline,
+                [event_id],
+                preferred_layer_ids=preferred_layer_ids,
+                preferred_take_id=preferred_take_id,
+            ),
+        )
+        if not records:
+            return
+
+        for record in records:
+            if record.event.id != event_id:
+                continue
+            record.event.label = label
+            timeline.selection.selected_layer_id = record.layer.id
+            timeline.selection.selected_layer_ids = [record.layer.id]
+            timeline.selection.selected_take_id = record.take.id
+            self._set_selected_event_refs(
+                timeline,
+                [self._event_ref(record.layer.id, record.take.id, record.event.id)],
+            )
+            return
+
+    def _handle_replace_section_cues(
+        self,
+        timeline: Timeline,
+        *,
+        cues: list[SectionCueEdit],
+    ) -> None:
+        section_layer = self._section_layer(timeline)
+        if section_layer is None and not cues:
+            return
+        if section_layer is None:
+            section_layer = self._create_section_layer(timeline)
+        if section_layer.presentation_hints.locked:
+            return
+
+        main_take = self._resolve_or_create_main_take(section_layer)
+        existing_by_id = {str(event.id): event for event in main_take.events}
+        replacement_events: list[Event] = []
+        for cue in sorted(cues, key=lambda value: (float(value.start), str(value.cue_id or ""))):
+            existing = (
+                existing_by_id.get(str(cue.cue_id))
+                if cue.cue_id is not None
+                else None
+            )
+            event_id = existing.id if existing is not None else self._next_created_event_id(
+                timeline,
+                main_take,
+            )
+            payload_ref = cue.payload_ref or (existing.payload_ref if existing is not None else None)
+            replacement_events.append(
+                Event(
+                    id=event_id,
+                    take_id=main_take.id,
+                    start=float(cue.start),
+                    end=float(cue.start) + 0.08,
+                    origin=existing.origin if existing is not None else "manual_added",
+                    classifications={"label": cue.name} if cue.name else {},
+                    metadata=deepcopy(existing.metadata) if existing is not None else {},
+                    cue_number=cue_number_from_ref(
+                        cue.cue_ref,
+                        fallback=existing.cue_number if existing is not None else 1,
+                    ),
+                    source_event_id=existing.source_event_id if existing is not None else None,
+                    parent_event_id=existing.parent_event_id if existing is not None else None,
+                    payload_ref=payload_ref,
+                    label=cue.name,
+                    cue_ref=cue.cue_ref,
+                    color=cue.color,
+                    notes=cue.notes,
+                    muted=existing.muted if existing is not None else False,
+                )
+            )
+
+        main_take.events = self._sorted_events(replacement_events)
+        timeline.selection.selected_layer_id = section_layer.id
+        timeline.selection.selected_layer_ids = [section_layer.id]
+        timeline.selection.selected_take_id = main_take.id
+        self._set_selected_event_refs(timeline, [])
+
+    @staticmethod
+    def _section_layer(timeline: Timeline) -> Layer | None:
+        section_layers = sorted(
+            (layer for layer in timeline.layers if layer.kind is LayerKind.SECTION),
+            key=lambda layer: (int(layer.order_index), str(layer.id)),
+        )
+        return section_layers[0] if section_layers else None
+
+    @staticmethod
+    def _next_created_section_layer_id(timeline: Timeline) -> LayerId:
+        existing_ids = {str(layer.id) for layer in timeline.layers}
+        if "layer_sections" not in existing_ids:
+            return LayerId("layer_sections")
+        index = 2
+        while True:
+            candidate = f"layer_sections_{index}"
+            if candidate not in existing_ids:
+                return LayerId(candidate)
+            index += 1
+
+    def _create_section_layer(self, timeline: Timeline) -> Layer:
+        source_present = any(layer.id == LayerId("source_audio") for layer in timeline.layers)
+        insert_order = 1 if source_present else 0
+        for layer in timeline.layers:
+            if int(layer.order_index) >= insert_order:
+                layer.order_index += 1
+        section_layer = Layer(
+            id=self._next_created_section_layer_id(timeline),
+            timeline_id=timeline.id,
+            name="Sections",
+            kind=LayerKind.SECTION,
+            order_index=insert_order,
+        )
+        timeline.layers.append(section_layer)
+        timeline.layers = sorted(timeline.layers, key=lambda layer: (int(layer.order_index), str(layer.id)))
+        return section_layer
 
     def _handle_trigger_take_action(
         self,
@@ -240,18 +464,12 @@ class TimelineOrchestratorEventEditMixin(TimelineOrchestratorSelectionStateMixin
                         record.event,
                         existing_ids,
                     )
-                    duplicate = Event(
-                        id=duplicate_id,
-                        take_id=record.take.id,
+                    duplicate = self._duplicate_event(
+                        record.event,
+                        duplicate_id=duplicate_id,
+                        target_take_id=record.take.id,
                         start=record.event.start + applied_delta,
                         end=record.event.end + applied_delta,
-                        cue_number=record.event.cue_number,
-                        source_event_id=record.event.source_event_id,
-                        parent_event_id=str(record.event.id),
-                        payload_ref=record.event.payload_ref,
-                        label=record.event.label,
-                        color=record.event.color,
-                        muted=record.event.muted,
                     )
                     record.take.events.append(duplicate)
                     affected_takes[record.take.id] = record.take
@@ -289,18 +507,12 @@ class TimelineOrchestratorEventEditMixin(TimelineOrchestratorSelectionStateMixin
                     record.event,
                     existing_ids,
                 )
-                duplicate = Event(
-                    id=duplicate_id,
-                    take_id=target_take.id,
+                duplicate = self._duplicate_event(
+                    record.event,
+                    duplicate_id=duplicate_id,
+                    target_take_id=target_take.id,
                     start=record.event.start + applied_delta,
                     end=record.event.end + applied_delta,
-                    cue_number=record.event.cue_number,
-                    source_event_id=record.event.source_event_id,
-                    parent_event_id=str(record.event.id),
-                    payload_ref=record.event.payload_ref,
-                    label=record.event.label,
-                    color=record.event.color,
-                    muted=record.event.muted,
                 )
                 target_take.events.append(duplicate)
                 existing_ids.add(str(duplicate.id))
@@ -523,18 +735,12 @@ class TimelineOrchestratorEventEditMixin(TimelineOrchestratorSelectionStateMixin
 
         for layer, take, event in selected:
             duplicate_id = self._next_duplicate_event_id(take, event, existing_ids)
-            duplicate = Event(
-                id=duplicate_id,
-                take_id=take.id,
+            duplicate = self._duplicate_event(
+                event,
+                duplicate_id=duplicate_id,
+                target_take_id=take.id,
                 start=event.start + delta,
                 end=event.end + delta,
-                cue_number=event.cue_number,
-                source_event_id=event.source_event_id,
-                parent_event_id=str(event.id),
-                payload_ref=event.payload_ref,
-                label=event.label,
-                color=event.color,
-                muted=event.muted,
             )
             take.events = self._sorted_events([*take.events, duplicate])
             existing_ids.add(str(duplicate.id))
@@ -562,21 +768,43 @@ class TimelineOrchestratorEventEditMixin(TimelineOrchestratorSelectionStateMixin
         clones: list[Event] = []
         for idx, event in enumerate(events, start=1):
             clones.append(
-                Event(
-                    id=EventId(f"{target_take.id}:from:{event.id}:{idx}"),
-                    take_id=target_take.id,
+                TimelineOrchestratorEventEditMixin._duplicate_event(
+                    event,
+                    duplicate_id=EventId(f"{target_take.id}:from:{event.id}:{idx}"),
+                    target_take_id=target_take.id,
                     start=event.start,
                     end=event.end,
-                    cue_number=event.cue_number,
-                    source_event_id=event.source_event_id,
-                    parent_event_id=str(event.id),
-                    payload_ref=event.payload_ref,
-                    label=event.label,
-                    color=event.color,
-                    muted=event.muted,
                 )
             )
         return clones
+
+    @staticmethod
+    def _duplicate_event(
+        event: Event,
+        *,
+        duplicate_id: EventId,
+        target_take_id: TakeId,
+        start: float,
+        end: float,
+    ) -> Event:
+        return Event(
+            id=duplicate_id,
+            take_id=target_take_id,
+            start=start,
+            end=end,
+            origin=event.origin,
+            classifications=dict(event.classifications),
+            metadata=dict(event.metadata),
+            cue_number=event.cue_number,
+            source_event_id=event.source_event_id,
+            parent_event_id=str(event.id),
+            payload_ref=event.payload_ref,
+            label=event.label,
+            cue_ref=event.cue_ref,
+            color=event.color,
+            notes=event.notes,
+            muted=event.muted,
+        )
 
     @staticmethod
     def _sorted_events(events: list[Event]) -> list[Event]:

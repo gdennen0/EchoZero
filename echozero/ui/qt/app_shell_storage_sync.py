@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 from datetime import datetime, timezone
-from typing import Protocol
+from typing import Any, Protocol
 
 from echozero.application.session.models import Session
 from echozero.application.shared.layer_kinds import is_event_like_layer_kind
@@ -135,25 +135,94 @@ def sync_storage_backed_timeline(shell: StorageSyncShell) -> None:
     runtime_layer_ids = {str(layer.id) for layer in runtime_layers}
 
     with shell.project_storage.transaction():
-        for record in existing_records.values():
-            if record.layer_type == "manual" and record.id not in runtime_layer_ids:
-                shell.project_storage.layers.delete(record.id)
-
-        for layer in runtime_layers:
-            existing = existing_records.get(str(layer.id))
-            if existing is None:
-                persist_manual_layer(
-                    shell,
-                    layer,
-                    song_version_id=persisted_song_version_id,
-                    order=max(0, int(layer.order_index) - 1),
-                )
-            else:
-                shell.project_storage.layers.update(runtime_layer_record(layer, existing=existing))
-            sync_runtime_take_records(shell, layer)
+        _sync_runtime_layers(
+            shell,
+            song_version_id=persisted_song_version_id,
+            existing_records=existing_records,
+            runtime_layers=runtime_layers,
+            runtime_layer_ids=runtime_layer_ids,
+        )
         _sync_runtime_region_records(shell, song_version_id=persisted_song_version_id)
 
     shell.project_storage.dirty_tracker.mark_dirty(persisted_song_version_id)
+
+
+def sync_storage_backed_layers(
+    shell: StorageSyncShell,
+    *,
+    layer_ids: list[LayerId],
+) -> None:
+    song_version_id = shell.session.active_song_version_id
+    if song_version_id is None:
+        return
+    target_ids = {
+        str(layer_id)
+        for layer_id in list(layer_ids)
+        if layer_id is not None and str(layer_id).strip() and str(layer_id) != "source_audio"
+    }
+    if not target_ids:
+        return
+
+    persisted_song_version_id = str(song_version_id)
+    existing_records = {
+        record.id: record
+        for record in shell.project_storage.layers.list_by_version(persisted_song_version_id)
+    }
+    runtime_layer_by_id = {
+        str(layer.id): layer
+        for layer in shell._app.timeline.layers
+    }
+    runtime_layers = [
+        runtime_layer_by_id[layer_id]
+        for layer_id in target_ids
+        if layer_id in runtime_layer_by_id
+        and (
+            is_event_like_layer_kind(runtime_layer_by_id[layer_id].kind)
+            or layer_id in existing_records
+        )
+    ]
+    runtime_layer_ids = {str(layer.id) for layer in runtime_layers}
+    existing_subset = {
+        record_id: record
+        for record_id, record in existing_records.items()
+        if record_id in target_ids
+    }
+
+    with shell.project_storage.transaction():
+        _sync_runtime_layers(
+            shell,
+            song_version_id=persisted_song_version_id,
+            existing_records=existing_subset,
+            runtime_layers=runtime_layers,
+            runtime_layer_ids=runtime_layer_ids,
+        )
+    shell.project_storage.dirty_tracker.mark_dirty(persisted_song_version_id)
+
+
+def _sync_runtime_layers(
+    shell: StorageSyncShell,
+    *,
+    song_version_id: str,
+    existing_records: dict[str, Any],
+    runtime_layers: list[Layer],
+    runtime_layer_ids: set[str],
+) -> None:
+    for record in existing_records.values():
+        if record.layer_type == "manual" and record.id not in runtime_layer_ids:
+            shell.project_storage.layers.delete(record.id)
+
+    for layer in runtime_layers:
+        existing = existing_records.get(str(layer.id))
+        if existing is None:
+            persist_manual_layer(
+                shell,
+                layer,
+                song_version_id=song_version_id,
+                order=max(0, int(layer.order_index) - 1),
+            )
+        else:
+            shell.project_storage.layers.update(runtime_layer_record(layer, existing=existing))
+        sync_runtime_take_records(shell, layer)
 
 
 def _sync_runtime_region_records(

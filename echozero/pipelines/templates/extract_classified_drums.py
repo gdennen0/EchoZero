@@ -46,8 +46,9 @@ from echozero.pipelines.registry import pipeline_template
             max_value=1.0,
             step=0.01,
             description=(
-                "Stage 2 (classification): minimum kick model confidence required to keep"
-                " a detected candidate as a kick event."
+                "Stage 2 (classification): minimum kick model confidence required to"
+                " promote a detected candidate. Lower-scoring candidates still persist"
+                " as demoted reviewable events."
             ),
             maps_to_block="classify_drums",
         ),
@@ -58,8 +59,9 @@ from echozero.pipelines.registry import pipeline_template
             max_value=1.0,
             step=0.01,
             description=(
-                "Stage 2 (classification): minimum snare model confidence required to keep"
-                " a detected candidate as a snare event."
+                "Stage 2 (classification): minimum snare model confidence required to"
+                " promote a detected candidate. Lower-scoring candidates still persist"
+                " as demoted reviewable events."
             ),
             maps_to_block="classify_drums",
         ),
@@ -81,7 +83,7 @@ from echozero.pipelines.registry import pipeline_template
             maps_to_setting="freq",
         ),
         "kick_onset_threshold": knob(
-            0.25,
+            0.150,
             label="Kick Detection Threshold",
             min_value=0.0,
             max_value=1.0,
@@ -111,7 +113,7 @@ from echozero.pipelines.registry import pipeline_template
             maps_to_setting="freq",
         ),
         "snare_onset_threshold": knob(
-            0.3,
+            0.150,
             label="Snare Detection Threshold",
             min_value=0.0,
             max_value=1.0,
@@ -250,10 +252,10 @@ def build_extract_classified_drums(
     snare_positive_threshold=0.65,
     kick_filter_enabled=True,
     kick_filter_freq=180.0,
-    kick_onset_threshold=0.25,
+    kick_onset_threshold=0.150,
     snare_filter_enabled=True,
     snare_filter_freq=180.0,
-    snare_onset_threshold=0.3,
+    snare_onset_threshold=0.150,
     kick_filter_type="lowpass",
     kick_onset_min_gap=0.08,
     kick_onset_method="default",

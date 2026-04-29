@@ -7,6 +7,9 @@ from echozero.ui.style.tokens import SHELL_TOKENS, ShellTokens
 def build_object_info_panel_qss(tokens: ShellTokens = SHELL_TOKENS) -> str:
     scales = tokens.scales
     root = "QWidget#objectInfoPanel"
+    compact_field_padding_h = max(6, scales.field_padding_h - 2)
+    compact_field_padding_v = max(4, scales.field_padding_v - 1)
+    splitter_handle_margin_h = max(56, scales.panel_padding * 4)
     return f"""
         {root} {{
             background: {tokens.panel_bg};
@@ -31,7 +34,7 @@ def build_object_info_panel_qss(tokens: ShellTokens = SHELL_TOKENS) -> str:
         {root} QSplitter#timeline_object_info_splitter::handle:vertical {{
             background: {tokens.section_border};
             border-radius: {max(1, scales.panel_radius // 2)}px;
-            margin: 1px 120px;
+            margin: 1px {splitter_handle_margin_h}px;
         }}
         {root} QScrollArea#timeline_object_info_scroll {{
             background: transparent;
@@ -82,7 +85,7 @@ def build_object_info_panel_qss(tokens: ShellTokens = SHELL_TOKENS) -> str:
             background: {tokens.control_bg};
             border: {scales.border_width}px solid {tokens.control_border_active};
             border-radius: 11px;
-            padding: 2px 10px;
+            padding: 2px {compact_field_padding_h}px;
             font-size: 11px;
             font-weight: 600;
         }}
@@ -107,7 +110,7 @@ def build_object_info_panel_qss(tokens: ShellTokens = SHELL_TOKENS) -> str:
             border: {scales.border_width}px solid {tokens.control_border};
             border-radius: {scales.button_radius}px;
             color: {tokens.control_text};
-            padding: {scales.field_padding_v}px {scales.field_padding_h}px;
+            padding: {compact_field_padding_v}px {compact_field_padding_h}px;
             min-height: 28px;
             font-weight: 600;
         }}
@@ -138,7 +141,7 @@ def build_object_info_panel_qss(tokens: ShellTokens = SHELL_TOKENS) -> str:
             border: {scales.border_width}px solid {tokens.control_border};
             border-radius: {scales.button_radius}px;
             color: {tokens.control_text};
-            padding: {scales.field_padding_v}px {scales.field_padding_h}px;
+            padding: {compact_field_padding_v}px {compact_field_padding_h}px;
             min-height: 26px;
         }}
         {root} QSlider::groove:horizontal {{
@@ -186,7 +189,8 @@ def build_timeline_editor_bar_qss(tokens: ShellTokens = SHELL_TOKENS) -> str:
         {root} QPushButton#timelineEditorRegionsButton,
         {root} QPushButton#timelineEditorFixRemoveButton,
         {root} QPushButton#timelineEditorFixSelectButton,
-        {root} QPushButton#timelineEditorFixPromoteButton {{
+        {root} QPushButton#timelineEditorFixPromoteButton,
+        {root} QPushButton#timelineEditorFixDemotedNavButton {{
             background: {tokens.control_bg};
             border: {scales.border_width}px solid {tokens.control_border};
             border-radius: {scales.button_radius}px;
@@ -216,7 +220,8 @@ def build_timeline_editor_bar_qss(tokens: ShellTokens = SHELL_TOKENS) -> str:
             min-width: 34px;
         }}
         {root} QPushButton[timelineModeButton='true']:checked,
-        {root} QPushButton#timelineEditorSnapButton:checked {{
+        {root} QPushButton#timelineEditorSnapButton:checked,
+        {root} QPushButton#timelineEditorFixDemotedNavButton:checked {{
             background: {tokens.control_bg_active};
             border-color: {tokens.control_border_active};
             color: {tokens.text_primary};
@@ -228,7 +233,8 @@ def build_timeline_editor_bar_qss(tokens: ShellTokens = SHELL_TOKENS) -> str:
         {root} QPushButton#timelineEditorRegionsButton:disabled,
         {root} QPushButton#timelineEditorFixRemoveButton:disabled,
         {root} QPushButton#timelineEditorFixSelectButton:disabled,
-        {root} QPushButton#timelineEditorFixPromoteButton:disabled {{
+        {root} QPushButton#timelineEditorFixPromoteButton:disabled,
+        {root} QPushButton#timelineEditorFixDemotedNavButton:disabled {{
             color: {tokens.control_text_disabled};
             border-color: {tokens.panel_border};
             background: {tokens.control_bg_disabled};
@@ -240,14 +246,16 @@ def build_timeline_editor_bar_qss(tokens: ShellTokens = SHELL_TOKENS) -> str:
         {root} QPushButton#timelineEditorRegionsButton:focus,
         {root} QPushButton#timelineEditorFixRemoveButton:focus,
         {root} QPushButton#timelineEditorFixSelectButton:focus,
-        {root} QPushButton#timelineEditorFixPromoteButton:focus {{
+        {root} QPushButton#timelineEditorFixPromoteButton:focus,
+        {root} QPushButton#timelineEditorFixDemotedNavButton:focus {{
             border-color: {tokens.control_border_active};
         }}
         {root}[compact='true'] QPushButton[timelineModeButton='true'],
         {root}[compact='true'] QPushButton#timelineEditorGridButton,
         {root}[compact='true'] QPushButton#timelineEditorSettingsButton,
         {root}[compact='true'] QPushButton#timelineEditorRegionsButton,
-        {root}[compact='true'] QPushButton#timelineEditorFixSelectButton {{
+        {root}[compact='true'] QPushButton#timelineEditorFixSelectButton,
+        {root}[compact='true'] QPushButton#timelineEditorFixDemotedNavButton {{
             min-width: 28px;
             padding-left: {max(4, scales.field_padding_h - 4)}px;
             padding-right: {max(4, scales.field_padding_h - 4)}px;
@@ -433,6 +441,7 @@ def build_song_browser_panel_qss(tokens: ShellTokens = SHELL_TOKENS) -> str:
         {root}[collapsed=true] {{
             background: {tokens.control_bg};
             border: {scales.border_width}px solid {tokens.control_border};
+            border-radius: {scales.panel_radius}px;
         }}
         {root} QLabel#songBrowserTitle {{
             color: {tokens.text_primary};

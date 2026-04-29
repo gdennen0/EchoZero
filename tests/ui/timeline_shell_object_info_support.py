@@ -108,6 +108,52 @@ def test_object_info_panel_exposes_ma3_routing_button_outside_context_menu():
         app.processEvents()
 
 
+def test_object_info_panel_audio_output_route_selector_dispatches_set_layer_output_bus():
+    app = QApplication.instance() or QApplication([])
+    intents: list[object] = []
+    base = _selection_test_presentation()
+    audio_layer = replace(
+        base.layers[0],
+        kind=LayerKind.AUDIO,
+        source_audio_path="kick.wav",
+        playback_source_ref="kick.wav",
+    )
+    presentation = replace(
+        base,
+        layers=[audio_layer],
+        selected_layer_id=LayerId("layer_kick"),
+        selected_layer_ids=[LayerId("layer_kick")],
+        playback_output_channels=4,
+    )
+    widget = TimelineWidget(
+        presentation, on_intent=lambda intent: intents.append(intent) or presentation
+    )
+    try:
+        _render_for_hit_testing(widget)
+
+        output_route_combo = widget._object_info._output_bus_combo
+        assert output_route_combo.isVisible() is True
+        option_labels = [
+            output_route_combo.itemText(index) for index in range(output_route_combo.count())
+        ]
+        assert option_labels == [
+            "Default Output (1/2)",
+            "Outputs 1/2",
+            "Outputs 3/4",
+        ]
+
+        output_route_combo.setCurrentIndex(2)
+        widget._object_info._output_bus_apply_btn.click()
+
+        assert intents[-1] == SetLayerOutputBus(
+            layer_id=LayerId("layer_kick"),
+            output_bus="outputs_3_4",
+        )
+    finally:
+        widget.close()
+        app.processEvents()
+
+
 def test_object_info_panel_updates_for_main_lane_event_selection():
     app = QApplication.instance() or QApplication([])
     harness = _SelectionInspectorHarness(_selection_test_presentation())
@@ -324,6 +370,42 @@ def test_object_info_panel_remains_contract_rendered_through_selection_transitio
         app.processEvents()
 
 
+def test_zoom_does_not_rebuild_object_info_contract(monkeypatch):
+    app = QApplication.instance() or QApplication([])
+    widget = TimelineWidget(_selection_test_presentation())
+    try:
+        _render_for_hit_testing(widget)
+
+        set_contract_calls = 0
+        set_plans_calls = 0
+        original_set_contract = widget._object_info.set_contract
+        original_set_plans = widget._object_info.set_action_settings_plans
+
+        def _set_contract(*args, **kwargs):
+            nonlocal set_contract_calls
+            set_contract_calls += 1
+            return original_set_contract(*args, **kwargs)
+
+        def _set_plans(*args, **kwargs):
+            nonlocal set_plans_calls
+            set_plans_calls += 1
+            return original_set_plans(*args, **kwargs)
+
+        monkeypatch.setattr(widget._object_info, "set_contract", _set_contract)
+        monkeypatch.setattr(widget._object_info, "set_action_settings_plans", _set_plans)
+
+        before_pps = widget.presentation.pixels_per_second
+        widget._zoom_from_input(120, anchor_x=widget._canvas._header_width + 120.0)
+        QApplication.processEvents()
+
+        assert widget.presentation.pixels_per_second > before_pps
+        assert set_contract_calls == 0
+        assert set_plans_calls == 0
+    finally:
+        widget.close()
+        app.processEvents()
+
+
 def test_object_info_panel_keeps_no_takes_indication_for_empty_layer():
     app = QApplication.instance() or QApplication([])
     presentation = replace(
@@ -490,6 +572,7 @@ def test_context_menu_timeline_hit_is_scoped_to_timeline_actions():
         labels = [action.text() for action in menu.actions() if not action.isSeparator()]
 
         assert "Add Song" in labels
+        assert "Add SMPTE Layer" in labels
         assert any(label.startswith("Seek to") for label in labels)
         assert "Push to MA3" not in labels
         assert "Route Audio to Master" not in labels
@@ -532,6 +615,39 @@ def test_context_menu_layer_hit_is_scoped_to_layer_actions():
         app.processEvents()
 
 
+def test_context_menu_smpte_layer_shows_import_smpte_audio_action():
+    app = QApplication.instance() or QApplication([])
+    base = _selection_test_presentation()
+    smpte_layer = replace(
+        base.layers[0],
+        kind=LayerKind.AUDIO,
+        title="SMPTE Layer",
+    )
+    presentation = replace(
+        base,
+        layers=[smpte_layer],
+        selected_layer_id=LayerId("layer_kick"),
+        selected_layer_ids=[LayerId("layer_kick")],
+    )
+    widget = TimelineWidget(presentation)
+    try:
+        _render_for_hit_testing(widget)
+
+        contract = build_timeline_inspector_contract(
+            widget.presentation,
+            hit_target=TimelineInspectorHitTarget(
+                kind="layer", layer_id=LayerId("layer_kick"), time_seconds=1.0
+            ),
+        )
+        menu = widget._canvas._build_context_menu(contract, hit_kind="layer")
+        labels = [action.text() for action in menu.actions() if not action.isSeparator()]
+
+        assert "Import SMPTE Audio" in labels
+    finally:
+        widget.close()
+        app.processEvents()
+
+
 def test_context_menu_take_hit_is_scoped_to_take_actions():
     app = QApplication.instance() or QApplication([])
     widget = TimelineWidget(_selection_test_presentation())
@@ -555,7 +671,11 @@ def test_context_menu_take_hit_is_scoped_to_take_actions():
         assert "Delete Take" in labels
         assert "Select Every Other in Take" in labels
         assert "Renumber Cues from 1 in Take" in labels
-        assert "Push to MA3" not in labels
+        assert "Import Event Layer from MA3" in labels
+        assert "Route Layer to MA3 Track" in labels
+        assert "Send Layer to MA3" in labels
+        assert "Send Selected Events to MA3" in labels
+        assert "Send to Different Track Once" in labels
         assert "Route Audio to Master" not in labels
         assert "Add Song" not in labels
     finally:
@@ -593,7 +713,11 @@ def test_context_menu_event_hit_is_scoped_to_event_selection_actions():
         assert "Duplicate" in labels
         assert "Select Every Other" in labels
         assert "Renumber Cues from 1" in labels
+        assert "Import Event Layer from MA3" in labels
+        assert "Route Layer to MA3 Track" in labels
+        assert "Send Layer to MA3" in labels
         assert "Send Selected Events to MA3" in labels
+        assert "Send to Different Track Once" in labels
         assert "Push to MA3" not in labels
         assert "Route Audio to Master" not in labels
         assert "Add Song" not in labels
@@ -623,6 +747,10 @@ def test_context_menu_unselected_main_event_can_send_single_event_to_ma3():
 
         assert "Send Event to MA3" in labels
         assert "Send Selected Events to MA3" not in labels
+        assert "Import Event Layer from MA3" in labels
+        assert "Route Layer to MA3 Track" in labels
+        assert "Send Layer to MA3" in labels
+        assert "Send to Different Track Once" in labels
     finally:
         widget.close()
         app.processEvents()

@@ -3,6 +3,13 @@
 Status: active implementation plan
 Last verified: 2026-04-24
 
+Scope note:
+- This document remains the shared review-signal dependency plan.
+- For the broader active milestone that includes manual missed-event capture,
+  dataset accessibility, EZ-side specialized-model creation, and promoted-model
+  adoption for pending work, use
+  `docs/PROJECT-ADAPTIVE-REVIEW-LOOP-EXECUTION-PLAN.md`.
+
 Primary source:
 - [REVIEW-SIGNAL-FEATURE-SPEC.md](REVIEW-SIGNAL-FEATURE-SPEC.md)
 

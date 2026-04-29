@@ -9,7 +9,7 @@ from dataclasses import dataclass, replace
 
 from echozero.application.presentation.models import TimelinePresentation
 from echozero.application.session.models import Session
-from echozero.application.shared.enums import SyncMode
+from echozero.application.shared.enums import FollowMode, SyncMode
 from echozero.application.sync.models import SyncState
 from echozero.application.sync.service import SyncService
 from echozero.application.timeline.intents import (
@@ -28,7 +28,9 @@ from echozero.application.timeline.intents import (
     SelectLayer,
     SelectTake,
     SetActivePlaybackTarget,
+    SetFollowCursorEnabled,
     SetGain,
+    SetLayerOutputBus,
     SetSelectedEvents,
     Stop,
     TimelineIntent,
@@ -90,11 +92,27 @@ class DemoTimelineApp:
             if self.runtime_audio is not None:
                 self.runtime_audio.seek(intent.position)
             self.session.transport_state.playhead = max(0.0, intent.position)
+        elif isinstance(intent, SetFollowCursorEnabled):
+            if intent.enabled:
+                if self.session.transport_state.follow_mode == FollowMode.OFF:
+                    self.session.transport_state.follow_mode = FollowMode.CENTER
+            else:
+                self.session.transport_state.follow_mode = FollowMode.OFF
         elif isinstance(intent, SetGain):
             layers = []
             for layer in self.presentation_state.layers:
                 if layer.layer_id == intent.layer_id:
                     layers.append(replace(layer, gain_db=float(intent.gain_db)))
+                else:
+                    layers.append(layer)
+            self.presentation_state = replace(self.presentation_state, layers=layers)
+            if self.runtime_audio is not None:
+                self.runtime_audio.apply_mix_state(self.presentation_state)
+        elif isinstance(intent, SetLayerOutputBus):
+            layers = []
+            for layer in self.presentation_state.layers:
+                if layer.layer_id == intent.layer_id:
+                    layers.append(replace(layer, output_bus=intent.output_bus))
                 else:
                     layers.append(layer)
             self.presentation_state = replace(self.presentation_state, layers=layers)
@@ -260,6 +278,7 @@ class DemoTimelineApp:
             self.presentation_state,
             is_playing=self.session.transport_state.is_playing,
             playhead=self.session.transport_state.playhead,
+            follow_mode=self.session.transport_state.follow_mode,
             current_time_label=format_demo_time(self.session.transport_state.playhead),
         )
         return self.presentation_state

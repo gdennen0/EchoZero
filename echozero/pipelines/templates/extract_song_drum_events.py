@@ -93,8 +93,9 @@ from echozero.pipelines.registry import pipeline_template
             max_value=1.0,
             step=0.01,
             description=(
-                "Stage 2 (classification): minimum kick model confidence required to keep"
-                " a detected candidate as a kick event."
+                "Stage 2 (classification): minimum kick model confidence required to"
+                " promote a detected candidate. Lower-scoring candidates still persist"
+                " as demoted reviewable events."
             ),
             maps_to_block="classify_drums",
         ),
@@ -105,8 +106,9 @@ from echozero.pipelines.registry import pipeline_template
             max_value=1.0,
             step=0.01,
             description=(
-                "Stage 2 (classification): minimum snare model confidence required to keep"
-                " a detected candidate as a snare event."
+                "Stage 2 (classification): minimum snare model confidence required to"
+                " promote a detected candidate. Lower-scoring candidates still persist"
+                " as demoted reviewable events."
             ),
             maps_to_block="classify_drums",
         ),

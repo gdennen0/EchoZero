@@ -26,6 +26,9 @@ from echozero.application.shared.ids import EventId, LayerId, TakeId
 from echozero.application.shared.ranges import TimeRange
 from echozero.application.timeline.intents import (
     ClearSelection,
+    CommitRejectedEventsReview,
+    CommitRejectedEventReview,
+    CommitVerifiedEventsReview,
     CreateEvent,
     DeleteEvents,
     DuplicateSelectedEvents,
@@ -80,6 +83,8 @@ class _TimelineWidgetActionRouter(Protocol):
 
 class _TimelineWidgetContractHost(Protocol):
     presentation: TimelinePresentation
+    _edit_mode: str
+    _fix_action: str
     _on_intent: Callable[[TimelineIntent], TimelinePresentation | None] | None
     _action_router: _TimelineWidgetActionRouter
     _object_info: ObjectInfoPanel
@@ -140,10 +145,16 @@ class TimelineWidgetContractMixin:
     def _select_adjacent_event_in_selected_layer(
         self: _TimelineWidgetContractHost,
         direction: int,
+        include_demoted: bool = False,
     ) -> None:
         if direction == 0:
             return
-        self._dispatch(SelectAdjacentEventInSelectedLayer(direction=direction))
+        self._dispatch(
+            SelectAdjacentEventInSelectedLayer(
+                direction=direction,
+                include_demoted=bool(include_demoted),
+            )
+        )
 
     def _set_selected_events(
         self: _TimelineWidgetContractHost,
@@ -188,6 +199,23 @@ class TimelineWidgetContractMixin:
         ids = list(event_ids)
         if not ids:
             return
+        if self._is_fix_mode_remove():
+            rejected_event_refs = self._resolve_event_refs_for_fix_review(ids)
+            if len(rejected_event_refs) > 1:
+                self._dispatch(
+                    CommitRejectedEventsReview(event_refs=rejected_event_refs)
+                )
+            elif len(rejected_event_refs) == 1:
+                event_ref = rejected_event_refs[0]
+                self._dispatch(
+                    CommitRejectedEventReview(
+                        layer_id=event_ref.layer_id,
+                        event_id=event_ref.event_id,
+                        take_id=event_ref.take_id,
+                    )
+                )
+            if rejected_event_refs:
+                return
         if isinstance(ids[0], EventRef):
             event_refs = cast(list[EventRef], ids)
             self._dispatch(
@@ -198,6 +226,111 @@ class TimelineWidgetContractMixin:
             )
             return
         self._dispatch(DeleteEvents(event_ids=cast(list[EventId], ids)))
+
+    def _demote_fix_selected_events(
+        self: _TimelineWidgetContractHost,
+        event_ids: list[EventId] | list[EventRef],
+    ) -> None:
+        event_refs = self._resolve_event_refs_for_fix_review(event_ids)
+        if event_refs:
+            self._dispatch(CommitRejectedEventsReview(event_refs=event_refs))
+            return
+
+    def _promote_fix_selected_events(
+        self: _TimelineWidgetContractHost,
+        event_ids: list[EventId] | list[EventRef],
+    ) -> None:
+        event_refs = self._resolve_event_refs_for_fix_review(event_ids)
+        if event_refs:
+            self._dispatch(CommitVerifiedEventsReview(event_refs=event_refs))
+            return
+
+    def _is_fix_mode_remove(self: _TimelineWidgetContractHost) -> bool:
+        return (
+            str(getattr(self, "_edit_mode", "")).strip().lower() == "fix"
+            and str(getattr(self, "_fix_action", "")).strip().lower() == "remove"
+        )
+
+    def _resolve_event_refs_for_fix_review(
+        self: _TimelineWidgetContractHost,
+        event_ids: list[EventId] | list[EventRef],
+    ) -> list[EventRef]:
+        if not event_ids:
+            return []
+        if isinstance(event_ids[0], EventRef):
+            return list(cast(list[EventRef], event_ids))
+
+        requested_ids = [str(event_id) for event_id in cast(list[EventId], event_ids)]
+        if not requested_ids:
+            return []
+        requested_id_set = set(requested_ids)
+
+        selected_refs = [
+            event_ref
+            for event_ref in self.presentation.selected_event_refs
+            if str(event_ref.event_id) in requested_id_set
+        ]
+        if selected_refs:
+            return selected_refs
+
+        preferred_take_id = self.presentation.selected_take_id
+        preferred_layer_ids = [
+            layer_id for layer_id in self.presentation.selected_layer_ids if layer_id is not None
+        ]
+        if not preferred_layer_ids and self.presentation.selected_layer_id is not None:
+            preferred_layer_ids = [self.presentation.selected_layer_id]
+        preferred_layers = {str(layer_id) for layer_id in preferred_layer_ids}
+
+        event_records: dict[str, list[EventRef]] = {}
+        for layer in self.presentation.layers:
+            if layer.main_take_id is not None:
+                for event in layer.events:
+                    event_records.setdefault(str(event.event_id), []).append(
+                        EventRef(
+                            layer_id=layer.layer_id,
+                            take_id=layer.main_take_id,
+                            event_id=event.event_id,
+                        )
+                    )
+            for take in layer.takes:
+                for event in take.events:
+                    event_records.setdefault(str(event.event_id), []).append(
+                        EventRef(
+                            layer_id=layer.layer_id,
+                            take_id=take.take_id,
+                            event_id=event.event_id,
+                        )
+                    )
+
+        resolved: list[EventRef] = []
+        seen: set[tuple[str, str, str]] = set()
+        for requested_id in requested_ids:
+            matches = list(event_records.get(requested_id, []))
+            if not matches:
+                continue
+
+            preferred_matches = [
+                match
+                for match in matches
+                if (
+                    (preferred_take_id is None or match.take_id == preferred_take_id)
+                    and (not preferred_layers or str(match.layer_id) in preferred_layers)
+                )
+            ]
+            if preferred_matches:
+                chosen = preferred_matches[0]
+            elif preferred_take_id is not None:
+                take_matches = [match for match in matches if match.take_id == preferred_take_id]
+                chosen = take_matches[0] if take_matches else matches[0]
+            else:
+                chosen = matches[0]
+
+            key = (str(chosen.layer_id), str(chosen.take_id), str(chosen.event_id))
+            if key in seen:
+                continue
+            resolved.append(chosen)
+            seen.add(key)
+        return resolved
 
     def _clear_selection(self: _TimelineWidgetContractHost) -> None:
         self._dispatch(ClearSelection())

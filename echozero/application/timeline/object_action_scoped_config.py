@@ -200,7 +200,10 @@ def hydrate_object_action_config_defaults(
     updates = {
         key: value
         for key, value in defaults.items()
-        if not str(config.knob_values.get(key, "")).strip()
+        if _should_refresh_binary_model_default(
+            current_value=config.knob_values.get(key),
+            default_value=value,
+        )
     }
     assignment_mode = str(config.knob_values.get("assignment_mode", "")).strip().lower()
     if "assignment_mode" in template.knobs and assignment_mode not in {
@@ -213,3 +216,14 @@ def hydrate_object_action_config_defaults(
     updated = config.with_knob_values(updates, knob_metadata=template.knobs)
     store_scoped_action_config(shell, updated, scope=scope)
     return updated
+
+
+def _should_refresh_binary_model_default(
+    *,
+    current_value: object,
+    default_value: object,
+) -> bool:
+    current_text = str(current_value or "").strip()
+    if current_text:
+        return False
+    return bool(str(default_value or "").strip())

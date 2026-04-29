@@ -6,9 +6,10 @@ import os
 from collections import OrderedDict
 from dataclasses import dataclass
 from pathlib import Path
-import warnings
 
 import numpy as np
+
+from echozero.audio.file_cache import load_audio_file
 
 
 @dataclass(slots=True)
@@ -44,10 +45,14 @@ def register_waveform_from_audio_file(
     window_size: int = 256,
 ) -> CachedWaveform:
     path = Path(audio_file)
-    sr, samples = _load_audio(path)
+    samples, sample_rate = load_audio_file(path)
     mono = _to_mono_float32(samples)
     peaks = _compute_min_max_peaks(mono, window_size=window_size)
-    cached = CachedWaveform(sample_rate=sr, window_size=window_size, peaks=peaks)
+    cached = CachedWaveform(
+        sample_rate=int(sample_rate),
+        window_size=window_size,
+        peaks=peaks,
+    )
     _put_cached_waveform(key, cached)
     return cached
 
@@ -93,34 +98,6 @@ def _evict_if_needed() -> None:
     while _CACHE and _CACHE_BYTES > _CACHE_MAX_BYTES:
         _, evicted = _CACHE.popitem(last=False)
         _CACHE_BYTES -= _estimate_bytes(evicted)
-
-
-def _load_audio(path: Path) -> tuple[int, np.ndarray]:
-    # Fast path for WAV
-    if path.suffix.lower() == ".wav":
-        from scipy.io import wavfile
-        try:
-            from scipy.io.wavfile import WavFileWarning
-            wav_warning_cls = WavFileWarning
-        except Exception:
-            wav_warning_cls = None
-
-        if wav_warning_cls is not None:
-            with warnings.catch_warnings():
-                warnings.filterwarnings("ignore", category=wav_warning_cls)
-                sr, data = wavfile.read(path)
-        else:
-            sr, data = wavfile.read(path)
-        return int(sr), np.asarray(data)
-
-    # Fallback for other formats
-    import librosa
-
-    data, sr = librosa.load(str(path), sr=None, mono=False)
-    if data.ndim == 1:
-        return int(sr), np.asarray(data, dtype=np.float32)
-    # librosa multi-channel returns (channels, samples)
-    return int(sr), np.asarray(np.moveaxis(data, 0, 1), dtype=np.float32)
 
 
 def _to_mono_float32(samples: np.ndarray) -> np.ndarray:

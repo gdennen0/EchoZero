@@ -19,6 +19,14 @@ from echozero.application.timeline.history import UndoHistory, UndoHistoryEntry
 from echozero.application.timeline.intents import (
     ApplyPullFromMA3,
     ApplyTransferPlan,
+    CommitBoundaryCorrectedEventReview,
+    CommitMissedEventsReview,
+    CommitMissedEventReview,
+    CommitRejectedEventsReview,
+    CommitRejectedEventReview,
+    CommitRelabeledEventReview,
+    CommitVerifiedEventsReview,
+    CommitVerifiedEventReview,
     ConfirmPullFromMA3,
     ConfirmPushToMA3,
     CreateEvent,
@@ -30,10 +38,12 @@ from echozero.application.timeline.intents import (
     MoveSelectedEvents,
     ReorderLayer,
     NudgeSelectedEvents,
+    ReplaceSectionCues,
     SelectTake,
     SetGain,
     TriggerTakeAction,
     TrimEvent,
+    UpdateEventLabel,
     UpdateRegion,
 )
 from echozero.application.timeline.ma3_push_intents import SetLayerMA3Route
@@ -97,6 +107,14 @@ def is_undoable_intent(intent: object) -> bool:
     if isinstance(
         intent,
         (
+            CommitMissedEventReview,
+            CommitMissedEventsReview,
+            CommitVerifiedEventReview,
+            CommitVerifiedEventsReview,
+            CommitRejectedEventReview,
+            CommitRejectedEventsReview,
+            CommitRelabeledEventReview,
+            CommitBoundaryCorrectedEventReview,
             CreateEvent,
             CreateRegion,
             DeleteRegion,
@@ -106,8 +124,10 @@ def is_undoable_intent(intent: object) -> bool:
             MoveSelectedEvents,
             ReorderLayer,
             NudgeSelectedEvents,
+            ReplaceSectionCues,
             SetGain,
             TrimEvent,
+            UpdateEventLabel,
             UpdateRegion,
         ),
     ):
@@ -127,6 +147,14 @@ def is_storage_backed_undoable_intent(intent: object) -> bool:
     return isinstance(
         intent,
         (
+            CommitMissedEventReview,
+            CommitMissedEventsReview,
+            CommitVerifiedEventReview,
+            CommitVerifiedEventsReview,
+            CommitRejectedEventReview,
+            CommitRejectedEventsReview,
+            CommitRelabeledEventReview,
+            CommitBoundaryCorrectedEventReview,
             CreateEvent,
             CreateRegion,
             DeleteRegion,
@@ -136,7 +164,9 @@ def is_storage_backed_undoable_intent(intent: object) -> bool:
             MoveSelectedEvents,
             ReorderLayer,
             NudgeSelectedEvents,
+            ReplaceSectionCues,
             TrimEvent,
+            UpdateEventLabel,
             UpdateRegion,
         ),
     )
@@ -151,6 +181,22 @@ def history_label_for_intent(intent: object) -> str | None:
         return "Switch Take"
     if isinstance(intent, SetLayerMA3Route):
         return "Route Layer To MA3"
+    if isinstance(intent, CommitMissedEventReview):
+        return "Add Missed Event"
+    if isinstance(intent, CommitMissedEventsReview):
+        return "Add Missed Events"
+    if isinstance(intent, CommitVerifiedEventReview):
+        return "Verify Event"
+    if isinstance(intent, CommitVerifiedEventsReview):
+        return "Verify Events"
+    if isinstance(intent, CommitRejectedEventReview):
+        return "Reject Event"
+    if isinstance(intent, CommitRejectedEventsReview):
+        return "Reject Events"
+    if isinstance(intent, CommitRelabeledEventReview):
+        return "Relabel Event"
+    if isinstance(intent, CommitBoundaryCorrectedEventReview):
+        return "Correct Boundary"
     if isinstance(intent, CreateEvent):
         return "Create Event"
     if isinstance(intent, CreateRegion):
@@ -171,10 +217,14 @@ def history_label_for_intent(intent: object) -> str | None:
         return "Reorder Layer"
     if isinstance(intent, NudgeSelectedEvents):
         return "Nudge Events"
+    if isinstance(intent, ReplaceSectionCues):
+        return "Edit Sections"
     if isinstance(intent, SetGain):
         return "Adjust Gain"
     if isinstance(intent, TrimEvent):
         return "Trim Event"
+    if isinstance(intent, UpdateEventLabel):
+        return "Relabel Event"
     if isinstance(intent, TriggerTakeAction):
         return {
             "overwrite_main": "Overwrite Main",

@@ -138,9 +138,11 @@ artifacts/foundry-runpacks/
 artifacts/foundry-ui/
 artifacts/foundry-ui-polish/
 artifacts/timeline-real-data-runtime/
+foundry/cache/
 foundry/runs/
 foundry/state/
 foundry/tracking/
+tests/.local-pytest-tmp/
 
 # Local agent/runtime notes
 HEARTBEAT.md

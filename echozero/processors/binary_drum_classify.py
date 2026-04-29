@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Callable
+from typing import Any, Callable
 
 import numpy as np
 
@@ -139,29 +139,17 @@ def _default_binary_classify(
                 fmax=runtime_model.fmax,
             )
             score = _predict_positive_probability(runtime_model, feature, label_input.label)
-            if score < label_input.positive_threshold:
-                continue
-            classified_event = replace(
-                event,
-                classifications={
-                    "class": label_input.label,
-                    "confidence": round(score, 4),
-                    "model_artifact": model_artifacts[label_input.label],
-                },
-                metadata={
-                    **event.metadata,
-                    "classified": True,
-                    "positive_threshold": round(label_input.positive_threshold, 4),
-                    "source_audio": Path(label_input.audio_file).name,
-                    "source_model": Path(label_input.model_path).name,
-                    "model_artifact": model_artifacts[label_input.label],
-                    "assignment_mode": assignment.assignment_mode,
-                    "event_peak": round(event_peak, 6),
-                    "event_rms": round(event_rms, 6),
-                    "min_event_peak": round(assignment.min_event_peak, 6),
-                    "min_event_rms": round(assignment.min_event_rms, 6),
-                },
-                origin=f"binary_drum_classify:{label_input.label}",
+            classified_event = _build_classified_event(
+                event=event,
+                label=label_input.label,
+                score=score,
+                positive_threshold=label_input.positive_threshold,
+                source_audio=Path(label_input.audio_file).name,
+                source_model=Path(label_input.model_path).name,
+                model_artifact=model_artifacts[label_input.label],
+                assignment=assignment,
+                event_peak=event_peak,
+                event_rms=event_rms,
             )
             classified[label_input.label].append((classified_event, score))
     return _apply_assignment_config(classified, assignment)
@@ -415,7 +403,10 @@ def _apply_assignment_config(
     assignment: BinaryAssignmentConfig,
 ) -> dict[str, list[tuple[Event, float]]]:
     if assignment.assignment_mode == "independent":
-        return classified
+        return {
+            label: sorted(scored_events, key=lambda item: item[0].time)
+            for label, scored_events in classified.items()
+        }
 
     candidates = [
         ClassifiedCandidate(label=label, event=event, score=score)
@@ -428,17 +419,119 @@ def _apply_assignment_config(
         window_seconds=assignment.event_match_window_seconds,
     ):
         winner, runner_up = _resolve_group_winner(group)
-        if (
-            runner_up is not None
-            and (winner.score - runner_up.score) < assignment.winner_margin
-        ):
-            continue
-        resolved[winner.label].append((winner.event, winner.score))
+        winner_threshold_passed = _event_threshold_passed(winner.event)
+        winner_margin_satisfied = (
+            runner_up is None or (winner.score - runner_up.score) >= assignment.winner_margin
+        )
+        for candidate in group:
+            candidate_promoted = (
+                candidate is winner
+                and winner_threshold_passed
+                and winner_margin_satisfied
+            )
+            resolved[candidate.label].append(
+                (
+                    _with_promotion_state(
+                        candidate.event,
+                        promotion_state="promoted" if candidate_promoted else "demoted",
+                    ),
+                    candidate.score,
+                )
+            )
 
     return {
         label: sorted(scored_events, key=lambda item: item[0].time)
         for label, scored_events in resolved.items()
     }
+
+
+def _build_classified_event(
+    *,
+    event: Event,
+    label: str,
+    score: float,
+    positive_threshold: float,
+    source_audio: str,
+    source_model: str,
+    model_artifact: dict[str, Any],
+    assignment: BinaryAssignmentConfig,
+    event_peak: float,
+    event_rms: float,
+) -> Event:
+    threshold_passed = score >= positive_threshold
+    detection_metadata = {
+        "schema": "echozero.event_detection.v1",
+        "classifier_score": round(score, 4),
+        "positive_threshold": round(positive_threshold, 4),
+        "threshold_passed": threshold_passed,
+        "source_audio": source_audio,
+        "source_model": source_model,
+        "model_artifact": model_artifact,
+        "assignment_mode": assignment.assignment_mode,
+        "event_peak": round(event_peak, 6),
+        "event_rms": round(event_rms, 6),
+        "min_event_peak": round(assignment.min_event_peak, 6),
+        "min_event_rms": round(assignment.min_event_rms, 6),
+    }
+    review_metadata = {
+        "schema": "echozero.event_review.v1",
+        "promotion_state": "promoted" if threshold_passed else "demoted",
+        "review_state": "unreviewed",
+    }
+    classifications = dict(event.classifications)
+    classifications.update(
+        {
+            "class": label,
+            "label": label.title(),
+            "confidence": round(score, 4),
+            "model_artifact": model_artifact,
+        }
+    )
+    metadata = dict(event.metadata)
+    metadata.update(
+        {
+            "classified": True,
+            "classifier_score": round(score, 4),
+            "positive_threshold": round(positive_threshold, 4),
+            "source_audio": source_audio,
+            "source_model": source_model,
+            "model_artifact": model_artifact,
+            "assignment_mode": assignment.assignment_mode,
+            "event_peak": round(event_peak, 6),
+            "event_rms": round(event_rms, 6),
+            "min_event_peak": round(assignment.min_event_peak, 6),
+            "min_event_rms": round(assignment.min_event_rms, 6),
+            "promotion_state": review_metadata["promotion_state"],
+            "review_state": review_metadata["review_state"],
+            "review": review_metadata,
+            "detection": detection_metadata,
+        }
+    )
+    return replace(
+        event,
+        classifications=classifications,
+        metadata=metadata,
+        origin=f"binary_drum_classify:{label}",
+    )
+
+
+def _event_threshold_passed(event: Event) -> bool:
+    detection = event.metadata.get("detection")
+    if isinstance(detection, dict) and "threshold_passed" in detection:
+        return bool(detection.get("threshold_passed"))
+    return bool(event.metadata.get("classifier_score", 0.0) >= event.metadata.get("positive_threshold", 1.0))
+
+
+def _with_promotion_state(event: Event, *, promotion_state: str) -> Event:
+    metadata = dict(event.metadata)
+    review_metadata = dict(event.metadata.get("review", {}))
+    review_metadata["schema"] = "echozero.event_review.v1"
+    review_metadata["promotion_state"] = promotion_state
+    review_metadata.setdefault("review_state", str(metadata.get("review_state", "unreviewed")))
+    metadata["promotion_state"] = promotion_state
+    metadata["review_state"] = review_metadata["review_state"]
+    metadata["review"] = review_metadata
+    return replace(event, metadata=metadata)
 
 
 def _group_candidates_by_time(

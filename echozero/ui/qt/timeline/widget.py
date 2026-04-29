@@ -9,7 +9,14 @@ from collections.abc import Callable, Mapping
 from typing import cast
 
 from PyQt6.QtCore import QEvent, QObject, Qt, QTimer
-from PyQt6.QtGui import QAction, QDragEnterEvent, QDragMoveEvent, QDropEvent
+from PyQt6.QtGui import (
+    QAction,
+    QDragEnterEvent,
+    QDragMoveEvent,
+    QDropEvent,
+    QKeySequence,
+    QShortcut,
+)
 from PyQt6.QtWidgets import (
     QFrame,
     QFileDialog,
@@ -29,15 +36,21 @@ from PyQt6.QtWidgets import (
 from echozero.application.presentation.models import TimelinePresentation
 from echozero.application.shared.ranges import TimeRange
 from echozero.application.timeline.intents import (
+    CommitMissedEventsReview,
+    CommitMissedEventReview,
     CreateEvent,
     CreateRegion,
     DeleteRegion,
+    Pause,
+    ReplaceSectionCues,
+    SectionCueEdit,
     SelectRegion,
     TimelineIntent,
     UpdateRegion,
 )
 from echozero.application.settings import AppSettingsService
 from echozero.models.paths import ensure_installed_models_dir
+from echozero.ui.FEEL import TIMELINE_TRANSPORT_TOP_GAP_PX
 from echozero.ui.qt.song_browser_drop import (
     SongBrowserAudioDrop,
     dropped_audio_paths,
@@ -53,6 +66,7 @@ from echozero.ui.qt.timeline.region_manager import (
     RegionManagerDialog,
     RegionPropertiesDialog,
 )
+from echozero.ui.qt.timeline.section_manager import SectionCueDraft, SectionManagerDialog
 from echozero.ui.qt.timeline.object_info_panel import ObjectInfoPanel
 from echozero.ui.qt.timeline.runtime_audio import (
     RuntimeAudioTimingSnapshot,
@@ -99,10 +113,17 @@ class TimelineWidget(TimelineWidgetRuntimeMixin, TimelineWidgetContractMixin, QW
         self._runtime_timing_snapshot: RuntimeAudioTimingSnapshot | None = None
         self._edit_mode = "select"
         self._fix_action = "select"
+        self._fix_nav_include_demoted = False
         self._snap_enabled = True
         self._grid_mode = TimelineGridMode.AUTO.value
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.setWindowTitle(self._style.window_title)
+        self._space_pause_shortcut = QShortcut(QKeySequence(Qt.Key.Key_Space), self)
+        self._space_pause_shortcut.setContext(
+            Qt.ShortcutContext.WidgetWithChildrenShortcut
+        )
+        self._space_pause_shortcut.activated.connect(self._pause_transport_from_spacebar)
+        self._space_pause_shortcut.setEnabled(bool(self.presentation.is_playing))
 
         root_layout = QVBoxLayout(self)
         root_layout.setContentsMargins(0, 0, 0, 0)
@@ -128,17 +149,19 @@ class TimelineWidget(TimelineWidgetRuntimeMixin, TimelineWidgetContractMixin, QW
         left_layout.setSpacing(0)
 
         self._transport = TransportBar(self.presentation, on_intent=self._dispatch)
-        left_layout.addWidget(self._transport)
 
         self._editor_bar = TimelineEditorModeBar(self)
         self._editor_bar.edit_mode_changed.connect(self._set_edit_mode)
         self._editor_bar.fix_action_changed.connect(self._set_fix_action)
+        self._editor_bar.fix_nav_include_demoted_toggled.connect(self._set_fix_nav_include_demoted)
         self._editor_bar.snap_toggled.connect(self._set_snap_enabled)
         self._editor_bar.grid_mode_changed.connect(self._set_grid_mode)
         self._editor_bar.settings_requested.connect(self._open_preferences_dialog)
+        self._editor_bar.osc_settings_requested.connect(self._open_osc_settings_dialog)
         self._editor_bar.pipeline_settings_requested.connect(
             self._open_pipeline_settings_browser
         )
+        self._editor_bar.sections_requested.connect(self._open_section_manager_dialog)
         self._editor_bar.regions_requested.connect(self._open_region_manager_dialog)
         left_layout.addWidget(self._editor_bar)
 
@@ -197,7 +220,13 @@ class TimelineWidget(TimelineWidgetRuntimeMixin, TimelineWidgetContractMixin, QW
         self._canvas.duplicate_requested.connect(self._duplicate_selected_events)
         self._canvas.edit_mode_requested.connect(self._set_edit_mode)
         self._canvas.fix_action_requested.connect(self._set_fix_action)
+        self._canvas.fix_nav_include_demoted_toggle_requested.connect(
+            self._toggle_fix_nav_include_demoted
+        )
         self._canvas.fix_promote_requested.connect(self._promote_fix_onset_event)
+        self._canvas.fix_promote_batch_requested.connect(self._promote_fix_onset_events)
+        self._canvas.fix_demote_selected_requested.connect(self._demote_fix_selected_events)
+        self._canvas.fix_promote_selected_requested.connect(self._promote_fix_selected_events)
         self._canvas.snap_toggle_requested.connect(self._toggle_snap_enabled)
         self._canvas.grid_mode_cycle_requested.connect(self._cycle_grid_mode)
         self._canvas.preview_transfer_plan_requested.connect(self._preview_active_transfer_plan)
@@ -217,6 +246,8 @@ class TimelineWidget(TimelineWidgetRuntimeMixin, TimelineWidgetContractMixin, QW
         self._hscroll.setPageStep(200)
         self._hscroll.valueChanged.connect(self._on_horizontal_scroll_changed)
         left_layout.addWidget(self._hscroll)
+        left_layout.addSpacing(TIMELINE_TRANSPORT_TOP_GAP_PX)
+        left_layout.addWidget(self._transport)
 
         self._object_info = ObjectInfoPanel(self)
         self._object_info.action_requested.connect(self._handle_contract_action)
@@ -309,9 +340,20 @@ class TimelineWidget(TimelineWidgetRuntimeMixin, TimelineWidgetContractMixin, QW
 
         self.set_presentation(self.presentation)
 
+    def _pause_transport_from_spacebar(self) -> None:
+        if not bool(self.presentation.is_playing):
+            return
+        self._dispatch(Pause())
+
     def _open_preferences_dialog(self) -> None:
         actions = getattr(self, "_launcher_actions", {})
         action = actions.get("preferences") if isinstance(actions, dict) else None
+        if action is not None:
+            action.trigger()
+
+    def _open_osc_settings_dialog(self) -> None:
+        actions = getattr(self, "_launcher_actions", {})
+        action = actions.get("osc_settings") if isinstance(actions, dict) else None
         if action is not None:
             action.trigger()
 
@@ -324,6 +366,12 @@ class TimelineWidget(TimelineWidgetRuntimeMixin, TimelineWidgetContractMixin, QW
             return
         self._apply_region_manager_changes(dialog.region_drafts())
 
+    def _open_section_manager_dialog(self) -> None:
+        dialog = SectionManagerDialog(self.presentation, parent=self)
+        if dialog.exec() != SectionManagerDialog.DialogCode.Accepted:
+            return
+        self._apply_section_manager_changes(dialog.section_cue_drafts())
+
     def _promote_fix_onset_event(
         self,
         layer_id: object,
@@ -332,19 +380,61 @@ class TimelineWidget(TimelineWidgetRuntimeMixin, TimelineWidgetContractMixin, QW
         end_seconds: float,
         source_event_id: str,
     ) -> None:
+        self._dispatch(
+            self._build_missed_fix_review_intent(
+                layer_id=layer_id,
+                take_id=take_id,
+                start_seconds=start_seconds,
+                end_seconds=end_seconds,
+                source_event_id=source_event_id,
+            )
+        )
+
+    def _promote_fix_onset_events(self, payload: object) -> None:
+        entries = list(payload or [])
+        if not entries:
+            return
+        intents: list[CommitMissedEventReview] = []
+        for entry in entries:
+            if not isinstance(entry, (tuple, list)) or len(entry) != 5:
+                continue
+            layer_id, take_id, start_seconds, end_seconds, source_event_id = entry
+            intents.append(
+                self._build_missed_fix_review_intent(
+                    layer_id=layer_id,
+                    take_id=take_id,
+                    start_seconds=float(start_seconds),
+                    end_seconds=float(end_seconds),
+                    source_event_id=str(source_event_id),
+                )
+            )
+        if not intents:
+            return
+        if len(intents) == 1:
+            self._dispatch(intents[0])
+            return
+        self._dispatch(CommitMissedEventsReview(intents=intents))
+
+    def _build_missed_fix_review_intent(
+        self,
+        *,
+        layer_id: object,
+        take_id: object,
+        start_seconds: float,
+        end_seconds: float,
+        source_event_id: str,
+    ) -> CommitMissedEventReview:
         start = max(0.0, min(float(start_seconds), float(end_seconds)))
         end = max(start + 0.01, max(float(start_seconds), float(end_seconds)))
         label = self._default_fix_event_label(layer_id)
         source_id = str(source_event_id).strip()
-        self._dispatch(
-            CreateEvent(
-                layer_id=layer_id,
-                take_id=take_id,
-                time_range=TimeRange(start=start, end=end),
-                label=label,
-                source_event_id=source_id or None,
-                payload_ref=source_id or None,
-            )
+        return CommitMissedEventReview(
+            layer_id=layer_id,
+            take_id=take_id,
+            time_range=TimeRange(start=start, end=end),
+            label=label,
+            source_event_id=source_id or None,
+            payload_ref=source_id or None,
         )
 
     def _default_fix_event_label(self, layer_id: object) -> str:
@@ -473,6 +563,21 @@ class TimelineWidget(TimelineWidgetRuntimeMixin, TimelineWidgetContractMixin, QW
                 )
             )
 
+    def _apply_section_manager_changes(self, drafts: list[SectionCueDraft]) -> None:
+        edits = [
+            SectionCueEdit(
+                cue_id=draft.cue_id,
+                start=float(draft.start),
+                cue_ref=draft.cue_ref,
+                name=draft.name,
+                color=draft.color,
+                notes=draft.notes,
+                payload_ref=draft.payload_ref,
+            )
+            for draft in drafts
+        ]
+        self._dispatch(ReplaceSectionCues(cues=edits))
+
     def configure_launcher_actions(self, actions: Mapping[str, QAction]) -> None:
         """Attach the canonical launcher actions to the widget menu bar."""
 
@@ -491,6 +596,10 @@ class TimelineWidget(TimelineWidgetRuntimeMixin, TimelineWidgetContractMixin, QW
         self._add_menu_action(file_menu, actions, "disable_phone_review_service")
         self._add_menu_action(file_menu, actions, "open_project_review")
         self._add_menu_action(file_menu, actions, "open_project_review_all")
+        self._add_menu_action(file_menu, actions, "open_project_review_dataset_folder")
+        self._add_menu_action(file_menu, actions, "open_project_review_dataset_artifact")
+        self._add_menu_action(file_menu, actions, "create_project_specialized_model")
+        self._add_menu_action(file_menu, actions, "create_project_specialized_snare_model")
 
         edit_menu = self._launcher_menu_bar.addMenu("&Edit")
         if edit_menu is None:
@@ -498,9 +607,10 @@ class TimelineWidget(TimelineWidgetRuntimeMixin, TimelineWidgetContractMixin, QW
             return
         self._add_menu_action(edit_menu, actions, "undo")
         self._add_menu_action(edit_menu, actions, "redo")
-        if "preferences" in actions:
+        if "preferences" in actions or "osc_settings" in actions:
             edit_menu.addSeparator()
             self._add_menu_action(edit_menu, actions, "preferences")
+            self._add_menu_action(edit_menu, actions, "osc_settings")
 
         self._launcher_menu_bar.setVisible(bool(actions))
 

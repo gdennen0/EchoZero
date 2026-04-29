@@ -139,6 +139,8 @@ def test_inspector_contract_no_selection_state():
     assert "send_layer_to_ma3" not in action_ids
     assert "add_event_layer" in action_ids
     assert "add_marker_layer" in action_ids
+    assert "add_section_layer" in action_ids
+    assert "add_smpte_layer" in action_ids
     assert "add_automation_layer" not in action_ids
     assert "add_reference_layer" not in action_ids
 
@@ -260,6 +262,76 @@ def test_inspector_contract_audio_layer_hides_ma3_controls():
     assert "send_layer_to_ma3" not in action_ids
     assert "send_selected_events_to_ma3" not in action_ids
     assert "send_to_different_track_once" not in action_ids
+
+
+def test_inspector_contract_smpte_audio_layer_shows_smpte_import_action():
+    presentation = _contract_test_presentation()
+    presentation.selected_layer_id = LayerId("layer_kick")
+    presentation.layers[0].kind = LayerKind.AUDIO
+    presentation.layers[0].title = "SMPTE Layer"
+
+    contract = build_timeline_inspector_contract(presentation)
+    action_ids = {
+        action.action_id for section in contract.context_sections for action in section.actions
+    }
+
+    assert "import_smpte_audio_to_layer" in action_ids
+
+
+def test_inspector_contract_non_smpte_audio_layer_hides_smpte_import_action():
+    presentation = _contract_test_presentation()
+    presentation.selected_layer_id = LayerId("layer_kick")
+    presentation.layers[0].kind = LayerKind.AUDIO
+    presentation.layers[0].title = "Music Stem"
+
+    contract = build_timeline_inspector_contract(presentation)
+    action_ids = {
+        action.action_id for section in contract.context_sections for action in section.actions
+    }
+
+    assert "import_smpte_audio_to_layer" not in action_ids
+
+
+def test_inspector_contract_audio_layer_builds_output_routes_from_playback_channels():
+    presentation = _contract_test_presentation()
+    presentation.selected_layer_id = LayerId("layer_kick")
+    presentation.playback_output_channels = 6
+    presentation.layers[0].kind = LayerKind.AUDIO
+
+    contract = build_timeline_inspector_contract(presentation)
+    routing_actions = [
+        action
+        for section in contract.context_sections
+        for action in section.actions
+        if action.group == "routing"
+    ]
+    action_ids = {action.action_id for action in routing_actions}
+
+    assert {
+        "set_layer_output_bus_auto",
+        "set_layer_output_bus_outputs_1_2",
+        "set_layer_output_bus_outputs_3_4",
+        "set_layer_output_bus_outputs_5_6",
+    } <= action_ids
+    assert "set_layer_output_bus_outputs_7_8" not in action_ids
+
+
+def test_inspector_contract_audio_layer_keeps_selected_output_bus_label():
+    presentation = _contract_test_presentation()
+    presentation.selected_layer_id = LayerId("layer_kick")
+    presentation.playback_output_channels = 2
+    presentation.layers[0].kind = LayerKind.AUDIO
+    presentation.layers[0].output_bus = "outputs_3_4"
+
+    contract = build_timeline_inspector_contract(presentation)
+    routed_action = next(
+        action
+        for section in contract.context_sections
+        for action in section.actions
+        if action.action_id == "set_layer_output_bus_outputs_3_4"
+    )
+
+    assert routed_action.label == "Routed to Outputs 3/4"
 
 
 def test_inspector_contract_hides_legacy_transfer_surface_even_if_legacy_state_exists():
@@ -432,9 +504,13 @@ def test_inspector_contract_take_event_state():
         "selection.select_every_other",
         "selection.renumber_cues_from_one",
     } <= set(action_ids)
-    assert "send_selected_events_to_ma3" in action_ids
-    assert "send_layer_to_ma3" not in action_ids
-    assert "send_to_different_track_once" not in action_ids
+    assert {
+        "pull_from_ma3",
+        "route_layer_to_ma3_track",
+        "send_layer_to_ma3",
+        "send_selected_events_to_ma3",
+        "send_to_different_track_once",
+    } <= set(action_ids)
 
 
 def test_inspector_contract_layer_hit_uses_selected_layers_batch_scope_when_multiselect_is_active():
@@ -508,6 +584,28 @@ def test_inspector_contract_no_takes_layer_state():
     assert "delete_take" not in action_ids
 
 
+def test_inspector_contract_empty_main_take_layer_keeps_ma3_transfer_actions_visible():
+    presentation = _contract_test_presentation()
+    presentation.layers[1].main_take_id = TakeId("take_empty_main")
+    presentation.selected_layer_id = LayerId("layer_empty")
+
+    contract = build_timeline_inspector_contract(presentation)
+    section_ids = [section.section_id for section in contract.context_sections]
+    action_ids = {
+        action.action_id for section in contract.context_sections for action in section.actions
+    }
+
+    assert "event-batch" not in section_ids
+    assert "sync-transfer" in section_ids
+    assert {
+        "pull_from_ma3",
+        "route_layer_to_ma3_track",
+        "send_layer_to_ma3",
+        "send_selected_events_to_ma3",
+        "send_to_different_track_once",
+    } <= action_ids
+
+
 def test_inspector_contract_render_text_tracks_selection_transition_sequence():
     presentation = _contract_test_presentation()
 
@@ -535,6 +633,7 @@ def test_inspector_contract_render_text_tracks_selection_transition_sequence():
             "takes: 2",
             "status flags: none",
             "playback state: Set Active",
+            "output route: Outputs 1/2 (Default)",
             "sync state: Off",
             "sync mapping: none",
             "selected identity: Layer Kick (layer_kick)",

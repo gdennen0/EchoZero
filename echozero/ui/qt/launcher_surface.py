@@ -16,6 +16,7 @@ from PyQt6.QtWidgets import QFileDialog, QMessageBox
 from echozero.application.settings import AppSettingsService, AudioOutputRuntimeConfig
 from echozero.ui.qt.app_shell import AppShellRuntime, build_app_shell
 from echozero.ui.qt.launcher_review_actions import build_review_launcher_actions
+from echozero.ui.qt.osc_settings_dialog import OscSettingsDialog
 from echozero.ui.qt.preferences_dialog import PreferencesDialog
 from echozero.ui.qt.timeline.widget import TimelineWidget
 from echozero.ui.qt.window_geometry import resolve_initial_window_size
@@ -86,6 +87,11 @@ class LauncherController:
                 _preferences_shortcut(),
                 self.preferences,
             )
+            self.actions["osc_settings"] = self._create_action(
+                "OSC &Settings...",
+                None,
+                self.osc_settings,
+            )
         self.actions.update(build_review_launcher_actions(self))
         setattr(self.widget, "_launcher_actions", self.actions)
         self._refresh_recent_project_menu()
@@ -136,6 +142,15 @@ class LauncherController:
     def _current_project_path(self) -> Path | None:
         path = getattr(self.runtime, "project_path", None)
         return Path(path) if path is not None else None
+
+    def _stage_runtime_presentation_for_save(self) -> None:
+        stage = getattr(self.runtime, "stage_project_runtime_presentation", None)
+        if not callable(stage):
+            return
+        try:
+            stage(getattr(self.widget, "presentation", None))
+        except Exception:
+            return
 
     def _choose_open_path(self) -> Path | None:
         current = self._current_project_path()
@@ -359,6 +374,7 @@ class LauncherController:
         path = self._choose_save_path()
         if path is None:
             return False
+        self._stage_runtime_presentation_for_save()
         if not self._run_action(
             "Save Project",
             lambda: self.runtime.save_project_as(path),
@@ -374,12 +390,14 @@ class LauncherController:
         if current_path is None:
             return self.save_project_as()
         if self._has_lifecycle("save_project"):
+            self._stage_runtime_presentation_for_save()
             if not self._run_action("Save Project", self.runtime.save_project):
                 return False
             self._remember_recent_project_path(current_path)
             self._refresh_recent_project_menu()
             return True
         if self._has_lifecycle("save_project_as"):
+            self._stage_runtime_presentation_for_save()
             if not self._run_action(
                 "Save Project",
                 lambda: self.runtime.save_project_as(current_path),
@@ -404,6 +422,15 @@ class LauncherController:
         if self._app_settings_service is None:
             return False
         dialog = PreferencesDialog(
+            self._app_settings_service,
+            parent=self.widget,
+        )
+        return bool(dialog.exec())
+
+    def osc_settings(self) -> bool:
+        if self._app_settings_service is None:
+            return False
+        dialog = OscSettingsDialog(
             self._app_settings_service,
             parent=self.widget,
         )

@@ -8,10 +8,15 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from echozero.foundry.domain import ReviewDecisionKind, ReviewOutcome
+from echozero.foundry.domain import (
+    ExplicitReviewCommit,
+    ReviewCommitContext,
+    ReviewDecisionKind,
+    ReviewOutcome,
+    ReviewPolarity,
+    build_review_decision,
+)
 from echozero.foundry.persistence import (
-    DatasetRepository,
-    DatasetVersionRepository,
     ReviewSessionRepository,
     ReviewSignalRepository,
 )
@@ -56,6 +61,54 @@ def test_explicit_review_writes_one_durable_signal_record(tmp_path: Path):
     assert signal.review_decision.provenance.project_ref == "project:fixture"
     assert signal.corrected_label == "tom"
     assert signal.review_note == "operator heard a tom, not a kick"
+    assert signal.source_provenance["project_writeback"]["reason"] == "non_project_session"
+    assert signal.source_provenance["dataset_materialization"]["status"] == "deferred"
+
+
+def test_shared_explicit_review_commit_api_supports_non_session_producers(tmp_path: Path):
+    samples = tmp_path / "samples"
+    write_percussion_dataset(samples, sample_count=1)
+    service = ReviewSignalService(tmp_path)
+
+    signal = service.record_explicit_review(
+        ReviewCommitContext(
+            session_id="rev_timeline",
+            session_name="Timeline Corrections",
+            source_ref=str(samples.resolve()),
+            metadata={"queue_source_kind": "timeline_review"},
+        ),
+        ExplicitReviewCommit(
+            item_id="timeline:event:k1",
+            audio_path=str(samples / "kick" / "k1.wav"),
+            predicted_label="kick",
+            target_class="kick",
+            polarity=ReviewPolarity.POSITIVE,
+            score=0.91,
+            source_provenance={
+                "project_ref": "project:fixture",
+                "song_ref": "song:arcade",
+                "layer_ref": "layer:kick",
+                "event_ref": "event:kick-01",
+                "model_ref": "bundle:fixture-v1",
+            },
+            review_outcome=ReviewOutcome.INCORRECT,
+            review_decision=build_review_decision(
+                ReviewOutcome.INCORRECT,
+                corrected_label="tom",
+                review_note="timeline correction",
+            ),
+            corrected_label="tom",
+            review_note="timeline correction",
+        ),
+    )
+    persisted = ReviewSignalRepository(tmp_path).get(signal.id)
+
+    assert signal.id == ReviewSignalService.build_signal_id("rev_timeline", "timeline:event:k1")
+    assert persisted is not None
+    assert persisted.review_decision is not None
+    assert persisted.review_decision.kind == ReviewDecisionKind.RELABELED
+    assert persisted.source_provenance["project_writeback"]["reason"] == "non_project_session"
+    assert persisted.source_provenance["dataset_materialization"]["status"] == "deferred"
 
 
 def test_explicit_re_review_updates_existing_signal_record(tmp_path: Path):
@@ -86,7 +139,7 @@ def test_explicit_re_review_updates_existing_signal_record(tmp_path: Path):
     assert updated_signal.review_note is None
 
 
-def test_project_backed_review_relabel_writes_back_and_materializes_dataset_samples(tmp_path: Path):
+def test_project_backed_review_relabel_writes_back_and_exports_local_dataset(tmp_path: Path):
     _ez_path, working_dir, refs = _build_project_review_fixture(tmp_path)
     service = ReviewSessionService(tmp_path)
 
@@ -110,17 +163,10 @@ def test_project_backed_review_relabel_writes_back_and_materializes_dataset_samp
     assert signal is not None
     assert signal.source_provenance["project_writeback"]["status"] == "applied"
     assert signal.source_provenance["dataset_materialization"]["status"] == "materialized"
-
-    dataset = DatasetRepository(tmp_path).list()[0]
-    version = DatasetVersionRepository(tmp_path).list_for_dataset(dataset.id)[-1]
-
-    assert dataset.source_kind == "review_signal"
-    assert version.stats["sample_count"] == 2
-    assert sorted(sample.label for sample in version.samples) == ["kick", "tom"]
-    assert {sample.source_provenance["review_polarity"] for sample in version.samples} == {
-        "negative",
-        "positive",
-    }
+    assert signal.source_provenance["dataset_materialization"]["queue_source_kind"] == "ez_project"
+    assert signal.source_provenance["dataset_materialization"]["dataset_id"].startswith("ds_")
+    assert signal.source_provenance["dataset_materialization"]["version_id"].startswith("dsv_")
+    assert signal.source_provenance["dataset_materialization"]["sample_count"] >= 1
 
     with ProjectStorage.open_db(working_dir) as project:
         take = project.takes.get_main("layer_alpha_kick")
@@ -133,6 +179,47 @@ def test_project_backed_review_relabel_writes_back_and_materializes_dataset_samp
         assert event.classifications["class"] == "tom"
         assert event.metadata["foundry_review"]["decision_kind"] == "relabeled"
         assert event.metadata["foundry_review"]["signal_id"] == signal_id
+        assert event.metadata["review"]["promotion_state"] == "promoted"
+        assert event.metadata["review"]["review_state"] == "corrected"
+        assert event.metadata["review"]["corrected_label"] == "tom"
+
+
+def test_project_backed_review_reject_demotes_event_in_canonical_truth(tmp_path: Path):
+    _ez_path, working_dir, refs = _build_project_review_fixture(tmp_path)
+    service = ReviewSessionService(tmp_path)
+
+    session = service.create_project_session(
+        working_dir,
+        name="Kick Rejections",
+        song_id=refs["alpha_song_id"],
+        layer_id="layer_alpha_kick",
+    )
+    reviewed = service.set_item_review(
+        session.id,
+        session.items[0].item_id,
+        outcome=ReviewOutcome.INCORRECT,
+        corrected_label=None,
+        review_note="operator rejected the false positive kick",
+    )
+    signal_id = ReviewSignalService.build_signal_id(session.id, session.items[0].item_id)
+    signal = ReviewSignalRepository(tmp_path).get(signal_id)
+
+    assert reviewed.items[0].review_decision is not None
+    assert reviewed.items[0].review_decision.kind == ReviewDecisionKind.REJECTED
+    assert signal is not None
+    assert signal.source_provenance["project_writeback"]["status"] == "applied"
+
+    with ProjectStorage.open_db(working_dir) as project:
+        take = project.takes.get_main("layer_alpha_kick")
+        assert take is not None
+        event = next(
+            candidate
+            for candidate in take.data.layers[0].events
+            if candidate.id == "evt_alpha_kick_01"
+        )
+        assert event.metadata["review"]["promotion_state"] == "demoted"
+        assert event.metadata["review"]["review_state"] == "corrected"
+        assert event.metadata["review"]["decision_kind"] == "rejected"
 
 
 def test_boundary_corrected_review_skips_dataset_materialization_without_source_audio_provenance(
@@ -159,15 +246,7 @@ def test_boundary_corrected_review_skips_dataset_materialization_without_source_
 
     assert signal is not None
     assert signal.source_provenance["project_writeback"]["reason"] == "non_project_session"
-    assert signal.source_provenance["dataset_materialization"]["status"] == "materialized"
-    assert signal.source_provenance["dataset_materialization"]["sample_count"] == 1
-    assert any(
-        detail.get("reason") == "missing_materialized_correction"
-        for detail in signal.source_provenance["dataset_materialization"]["details"]
-    )
-    dataset = DatasetRepository(tmp_path).list()[0]
-    version = DatasetVersionRepository(tmp_path).list_for_dataset(dataset.id)[-1]
-    assert [sample.source_provenance["review_polarity"] for sample in version.samples] == ["negative"]
+    assert signal.source_provenance["dataset_materialization"]["status"] == "deferred"
 
 
 def _write_review_items_json(tmp_path: Path) -> Path:

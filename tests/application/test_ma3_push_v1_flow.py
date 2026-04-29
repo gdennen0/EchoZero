@@ -170,6 +170,7 @@ class _PushSyncService(SyncService):
         self.create_track_group_calls: list[dict[str, object]] = []
         self.create_track_calls: list[dict[str, object]] = []
         self.prepare_calls: list[str] = []
+        self.refresh_push_track_options_calls: list[dict[str, object | None]] = []
 
     def get_state(self) -> SyncState:
         return self._state
@@ -422,6 +423,21 @@ class _PushSyncService(SyncService):
             }
         )
 
+    def refresh_push_track_options(
+        self,
+        *,
+        target_track_coord: str | None = None,
+        timecode_no: int | None = None,
+        track_group_no: int | None = None,
+    ) -> None:
+        self.refresh_push_track_options_calls.append(
+            {
+                "target_track_coord": target_track_coord,
+                "timecode_no": timecode_no,
+                "track_group_no": track_group_no,
+            }
+        )
+
     @staticmethod
     def _coord_parts(coord: str) -> tuple[int | None, int | None, int | None]:
         text = str(coord or "").strip().lower()
@@ -539,10 +555,17 @@ def _build_orchestrator(
 
 
 def test_refresh_ma3_push_tracks_hydrates_manual_push_flow_options():
-    orchestrator, timeline, session, _sync_service = _build_orchestrator()
+    orchestrator, timeline, session, sync_service = _build_orchestrator()
 
     orchestrator.handle(timeline, RefreshMA3PushTracks())
 
+    assert sync_service.refresh_push_track_options_calls == [
+        {
+            "target_track_coord": None,
+            "timecode_no": None,
+            "track_group_no": None,
+        }
+    ]
     assert session.manual_push_flow.available_tracks == [
         ManualPushTrackOption(
             coord="tc1_tg2_tr3",
@@ -561,7 +584,7 @@ def test_refresh_ma3_push_tracks_hydrates_manual_push_flow_options():
 
 
 def test_refresh_ma3_push_tracks_scopes_timecode_track_group_and_tracks():
-    orchestrator, timeline, session, _sync_service = _build_orchestrator(
+    orchestrator, timeline, session, sync_service = _build_orchestrator(
         track_options=[
             ManualPushTrackOption(
                 coord="tc1_tg2_tr3",
@@ -589,6 +612,13 @@ def test_refresh_ma3_push_tracks_scopes_timecode_track_group_and_tracks():
         RefreshMA3PushTracks(timecode_no=2, track_group_no=4),
     )
 
+    assert sync_service.refresh_push_track_options_calls == [
+        {
+            "target_track_coord": None,
+            "timecode_no": 2,
+            "track_group_no": 4,
+        }
+    ]
     assert [(timecode.number, timecode.name) for timecode in session.manual_push_flow.available_timecodes] == [
         (1, None),
         (2, None),
@@ -779,9 +809,167 @@ def test_push_layer_to_ma3_uses_saved_route_and_layer_main_events():
     assert session.manual_push_flow.selected_event_ids == [EventId("evt_1"), EventId("evt_2")]
 
 
+def test_push_layer_to_ma3_refreshes_manual_push_track_catalog_after_send():
+    orchestrator, timeline, session, sync_service = _build_orchestrator(saved_route="tc1_tg2_tr3")
+
+    orchestrator.handle(
+        timeline,
+        PushLayerToMA3(
+            layer_id="layer_kick",
+            scope=MA3PushScope.LAYER_MAIN,
+            target_mode=MA3PushTargetMode.SAVED_ROUTE,
+            apply_mode=MA3PushApplyMode.MERGE,
+        ),
+    )
+
+    assert sync_service.refresh_push_track_options_calls == [
+        {
+            "target_track_coord": "tc1_tg2_tr3",
+            "timecode_no": None,
+            "track_group_no": None,
+        }
+    ]
+    assert [(timecode.number, timecode.name) for timecode in session.manual_push_flow.available_timecodes] == [
+        (1, None),
+    ]
+    assert session.manual_push_flow.selected_timecode_no == 1
+    assert [(group.number, group.track_count) for group in session.manual_push_flow.available_track_groups] == [
+        (2, 3),
+    ]
+    assert session.manual_push_flow.selected_track_group_no == 2
+    assert [track.coord for track in session.manual_push_flow.available_tracks] == [
+        "tc1_tg2_tr3",
+        "tc1_tg2_tr5",
+        "tc1_tg2_tr9",
+    ]
+
+
+def test_push_layer_to_ma3_layer_main_excludes_demoted_events():
+    orchestrator, timeline, session, sync_service = _build_orchestrator(saved_route="tc1_tg2_tr3")
+    timeline.layers[0].takes[0].events[1].metadata = {"review": {"promotion_state": "demoted"}}
+
+    orchestrator.handle(
+        timeline,
+        PushLayerToMA3(
+            layer_id="layer_kick",
+            scope=MA3PushScope.LAYER_MAIN,
+            target_mode=MA3PushTargetMode.SAVED_ROUTE,
+            apply_mode=MA3PushApplyMode.MERGE,
+        ),
+    )
+
+    assert sync_service.push_calls == [
+        {
+            "target_track_coord": "tc1_tg2_tr3",
+            "selected_event_ids": [EventId("evt_1")],
+            "transfer_mode": "merge",
+        }
+    ]
+    assert session.manual_push_flow.target_track_coord == "tc1_tg2_tr3"
+    assert session.manual_push_flow.selected_event_ids == [EventId("evt_1")]
+
+
+def test_push_layer_to_ma3_selected_scope_excludes_demoted_events():
+    orchestrator, timeline, session, sync_service = _build_orchestrator(saved_route="tc1_tg2_tr3")
+    timeline.layers[0].takes[0].events[1].metadata = {"review": {"promotion_state": "demoted"}}
+
+    orchestrator.handle(
+        timeline,
+        PushLayerToMA3(
+            layer_id="layer_kick",
+            scope=MA3PushScope.SELECTED_EVENTS,
+            target_mode=MA3PushTargetMode.SAVED_ROUTE,
+            apply_mode=MA3PushApplyMode.MERGE,
+            selected_event_ids=[EventId("evt_1"), EventId("evt_2")],
+        ),
+    )
+
+    assert sync_service.push_calls == [
+        {
+            "target_track_coord": "tc1_tg2_tr3",
+            "selected_event_ids": [EventId("evt_1")],
+            "transfer_mode": "merge",
+        }
+    ]
+    assert session.manual_push_flow.target_track_coord == "tc1_tg2_tr3"
+    assert session.manual_push_flow.selected_event_ids == [EventId("evt_1")]
+
+
+def test_push_layer_to_ma3_selected_scope_rejects_demoted_only_selection():
+    orchestrator, timeline, _session, sync_service = _build_orchestrator(saved_route="tc1_tg2_tr3")
+    timeline.layers[0].takes[0].events[1].metadata = {"review": {"promotion_state": "demoted"}}
+
+    with pytest.raises(
+        ValueError,
+        match="PushLayerToMA3 requires selected promoted main events to push",
+    ):
+        orchestrator.handle(
+            timeline,
+            PushLayerToMA3(
+                layer_id="layer_kick",
+                scope=MA3PushScope.SELECTED_EVENTS,
+                target_mode=MA3PushTargetMode.SAVED_ROUTE,
+                apply_mode=MA3PushApplyMode.MERGE,
+                selected_event_ids=[EventId("evt_2")],
+            ),
+        )
+
+    assert sync_service.push_calls == []
+
+
+def test_push_layer_to_ma3_layer_main_rejects_when_all_main_events_are_demoted():
+    orchestrator, timeline, _session, sync_service = _build_orchestrator(saved_route="tc1_tg2_tr3")
+    for event in timeline.layers[0].takes[0].events:
+        event.metadata = {"review": {"promotion_state": "demoted"}}
+
+    with pytest.raises(
+        ValueError,
+        match="PushLayerToMA3 requires at least one promoted main event on the layer",
+    ):
+        orchestrator.handle(
+            timeline,
+            PushLayerToMA3(
+                layer_id="layer_kick",
+                scope=MA3PushScope.LAYER_MAIN,
+                target_mode=MA3PushTargetMode.SAVED_ROUTE,
+                apply_mode=MA3PushApplyMode.MERGE,
+            ),
+        )
+
+    assert sync_service.push_calls == []
+
+
 def test_push_layer_to_ma3_accepts_marker_layers():
     orchestrator, timeline, session, sync_service = _build_orchestrator(saved_route="tc1_tg2_tr3")
     timeline.layers[0].kind = LayerKind.MARKER
+
+    orchestrator.handle(
+        timeline,
+        PushLayerToMA3(
+            layer_id="layer_kick",
+            scope=MA3PushScope.LAYER_MAIN,
+            target_mode=MA3PushTargetMode.SAVED_ROUTE,
+            apply_mode=MA3PushApplyMode.MERGE,
+        ),
+    )
+
+    assert sync_service.push_calls == [
+        {
+            "target_track_coord": "tc1_tg2_tr3",
+            "selected_event_ids": [EventId("evt_1"), EventId("evt_2")],
+            "transfer_mode": "merge",
+        }
+    ]
+    assert session.manual_push_flow.target_track_coord == "tc1_tg2_tr3"
+    assert session.manual_push_flow.selected_event_ids == [EventId("evt_1"), EventId("evt_2")]
+
+
+def test_push_layer_to_ma3_accepts_section_layers():
+    orchestrator, timeline, session, sync_service = _build_orchestrator(saved_route="tc1_tg2_tr3")
+    timeline.layers[0].kind = LayerKind.SECTION
+    timeline.layers[0].takes[0].events[0].cue_number = 11
+    timeline.layers[0].takes[0].events[0].cue_ref = "Q11A"
+    timeline.layers[0].takes[0].events[0].label = "Verse"
 
     orchestrator.handle(
         timeline,

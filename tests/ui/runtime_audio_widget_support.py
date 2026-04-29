@@ -292,6 +292,24 @@ def test_audio_engine_keeps_injected_streams_on_low_latency_with_unspecified_cal
     engine.shutdown()
 
 
+def test_runtime_controller_prefers_qt_multimedia_backend_for_audio_layers():
+    app = QApplication.instance() or QApplication([])
+    presentation = _audio_presentation()
+    controller = TimelineRuntimeAudioController(
+        audio_loader=lambda _path: (np.ones(4410, dtype=np.float32), 44100),
+    )
+    try:
+        controller.build_for_presentation(presentation)
+        state = controller.snapshot_state(presentation)
+
+        assert state.backend_name == "qt_multimedia"
+        assert state.output_sample_rate > 0
+        assert state.output_channels > 0
+    finally:
+        controller.shutdown()
+        app.processEvents()
+
+
 def test_widget_runtime_ticks_do_not_snap_backward_during_audio_route_churn():
     app = QApplication.instance() or QApplication([])
     base_presentation = _audio_presentation()

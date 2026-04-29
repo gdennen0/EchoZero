@@ -58,6 +58,69 @@ class TestAudioEngine:
         assert sample_rate == 96000
         assert channels == 2
 
+    def test_resolve_output_defaults_auto_prefers_device_default_when_supported(self, monkeypatch) -> None:
+        checked_rates: list[int] = []
+
+        class _FakeSoundDevice:
+            default = type("_Default", (), {"device": [0, 1]})()
+
+            @staticmethod
+            def query_devices(index):
+                assert index == 1
+                return {
+                    "default_samplerate": 48000.0,
+                    "max_output_channels": 2,
+                }
+
+            @staticmethod
+            def check_output_settings(*, device, channels, dtype, samplerate):
+                assert device == 1
+                assert channels == 2
+                assert dtype == "float32"
+                checked_rates.append(int(samplerate))
+                if int(samplerate) not in {44100, 48000}:
+                    raise ValueError("unsupported rate")
+
+        monkeypatch.setitem(__import__("sys").modules, "sounddevice", _FakeSoundDevice())
+
+        sample_rate, channels = _resolve_output_defaults(None)
+
+        assert sample_rate == 48000
+        assert channels == 2
+        assert checked_rates[0] == 48000
+
+    def test_resolve_output_defaults_auto_falls_back_when_default_is_unsupported(self, monkeypatch) -> None:
+        checked_rates: list[int] = []
+
+        class _FakeSoundDevice:
+            default = type("_Default", (), {"device": [0, 1]})()
+
+            @staticmethod
+            def query_devices(index):
+                assert index == 1
+                return {
+                    "default_samplerate": 12345.0,
+                    "max_output_channels": 2,
+                }
+
+            @staticmethod
+            def check_output_settings(*, device, channels, dtype, samplerate):
+                assert device == 1
+                assert channels == 2
+                assert dtype == "float32"
+                checked_rates.append(int(samplerate))
+                if int(samplerate) != 44100:
+                    raise ValueError("unsupported rate")
+
+        monkeypatch.setitem(__import__("sys").modules, "sounddevice", _FakeSoundDevice())
+
+        sample_rate, channels = _resolve_output_defaults(None)
+
+        assert sample_rate == 44100
+        assert channels == 2
+        assert checked_rates[0] == 12345
+        assert 44100 in checked_rates
+
     def test_resolve_stream_defaults_keeps_aggressive_injected_stream_behavior(self) -> None:
         blocksize, latency, prime_output = _resolve_stream_defaults(
             fake_stream_factory,

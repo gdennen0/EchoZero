@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (
+    QComboBox,
     QDoubleSpinBox,
     QFrame,
     QGridLayout,
@@ -44,6 +45,8 @@ from echozero.ui.qt.timeline.object_info_panel_text import (
     rendered_contract_text as _rendered_contract_text,
 )
 from echozero.ui.qt.timeline.style import TIMELINE_STYLE
+
+_SECTION_CONTENT_MARGIN_PX = 8
 
 
 class ObjectInfoPanel(_ObjectInfoPanelActionsMixin, QFrame):
@@ -83,7 +86,12 @@ class ObjectInfoPanel(_ObjectInfoPanelActionsMixin, QFrame):
         self._selection_card.setProperty("section", True)
         self._selection_card.setMinimumHeight(TIMELINE_OBJECT_INFO_METADATA_MIN_HEIGHT_PX)
         selection_layout = QVBoxLayout(self._selection_card)
-        selection_layout.setContentsMargins(10, 10, 10, 10)
+        selection_layout.setContentsMargins(
+            _SECTION_CONTENT_MARGIN_PX,
+            _SECTION_CONTENT_MARGIN_PX,
+            _SECTION_CONTENT_MARGIN_PX,
+            _SECTION_CONTENT_MARGIN_PX,
+        )
         selection_layout.setSpacing(6)
 
         selection_header = QHBoxLayout()
@@ -125,7 +133,12 @@ class ObjectInfoPanel(_ObjectInfoPanelActionsMixin, QFrame):
         self._event_preview_card.setObjectName("timeline_object_info_event_preview")
         self._event_preview_card.setProperty("section", True)
         event_preview_layout = QVBoxLayout(self._event_preview_card)
-        event_preview_layout.setContentsMargins(10, 10, 10, 10)
+        event_preview_layout.setContentsMargins(
+            _SECTION_CONTENT_MARGIN_PX,
+            _SECTION_CONTENT_MARGIN_PX,
+            _SECTION_CONTENT_MARGIN_PX,
+            _SECTION_CONTENT_MARGIN_PX,
+        )
         event_preview_layout.setSpacing(6)
         event_preview_section = QLabel("EVENT PREVIEW", self._event_preview_card)
         event_preview_section.setObjectName("timeline_object_info_section")
@@ -168,7 +181,12 @@ class ObjectInfoPanel(_ObjectInfoPanelActionsMixin, QFrame):
         self._layer_controls.setObjectName("timeline_object_info_layer_controls")
         self._layer_controls.setProperty("section", True)
         layer_controls_layout = QVBoxLayout(self._layer_controls)
-        layer_controls_layout.setContentsMargins(10, 10, 10, 10)
+        layer_controls_layout.setContentsMargins(
+            _SECTION_CONTENT_MARGIN_PX,
+            _SECTION_CONTENT_MARGIN_PX,
+            _SECTION_CONTENT_MARGIN_PX,
+            _SECTION_CONTENT_MARGIN_PX,
+        )
         layer_controls_layout.setSpacing(6)
         playback_section = QLabel("PLAYBACK", self._layer_controls)
         playback_section.setObjectName("timeline_object_info_section")
@@ -180,6 +198,9 @@ class ObjectInfoPanel(_ObjectInfoPanelActionsMixin, QFrame):
         layer_actions.setVerticalSpacing(6)
         self._route_audio_btn = QPushButton("Route Audio", self._layer_controls)
         self._set_button_appearance(self._route_audio_btn, "subtle")
+        self._output_bus_combo = QComboBox(self._layer_controls)
+        self._output_bus_apply_btn = QPushButton("Apply Output Route", self._layer_controls)
+        self._set_button_appearance(self._output_bus_apply_btn, "primary")
         self._gain_spin = QDoubleSpinBox(self._layer_controls)
         self._gain_spin.setRange(-60.0, 12.0)
         self._gain_spin.setSingleStep(0.5)
@@ -187,18 +208,22 @@ class ObjectInfoPanel(_ObjectInfoPanelActionsMixin, QFrame):
         self._gain_apply_btn = QPushButton("Apply Gain", self._layer_controls)
         self._set_button_appearance(self._gain_apply_btn, "primary")
         layer_actions.addWidget(self._route_audio_btn, 0, 0, 1, 2)
-        layer_actions.addWidget(self._gain_spin, 1, 0)
-        layer_actions.addWidget(self._gain_apply_btn, 1, 1)
+        layer_actions.addWidget(self._output_bus_combo, 1, 0)
+        layer_actions.addWidget(self._output_bus_apply_btn, 1, 1)
+        layer_actions.addWidget(self._gain_spin, 2, 0)
+        layer_actions.addWidget(self._gain_apply_btn, 2, 1)
         layer_controls_layout.addLayout(layer_actions)
         details_layout.addWidget(self._layer_controls)
 
         self._route_audio_btn.clicked.connect(self._emit_route_audio)
+        self._output_bus_apply_btn.clicked.connect(self._emit_apply_output_bus)
         self._gain_apply_btn.clicked.connect(self._emit_apply_gain)
 
         self._action_buttons: dict[str, QPushButton] = {}
         self._settings_buttons: dict[str, QPushButton] = {}
         self._pipeline_action_plans: dict[str, ObjectActionSettingsPlan] = {}
         self._pipeline_action_rows: dict[str, QWidget] = {}
+        self._output_bus_actions: tuple[InspectorAction, ...] = ()
         self._set_controls_enabled(has_layer=False)
         self._event_preview_card.setVisible(False)
         self._layer_controls.setVisible(False)
@@ -211,6 +236,8 @@ class ObjectInfoPanel(_ObjectInfoPanelActionsMixin, QFrame):
 
     def _set_controls_enabled(self, *, has_layer: bool) -> None:
         self._route_audio_btn.setEnabled(has_layer)
+        self._output_bus_combo.setEnabled(has_layer)
+        self._output_bus_apply_btn.setEnabled(has_layer)
         self._gain_spin.setEnabled(has_layer)
         self._gain_apply_btn.setEnabled(has_layer)
 
@@ -238,8 +265,12 @@ class ObjectInfoPanel(_ObjectInfoPanelActionsMixin, QFrame):
         self._set_body_text(text)
         self._clear_action_sections()
         self._pipeline_action_plans = {}
+        self._output_bus_actions = ()
         self._sync_event_preview(None)
         self._layer_controls.setVisible(False)
+        self._output_bus_combo.clear()
+        self._output_bus_combo.setVisible(False)
+        self._output_bus_apply_btn.setVisible(False)
         self._set_button_active(self._route_audio_btn, False)
 
     def set_contract(
@@ -271,6 +302,18 @@ class ObjectInfoPanel(_ObjectInfoPanelActionsMixin, QFrame):
         )
         if route_action is not None:
             self._route_audio_btn.setEnabled(route_action.enabled)
+        selected_output_bus = None
+        if route_layer_id is not None:
+            selected_layer = next(
+                (layer for layer in presentation.layers if layer.layer_id == route_layer_id),
+                None,
+            )
+            if selected_layer is not None:
+                selected_output_bus = selected_layer.output_bus
+        self._sync_output_bus_controls(
+            route_action=route_action,
+            selected_output_bus=selected_output_bus,
+        )
         self._sync_gain_controls(route_action)
 
     def set_action_settings_plans(self, plans: tuple[ObjectActionSettingsPlan, ...]) -> None:

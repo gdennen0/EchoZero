@@ -337,7 +337,10 @@ def test_apply_assignment_config_prefers_stronger_candidate_within_window() -> N
                         time=0.25,
                         duration=0.05,
                         classifications={"class": "kick"},
-                        metadata={},
+                        metadata={
+                            "detection": {"threshold_passed": True},
+                            "review": {"promotion_state": "promoted", "review_state": "unreviewed"},
+                        },
                         origin="kick",
                     ),
                     0.91,
@@ -350,7 +353,10 @@ def test_apply_assignment_config_prefers_stronger_candidate_within_window() -> N
                         time=0.27,
                         duration=0.05,
                         classifications={"class": "snare"},
-                        metadata={},
+                        metadata={
+                            "detection": {"threshold_passed": True},
+                            "review": {"promotion_state": "promoted", "review_state": "unreviewed"},
+                        },
                         origin="snare",
                     ),
                     0.72,
@@ -365,7 +371,9 @@ def test_apply_assignment_config_prefers_stronger_candidate_within_window() -> N
     )
 
     assert [event.id for event, _score in resolved["kick"]] == ["evt_kick"]
-    assert resolved["snare"] == []
+    assert resolved["kick"][0][0].metadata["review"]["promotion_state"] == "promoted"
+    assert [event.id for event, _score in resolved["snare"]] == ["evt_snare"]
+    assert resolved["snare"][0][0].metadata["review"]["promotion_state"] == "demoted"
 
 
 def test_apply_assignment_config_drops_ambiguous_candidates_when_margin_fails() -> None:
@@ -378,7 +386,10 @@ def test_apply_assignment_config_drops_ambiguous_candidates_when_margin_fails() 
                         time=0.25,
                         duration=0.05,
                         classifications={"class": "kick"},
-                        metadata={},
+                        metadata={
+                            "detection": {"threshold_passed": True},
+                            "review": {"promotion_state": "promoted", "review_state": "unreviewed"},
+                        },
                         origin="kick",
                     ),
                     0.82,
@@ -391,7 +402,10 @@ def test_apply_assignment_config_drops_ambiguous_candidates_when_margin_fails() 
                         time=0.27,
                         duration=0.05,
                         classifications={"class": "snare"},
-                        metadata={},
+                        metadata={
+                            "detection": {"threshold_passed": True},
+                            "review": {"promotion_state": "promoted", "review_state": "unreviewed"},
+                        },
                         origin="snare",
                     ),
                     0.80,
@@ -405,8 +419,10 @@ def test_apply_assignment_config_drops_ambiguous_candidates_when_margin_fails() 
         ),
     )
 
-    assert resolved["kick"] == []
-    assert resolved["snare"] == []
+    assert [event.id for event, _score in resolved["kick"]] == ["evt_kick"]
+    assert resolved["kick"][0][0].metadata["review"]["promotion_state"] == "demoted"
+    assert [event.id for event, _score in resolved["snare"]] == ["evt_snare"]
+    assert resolved["snare"][0][0].metadata["review"]["promotion_state"] == "demoted"
 
 
 def test_default_binary_classify_stamps_structured_model_artifact_provenance(
@@ -499,6 +515,9 @@ def test_default_binary_classify_stamps_structured_model_artifact_provenance(
     assert kick_event.metadata["model_artifact"]["schema"] == "echozero.model_artifact_ref.v1"
     assert kick_event.metadata["model_artifact"]["artifactIdentity"]["artifactId"] == "art_kick"
     assert kick_event.metadata["model_artifact"]["displayIdentity"]["weightsFile"] == "kick.pth"
+    assert kick_event.metadata["review"]["promotion_state"] == "promoted"
+    assert kick_event.metadata["review"]["review_state"] == "unreviewed"
+    assert kick_event.metadata["detection"]["threshold_passed"] is True
     assert snare_event.metadata["model_artifact"]["artifactIdentity"]["artifactId"] == "art_snare"
 
 
@@ -554,7 +573,7 @@ def test_default_binary_classify_skips_near_silent_events_by_default(
                 label="kick",
                 audio_file="/tmp/kick.wav",
                 events=(
-                    Event(id="kick_evt", time=0.1, duration=0.01, classifications={}, metadata={}, origin="src"),
+                    Event(id="kick_evt", time=0.0, duration=0.01, classifications={}, metadata={}, origin="src"),
                 ),
                 model_path="/tmp/kick_model.pth",
                 positive_threshold=0.5,
@@ -563,7 +582,7 @@ def test_default_binary_classify_skips_near_silent_events_by_default(
                 label="snare",
                 audio_file="/tmp/snare.wav",
                 events=(
-                    Event(id="snare_evt", time=0.2, duration=0.01, classifications={}, metadata={}, origin="src"),
+                    Event(id="snare_evt", time=0.0, duration=0.01, classifications={}, metadata={}, origin="src"),
                 ),
                 model_path="/tmp/snare_model.pth",
                 positive_threshold=0.5,
@@ -575,3 +594,83 @@ def test_default_binary_classify_skips_near_silent_events_by_default(
 
     assert classified["kick"] == []
     assert classified["snare"] == []
+
+
+def test_default_binary_classify_demotes_scores_below_threshold_instead_of_dropping(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setitem(
+        sys.modules,
+        "librosa",
+        SimpleNamespace(resample=lambda audio, **_: audio),
+    )
+    monkeypatch.setitem(
+        sys.modules,
+        "soundfile",
+        SimpleNamespace(read=lambda *args, **kwargs: (np.full(64, 0.25, dtype=np.float32), 22050)),
+    )
+
+    def _fake_load_runtime_model(model_path: str, *, device: str) -> LoadedRuntimeModel:
+        label = "kick" if "kick" in model_path else "snare"
+        return LoadedRuntimeModel(
+            model=object(),
+            classes=(label, "other"),
+            sample_rate=22050,
+            max_length=32,
+            n_fft=8,
+            hop_length=4,
+            n_mels=16,
+            fmax=8000,
+            device=device,
+            source_path=Path(f"/tmp/{label}.pth"),
+        )
+
+    monkeypatch.setattr(
+        "echozero.processors.binary_drum_classify.resolve_device",
+        lambda device: device,
+    )
+    monkeypatch.setattr(
+        "echozero.processors.binary_drum_classify.load_runtime_model",
+        _fake_load_runtime_model,
+    )
+    monkeypatch.setattr(
+        "echozero.processors.binary_drum_classify.build_feature_tensor",
+        lambda **kwargs: np.zeros((1, 1, 2, 2), dtype=np.float32),
+    )
+    monkeypatch.setattr(
+        "echozero.processors.binary_drum_classify.predict_probabilities",
+        lambda runtime_model, feature: np.array([0.31, 0.69], dtype=np.float32),
+    )
+
+    classified = _default_binary_classify(
+        (
+            DrumLabelInferenceInput(
+                label="kick",
+                audio_file="/tmp/kick.wav",
+                events=(
+                    Event(id="kick_evt", time=0.0, duration=0.01, classifications={}, metadata={}, origin="src"),
+                ),
+                model_path="/tmp/kick_model.pth",
+                positive_threshold=0.5,
+            ),
+            DrumLabelInferenceInput(
+                label="snare",
+                audio_file="/tmp/snare.wav",
+                events=(
+                    Event(id="snare_evt", time=0.0, duration=0.01, classifications={}, metadata={}, origin="src"),
+                ),
+                model_path="/tmp/snare_model.pth",
+                positive_threshold=0.5,
+            ),
+        ),
+        device="cpu",
+        assignment=BinaryAssignmentConfig(),
+    )
+
+    kick_event = classified["kick"][0][0]
+    snare_event = classified["snare"][0][0]
+    assert kick_event.metadata["review"]["promotion_state"] == "demoted"
+    assert kick_event.metadata["detection"]["threshold_passed"] is False
+    assert kick_event.classifications["label"] == "Kick"
+    assert snare_event.metadata["review"]["promotion_state"] == "demoted"
+    assert snare_event.metadata["detection"]["threshold_passed"] is False

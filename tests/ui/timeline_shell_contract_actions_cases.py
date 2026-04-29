@@ -1,6 +1,7 @@
 from tests.ui.timeline_shell_support import (
     test_contract_add_event_layer_action_calls_runtime,
     test_contract_add_marker_layer_action_calls_runtime,
+    test_contract_add_section_layer_action_calls_runtime,
     test_contract_add_song_action_calls_runtime,
     test_contract_add_song_legacy_alias_still_calls_runtime,
     test_contract_add_song_version_action_calls_runtime,

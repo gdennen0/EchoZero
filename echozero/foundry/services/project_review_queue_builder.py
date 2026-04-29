@@ -13,7 +13,7 @@ from typing import Any
 
 from echozero.domain.types import Event as DomainEvent
 from echozero.domain.types import EventData
-from echozero.foundry.domain.review import ReviewItem, ReviewPolarity
+from echozero.foundry.domain.review import ReviewItem, ReviewOutcome, ReviewPolarity
 from echozero.persistence.archive import unpack_ez
 from echozero.persistence.entities import LayerRecord, ProjectRecord, SongRecord, SongVersionRecord
 from echozero.persistence.repositories import (
@@ -25,7 +25,15 @@ from echozero.persistence.repositories import (
 )
 
 from .review_audio_clip_service import ReviewAudioClipService
+from .review_event_state import (
+    CanonicalEventReviewState,
+    build_review_decision_from_state,
+    canonical_review_state,
+)
 from .review_queue_filters import select_review_items
+
+_MARKER_REVIEW_PRE_ROLL_SECONDS = 0.05
+_MARKER_REVIEW_POST_ROLL_SECONDS = 0.15
 
 
 @dataclass(slots=True)
@@ -158,6 +166,7 @@ class ProjectReviewQueueBuilder:
                 "import_format": "project",
                 "queue_source_kind": "ez_project",
                 "project_ref": self._build_ref("project", project.id),
+                "project_name": project.name,
                 "song_ids": deduped_song_ids,
                 "version_ids": deduped_version_ids,
                 "layer_ids": deduped_layer_ids,
@@ -284,6 +293,7 @@ class ProjectReviewQueueBuilder:
         items: list[ReviewItem] = []
         skipped_clip_refs: list[str] = []
         for domain_layer_id, _event_index, event in projected_events:
+            review_state = canonical_review_state(origin=event.origin, metadata=event.metadata)
             item_id = self._build_item_id(
                 project_id=project.id,
                 song_id=song.id,
@@ -293,35 +303,53 @@ class ProjectReviewQueueBuilder:
                 domain_layer_id=domain_layer_id,
                 event_id=str(event.id),
             )
+            clip_start_seconds, clip_end_seconds = self._clip_window_seconds(event)
             clip_path = self._clip_service.materialize_event_clip(
                 source_audio_path=source_audio_path,
                 clip_cache_dir=clip_cache_dir,
                 clip_stem=item_id,
-                start_seconds=float(event.time),
-                end_seconds=float(event.time + event.duration),
+                start_seconds=clip_start_seconds,
+                end_seconds=clip_end_seconds,
             )
             if clip_path is None:
                 skipped_clip_refs.append(self._build_ref("event", event.id))
                 continue
+            current_target_class = self._predicted_label(event, fallback_label=layer.name)
+            predicted_label = review_state.original_label or current_target_class
+            source_provenance = self._build_source_provenance(
+                project=project,
+                song=song,
+                version=version,
+                layer=layer,
+                take=take,
+                audio_path=clip_path,
+                source_audio_path=source_audio_path,
+                domain_layer_id=domain_layer_id,
+                event=event,
+                review_state=review_state,
+                current_target_class=current_target_class,
+            )
             items.append(
                 ReviewItem(
                     item_id=item_id,
                     audio_path=str(clip_path),
-                    predicted_label=self._predicted_label(event, fallback_label=layer.name),
-                    target_class=layer.name,
+                    predicted_label=predicted_label,
+                    target_class=current_target_class,
                     polarity=polarity,
                     score=self._score(event),
-                    source_provenance=self._build_source_provenance(
-                        project=project,
-                        song=song,
-                        version=version,
-                        layer=layer,
-                        take=take,
-                        audio_path=clip_path,
-                        source_audio_path=source_audio_path,
-                        domain_layer_id=domain_layer_id,
-                        event=event,
+                    source_provenance=source_provenance,
+                    review_outcome=review_state.review_outcome,
+                    review_decision=build_review_decision_from_state(
+                        state=review_state,
+                        source_provenance=source_provenance,
                     ),
+                    corrected_label=(
+                        review_state.corrected_label
+                        if review_state.review_outcome == ReviewOutcome.INCORRECT
+                        else None
+                    ),
+                    review_note=review_state.review_note,
+                    reviewed_at=review_state.reviewed_at,
                 )
             )
         return items, skipped_clip_refs
@@ -338,6 +366,8 @@ class ProjectReviewQueueBuilder:
         source_audio_path: Path,
         domain_layer_id: str,
         event: DomainEvent,
+        review_state: CanonicalEventReviewState,
+        current_target_class: str,
     ) -> dict[str, Any]:
         event_ref = self._build_ref("event", event.id)
         source_event_ref = self._build_ref("event", event.source_event_id or event.id)
@@ -358,8 +388,19 @@ class ProjectReviewQueueBuilder:
             "model_ref": self._model_ref(layer=layer, take=take, event=event),
             "audio_ref": str(audio_path),
             "source_audio_ref": str(source_audio_path),
-            "original_start_ms": float(event.time) * 1000.0,
-            "original_end_ms": float(event.time + event.duration) * 1000.0,
+            "original_start_ms": review_state.original_start_ms or (float(event.time) * 1000.0),
+            "original_end_ms": review_state.original_end_ms or (float(event.time + event.duration) * 1000.0),
+            "current_start_ms": float(event.time) * 1000.0,
+            "current_end_ms": float(event.time + event.duration) * 1000.0,
+            "current_target_class": current_target_class,
+            "promotion_state": review_state.promotion_state,
+            "review_state": review_state.review_state,
+            "review_outcome": review_state.review_outcome.value,
+            "review_decision_kind": (
+                review_state.decision_kind.value if review_state.decision_kind is not None else None
+            ),
+            "corrected_label": review_state.corrected_label,
+            "original_label": review_state.original_label,
         }
 
     @staticmethod
@@ -395,21 +436,28 @@ class ProjectReviewQueueBuilder:
         version: SongVersionRecord,
         take: Any,
     ) -> Path | None:
-        candidate = None
+        candidate_values: list[str] = []
         source = getattr(take, "source", None)
         if source is not None:
             settings_snapshot = getattr(source, "settings_snapshot", {}) or {}
             source_audio_path = settings_snapshot.get("source_audio_path")
             if source_audio_path is not None:
                 candidate = str(source_audio_path).strip() or None
-        if candidate is None:
-            candidate = str(version.audio_file).strip() or None
-        if candidate is None:
+                if candidate is not None:
+                    candidate_values.append(candidate)
+        version_audio = str(version.audio_file).strip() or None
+        if version_audio is not None:
+            candidate_values.append(version_audio)
+        if not candidate_values:
             return None
-        raw_path = Path(candidate)
-        if raw_path.is_absolute():
-            return raw_path
-        return (working_dir / raw_path).resolve()
+        resolved_candidates: list[Path] = []
+        for candidate in candidate_values:
+            raw_path = Path(candidate)
+            resolved = raw_path if raw_path.is_absolute() else (working_dir / raw_path).resolve()
+            resolved_candidates.append(resolved)
+            if resolved.exists():
+                return resolved
+        return resolved_candidates[0]
 
     @staticmethod
     def _predicted_label(event: DomainEvent, *, fallback_label: str) -> str:
@@ -438,6 +486,17 @@ class ProjectReviewQueueBuilder:
             except (TypeError, ValueError):
                 continue
         return None
+
+    @staticmethod
+    def _clip_window_seconds(event: DomainEvent) -> tuple[float, float]:
+        start_seconds = max(0.0, float(event.time))
+        duration_seconds = max(0.0, float(event.duration))
+        if duration_seconds > 0.0:
+            return start_seconds, start_seconds + duration_seconds
+        return (
+            max(0.0, start_seconds - _MARKER_REVIEW_PRE_ROLL_SECONDS),
+            start_seconds + _MARKER_REVIEW_POST_ROLL_SECONDS,
+        )
 
     @classmethod
     def _model_ref(cls, *, layer: LayerRecord, take: Any, event: DomainEvent) -> str | None:

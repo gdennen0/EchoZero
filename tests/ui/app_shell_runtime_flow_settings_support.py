@@ -958,6 +958,171 @@ def test_app_shell_runtime_extract_song_drum_events_settings_expose_model_fields
         shutil.rmtree(temp_root, ignore_errors=True)
 
 
+def test_app_shell_runtime_extract_song_drum_events_uses_current_global_runtime_bundle_defaults(
+    monkeypatch,
+):
+    import json
+
+    def _write_bundle_manifest(root, bundle_name: str, label: str):
+        bundle_dir = root / bundle_name
+        bundle_dir.mkdir(parents=True, exist_ok=True)
+        weights_path = bundle_dir / "model.pth"
+        weights_path.write_bytes(b"fixture-model")
+        manifest_path = bundle_dir / f"{label}.manifest.json"
+        manifest_path.write_text(
+            json.dumps(
+                {
+                    "classes": [label, "other"],
+                    "weightsPath": "model.pth",
+                    "classificationMode": "binary",
+                }
+            ),
+            encoding="utf-8",
+        )
+        return manifest_path
+
+    temp_root = _repo_local_temp_root()
+    runtime = build_app_shell(
+        working_dir_root=temp_root / "working",
+        analysis_service=build_mock_analysis_service(),
+    )
+    global_models_root = temp_root / "global-models"
+    global_kick_manifest = _write_bundle_manifest(global_models_root, "global-kick", "kick")
+    global_snare_manifest = _write_bundle_manifest(global_models_root, "global-snare", "snare")
+
+    monkeypatch.setattr(
+        "echozero.application.timeline.object_action_settings_service.ensure_installed_models_dir",
+        lambda: global_models_root,
+    )
+    monkeypatch.setattr(
+        "echozero.application.timeline.object_action_settings_service.upgrade_installed_runtime_bundles",
+        lambda _models_dir: None,
+    )
+
+    try:
+        audio_path = write_test_wav(temp_root / "fixtures" / "project-specialized-defaults.wav")
+        runtime.add_song_from_path("Project Specialized Defaults", audio_path)
+
+        runtime.describe_object_action(
+            "timeline.extract_song_drum_events",
+            {"layer_id": "source_audio"},
+            object_id="source_audio",
+            object_type="layer",
+        )
+
+        refreshed = runtime.describe_object_action(
+            "timeline.extract_song_drum_events",
+            {"layer_id": "source_audio"},
+            object_id="source_audio",
+            object_type="layer",
+        )
+
+        assert any(
+            field.key == "kick_model_path" and field.value == str(global_kick_manifest)
+            for field in refreshed.editable_fields
+        )
+        assert any(
+            field.key == "snare_model_path" and field.value == str(global_snare_manifest)
+            for field in refreshed.editable_fields
+        )
+
+        song_version_id = str(runtime.session.active_song_version_id)
+        config = next(
+            candidate
+            for candidate in runtime.project_storage.pipeline_configs.list_by_version(song_version_id)
+            if candidate.template_id == "extract_song_drum_events"
+        )
+        assert config.knob_values["kick_model_path"] == str(global_kick_manifest)
+        assert config.knob_values["snare_model_path"] == str(global_snare_manifest)
+    finally:
+        runtime.shutdown()
+        shutil.rmtree(temp_root, ignore_errors=True)
+
+
+def test_app_shell_runtime_extract_song_drum_events_ignores_stale_missing_index_entries(
+    monkeypatch,
+):
+    import json
+
+    from echozero.models.runtime_bundle_index import IndexedBinaryDrumBundle
+    from echozero.models.runtime_bundle_index import save_binary_drum_bundle_index
+
+    def _write_bundle_manifest(root, bundle_name: str, label: str):
+        bundle_dir = root / bundle_name
+        bundle_dir.mkdir(parents=True, exist_ok=True)
+        weights_path = bundle_dir / "model.pth"
+        weights_path.write_bytes(b"fixture-model")
+        manifest_path = bundle_dir / f"{label}.manifest.json"
+        manifest_path.write_text(
+            json.dumps(
+                {
+                    "classes": [label, "other"],
+                    "weightsPath": "model.pth",
+                    "classificationMode": "binary",
+                }
+            ),
+            encoding="utf-8",
+        )
+        return manifest_path
+
+    temp_root = _repo_local_temp_root()
+    runtime = build_app_shell(
+        working_dir_root=temp_root / "working",
+        analysis_service=build_mock_analysis_service(),
+    )
+    global_models_root = temp_root / "global-models"
+    kick_manifest = _write_bundle_manifest(global_models_root, "global-kick", "kick")
+    snare_manifest = _write_bundle_manifest(global_models_root, "global-snare", "snare")
+    save_binary_drum_bundle_index(
+        global_models_root,
+        {
+            "kick": IndexedBinaryDrumBundle(
+                label="kick",
+                bundle_dir="missing-kick",
+                manifest_file="kick.manifest.json",
+                weights_file="model.pth",
+            ),
+            "snare": IndexedBinaryDrumBundle(
+                label="snare",
+                bundle_dir="missing-snare",
+                manifest_file="snare.manifest.json",
+                weights_file="model.pth",
+            ),
+        },
+    )
+
+    monkeypatch.setattr(
+        "echozero.application.timeline.object_action_settings_service.ensure_installed_models_dir",
+        lambda: global_models_root,
+    )
+    monkeypatch.setattr(
+        "echozero.application.timeline.object_action_settings_service.upgrade_installed_runtime_bundles",
+        lambda _models_dir: None,
+    )
+
+    try:
+        audio_path = write_test_wav(temp_root / "fixtures" / "stale-index-bundles.wav")
+        runtime.add_song_from_path("Stale Index Bundles", audio_path)
+        plan = runtime.describe_object_action(
+            "timeline.extract_song_drum_events",
+            {"layer_id": "source_audio"},
+            object_id="source_audio",
+            object_type="layer",
+        )
+
+        assert any(
+            field.key == "kick_model_path" and field.value == str(kick_manifest)
+            for field in plan.editable_fields
+        )
+        assert any(
+            field.key == "snare_model_path" and field.value == str(snare_manifest)
+            for field in plan.editable_fields
+        )
+    finally:
+        runtime.shutdown()
+        shutil.rmtree(temp_root, ignore_errors=True)
+
+
 def test_app_shell_runtime_extract_classified_drums_settings_accept_custom_model_selection(monkeypatch):
     temp_root = _repo_local_temp_root()
     runtime = build_app_shell(

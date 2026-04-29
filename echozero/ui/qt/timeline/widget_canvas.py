@@ -109,7 +109,7 @@ class TimelineCanvas(_TimelineCanvasPaintMixin, _TimelineCanvasInteractionMixin,
     take_toggle_clicked = pyqtSignal(object)
     take_selected = pyqtSignal(object, object)
     event_selected = pyqtSignal(object, object, object, str)
-    select_adjacent_event_requested = pyqtSignal(int)
+    select_adjacent_event_requested = pyqtSignal(int, bool)
     move_selected_events_requested = pyqtSignal(float, object, bool)
     move_selected_events_to_adjacent_layer_requested = pyqtSignal(int)
     take_action_selected = pyqtSignal(object, object, str)
@@ -126,7 +126,11 @@ class TimelineCanvas(_TimelineCanvasPaintMixin, _TimelineCanvasInteractionMixin,
     duplicate_requested = pyqtSignal(int)
     edit_mode_requested = pyqtSignal(str)
     fix_action_requested = pyqtSignal(str)
+    fix_nav_include_demoted_toggle_requested = pyqtSignal()
     fix_promote_requested = pyqtSignal(object, object, float, float, str)
+    fix_promote_batch_requested = pyqtSignal(object)
+    fix_demote_selected_requested = pyqtSignal(object)
+    fix_promote_selected_requested = pyqtSignal(object)
     snap_toggle_requested = pyqtSignal()
     grid_mode_cycle_requested = pyqtSignal()
     preview_transfer_plan_requested = pyqtSignal()
@@ -188,6 +192,7 @@ class TimelineCanvas(_TimelineCanvasPaintMixin, _TimelineCanvasInteractionMixin,
         self._snap_indicator_time: float | None = None
         self._edit_mode = "select"
         self._fix_action = "select"
+        self._fix_nav_include_demoted = False
         self._snap_enabled = True
         self._grid_mode = TimelineGridMode.AUTO.value
         self._suppress_next_context_menu_event = False
@@ -257,6 +262,7 @@ class TimelineCanvas(_TimelineCanvasPaintMixin, _TimelineCanvasInteractionMixin,
         *,
         edit_mode: str,
         fix_action: str,
+        fix_nav_include_demoted: bool,
         snap_enabled: bool,
         grid_mode: str,
     ) -> None:
@@ -265,6 +271,7 @@ class TimelineCanvas(_TimelineCanvasPaintMixin, _TimelineCanvasInteractionMixin,
         if normalized_fix_action not in {"promote", "remove", "select"}:
             normalized_fix_action = "select"
         self._fix_action = normalized_fix_action
+        self._fix_nav_include_demoted = bool(fix_nav_include_demoted)
         self._snap_enabled = bool(snap_enabled)
         self._grid_mode = grid_mode
         if self._edit_mode != "fix":

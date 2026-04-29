@@ -7,8 +7,9 @@ from echozero.application.session.models import (
     ManualPullTrackOption,
     ManualPushTrackOption,
 )
+from echozero.application.shared.cue_numbers import CueNumber, coerce_positive_cue_number
 from echozero.application.shared.enums import SyncMode
-from echozero.application.shared.ids import EventId, LayerId, RegionId, TakeId
+from echozero.application.shared.ids import EventId, LayerId, RegionId, SectionCueId, TakeId
 from echozero.application.shared.ranges import TimeRange
 from echozero.application.sync.models import LiveSyncState, coerce_live_sync_state
 from echozero.application.timeline.event_batch_scope import EventBatchScope
@@ -26,6 +27,20 @@ def _coerce_pull_import_mode(raw_mode: str, *, action_name: str) -> str:
             f"{action_name} requires import_mode 'new_take' or 'main'"
         )
     return import_mode
+
+
+def _is_valid_output_bus(value: str) -> bool:
+    token = value.strip().lower()
+    if not token.startswith("outputs_"):
+        return False
+    parts = token.split("_")
+    if len(parts) != 3:
+        return False
+    if not parts[1].isdigit() or not parts[2].isdigit():
+        return False
+    start = int(parts[1])
+    end = int(parts[2])
+    return start >= 1 and end >= start
 
 
 @dataclass(slots=True)
@@ -62,6 +77,7 @@ class SelectEvent(TimelineIntent):
 @dataclass(slots=True)
 class SelectAdjacentEventInSelectedLayer(TimelineIntent):
     direction: int
+    include_demoted: bool = False
 
 
 @dataclass(slots=True)
@@ -217,7 +233,7 @@ class CreateEvent(TimelineIntent):
     time_range: TimeRange
     take_id: TakeId | None = None
     label: str = "Event"
-    cue_number: int = 1
+    cue_number: CueNumber = 1
     source_event_id: str | None = None
     payload_ref: str | None = None
     color: str | None = None
@@ -228,13 +244,11 @@ class CreateEvent(TimelineIntent):
         label = (self.label or "").strip()
         self.label = label or "Event"
         try:
-            cue_number = int(self.cue_number)
-        except (TypeError, ValueError) as exc:
+            cue_number = coerce_positive_cue_number(self.cue_number)
+        except ValueError as exc:
             raise ValueError(
-                f"CreateEvent requires an integer cue_number, got {self.cue_number!r}"
+                f"CreateEvent requires positive numeric cue_number, got {self.cue_number!r}"
             ) from exc
-        if cue_number < 1:
-            raise ValueError(f"CreateEvent cue_number must be >= 1, got {cue_number}")
         self.cue_number = cue_number
         if self.source_event_id is not None:
             source_event_id = str(self.source_event_id).strip()
@@ -245,6 +259,229 @@ class CreateEvent(TimelineIntent):
         if self.color is not None:
             color = str(self.color).strip()
             self.color = color or None
+
+
+@dataclass(slots=True)
+class CommitMissedEventReview(TimelineIntent):
+    """Create one missing event and commit the timeline fix as a review signal."""
+
+    layer_id: LayerId
+    time_range: TimeRange
+    take_id: TakeId | None = None
+    label: str = "Event"
+    cue_number: CueNumber = 1
+    source_event_id: str | None = None
+    payload_ref: str | None = None
+    color: str | None = None
+    review_note: str | None = None
+
+    def __post_init__(self) -> None:
+        if self.layer_id is None or not str(self.layer_id).strip():
+            raise ValueError("CommitMissedEventReview requires a non-empty layer_id")
+        label = (self.label or "").strip()
+        self.label = label or "Event"
+        try:
+            cue_number = coerce_positive_cue_number(self.cue_number)
+        except ValueError as exc:
+            raise ValueError(
+                "CommitMissedEventReview requires positive numeric cue_number, "
+                f"got {self.cue_number!r}"
+            ) from exc
+        self.cue_number = cue_number
+        if self.source_event_id is not None:
+            source_event_id = str(self.source_event_id).strip()
+            self.source_event_id = source_event_id or None
+        if self.payload_ref is not None:
+            payload_ref = str(self.payload_ref).strip()
+            self.payload_ref = payload_ref or None
+        if self.color is not None:
+            color = str(self.color).strip()
+            self.color = color or None
+        if self.review_note is not None:
+            review_note = str(self.review_note).strip()
+            self.review_note = review_note or None
+
+
+@dataclass(slots=True)
+class CommitVerifiedEventReview(TimelineIntent):
+    """Commit one explicit verified event review signal."""
+
+    layer_id: LayerId
+    event_id: EventId
+    take_id: TakeId | None = None
+    review_note: str | None = None
+
+    def __post_init__(self) -> None:
+        if self.layer_id is None or not str(self.layer_id).strip():
+            raise ValueError("CommitVerifiedEventReview requires a non-empty layer_id")
+        if self.event_id is None or not str(self.event_id).strip():
+            raise ValueError("CommitVerifiedEventReview requires a non-empty event_id")
+        if self.take_id is not None:
+            take_id = str(self.take_id).strip()
+            self.take_id = TakeId(take_id) if take_id else None
+        if self.review_note is not None:
+            review_note = str(self.review_note).strip()
+            self.review_note = review_note or None
+
+
+@dataclass(slots=True)
+class CommitRejectedEventReview(TimelineIntent):
+    """Demote one false-positive event and commit the rejection as review signal."""
+
+    layer_id: LayerId
+    event_id: EventId
+    take_id: TakeId | None = None
+    review_note: str | None = None
+
+    def __post_init__(self) -> None:
+        if self.layer_id is None or not str(self.layer_id).strip():
+            raise ValueError("CommitRejectedEventReview requires a non-empty layer_id")
+        if self.event_id is None or not str(self.event_id).strip():
+            raise ValueError("CommitRejectedEventReview requires a non-empty event_id")
+        if self.take_id is not None:
+            take_id = str(self.take_id).strip()
+            self.take_id = TakeId(take_id) if take_id else None
+        if self.review_note is not None:
+            review_note = str(self.review_note).strip()
+            self.review_note = review_note or None
+
+
+@dataclass(slots=True)
+class CommitRelabeledEventReview(TimelineIntent):
+    """Relabel one existing event and commit the correction as review signal."""
+
+    layer_id: LayerId
+    event_id: EventId
+    corrected_label: str
+    take_id: TakeId | None = None
+    review_note: str | None = None
+
+    def __post_init__(self) -> None:
+        if self.layer_id is None or not str(self.layer_id).strip():
+            raise ValueError("CommitRelabeledEventReview requires a non-empty layer_id")
+        if self.event_id is None or not str(self.event_id).strip():
+            raise ValueError("CommitRelabeledEventReview requires a non-empty event_id")
+        corrected_label = (self.corrected_label or "").strip()
+        if not corrected_label:
+            raise ValueError("CommitRelabeledEventReview requires a non-empty corrected_label")
+        self.corrected_label = corrected_label
+        if self.take_id is not None:
+            take_id = str(self.take_id).strip()
+            self.take_id = TakeId(take_id) if take_id else None
+        if self.review_note is not None:
+            review_note = str(self.review_note).strip()
+            self.review_note = review_note or None
+
+
+@dataclass(slots=True)
+class CommitBoundaryCorrectedEventReview(TimelineIntent):
+    """Trim one event boundary and commit the correction as review signal."""
+
+    layer_id: LayerId
+    event_id: EventId
+    corrected_range: TimeRange
+    take_id: TakeId | None = None
+    review_note: str | None = None
+
+    def __post_init__(self) -> None:
+        if self.layer_id is None or not str(self.layer_id).strip():
+            raise ValueError("CommitBoundaryCorrectedEventReview requires a non-empty layer_id")
+        if self.event_id is None or not str(self.event_id).strip():
+            raise ValueError("CommitBoundaryCorrectedEventReview requires a non-empty event_id")
+        if self.take_id is not None:
+            take_id = str(self.take_id).strip()
+            self.take_id = TakeId(take_id) if take_id else None
+        if self.review_note is not None:
+            review_note = str(self.review_note).strip()
+            self.review_note = review_note or None
+
+
+@dataclass(slots=True)
+class CommitMissedEventsReview(TimelineIntent):
+    """Commit multiple missed-event review fixes in one undoable app operation."""
+
+    intents: list[CommitMissedEventReview]
+
+    def __post_init__(self) -> None:
+        normalized: list[CommitMissedEventReview] = []
+        for intent in list(self.intents):
+            if not isinstance(intent, CommitMissedEventReview):
+                raise ValueError(
+                    "CommitMissedEventsReview requires CommitMissedEventReview entries"
+                )
+            normalized.append(intent)
+        if not normalized:
+            raise ValueError("CommitMissedEventsReview requires at least one event intent")
+        self.intents = normalized
+
+
+@dataclass(slots=True)
+class CommitVerifiedEventsReview(TimelineIntent):
+    """Commit multiple explicit verified-event review signals in one app operation."""
+
+    event_refs: list[EventRef]
+    review_note: str | None = None
+
+    def __post_init__(self) -> None:
+        if self.review_note is not None:
+            review_note = str(self.review_note).strip()
+            self.review_note = review_note or None
+        self.event_refs = _normalized_review_event_refs(
+            self.event_refs,
+            action_name="CommitVerifiedEventsReview",
+        )
+
+
+@dataclass(slots=True)
+class CommitRejectedEventsReview(TimelineIntent):
+    """Commit multiple rejected-event review signals in one app operation."""
+
+    event_refs: list[EventRef]
+    review_note: str | None = None
+
+    def __post_init__(self) -> None:
+        if self.review_note is not None:
+            review_note = str(self.review_note).strip()
+            self.review_note = review_note or None
+        self.event_refs = _normalized_review_event_refs(
+            self.event_refs,
+            action_name="CommitRejectedEventsReview",
+        )
+
+
+def _normalized_review_event_refs(
+    event_refs: list[EventRef],
+    *,
+    action_name: str,
+) -> list[EventRef]:
+    normalized: list[EventRef] = []
+    seen: set[tuple[str, str, str]] = set()
+    for event_ref in list(event_refs):
+        layer_id = str(event_ref.layer_id or "").strip()
+        event_id = str(event_ref.event_id or "").strip()
+        if not layer_id:
+            raise ValueError(f"{action_name} requires each event_ref to include layer_id")
+        if not event_id:
+            raise ValueError(f"{action_name} requires each event_ref to include event_id")
+        take_id = (
+            None
+            if event_ref.take_id is None
+            else (TakeId(str(event_ref.take_id).strip()) if str(event_ref.take_id).strip() else None)
+        )
+        key = (layer_id, str(take_id or ""), event_id)
+        if key in seen:
+            continue
+        seen.add(key)
+        normalized.append(
+            EventRef(
+                layer_id=LayerId(layer_id),
+                take_id=take_id,
+                event_id=EventId(event_id),
+            )
+        )
+    if not normalized:
+        raise ValueError(f"{action_name} requires at least one event_ref")
+    return normalized
 
 
 @dataclass(slots=True)
@@ -287,6 +524,63 @@ class TrimEvent(TimelineIntent):
 
 
 @dataclass(slots=True)
+class UpdateEventLabel(TimelineIntent):
+    event_id: EventId
+    label: str
+    layer_id: LayerId | None = None
+    take_id: TakeId | None = None
+
+    def __post_init__(self) -> None:
+        if self.event_id is None or not str(self.event_id).strip():
+            raise ValueError("UpdateEventLabel requires a non-empty event_id")
+        label = (self.label or "").strip()
+        if not label:
+            raise ValueError("UpdateEventLabel requires a non-empty label")
+        self.label = label
+        if self.layer_id is not None and not str(self.layer_id).strip():
+            self.layer_id = None
+        if self.take_id is not None:
+            take_id = str(self.take_id).strip()
+            self.take_id = TakeId(take_id) if take_id else None
+
+
+@dataclass(slots=True)
+class SectionCueEdit:
+    cue_id: SectionCueId | None
+    start: float
+    cue_ref: str
+    name: str
+    color: str | None = None
+    notes: str | None = None
+    payload_ref: str | None = None
+
+    def __post_init__(self) -> None:
+        if self.cue_id is not None and not str(self.cue_id).strip():
+            self.cue_id = None
+        self.start = max(0.0, float(self.start))
+        cue_ref = str(self.cue_ref or "").strip()
+        if not cue_ref:
+            raise ValueError("SectionCueEdit requires a non-empty cue_ref")
+        self.cue_ref = cue_ref
+        name = str(self.name or "").strip()
+        self.name = name or cue_ref
+        if self.color is not None:
+            color = str(self.color).strip()
+            self.color = color or None
+        if self.notes is not None:
+            notes = str(self.notes).strip()
+            self.notes = notes or None
+        if self.payload_ref is not None:
+            payload_ref = str(self.payload_ref).strip()
+            self.payload_ref = payload_ref or None
+
+
+@dataclass(slots=True)
+class ReplaceSectionCues(TimelineIntent):
+    cues: list[SectionCueEdit]
+
+
+@dataclass(slots=True)
 class NudgeSelectedEvents(TimelineIntent):
     direction: int
     steps: int = 1
@@ -318,9 +612,38 @@ class Seek(TimelineIntent):
 
 
 @dataclass(slots=True)
+class SetFollowCursorEnabled(TimelineIntent):
+    enabled: bool
+
+    def __post_init__(self) -> None:
+        self.enabled = bool(self.enabled)
+
+
+@dataclass(slots=True)
 class SetGain(TimelineIntent):
     layer_id: LayerId
     gain_db: float
+
+
+@dataclass(slots=True)
+class SetLayerOutputBus(TimelineIntent):
+    layer_id: LayerId
+    output_bus: str | None
+
+    def __post_init__(self) -> None:
+        if self.layer_id is None or not str(self.layer_id).strip():
+            raise ValueError("SetLayerOutputBus requires a non-empty layer_id")
+        if self.output_bus is None:
+            return
+        output_bus = str(self.output_bus).strip()
+        if not output_bus:
+            self.output_bus = None
+            return
+        if not _is_valid_output_bus(output_bus):
+            raise ValueError(
+                "SetLayerOutputBus requires output_bus format 'outputs_<start>_<end>'"
+            )
+        self.output_bus = output_bus
 
 
 @dataclass(slots=True)

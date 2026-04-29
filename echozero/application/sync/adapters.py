@@ -392,6 +392,23 @@ class MA3SyncAdapter(SyncService):
             kwargs["mode"] = transfer_mode
         callback(**kwargs)
 
+    def refresh_push_track_options(
+        self,
+        *,
+        target_track_coord: str | None = None,
+        timecode_no: int | None = None,
+        track_group_no: int | None = None,
+    ) -> None:
+        del target_track_coord
+        method = self._bridge_method("refresh_tracks")
+        if method is None:
+            return
+        self._call_with_supported_kwargs(
+            method,
+            timecode_no=timecode_no,
+            track_group_no=track_group_no,
+        )
+
     def _list_bridge_tracks(
         self,
         *,

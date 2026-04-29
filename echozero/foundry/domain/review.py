@@ -144,6 +144,47 @@ class ReviewSignal:
     updated_at: datetime = field(default_factory=lambda: datetime.now(UTC))
 
 
+@dataclass(slots=True)
+class ReviewCommitContext:
+    """Shared context required to commit one explicit review signal."""
+
+    session_id: str
+    session_name: str
+    source_ref: str | None = None
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+    def as_review_session(self, *, reviewed_at: datetime) -> ReviewSession:
+        """Build a lightweight review session view for downstream writeback and datasets."""
+        return ReviewSession(
+            id=self.session_id,
+            name=self.session_name,
+            items=[],
+            source_ref=self.source_ref,
+            metadata=dict(self.metadata),
+            created_at=reviewed_at,
+            updated_at=reviewed_at,
+        )
+
+
+@dataclass(slots=True)
+class ExplicitReviewCommit:
+    """Reusable payload for one explicit review commit across producer surfaces."""
+
+    item_id: str
+    audio_path: str
+    predicted_label: str
+    target_class: str
+    polarity: ReviewPolarity
+    score: float | None = None
+    source_provenance: dict[str, Any] = field(default_factory=dict)
+    review_outcome: ReviewOutcome = ReviewOutcome.PENDING
+    review_decision: ReviewDecision | None = None
+    corrected_label: str | None = None
+    review_note: str | None = None
+    reviewed_at: datetime | None = None
+    signal_id: str | None = None
+
+
 def build_review_decision(
     outcome: ReviewOutcome,
     *,

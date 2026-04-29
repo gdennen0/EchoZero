@@ -16,6 +16,7 @@ from echozero.application.timeline.models import Event, Layer, Take, Timeline
 from echozero.application.timeline.orchestrator_transfer_lookup_mixin import (
     _PULL_TARGET_CREATE_NEW_LAYER_ID,
     _PULL_TARGET_CREATE_NEW_LAYER_PER_SOURCE_TRACK_ID,
+    _PULL_TARGET_CREATE_NEW_SECTION_LAYER_ID,
 )
 
 
@@ -66,11 +67,12 @@ class TimelineOrchestratorManualPullImportMixin:
         import_mode: str,
     ) -> tuple[TakeId, list[EventId]]:
         host = cast(_ManualPullImportHost, self)
+        resolved_import_mode = "main" if target_layer.kind is LayerKind.SECTION else import_mode
         self._maybe_link_manual_pull_target_layer(
             target_layer=target_layer,
             source_track=source_track,
         )
-        if import_mode == "main":
+        if resolved_import_mode == "main":
             target_take = self._resolve_or_create_manual_pull_main_take(target_layer)
             existing_event_ids = {str(event.id) for event in target_take.events}
             imported_events = [
@@ -112,6 +114,7 @@ class TimelineOrchestratorManualPullImportMixin:
     def _is_manual_pull_synthetic_target(target_layer_id: LayerId) -> bool:
         return target_layer_id in {
             _PULL_TARGET_CREATE_NEW_LAYER_ID,
+            _PULL_TARGET_CREATE_NEW_SECTION_LAYER_ID,
             _PULL_TARGET_CREATE_NEW_LAYER_PER_SOURCE_TRACK_ID,
         }
 
@@ -124,12 +127,23 @@ class TimelineOrchestratorManualPullImportMixin:
     ) -> Layer:
         host = cast(_ManualPullImportHost, self)
         if self._is_manual_pull_synthetic_target(target_layer_id):
-            return self._create_manual_pull_target_layer(timeline, source_track=source_track)
+            return self._create_manual_pull_target_layer(
+                timeline,
+                source_track=source_track,
+                target_layer_id=target_layer_id,
+            )
         return host._find_layer(timeline, target_layer_id)
 
     def _create_manual_pull_target_layer(
-        self, timeline: Timeline, *, source_track: ManualPullTrackOption
+        self,
+        timeline: Timeline,
+        *,
+        source_track: ManualPullTrackOption,
+        target_layer_id: LayerId,
     ) -> Layer:
+        if target_layer_id == _PULL_TARGET_CREATE_NEW_SECTION_LAYER_ID:
+            return self._create_manual_pull_section_layer(timeline, source_track=source_track)
+
         layer_name = self._next_manual_pull_layer_name(timeline, source_track.name)
         layer_id = self._next_manual_pull_layer_id(timeline, source_track)
         main_take_id = TakeId(f"{layer_id}:main")
@@ -149,6 +163,40 @@ class TimelineOrchestratorManualPullImportMixin:
         )
         new_layer.sync.ma3_track_coord = source_track.coord
         timeline.layers.append(new_layer)
+        return new_layer
+
+    def _create_manual_pull_section_layer(
+        self,
+        timeline: Timeline,
+        *,
+        source_track: ManualPullTrackOption,
+    ) -> Layer:
+        insert_order = self._manual_pull_section_insert_order_index(timeline)
+        for layer in timeline.layers:
+            if int(layer.order_index) >= insert_order:
+                layer.order_index += 1
+
+        layer_id = self._next_manual_pull_section_layer_id(timeline)
+        new_layer = Layer(
+            id=layer_id,
+            timeline_id=timeline.id,
+            name=self._next_manual_pull_section_layer_name(timeline),
+            kind=LayerKind.SECTION,
+            order_index=insert_order,
+            takes=[
+                Take(
+                    id=TakeId(f"{layer_id}:main"),
+                    layer_id=layer_id,
+                    name="Main",
+                )
+            ],
+        )
+        new_layer.sync.ma3_track_coord = source_track.coord
+        timeline.layers.append(new_layer)
+        timeline.layers = sorted(
+            timeline.layers,
+            key=lambda layer: (int(layer.order_index), str(layer.id)),
+        )
         return new_layer
 
     @staticmethod
@@ -193,6 +241,35 @@ class TimelineOrchestratorManualPullImportMixin:
             candidate = f"{base_name} {index}"
             if candidate not in existing_names:
                 return candidate
+            index += 1
+
+    def _next_manual_pull_section_layer_name(self, timeline: Timeline) -> str:
+        base_name = "Sections"
+        existing_names = {layer.name for layer in timeline.layers}
+        if base_name not in existing_names:
+            return base_name
+        index = 2
+        while True:
+            candidate = f"{base_name} {index}"
+            if candidate not in existing_names:
+                return candidate
+            index += 1
+
+    @staticmethod
+    def _manual_pull_section_insert_order_index(timeline: Timeline) -> int:
+        source_present = any(layer.id == LayerId("source_audio") for layer in timeline.layers)
+        return 1 if source_present else 0
+
+    @staticmethod
+    def _next_manual_pull_section_layer_id(timeline: Timeline) -> LayerId:
+        existing_ids = {str(layer.id) for layer in timeline.layers}
+        if "layer_sections" not in existing_ids:
+            return LayerId("layer_sections")
+        index = 2
+        while True:
+            candidate = f"layer_sections_{index}"
+            if candidate not in existing_ids:
+                return LayerId(candidate)
             index += 1
 
     @staticmethod

@@ -213,8 +213,7 @@ def main(argv: list[str] | None = None) -> int:
             balance_strategy=args.balance,
         )
         print(json.dumps(planned, indent=2))
-    return 0
-
+        return 0
 
     if args.command == "train-folder":
         dataset = app.datasets.create_dataset(args.name, source_ref=str(Path(args.folder).resolve()))

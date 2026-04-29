@@ -2,8 +2,16 @@
 
 from dataclasses import dataclass, field
 
+from echozero.application.shared.cue_numbers import CueNumber
 from echozero.application.shared.enums import FollowMode, LayerKind, PlaybackMode, SyncMode
-from echozero.application.shared.ids import EventId, LayerId, RegionId, TakeId, TimelineId
+from echozero.application.shared.ids import (
+    EventId,
+    LayerId,
+    RegionId,
+    SectionCueId,
+    TakeId,
+    TimelineId,
+)
 from echozero.application.shared.ranges import TimeRange
 from echozero.application.sync.models import LiveSyncState
 from echozero.application.timeline.models import EventRef
@@ -95,14 +103,16 @@ def default_layer_header_controls(
     is_playback_active: bool,
     is_selected: bool = False,
 ) -> list[LayerHeaderControlPresentation]:
-    controls = [
-        LayerHeaderControlPresentation(
-            control_id="set_active_playback_target",
-            label="ACTIVE",
-            kind="toggle",
-            active=is_playback_active,
+    controls: list[LayerHeaderControlPresentation] = []
+    if kind is not LayerKind.SECTION:
+        controls.append(
+            LayerHeaderControlPresentation(
+                control_id="set_active_playback_target",
+                label="ACTIVE",
+                kind="toggle",
+                active=is_playback_active,
+            )
         )
-    ]
     if kind is LayerKind.AUDIO and is_selected:
         controls.append(
             LayerHeaderControlPresentation(
@@ -228,12 +238,17 @@ class ManualPullEventOptionPresentation:
     label: str
     start: float | None = None
     end: float | None = None
+    cue_ref: str | None = None
+    color: str | None = None
+    notes: str | None = None
+    payload_ref: str | None = None
 
 
 @dataclass(slots=True)
 class ManualPullTargetOptionPresentation:
     layer_id: LayerId
     name: str
+    kind: LayerKind | None = None
 
 
 @dataclass(slots=True)
@@ -347,7 +362,10 @@ class EventPresentation:
     start: float
     end: float
     label: str
+    cue_number: CueNumber | None = None
+    cue_ref: str | None = None
     color: str | None = None
+    notes: str | None = None
     muted: bool = False
     is_selected: bool = False
     badges: list[str] = field(default_factory=list)
@@ -375,6 +393,33 @@ class RegionPresentation:
 
 
 @dataclass(slots=True)
+class SectionCuePresentation:
+    cue_id: SectionCueId
+    start: float
+    cue_ref: str
+    name: str
+    color: str | None = None
+    notes: str | None = None
+    payload_ref: str | None = None
+
+
+@dataclass(slots=True)
+class SectionRegionPresentation:
+    cue_id: SectionCueId
+    start: float
+    end: float
+    cue_ref: str
+    name: str
+    color: str | None = None
+    notes: str | None = None
+    payload_ref: str | None = None
+
+    @property
+    def duration(self) -> float:
+        return self.end - self.start
+
+
+@dataclass(slots=True)
 class LayerPresentation:
     layer_id: LayerId
     title: str
@@ -390,6 +435,7 @@ class LayerPresentation:
     locked: bool = False
     gain_db: float = 0.0
     pan: float = 0.0
+    output_bus: str | None = None
     playback_mode: PlaybackMode = PlaybackMode.NONE
     playback_enabled: bool = False
     sync_mode: SyncMode = SyncMode.NONE
@@ -429,6 +475,8 @@ class TimelinePresentation:
     timeline_id: TimelineId
     title: str
     layers: list[LayerPresentation] = field(default_factory=list)
+    section_cues: list[SectionCuePresentation] = field(default_factory=list)
+    section_regions: list[SectionRegionPresentation] = field(default_factory=list)
     active_song_id: str = ""
     active_song_title: str = ""
     active_song_version_id: str = ""
@@ -447,6 +495,7 @@ class TimelinePresentation:
     selected_event_refs: list[EventRef] = field(default_factory=list)
     active_playback_layer_id: LayerId | None = None
     active_playback_take_id: TakeId | None = None
+    playback_output_channels: int = 0
     selected_event_ids: list[EventId] = field(default_factory=list)
     selected_region_id: RegionId | None = None
     regions: list[RegionPresentation] = field(default_factory=list)

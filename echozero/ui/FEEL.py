@@ -24,15 +24,15 @@ ZOOM_SPEED_MULTIPLIER = 1.0  # Scale factor for zoom sensitivity
 ZOOM_MIN_SCALE = 0.001  # Minimum zoom level (full song overview)
 ZOOM_MAX_SCALE = 100.0  # Maximum zoom level (individual samples)
 TIMELINE_ZOOM_STEP_FACTOR = 1.12  # Per-notch timeline zoom multiplier
-TIMELINE_ZOOM_MIN_PPS = 40.0  # Minimum timeline zoom clamp in pixels/second
+TIMELINE_ZOOM_MIN_PPS = 20.0  # Minimum timeline zoom clamp in pixels/second
 TIMELINE_ZOOM_MAX_PPS = 720.0  # Maximum timeline zoom clamp in pixels/second
 
 # =============================================================================
 # PLAYHEAD
 # =============================================================================
 
-PLAYHEAD_WIDTH_PX = 2  # Rendered width
-PLAYHEAD_COLOR = "#FF4444"  # Base color (theme can override)
+PLAYHEAD_WIDTH_PX = 1  # Rendered width
+PLAYHEAD_COLOR = "#93A0B1"  # Base color (theme can override)
 PLAYHEAD_HEAD_HEIGHT_PX = 10  # Triangle height at top of ruler
 PLAYHEAD_HEAD_WIDTH_PX = 8  # Triangle width at top of ruler
 
@@ -55,6 +55,9 @@ EVENT_DEFAULT_COLOR = "#FF6B6B"  # Unclassified event color (bright coral red - 
 EVENT_HOVER_ALPHA = 30  # Overlay alpha on hover (0-255)
 EVENT_SELECTION_COLOR = "#0066FF"  # Selected event highlight
 EVENT_SELECTION_BORDER_PX = 2  # Selection border width
+EVENT_SELECTION_OUTLINE_EXPAND_PX = 1.0  # Expand selection outline outside event bounds
+EVENT_SELECTION_TINY_WIDTH_THRESHOLD_PX = 10.0  # Treat selected events narrower than this as zoomed-out
+EVENT_SELECTION_TINY_WIDTH_EXTRA_PX = 1  # Extra outline width for tiny selected events
 EVENT_MIN_VISIBLE_WIDTH_PX = 2  # Minimum rendered width (even for zero-duration)
 EVENT_LABEL_MIN_WIDTH_PX = 40  # Don't render labels on events narrower than this
 EVENT_FALSE_BORDER_STYLE = "dash"  # Visual for false/uncertain events ("dash" or "dot")
@@ -72,8 +75,9 @@ HOVER_DELAY_MS = 150  # Delay before hover effects appear
 # TIME RULER
 # =============================================================================
 
-TIMELINE_TRANSPORT_HEIGHT_PX = 40  # Compact transport strip height above the ruler
-TIMELINE_TRANSPORT_BUTTON_HEIGHT_PX = 26  # Painted play/stop button height in transport
+TIMELINE_TRANSPORT_HEIGHT_PX = 56  # Playback strip height below the timeline viewport
+TIMELINE_TRANSPORT_BUTTON_HEIGHT_PX = 30  # Painted play/stop button height in transport
+TIMELINE_TRANSPORT_TOP_GAP_PX = 6  # Vertical gap between timeline scroller and transport strip
 TIMELINE_EDITOR_BAR_PADDING_X_PX = 8  # Horizontal padding around the editor toolbar strip
 TIMELINE_EDITOR_BAR_PADDING_Y_PX = 4  # Vertical padding around the editor toolbar strip
 TIMELINE_EDITOR_GROUP_PADDING_X_PX = 6  # Horizontal padding inside each toolbar group

@@ -6,7 +6,15 @@ Connects push-flow presentation options to one popup that selects timecode, grou
 from __future__ import annotations
 
 from PyQt6.QtCore import QSignalBlocker, pyqtSignal
-from PyQt6.QtWidgets import QComboBox, QDialog, QDialogButtonBox, QLabel, QMessageBox, QVBoxLayout
+from PyQt6.QtWidgets import (
+    QComboBox,
+    QDialog,
+    QDialogButtonBox,
+    QLabel,
+    QMessageBox,
+    QPushButton,
+    QVBoxLayout,
+)
 
 
 class ManualPushRouteDialog(QDialog):
@@ -17,6 +25,7 @@ class ManualPushRouteDialog(QDialog):
     create_timecode_requested = pyqtSignal()
     create_track_group_requested = pyqtSignal()
     create_track_requested = pyqtSignal()
+    refresh_requested = pyqtSignal()
 
     _CREATE_TIMECODE_SENTINEL = "__manual_push_route__:create_timecode"
     _CREATE_TRACK_GROUP_SENTINEL = "__manual_push_route__:create_track_group"
@@ -50,6 +59,10 @@ class ManualPushRouteDialog(QDialog):
         )
         intro.setWordWrap(True)
         layout.addWidget(intro)
+
+        self._refresh_button = QPushButton("Refresh MA3 Targets", self)
+        self._refresh_button.setObjectName("manualPushRouteRefreshButton")
+        layout.addWidget(self._refresh_button)
 
         self._timecode_combo = QComboBox(self)
         self._timecode_combo.setObjectName("manualPushRouteTimecodeCombo")
@@ -110,6 +123,7 @@ class ManualPushRouteDialog(QDialog):
         self._track_group_combo.currentIndexChanged.connect(self._handle_track_group_changed)
         self._track_combo.currentIndexChanged.connect(self._handle_track_changed)
         self._sequence_mode_combo.currentIndexChanged.connect(self._sync_sequence_controls)
+        self._refresh_button.clicked.connect(self._handle_refresh_requested)
 
         self.configure_sheet(
             show_sequence_controls=False,
@@ -348,6 +362,11 @@ class ManualPushRouteDialog(QDialog):
         selected = self.selected_timecode_no()
         if selected is not None:
             self.timecode_selected.emit(selected)
+
+    def _handle_refresh_requested(self, _checked: bool = False) -> None:
+        if self._syncing:
+            return
+        self.refresh_requested.emit()
 
     def _handle_track_group_changed(self) -> None:
         if self._syncing:

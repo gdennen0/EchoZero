@@ -65,6 +65,7 @@ def build_layer_signature(
                 bool(layer.mixer.solo),
                 float(layer.mixer.gain_db),
                 float(layer.mixer.pan),
+                layer.mixer.output_bus,
                 str(layer.sync.mode),
                 bool(layer.sync.connected),
                 layer.sync.target_ref,
@@ -160,6 +161,10 @@ def build_session_transfer_signature(session: Session) -> AssemblerSignature:
                 event.start,
                 event.end,
                 event.cue_number,
+                event.cue_ref,
+                event.color,
+                event.notes,
+                event.payload_ref,
             )
             for event in session.manual_pull_flow.available_events
         ),
@@ -197,8 +202,15 @@ def _events_signature(events: list[Event]) -> AssemblerSignature:
                 float(event.start),
                 float(event.end),
                 str(event.label),
-                int(event.cue_number),
+                event.cue_number,
+                event.cue_ref,
+                event.color,
+                event.notes,
+                event.payload_ref,
                 bool(event.muted),
+                event.origin,
+                event.promotion_state,
+                event.review_state,
             )
             for event in events
         ),

@@ -1134,12 +1134,17 @@ def test_send_selected_events_to_ma3_uses_selected_main_events(monkeypatch):
     harness = _ManualPushHarness(base)
     widget = TimelineWidget(harness.presentation(), on_intent=harness.dispatch)
     monkeypatch.setattr(
-        "echozero.ui.qt.timeline.widget.QInputDialog.getItem",
-        lambda *args, **kwargs: ("Merge", True),
+        "echozero.ui.qt.timeline.widget_action_ma3_push_mixin."
+        "TimelineWidgetMA3PushActionMixin._open_manual_push_route_popup",
+        lambda *_args, **_kwargs: "tc1_tg2_tr3",
     )
+
+    def _unexpected_question(*_args, **_kwargs):
+        raise AssertionError("Unexpected MA3 confirmation prompt")
+
     monkeypatch.setattr(
         "echozero.ui.qt.timeline.widget.QMessageBox.question",
-        lambda *args, **kwargs: QMessageBox.StandardButton.Yes,
+        _unexpected_question,
     )
     try:
         _render_for_hit_testing(widget)
@@ -1154,6 +1159,10 @@ def test_send_selected_events_to_ma3_uses_selected_main_events(monkeypatch):
 
         assert harness.intents == [
             RefreshMA3PushTracks(target_track_coord="tc1_tg2_tr3"),
+            SetLayerMA3Route(
+                layer_id=LayerId("layer_kick"),
+                target_track_coord="tc1_tg2_tr3",
+            ),
             SetPushTransferMode(mode="merge"),
             PushLayerToMA3(
                 layer_id=LayerId("layer_kick"),
@@ -1188,11 +1197,13 @@ def test_manual_push_route_dialog_emits_dependent_timecode_and_group_selections(
     dialog = ManualPushRouteDialog(title="Route Layer to MA3 Track", prompt="MA3 track")
     picked_timecodes: list[int] = []
     picked_groups: list[int] = []
+    refreshes: list[bool] = []
     created_timecodes: list[bool] = []
     created_groups: list[bool] = []
     created_tracks: list[bool] = []
     dialog.timecode_selected.connect(lambda no: picked_timecodes.append(int(no)))
     dialog.track_group_selected.connect(lambda no: picked_groups.append(int(no)))
+    dialog.refresh_requested.connect(lambda: refreshes.append(True))
     dialog.create_timecode_requested.connect(lambda: created_timecodes.append(True))
     dialog.create_track_group_requested.connect(lambda: created_groups.append(True))
     dialog.create_track_requested.connect(lambda: created_tracks.append(True))
@@ -1234,6 +1245,7 @@ def test_manual_push_route_dialog_emits_dependent_timecode_and_group_selections(
         assert dialog._track_group_combo.itemText(0) == "+ Create New Track Group..."
         assert dialog._track_combo.itemText(0) == "+ Create New Track..."
 
+        dialog._refresh_button.click()
         dialog._timecode_combo.setCurrentIndex(1)
         dialog._track_group_combo.setCurrentIndex(1)
         dialog._track_combo.setCurrentIndex(0)
@@ -1243,11 +1255,57 @@ def test_manual_push_route_dialog_emits_dependent_timecode_and_group_selections(
 
         assert picked_timecodes == [1]
         assert picked_groups == [1]
+        assert refreshes == [True]
         assert created_tracks == [True]
         assert created_groups == [True]
         assert created_timecodes == [True]
     finally:
         dialog.close()
+        app.processEvents()
+
+
+def test_manual_push_route_popup_refresh_button_dispatches_track_refresh(monkeypatch):
+    app = QApplication.instance() or QApplication([])
+    base = replace(
+        _ma3_push_selection_presentation(),
+        selected_layer_id=LayerId("layer_kick"),
+        layers=[
+            replace(
+                _ma3_push_selection_presentation().layers[0],
+                is_selected=True,
+                sync_target_label="tc1_tg2_tr3",
+            )
+        ],
+    )
+    harness = _ManualPushHarness(base)
+    widget = TimelineWidget(harness.presentation(), on_intent=harness.dispatch)
+
+    def _emit_refresh_then_cancel(dialog) -> bool:
+        dialog.refresh_requested.emit()
+        return False
+
+    monkeypatch.setattr(
+        "echozero.ui.qt.timeline.widget_action_ma3_push_mixin.ManualPushRouteDialog.exec",
+        _emit_refresh_then_cancel,
+    )
+    try:
+        result = widget._action_router._open_manual_push_route_popup(
+            title="Route Layer to MA3 Track",
+            prompt="MA3 track",
+            reference_track_coord="tc1_tg2_tr3",
+        )
+
+        assert result is None
+        assert harness.intents == [
+            RefreshMA3PushTracks(target_track_coord="tc1_tg2_tr3"),
+            RefreshMA3PushTracks(
+                target_track_coord="tc1_tg2_tr3",
+                timecode_no=1,
+                track_group_no=2,
+            ),
+        ]
+    finally:
+        widget.close()
         app.processEvents()
 
 
@@ -1648,6 +1706,61 @@ def test_manual_pull_workspace_dialog_shows_all_groups_and_tracks_for_selected_t
         assert group_picks == [1]
         assert track_picks == ["tc2_tg1_tr1"]
         assert timecode_picks == [1]
+    finally:
+        dialog.close()
+        app.processEvents()
+
+
+def test_manual_pull_workspace_dialog_describes_section_layer_creation():
+    app = QApplication.instance() or QApplication([])
+    dialog = ManualPullWorkspaceDialog()
+    dialog.set_flow(
+        ManualPullFlowPresentation(
+            workspace_active=True,
+            available_timecodes=[ManualPullTimecodeOptionPresentation(number=2, name="Verse")],
+            selected_timecode_no=2,
+            available_track_groups=[
+                ManualPullTrackGroupOptionPresentation(
+                    number=4,
+                    name="FX",
+                    track_count=1,
+                )
+            ],
+            selected_track_group_no=4,
+            available_tracks=[
+                ManualPullTrackOptionPresentation(
+                    coord="tc2_tg4_tr7",
+                    name="Lasers",
+                    number=7,
+                    event_count=5,
+                ),
+            ],
+            selected_source_track_coords=["tc2_tg4_tr7"],
+            active_source_track_coord="tc2_tg4_tr7",
+            source_track_coord="tc2_tg4_tr7",
+            available_events=[
+                ManualPullEventOptionPresentation(
+                    event_id="ma3_evt_1",
+                    label="Cue 1",
+                    start=1.0,
+                    end=1.5,
+                ),
+            ],
+            selected_ma3_event_ids=["ma3_evt_1"],
+            available_target_layers=[
+                ManualPullTargetOptionPresentation(
+                    layer_id=LayerId("__manual_pull__:create_new_section_layer"),
+                    name="+ Create Section Layer...",
+                    kind=LayerKind.SECTION,
+                ),
+            ],
+            target_layer_id=LayerId("__manual_pull__:create_new_section_layer"),
+            import_mode="main",
+        )
+    )
+    try:
+        assert dialog.selected_import_mode() == "main"
+        assert "Create a new EZ section layer" in dialog._destination_summary.text()
     finally:
         dialog.close()
         app.processEvents()

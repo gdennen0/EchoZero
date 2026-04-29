@@ -322,7 +322,12 @@ class PipelineSettingsBrowserDialog(QDialog):
         self._copy_preview.setText(preview_text)
 
     def _on_field_value_changed(self, key: str, value: object) -> None:
-        self._dispatch_and_render(SetSessionFieldValue(key, value))
+        updated = self._dispatch_command(self._session.session_id, SetSessionFieldValue(key, value))
+        self._session = updated
+        self._sessions_by_action_id[updated.action_id] = updated
+        self._context.setText(self._context_text(updated))
+        self._sync_session_controls(updated)
+        self._sync_action_list_labels()
 
     def _on_scope_changed(self) -> None:
         scope = self._scope.currentData()

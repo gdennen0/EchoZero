@@ -15,6 +15,11 @@ from echozero.application.presentation.inspector_contract import (
 from echozero.application.shared.enums import LayerKind
 from echozero.application.shared.ranges import TimeRange
 from echozero.application.timeline.intents import CreateEvent, Play, ToggleLayerExpanded
+from echozero.application.timeline.ma3_push_intents import (
+    CreateMA3Sequence,
+    MA3PushApplyMode,
+    MA3SequenceCreationMode,
+)
 from echozero.audio.engine import AudioEngine
 from echozero.testing.analysis_mocks import (
     build_mock_analysis_service,
@@ -22,6 +27,7 @@ from echozero.testing.analysis_mocks import (
     write_test_wav,
 )
 from echozero.testing.app_flow import AppFlowHarness
+from echozero.ui.qt.timeline.widget_action_ma3_push_mixin import _ManualPushRoutePopupResult
 from echozero.ui.qt.timeline.runtime_audio import TimelineRuntimeAudioController
 
 _TEST_TEMP_ROOT = Path("C:/Users/griff/.codex/memories/test_app_flow_harness")
@@ -157,6 +163,13 @@ def test_app_flow_harness_exposes_launcher_menus():
             "Open &Recent Project",
             "&Save Project",
             "Save Project &As...",
+            "Enable &Phone Review Service",
+            "Disable Phone Review Service",
+            "Open &Questionable Review",
+            "Open &All-Events Review",
+            "Open Latest Review Dataset &Folder",
+            "Open Latest Review Dataset &Record",
+            "Create Project &Specialized Model",
         ]
         assert edit_menu is not None
         assert [
@@ -211,14 +224,22 @@ def test_app_flow_harness_sync_push_transfer_updates_simulated_ma3_snapshot(monk
         )
 
         def _choose_ma3_push_option(_parent, _title, prompt, items, *_args):
-            if prompt == "Saved MA3 track":
-                return (next(item for item in items if "(tc1_tg2_tr4)" in item), True)
             if "has no assigned MA3 sequence" in prompt:
                 return ("Create next available sequence", True)
-            if prompt == "Apply mode":
-                return ("Merge", True)
             raise AssertionError(f"Unexpected MA3 push prompt: {prompt}")
 
+        monkeypatch.setattr(
+            "echozero.ui.qt.timeline.widget_action_ma3_push_mixin."
+            "TimelineWidgetMA3PushActionMixin._open_manual_push_route_popup",
+            lambda *_args, **_kwargs: _ManualPushRoutePopupResult(
+                target_track_coord="tc1_tg2_tr4",
+                sequence_action=CreateMA3Sequence(
+                    creation_mode=MA3SequenceCreationMode.NEXT_AVAILABLE,
+                    preferred_name="Harness Song - Push Layer",
+                ),
+                apply_mode=MA3PushApplyMode.MERGE,
+            ),
+        )
         monkeypatch.setattr(
             "echozero.ui.qt.timeline.widget.QInputDialog.getItem",
             _choose_ma3_push_option,
@@ -266,7 +287,7 @@ def test_app_flow_harness_layer_contract_hides_pull_actions_from_ui_surface():
         assert "send_layer_to_ma3" in action_ids
         assert "send_selected_events_to_ma3" in action_ids
         assert "send_to_different_track_once" in action_ids
-        assert "pull_from_ma3" not in action_ids
+        assert "pull_from_ma3" in action_ids
         assert "select_pull_source_tracks" not in action_ids
         assert "transfer.plan_apply" not in action_ids
     finally:

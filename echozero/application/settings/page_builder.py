@@ -48,6 +48,21 @@ def list_audio_output_device_options() -> tuple[SettingsOption, ...]:
     return tuple(options)
 
 
+def _audio_output_channel_options() -> tuple[SettingsOption, ...]:
+    options = [
+        SettingsOption(value=0, label="Auto"),
+        SettingsOption(value=1, label="Mono"),
+        SettingsOption(value=2, label="Stereo"),
+    ]
+    for channel_count in range(3, 17):
+        if channel_count == 4:
+            label = "Quad (1-4)"
+        else:
+            label = f"{channel_count}-Ch"
+        options.append(SettingsOption(value=channel_count, label=label))
+    return tuple(options)
+
+
 def build_app_settings_page(
     preferences: AppPreferences,
     *,
@@ -150,12 +165,11 @@ def _audio_section(
             value=audio.output_channels or 0,
             default_value=0,
             widget=SettingsFieldWidget.DROPDOWN,
-            description="Auto follows the device. EchoZero currently supports mono or stereo output.",
-            options=(
-                SettingsOption(value=0, label="Auto"),
-                SettingsOption(value=1, label="Mono"),
-                SettingsOption(value=2, label="Stereo"),
+            description=(
+                "Auto follows the device. Choose up to 16 channels to expose additional "
+                "routing pairs (for example song on 1/2 and timecode on 3/4)."
             ),
+            options=_audio_output_channel_options(),
             surface=SettingsFieldSurface.ADVANCED,
         ),
         SettingsField(

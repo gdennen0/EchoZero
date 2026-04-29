@@ -154,6 +154,19 @@ class TestCreateConfig:
         result = orch.create_config(session, "bad_version_id", "onset_detection")
         assert not is_ok(result)
 
+    def test_extract_classified_drums_defaults_use_point_one_five_onset_thresholds(
+        self, session, song_version
+    ):
+        orch = Orchestrator(get_registry(), _executors())
+        config = unwrap(orch.create_config(session, song_version.id, "extract_classified_drums"))
+
+        assert config.knob_values["kick_onset_threshold"] == pytest.approx(0.150)
+        assert config.knob_values["snare_onset_threshold"] == pytest.approx(0.150)
+
+        pipeline = config.to_pipeline()
+        assert pipeline.graph.blocks["kick_onsets"].settings.get("threshold") == pytest.approx(0.150)
+        assert pipeline.graph.blocks["snare_onsets"].settings.get("threshold") == pytest.approx(0.150)
+
 
 class TestEditKnobs:
     """Editing knob values on a persisted config."""

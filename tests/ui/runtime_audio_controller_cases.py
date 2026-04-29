@@ -1,4 +1,5 @@
 from tests.ui.runtime_audio_support import (
+    test_runtime_controller_can_prefer_sounddevice_backend_for_audio_layers,
     test_demo_dispatch_routes_playback_target_updates_runtime_audio,
     test_demo_dispatch_routes_transport_intents_into_runtime_audio,
     test_demo_dispatch_selection_does_not_reroute_runtime_audio,
@@ -6,6 +7,7 @@ from tests.ui.runtime_audio_support import (
     test_runtime_controller_exposes_backend_timing_snapshot,
     test_runtime_controller_preserves_stereo_audio_layer_channels,
     test_runtime_controller_preview_clip_plays_sliced_audio_on_preview_engine,
+    test_runtime_controller_routes_active_take_when_multichannel_mode_is_enabled,
     test_runtime_controller_requires_explicit_playback_target_when_selection_is_missing,
     test_runtime_controller_selected_event_lane_becomes_only_active_playback_source,
     test_runtime_controller_selected_layer_switches_active_source_without_stopping_transport,

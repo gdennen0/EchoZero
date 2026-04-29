@@ -56,6 +56,23 @@ def test_build_storage_layer_restores_saved_take_lane_expansion():
     assert layer.presentation_hints.expanded is True
 
 
+def test_build_storage_layer_restores_layer_output_bus_state_flag():
+    takes = _layer_takes()
+    storage = _StubProjectStorage({"layer_timecode": takes})
+
+    layer, _, _ = build_storage_layer(
+        storage,
+        TimelineId("timeline_runtime"),
+        _layer_record(
+            layer_id="layer_timecode",
+            state_flags={"output_bus": "outputs_3_4"},
+        ),
+    )
+
+    assert layer is not None
+    assert layer.mixer.output_bus == "outputs_3_4"
+
+
 def test_build_storage_layer_resolves_event_take_source_audio_path_from_snapshot():
     take = PersistedTake.create(
         data=EventData(layers=()),

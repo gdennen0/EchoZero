@@ -26,6 +26,9 @@ from echozero.domain.types import Event as DomainEvent, EventData, Layer as Doma
 from echozero.persistence.entities import LayerRecord
 from echozero.takes import Take as PersistedTake
 
+STATE_FLAG_MA3_TRACK_COORD = "ma3_track_coord"
+STATE_FLAG_OUTPUT_BUS = "output_bus"
+
 
 def build_manual_layer(
     *,
@@ -65,6 +68,16 @@ def build_manual_layer_record(
     song_version_id: str,
     persisted_order: int,
 ) -> LayerRecord:
+    state_flags = {
+        "manual_kind": layer.kind.value,
+        "take_lanes_expanded": bool(layer.presentation_hints.expanded),
+    }
+    ma3_track_coord = _normalized_ma3_track_coord(layer)
+    if ma3_track_coord is not None:
+        state_flags[STATE_FLAG_MA3_TRACK_COORD] = ma3_track_coord
+    output_bus = _normalized_output_bus(layer)
+    if output_bus is not None:
+        state_flags[STATE_FLAG_OUTPUT_BUS] = output_bus
     return LayerRecord(
         id=str(layer.id),
         song_version_id=song_version_id,
@@ -77,10 +90,7 @@ def build_manual_layer_record(
         parent_layer_id=None,
         source_pipeline=None,
         created_at=datetime.now(timezone.utc),
-        state_flags={
-            "manual_kind": layer.kind.value,
-            "take_lanes_expanded": bool(layer.presentation_hints.expanded),
-        },
+        state_flags=state_flags,
         provenance={},
     )
 
@@ -98,18 +108,9 @@ def runtime_take_data(layer: Layer, take: RuntimeTake | None) -> EventData:
             id=str(event.id),
             time=float(event.start),
             duration=float(event.duration),
-            classifications={"label": event.label} if event.label else {},
-            metadata={
-                key: value
-                for key, value in {
-                    "cue_number": event.cue_number,
-                    "payload_ref": event.payload_ref,
-                    "color": event.color,
-                    "muted": event.muted,
-                }.items()
-                if value not in (None, False)
-            },
-            origin="user",
+            classifications=_runtime_event_classifications(event),
+            metadata=_runtime_event_metadata(event),
+            origin=event.origin,
             source_event_id=event.source_event_id,
             parent_event_id=event.parent_event_id,
         )
@@ -141,6 +142,16 @@ def runtime_layer_record(
     if existing.layer_type == "manual":
         state_flags["manual_kind"] = layer.kind.value
     state_flags["take_lanes_expanded"] = bool(layer.presentation_hints.expanded)
+    ma3_track_coord = _normalized_ma3_track_coord(layer)
+    if ma3_track_coord is None:
+        state_flags.pop(STATE_FLAG_MA3_TRACK_COORD, None)
+    else:
+        state_flags[STATE_FLAG_MA3_TRACK_COORD] = ma3_track_coord
+    output_bus = _normalized_output_bus(layer)
+    if output_bus is None:
+        state_flags.pop(STATE_FLAG_OUTPUT_BUS, None)
+    else:
+        state_flags[STATE_FLAG_OUTPUT_BUS] = output_bus
 
     provenance = dict(existing.provenance)
     if layer.provenance.source_layer_id is not None:
@@ -211,3 +222,42 @@ def persisted_take_from_runtime_take(
         is_archived=False,
         notes="",
     )
+
+
+def _runtime_event_classifications(event) -> dict[str, object]:
+    classifications = dict(event.classifications)
+    if event.label:
+        classifications["label"] = event.label
+    return classifications
+
+
+def _runtime_event_metadata(event) -> dict[str, object]:
+    metadata = dict(event.metadata)
+    metadata["cue_number"] = event.cue_number
+    _assign_optional_metadata(metadata, "cue_ref", event.cue_ref)
+    _assign_optional_metadata(metadata, "payload_ref", event.payload_ref)
+    _assign_optional_metadata(metadata, "color", event.color)
+    _assign_optional_metadata(metadata, "notes", event.notes)
+    _assign_optional_metadata(metadata, "muted", True if event.muted else None)
+    return metadata
+
+
+def _assign_optional_metadata(
+    metadata: dict[str, object],
+    key: str,
+    value: object | None,
+) -> None:
+    if value in (None, ""):
+        metadata.pop(key, None)
+        return
+    metadata[key] = value
+
+
+def _normalized_ma3_track_coord(layer: Layer) -> str | None:
+    raw_coord = str(layer.sync.ma3_track_coord or "").strip()
+    return raw_coord or None
+
+
+def _normalized_output_bus(layer: Layer) -> str | None:
+    raw_bus = str(layer.mixer.output_bus or "").strip()
+    return raw_bus or None

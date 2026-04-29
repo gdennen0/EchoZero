@@ -27,6 +27,8 @@ class PreparedAudioSource:
     source_path: Path
     cleanup_paths: tuple[Path, ...] = ()
     retained_paths: tuple[Path, ...] = ()
+    program_artifact_path: Path | None = None
+    ltc_artifact_path: Path | None = None
 
 
 def compute_audio_hash(source_path: Path) -> str:
@@ -161,6 +163,8 @@ def prepare_audio_for_import(
         source_path=program_artifact_path,
         cleanup_paths=normalized_cleanup,
         retained_paths=(program_artifact_path, ltc_artifact_path),
+        program_artifact_path=program_artifact_path,
+        ltc_artifact_path=ltc_artifact_path,
     )
 
 

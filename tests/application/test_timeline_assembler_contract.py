@@ -11,6 +11,7 @@ from echozero.application.shared.ids import (
     LayerId,
     ProjectId,
     RegionId,
+    SectionCueId,
     SessionId,
     SongId,
     SongVersionId,
@@ -23,10 +24,12 @@ from echozero.application.timeline.models import (
     EventRef,
     Layer,
     LayerProvenance,
+    SectionCue,
     LayerStatus,
     Take,
     Timeline,
     TimelineRegion,
+    derive_section_regions,
 )
 from echozero.application.timeline.pipeline_run_service import PipelineRunState
 
@@ -227,6 +230,159 @@ def test_assembler_preserves_independent_selection_and_playback_target_fields():
     assert assembled.layers[0].is_playback_active is False
     assert assembled.layers[1].is_selected is False
     assert assembled.layers[1].is_playback_active is True
+
+
+def test_assembler_projects_playback_output_channel_count():
+    main_take = Take(
+        id=TakeId("take_main"),
+        layer_id=LayerId("layer_1"),
+        name="Main",
+        events=[_event("main_a", "take_main", 1.0)],
+    )
+    layer = Layer(
+        id=LayerId("layer_1"),
+        timeline_id=TimelineId("timeline_1"),
+        name="Song",
+        kind=LayerKind.AUDIO,
+        order_index=0,
+        takes=[main_take],
+    )
+    timeline = Timeline(
+        id=TimelineId("timeline_1"),
+        song_version_id=SongVersionId("version_1"),
+        layers=[layer],
+    )
+    session = Session(
+        id=SessionId("session_1"),
+        project_id=ProjectId("project_1"),
+        active_song_id=SongId("song_1"),
+        active_song_version_id=SongVersionId("version_1"),
+        active_timeline_id=timeline.id,
+    )
+    session.playback_state.output_channels = 4
+
+    assembled = TimelineAssembler().assemble(timeline, session)
+
+    assert assembled.playback_output_channels == 4
+
+
+def test_assembler_projects_event_cue_numbers_into_presentation():
+    main_take = Take(
+        id=TakeId("take_main"),
+        layer_id=LayerId("layer_marker"),
+        name="Main",
+        events=[
+            Event(
+                id=EventId("marker_1"),
+                take_id=TakeId("take_main"),
+                start=1.0,
+                end=1.08,
+                cue_number=17,
+                label="Verse",
+            )
+        ],
+    )
+    layer = Layer(
+        id=LayerId("layer_marker"),
+        timeline_id=TimelineId("timeline_1"),
+        name="Markers",
+        kind=LayerKind.MARKER,
+        order_index=0,
+        takes=[main_take],
+    )
+    timeline = Timeline(
+        id=TimelineId("timeline_1"),
+        song_version_id=SongVersionId("version_1"),
+        layers=[layer],
+    )
+    session = Session(
+        id=SessionId("session_marker"),
+        project_id=ProjectId("project_marker"),
+        active_song_id=SongId("song_marker"),
+        active_song_version_id=SongVersionId("version_1"),
+        active_timeline_id=timeline.id,
+    )
+
+    assembled = TimelineAssembler().assemble(timeline, session)
+
+    assert len(assembled.layers) == 1
+    assert assembled.layers[0].events[0].cue_number == 17
+    assert assembled.layers[0].events[0].label == "Verse"
+
+
+def test_derive_section_regions_uses_time_order_and_preserves_nonsequential_cue_refs():
+    cues = [
+        SectionCue(
+            id=SectionCueId("section_cue_q7"),
+            start=12.0,
+            cue_ref="Q7",
+            name="Verse",
+        ),
+        SectionCue(
+            id=SectionCueId("section_cue_q3"),
+            start=41.0,
+            cue_ref="Q3",
+            name="Chorus",
+        ),
+        SectionCue(
+            id=SectionCueId("section_cue_q9"),
+            start=70.0,
+            cue_ref="Q9",
+            name="Breakdown",
+        ),
+    ]
+
+    regions = derive_section_regions(cues, timeline_end=100.0)
+
+    assert [(region.cue_ref, region.start, region.end) for region in regions] == [
+        ("Q7", 12.0, 41.0),
+        ("Q3", 41.0, 70.0),
+        ("Q9", 70.0, 100.0),
+    ]
+
+
+def test_assembler_projects_section_cues_and_derived_regions_without_fake_prefirst_gap():
+    timeline = Timeline(
+        id=TimelineId("timeline_sections"),
+        song_version_id=SongVersionId("version_sections"),
+        end=95.0,
+        section_cues=[
+            SectionCue(
+                id=SectionCueId("section_cue_q7"),
+                start=12.0,
+                cue_ref="Q7",
+                name="Verse",
+                color="#ffcc00",
+                notes="Starts after intro",
+                payload_ref="ma3://cue/Q7",
+            ),
+            SectionCue(
+                id=SectionCueId("section_cue_q3"),
+                start=41.0,
+                cue_ref="Q3",
+                name="Chorus",
+            ),
+        ],
+    )
+    session = Session(
+        id=SessionId("session_sections"),
+        project_id=ProjectId("project_sections"),
+        active_song_id=SongId("song_sections"),
+        active_song_version_id=SongVersionId("version_sections"),
+        active_timeline_id=timeline.id,
+    )
+
+    assembled = TimelineAssembler().assemble(timeline, session)
+
+    assert [(cue.cue_ref, cue.start, cue.name) for cue in assembled.section_cues] == [
+        ("Q7", 12.0, "Verse"),
+        ("Q3", 41.0, "Chorus"),
+    ]
+    assert [(region.cue_ref, region.start, region.end) for region in assembled.section_regions] == [
+        ("Q7", 12.0, 41.0),
+        ("Q3", 41.0, 95.0),
+    ]
+    assert all(region.start >= 12.0 for region in assembled.section_regions)
 
 
 def test_assembler_projects_regions_in_sorted_order_with_selection_state():

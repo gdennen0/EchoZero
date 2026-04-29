@@ -1,5 +1,12 @@
 from PyQt6.QtCore import Qt
-from PyQt6.QtWidgets import QApplication, QDialogButtonBox, QLabel, QWidget
+from PyQt6.QtWidgets import (
+    QApplication,
+    QDialogButtonBox,
+    QDoubleSpinBox,
+    QLabel,
+    QSpinBox,
+    QWidget,
+)
 
 from echozero.application.presentation.inspector_contract import (
     InspectorAction,
@@ -18,6 +25,7 @@ from echozero.application.timeline.object_actions import (
     ObjectActionSettingsSession,
     ResetSessionDefaults,
     SaveSessionToDefaults,
+    SetSessionFieldValue,
 )
 from echozero.ui.FEEL import (
     TIMELINE_EDITOR_BUTTON_MIN_HEIGHT_PX,
@@ -803,6 +811,69 @@ def test_pipeline_settings_browser_dialog_honors_initial_action_selection():
         app.processEvents()
 
 
+def test_pipeline_settings_browser_dialog_field_edit_does_not_rebuild_form():
+    app = QApplication.instance() or QApplication([])
+    dispatched: list[object] = []
+    threshold_field = ObjectActionSettingField(
+        key="threshold",
+        label="Threshold",
+        value=0.3,
+        default_value=0.3,
+        persisted_value=0.3,
+        widget="number",
+    )
+    session = ObjectActionSettingsSession(
+        session_id="pipeline_threshold",
+        action_id="timeline.extract_drum_events",
+        object_id="source_audio",
+        object_type="layer",
+        scope="version",
+        plan=ObjectActionSettingsPlan(
+            action_id="timeline.extract_drum_events",
+            title="Extract Onsets",
+            object_id="source_audio",
+            object_type="layer",
+            pipeline_template_id="onset_detection",
+            editable_fields=(threshold_field,),
+            summary="Source Audio · This Version",
+        ),
+        scope_states=(
+            ObjectActionSettingsScopeState(
+                scope="version",
+                label="This Version",
+                field_values=(
+                    ObjectActionSessionFieldValue(
+                        key="threshold",
+                        persisted_value=0.3,
+                        draft_value=0.3,
+                    ),
+                ),
+                can_run=True,
+            ),
+        ),
+        can_save=True,
+        can_save_and_run=True,
+    )
+
+    dialog = PipelineSettingsBrowserDialog(
+        (session,),
+        dispatch_command=lambda _session_id, command: (dispatched.append(command) or session),
+    )
+    try:
+        widget_before = dialog._form._inputs["threshold"]
+        assert isinstance(widget_before, QDoubleSpinBox)
+
+        widget_before.setValue(0.45)
+        app.processEvents()
+
+        assert len(dispatched) == 1
+        assert isinstance(dispatched[0], SetSessionFieldValue)
+        assert dialog._form._inputs["threshold"] is widget_before
+    finally:
+        dialog.close()
+        app.processEvents()
+
+
 def test_timeline_editor_mode_bar_groups_tools_and_syncs_state():
     app = QApplication.instance() or QApplication([])
     bar = TimelineEditorModeBar()
@@ -819,10 +890,12 @@ def test_timeline_editor_mode_bar_groups_tools_and_syncs_state():
         assert bar.findChild(QWidget, "timelineEditorAssistGroup") is not None
         assert bar.findChild(QWidget, "timelineEditorShellGroup") is not None
         assert bar._settings_button.objectName() == "timelineEditorSettingsButton"
+        assert bar._osc_settings_button.objectName() == "timelineEditorOscSettingsButton"
         assert (
             bar._pipeline_settings_button.objectName()
             == "timelineEditorPipelineSettingsButton"
         )
+        assert bar._sections_button.objectName() == "timelineEditorSectionsButton"
         assert bar._regions_button.objectName() == "timelineEditorRegionsButton"
         assert list(bar._mode_buttons.keys()) == [
             "select",
@@ -861,6 +934,21 @@ def test_timeline_editor_mode_bar_emits_regions_requested_signal():
         app.processEvents()
 
 
+def test_timeline_editor_mode_bar_emits_sections_requested_signal():
+    app = QApplication.instance() or QApplication([])
+    bar = TimelineEditorModeBar()
+    emitted: list[bool] = []
+    try:
+        bar.sections_requested.connect(lambda: emitted.append(True))
+
+        bar._sections_button.click()
+
+        assert emitted == [True]
+    finally:
+        bar.close()
+        app.processEvents()
+
+
 def test_timeline_editor_mode_bar_emits_pipeline_settings_requested_signal():
     app = QApplication.instance() or QApplication([])
     bar = TimelineEditorModeBar()
@@ -869,6 +957,21 @@ def test_timeline_editor_mode_bar_emits_pipeline_settings_requested_signal():
         bar.pipeline_settings_requested.connect(lambda: emitted.append(True))
 
         bar._pipeline_settings_button.click()
+
+        assert emitted == [True]
+    finally:
+        bar.close()
+        app.processEvents()
+
+
+def test_timeline_editor_mode_bar_emits_osc_settings_requested_signal():
+    app = QApplication.instance() or QApplication([])
+    bar = TimelineEditorModeBar()
+    emitted: list[bool] = []
+    try:
+        bar.osc_settings_requested.connect(lambda: emitted.append(True))
+
+        bar._osc_settings_button.click()
 
         assert emitted == [True]
     finally:
@@ -894,6 +997,7 @@ def test_timeline_editor_mode_bar_switches_to_compact_density_when_narrow():
         assert bar._mode_buttons["select"].text() == "↖"
         assert bar._mode_buttons["move"].text() == "↔"
         assert bar._settings_button.text() == "⚙"
+        assert bar._osc_settings_button.text() == "O"
         assert bar._pipeline_settings_button.text() == "P"
         assert bar._grid_button.text().startswith("▦")
         assert bar._fix_action_buttons["select"].isVisible() is False
@@ -1078,6 +1182,49 @@ def test_action_settings_form_emits_field_value_changed_for_operator_edits():
         form._inputs["shifts"].setValue(3)
 
         assert emitted == [("mode", "overwrite"), ("shifts", 3)]
+    finally:
+        form.close()
+        app.processEvents()
+
+
+def test_action_settings_form_number_inputs_disable_keyboard_tracking():
+    app = QApplication.instance() or QApplication([])
+    form = ActionSettingsForm()
+    try:
+        form.set_plan(
+            ObjectActionSettingsPlan(
+                action_id="timeline.extract_stems",
+                title="Extract Stems",
+                object_id="source_audio",
+                object_type="layer",
+                pipeline_template_id="stem_separation",
+                editable_fields=(
+                    ObjectActionSettingField(
+                        key="threshold",
+                        label="Threshold",
+                        value=0.3,
+                        default_value=0.3,
+                        widget="number",
+                    ),
+                ),
+                advanced_fields=(
+                    ObjectActionSettingField(
+                        key="shifts",
+                        label="Shifts",
+                        value=1,
+                        default_value=1,
+                        widget="number",
+                    ),
+                ),
+            )
+        )
+
+        threshold_widget = form._inputs["threshold"]
+        shifts_widget = form._inputs["shifts"]
+        assert isinstance(threshold_widget, QDoubleSpinBox)
+        assert isinstance(shifts_widget, QSpinBox)
+        assert threshold_widget.keyboardTracking() is False
+        assert shifts_widget.keyboardTracking() is False
     finally:
         form.close()
         app.processEvents()

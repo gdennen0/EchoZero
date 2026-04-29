@@ -8,10 +8,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 import json
 import re
+import socket
 from threading import Condition, Lock
 from time import monotonic, sleep, time
 from typing import Any, Protocol
 
+from echozero.application.shared.cue_numbers import CueNumber, cue_number_text
 from echozero.infrastructure.osc import (
     OscInboundMessage,
     OscReceiveServer,
@@ -26,6 +28,8 @@ from echozero.infrastructure.sync.ma3_adapter import (
     MA3TrackGroupSnapshot,
     MA3TrackSnapshot,
     coerce_event_snapshot,
+    transport_event_cue_ref,
+    transport_event_label,
 )
 
 
@@ -33,6 +37,7 @@ _TRACK_COORD_RE = re.compile(r"^tc(?P<tc>\d+)_tg(?P<tg>\d+)_tr(?P<track>\d+)$")
 _TARGET_CONFIG_SETTLE_SECONDS = 0.25
 _WRITE_ERROR_GRACE_SECONDS = 0.35
 _CMD_SUBTRACK_RETRY_SETTLE_SECONDS = 0.2
+_WILDCARD_LISTEN_HOSTS = {"0.0.0.0", "::", "0:0:0:0:0:0:0:0"}
 
 
 @dataclass(frozen=True, slots=True)
@@ -85,6 +90,57 @@ def parse_track_coord(coord: str) -> tuple[int, int, int]:
         int(match.group("tg")),
         int(match.group("track")),
     )
+
+
+def resolve_ma3_target_host(*, listen_host: str, command_host: str | None = None) -> str:
+    """Resolve one MA3 callback target host from a listener bind host.
+
+    MA3 cannot reply to wildcard addresses like 0.0.0.0, so when EchoZero binds
+    to wildcard we advertise one routed local interface address instead.
+    """
+
+    host = str(listen_host or "").strip() or "127.0.0.1"
+    if host.lower() == "localhost":
+        return "127.0.0.1"
+    if host not in _WILDCARD_LISTEN_HOSTS:
+        return host
+    return _infer_routed_local_host(command_host) or "127.0.0.1"
+
+
+def _infer_routed_local_host(command_host: str | None) -> str | None:
+    probe_hosts: list[str] = []
+    target_host = str(command_host or "").strip()
+    if target_host:
+        probe_hosts.append(target_host)
+    probe_hosts.extend(["8.8.8.8", "1.1.1.1"])
+
+    for probe_host in probe_hosts:
+        try:
+            addr_infos = socket.getaddrinfo(
+                probe_host,
+                1,
+                type=socket.SOCK_DGRAM,
+                proto=socket.IPPROTO_UDP,
+            )
+        except OSError:
+            continue
+
+        for family, socktype, proto, _canonname, sockaddr in addr_infos:
+            if socktype != socket.SOCK_DGRAM:
+                continue
+            try:
+                with socket.socket(family, socktype, proto) as sock:
+                    sock.connect(sockaddr)
+                    local_host = str(sock.getsockname()[0] or "").strip()
+            except OSError:
+                continue
+            if not local_host or local_host in _WILDCARD_LISTEN_HOSTS:
+                continue
+            if local_host.lower() == "localhost":
+                return "127.0.0.1"
+            return local_host
+
+    return None
 
 
 def parse_ma3_osc_payload(payload: str) -> MA3OSCMessage:
@@ -906,13 +962,10 @@ class MA3OSCBridge:
         for raw_event in selected_events or []:
             snapshot = coerce_event_snapshot(raw_event)
             command = self._event_command_text(snapshot)
-            event_name = str(snapshot.label or "").strip() or None
-            cue_number = (
-                int(snapshot.cue_number)
-                if snapshot.cue_number is not None and int(snapshot.cue_number) > 0
-                else None
-            )
-            cue_label = event_name
+            event_name = transport_event_label(raw_event)
+            event_name = str(event_name or "").strip() or None
+            cue_number = snapshot.cue_number
+            cue_label = transport_event_cue_ref(raw_event) or event_name
             if mode == "merge":
                 fingerprint = self._event_fingerprint(snapshot)
                 if fingerprint in existing_fingerprints:
@@ -957,7 +1010,7 @@ class MA3OSCBridge:
         start: float,
         command: str,
         event_name: str | None = None,
-        cue_number: int | None = None,
+        cue_number: CueNumber | None = None,
         cue_label: str | None = None,
     ) -> None:
         event_name_arg = (
@@ -965,7 +1018,7 @@ class MA3OSCBridge:
             if event_name is None
             else _format_lua_string(event_name)
         )
-        cue_number_arg = "nil" if cue_number is None else str(int(cue_number))
+        cue_number_arg = "nil" if cue_number is None else str(cue_number_text(cue_number))
         cue_label_arg = (
             "nil"
             if cue_label is None
@@ -994,7 +1047,7 @@ class MA3OSCBridge:
         start: float,
         command: str,
         event_name: str | None,
-        cue_number: int | None,
+        cue_number: CueNumber | None,
         cue_label: str | None,
         after_index: int,
     ) -> None:
@@ -1112,11 +1165,25 @@ class MA3OSCBridge:
         if self._command_transport is None or self._target_configured:
             return
         host, port = self.listener_endpoint
-        self._send_command(f"EZ.SetTarget({_format_lua_string(host)}, {int(port)})")
+        target_host = resolve_ma3_target_host(
+            listen_host=host,
+            command_host=self._command_host_hint(),
+        )
+        self._send_command(f"EZ.SetTarget({_format_lua_string(target_host)}, {int(port)})")
         # Real MA3 applies a new OSC target asynchronously; the next response-bound
         # command can race the update unless we give the console a brief settle window.
         sleep(_TARGET_CONFIG_SETTLE_SECONDS)
         self._target_configured = True
+
+    def _command_host_hint(self) -> str | None:
+        transport = self._command_transport
+        if transport is None:
+            return None
+        endpoint = getattr(transport, "endpoint", None)
+        if not isinstance(endpoint, tuple) or not endpoint:
+            return None
+        host = str(endpoint[0] or "").strip()
+        return host or None
 
     def _send_command(self, command: str) -> None:
         transport = self._command_transport
@@ -1527,6 +1594,10 @@ class MA3OSCBridge:
             end=snapshot.end,
             cmd=None if _value(raw_event, "cmd") is None else str(_value(raw_event, "cmd")),
             cue_number=snapshot.cue_number,
+            cue_ref=snapshot.cue_ref,
+            color=snapshot.color,
+            notes=snapshot.notes,
+            payload_ref=snapshot.payload_ref,
         )
 
     @staticmethod
@@ -1534,16 +1605,21 @@ class MA3OSCBridge:
         command = str(event.cmd or "").strip()
         if command:
             return command
-        if event.cue_number is not None and int(event.cue_number) > 0:
-            return f"Go+ Cue {int(event.cue_number)}"
+        cue_number = cue_number_text(event.cue_number)
+        if cue_number is not None:
+            return f"Go+ Cue {cue_number}"
         label = str(event.label or "").strip()
         return label or "Event"
 
     @classmethod
     def _event_fingerprint(cls, event: MA3EventSnapshot) -> tuple[float | None, str]:
         start = None if event.start is None else round(float(event.start), 6)
-        if event.cue_number is not None and int(event.cue_number) > 0:
-            return (start, f"cue:{int(event.cue_number)}")
+        cue_number = cue_number_text(event.cue_number)
+        if cue_number is not None:
+            cue_ref = str(event.cue_ref or "").strip()
+            if cue_ref:
+                return (start, f"cue:{cue_number}:{cue_ref.casefold()}")
+            return (start, f"cue:{cue_number}")
         command = " ".join(cls._event_command_text(event).lower().split())
         return (start, command)
 

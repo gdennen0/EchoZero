@@ -1,9 +1,10 @@
 from tests.ui.app_shell_runtime_flow_support import (
-    test_app_shell_runtime_add_layer_after_song_rebuilds_runtime_audio,
+    test_app_shell_runtime_add_layer_after_song_defers_runtime_audio_build_while_stopped,
+    test_app_shell_runtime_add_layer_after_song_rebuilds_runtime_audio_while_playing,
     test_app_shell_runtime_add_layer_after_song_survives_storage_refresh,
     test_app_shell_runtime_add_layer_clears_stale_selected_event_refs,
     test_app_shell_runtime_add_song_after_draft_layer_keeps_draft_above_source,
-    test_app_shell_runtime_add_song_from_path_builds_runtime_audio,
+    test_app_shell_runtime_add_song_from_path_defers_runtime_audio_build_until_playback,
     test_app_shell_runtime_add_song_syncs_backend_playback_state_metadata,
     test_app_shell_runtime_canonical_build_starts_with_native_empty_timeline_state,
     test_app_shell_runtime_play_dispatch_rebuilds_runtime_audio,

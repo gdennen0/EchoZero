@@ -6,15 +6,35 @@ Connects loaded mono or stereo buffers to the mixer's callback read contract.
 
 from __future__ import annotations
 
+from math import gcd
+
 import numpy as np
+
+try:
+    from scipy.signal import resample_poly as _resample_poly
+except ImportError:
+    _resample_poly = None
+
+
+def _resample_linear(buffer: np.ndarray, source_sr: int, target_sr: int) -> np.ndarray:
+    """Resample with linear interpolation as a bounded fallback path."""
+    ratio = target_sr / source_sr
+    new_len = int(len(buffer) * ratio)
+    indices = np.arange(new_len, dtype=np.float64) / ratio
+    idx_floor = np.floor(indices).astype(np.int64)
+    idx_ceil = np.minimum(idx_floor + 1, len(buffer) - 1)
+    frac = (indices - idx_floor).astype(np.float32)
+    if buffer.ndim == 1:
+        return buffer[idx_floor] * (1.0 - frac) + buffer[idx_ceil] * frac
+    frac_2d = frac[:, None]
+    return buffer[idx_floor] * (1.0 - frac_2d) + buffer[idx_ceil] * frac_2d
 
 
 def resample_buffer(buffer: np.ndarray, source_sr: int, target_sr: int) -> np.ndarray:
-    """Resample audio buffer from source_sr to target_sr using linear interpolation.
+    """Resample audio buffer from source_sr to target_sr.
 
-    For production quality we'd use libsamplerate or scipy.signal.resample_poly,
-    but linear interp is allocation-free-friendly and good enough for preview playback.
-    High-quality resampling can be swapped in later.
+    Uses `scipy.signal.resample_poly` for playback-quality conversion and falls
+    back to linear interpolation if scipy is unavailable or parameters are invalid.
 
     Args:
         buffer: Source audio, float32.
@@ -30,16 +50,23 @@ def resample_buffer(buffer: np.ndarray, source_sr: int, target_sr: int) -> np.nd
 
     if source_sr == target_sr:
         return buffer
-    ratio = target_sr / source_sr
-    new_len = int(len(buffer) * ratio)
-    indices = np.arange(new_len, dtype=np.float64) / ratio
-    idx_floor = np.floor(indices).astype(np.int64)
-    idx_ceil = np.minimum(idx_floor + 1, len(buffer) - 1)
-    frac = (indices - idx_floor).astype(np.float32)
-    if buffer.ndim == 1:
-        return buffer[idx_floor] * (1.0 - frac) + buffer[idx_ceil] * frac
-    frac_2d = frac[:, None]
-    return buffer[idx_floor] * (1.0 - frac_2d) + buffer[idx_ceil] * frac_2d
+
+    if source_sr <= 0 or target_sr <= 0:
+        raise ValueError("sample rates must be positive")
+
+    ratio_gcd = gcd(int(source_sr), int(target_sr))
+    up = int(target_sr) // ratio_gcd
+    down = int(source_sr) // ratio_gcd
+    axis = 0 if buffer.ndim > 1 else -1
+
+    if _resample_poly is None:
+        return _resample_linear(buffer, source_sr, target_sr)
+
+    try:
+        resampled = _resample_poly(buffer, up, down, axis=axis)
+    except ValueError:
+        resampled = _resample_linear(buffer, source_sr, target_sr)
+    return np.asarray(resampled, dtype=np.float32)
 
 
 class AudioLayer:
@@ -64,7 +91,7 @@ class AudioLayer:
 
     __slots__ = (
         "id", "name", "buffer", "sample_rate", "original_sample_rate",
-        "offset", "volume", "muted", "solo",
+        "offset", "volume", "muted", "solo", "output_bus",
     )
 
     def __init__(
@@ -76,6 +103,7 @@ class AudioLayer:
         offset: int = 0,
         volume: float = 1.0,
         engine_sample_rate: int | None = None,
+        output_bus: str | None = None,
     ) -> None:
         if buffer.dtype != np.float32:
             buffer = buffer.astype(np.float32)
@@ -95,6 +123,9 @@ class AudioLayer:
         self.volume: float = volume
         self.muted: bool = False
         self.solo: bool = False
+        self.output_bus: str | None = (
+            output_bus.strip() if isinstance(output_bus, str) and output_bus.strip() else None
+        )
 
     @property
     def duration_samples(self) -> int:

@@ -299,6 +299,10 @@ def _layer_contract(
         InspectorFactRow(
             "playback state", _playback_state_label(presentation, layer=layer, take=None)
         ),
+        InspectorFactRow(
+            "output route",
+            "Outputs 1/2 (Default)" if layer.output_bus is None else layer.output_bus,
+        ),
     ]
     rows.extend(_layer_transfer_rows(presentation, layer))
     if presentation.experimental_live_sync_enabled:

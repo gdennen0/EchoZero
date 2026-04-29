@@ -101,8 +101,6 @@ def test_preferences_dialog_save_persists_json_settings_and_reports_restart(monk
                 "audio.output_device": "7",
                 "audio.sample_rate": 48000,
                 "audio.output_channels": 2,
-                "osc_send.enabled": True,
-                "osc_send.port": 9000,
             }
         )
 
@@ -110,11 +108,8 @@ def test_preferences_dialog_save_persists_json_settings_and_reports_restart(monk
 
         assert service.preferences().audio_output.output_device == "7"
         assert service.preferences().audio_output.sample_rate == 48000
-        assert service.preferences().ma3_osc.send.enabled is True
-        assert service.preferences().ma3_osc.send.port == 9000
         assert info_messages == [
-            "Restart EchoZero to apply saved audio output settings.\n"
-            "Restart EchoZero to apply saved OSC settings."
+            "Restart EchoZero to apply saved audio output settings."
         ]
         assert dialog.result() != 0
     finally:

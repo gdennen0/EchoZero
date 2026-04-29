@@ -3299,6 +3299,25 @@ Output auto-splits into one layer per classification label. "kicks" layer, "snar
 - If the user triggers Analyze, the PipelineConfig exists (created during Add Song) and the audio file is stored. All preconditions are met by construction.
 **Rationale:** Killing ingest (D276) eliminates the race condition entirely. No guard needed because the precondition (config + audio stored) is guaranteed before analysis can be triggered.
 
+### D282: Adaptive review loop is EZ-owned and lane-separated
+**Date:** 2026-04-26
+**Status:** Decided
+**Decision:**
+- The adaptive review loop is one EZ-owned operator workflow, not a loose handoff between unrelated tools.
+- The loop is split into five lanes with explicit ownership:
+  - review signal lane
+  - Project review-dataset lane
+  - shared core-dataset promotion lane
+  - model build lane
+  - runtime bundle adoption lane
+- EZ owns operator actions, launch surfaces, and pending-work adoption policy.
+- Foundry owns persisted review signals, dataset versions, train runs, artifact validation, and runtime bundle installation.
+- Only explicit review commits create reusable training signal. Silence, untouched Events, and generic edits do not.
+- Project-specialized model creation must resolve from a persisted Project review-dataset version, not directly from raw review rows.
+- Promoting or adopting a Project-specialized model updates pending work only. It does not silently rewrite already reviewed or already processed main truth.
+- Runtime adoption remains policy-based. Saved custom manifest paths stay pinned unless the operator explicitly changes them.
+**Rationale:** The review flywheel only becomes trustworthy if review truth, dataset state, training state, and runtime adoption stay separate. This decision keeps the operator flow simple in EZ while preventing hidden truth mutation, accidental data bleed, and fragile path-based coupling between training outputs and future analysis work.
+
 ---
 
 ## Reference Documents

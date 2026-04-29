@@ -110,6 +110,31 @@ def test_simulated_ma3_bridge_merge_push_preserves_existing_events_and_deduplica
     assert events[2].event_id.startswith("tc1_tg2_tr3:evt:")
 
 
+def test_simulated_ma3_bridge_merge_push_distinguishes_cue_refs_with_same_cue_number():
+    bridge = SimulatedMA3Bridge()
+
+    bridge.apply_push_transfer(
+        target_track_coord="tc1_tg2_tr3",
+        selected_events=[
+            Event(
+                id="section_evt",
+                take_id="take_1",
+                start=1.0,
+                end=1.2,
+                cue_number=1,
+                cue_ref="Q1A",
+                label="Verse",
+            ),
+        ],
+        transfer_mode="merge",
+    )
+
+    events = bridge.list_track_events("tc1_tg2_tr3")
+    assert [event.label for event in events] == ["Verse", "Cue 1", "Cue 2"]
+    assert [event.cue_number for event in events] == [1, 1, 2]
+    assert [event.cue_ref for event in events] == ["Q1A", "1", "2"]
+
+
 def test_simulated_ma3_bridge_overwrite_push_replaces_track_events():
     bridge = SimulatedMA3Bridge()
 

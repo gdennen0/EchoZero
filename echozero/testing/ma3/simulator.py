@@ -18,6 +18,11 @@ from pythonosc.dispatcher import Dispatcher
 from pythonosc.osc_server import ThreadingOSCUDPServer
 from pythonosc.udp_client import SimpleUDPClient
 
+from echozero.application.shared.cue_numbers import (
+    CueNumber,
+    cue_number_text,
+    parse_positive_cue_number,
+)
 from echozero.infrastructure.osc import OscUdpSendTransport
 from echozero.infrastructure.sync.ma3_adapter import (
     MA3EventSnapshot,
@@ -39,19 +44,20 @@ from echozero.infrastructure.sync.ma3_osc import (
 
 _SEQUENCE_CHUNK_SIZE = 40
 _TRACK_CHUNK_SIZE = 40
-_CUE_COMMAND_RE = re.compile(r"(?i)\b(?:go\+|goto)\s+cue\s+(\d+)\b")
+_CUE_COMMAND_RE = re.compile(r"(?i)\b(?:go\+|goto)\s+cue\s+(\d+(?:\.\d+)?)\b")
 
 
-def _cue_number_from_command(command: str) -> int | None:
+def _cue_number_from_command(command: str) -> CueNumber | None:
     match = _CUE_COMMAND_RE.search(str(command or "").strip())
     if match is None:
         return None
-    return int(match.group(1))
+    return parse_positive_cue_number(match.group(1))
 
 
-def _event_label_from_command(command: str, cue_number: int | None) -> str:
-    if cue_number is not None:
-        return f"Cue {cue_number}"
+def _event_label_from_command(command: str, cue_number: CueNumber | None) -> str:
+    cue_number_label = cue_number_text(cue_number)
+    if cue_number_label is not None:
+        return f"Cue {cue_number_label}"
     text = str(command or "").strip()
     return text or "Event"
 
@@ -700,7 +706,7 @@ class _SimulatedMA3OSCServer:
         start: float,
         cmd: str,
         event_name: str | None = None,
-        cue_no: int | None = None,
+        cue_no: CueNumber | None = None,
         cue_label: str | None = None,
     ) -> None:
         coord = format_track_coord(int(tc_no), int(tg_no), int(track_no))
@@ -719,14 +725,10 @@ class _SimulatedMA3OSCServer:
         events = self._events_by_coord.setdefault(coord, [])
         next_id = self._next_event_id(coord)
         command = str(cmd or "")
-        resolved_cue_number = None
-        try:
-            resolved_cue_number = int(cue_no) if cue_no is not None else None
-        except (TypeError, ValueError):
-            resolved_cue_number = None
+        resolved_cue_number = parse_positive_cue_number(cue_no)
         cue_number = (
             resolved_cue_number
-            if resolved_cue_number is not None and resolved_cue_number > 0
+            if resolved_cue_number is not None
             else _cue_number_from_command(command)
         )
         explicit_label = str(event_name or cue_label or "").strip()

@@ -20,6 +20,8 @@ from echozero.application.sync.service import SyncService
 from echozero.application.timeline.intents import (
     ApplyPullFromMA3,
     OpenPullFromMA3Dialog,
+    ReplaceSectionCues,
+    SectionCueEdit,
     SelectPullSourceEvents,
     SelectPullSourceTimecode,
     SelectPullSourceTrack,
@@ -32,6 +34,7 @@ from echozero.application.timeline.models import Event, Layer, Take, Timeline
 from echozero.application.timeline.orchestrator import TimelineOrchestrator
 from echozero.application.timeline.orchestrator_transfer_lookup_mixin import (
     _PULL_TARGET_CREATE_NEW_LAYER_ID,
+    _PULL_TARGET_CREATE_NEW_SECTION_LAYER_ID,
 )
 from echozero.application.transport.models import TransportState
 from echozero.application.transport.service import TransportService
@@ -275,8 +278,21 @@ def test_open_pull_intent_hydrates_hierarchy_and_defaults_to_new_layer_when_unli
     assert session.manual_pull_flow.available_events == []
     assert session.manual_pull_flow.selected_ma3_event_ids == []
     assert session.manual_pull_flow.available_target_layers == [
-        ManualPullTargetOption(layer_id=LayerId("layer_target"), name="Target Layer"),
-        ManualPullTargetOption(layer_id=_PULL_TARGET_CREATE_NEW_LAYER_ID, name="+ Create New Layer..."),
+        ManualPullTargetOption(
+            layer_id=LayerId("layer_target"),
+            name="Target Layer",
+            kind=LayerKind.EVENT,
+        ),
+        ManualPullTargetOption(
+            layer_id=_PULL_TARGET_CREATE_NEW_LAYER_ID,
+            name="+ Create New Layer...",
+            kind=LayerKind.EVENT,
+        ),
+        ManualPullTargetOption(
+            layer_id=_PULL_TARGET_CREATE_NEW_SECTION_LAYER_ID,
+            name="+ Create Section Layer...",
+            kind=LayerKind.SECTION,
+        ),
     ]
     assert session.manual_pull_flow.target_layer_id == _PULL_TARGET_CREATE_NEW_LAYER_ID
     assert session.batch_transfer_plan is not None
@@ -398,6 +414,149 @@ def test_apply_pull_import_expands_zero_width_one_shots_to_default_duration():
     assert [event.end for event in imported_take.events] == pytest.approx([41.3])
 
 
+def test_open_pull_defaults_to_selected_marker_layer_and_imports_marker_events():
+    orchestrator, timeline, session, _playback_service = _build_orchestrator(
+        sync_service=_SyncService(
+            tracks=[ManualPullTrackOption(coord="tc1_tg2_tr3", name="Marker Track", number=3)],
+            events_by_track={
+                "tc1_tg2_tr3": [
+                    ManualPullEventOption(
+                        event_id="ma3_evt_1",
+                        label="Verse",
+                        start=1.0,
+                        cue_number=11,
+                    ),
+                    ManualPullEventOption(
+                        event_id="ma3_evt_2",
+                        label="Chorus",
+                        start=3.0,
+                        cue_number=12,
+                    ),
+                ]
+            },
+        )
+    )
+    marker_layer = Layer(
+        id=LayerId("layer_marker"),
+        timeline_id=timeline.id,
+        name="Marker Layer",
+        kind=LayerKind.MARKER,
+        order_index=3,
+        takes=[Take(id=TakeId("take_marker"), layer_id=LayerId("layer_marker"), name="Main")],
+    )
+    timeline.layers.append(marker_layer)
+    timeline.selection.selected_layer_id = marker_layer.id
+
+    orchestrator.handle(timeline, OpenPullFromMA3Dialog())
+
+    assert any(
+        target.layer_id == LayerId("layer_marker")
+        for target in session.manual_pull_flow.available_target_layers
+    )
+    assert session.manual_pull_flow.target_layer_id == LayerId("layer_marker")
+    assert session.manual_pull_flow.import_mode == "new_take"
+
+    orchestrator.handle(timeline, ApplyPullFromMA3())
+
+    imported_take = marker_layer.takes[-1]
+    assert marker_layer.kind is LayerKind.MARKER
+    assert imported_take.name == "MA3 Pull - Marker Track"
+    assert [event.cue_number for event in imported_take.events] == [11, 12]
+    assert [event.label for event in imported_take.events] == ["Verse", "Chorus"]
+    assert marker_layer.sync.ma3_track_coord == "tc1_tg2_tr3"
+
+
+def test_open_pull_defaults_to_selected_section_layer_and_refreshes_canonical_sections():
+    orchestrator, timeline, session, _playback_service = _build_orchestrator(
+        sync_service=_SyncService(
+            tracks=[ManualPullTrackOption(coord="tc1_tg2_tr3", name="Section Track", number=3)],
+            events_by_track={
+                "tc1_tg2_tr3": [
+                    ManualPullEventOption(
+                        event_id="ma3_evt_1",
+                        label="Verse",
+                        start=1.0,
+                        cue_number=11,
+                    ),
+                    ManualPullEventOption(
+                        event_id="ma3_evt_2",
+                        label="Chorus",
+                        start=3.0,
+                        cue_number=3,
+                        cue_ref="Q3",
+                    ),
+                ]
+            },
+        )
+    )
+    section_layer = Layer(
+        id=LayerId("layer_sections"),
+        timeline_id=timeline.id,
+        name="Sections",
+        kind=LayerKind.SECTION,
+        order_index=3,
+        takes=[Take(id=TakeId("take_sections"), layer_id=LayerId("layer_sections"), name="Main")],
+    )
+    timeline.layers.append(section_layer)
+    timeline.selection.selected_layer_id = section_layer.id
+
+    orchestrator.handle(timeline, OpenPullFromMA3Dialog())
+
+    assert any(
+        target.layer_id == LayerId("layer_sections")
+        for target in session.manual_pull_flow.available_target_layers
+    )
+    assert session.manual_pull_flow.target_layer_id == LayerId("layer_sections")
+    assert session.manual_pull_flow.import_mode == "main"
+
+    orchestrator.handle(timeline, ApplyPullFromMA3())
+
+    main_take = section_layer.takes[0]
+    assert len(section_layer.takes) == 1
+    assert section_layer.kind is LayerKind.SECTION
+    assert [event.cue_ref for event in main_take.events] == ["11", "Q3"]
+    assert [event.label for event in main_take.events] == ["Verse", "Chorus"]
+    assert [(cue.cue_ref, cue.start, cue.name) for cue in timeline.section_cues] == [
+        ("11", 1.0, "Verse"),
+        ("Q3", 3.0, "Chorus"),
+    ]
+    assert section_layer.sync.ma3_track_coord == "tc1_tg2_tr3"
+
+
+def test_apply_pull_import_preserves_shared_cue_metadata_fields():
+    orchestrator, timeline, _session, _playback_service = _build_orchestrator(
+        sync_service=_SyncService(
+            tracks=[ManualPullTrackOption(coord="tc1_tg2_tr3", name="Track 3", number=3)],
+            events_by_track={
+                "tc1_tg2_tr3": [
+                    ManualPullEventOption(
+                        event_id="ma3_evt_1",
+                        label="Verse",
+                        start=1.0,
+                        cue_number=11,
+                        cue_ref="Q11A",
+                        color="#ffaa00",
+                        notes="Imported exactly",
+                        payload_ref="payload://ma3_evt_1",
+                    ),
+                ]
+            },
+        )
+    )
+    target_layer = next(layer for layer in timeline.layers if layer.id == LayerId("layer_target"))
+
+    orchestrator.handle(timeline, OpenPullFromMA3Dialog())
+    orchestrator.handle(timeline, SelectPullSourceTrack(source_track_coord="tc1_tg2_tr3"))
+    orchestrator.handle(timeline, SelectPullTargetLayer(target_layer_id=LayerId("layer_target")))
+    orchestrator.handle(timeline, ApplyPullFromMA3())
+
+    imported_event = target_layer.takes[-1].events[0]
+    assert imported_event.cue_ref == "Q11A"
+    assert imported_event.color == "#ffaa00"
+    assert imported_event.notes == "Imported exactly"
+    assert imported_event.payload_ref == "payload://ma3_evt_1"
+
+
 def test_apply_pull_create_new_target_creates_event_layer_and_imports_events():
     orchestrator, timeline, session, _playback_service = _build_orchestrator(
         sync_service=_SyncService(
@@ -429,6 +588,85 @@ def test_apply_pull_create_new_target_creates_event_layer_and_imports_events():
     assert timeline.selection.selected_layer_id == created_layer.id
     assert timeline.selection.selected_take_id == created_layer.takes[0].id
     assert session.manual_pull_flow.target_layer_id_by_source_track["tc1_tg2_tr3"] == created_layer.id
+
+
+def test_apply_pull_create_section_target_creates_section_layer_and_imports_main():
+    orchestrator, timeline, session, _playback_service = _build_orchestrator(
+        sync_service=_SyncService(
+            tracks=[ManualPullTrackOption(coord="tc1_tg2_tr3", name="Song Parts", number=3)],
+            events_by_track={
+                "tc1_tg2_tr3": [
+                    ManualPullEventOption(
+                        event_id="ma3_evt_1",
+                        label="Verse",
+                        start=12.0,
+                        cue_number=7,
+                    ),
+                    ManualPullEventOption(
+                        event_id="ma3_evt_2",
+                        label="Chorus",
+                        start=41.0,
+                        cue_number=3,
+                        cue_ref="Q3",
+                    ),
+                ]
+            },
+        )
+    )
+
+    orchestrator.handle(timeline, OpenPullFromMA3Dialog())
+    create_section_target_id = _pull_target_option_id(session, "+ Create Section Layer...")
+    orchestrator.handle(timeline, SelectPullTargetLayer(target_layer_id=create_section_target_id))
+    orchestrator.handle(timeline, ApplyPullFromMA3())
+
+    created_layer = next(layer for layer in timeline.layers if layer.kind is LayerKind.SECTION)
+    assert created_layer.id == LayerId("layer_sections")
+    assert created_layer.name == "Sections"
+    assert created_layer.order_index == min(layer.order_index for layer in timeline.layers)
+    assert created_layer.sync.ma3_track_coord == "tc1_tg2_tr3"
+    assert len(created_layer.takes) == 1
+    assert created_layer.takes[0].name == "Main"
+    assert [event.cue_ref for event in created_layer.takes[0].events] == ["7", "Q3"]
+    assert [event.label for event in created_layer.takes[0].events] == ["Verse", "Chorus"]
+    assert [(cue.cue_ref, cue.start, cue.name) for cue in timeline.section_cues] == [
+        ("7", 12.0, "Verse"),
+        ("Q3", 41.0, "Chorus"),
+    ]
+    assert timeline.selection.selected_layer_id == created_layer.id
+    assert timeline.selection.selected_take_id == created_layer.takes[0].id
+    assert session.manual_pull_flow.target_layer_id_by_source_track["tc1_tg2_tr3"] == created_layer.id
+
+
+def test_apply_pull_create_section_target_preserves_float_cue_numbers():
+    orchestrator, timeline, session, _playback_service = _build_orchestrator(
+        sync_service=_SyncService(
+            tracks=[ManualPullTrackOption(coord="tc1_tg2_tr3", name="Song Parts", number=3)],
+            events_by_track={
+                "tc1_tg2_tr3": [
+                    ManualPullEventOption(
+                        event_id="ma3_evt_1",
+                        label="Break",
+                        start=12.0,
+                        cue_number=7.5,
+                    ),
+                ]
+            },
+        )
+    )
+
+    orchestrator.handle(timeline, OpenPullFromMA3Dialog())
+    create_section_target_id = _pull_target_option_id(session, "+ Create Section Layer...")
+    orchestrator.handle(timeline, SelectPullTargetLayer(target_layer_id=create_section_target_id))
+    orchestrator.handle(timeline, ApplyPullFromMA3())
+
+    created_layer = next(layer for layer in timeline.layers if layer.kind is LayerKind.SECTION)
+    created_event = created_layer.takes[0].events[0]
+
+    assert created_event.cue_number == 7.5
+    assert created_event.cue_ref == "7.5"
+    assert [(cue.cue_ref, cue.start, cue.name) for cue in timeline.section_cues] == [
+        ("7.5", 12.0, "Break"),
+    ]
 
 
 def test_apply_pull_import_to_existing_layer_still_creates_new_take():
@@ -574,3 +812,31 @@ def test_pull_flow_validation_errors_reject_unknown_scoped_values():
             timeline,
             SelectPullTargetLayer(target_layer_id=LayerId("missing_layer")),
         )
+
+
+def test_replace_section_cues_creates_section_layer_and_refreshes_timeline_sections():
+    orchestrator, timeline, _session, _playback_service = _build_orchestrator()
+
+    orchestrator.handle(
+        timeline,
+        ReplaceSectionCues(
+            cues=[
+                SectionCueEdit(cue_id=None, start=12.0, cue_ref="Q7", name="Verse"),
+                SectionCueEdit(cue_id=None, start=41.0, cue_ref="Q3", name="Chorus"),
+            ]
+        ),
+    )
+
+    section_layer = next(layer for layer in timeline.layers if layer.kind is LayerKind.SECTION)
+    main_take = section_layer.takes[0]
+
+    assert section_layer.name == "Sections"
+    assert section_layer.order_index == min(layer.order_index for layer in timeline.layers)
+    assert [(cue.cue_ref, cue.start, cue.name) for cue in timeline.section_cues] == [
+        ("Q7", 12.0, "Verse"),
+        ("Q3", 41.0, "Chorus"),
+    ]
+    assert [(event.cue_ref, event.label) for event in main_take.events] == [
+        ("Q7", "Verse"),
+        ("Q3", "Chorus"),
+    ]

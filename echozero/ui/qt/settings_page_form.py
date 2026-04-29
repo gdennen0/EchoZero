@@ -208,6 +208,7 @@ class SettingsPageForm(QWidget):
                 spin.setValue(int(field.value))
                 if field.units:
                     spin.setSuffix(f" {field.units}")
+                spin.setKeyboardTracking(False)
                 spin.valueChanged.connect(
                     lambda _value, key=field.key, widget=spin: self._emit_field_value_changed(key, widget)
                 )
@@ -223,6 +224,7 @@ class SettingsPageForm(QWidget):
             spin.setValue(float(field.value if field.value is not None else 0.0))
             if field.units:
                 spin.setSuffix(f" {field.units}")
+            spin.setKeyboardTracking(False)
             spin.valueChanged.connect(
                 lambda _value, key=field.key, widget=spin: self._emit_field_value_changed(key, widget)
             )

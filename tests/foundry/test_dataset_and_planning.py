@@ -1,11 +1,12 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
 
 from echozero.foundry.app import FoundryApp
-from echozero.foundry.domain import CurationState
+from echozero.foundry.domain import CurationState, DatasetSample, DatasetVersion, ReviewOutcome
 from echozero.foundry.persistence import DatasetVersionRepository
 from echozero.foundry.services.dataset_service import DatasetService
 from tests.foundry.audio_fixtures import (
@@ -13,6 +14,7 @@ from tests.foundry.audio_fixtures import (
     write_unreadable_audio_file,
     write_zero_byte_audio_file,
 )
+from tests.foundry.test_review_project_queue_builder import _build_project_review_fixture
 
 
 def test_dataset_ingest_plan_and_curation(tmp_path: Path):
@@ -177,3 +179,205 @@ def test_dataset_ingest_rejects_folders_with_only_invalid_audio(tmp_path: Path):
 
     with pytest.raises(ValueError, match="No valid audio samples found"):
         app.datasets.ingest_from_folder(dataset.id, dataset_dir)
+
+
+def test_dataset_service_derives_binary_version_from_review_dataset_samples(tmp_path: Path):
+    service = DatasetService(tmp_path)
+    dataset = service.create_dataset(
+        "Review Samples",
+        source_kind="project_review_export",
+        metadata={"project_ref": "project:fixture"},
+    )
+    samples = [
+        DatasetSample(
+            sample_id="sm_kick",
+            audio_ref="kick.wav",
+            label="kick",
+            content_hash="hash-kick",
+            source_provenance={"review_item_id": "ri-kick", "review_polarity": "positive"},
+            group_id="content:hash-kick",
+            curation_state=CurationState.ACCEPTED,
+        ),
+        DatasetSample(
+            sample_id="sm_snare",
+            audio_ref="snare.wav",
+            label="snare",
+            content_hash="hash-snare",
+            source_provenance={"review_item_id": "ri-snare", "review_polarity": "positive"},
+            group_id="content:hash-snare",
+            curation_state=CurationState.ACCEPTED,
+        ),
+        DatasetSample(
+            sample_id="sm_tom",
+            audio_ref="tom.wav",
+            label="tom",
+            content_hash="hash-tom",
+            source_provenance={"review_item_id": "ri-tom", "review_polarity": "positive"},
+            group_id="content:hash-tom",
+            curation_state=CurationState.ACCEPTED,
+        ),
+    ]
+    source_version = DatasetVersion(
+        id="dsv_review",
+        dataset_id=dataset.id,
+        version=1,
+        manifest_hash=DatasetService.compute_manifest_hash(samples),
+        sample_rate=22050,
+        audio_standard="mono_wav_pcm16",
+        class_map=["kick", "snare", "tom"],
+        samples=samples,
+        taxonomy={
+            "schema": "foundry.taxonomy.v1",
+            "namespace": "percussion.one_shot",
+            "version": 1,
+            "labels": [],
+        },
+        label_policy={
+            "schema": "foundry.label_policy.v1",
+            "classification_mode": "multiclass",
+            "unit": "one_shot",
+            "allowed_labels": ["kick", "snare", "tom"],
+            "unknown_label": None,
+        },
+        manifest={
+            "schema": "foundry.review_dataset_manifest.v1",
+            "deterministic_order": [sample.sample_id for sample in samples],
+            "content_groups": {
+                "content:hash-kick": ["sm_kick"],
+                "content:hash-snare": ["sm_snare"],
+                "content:hash-tom": ["sm_tom"],
+            },
+        },
+        split_plan={
+            "assignments": {
+                "sm_kick": "train",
+                "sm_snare": "val",
+                "sm_tom": "test",
+            },
+            "train_ids": ["sm_kick"],
+            "val_ids": ["sm_snare"],
+            "test_ids": ["sm_tom"],
+        },
+        stats={"sample_count": 3},
+        created_at=datetime.now(UTC),
+    )
+    DatasetVersionRepository(tmp_path).save(source_version)
+
+    derived = service.derive_binary_dataset_version(source_version.id, positive_label="kick")
+
+    assert derived.class_map == ["kick", "other"]
+    assert derived.label_policy["classification_mode"] == "binary"
+    assert derived.label_policy["allowed_labels"] == ["kick", "other"]
+    assert {sample.sample_id: sample.label for sample in derived.samples} == {
+        "sm_kick": "kick",
+        "sm_snare": "other",
+        "sm_tom": "other",
+    }
+    assert derived.split_plan["assignments"] == source_version.split_plan["assignments"]
+    assert derived.lineage["source_version_id"] == source_version.id
+
+
+def test_dataset_service_derives_binary_version_using_review_polarity(tmp_path: Path):
+    service = DatasetService(tmp_path)
+    dataset = service.create_dataset(
+        "Review Samples",
+        source_kind="project_review_export",
+        metadata={"project_ref": "project:fixture"},
+    )
+    samples = [
+        DatasetSample(
+            sample_id="sm_kick_negative",
+            audio_ref="kick_negative.wav",
+            label="kick",
+            content_hash="hash-kick-negative",
+            source_provenance={"review_item_id": "ri-kick-negative", "review_polarity": "negative"},
+            group_id="content:hash-kick-negative",
+            curation_state=CurationState.ACCEPTED,
+        ),
+        DatasetSample(
+            sample_id="sm_kick_positive",
+            audio_ref="kick_positive.wav",
+            label="kick",
+            content_hash="hash-kick-positive",
+            source_provenance={"review_item_id": "ri-kick-positive", "review_polarity": "positive"},
+            group_id="content:hash-kick-positive",
+            curation_state=CurationState.ACCEPTED,
+        ),
+        DatasetSample(
+            sample_id="sm_snare_positive",
+            audio_ref="snare_positive.wav",
+            label="snare",
+            content_hash="hash-snare-positive",
+            source_provenance={"review_item_id": "ri-snare-positive", "review_polarity": "positive"},
+            group_id="content:hash-snare-positive",
+            curation_state=CurationState.ACCEPTED,
+        ),
+    ]
+    source_version = DatasetVersion(
+        id="dsv_review_polarity",
+        dataset_id=dataset.id,
+        version=1,
+        manifest_hash=DatasetService.compute_manifest_hash(samples),
+        sample_rate=22050,
+        audio_standard="mono_wav_pcm16",
+        class_map=["kick", "snare"],
+        samples=samples,
+        taxonomy={"schema": "foundry.taxonomy.v1"},
+        label_policy={"schema": "foundry.label_policy.v1", "classification_mode": "multiclass"},
+        manifest={"schema": "foundry.project_review_dataset_manifest.v1"},
+        created_at=datetime.now(UTC),
+    )
+    DatasetVersionRepository(tmp_path).save(source_version)
+
+    derived = service.derive_binary_dataset_version(source_version.id, positive_label="kick")
+
+    assert {sample.sample_id: sample.label for sample in derived.samples} == {
+        "sm_kick_negative": "other",
+        "sm_kick_positive": "kick",
+        "sm_snare_positive": "other",
+    }
+
+
+def test_dataset_service_exports_project_review_dataset_from_canonical_project_truth(tmp_path: Path):
+    _ez_path, working_dir, refs = _build_project_review_fixture(tmp_path)
+    app = FoundryApp(tmp_path)
+    review_service = app.reviews
+
+    session = review_service.create_project_session(
+        working_dir,
+        song_id=refs["alpha_song_id"],
+        layer_id="layer_alpha_kick",
+    )
+    review_service.set_item_review(
+        session.id,
+        session.items[0].item_id,
+        outcome=ReviewOutcome.INCORRECT,
+        corrected_label="tom",
+        review_note="operator confirmed a tom relabel",
+    )
+    review_service.set_item_review(
+        session.id,
+        session.items[1].item_id,
+        outcome=ReviewOutcome.CORRECT,
+        corrected_label=None,
+        review_note=None,
+    )
+
+    exported = app.export_project_review_dataset(
+        working_dir,
+        project_ref=refs["project_ref"],
+    )
+
+    assert exported.dataset_id
+    assert exported.stats["sample_count"] == 3
+    assert exported.stats["review_positive_count"] == 2
+    assert exported.stats["review_negative_count"] == 1
+    assert sorted(sample.label for sample in exported.samples) == ["kick", "kick", "tom"]
+    assert {sample.source_provenance["review_polarity"] for sample in exported.samples} == {
+        "negative",
+        "positive",
+    }
+    dataset = app.datasets.get_dataset(exported.dataset_id)
+    assert dataset is not None
+    assert dataset.source_kind == "project_review_export"
+    assert dataset.metadata["project_ref"] == refs["project_ref"]

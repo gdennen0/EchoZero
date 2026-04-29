@@ -20,16 +20,41 @@ from echozero.foundry.review_web import build_review_page
 class _ReviewHTTPServer(ThreadingHTTPServer):
     """HTTP server bound to one review session and its service façade."""
 
-    def __init__(self, address: tuple[str, int], handler: type[BaseHTTPRequestHandler], *, service: ReviewSessionService, session_id: str):
+    def __init__(
+        self,
+        address: tuple[str, int],
+        handler: type[BaseHTTPRequestHandler],
+        *,
+        service: ReviewSessionService,
+        session_id: str | None,
+        application_session: dict[str, object] | None,
+    ):
         super().__init__(address, handler)
         self.service = service
-        self.default_session_id = session_id
+        self.default_session_id = str(session_id or "").strip()
+        self.current_application_session = (
+            dict(application_session) if application_session is not None else None
+        )
+        self.state_revision = 0
 
 
-def create_review_http_server(root: Path, session_id: str, *, host: str, port: int) -> _ReviewHTTPServer:
+def create_review_http_server(
+    root: Path,
+    session_id: str | None,
+    *,
+    host: str,
+    port: int,
+    application_session: dict[str, object] | None = None,
+) -> _ReviewHTTPServer:
     """Build an HTTP server bound to one persisted review session."""
     handler = type("ReviewRequestHandler", (_ReviewRequestHandler,), {})
-    return _ReviewHTTPServer((host, port), handler, service=ReviewSessionService(root), session_id=session_id)
+    return _ReviewHTTPServer(
+        (host, port),
+        handler,
+        service=ReviewSessionService(root),
+        session_id=session_id,
+        application_session=application_session,
+    )
 
 
 def serve_review_session(root: Path, session_id: str, *, host: str = "127.0.0.1", port: int = 8421) -> int:
@@ -54,13 +79,18 @@ class _ReviewRequestHandler(BaseHTTPRequestHandler):
             self._write_html(build_review_page())
             return
         if parsed.path == "/api/sessions":
-            self._write_json(
-                self.server.service.build_session_index(default_session_id=self.server.default_session_id)
+            payload = self.server.service.build_session_index(
+                default_session_id=self.server.default_session_id or None,
+                application_session=self.server.current_application_session,
             )
+            payload["stateRevision"] = self.server.state_revision
+            self._write_json(payload)
             return
         if parsed.path == "/api/session":
             try:
-                self._write_json(self._snapshot_from_query(parsed.query))
+                payload = self._snapshot_from_query(parsed.query)
+                payload["stateRevision"] = self.server.state_revision
+                self._write_json(payload)
             except ValueError as exc:
                 self._write_json({"error": str(exc)}, status=HTTPStatus.BAD_REQUEST)
             return
@@ -86,6 +116,15 @@ class _ReviewRequestHandler(BaseHTTPRequestHandler):
                 outcome=outcome,
                 corrected_label=_optional_payload_text(payload, "correctedLabel"),
                 review_note=_optional_payload_text(payload, "reviewNote"),
+                decision_kind=_optional_payload_text(payload, "decisionKind"),
+                original_start_ms=_optional_payload_float(payload, "originalStartMs"),
+                original_end_ms=_optional_payload_float(payload, "originalEndMs"),
+                corrected_start_ms=_optional_payload_float(payload, "correctedStartMs"),
+                corrected_end_ms=_optional_payload_float(payload, "correctedEndMs"),
+                created_event_ref=_optional_payload_text(payload, "createdEventRef"),
+                surface=_optional_payload_text(payload, "surface") or "phone_review",
+                workflow=_optional_payload_text(payload, "workflow") or "manual_review",
+                operator_action=_optional_payload_text(payload, "operatorAction"),
             )
             snapshot = self._snapshot_from_query(parsed.query)
         except (ValueError, KeyError) as exc:
@@ -212,6 +251,16 @@ def _optional_param(params: dict[str, list[str]], key: str) -> str | None:
         return None
     text = values[0].strip()
     return text or None
+
+
+def _optional_payload_float(payload: dict, key: str) -> float | None:
+    value = payload.get(key)
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
 
 
 def _int_param(params: dict[str, list[str]], key: str, *, default: int) -> int:

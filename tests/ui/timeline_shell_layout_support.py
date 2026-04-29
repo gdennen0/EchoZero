@@ -131,6 +131,21 @@ def test_ruler_is_separate_widget_from_scroll_canvas():
         widget.close()
 
 
+def test_transport_bar_is_below_timeline_viewport():
+    app = QApplication.instance() or QApplication([])
+    widget = TimelineWidget(build_demo_app().presentation())
+    try:
+        widget.resize(1400, 900)
+        widget.show()
+        app.processEvents()
+
+        assert widget._transport.geometry().top() > widget._scroll.geometry().bottom()
+        assert widget._transport.geometry().top() > widget._hscroll.geometry().bottom()
+    finally:
+        widget.close()
+        app.processEvents()
+
+
 def test_timeline_widget_surfaces_pipeline_status_banner_from_presentation():
     app = QApplication.instance() or QApplication([])
     banner = PipelineRunBannerPresentation(
@@ -239,6 +254,7 @@ def test_pipeline_context_actions_include_phase1_ids():
     assert "song.add" in empty_action_ids
     assert "add_event_layer" in empty_action_ids
     assert "add_marker_layer" in empty_action_ids
+    assert "add_section_layer" in empty_action_ids
     assert "add_automation_layer" not in empty_action_ids
     assert "add_reference_layer" not in empty_action_ids
     assert "song.add" not in song_action_ids

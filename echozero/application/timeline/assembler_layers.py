@@ -73,6 +73,7 @@ def assemble_layer(
         locked=layer.presentation_hints.locked,
         gain_db=layer.mixer.gain_db,
         pan=layer.mixer.pan,
+        output_bus=layer.mixer.output_bus,
         playback_mode=layer.playback.mode,
         playback_enabled=layer.playback.enabled,
         sync_mode=_coerce_sync_mode(layer.sync.mode),
@@ -186,7 +187,10 @@ def _assemble_events(
             start=event.start,
             end=event.end,
             label=event.label,
+            cue_number=event.cue_number,
+            cue_ref=event.cue_ref,
             color=event.color,
+            notes=event.notes,
             muted=event.muted,
             source_event_id=event.source_event_id,
             payload_ref=event.payload_ref,
@@ -201,7 +205,7 @@ def _assemble_events(
             or (
                 not state.selected_event_ref_keys and event.id in state.selected_event_ids_set
             ),
-            badges=["muted"] if event.muted else [],
+            badges=_event_badges(event),
         )
         for event in ordered
     ]
@@ -209,6 +213,21 @@ def _assemble_events(
 
 def _take_actions(*, has_selection: bool) -> list[TakeActionPresentation]:
     return default_take_actions(has_selection=has_selection)
+
+
+def _event_badges(event: Event) -> list[str]:
+    badges: list[str] = []
+    if event.muted:
+        badges.append("muted")
+    if event.promotion_state == "demoted":
+        badges.append("demoted")
+    if event.review_state == "signed_off":
+        badges.append("signed-off")
+    elif event.review_state == "corrected":
+        badges.append("corrected")
+    if event.origin_kind == "manual_added":
+        badges.append("manual")
+    return badges
 
 
 def _take_has_selected_events(

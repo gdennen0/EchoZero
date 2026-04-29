@@ -2015,6 +2015,167 @@ def test_contract_add_marker_layer_action_calls_runtime():
         app.processEvents()
 
 
+def test_contract_add_section_layer_action_calls_runtime():
+    app = QApplication.instance() or QApplication([])
+
+    class _Runtime:
+        def __init__(self):
+            self.calls: list[LayerKind] = []
+            self._presentation = TimelinePresentation(
+                timeline_id=TimelineId("timeline_empty"),
+                title="Empty",
+                layers=[],
+                end_time_label="00:05.00",
+            )
+            self.runtime_audio = None
+
+        def presentation(self):
+            return self._presentation
+
+        def dispatch(self, intent):
+            return self._presentation
+
+        def add_layer(self, kind: LayerKind):
+            self.calls.append(kind)
+            self._presentation = replace(
+                self._presentation,
+                layers=[
+                    LayerPresentation(
+                        layer_id=LayerId("layer_section"),
+                        title="Section Layer",
+                        main_take_id=None,
+                        kind=kind,
+                        status=LayerStatusPresentation(),
+                    )
+                ],
+                selected_layer_id=LayerId("layer_section"),
+                selected_layer_ids=[LayerId("layer_section")],
+            )
+            return self._presentation
+
+    runtime = _Runtime()
+    widget = TimelineWidget(runtime.presentation(), on_intent=runtime.dispatch)
+    try:
+        widget._trigger_contract_action(
+            InspectorAction(action_id="add_section_layer", label="Add Section Layer")
+        )
+
+        assert runtime.calls == [LayerKind.SECTION]
+        assert [layer.title for layer in widget.presentation.layers] == ["Section Layer"]
+        assert widget.presentation.layers[0].kind is LayerKind.SECTION
+    finally:
+        widget.close()
+        app.processEvents()
+
+
+def test_contract_add_smpte_layer_action_calls_runtime():
+    app = QApplication.instance() or QApplication([])
+
+    class _Runtime:
+        def __init__(self):
+            self.calls: list[tuple[LayerKind, str | None]] = []
+            self._presentation = TimelinePresentation(
+                timeline_id=TimelineId("timeline_empty"),
+                title="Empty",
+                layers=[],
+                end_time_label="00:05.00",
+            )
+            self.runtime_audio = None
+
+        def presentation(self):
+            return self._presentation
+
+        def dispatch(self, intent):
+            return self._presentation
+
+        def add_layer(self, kind: LayerKind, title: str | None = None):
+            self.calls.append((kind, title))
+            self._presentation = replace(
+                self._presentation,
+                layers=[
+                    LayerPresentation(
+                        layer_id=LayerId("layer_smpte"),
+                        title=title or "Audio Layer",
+                        main_take_id=None,
+                        kind=kind,
+                        status=LayerStatusPresentation(),
+                    )
+                ],
+                selected_layer_id=LayerId("layer_smpte"),
+                selected_layer_ids=[LayerId("layer_smpte")],
+            )
+            return self._presentation
+
+    runtime = _Runtime()
+    widget = TimelineWidget(runtime.presentation(), on_intent=runtime.dispatch)
+    try:
+        widget._trigger_contract_action(
+            InspectorAction(action_id="add_smpte_layer", label="Add SMPTE Layer")
+        )
+
+        assert runtime.calls == [(LayerKind.AUDIO, "SMPTE Layer")]
+        assert [layer.title for layer in widget.presentation.layers] == ["SMPTE Layer"]
+        assert widget.presentation.layers[0].kind is LayerKind.AUDIO
+    finally:
+        widget.close()
+        app.processEvents()
+
+
+def test_contract_import_smpte_audio_to_layer_action_calls_runtime(monkeypatch):
+    app = QApplication.instance() or QApplication([])
+
+    class _Runtime:
+        def __init__(self):
+            self.calls: list[tuple[str, str]] = []
+            self._presentation = TimelinePresentation(
+                timeline_id=TimelineId("timeline_empty"),
+                title="Empty",
+                layers=[
+                    LayerPresentation(
+                        layer_id=LayerId("layer_smpte"),
+                        title="SMPTE Layer",
+                        main_take_id=None,
+                        kind=LayerKind.AUDIO,
+                        status=LayerStatusPresentation(),
+                    )
+                ],
+                selected_layer_id=LayerId("layer_smpte"),
+                selected_layer_ids=[LayerId("layer_smpte")],
+                end_time_label="00:05.00",
+            )
+            self.runtime_audio = None
+
+        def presentation(self):
+            return self._presentation
+
+        def dispatch(self, intent):
+            return self._presentation
+
+        def import_smpte_audio_to_layer(self, layer_id: str, audio_path: str):
+            self.calls.append((layer_id, audio_path))
+            return self._presentation
+
+    runtime = _Runtime()
+    monkeypatch.setattr(
+        "echozero.ui.qt.timeline.widget.QFileDialog.getOpenFileName",
+        lambda *args, **kwargs: ("C:/audio/smpte-print.wav", "Audio Files"),
+    )
+    widget = TimelineWidget(runtime.presentation(), on_intent=runtime.dispatch)
+    try:
+        widget._trigger_contract_action(
+            InspectorAction(
+                action_id="import_smpte_audio_to_layer",
+                label="Import SMPTE Audio",
+                params={"layer_id": "layer_smpte"},
+            )
+        )
+
+        assert runtime.calls == [("layer_smpte", "C:/audio/smpte-print.wav")]
+    finally:
+        widget.close()
+        app.processEvents()
+
+
 def test_contract_extract_pipeline_action_warns_when_not_implemented(monkeypatch):
     app = QApplication.instance() or QApplication([])
 

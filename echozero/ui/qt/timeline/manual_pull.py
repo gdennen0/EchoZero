@@ -11,6 +11,7 @@ from PyQt6.QtCore import QPointF, QRectF, Qt, QSignalBlocker, pyqtSignal
 from PyQt6.QtGui import QColor, QPainter, QPen, QPolygonF, QWheelEvent
 from PyQt6.QtWidgets import QComboBox, QDialog, QDialogButtonBox, QHBoxLayout, QLabel, QMessageBox, QPushButton, QScrollArea, QScrollBar, QVBoxLayout, QWidget
 
+from echozero.application.shared.enums import LayerKind
 from echozero.application.shared.ids import LayerId
 from echozero.ui.qt.timeline.manual_pull_source_browser import (
     ManualPullSourceBrowser,
@@ -28,11 +29,17 @@ def format_manual_pull_seconds(value: float) -> str:
 
 def _is_new_layer_pull_target(target_layer_id: LayerId | None) -> bool:
     target_text = str(target_layer_id or "").strip()
-    return target_text.startswith("__manual_pull__:create_new_layer")
+    return target_text.startswith("__manual_pull__:create_new_")
 
 
-def _pull_import_mode_for_target(target_layer_id: LayerId | None) -> str:
-    return "main" if _is_new_layer_pull_target(target_layer_id) else "new_take"
+def _pull_import_mode_for_target(
+    target_layer_id: LayerId | None,
+    *,
+    target_kind: LayerKind | None = None,
+) -> str:
+    if _is_new_layer_pull_target(target_layer_id):
+        return "main"
+    return "main" if target_kind is LayerKind.SECTION else "new_take"
 
 
 @dataclass(slots=True, frozen=True)
@@ -369,6 +376,9 @@ class ManualPullTimelineDialog(QDialog):
         super().__init__(parent)
         self.setWindowTitle("Import from MA3")
         self.resize(980, 440)
+        self._target_kinds_by_id = {
+            target.layer_id: getattr(target, "kind", None) for target in available_targets
+        }
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(16, 16, 16, 16)
@@ -477,6 +487,12 @@ class ManualPullTimelineDialog(QDialog):
 
         return str(self._import_mode_combo.currentData() or "new_take")
 
+    def _selected_target_kind(self) -> LayerKind | None:
+        target_layer_id = self.selected_target_layer_id()
+        if target_layer_id is None:
+            return None
+        return self._target_kinds_by_id.get(target_layer_id)
+
     def accept(self) -> None:
         """Reject submission until the dialog has both event and layer selections."""
 
@@ -510,7 +526,10 @@ class ManualPullTimelineDialog(QDialog):
     def _sync_import_mode_with_target(self, *, fallback_mode: str | None = None) -> None:
         target_layer_id = self.selected_target_layer_id()
         import_mode = (
-            _pull_import_mode_for_target(target_layer_id)
+            _pull_import_mode_for_target(
+                target_layer_id,
+                target_kind=self._selected_target_kind(),
+            )
             if target_layer_id is not None
             else str(fallback_mode or "new_take")
         )
@@ -541,7 +560,7 @@ class ManualPullWorkspaceDialog(QDialog):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("Import Event Layer from MA3")
+        self.setWindowTitle("Import from MA3")
         self.resize(1120, 560)
         self._syncing = False
         self._selected_timecode_no: int | None = None
@@ -549,6 +568,7 @@ class ManualPullWorkspaceDialog(QDialog):
         self._selected_source_track_coord_value: str | None = None
         self._track_labels_by_coord: dict[str, str] = {}
         self._track_group_labels_by_no: dict[int, str] = {}
+        self._target_kinds_by_id: dict[LayerId, LayerKind | None] = {}
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(16, 16, 16, 16)
@@ -687,6 +707,10 @@ class ManualPullWorkspaceDialog(QDialog):
                 active_track_coord=self._selected_source_track_coord_value,
                 selected_track_coords=list(flow.selected_source_track_coords),
             )
+            self._target_kinds_by_id = {
+                target.layer_id: getattr(target, "kind", None)
+                for target in flow.available_target_layers
+            }
 
             with QSignalBlocker(self._target_combo):
                 self._target_combo.clear()
@@ -721,15 +745,21 @@ class ManualPullWorkspaceDialog(QDialog):
     def selected_import_mode(self) -> str:
         return str(self._import_mode_combo.currentData() or "new_take")
 
+    def _selected_target_kind(self) -> LayerKind | None:
+        target_layer_id = self.selected_target_layer_id()
+        if target_layer_id is None:
+            return None
+        return self._target_kinds_by_id.get(target_layer_id)
+
     def accept(self) -> None:
         if self.selected_source_track_coord() is None:
-            QMessageBox.warning(self, "Import Event Layer from MA3", "Select a source MA3 track.")
+            QMessageBox.warning(self, "Import from MA3", "Select a source MA3 track.")
             return
         if not self.selected_event_ids():
-            QMessageBox.warning(self, "Import Event Layer from MA3", "Select at least one source event.")
+            QMessageBox.warning(self, "Import from MA3", "Select at least one source event.")
             return
         if self.selected_target_layer_id() is None:
-            QMessageBox.warning(self, "Import Event Layer from MA3", "Select an EZ destination.")
+            QMessageBox.warning(self, "Import from MA3", "Select an EZ destination.")
             return
         super().accept()
 
@@ -795,7 +825,10 @@ class ManualPullWorkspaceDialog(QDialog):
     def _sync_import_mode_with_target(self, *, fallback_mode: str | None = None) -> None:
         target_layer_id = self.selected_target_layer_id()
         import_mode = (
-            _pull_import_mode_for_target(target_layer_id)
+            _pull_import_mode_for_target(
+                target_layer_id,
+                target_kind=self._selected_target_kind(),
+            )
             if target_layer_id is not None
             else str(fallback_mode or "new_take")
         )
@@ -830,8 +863,10 @@ class ManualPullWorkspaceDialog(QDialog):
         if target_value is None:
             self._destination_summary.setText("Destination: Select an EZ target")
         elif _is_new_layer_pull_target(target_value):
+            target_kind = self._selected_target_kind()
+            target_noun = "section layer" if target_kind is LayerKind.SECTION else "event layer"
             self._destination_summary.setText(
-                f"Destination: Create a new EZ event layer and import to {import_mode_label}"
+                f"Destination: Create a new EZ {target_noun} and import to {import_mode_label}"
             )
         else:
             self._destination_summary.setText(

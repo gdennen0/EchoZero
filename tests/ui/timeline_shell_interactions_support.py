@@ -3,6 +3,8 @@ Exists to keep click, drag, keyboard, and transport coverage separate from fixtu
 Connects the compatibility wrapper to the bounded interaction support slice.
 """
 
+from echozero.application.presentation.models import SectionRegionPresentation
+
 from tests.ui.timeline_shell_shared_support import *  # noqa: F401,F403
 
 
@@ -56,6 +58,67 @@ def _fix_mode_test_presentation() -> TimelinePresentation:
         pixels_per_second=120.0,
         end_time_label="00:05.00",
     )
+
+
+def _section_overlay_scope_presentation() -> TimelinePresentation:
+    return TimelinePresentation(
+        timeline_id=TimelineId("timeline_section_overlay_scope"),
+        title="Section Overlay Scope",
+        layers=[
+            LayerPresentation(
+                layer_id=LayerId("layer_events"),
+                title="Events",
+                main_take_id=TakeId("take_events"),
+                kind=LayerKind.EVENT,
+                status=LayerStatusPresentation(),
+            ),
+            LayerPresentation(
+                layer_id=LayerId("layer_sections"),
+                title="Sections",
+                main_take_id=TakeId("take_sections"),
+                kind=LayerKind.SECTION,
+                status=LayerStatusPresentation(),
+            ),
+        ],
+        section_regions=[
+            SectionRegionPresentation(
+                cue_id="cue_intro",
+                start=0.0,
+                end=4.0,
+                cue_ref="Q1",
+                name="Intro",
+                color="#f0b74f",
+            )
+        ],
+        pixels_per_second=100.0,
+        end_time_label="00:08.00",
+    )
+
+
+def test_section_overlay_renders_only_on_section_layer_rows():
+    app = QApplication.instance() or QApplication([])
+    widget = TimelineWidget(_section_overlay_scope_presentation())
+    try:
+        _render_for_hit_testing(widget)
+        row_rect_by_layer = {
+            layer_id: rect
+            for rect, layer_id, take_id in widget._canvas._row_body_select_rects
+            if take_id is None
+        }
+        event_row_rect = row_rect_by_layer[LayerId("layer_events")]
+        section_row_rect = row_rect_by_layer[LayerId("layer_sections")]
+
+        sample_x = int(event_row_rect.left()) + 43
+        image = widget._canvas.grab().toImage()
+        event_row_color = image.pixelColor(sample_x, int(event_row_rect.center().y())).name()
+        section_row_color = image.pixelColor(sample_x, int(section_row_rect.center().y())).name()
+        base_row_color = QColor(widget._canvas._style.canvas.row_fill_hex).name()
+
+        assert event_row_color == base_row_color
+        assert section_row_color != base_row_color
+    finally:
+        widget.close()
+        app.processEvents()
 
 
 def test_shift_click_event_dispatches_additive_selection_mode():
@@ -899,6 +962,85 @@ def test_f_key_switches_canvas_to_fix_mode() -> None:
         app.processEvents()
 
 
+def test_fix_demoted_toggle_is_visible_only_in_fix_mode() -> None:
+    app = QApplication.instance() or QApplication([])
+    presentation = _selection_test_presentation()
+    widget = TimelineWidget(
+        presentation, on_intent=lambda intent: presentation
+    )
+    try:
+        _render_for_hit_testing(widget)
+
+        assert not widget._editor_bar._fix_include_demoted_button.isVisible()
+
+        widget._editor_bar._mode_buttons["fix"].click()
+        QApplication.processEvents()
+        assert widget._editor_bar._fix_include_demoted_button.isVisible()
+
+        widget._editor_bar._mode_buttons["select"].click()
+        QApplication.processEvents()
+        assert not widget._editor_bar._fix_include_demoted_button.isVisible()
+    finally:
+        widget.close()
+        app.processEvents()
+
+
+def test_demoted_events_render_only_in_fix_mode() -> None:
+    app = QApplication.instance() or QApplication([])
+    base = _selection_test_presentation()
+    presentation = replace(
+        base,
+        layers=[
+            replace(
+                base.layers[0],
+                events=[
+                    *base.layers[0].events,
+                    EventPresentation(
+                        event_id=EventId("demoted_evt"),
+                        start=2.7,
+                        end=3.0,
+                        label="Demoted",
+                        badges=["demoted"],
+                    ),
+                ],
+            )
+        ],
+    )
+    widget = TimelineWidget(
+        presentation, on_intent=lambda intent: presentation
+    )
+    try:
+        _render_for_hit_testing(widget)
+        event_ids = {
+            str(event_id)
+            for _rect, _layer_id, _take_id, event_id in widget._canvas._event_rects
+        }
+        assert "demoted_evt" not in event_ids
+
+        widget._editor_bar._mode_buttons["fix"].click()
+        QApplication.processEvents()
+        widget._canvas.repaint()
+        QApplication.processEvents()
+        event_ids = {
+            str(event_id)
+            for _rect, _layer_id, _take_id, event_id in widget._canvas._event_rects
+        }
+        assert "demoted_evt" in event_ids
+
+        widget._editor_bar._mode_buttons["move"].click()
+        QApplication.processEvents()
+        widget._canvas.repaint()
+        QApplication.processEvents()
+        event_ids = {
+            str(event_id)
+            for _rect, _layer_id, _take_id, event_id in widget._canvas._event_rects
+        }
+        assert "demoted_evt" not in event_ids
+    finally:
+        widget.close()
+        app.processEvents()
+
+
 def test_fix_mode_shortcuts_switch_fix_tools() -> None:
     app = QApplication.instance() or QApplication([])
     presentation = _fix_mode_test_presentation()
@@ -922,6 +1064,204 @@ def test_fix_mode_shortcuts_switch_fix_tools() -> None:
         QApplication.processEvents()
         assert widget._canvas._fix_action == "promote"
         assert widget._editor_bar._fix_action_buttons["promote"].isChecked() is True
+    finally:
+        widget.close()
+        app.processEvents()
+
+
+def test_fix_mode_shift_z_demotes_selected_event() -> None:
+    app = QApplication.instance() or QApplication([])
+    intents: list[object] = []
+    base = _fix_mode_test_presentation()
+    presentation = replace(
+        base,
+        selected_event_ids=[EventId("kick_evt")],
+        selected_event_refs=[
+            EventRef(
+                layer_id=LayerId("layer_kick"),
+                take_id=TakeId("take_kick"),
+                event_id=EventId("kick_evt"),
+            )
+        ],
+    )
+    widget = TimelineWidget(
+        presentation, on_intent=lambda intent: intents.append(intent) or presentation
+    )
+    try:
+        _render_for_hit_testing(widget)
+        widget._editor_bar._mode_buttons["fix"].click()
+        QApplication.processEvents()
+        assert widget._canvas._fix_action == "select"
+
+        QTest.keyClick(widget._canvas, Qt.Key.Key_Z, Qt.KeyboardModifier.ShiftModifier)
+        QApplication.processEvents()
+
+        assert intents == [
+            CommitRejectedEventsReview(
+                event_refs=[
+                    EventRef(
+                        layer_id=LayerId("layer_kick"),
+                        take_id=TakeId("take_kick"),
+                        event_id=EventId("kick_evt"),
+                    )
+                ],
+            )
+        ]
+        assert widget._canvas._fix_action == "select"
+    finally:
+        widget.close()
+        app.processEvents()
+
+
+def test_fix_mode_shift_c_promotes_selected_event() -> None:
+    app = QApplication.instance() or QApplication([])
+    intents: list[object] = []
+    base = _fix_mode_test_presentation()
+    presentation = replace(
+        base,
+        selected_event_ids=[EventId("kick_evt")],
+        selected_event_refs=[
+            EventRef(
+                layer_id=LayerId("layer_kick"),
+                take_id=TakeId("take_kick"),
+                event_id=EventId("kick_evt"),
+            )
+        ],
+    )
+    widget = TimelineWidget(
+        presentation, on_intent=lambda intent: intents.append(intent) or presentation
+    )
+    try:
+        _render_for_hit_testing(widget)
+        widget._editor_bar._mode_buttons["fix"].click()
+        QApplication.processEvents()
+        assert widget._canvas._fix_action == "select"
+
+        QTest.keyClick(widget._canvas, Qt.Key.Key_C, Qt.KeyboardModifier.ShiftModifier)
+        QApplication.processEvents()
+
+        assert intents == [
+            CommitVerifiedEventsReview(
+                event_refs=[
+                    EventRef(
+                        layer_id=LayerId("layer_kick"),
+                        take_id=TakeId("take_kick"),
+                        event_id=EventId("kick_evt"),
+                    )
+                ],
+            )
+        ]
+        assert widget._canvas._fix_action == "select"
+    finally:
+        widget.close()
+        app.processEvents()
+
+
+def test_fix_mode_shift_z_demotes_multiple_selected_events_in_batch() -> None:
+    app = QApplication.instance() or QApplication([])
+    intents: list[object] = []
+    base = _selection_test_presentation()
+    presentation = replace(
+        base,
+        selected_layer_id=LayerId("layer_kick"),
+        selected_layer_ids=[LayerId("layer_kick")],
+        selected_take_id=TakeId("take_main"),
+        selected_event_ids=[EventId("main_evt"), EventId("take_evt")],
+        selected_event_refs=[
+            EventRef(
+                layer_id=LayerId("layer_kick"),
+                take_id=TakeId("take_main"),
+                event_id=EventId("main_evt"),
+            ),
+            EventRef(
+                layer_id=LayerId("layer_kick"),
+                take_id=TakeId("take_alt"),
+                event_id=EventId("take_evt"),
+            ),
+        ],
+    )
+    widget = TimelineWidget(
+        presentation, on_intent=lambda intent: intents.append(intent) or presentation
+    )
+    try:
+        _render_for_hit_testing(widget)
+        widget._editor_bar._mode_buttons["fix"].click()
+        QApplication.processEvents()
+
+        QTest.keyClick(widget._canvas, Qt.Key.Key_Z, Qt.KeyboardModifier.ShiftModifier)
+        QApplication.processEvents()
+
+        assert intents == [
+            CommitRejectedEventsReview(
+                event_refs=[
+                    EventRef(
+                        layer_id=LayerId("layer_kick"),
+                        take_id=TakeId("take_main"),
+                        event_id=EventId("main_evt"),
+                    ),
+                    EventRef(
+                        layer_id=LayerId("layer_kick"),
+                        take_id=TakeId("take_alt"),
+                        event_id=EventId("take_evt"),
+                    ),
+                ]
+            )
+        ]
+    finally:
+        widget.close()
+        app.processEvents()
+
+
+def test_fix_mode_shift_c_promotes_multiple_selected_events_in_batch() -> None:
+    app = QApplication.instance() or QApplication([])
+    intents: list[object] = []
+    base = _selection_test_presentation()
+    presentation = replace(
+        base,
+        selected_layer_id=LayerId("layer_kick"),
+        selected_layer_ids=[LayerId("layer_kick")],
+        selected_take_id=TakeId("take_main"),
+        selected_event_ids=[EventId("main_evt"), EventId("take_evt")],
+        selected_event_refs=[
+            EventRef(
+                layer_id=LayerId("layer_kick"),
+                take_id=TakeId("take_main"),
+                event_id=EventId("main_evt"),
+            ),
+            EventRef(
+                layer_id=LayerId("layer_kick"),
+                take_id=TakeId("take_alt"),
+                event_id=EventId("take_evt"),
+            ),
+        ],
+    )
+    widget = TimelineWidget(
+        presentation, on_intent=lambda intent: intents.append(intent) or presentation
+    )
+    try:
+        _render_for_hit_testing(widget)
+        widget._editor_bar._mode_buttons["fix"].click()
+        QApplication.processEvents()
+
+        QTest.keyClick(widget._canvas, Qt.Key.Key_C, Qt.KeyboardModifier.ShiftModifier)
+        QApplication.processEvents()
+
+        assert intents == [
+            CommitVerifiedEventsReview(
+                event_refs=[
+                    EventRef(
+                        layer_id=LayerId("layer_kick"),
+                        take_id=TakeId("take_main"),
+                        event_id=EventId("main_evt"),
+                    ),
+                    EventRef(
+                        layer_id=LayerId("layer_kick"),
+                        take_id=TakeId("take_alt"),
+                        event_id=EventId("take_evt"),
+                    ),
+                ]
+            )
+        ]
     finally:
         widget.close()
         app.processEvents()
@@ -1021,6 +1361,46 @@ def test_fix_mode_keys_dispatch_navigation_intents():
         app.processEvents()
 
 
+def test_fix_mode_demoted_navigation_toggle_updates_adjacent_event_intent() -> None:
+    app = QApplication.instance() or QApplication([])
+    intents: list[object] = []
+    presentation = replace(
+        _selection_test_presentation(),
+        selected_layer_id=LayerId("layer_kick"),
+        selected_layer_ids=[LayerId("layer_kick")],
+        selected_take_id=TakeId("take_main"),
+        selected_event_ids=[EventId("main_evt")],
+    )
+    widget = TimelineWidget(
+        presentation, on_intent=lambda intent: intents.append(intent) or presentation
+    )
+    try:
+        _render_for_hit_testing(widget)
+        widget._editor_bar._mode_buttons["fix"].click()
+        QApplication.processEvents()
+        assert widget._editor_bar._fix_include_demoted_button.text().endswith("Off")
+
+        widget._editor_bar._fix_include_demoted_button.click()
+        QApplication.processEvents()
+        assert widget._editor_bar._fix_include_demoted_button.isChecked()
+        assert widget._editor_bar._fix_include_demoted_button.text().endswith("On")
+
+        QTest.keyClick(widget._canvas, Qt.Key.Key_Right)
+        QTest.keyClick(widget._canvas, Qt.Key.Key_D)
+        QTest.keyClick(widget._canvas, Qt.Key.Key_Left)
+        QApplication.processEvents()
+
+        assert not widget._editor_bar._fix_include_demoted_button.isChecked()
+        assert widget._editor_bar._fix_include_demoted_button.text().endswith("Off")
+        assert intents == [
+            SelectAdjacentEventInSelectedLayer(direction=1, include_demoted=True),
+            SelectAdjacentEventInSelectedLayer(direction=-1, include_demoted=False),
+        ]
+    finally:
+        widget.close()
+        app.processEvents()
+
+
 def test_fix_mode_arrow_keys_dispatch_event_navigation_even_with_overlay_candidates() -> None:
     app = QApplication.instance() or QApplication([])
     intents: list[object] = []
@@ -1071,7 +1451,7 @@ def test_fix_mode_preview_keys_navigate_preview_overlay_candidates_locally() -> 
         focused = widget._canvas._focused_fix_overlay()
         assert focused is not None
         assert focused[1] == LayerId("layer_kick")
-        assert focused[3] == "onset_b"
+        assert focused[3] == "onset_a"
 
         QTest.keyClick(widget._canvas, Qt.Key.Key_Comma)
         QApplication.processEvents()
@@ -1097,7 +1477,7 @@ def test_fix_mode_preview_keys_navigate_preview_overlay_candidates_locally() -> 
             EventRef(
                 layer_id=LayerId("layer_onsets"),
                 take_id=TakeId("take_onsets"),
-                event_id=EventId("onset_b"),
+                event_id=EventId("onset_a"),
             )
         ]
         assert intents[2].event_refs == [
@@ -1258,6 +1638,38 @@ def test_select_mode_space_triggers_event_clip_preview_action(monkeypatch):
         app.processEvents()
 
 
+def test_space_pauses_transport_when_timeline_is_playing(monkeypatch):
+    app = QApplication.instance() or QApplication([])
+    intents: list[object] = []
+    base = _selection_test_presentation()
+    presentation_state = replace(base, is_playing=True)
+    captured_actions: list[object] = []
+
+    def _on_intent(intent):
+        nonlocal presentation_state
+        intents.append(intent)
+        if isinstance(intent, Pause):
+            presentation_state = replace(presentation_state, is_playing=False)
+        return presentation_state
+
+    widget = TimelineWidget(presentation_state, on_intent=_on_intent)
+    try:
+        monkeypatch.setattr(
+            widget._action_router,
+            "trigger_contract_action",
+            lambda action: captured_actions.append(action),
+        )
+        _render_for_hit_testing(widget)
+        QTest.keyClick(widget._canvas, Qt.Key.Key_Space)
+        QApplication.processEvents()
+
+        assert intents == [Pause()]
+        assert captured_actions == []
+    finally:
+        widget.close()
+        app.processEvents()
+
+
 def test_fix_mode_space_and_enter_preview_selected_event_clip(monkeypatch):
     app = QApplication.instance() or QApplication([])
     layer_id = LayerId("layer_kick")
@@ -1367,6 +1779,12 @@ def test_transport_bar_clicks_dispatch_play_pause_and_stop():
         _render_for_hit_testing(widget)
         widget._transport.repaint()
         QApplication.processEvents()
+
+        assert widget.presentation.follow_mode == FollowMode.CENTER
+        _click_transport_rect(widget, "follow")
+        assert widget.presentation.follow_mode == FollowMode.OFF
+        _click_transport_rect(widget, "follow")
+        assert widget.presentation.follow_mode == FollowMode.CENTER
 
         _click_transport_rect(widget, "play")
         assert widget.presentation.is_playing is False
@@ -1551,6 +1969,30 @@ def test_settings_button_triggers_launcher_preferences_action() -> None:
         app.processEvents()
 
 
+def test_osc_settings_button_triggers_launcher_osc_settings_action() -> None:
+    app = QApplication.instance() or QApplication([])
+    presentation = _selection_test_presentation()
+    widget = TimelineWidget(presentation, on_intent=lambda intent: presentation)
+
+    class _FakeAction:
+        def __init__(self) -> None:
+            self.trigger_calls = 0
+
+        def trigger(self) -> None:
+            self.trigger_calls += 1
+
+    action = _FakeAction()
+    widget._launcher_actions = {"osc_settings": action}
+
+    try:
+        widget._editor_bar._osc_settings_button.click()
+
+        assert action.trigger_calls == 1
+    finally:
+        widget.close()
+        app.processEvents()
+
+
 def test_draw_mode_drag_dispatches_create_event_intent():
     app = QApplication.instance() or QApplication([])
     intents: list[object] = []
@@ -1638,7 +2080,7 @@ def test_fix_mode_plus_click_promotes_missing_correlated_onset() -> None:
         _click_rect(widget, missing_rect)
 
         assert len(intents) == 1
-        assert isinstance(intents[0], CreateEvent)
+        assert isinstance(intents[0], CommitMissedEventReview)
         assert intents[0].layer_id == LayerId("layer_kick")
         assert intents[0].take_id == TakeId("take_kick")
         assert intents[0].label == "Kick"
@@ -1669,7 +2111,7 @@ def test_fix_mode_overlay_events_align_with_main_event_lane_y() -> None:
         preview_rect = next(
             rect
             for rect, layer_id, _take_id, source_event_id, _start, _end, _matched in widget._canvas._fix_event_rects
-            if layer_id == LayerId("layer_kick") and source_event_id == "onset_b"
+            if layer_id == LayerId("layer_kick") and source_event_id == "onset_a"
         )
 
         assert abs(float(preview_rect.top()) - float(main_rect.top())) <= 0.5
@@ -1679,7 +2121,121 @@ def test_fix_mode_overlay_events_align_with_main_event_lane_y() -> None:
         app.processEvents()
 
 
-def test_fix_mode_selecting_ghost_onset_updates_selection_and_preview(monkeypatch) -> None:
+def test_fix_mode_overlay_shows_unmatched_onsets_only_in_promote_tool() -> None:
+    app = QApplication.instance() or QApplication([])
+    presentation = _fix_mode_test_presentation()
+    widget = TimelineWidget(presentation, on_intent=lambda intent: presentation)
+    try:
+        _render_for_hit_testing(widget)
+        widget._editor_bar._mode_buttons["fix"].click()
+        QApplication.processEvents()
+
+        select_mode_rects = [
+            (layer_id, source_event_id, matched)
+            for _rect, layer_id, _take_id, source_event_id, _start, _end, matched in widget._canvas._fix_event_rects
+            if layer_id == LayerId("layer_kick")
+        ]
+        assert (LayerId("layer_kick"), "onset_a", True) in select_mode_rects
+        assert not any(
+            layer_id == LayerId("layer_kick")
+            and source_event_id == "onset_b"
+            for layer_id, source_event_id, _matched in select_mode_rects
+        )
+
+        QTest.keyClick(widget._canvas, Qt.Key.Key_C, Qt.KeyboardModifier.NoModifier)
+        QApplication.processEvents()
+        widget._canvas.repaint()
+        QApplication.processEvents()
+
+        promote_mode_rects = [
+            (layer_id, source_event_id, matched)
+            for _rect, layer_id, _take_id, source_event_id, _start, _end, matched in widget._canvas._fix_event_rects
+            if layer_id == LayerId("layer_kick")
+        ]
+        assert (LayerId("layer_kick"), "onset_a", True) in promote_mode_rects
+        assert (LayerId("layer_kick"), "onset_b", False) in promote_mode_rects
+    finally:
+        widget.close()
+        app.processEvents()
+
+
+def test_fix_mode_does_not_cross_render_kick_snare_overlay_without_onset_lane() -> None:
+    app = QApplication.instance() or QApplication([])
+    presentation = TimelinePresentation(
+        timeline_id=TimelineId("timeline_fix_mode_no_onsets"),
+        title="Fix Mode No Onsets",
+        layers=[
+            LayerPresentation(
+                layer_id=LayerId("layer_kick"),
+                title="Kick",
+                main_take_id=TakeId("take_kick"),
+                kind=LayerKind.EVENT,
+                is_selected=True,
+                events=[
+                    EventPresentation(
+                        event_id=EventId("kick_evt"),
+                        start=1.0,
+                        end=1.2,
+                        label="Kick",
+                        source_event_id="kick_src",
+                        badges=["demoted"],
+                    )
+                ],
+                status=LayerStatusPresentation(
+                    source_layer_id="source_audio",
+                    source_label="binary_drum_classify · kick_events",
+                    output_name="kick_events",
+                ),
+            ),
+            LayerPresentation(
+                layer_id=LayerId("layer_snare"),
+                title="Snare",
+                main_take_id=TakeId("take_snare"),
+                kind=LayerKind.EVENT,
+                events=[
+                    EventPresentation(
+                        event_id=EventId("snare_evt"),
+                        start=2.0,
+                        end=2.2,
+                        label="Snare",
+                        source_event_id="snare_src",
+                        badges=["demoted"],
+                    )
+                ],
+                status=LayerStatusPresentation(
+                    source_layer_id="source_audio",
+                    source_label="binary_drum_classify · snare_events",
+                    output_name="snare_events",
+                ),
+            ),
+        ],
+        selected_layer_id=LayerId("layer_kick"),
+        selected_layer_ids=[LayerId("layer_kick")],
+        selected_take_id=TakeId("take_kick"),
+        pixels_per_second=120.0,
+        end_time_label="00:05.00",
+    )
+    widget = TimelineWidget(presentation, on_intent=lambda intent: presentation)
+    try:
+        _render_for_hit_testing(widget)
+        widget._editor_bar._mode_buttons["fix"].click()
+        QApplication.processEvents()
+        widget._canvas.repaint()
+        QApplication.processEvents()
+
+        assert widget._canvas._fix_event_rects == []
+    finally:
+        widget.close()
+        app.processEvents()
+
+
+def test_fix_mode_arrow_keys_navigate_preview_overlay_candidates_locally() -> None:
+    """Keep the historical wrapper import stable for preview-overlay navigation coverage."""
+
+    test_fix_mode_preview_keys_navigate_preview_overlay_candidates_locally()
+
+
+def test_fix_mode_selecting_source_onset_updates_selection_and_preview(monkeypatch) -> None:
     app = QApplication.instance() or QApplication([])
     intents: list[object] = []
     base = _fix_mode_test_presentation()
@@ -1728,14 +2284,14 @@ def test_fix_mode_selecting_ghost_onset_updates_selection_and_preview(monkeypatc
         QTest.keyClick(widget._canvas, Qt.Key.Key_X, Qt.KeyboardModifier.NoModifier)
         QApplication.processEvents()
 
-        ghost_rect = next(
+        source_rect = next(
             rect
             for rect, layer_id, _take_id, source_event_id, _start, _end, matched in widget._canvas._fix_event_rects
             if layer_id == LayerId("layer_kick")
-            and source_event_id == "onset_b"
-            and matched is False
+            and source_event_id == "onset_a"
+            and matched is True
         )
-        _click_rect(widget, ghost_rect)
+        _click_rect(widget, source_rect)
         QApplication.processEvents()
 
         set_selected_intents = [
@@ -1747,7 +2303,7 @@ def test_fix_mode_selecting_ghost_onset_updates_selection_and_preview(monkeypatc
             EventRef(
                 layer_id=LayerId("layer_onsets"),
                 take_id=TakeId("take_onsets"),
-                event_id=EventId("onset_b"),
+                event_id=EventId("onset_a"),
             )
         ]
         assert latest_selected.anchor_layer_id == LayerId("layer_kick")
@@ -1763,7 +2319,7 @@ def test_fix_mode_selecting_ghost_onset_updates_selection_and_preview(monkeypatc
         assert action.action_id == "preview_event_clip"
         assert action.params["layer_id"] == LayerId("layer_onsets")
         assert action.params["take_id"] == TakeId("take_onsets")
-        assert action.params["event_id"] == EventId("onset_b")
+        assert action.params["event_id"] == EventId("onset_a")
     finally:
         widget.close()
         app.processEvents()
@@ -1784,15 +2340,85 @@ def test_fix_mode_minus_click_removes_existing_event() -> None:
         _click_event_rect(widget, "kick_evt")
 
         assert intents == [
-            DeleteEvents(
-                event_ids=[EventId("kick_evt")],
-                event_refs=[
-                    EventRef(
-                        layer_id=LayerId("layer_kick"),
-                        take_id=TakeId("take_kick"),
-                        event_id=EventId("kick_evt"),
+            CommitRejectedEventReview(
+                layer_id=LayerId("layer_kick"),
+                take_id=TakeId("take_kick"),
+                event_id=EventId("kick_evt"),
+            )
+        ]
+    finally:
+        widget.close()
+        app.processEvents()
+
+
+def test_fix_mode_minus_click_rejects_only_clicked_lane_when_event_ids_collide() -> None:
+    app = QApplication.instance() or QApplication([])
+    intents: list[object] = []
+    presentation = TimelinePresentation(
+        timeline_id=TimelineId("timeline_fix_mode_collision"),
+        title="Fix Mode Collision",
+        layers=[
+            LayerPresentation(
+                layer_id=LayerId("layer_snare_a"),
+                title="Snare A",
+                main_take_id=TakeId("take_snare_a"),
+                kind=LayerKind.EVENT,
+                is_selected=True,
+                events=[
+                    EventPresentation(
+                        event_id=EventId("shared_evt"),
+                        start=1.0,
+                        end=1.2,
+                        label="Snare",
                     )
                 ],
+                status=LayerStatusPresentation(source_layer_id="source_audio"),
+            ),
+            LayerPresentation(
+                layer_id=LayerId("layer_snare_b"),
+                title="Snare B",
+                main_take_id=TakeId("take_snare_b"),
+                kind=LayerKind.EVENT,
+                events=[
+                    EventPresentation(
+                        event_id=EventId("shared_evt"),
+                        start=1.0,
+                        end=1.2,
+                        label="Snare",
+                    )
+                ],
+                status=LayerStatusPresentation(source_layer_id="source_audio"),
+            ),
+        ],
+        selected_layer_id=LayerId("layer_snare_a"),
+        selected_layer_ids=[LayerId("layer_snare_a")],
+        selected_take_id=TakeId("take_snare_a"),
+        pixels_per_second=120.0,
+        end_time_label="00:05.00",
+    )
+    widget = TimelineWidget(
+        presentation, on_intent=lambda intent: intents.append(intent) or presentation
+    )
+    try:
+        _render_for_hit_testing(widget)
+        widget._editor_bar._mode_buttons["fix"].click()
+        QTest.keyClick(widget._canvas, Qt.Key.Key_Z, Qt.KeyboardModifier.NoModifier)
+        QApplication.processEvents()
+
+        primary_rect = next(
+            rect
+            for rect, layer_id, take_id, event_id in widget._canvas._event_rects
+            if layer_id == LayerId("layer_snare_a")
+            and take_id == TakeId("take_snare_a")
+            and str(event_id) == "shared_evt"
+        )
+        _click_rect(widget, primary_rect)
+
+        assert intents == [
+            CommitRejectedEventReview(
+                layer_id=LayerId("layer_snare_a"),
+                take_id=TakeId("take_snare_a"),
+                event_id=EventId("shared_evt"),
             )
         ]
     finally:
@@ -1896,15 +2522,10 @@ def test_fix_mode_minus_drag_removes_intersected_events() -> None:
         )
 
         assert intents == [
-            DeleteEvents(
-                event_ids=[EventId("kick_evt")],
-                event_refs=[
-                    EventRef(
-                        layer_id=LayerId("layer_kick"),
-                        take_id=TakeId("take_kick"),
-                        event_id=EventId("kick_evt"),
-                    )
-                ],
+            CommitRejectedEventReview(
+                layer_id=LayerId("layer_kick"),
+                take_id=TakeId("take_kick"),
+                event_id=EventId("kick_evt"),
             )
         ]
     finally:
@@ -1952,13 +2573,117 @@ def test_fix_mode_plus_drag_promotes_intersected_missing_events() -> None:
         )
 
         assert len(intents) == 1
-        assert isinstance(intents[0], CreateEvent)
+        assert isinstance(intents[0], CommitMissedEventReview)
         assert intents[0].layer_id == LayerId("layer_kick")
         assert intents[0].take_id == TakeId("take_kick")
         assert intents[0].label == "Kick"
         assert intents[0].source_event_id == "onset_b"
         assert intents[0].payload_ref == "onset_b"
         assert intents[0].time_range.start < intents[0].time_range.end
+    finally:
+        widget.close()
+        app.processEvents()
+
+
+def test_fix_mode_plus_drag_promotes_intersected_existing_events_in_batch() -> None:
+    app = QApplication.instance() or QApplication([])
+    intents: list[object] = []
+    presentation = _selection_test_presentation()
+    widget = TimelineWidget(
+        presentation, on_intent=lambda intent: intents.append(intent) or presentation
+    )
+    try:
+        _render_for_hit_testing(widget)
+        widget._editor_bar._mode_buttons["fix"].click()
+        QTest.keyClick(widget._canvas, Qt.Key.Key_C, Qt.KeyboardModifier.NoModifier)
+        QApplication.processEvents()
+
+        main_rect = next(
+            rect
+            for rect, _layer_id, _take_id, event_id in widget._canvas._event_rects
+            if str(event_id) == "main_evt"
+        )
+        take_rect = next(
+            rect
+            for rect, _layer_id, _take_id, event_id in widget._canvas._event_rects
+            if str(event_id) == "take_evt"
+        )
+        _mouse_drag(
+            widget._canvas,
+            [
+                QPoint(int(main_rect.left() - 6), int(main_rect.top() - 4)),
+                QPoint(int(take_rect.right() + 6), int(take_rect.bottom() + 4)),
+            ],
+        )
+
+        assert intents == [
+            CommitVerifiedEventsReview(
+                event_refs=[
+                    EventRef(
+                        layer_id=LayerId("layer_kick"),
+                        take_id=TakeId("take_main"),
+                        event_id=EventId("main_evt"),
+                    ),
+                    EventRef(
+                        layer_id=LayerId("layer_kick"),
+                        take_id=TakeId("take_alt"),
+                        event_id=EventId("take_evt"),
+                    ),
+                ]
+            )
+        ]
+    finally:
+        widget.close()
+        app.processEvents()
+
+
+def test_fix_mode_minus_drag_demotes_intersected_existing_events_in_batch() -> None:
+    app = QApplication.instance() or QApplication([])
+    intents: list[object] = []
+    presentation = _selection_test_presentation()
+    widget = TimelineWidget(
+        presentation, on_intent=lambda intent: intents.append(intent) or presentation
+    )
+    try:
+        _render_for_hit_testing(widget)
+        widget._editor_bar._mode_buttons["fix"].click()
+        QTest.keyClick(widget._canvas, Qt.Key.Key_Z, Qt.KeyboardModifier.NoModifier)
+        QApplication.processEvents()
+
+        main_rect = next(
+            rect
+            for rect, _layer_id, _take_id, event_id in widget._canvas._event_rects
+            if str(event_id) == "main_evt"
+        )
+        take_rect = next(
+            rect
+            for rect, _layer_id, _take_id, event_id in widget._canvas._event_rects
+            if str(event_id) == "take_evt"
+        )
+        _mouse_drag(
+            widget._canvas,
+            [
+                QPoint(int(main_rect.left() - 6), int(main_rect.top() - 4)),
+                QPoint(int(take_rect.right() + 6), int(take_rect.bottom() + 4)),
+            ],
+        )
+
+        assert intents == [
+            CommitRejectedEventsReview(
+                event_refs=[
+                    EventRef(
+                        layer_id=LayerId("layer_kick"),
+                        take_id=TakeId("take_main"),
+                        event_id=EventId("main_evt"),
+                    ),
+                    EventRef(
+                        layer_id=LayerId("layer_kick"),
+                        take_id=TakeId("take_alt"),
+                        event_id=EventId("take_evt"),
+                    ),
+                ]
+            )
+        ]
     finally:
         widget.close()
         app.processEvents()
@@ -2048,6 +2773,47 @@ def test_delete_key_dispatches_delete_events_for_current_selection():
     finally:
         widget.close()
         app.processEvents()
-    DeleteTransferPreset,
+
+
+def test_delete_key_dispatches_rejected_review_in_fix_remove_mode():
+    app = QApplication.instance() or QApplication([])
+    intents: list[object] = []
+    base = _fix_mode_test_presentation()
+    presentation = replace(
+        base,
+        selected_layer_id=LayerId("layer_kick"),
+        selected_layer_ids=[LayerId("layer_kick")],
+        selected_take_id=TakeId("take_kick"),
+        selected_event_ids=[EventId("kick_evt")],
+        selected_event_refs=[
+            EventRef(
+                layer_id=LayerId("layer_kick"),
+                take_id=TakeId("take_kick"),
+                event_id=EventId("kick_evt"),
+            )
+        ],
+    )
+    widget = TimelineWidget(
+        presentation, on_intent=lambda intent: intents.append(intent) or presentation
+    )
+    try:
+        _render_for_hit_testing(widget)
+        widget._editor_bar._mode_buttons["fix"].click()
+        QTest.keyClick(widget._canvas, Qt.Key.Key_Z, Qt.KeyboardModifier.NoModifier)
+        QApplication.processEvents()
+
+        QTest.keyClick(widget._canvas, Qt.Key.Key_Delete)
+        QApplication.processEvents()
+
+        assert intents == [
+            CommitRejectedEventReview(
+                layer_id=LayerId("layer_kick"),
+                take_id=TakeId("take_kick"),
+                event_id=EventId("kick_evt"),
+            )
+        ]
+    finally:
+        widget.close()
+        app.processEvents()
 
 __all__ = [name for name in globals() if name.startswith("test_")]

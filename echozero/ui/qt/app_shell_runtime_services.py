@@ -30,6 +30,9 @@ from echozero.ui.qt.app_shell_project_timeline import (
     apply_timeline_presentation_overlay,
     build_project_native_baseline_timeline,
 )
+from echozero.ui.qt.app_shell_project_runtime_state import (
+    load_project_runtime_state,
+)
 from echozero.ui.qt.timeline.runtime_audio import TimelineRuntimeAudioController
 
 
@@ -146,13 +149,37 @@ class RuntimePlaybackService(PlaybackService):
         return self._session.playback_state
 
 
+def _prefer_qt_for_continuous_audio(
+    audio_output_config: AudioOutputRuntimeConfig | None,
+) -> bool:
+    """Keep simple file playback on Qt unless the user requested engine-only knobs."""
+
+    if audio_output_config is None:
+        return True
+    if audio_output_config.sample_rate is not None:
+        return False
+    if audio_output_config.channels is not None:
+        return False
+    if audio_output_config.stream_latency is not None:
+        return False
+    if audio_output_config.stream_blocksize is not None:
+        return False
+    if audio_output_config.prime_output_buffers_using_stream_callback is not True:
+        return False
+    return True
+
+
 def build_runtime_audio_controller(
     audio_output_config: AudioOutputRuntimeConfig | None = None,
 ) -> TimelineRuntimeAudioController:
     """Build the canonical runtime-audio controller for one optional audio output config."""
 
     if audio_output_config is None:
-        return TimelineRuntimeAudioController()
+        return TimelineRuntimeAudioController(
+            use_qt_player=True,
+            prefer_qt_for_continuous_audio=True,
+            force_qt_for_continuous_audio=True,
+        )
 
     def _engine_factory() -> AudioEngine:
         return AudioEngine(
@@ -167,6 +194,10 @@ def build_runtime_audio_controller(
         )
 
     return TimelineRuntimeAudioController(
+        use_qt_player=True,
+        prefer_qt_for_continuous_audio=_prefer_qt_for_continuous_audio(audio_output_config),
+        force_qt_for_continuous_audio=True,
+        qt_output_device=audio_output_config.output_device,
         engine_factory=_engine_factory,
         preview_engine_factory=_engine_factory,
     )
@@ -183,8 +214,20 @@ def build_runtime_timeline_application(
     """Build the in-memory timeline application for the app shell runtime."""
     if runtime_audio is None:
         runtime_audio = build_runtime_audio_controller(audio_output_config)
+    runtime_state = load_project_runtime_state(project_storage)
     timeline, overlay, active_song_id, active_song_version_id = build_project_native_baseline_timeline(
-        project_storage
+        project_storage,
+        active_song_id=runtime_state.active_song_id,
+        active_song_version_id=runtime_state.active_song_version_id,
+    )
+    timeline.viewport.pixels_per_second = runtime_state.pixels_per_second
+    timeline.viewport.scroll_x = runtime_state.scroll_x
+    timeline.viewport.scroll_y = runtime_state.scroll_y
+    max_playhead = max(0.0, float(timeline.end))
+    playhead = (
+        min(runtime_state.playhead, max_playhead)
+        if max_playhead > 0.0
+        else runtime_state.playhead
     )
     active_version = (
         project_storage.song_versions.get(str(active_song_version_id))
@@ -202,7 +245,7 @@ def build_runtime_timeline_application(
         active_timeline_id=timeline.id,
         transport_state=TransportState(
             is_playing=False,
-            playhead=0.0,
+            playhead=max(0.0, float(playhead)),
         ),
         mixer_state=MixerState(),
         playback_state=PlaybackState(

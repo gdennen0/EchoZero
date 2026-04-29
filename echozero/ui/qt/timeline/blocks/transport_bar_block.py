@@ -3,6 +3,7 @@ from __future__ import annotations
 from PyQt6.QtCore import QRectF, Qt
 from PyQt6.QtGui import QBrush, QColor, QFont, QPainter, QPen
 
+from echozero.application.shared.enums import FollowMode
 from echozero.application.presentation.models import TimelinePresentation
 from echozero.ui.qt.timeline.blocks.transport_bar import TransportLayout
 from echozero.ui.qt.timeline.style import TIMELINE_STYLE, TransportBarStyle
@@ -20,48 +21,79 @@ class TransportBarBlock:
     ) -> dict[str, object]:
         painter.fillRect(layout.rect, QColor(self.style.background_hex))
 
-        painter.setPen(QColor(self.style.title_hex))
-        painter.drawText(
-            layout.title_rect,
-            Qt.AlignmentFlag.AlignLeft
-            | Qt.AlignmentFlag.AlignVCenter
-            | Qt.TextFlag.TextSingleLine,
-            presentation.title,
+        panel_rect = layout.rect.adjusted(8.0, 4.0, -8.0, -4.0)
+        panel_fill = QColor(self.style.background_hex).lighter(112)
+        panel_border = QColor(self.style.button.border_hex)
+        panel_border.setAlpha(220)
+        painter.setPen(QPen(panel_border, 1))
+        painter.setBrush(QBrush(panel_fill))
+        painter.drawRoundedRect(panel_rect, 10, 10)
+
+        title_label_rect = QRectF(
+            layout.title_rect.left(),
+            layout.title_rect.top(),
+            layout.title_rect.width(),
+            layout.title_rect.height() * 0.46,
+        )
+        title_value_rect = QRectF(
+            layout.title_rect.left(),
+            title_label_rect.bottom(),
+            layout.title_rect.width(),
+            max(0.0, layout.title_rect.height() - title_label_rect.height()),
+        )
+        self._draw_title_block(
+            painter,
+            title_label_rect,
+            title_value_rect,
+            presentation.title.strip() or "Timeline",
         )
 
-        play_rect, stop_rect = self._button_rects(layout.controls_rect)
-        self._draw_button(painter, play_rect, "Pause" if presentation.is_playing else "Play")
-        self._draw_button(painter, stop_rect, "Stop")
+        play_rect, stop_rect, follow_rect = self._button_rects(layout.controls_rect)
+        self._draw_button(
+            painter,
+            play_rect,
+            "⏸ Pause" if presentation.is_playing else "▶ Play",
+            primary=True,
+            active=presentation.is_playing,
+        )
+        self._draw_button(painter, stop_rect, "■ Stop", primary=False, active=False)
+        follow_enabled = presentation.follow_mode != FollowMode.OFF
+        self._draw_button(
+            painter,
+            follow_rect,
+            "◎ Follow" if follow_enabled else "○ Follow",
+            primary=False,
+            active=follow_enabled,
+        )
 
-        painter.setPen(QColor(self.style.time_hex))
-        painter.drawText(
+        self._draw_clock_badge(
+            painter,
             layout.time_rect,
-            Qt.AlignmentFlag.AlignLeft
-            | Qt.AlignmentFlag.AlignVCenter
-            | Qt.TextFlag.TextSingleLine,
             f"{presentation.current_time_label} / {presentation.end_time_label}",
         )
 
-        painter.setPen(QColor(self.style.meta_hex))
+        status_color = QColor("#7fd1ae") if presentation.is_playing else QColor(self.style.meta_hex)
+        painter.setPen(status_color)
         separator = "\u2022"
         painter.drawText(
             layout.meta_rect,
             Qt.AlignmentFlag.AlignRight
             | Qt.AlignmentFlag.AlignVCenter
             | Qt.TextFlag.TextSingleLine,
-            f"{'Playing' if presentation.is_playing else 'Stopped'}  {separator}  "
-            f"Layers: {len(presentation.layers)}  {separator}  "
+            f"{'PLAYING' if presentation.is_playing else 'STOPPED'}  {separator}  "
+            f"{len(presentation.layers)} layers  {separator}  "
             f"Zoom: {presentation.pixels_per_second:.0f}px/s",
         )
 
         return {
             "play": play_rect,
             "stop": stop_rect,
+            "follow": follow_rect,
         }
 
-    def _button_rects(self, controls_rect: QRectF) -> tuple[QRectF, QRectF]:
+    def _button_rects(self, controls_rect: QRectF) -> tuple[QRectF, QRectF, QRectF]:
         button_gap = 8.0
-        button_width = (controls_rect.width() - button_gap) / 2.0
+        button_width = (controls_rect.width() - (button_gap * 2.0)) / 3.0
         play_rect = QRectF(
             controls_rect.left(),
             controls_rect.top(),
@@ -74,17 +106,100 @@ class TransportBarBlock:
             button_width,
             controls_rect.height(),
         )
-        return play_rect, stop_rect
+        follow_rect = QRectF(
+            stop_rect.right() + button_gap,
+            controls_rect.top(),
+            button_width,
+            controls_rect.height(),
+        )
+        return play_rect, stop_rect, follow_rect
 
-    def _draw_button(self, painter: QPainter, rect, label: str) -> None:
+    def _draw_title_block(
+        self,
+        painter: QPainter,
+        label_rect: QRectF,
+        value_rect: QRectF,
+        value: str,
+    ) -> None:
+        prior_font = painter.font()
+        label_font = QFont(prior_font)
+        label_font.setPointSize(max(8, prior_font.pointSize() - 1))
+        label_font.setBold(True)
+        painter.setFont(label_font)
+        painter.setPen(QColor(self.style.meta_hex))
+        painter.drawText(
+            label_rect,
+            Qt.AlignmentFlag.AlignLeft
+            | Qt.AlignmentFlag.AlignBottom
+            | Qt.TextFlag.TextSingleLine,
+            "PLAYBACK",
+        )
+
+        value_font = QFont(prior_font)
+        value_font.setPointSize(max(9, prior_font.pointSize() + 1))
+        value_font.setBold(True)
+        painter.setFont(value_font)
+        painter.setPen(QColor(self.style.title_hex))
+        painter.drawText(
+            value_rect,
+            Qt.AlignmentFlag.AlignLeft
+            | Qt.AlignmentFlag.AlignVCenter
+            | Qt.TextFlag.TextSingleLine,
+            value,
+        )
+        painter.setFont(prior_font)
+
+    def _draw_clock_badge(self, painter: QPainter, rect: QRectF, text: str) -> None:
+        if rect.width() <= 1.0:
+            return
+        badge_rect = rect.adjusted(0.5, 0.5, -0.5, -0.5)
+        badge_fill = QColor(self.style.background_hex).lighter(132)
+        badge_border = QColor(self.style.button.border_hex).lighter(120)
+        painter.setPen(QPen(badge_border, 1))
+        painter.setBrush(QBrush(badge_fill))
+        painter.drawRoundedRect(badge_rect, 8, 8)
+
+        prior_font = painter.font()
+        clock_font = QFont(prior_font)
+        clock_font.setPointSize(max(10, prior_font.pointSize() + 2))
+        clock_font.setBold(True)
+        painter.setFont(clock_font)
+        painter.setPen(QColor(self.style.time_hex))
+        painter.drawText(
+            badge_rect,
+            Qt.AlignmentFlag.AlignCenter | Qt.TextFlag.TextSingleLine,
+            text,
+        )
+        painter.setFont(prior_font)
+
+    def _draw_button(
+        self,
+        painter: QPainter,
+        rect: QRectF,
+        label: str,
+        *,
+        primary: bool,
+        active: bool,
+    ) -> None:
         button_style = self.style.button
-        painter.setPen(QPen(QColor(button_style.border_hex), 1))
-        painter.setBrush(QBrush(QColor(button_style.fill_hex)))
+        fill_color = QColor(button_style.fill_hex)
+        border_color = QColor(button_style.border_hex)
+        text_color = QColor(button_style.text_hex)
+        if active:
+            fill_color = QColor("#2a6a45")
+            border_color = QColor("#57a678")
+        elif primary:
+            fill_color = fill_color.lighter(122)
+            border_color = border_color.lighter(132)
+        else:
+            fill_color = fill_color.darker(108)
+        painter.setPen(QPen(border_color, 1))
+        painter.setBrush(QBrush(fill_color))
         painter.drawRoundedRect(rect, button_style.corner_radius, button_style.corner_radius)
-        painter.setPen(QColor(button_style.text_hex))
+        painter.setPen(text_color)
         prior_font = painter.font()
         button_font = QFont(prior_font)
-        button_font.setPointSize(button_style.font.point_size)
+        button_font.setPointSize(max(9, button_style.font.point_size))
         button_font.setBold(button_style.font.bold)
         painter.setFont(button_font)
         painter.drawText(

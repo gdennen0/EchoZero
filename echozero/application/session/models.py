@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
+from echozero.application.shared.cue_numbers import CueNumber
+from echozero.application.shared.enums import LayerKind
 from echozero.application.shared.ids import EventId, LayerId, ProjectId, SessionId, SongId, SongVersionId, TimelineId
 from echozero.application.sync.diff_service import SyncDiffRow, SyncDiffSummary
 from echozero.application.transport.models import TransportState
@@ -112,13 +114,18 @@ class ManualPullEventOption:
     label: str
     start: float | None = None
     end: float | None = None
-    cue_number: int | None = None
+    cue_number: CueNumber | None = None
+    cue_ref: str | None = None
+    color: str | None = None
+    notes: str | None = None
+    payload_ref: str | None = None
 
 
 @dataclass(slots=True)
 class ManualPullTargetOption:
     layer_id: LayerId
     name: str
+    kind: LayerKind | None = None
 
 
 @dataclass(slots=True)

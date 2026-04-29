@@ -22,6 +22,70 @@ DEFAULT_SAMPLE_RATE = 44100
 DEFAULT_BUFFER_SIZE = 256  # ~5.8ms at 44100 — low latency, safe for modern hardware
 DEFAULT_CHANNELS = 1       # injected/test streams keep legacy mono defaults
 DEFAULT_SCRATCH_FRAMES = 32768
+_AUTO_SAMPLE_RATE_PREFERENCE = (48000, 44100, 96000, 88200, 32000)
+
+
+def _coerce_sample_rate(value: Any, *, default: int = DEFAULT_SAMPLE_RATE) -> int:
+    """Convert a backend-provided sample-rate value to a positive integer."""
+    try:
+        resolved = int(round(float(value)))
+    except (TypeError, ValueError):
+        return int(default)
+    return max(1, resolved)
+
+
+def _is_output_sample_rate_supported(
+    sounddevice_module: Any,
+    *,
+    output_device: int | str | None,
+    channels: int,
+    sample_rate: int,
+) -> bool:
+    """Return True when the device accepts this output format."""
+    check_output_settings = getattr(sounddevice_module, "check_output_settings", None)
+    if not callable(check_output_settings):
+        return False
+    try:
+        check_output_settings(
+            device=output_device,
+            channels=max(1, int(channels)),
+            dtype="float32",
+            samplerate=int(sample_rate),
+        )
+    except Exception:
+        return False
+    return True
+
+
+def _select_auto_output_sample_rate(
+    sounddevice_module: Any,
+    *,
+    output_device: int | str | None,
+    channels: int,
+    default_sample_rate: int,
+) -> int:
+    """Choose a stable auto sample rate for the current output device.
+
+    Prefers the device-reported default when explicitly supported, then falls
+    back to a bounded list of common rates.
+    """
+    resolved_default = _coerce_sample_rate(default_sample_rate)
+    candidates: list[int] = []
+    for candidate in (resolved_default, *_AUTO_SAMPLE_RATE_PREFERENCE):
+        sample_rate = _coerce_sample_rate(candidate)
+        if sample_rate not in candidates:
+            candidates.append(sample_rate)
+
+    for sample_rate in candidates:
+        if _is_output_sample_rate_supported(
+            sounddevice_module,
+            output_device=output_device,
+            channels=channels,
+            sample_rate=sample_rate,
+        ):
+            return sample_rate
+
+    return resolved_default
 
 
 def _resolve_output_defaults(
@@ -41,10 +105,15 @@ def _resolve_output_defaults(
 
         resolved_output_device = sd.default.device[1] if output_device is None else output_device
         device_info = sd.query_devices(resolved_output_device)
-        sample_rate = int(round(float(device_info.get("default_samplerate", DEFAULT_SAMPLE_RATE))))
         max_output_channels = int(device_info.get("max_output_channels", DEFAULT_CHANNELS))
         channels = 2 if max_output_channels >= 2 else max(1, max_output_channels)
-        return max(1, sample_rate), max(1, channels)
+        sample_rate = _select_auto_output_sample_rate(
+            sd,
+            output_device=resolved_output_device,
+            channels=channels,
+            default_sample_rate=device_info.get("default_samplerate", DEFAULT_SAMPLE_RATE),
+        )
+        return sample_rate, max(1, channels)
     except Exception:
         return DEFAULT_SAMPLE_RATE, DEFAULT_CHANNELS
 
@@ -255,6 +324,7 @@ class AudioEngine:
         name: str | None = None,
         offset: int = 0,
         volume: float = 1.0,
+        output_bus: str | None = None,
     ) -> AudioLayer:
         """Create and add a layer to the mixer.
 
@@ -269,6 +339,7 @@ class AudioEngine:
             offset=offset,
             volume=volume,
             engine_sample_rate=self._clock.sample_rate,
+            output_bus=output_bus,
         )
         self._mixer.add_layer(layer)
         return layer

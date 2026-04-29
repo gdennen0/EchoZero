@@ -9,7 +9,10 @@ from echozero.models.runtime_bundle_index import (
     IndexedBinaryDrumBundle,
     save_binary_drum_bundle_index,
 )
-from echozero.models.runtime_bundle_selection import resolve_installed_binary_drum_bundles
+from echozero.errors import ValidationError
+from echozero.models.runtime_bundle_selection import (
+    resolve_installed_binary_drum_bundles,
+)
 from echozero.runtime_models.bundle_compat import backfill_manifest_fingerprint, sync_manifest_fingerprint
 
 
@@ -79,6 +82,33 @@ def test_resolution_prefers_indexed_bundle_over_ambiguous_folder_scan(tmp_path: 
     bundles = resolve_installed_binary_drum_bundles(models_dir=tmp_path)
 
     assert bundles["snare"].manifest_path == indexed_manifest.resolve()
+
+
+def test_resolution_falls_back_to_folder_scan_when_index_points_to_missing_bundle(tmp_path: Path) -> None:
+    kick_manifest = _write_bundle(tmp_path, "kick_bundle", ["kick", "other"])
+    snare_manifest = _write_bundle(tmp_path, "snare_bundle", ["snare", "other"])
+    save_binary_drum_bundle_index(
+        tmp_path,
+        {
+            "kick": IndexedBinaryDrumBundle(
+                label="kick",
+                bundle_dir="missing_bundle",
+                manifest_file="kick.manifest.json",
+                weights_file="model.pth",
+            ),
+            "snare": IndexedBinaryDrumBundle(
+                label="snare",
+                bundle_dir="missing_bundle",
+                manifest_file="snare.manifest.json",
+                weights_file="model.pth",
+            ),
+        },
+    )
+
+    bundles = resolve_installed_binary_drum_bundles(models_dir=tmp_path)
+
+    assert bundles["kick"].manifest_path == kick_manifest.resolve()
+    assert bundles["snare"].manifest_path == snare_manifest.resolve()
 
 
 def test_backfill_manifest_fingerprint_is_explicit_upgrade_step(tmp_path: Path) -> None:

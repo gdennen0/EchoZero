@@ -207,6 +207,27 @@ class TestAudioMetadata:
         assert v2.original_sample_rate == 48000
         session.close()
 
+    def test_shared_version_factory_scans_each_import_source_once(self, tmp_path: Path) -> None:
+        session = _create_session(tmp_path)
+        audio1 = _create_audio_file(tmp_path, "v1.wav")
+        audio2 = _create_audio_file(tmp_path, "v2.wav")
+        scanned_paths: list[Path] = []
+
+        def _counting_scan(path: Path) -> AudioMetadata:
+            scanned_paths.append(path)
+            return AudioMetadata(duration_seconds=180.5, sample_rate=44100, channel_count=2)
+
+        song, _version1 = session.import_song(
+            "Test",
+            audio1,
+            default_templates=[],
+            scan_fn=_counting_scan,
+        )
+        session.add_song_version(song.id, audio2, scan_fn=_counting_scan)
+
+        assert scanned_paths == [audio1, audio2]
+        session.close()
+
 
 class TestLtcImportPreprocessing:
     """Verify import-time LTC stripping is applied through the shared version path."""
@@ -265,6 +286,17 @@ class TestLtcImportPreprocessing:
         assert not staged_program.exists()
         assert not staged_ltc.exists()
         assert song.active_version_id == version.id
+        layers = session.layers.list_by_version(version.id)
+        assert len(layers) == 1
+        assert layers[0].name == "Timecode"
+        assert layers[0].state_flags.get("import_timecode_layer") is True
+        assert layers[0].state_flags.get("output_bus") == "outputs_3_4"
+        timecode_takes = session.takes.list_by_layer(layers[0].id)
+        assert len(timecode_takes) == 1
+        assert isinstance(timecode_takes[0].data, AudioData)
+        assert str(timecode_takes[0].data.file_path).endswith(
+            f"{'a' * 16}_ltc_left.wav"
+        )
         session.close()
 
     def test_ltc_channel_flip_extracts_left_audio_when_ltc_is_right(
@@ -319,6 +351,17 @@ class TestLtcImportPreprocessing:
         assert not staged_program.exists()
         assert not staged_ltc.exists()
         assert song.active_version_id == version.id
+        layers = session.layers.list_by_version(version.id)
+        assert len(layers) == 1
+        assert layers[0].name == "Timecode"
+        assert layers[0].state_flags.get("import_timecode_layer") is True
+        assert layers[0].state_flags.get("output_bus") == "outputs_3_4"
+        timecode_takes = session.takes.list_by_layer(layers[0].id)
+        assert len(timecode_takes) == 1
+        assert isinstance(timecode_takes[0].data, AudioData)
+        assert str(timecode_takes[0].data.file_path).endswith(
+            f"{'b' * 16}_ltc_right.wav"
+        )
         session.close()
 
 

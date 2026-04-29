@@ -110,14 +110,12 @@ class ProjectStorageVersioningMixin:
             scan_fn=scan_fn,
         )
         try:
-            scan_audio_metadata(prepared_source.source_path, scan_fn=scan_fn)
+            metadata = scan_audio_metadata(prepared_source.source_path, scan_fn=scan_fn)
         except Exception as exc:
             raise ValidationError(f"Invalid audio file '{audio_source.name}': {exc}") from exc
 
         try:
             audio_rel_path, audio_hash = import_audio(prepared_source.source_path, host.working_dir)
-            full_audio_path = host.working_dir / audio_rel_path
-            metadata = scan_audio_metadata(full_audio_path, scan_fn=scan_fn)
         finally:
             cleanup_prepared_audio(prepared_source)
 
@@ -133,7 +131,84 @@ class ProjectStorageVersioningMixin:
             ma3_timecode_pool_no=ma3_timecode_pool_no,
         )
         host.song_versions.create(version)
+        if prepared_source.ltc_artifact_path is not None:
+            self._create_import_timecode_layer(
+                song_version_id=version.id,
+                ltc_artifact_path=prepared_source.ltc_artifact_path,
+                scan_fn=scan_fn,
+            )
         return version
+
+    def _create_import_timecode_layer(
+        self,
+        *,
+        song_version_id: str,
+        ltc_artifact_path: Path,
+        scan_fn: object | None = None,
+    ) -> None:
+        """Create one persisted timecode audio layer for an imported LTC artifact."""
+
+        host = cast(_ProjectStorageVersioningHost, self)
+        from echozero.domain.types import AudioData
+        from echozero.persistence.audio import scan_audio_metadata
+        from echozero.takes import Take
+
+        metadata = scan_audio_metadata(ltc_artifact_path, scan_fn=scan_fn)
+        now = datetime.now(timezone.utc)
+        existing_layers = host.layers.list_by_version(song_version_id)
+        next_order = max((int(layer.order) for layer in existing_layers), default=-1) + 1
+
+        layer_id = uuid.uuid4().hex
+        host.layers.create(
+            LayerRecord(
+                id=layer_id,
+                song_version_id=song_version_id,
+                name="Timecode",
+                layer_type="manual",
+                color=None,
+                order=next_order,
+                visible=True,
+                locked=False,
+                parent_layer_id=None,
+                source_pipeline=None,
+                created_at=now,
+                state_flags={
+                    "manual_kind": "audio",
+                    "take_lanes_expanded": False,
+                    "import_timecode_layer": True,
+                    "output_bus": "outputs_3_4",
+                },
+                provenance={},
+            )
+        )
+        host.takes.create(
+            layer_id,
+            Take(
+                id=uuid.uuid4().hex,
+                label="Main",
+                data=AudioData(
+                    sample_rate=int(metadata.sample_rate),
+                    duration=float(metadata.duration_seconds),
+                    file_path=self._relative_project_audio_path(ltc_artifact_path),
+                    channel_count=max(1, int(metadata.channel_count)),
+                ),
+                origin="user",
+                source=None,
+                created_at=now,
+                is_main=True,
+                is_archived=False,
+                notes="",
+            ),
+        )
+
+    def _relative_project_audio_path(self, path: Path) -> str:
+        """Resolve a best-effort project-relative audio path for persisted take data."""
+
+        host = cast(_ProjectStorageVersioningHost, self)
+        try:
+            return path.resolve().relative_to(host.working_dir.resolve()).as_posix()
+        except ValueError:
+            return str(path)
 
     def import_song(
         self,

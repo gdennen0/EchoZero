@@ -3,11 +3,13 @@ Exists to isolate runtime-audio rebuild and canonical build assertions from proj
 Connects the compatibility wrapper to the bounded audio support slice.
 """
 
+from PyQt6.QtWidgets import QApplication
+
 from echozero.application.settings import AudioOutputRuntimeConfig
 from tests.ui.app_shell_runtime_flow_shared_support import *  # noqa: F401,F403
 
 
-def test_app_shell_runtime_add_song_from_path_builds_runtime_audio():
+def test_app_shell_runtime_add_song_from_path_defers_runtime_audio_build_until_playback():
     temp_root = _repo_local_temp_root()
     runtime = build_app_shell(working_dir_root=temp_root / "working")
 
@@ -23,7 +25,7 @@ def test_app_shell_runtime_add_song_from_path_builds_runtime_audio():
             "Imported Song", write_test_wav(temp_root / "fixtures" / "import.wav")
         )
 
-        assert counted.build_calls == 1
+        assert counted.build_calls == 0
         assert runtime.presentation().layers[0].title == "Imported Song"
     finally:
         runtime.shutdown()
@@ -60,12 +62,13 @@ def test_app_shell_runtime_apply_audio_output_config_rebuilds_runtime_audio_cont
         assert rebuilt_runtime_audio.engine._stream_latency == "low"
         assert rebuilt_runtime_audio.engine._stream_blocksize == 512
         assert rebuilt_runtime_audio.engine._prime_output_buffers_using_stream_callback is False
+        assert rebuilt_runtime_audio._prefer_qt_for_continuous_audio is False
     finally:
         runtime.shutdown()
         shutil.rmtree(temp_root, ignore_errors=True)
 
 
-def test_app_shell_runtime_add_layer_after_song_rebuilds_runtime_audio():
+def test_app_shell_runtime_add_layer_after_song_defers_runtime_audio_build_while_stopped():
     temp_root = _repo_local_temp_root()
     runtime = build_app_shell(working_dir_root=temp_root / "working")
 
@@ -78,6 +81,31 @@ def test_app_shell_runtime_add_layer_after_song_rebuilds_runtime_audio():
         runtime.add_song_from_path(
             "Imported Song", write_test_wav(temp_root / "fixtures" / "import.wav")
         )
+        counted.build_calls = 0
+
+        runtime.add_layer(LayerKind.EVENT, "Event Layer")
+
+        assert counted.build_calls == 0
+        assert any(layer.title == "Event Layer" for layer in runtime.presentation().layers)
+    finally:
+        runtime.shutdown()
+        shutil.rmtree(temp_root, ignore_errors=True)
+
+
+def test_app_shell_runtime_add_layer_after_song_rebuilds_runtime_audio_while_playing():
+    temp_root = _repo_local_temp_root()
+    runtime = build_app_shell(working_dir_root=temp_root / "working")
+
+    assert isinstance(runtime, AppShellRuntime)
+
+    counted = _CountedRuntimeAudio()
+    runtime.runtime_audio = counted
+
+    try:
+        runtime.add_song_from_path(
+            "Imported Song", write_test_wav(temp_root / "fixtures" / "import.wav")
+        )
+        runtime.dispatch(Play())
         counted.build_calls = 0
 
         runtime.add_layer(LayerKind.EVENT, "Event Layer")
@@ -223,6 +251,7 @@ def test_app_shell_runtime_play_dispatch_rebuilds_runtime_audio():
 
 
 def test_app_shell_runtime_add_song_syncs_backend_playback_state_metadata():
+    app = QApplication.instance() or QApplication([])
     temp_root = _repo_local_temp_root()
     runtime = build_app_shell(working_dir_root=temp_root / "working")
 
@@ -232,8 +261,9 @@ def test_app_shell_runtime_add_song_syncs_backend_playback_state_metadata():
         runtime.add_song_from_path(
             "Imported Song", write_test_wav(temp_root / "fixtures" / "import.wav")
         )
+        runtime.dispatch(Play())
 
-        assert runtime.session.playback_state.backend_name == "sounddevice"
+        assert runtime.session.playback_state.backend_name == "qt_multimedia"
         assert (
             runtime.session.playback_state.active_layer_id
             == runtime.presentation().active_playback_layer_id
@@ -243,6 +273,7 @@ def test_app_shell_runtime_add_song_syncs_backend_playback_state_metadata():
         assert runtime.session.playback_state.output_channels > 0
     finally:
         runtime.shutdown()
+        app.processEvents()
         shutil.rmtree(temp_root, ignore_errors=True)
 
 

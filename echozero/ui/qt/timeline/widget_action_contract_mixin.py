@@ -31,6 +31,7 @@ from echozero.application.timeline.intents import (
     SelectEveryOtherEvents,
     SetActivePlaybackTarget,
     SetGain,
+    SetLayerOutputBus,
     SetLayerLiveSyncPauseReason,
     SetLayerLiveSyncState,
     TriggerTakeAction,
@@ -114,11 +115,23 @@ class _MA3TimecodeRuntimeShell(_TimelineRuntimeShell, Protocol):
 
 
 class _AddLayerRuntimeShell(_TimelineRuntimeShell, Protocol):
-    def add_layer(self, kind: LayerKind) -> TimelinePresentation | None: ...
+    def add_layer(
+        self,
+        kind: LayerKind,
+        title: str | None = None,
+    ) -> TimelinePresentation | None: ...
 
 
 class _DeleteLayerRuntimeShell(_TimelineRuntimeShell, Protocol):
     def delete_layer(self, layer_id: str) -> TimelinePresentation | None: ...
+
+
+class _ImportSmpteAudioLayerRuntimeShell(_TimelineRuntimeShell, Protocol):
+    def import_smpte_audio_to_layer(
+        self,
+        layer_id: str,
+        audio_path: str,
+    ) -> TimelinePresentation | None: ...
 
 
 class _PreviewEventRuntimeShell(_TimelineRuntimeShell, Protocol):
@@ -402,8 +415,17 @@ class TimelineWidgetContractActionMixin:
         if action_id == "add_marker_layer":
             self._run_add_layer_action(LayerKind.MARKER)
             return
+        if action_id == "add_section_layer":
+            self._run_add_layer_action(LayerKind.SECTION)
+            return
+        if action_id == "add_smpte_layer":
+            self._run_add_layer_action(LayerKind.AUDIO, title="SMPTE Layer")
+            return
         if action_id == "delete_layer":
             self._run_delete_layer_action(params)
+            return
+        if action_id == "import_smpte_audio_to_layer":
+            self._run_import_smpte_audio_to_layer_action(params)
             return
         if action_id == "preview_event_clip":
             self._handle_preview_event_clip(params)
@@ -418,6 +440,20 @@ class TimelineWidgetContractActionMixin:
             gain_db = params.get("gain_db")
             if layer_id is not None and isinstance(gain_db, (int, float)):
                 host._dispatch(SetGain(layer_id=layer_id, gain_db=float(gain_db)))
+            return
+        if action_id == "set_layer_output_bus_auto" or action_id.startswith(
+            "set_layer_output_bus_"
+        ):
+            layer_id = _coerce_layer_id(params.get("layer_id"))
+            if layer_id is None:
+                return
+            raw_output_bus = params.get("output_bus")
+            output_bus = (
+                str(raw_output_bus).strip()
+                if isinstance(raw_output_bus, str) and raw_output_bus.strip()
+                else None
+            )
+            host._dispatch(SetLayerOutputBus(layer_id=layer_id, output_bus=output_bus))
             return
         if action_id in {
             "live_sync_set_off",
@@ -841,10 +877,11 @@ class TimelineWidgetContractActionMixin:
     def delete_song_version(self, song_version_id: str) -> None:
         self._run_delete_song_version_action({"song_version_id": song_version_id})
 
-    def _run_add_layer_action(self, kind: LayerKind) -> None:
+    def _run_add_layer_action(self, kind: LayerKind, *, title: str | None = None) -> None:
         host = cast(_ContractActionHost, self)
         runtime = cast(_AddLayerRuntimeShell | None, host._resolve_runtime_shell())
-        label = f"Add {kind.value.title()} Layer"
+        layer_title = (title or "").strip()
+        label = f"Add {layer_title}" if layer_title else f"Add {kind.value.title()} Layer"
         if runtime is None or not callable(getattr(runtime, "add_layer", None)):
             host._message_box.warning(
                 host._widget,
@@ -853,7 +890,13 @@ class TimelineWidgetContractActionMixin:
             )
             return
         try:
-            updated = runtime.add_layer(kind)
+            if layer_title:
+                try:
+                    updated = runtime.add_layer(kind, title=layer_title)
+                except TypeError:
+                    updated = runtime.add_layer(kind)
+            else:
+                updated = runtime.add_layer(kind)
         except Exception as exc:
             host._message_box.warning(host._widget, label, str(exc))
             return
@@ -896,6 +939,46 @@ class TimelineWidgetContractActionMixin:
             updated = runtime.delete_layer(layer_id.strip())
         except Exception as exc:
             host._message_box.warning(host._widget, "Delete Layer", str(exc))
+            return
+        host._set_presentation(updated if updated is not None else runtime.presentation())
+
+    def _run_import_smpte_audio_to_layer_action(self, params: dict[str, object]) -> None:
+        host = cast(_ContractActionHost, self)
+        runtime = cast(
+            _ImportSmpteAudioLayerRuntimeShell | None,
+            host._resolve_runtime_shell(),
+        )
+        if runtime is None or not callable(getattr(runtime, "import_smpte_audio_to_layer", None)):
+            host._message_box.warning(
+                host._widget,
+                "Import SMPTE Audio",
+                "This runtime does not support importing SMPTE audio.",
+            )
+            return
+
+        layer_id = params.get("layer_id")
+        if not isinstance(layer_id, str) or not layer_id.strip():
+            layer_id = self._resolve_selected_layer_id()
+        if not isinstance(layer_id, str) or not layer_id.strip():
+            host._message_box.warning(
+                host._widget,
+                "Import SMPTE Audio",
+                "Select a SMPTE layer before importing audio.",
+            )
+            return
+
+        raw_audio_path = params.get("audio_path")
+        if isinstance(raw_audio_path, str) and raw_audio_path.strip():
+            audio_path = raw_audio_path.strip()
+        else:
+            audio_path = self._prompt_for_audio_path(title="Import SMPTE Audio")
+        if not audio_path:
+            return
+
+        try:
+            updated = runtime.import_smpte_audio_to_layer(layer_id.strip(), audio_path)
+        except Exception as exc:
+            host._message_box.warning(host._widget, "Import SMPTE Audio", str(exc))
             return
         host._set_presentation(updated if updated is not None else runtime.presentation())
 

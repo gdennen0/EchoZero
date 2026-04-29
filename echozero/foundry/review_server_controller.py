@@ -1,4 +1,4 @@
-"""ReviewServerController keeps one reusable background review server alive per root.
+"""ReviewServerController keeps one reusable background review server alive per runtime root.
 Exists because desktop surfaces should open click-through review without blocking the UI thread.
 Connects Foundry and EZ launcher actions to the shared phone-first review web app.
 """
@@ -9,7 +9,6 @@ import socket
 import threading
 from dataclasses import dataclass
 from pathlib import Path
-from urllib.parse import quote
 
 from .review_server import create_review_http_server
 
@@ -42,6 +41,11 @@ class ReviewServerController:
         self._port = port
         self._is_enabled = False
         self._root: Path | None = None
+        self._runtime_root: Path | None = None
+        self._runtime_application_session: dict[str, object] | None = None
+        self._last_root: Path | None = None
+        self._last_session_id: str | None = None
+        self._state_revision = 0
         self._server = None
         self._thread: threading.Thread | None = None
 
@@ -57,6 +61,17 @@ class ReviewServerController:
         self._is_enabled = bool(enabled)
         if not self._is_enabled:
             self.stop()
+            return
+        if self._runtime_root is None:
+            return
+        self._ensure_server(
+            self._runtime_root,
+            self._last_session_id if self._last_root == self._runtime_root else None,
+        )
+        assert self._server is not None
+        self._server.current_application_session = _copy_application_session(
+            self._runtime_application_session
+        )
 
     def enable(self) -> None:
         """Allow the controller to start phone review sessions."""
@@ -69,9 +84,66 @@ class ReviewServerController:
         self.set_enabled(False)
 
     def build_session_url(self, root: str | Path, session_id: str) -> str:
-        """Return one browser URL for the requested root/session pair."""
+        """Return one stable browser URL for the requested root/session pair."""
 
         return self.build_session_launch(root, session_id).url
+
+    @property
+    def last_session_id(self) -> str | None:
+        """Return the most recently launched review session id, if any."""
+
+        return self._last_session_id
+
+    def bind_root(
+        self,
+        root: str | Path,
+        *,
+        default_session_id: str | None = None,
+    ) -> ReviewServerLaunch | None:
+        """Bind the reusable server to one project root, even without an active session."""
+
+        normalized_root = Path(root).expanduser().resolve()
+        self._runtime_root = normalized_root
+        normalized_session_id = (
+            str(default_session_id).strip() if default_session_id is not None else ""
+        )
+        if not normalized_session_id and self._last_root == normalized_root:
+            normalized_session_id = self._last_session_id or ""
+
+        self._last_root = normalized_root
+        self._last_session_id = normalized_session_id or None
+        if not self._is_enabled:
+            return None
+
+        self._ensure_server(normalized_root, self._last_session_id)
+        assert self._server is not None
+        self._server.current_application_session = _copy_application_session(
+            self._runtime_application_session
+        )
+        self._server.state_revision = self._state_revision
+        return self._current_launch()
+
+    def set_runtime_context(
+        self,
+        root: str | Path,
+        *,
+        application_session: dict[str, object] | None = None,
+        clear_active_session: bool = False,
+    ) -> ReviewServerLaunch | None:
+        """Retarget the enabled review server to the current EZ runtime root."""
+
+        normalized_root = Path(root).expanduser().resolve()
+        self._runtime_root = normalized_root
+        self._runtime_application_session = _copy_application_session(application_session)
+        if clear_active_session:
+            self._last_root = normalized_root
+            self._last_session_id = None
+        if not self._is_enabled:
+            return None
+        default_session_id = None
+        if not clear_active_session and self._last_root == normalized_root:
+            default_session_id = self._last_session_id
+        return self.bind_root(normalized_root, default_session_id=default_session_id)
 
     def build_session_launch(self, root: str | Path, session_id: str) -> ReviewServerLaunch:
         """Return browser and phone-facing URLs for the requested root/session pair."""
@@ -83,32 +155,32 @@ class ReviewServerController:
         if not normalized_session_id:
             raise ValueError("session_id is required")
 
-        self._ensure_server(normalized_root, normalized_session_id)
-        assert self._server is not None
-        bind_host, port = self._server.server_address[:2]
-        bind_host = str(bind_host)
-        port = int(port)
-        encoded_session_id = quote(normalized_session_id, safe="")
-        desktop_url = _build_review_url(
-            host=_desktop_review_host(bind_host),
-            port=port,
-            session_id=encoded_session_id,
+        launch = self.bind_root(
+            normalized_root,
+            default_session_id=normalized_session_id,
         )
-        phone_host = _phone_review_host(bind_host)
-        phone_url = None
-        if phone_host is not None:
-            phone_url = _build_review_url(
-                host=phone_host,
-                port=port,
-                session_id=encoded_session_id,
-            )
-        return ReviewServerLaunch(
-            url=desktop_url,
-            desktop_url=desktop_url,
-            phone_url=phone_url,
-            bind_host=bind_host,
-            port=port,
+        assert launch is not None
+        return launch
+
+    def reload_status(
+        self,
+        root: str | Path | None = None,
+        session_id: str | None = None,
+    ) -> ReviewServerLaunch:
+        """Bump the review-state revision and return the active review launch."""
+
+        normalized_root = Path(root).expanduser().resolve() if root is not None else self._last_root
+        normalized_session_id = (
+            str(session_id).strip()
+            if session_id is not None
+            else self._last_session_id
         )
+        if normalized_root is None or normalized_session_id is None or not normalized_session_id:
+            raise ValueError("Open a phone review session before reloading its status.")
+        self._state_revision += 1
+        if self._server is not None:
+            self._server.state_revision = self._state_revision
+        return self.build_session_launch(normalized_root, normalized_session_id)
 
     def stop(self) -> None:
         """Stop the background review server when it is running."""
@@ -123,13 +195,22 @@ class ReviewServerController:
             self._thread.join(timeout=2.0)
             self._thread = None
 
-    def _ensure_server(self, root: Path, session_id: str) -> None:
+    def _ensure_server(self, root: Path, session_id: str | None) -> None:
         if self._server is not None and self._root == root:
-            self._server.default_session_id = session_id
+            self._server.default_session_id = str(session_id or "").strip()
+            self._server.current_application_session = _copy_application_session(
+                self._runtime_application_session
+            )
             return
 
         self.stop()
-        server = create_review_http_server(root, session_id, host=self._host, port=self._port)
+        server = create_review_http_server(
+            root,
+            session_id,
+            host=self._host,
+            port=self._port,
+            application_session=self._runtime_application_session,
+        )
         thread = threading.Thread(
             target=server.serve_forever,
             name="echozero-review-server",
@@ -140,6 +221,30 @@ class ReviewServerController:
         self._server = server
         self._thread = thread
 
+    def _current_launch(self) -> ReviewServerLaunch:
+        assert self._server is not None
+        bind_host, port = self._server.server_address[:2]
+        bind_host = str(bind_host)
+        port = int(port)
+        desktop_url = _build_review_url(
+            host=_desktop_review_host(bind_host),
+            port=port,
+        )
+        phone_host = _phone_review_host(bind_host)
+        phone_url = None
+        if phone_host is not None:
+            phone_url = _build_review_url(
+                host=phone_host,
+                port=port,
+            )
+        return ReviewServerLaunch(
+            url=desktop_url,
+            desktop_url=desktop_url,
+            phone_url=phone_url,
+            bind_host=bind_host,
+            port=port,
+        )
+
 
 __all__ = [
     "DEFAULT_REVIEW_SERVER_HOST",
@@ -149,8 +254,8 @@ __all__ = [
 ]
 
 
-def _build_review_url(*, host: str, port: int, session_id: str) -> str:
-    return f"http://{host}:{port}/?sessionId={session_id}"
+def _build_review_url(*, host: str, port: int) -> str:
+    return f"http://{host}:{port}/"
 
 
 def _desktop_review_host(bind_host: str) -> str:
@@ -191,3 +296,11 @@ def _detect_lan_ipv4_address() -> str | None:
 def _is_phone_reachable_ipv4(candidate: str) -> bool:
     normalized = candidate.strip()
     return bool(normalized) and not normalized.startswith("127.")
+
+
+def _copy_application_session(
+    application_session: dict[str, object] | None,
+) -> dict[str, object] | None:
+    if application_session is None:
+        return None
+    return dict(application_session)

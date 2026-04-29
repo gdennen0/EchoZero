@@ -148,6 +148,117 @@ def test_project_review_queue_builder_filters_questionable_items_by_score_and_li
     assert queue.metadata["item_limit"] == 2
 
 
+def test_project_review_queue_builder_falls_back_to_version_audio_when_take_source_audio_is_missing(
+    tmp_path: Path,
+):
+    samples = tmp_path / "samples"
+    write_percussion_dataset(samples, sample_count=2)
+    working_root = tmp_path / "project_work"
+    session = ProjectStorage.create_new("Fallback Project", working_dir_root=working_root)
+    try:
+        song, version = session.import_song(
+            "Fallback Song",
+            _write_review_source_audio(
+                samples / "kick" / "k1.wav",
+                tmp_path / "source_audio" / "fallback_song.wav",
+                duration_seconds=3.0,
+            ),
+            default_templates=[],
+        )
+        _create_analysis_layer(
+            session,
+            version_id=version.id,
+            layer_id="layer_fallback_kick",
+            name="kick",
+            order=0,
+            source_audio_path=str(tmp_path / "missing" / "drums.wav"),
+            run_id="run-fallback-kick",
+            events=(
+                _event(
+                    "evt_fallback_kick_01",
+                    time=1.0,
+                    duration=0.05,
+                    predicted_label="kick",
+                    score=0.97,
+                    source_event_id="src_fallback_kick_01",
+                    bundle_id="bundle-kick-v1",
+                ),
+            ),
+        )
+        session.commit()
+
+        builder = ProjectReviewQueueBuilder(tmp_path)
+        queue = builder.build_queue(
+            session.working_dir,
+            song_id=song.id,
+            layer_id="layer_fallback_kick",
+        )
+
+        assert len(queue.items) == 1
+        assert queue.metadata["skipped_missing_audio_count"] == 0
+        assert Path(queue.items[0].source_provenance["source_audio_ref"]).exists()
+        assert (
+            Path(queue.items[0].source_provenance["source_audio_ref"]).name
+            == Path(version.audio_file).name
+        )
+    finally:
+        session.close()
+
+
+def test_project_review_queue_builder_materializes_zero_duration_marker_events(
+    tmp_path: Path,
+):
+    samples = tmp_path / "samples"
+    write_percussion_dataset(samples, sample_count=2)
+    working_root = tmp_path / "project_work"
+    session = ProjectStorage.create_new("Marker Project", working_dir_root=working_root)
+    try:
+        song, version = session.import_song(
+            "Marker Song",
+            _write_review_source_audio(
+                samples / "kick" / "k1.wav",
+                tmp_path / "source_audio" / "marker_song.wav",
+                duration_seconds=3.0,
+            ),
+            default_templates=[],
+        )
+        _create_analysis_layer(
+            session,
+            version_id=version.id,
+            layer_id="layer_marker_kick",
+            name="kick",
+            order=0,
+            source_audio_path=version.audio_file,
+            run_id="run-marker-kick",
+            events=(
+                _event(
+                    "evt_marker_kick_01",
+                    time=1.0,
+                    duration=0.0,
+                    predicted_label="kick",
+                    score=0.97,
+                    source_event_id="src_marker_kick_01",
+                    bundle_id="bundle-kick-v1",
+                ),
+            ),
+        )
+        session.commit()
+
+        builder = ProjectReviewQueueBuilder(tmp_path)
+        queue = builder.build_queue(
+            session.working_dir,
+            song_id=song.id,
+            layer_id="layer_marker_kick",
+        )
+
+        assert len(queue.items) == 1
+        assert queue.metadata["skipped_unmaterialized_clip_count"] == 0
+        assert Path(queue.items[0].audio_path).exists()
+        assert sf.info(queue.items[0].audio_path).duration >= 0.19
+    finally:
+        session.close()
+
+
 def _build_project_review_fixture(tmp_path: Path) -> tuple[Path, Path, dict[str, str]]:
     samples = tmp_path / "samples"
     write_percussion_dataset(samples, sample_count=2)

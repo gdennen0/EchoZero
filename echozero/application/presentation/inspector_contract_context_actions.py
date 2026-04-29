@@ -226,6 +226,16 @@ def shared_context_sections(
                         group="tools",
                     ),
                     InspectorAction(
+                        action_id="add_section_layer",
+                        label="Add Section Layer",
+                        group="tools",
+                    ),
+                    InspectorAction(
+                        action_id="add_smpte_layer",
+                        label="Add SMPTE Layer",
+                        group="tools",
+                    ),
+                    InspectorAction(
                         action_id="pull_from_ma3",
                         label="Import Event Layer from MA3",
                         group="tools",
@@ -294,86 +304,20 @@ def shared_context_sections(
             )
         )
 
-        if layer is not None:
-            transfer_actions: list[InspectorAction] = []
-            if layer_supports_ma3_transfer(layer):
-                route_label = (
-                    "Change MA3 Route"
-                    if layer.sync_target_label
-                    else "Route Layer to MA3 Track"
+    if layer is not None:
+        transfer_actions = transfer_context_actions(
+            layer=layer,
+            hit_target=hit_target,
+            has_selected_events=has_selected_events,
+        )
+        if transfer_actions:
+            sections.append(
+                InspectorContextSection(
+                    section_id="sync-transfer",
+                    label="Sync & Transfer",
+                    actions=transfer_actions,
                 )
-                if hit_target is not None and hit_target.kind == "event":
-                    explicit_event_ids: list[str] = []
-                    if (
-                        hit_target.event_id is not None
-                        and hit_target.take_id in {None, layer.main_take_id}
-                        and not has_selected_events
-                    ):
-                        explicit_event_ids = [hit_target.event_id]
-                    transfer_actions.append(
-                        InspectorAction(
-                            action_id="send_selected_events_to_ma3",
-                            label=(
-                                "Send Event to MA3"
-                                if explicit_event_ids
-                                else "Send Selected Events to MA3"
-                            ),
-                            group="transfer",
-                            params={
-                                "layer_id": layer.layer_id,
-                                "event_ids": explicit_event_ids,
-                            },
-                            enabled=bool(explicit_event_ids) or (layer.is_selected and has_selected_events),
-                        )
-                    )
-                else:
-                    transfer_actions.extend(
-                        [
-                            InspectorAction(
-                                action_id="pull_from_ma3",
-                                label="Import Event Layer from MA3",
-                                group="transfer",
-                                params={"layer_id": layer.layer_id},
-                            ),
-                            InspectorAction(
-                                action_id="route_layer_to_ma3_track",
-                                label=route_label,
-                                group="transfer",
-                                params={"layer_id": layer.layer_id},
-                            ),
-                            InspectorAction(
-                                action_id="send_layer_to_ma3",
-                                label="Send Layer to MA3",
-                                group="transfer",
-                                params={"layer_id": layer.layer_id},
-                                enabled=layer.main_take_id is not None,
-                            ),
-                            InspectorAction(
-                                action_id="send_selected_events_to_ma3",
-                                label="Send Selected Events to MA3",
-                                group="transfer",
-                                params={"layer_id": layer.layer_id},
-                                enabled=layer.is_selected and has_selected_events,
-                            ),
-                            InspectorAction(
-                                action_id="send_to_different_track_once",
-                                label="Send to Different Track Once",
-                                group="transfer",
-                                params={"layer_id": layer.layer_id},
-                                enabled=layer.main_take_id is not None,
-                            ),
-                        ]
-                    )
-            if transfer_actions:
-                sections.append(
-                    InspectorContextSection(
-                        section_id="sync-transfer",
-                        label="Sync & Transfer",
-                        actions=tuple(transfer_actions),
-                    )
-                )
-    else:
-        pass
+            )
 
     if layer is not None:
         layer_actions = [
@@ -389,24 +333,6 @@ def shared_context_sections(
                 enabled=bool(layer.source_audio_path or layer.playback_source_ref),
             ),
             InspectorAction(
-                action_id="gain_down",
-                label="Set Gain -6 dB",
-                group="gain",
-                params={"layer_id": layer.layer_id, "gain_db": -6.0},
-            ),
-            InspectorAction(
-                action_id="gain_unity",
-                label="Set Gain 0 dB",
-                group="gain",
-                params={"layer_id": layer.layer_id, "gain_db": 0.0},
-            ),
-            InspectorAction(
-                action_id="gain_up",
-                label="Set Gain +6 dB",
-                group="gain",
-                params={"layer_id": layer.layer_id, "gain_db": 6.0},
-            ),
-            InspectorAction(
                 action_id="delete_layer",
                 label="Delete Layer",
                 group="layer",
@@ -414,6 +340,36 @@ def shared_context_sections(
                 enabled=layer.layer_id != "source_audio",
             ),
         ]
+        if layer.kind is LayerKind.AUDIO:
+            layer_actions.extend(_layer_smpte_import_actions(layer))
+            layer_actions.extend(
+                _layer_output_bus_actions(
+                    layer,
+                    playback_output_channels=presentation.playback_output_channels,
+                )
+            )
+        layer_actions.extend(
+            (
+                InspectorAction(
+                    action_id="gain_down",
+                    label="Set Gain -6 dB",
+                    group="gain",
+                    params={"layer_id": layer.layer_id, "gain_db": -6.0},
+                ),
+                InspectorAction(
+                    action_id="gain_unity",
+                    label="Set Gain 0 dB",
+                    group="gain",
+                    params={"layer_id": layer.layer_id, "gain_db": 0.0},
+                ),
+                InspectorAction(
+                    action_id="gain_up",
+                    label="Set Gain +6 dB",
+                    group="gain",
+                    params={"layer_id": layer.layer_id, "gain_db": 6.0},
+                ),
+            )
+        )
         layer_actions.extend(pipeline_actions_for_layer(layer))
         sections.append(
             InspectorContextSection(
@@ -615,6 +571,70 @@ def layer_supports_ma3_transfer(layer: LayerPresentation) -> bool:
     return is_event_like_layer_kind(layer.kind) and layer.main_take_id is not None
 
 
+def transfer_context_actions(
+    *,
+    layer: LayerPresentation,
+    hit_target: TimelineInspectorHitTarget | None,
+    has_selected_events: bool,
+) -> tuple[InspectorAction, ...]:
+    if not layer_supports_ma3_transfer(layer):
+        return ()
+
+    route_label = (
+        "Change MA3 Route"
+        if layer.sync_target_label
+        else "Route Layer to MA3 Track"
+    )
+    explicit_event_ids: list[str] = []
+    if (
+        hit_target is not None
+        and hit_target.kind == "event"
+        and hit_target.event_id is not None
+        and hit_target.take_id in {None, layer.main_take_id}
+        and not has_selected_events
+    ):
+        explicit_event_ids = [hit_target.event_id]
+    send_selected_params: dict[str, object] = {"layer_id": layer.layer_id}
+    if explicit_event_ids:
+        send_selected_params["event_ids"] = explicit_event_ids
+
+    return (
+        InspectorAction(
+            action_id="pull_from_ma3",
+            label="Import Event Layer from MA3",
+            group="transfer",
+            params={"layer_id": layer.layer_id},
+        ),
+        InspectorAction(
+            action_id="route_layer_to_ma3_track",
+            label=route_label,
+            group="transfer",
+            params={"layer_id": layer.layer_id},
+        ),
+        InspectorAction(
+            action_id="send_layer_to_ma3",
+            label="Send Layer to MA3",
+            group="transfer",
+            params={"layer_id": layer.layer_id},
+            enabled=layer.main_take_id is not None,
+        ),
+        InspectorAction(
+            action_id="send_selected_events_to_ma3",
+            label="Send Event to MA3" if explicit_event_ids else "Send Selected Events to MA3",
+            group="transfer",
+            params=send_selected_params,
+            enabled=bool(explicit_event_ids) or (layer.is_selected and has_selected_events),
+        ),
+        InspectorAction(
+            action_id="send_to_different_track_once",
+            label="Send to Different Track Once",
+            group="transfer",
+            params={"layer_id": layer.layer_id},
+            enabled=layer.main_take_id is not None,
+        ),
+    )
+
+
 def preview_transfer_plan_label(plan: BatchTransferPlanPresentation) -> str:
     return f"Preview Transfer Plan ({ready_count_label(plan.ready_count)})"
 
@@ -626,3 +646,98 @@ def apply_transfer_plan_label(plan: BatchTransferPlanPresentation) -> str:
 def ready_count_label(count: int) -> str:
     noun = "ready row" if count == 1 else "ready rows"
     return f"{count} {noun}"
+
+
+def _output_bus_auto_label(layer: LayerPresentation) -> str:
+    return (
+        "Using Default Output (1/2)" if layer.output_bus is None else "Use Default Output (1/2)"
+    )
+
+
+def _output_bus_route_label(layer: LayerPresentation, *, output_bus: str) -> str:
+    bus_label = _output_bus_name(output_bus)
+    current_output_bus = (
+        layer.output_bus.strip().lower()
+        if isinstance(layer.output_bus, str) and layer.output_bus.strip()
+        else None
+    )
+    if current_output_bus == output_bus:
+        return f"Routed to {bus_label}"
+    return f"Route to {bus_label}"
+
+
+def _layer_output_bus_actions(
+    layer: LayerPresentation,
+    *,
+    playback_output_channels: int,
+) -> tuple[InspectorAction, ...]:
+    actions: list[InspectorAction] = [
+        InspectorAction(
+            action_id="set_layer_output_bus_auto",
+            label=_output_bus_auto_label(layer),
+            group="routing",
+            params={"layer_id": layer.layer_id, "output_bus": None},
+        )
+    ]
+    output_bus_tokens = list(_available_output_bus_tokens(playback_output_channels))
+    current_output_bus = (
+        layer.output_bus.strip().lower()
+        if isinstance(layer.output_bus, str) and layer.output_bus.strip()
+        else None
+    )
+    if current_output_bus is not None and current_output_bus not in output_bus_tokens:
+        output_bus_tokens.append(current_output_bus)
+    for output_bus in output_bus_tokens:
+        actions.append(
+            InspectorAction(
+                action_id=f"set_layer_output_bus_{output_bus}",
+                label=_output_bus_route_label(layer, output_bus=output_bus),
+                group="routing",
+                params={"layer_id": layer.layer_id, "output_bus": output_bus},
+            )
+        )
+    return tuple(actions)
+
+
+def _layer_smpte_import_actions(layer: LayerPresentation) -> tuple[InspectorAction, ...]:
+    if not _is_smpte_layer(layer):
+        return ()
+    return (
+        InspectorAction(
+            action_id="import_smpte_audio_to_layer",
+            label="Import SMPTE Audio",
+            group="layer",
+            params={"layer_id": layer.layer_id},
+        ),
+    )
+
+
+def _is_smpte_layer(layer: LayerPresentation) -> bool:
+    if layer.kind is not LayerKind.AUDIO:
+        return False
+    normalized_title = layer.title.strip().lower()
+    if not normalized_title:
+        return False
+    return "smpte" in normalized_title or "timecode" in normalized_title
+
+
+def _available_output_bus_tokens(playback_output_channels: int) -> tuple[str, ...]:
+    channel_count = max(2, min(16, int(playback_output_channels)))
+    tokens: list[str] = []
+    start_channel = 1
+    while start_channel <= channel_count:
+        end_channel = min(start_channel + 1, channel_count)
+        tokens.append(f"outputs_{start_channel}_{end_channel}")
+        start_channel += 2
+    return tuple(tokens)
+
+
+def _output_bus_name(output_bus: str) -> str:
+    parts = output_bus.strip().lower().split("_")
+    if len(parts) == 3 and parts[0] == "outputs" and parts[1].isdigit() and parts[2].isdigit():
+        start_channel = int(parts[1])
+        end_channel = int(parts[2])
+        if start_channel == end_channel:
+            return f"Output {start_channel}"
+        return f"Outputs {start_channel}/{end_channel}"
+    return output_bus

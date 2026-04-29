@@ -30,9 +30,15 @@ from echozero.ui.qt.app_shell_project_lifecycle import (
     switch_song_version,
 )
 from echozero.ui.qt.app_shell_project_review import (
+    ProjectReviewDatasetPaths,
     ProjectReviewLaunch,
     create_project_review_session,
+    get_latest_project_review_dataset_version,
+    latest_project_review_dataset_artifact_path,
+    latest_project_review_dataset_folder,
+    list_project_review_dataset_versions,
     open_project_review_session,
+    reload_phone_review_status,
 )
 
 
@@ -106,7 +112,6 @@ class AppShellProjectMixin:
         song_id: str | SongId,
     ) -> list[tuple[str, str]]:
         return list_song_version_transfer_layers(self, song_id)
-
 
     def reorder_songs(
         self: ProjectLifecycleShell,
@@ -208,4 +213,49 @@ class AppShellProjectMixin:
             review_mode=review_mode,
             questionable_score_threshold=questionable_score_threshold,
             item_limit=item_limit,
+        )
+
+    def reload_phone_review_status(
+        self: ProjectLifecycleShell,
+    ) -> ProjectReviewLaunch:
+        return reload_phone_review_status(self)
+
+    def list_project_review_dataset_versions(
+        self: ProjectLifecycleShell,
+        *,
+        queue_source_kind: str | None = "ez_project",
+    ) -> list[ProjectReviewDatasetPaths]:
+        return list_project_review_dataset_versions(
+            self,
+            queue_source_kind=queue_source_kind,
+        )
+
+    def get_latest_project_review_dataset_version(
+        self: ProjectLifecycleShell,
+        *,
+        queue_source_kind: str | None = "ez_project",
+    ) -> ProjectReviewDatasetPaths | None:
+        return get_latest_project_review_dataset_version(
+            self,
+            queue_source_kind=queue_source_kind,
+        )
+
+    def latest_project_review_dataset_folder(
+        self: ProjectLifecycleShell,
+        *,
+        queue_source_kind: str | None = "ez_project",
+    ) -> Path:
+        return latest_project_review_dataset_folder(
+            self,
+            queue_source_kind=queue_source_kind,
+        )
+
+    def latest_project_review_dataset_artifact_path(
+        self: ProjectLifecycleShell,
+        *,
+        queue_source_kind: str | None = "ez_project",
+    ) -> Path:
+        return latest_project_review_dataset_artifact_path(
+            self,
+            queue_source_kind=queue_source_kind,
         )

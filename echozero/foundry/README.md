@@ -34,6 +34,15 @@ Reference doc:
 - Training and artifact workflows should flow through services, not directly from UI widgets.
 - Background runs should remain observable and cancelable through the supported surfaces.
 
+## Phone Review Navigation
+
+- `echozero/foundry/services/review_session_service.py` owns canonical queue order for one filtered review slice through `previousCursor` and `nextCursor`.
+- `echozero/foundry/review_web.py` owns revisit history for items the operator already visited in the current browser session.
+- Queue back writes the current item into forward revisit history; queue forward writes the current item into back revisit history.
+- Direct item jumps must also record the current item into revisit history only after the jump succeeds.
+- Session or filter changes reset revisit history and scoped client state. Status refreshes inside one stable session must preserve the current queue slot or history-focused item instead of snapping back to a different view.
+- Missing or deleted history items must be skipped safely instead of breaking navigation.
+
 ## Primary Tests
 
 - `tests/foundry/`

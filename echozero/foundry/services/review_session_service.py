@@ -6,8 +6,11 @@ Connects JSON/JSONL input files, repositories, and the mobile review server.
 from __future__ import annotations
 
 import json
+import sqlite3
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from pathlib import Path
+from threading import RLock
 from uuid import uuid4
 
 from echozero.foundry.domain.review import (
@@ -30,6 +33,15 @@ from echozero.foundry.services.review_signal_codec import (
 from echozero.foundry.services.review_signal_service import ReviewSignalService
 
 
+@dataclass(slots=True)
+class _ProjectSessionMaterializationCacheEntry:
+    """Tracks one cached project-backed session materialization."""
+
+    persisted_updated_at: str
+    source_token: str | None
+    session: ReviewSession
+
+
 class ReviewSessionService:
     """Creates, loads, filters, and updates persisted review sessions."""
 
@@ -44,6 +56,12 @@ class ReviewSessionService:
         self._repo = repository or ReviewSessionRepository(root)
         self._signal_service = signal_service or ReviewSignalService(root)
         self._project_queue_builder = project_queue_builder or ProjectReviewQueueBuilder(root)
+        self._cache_lock = RLock()
+        self._persisted_sessions_token: str | None = None
+        self._persisted_sessions_by_id: dict[str, ReviewSession] = {}
+        self._persisted_session_order: tuple[str, ...] = ()
+        self._persisted_session_summaries: tuple[dict[str, object], ...] = ()
+        self._project_session_cache: dict[str, _ProjectSessionMaterializationCacheEntry] = {}
 
     def import_session_file(
         self,
@@ -64,7 +82,9 @@ class ReviewSessionService:
             source_ref=str(path.resolve()),
             metadata={"import_format": path.suffix.lower().lstrip(".") or "json"},
         )
-        return self._repo.save(session)
+        saved_session = self._repo.save(session)
+        self._invalidate_persisted_session_cache()
+        return saved_session
 
     def import_session_folder(
         self,
@@ -108,7 +128,9 @@ class ReviewSessionService:
                 "skipped_sources": imported.skipped_sources,
             },
         )
-        return self._repo.save(session)
+        saved_session = self._repo.save(session)
+        self._invalidate_persisted_session_cache()
+        return saved_session
 
     def create_project_session(
         self,
@@ -137,6 +159,13 @@ class ReviewSessionService:
             item_limit=item_limit,
         )
         metadata = dict(queue.metadata)
+        metadata["scope_song_id"] = song_id
+        metadata["scope_song_version_id"] = song_version_id
+        metadata["scope_layer_id"] = layer_id
+        metadata["scope_polarity"] = polarity.value
+        metadata["scope_review_mode"] = review_mode
+        metadata["scope_questionable_score_threshold"] = questionable_score_threshold
+        metadata["scope_item_limit"] = item_limit
         if application_session:
             metadata["application_session"] = dict(application_session)
         session = ReviewSession(
@@ -146,15 +175,26 @@ class ReviewSessionService:
             source_ref=queue.source_ref,
             metadata=metadata,
         )
-        return self._repo.save(session)
+        saved_session = self._repo.save(session)
+        self._invalidate_persisted_session_cache()
+        self._prime_project_session_cache(saved_session)
+        return saved_session
 
     def get_session(self, session_id: str) -> ReviewSession | None:
         """Load a persisted review session."""
-        return self._repo.get(session_id)
+        sessions_by_id, _session_order, _summary_items = self._load_persisted_sessions()
+        session = sessions_by_id.get(session_id)
+        if session is None:
+            return None
+        return self._materialize_session(session)
 
     def list_sessions(self) -> list[ReviewSession]:
         """Return all persisted review sessions."""
-        return self._repo.list()
+        sessions_by_id, session_order, _summary_items = self._load_persisted_sessions()
+        return [
+            self._materialize_session(sessions_by_id[session_id])
+            for session_id in session_order
+        ]
 
     def set_item_outcome(self, session_id: str, item_id: str, outcome: ReviewOutcome) -> ReviewSession:
         """Persist a human review decision for one item in a session."""
@@ -185,12 +225,24 @@ class ReviewSessionService:
         operator_action: str | None = None,
     ) -> ReviewSession:
         """Persist a human review decision plus optional relabeling context."""
-        session = self._repo.get(session_id)
+        session = self.get_session(session_id)
         if session is None:
             raise ValueError(f"ReviewSession not found: {session_id}")
         timestamp = datetime.now(UTC)
         normalized_label = _normalize_optional_text(corrected_label)
         normalized_note = _normalize_optional_text(review_note)
+        normalized_decision_kind = (
+            decision_kind
+            or _default_decision_kind(
+                outcome,
+                corrected_label=normalized_label,
+                original_start_ms=original_start_ms,
+                original_end_ms=original_end_ms,
+                corrected_start_ms=corrected_start_ms,
+                corrected_end_ms=corrected_end_ms,
+                created_event_ref=created_event_ref,
+            )
+        )
         updated_items: list[ReviewItem] = []
         found = False
         for item in session.items:
@@ -211,7 +263,7 @@ class ReviewSessionService:
                         outcome,
                         corrected_label=normalized_label if outcome == ReviewOutcome.INCORRECT else None,
                         review_note=normalized_note if outcome == ReviewOutcome.INCORRECT else None,
-                        decision_kind=decision_kind,
+                        decision_kind=normalized_decision_kind,
                         original_start_ms=original_start_ms if outcome == ReviewOutcome.INCORRECT else None,
                         original_end_ms=original_end_ms if outcome == ReviewOutcome.INCORRECT else None,
                         corrected_start_ms=corrected_start_ms if outcome == ReviewOutcome.INCORRECT else None,
@@ -246,6 +298,11 @@ class ReviewSessionService:
         reviewed_item = next(item for item in saved_session.items if item.item_id == item_id)
         if reviewed_item.review_outcome != ReviewOutcome.PENDING and reviewed_item.review_decision is not None:
             self._signal_service.record_session_item_review(saved_session, reviewed_item)
+        self._invalidate_persisted_session_cache()
+        if _decision_requires_project_rebuild(normalized_decision_kind):
+            self._invalidate_project_session_cache(saved_session.id)
+        else:
+            self._prime_project_session_cache(saved_session)
         return saved_session
 
     def filter_items(
@@ -296,6 +353,14 @@ class ReviewSessionService:
         session = self.get_session(session_id)
         if session is None:
             raise ValueError(f"ReviewSession not found: {session_id}")
+        scope_items = self.filter_items(
+            session,
+            outcome="all",
+            polarity=polarity,
+            target_class=target_class,
+            song_ref=song_ref,
+            layer_ref=layer_ref,
+        )
         filtered_items = self.filter_items(
             session,
             outcome=outcome,
@@ -327,11 +392,33 @@ class ReviewSessionService:
         }
         reviewed_count = counts_by_outcome[ReviewOutcome.CORRECT.value] + counts_by_outcome[ReviewOutcome.INCORRECT.value]
         pending_count = counts_by_outcome[ReviewOutcome.PENDING.value]
+        scope_counts_by_outcome = {
+            review_outcome.value: sum(
+                1 for item in scope_items if item.review_outcome == review_outcome
+            )
+            for review_outcome in ReviewOutcome
+        }
+        scope_reviewed_count = (
+            scope_counts_by_outcome[ReviewOutcome.CORRECT.value]
+            + scope_counts_by_outcome[ReviewOutcome.INCORRECT.value]
+        )
+        scope_pending_count = scope_counts_by_outcome[ReviewOutcome.PENDING.value]
+        current_scope_number = 0
+        if focused_item is not None:
+            current_scope_number = next(
+                (
+                    index + 1
+                    for index, item in enumerate(scope_items)
+                    if item.item_id == focused_item.item_id
+                ),
+                0,
+            )
         return {
             "session": {
                 "id": session.id,
                 "name": session.name,
                 "sourceRef": session.source_ref,
+                "context": _session_context_payload(session),
                 "createdAt": session.created_at.isoformat(),
                 "updatedAt": session.updated_at.isoformat(),
                 "totalItems": len(session.items),
@@ -354,10 +441,30 @@ class ReviewSessionService:
                 "layerRef": layer_ref,
             },
             "filteredCount": len(filtered_items),
+            "progress": {
+                "items": [
+                    {
+                        "itemId": item.item_id,
+                        "reviewOutcome": item.review_outcome.value,
+                        "isCurrent": (
+                            focused_item is not None and item.item_id == focused_item.item_id
+                        ),
+                    }
+                    for item in scope_items
+                ],
+                "currentItemId": focused_item.item_id if focused_item is not None else None,
+                "scopeCount": len(scope_items),
+                "scopePendingCount": scope_pending_count,
+                "scopeReviewedCount": scope_reviewed_count,
+            },
             "navigation": {
                 "cursor": normalized_cursor if filtered_items else None,
                 "currentItemNumber": (normalized_cursor + 1) if filtered_items else 0,
                 "filteredCount": len(filtered_items),
+                "currentScopeItemNumber": current_scope_number,
+                "scopeCount": len(scope_items),
+                "scopePendingCount": scope_pending_count,
+                "scopeReviewedCount": scope_reviewed_count,
                 "hasPrevious": bool(filtered_items) and normalized_cursor > 0,
                 "hasNext": bool(filtered_items) and normalized_cursor < (len(filtered_items) - 1),
                 "previousCursor": (normalized_cursor - 1) if filtered_items and normalized_cursor > 0 else None,
@@ -375,13 +482,229 @@ class ReviewSessionService:
             ),
         }
 
-    def build_session_index(self, *, default_session_id: str | None = None) -> dict[str, object]:
+    def build_session_index(
+        self,
+        *,
+        default_session_id: str | None = None,
+        application_session: dict[str, object] | None = None,
+    ) -> dict[str, object]:
         """Return a compact list of available review sessions for phone navigation."""
-        sessions = sorted(self.list_sessions(), key=lambda session: session.updated_at, reverse=True)
+        sessions_by_id, session_order, summary_items = self._load_persisted_sessions()
         return {
             "defaultSessionId": default_session_id,
-            "items": [self._serialize_session_summary(session) for session in sessions],
+            "items": [
+                self._serialize_session_summary(
+                    self._materialize_session(sessions_by_id[session_id])
+                )
+                for session_id in session_order
+            ],
+            "project": self._project_index_payload(
+                summary_items=summary_items,
+                default_session_id=default_session_id,
+                application_session=application_session,
+            ),
         }
+
+    def _materialize_session(self, session: ReviewSession) -> ReviewSession:
+        if session.metadata.get("queue_source_kind") != "ez_project" or session.source_ref is None:
+            return session
+        persisted_updated_at = session.updated_at.isoformat()
+        source_token = _project_source_state_token(session.source_ref)
+        with self._cache_lock:
+            cached = self._project_session_cache.get(session.id)
+            if (
+                cached is not None
+                and cached.persisted_updated_at == persisted_updated_at
+                and cached.source_token == source_token
+            ):
+                return cached.session
+        try:
+            queue = self._project_queue_builder.build_queue(
+                session.source_ref,
+                song_id=_normalize_optional_text(session.metadata.get("scope_song_id")),
+                song_version_id=_normalize_optional_text(session.metadata.get("scope_song_version_id")),
+                layer_id=_normalize_optional_text(session.metadata.get("scope_layer_id")),
+                polarity=ReviewPolarity(
+                    _normalize_optional_text(session.metadata.get("scope_polarity"))
+                    or ReviewPolarity.POSITIVE.value
+                ),
+                review_mode=_normalize_optional_text(session.metadata.get("scope_review_mode")),
+                questionable_score_threshold=_coerce_optional_float(
+                    session.metadata.get("scope_questionable_score_threshold")
+                ),
+                item_limit=_coerce_optional_int(session.metadata.get("scope_item_limit")),
+            )
+        except ValueError:
+            self._prime_project_session_cache(
+                session,
+                persisted_updated_at=persisted_updated_at,
+                source_token=source_token,
+            )
+            return session
+        metadata = dict(session.metadata)
+        metadata.update(queue.metadata)
+        materialized_session = ReviewSession(
+            id=session.id,
+            name=session.name,
+            items=self._merge_project_items(queue.items, persisted_items=session.items),
+            source_ref=session.source_ref,
+            metadata=metadata,
+            created_at=session.created_at,
+            updated_at=session.updated_at,
+        )
+        self._prime_project_session_cache(
+            materialized_session,
+            persisted_updated_at=persisted_updated_at,
+            source_token=source_token,
+        )
+        return materialized_session
+
+    def _project_index_payload(
+        self,
+        *,
+        summary_items: tuple[dict[str, object], ...],
+        default_session_id: str | None,
+        application_session: dict[str, object] | None,
+    ) -> dict[str, object]:
+        project_payload = _project_index_payload(self._root)
+        has_root_project_payload = project_payload is not None
+        if project_payload is None:
+            project_payload = {
+                "projectRef": None,
+                "projectName": self._root.name,
+                "projectRoot": str(self._root.resolve()),
+            }
+        if application_session is not None:
+            application_project_ref = _normalize_optional_text(
+                application_session.get("projectRef")
+            )
+            application_project_name = _normalize_optional_text(
+                application_session.get("projectName")
+            )
+            if application_project_ref is not None:
+                project_payload["projectRef"] = application_project_ref
+            if application_project_name is not None:
+                project_payload["projectName"] = application_project_name
+            project_payload["applicationSession"] = dict(application_session)
+            return project_payload
+        if has_root_project_payload:
+            return project_payload
+
+        selected_summary = next(
+            (
+                summary
+                for summary in summary_items
+                if str(summary.get("id") or "").strip() == str(default_session_id or "").strip()
+            ),
+            None,
+        )
+        if selected_summary is None and summary_items:
+            selected_summary = summary_items[0]
+
+        context = (
+            selected_summary.get("context")
+            if isinstance(selected_summary, dict)
+            else None
+        )
+        if not isinstance(context, dict):
+            context = {}
+        project_payload["projectRef"] = (
+            _normalize_optional_text(context.get("projectRef"))
+            or project_payload.get("projectRef")
+        )
+        project_payload["projectName"] = (
+            _normalize_optional_text(context.get("projectName"))
+            or _normalize_optional_text(str(project_payload.get("projectName") or ""))
+            or self._root.name
+        )
+        return project_payload
+
+    def _load_persisted_sessions(
+        self,
+    ) -> tuple[dict[str, ReviewSession], tuple[str, ...], tuple[dict[str, object], ...]]:
+        state_token = _review_sessions_state_token(self._root)
+        with self._cache_lock:
+            if self._persisted_sessions_token == state_token:
+                return (
+                    self._persisted_sessions_by_id,
+                    self._persisted_session_order,
+                    self._persisted_session_summaries,
+                )
+            sessions = sorted(
+                self._repo.list(),
+                key=lambda session: session.updated_at,
+                reverse=True,
+            )
+            sessions_by_id = {session.id: session for session in sessions}
+            session_order = tuple(session.id for session in sessions)
+            summary_items = tuple(
+                self._serialize_session_summary(session)
+                for session in sessions
+            )
+            self._persisted_sessions_token = state_token
+            self._persisted_sessions_by_id = sessions_by_id
+            self._persisted_session_order = session_order
+            self._persisted_session_summaries = summary_items
+            return sessions_by_id, session_order, summary_items
+
+    def _invalidate_persisted_session_cache(self) -> None:
+        with self._cache_lock:
+            self._persisted_sessions_token = None
+            self._persisted_sessions_by_id = {}
+            self._persisted_session_order = ()
+            self._persisted_session_summaries = ()
+
+    def _invalidate_project_session_cache(self, session_id: str | None = None) -> None:
+        with self._cache_lock:
+            if session_id is None:
+                self._project_session_cache.clear()
+                return
+            self._project_session_cache.pop(session_id, None)
+
+    def _prime_project_session_cache(
+        self,
+        session: ReviewSession,
+        *,
+        persisted_updated_at: str | None = None,
+        source_token: str | None = None,
+    ) -> None:
+        if session.metadata.get("queue_source_kind") != "ez_project" or session.source_ref is None:
+            return
+        entry = _ProjectSessionMaterializationCacheEntry(
+            persisted_updated_at=persisted_updated_at or session.updated_at.isoformat(),
+            source_token=source_token if source_token is not None else _project_source_state_token(session.source_ref),
+            session=session,
+        )
+        with self._cache_lock:
+            self._project_session_cache[session.id] = entry
+
+    @staticmethod
+    def _merge_project_items(
+        current_items: list[ReviewItem],
+        *,
+        persisted_items: list[ReviewItem],
+    ) -> list[ReviewItem]:
+        persisted_by_id = {item.item_id: item for item in persisted_items}
+        merged_items: list[ReviewItem] = []
+        for item in current_items:
+            persisted = persisted_by_id.get(item.item_id)
+            if item.review_outcome != ReviewOutcome.PENDING or persisted is None:
+                merged_items.append(item)
+                continue
+            if persisted.review_outcome == ReviewOutcome.PENDING:
+                merged_items.append(item)
+                continue
+            merged_items.append(
+                replace(
+                    item,
+                    review_outcome=persisted.review_outcome,
+                    review_decision=persisted.review_decision,
+                    corrected_label=persisted.corrected_label,
+                    review_note=persisted.review_note,
+                    reviewed_at=persisted.reviewed_at,
+                )
+            )
+        return merged_items
 
     def _load_rows(self, path: Path) -> list[dict]:
         if not path.exists():
@@ -493,23 +816,148 @@ class ReviewSessionService:
         pending_count = sum(
             1 for item in session.items if item.review_outcome == ReviewOutcome.PENDING
         )
+        reviewed_count = len(session.items) - pending_count
         return {
             "id": session.id,
             "name": session.name,
             "updatedAt": session.updated_at.isoformat(),
             "totalItems": len(session.items),
             "pendingCount": pending_count,
+            "reviewedCount": reviewed_count,
             "classMap": session.class_map,
             "reviewMode": str(session.metadata.get("review_mode", "all_events")),
+            "context": _session_context_payload(session),
         }
 
 
 
-def _normalize_optional_text(value: str | None) -> str | None:
+def _normalize_optional_text(value: object) -> str | None:
     if value is None:
         return None
     text = str(value).strip()
     return text or None
+
+
+def _project_index_payload(root: Path) -> dict[str, object] | None:
+    project_db = root / "project.db"
+    if not project_db.exists():
+        return None
+
+    connection: sqlite3.Connection | None = None
+    try:
+        connection = sqlite3.connect(
+            f"file:{project_db.resolve()}?mode=ro",
+            uri=True,
+            check_same_thread=False,
+        )
+        row = connection.execute(
+            "SELECT id, name FROM projects ORDER BY rowid ASC LIMIT 1"
+        ).fetchone()
+    except sqlite3.Error:
+        return None
+    finally:
+        if connection is not None:
+            connection.close()
+
+    if row is None:
+        return {
+            "projectRef": None,
+            "projectName": root.name,
+            "projectRoot": str(root.resolve()),
+        }
+    project_id, project_name = row
+    return {
+        "projectRef": f"project:{project_id}" if project_id is not None else None,
+        "projectName": _normalize_optional_text(project_name) or root.name,
+        "projectRoot": str(root.resolve()),
+    }
+
+
+def _coerce_optional_float(value: object) -> float | None:
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _coerce_optional_int(value: object) -> int | None:
+    if value is None:
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _review_sessions_state_token(root: Path) -> str | None:
+    state_path = root / "foundry" / "state" / "review_sessions.json"
+    return _path_state_token(state_path)
+
+
+def _project_source_state_token(source_ref: str | Path) -> str | None:
+    source_path = Path(source_ref).expanduser().resolve()
+    if source_path.is_dir() and (source_path / "project.db").exists():
+        return _path_state_token(source_path / "project.db")
+    if source_path.is_file() and source_path.name == "project.db":
+        return _path_state_token(source_path)
+    if source_path.is_file() and source_path.suffix.lower() == ".ez":
+        return _path_state_token(source_path)
+    return _path_state_token(source_path)
+
+
+def _path_state_token(path: Path) -> str | None:
+    try:
+        stat = path.stat()
+    except OSError:
+        return None
+    return f"{path.resolve()}|{stat.st_mtime_ns}|{stat.st_size}"
+
+
+def _decision_requires_project_rebuild(
+    decision_kind: ReviewDecisionKind | str | None,
+) -> bool:
+    if decision_kind is None:
+        return False
+    normalized = (
+        decision_kind
+        if isinstance(decision_kind, ReviewDecisionKind)
+        else ReviewDecisionKind(str(decision_kind))
+    )
+    return normalized in {
+        ReviewDecisionKind.BOUNDARY_CORRECTED,
+        ReviewDecisionKind.MISSED_EVENT_ADDED,
+    }
+
+
+def _default_decision_kind(
+    outcome: ReviewOutcome,
+    *,
+    corrected_label: str | None,
+    original_start_ms: float | None,
+    original_end_ms: float | None,
+    corrected_start_ms: float | None,
+    corrected_end_ms: float | None,
+    created_event_ref: str | None,
+) -> ReviewDecisionKind | None:
+    if outcome != ReviewOutcome.INCORRECT:
+        return None
+    if created_event_ref is not None:
+        return ReviewDecisionKind.MISSED_EVENT_ADDED
+    if any(
+        value is not None
+        for value in (
+            original_start_ms,
+            original_end_ms,
+            corrected_start_ms,
+            corrected_end_ms,
+        )
+    ):
+        return ReviewDecisionKind.BOUNDARY_CORRECTED
+    if corrected_label is not None:
+        return ReviewDecisionKind.RELABELED
+    return ReviewDecisionKind.REJECTED
 
 
 def _normalize_cursor(value: int, *, item_count: int) -> int:
@@ -596,6 +1044,41 @@ def _application_session_payload(metadata: dict[str, object]) -> dict[str, objec
     if isinstance(payload, dict):
         return dict(payload)
     return None
+
+
+def _session_context_payload(session: ReviewSession) -> dict[str, object]:
+    application_session = _application_session_payload(session.metadata)
+    source_kind = str(
+        session.metadata.get("queue_source_kind")
+        or session.metadata.get("import_format")
+        or "session"
+    )
+    project_ref = str(session.metadata.get("project_ref") or "").strip() or None
+    project_name = str(session.metadata.get("project_name") or "").strip() or None
+    if application_session:
+        project_ref = str(application_session.get("projectRef") or project_ref or "").strip() or None
+        project_name = str(application_session.get("projectName") or project_name or "").strip() or None
+    if (project_ref is None or project_name is None) and session.items:
+        first_item = session.items[0]
+        project_ref = project_ref or _source_text(first_item.source_provenance, "project_ref", "projectRef")
+        project_name = project_name or _source_text(
+            first_item.source_provenance,
+            "project_name",
+            "projectName",
+        )
+    if project_name:
+        source_label = project_name
+    elif project_ref:
+        source_label = _readable_ref_label(project_ref)
+    else:
+        source_label = Path(session.source_ref).name
+    return {
+        "sourceKind": source_kind,
+        "projectRef": project_ref,
+        "projectName": project_name,
+        "sourceLabel": source_label,
+        "sourceRef": session.source_ref,
+    }
 
 
 def _source_text(payload: dict[str, object], *keys: str) -> str | None:

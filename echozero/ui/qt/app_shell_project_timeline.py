@@ -22,6 +22,7 @@ from echozero.application.timeline.models import (
     Take,
     Timeline,
     TimelineRegion,
+    derive_section_cues_from_layers,
 )
 from echozero.persistence.session import ProjectStorage
 from echozero.ui.qt.app_shell_project_timeline_overlay import (
@@ -171,6 +172,7 @@ def build_project_native_baseline_timeline(
         song_version_id=SongVersionId(version.id),
         end=version.duration_seconds,
         layers=layers,
+        section_cues=derive_section_cues_from_layers(layers),
         regions=regions,
     )
     timeline.selection.selected_layer_id = source_layer_id

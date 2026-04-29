@@ -123,7 +123,8 @@ def sync_runtime_audio_from_presentation(
     runtime_audio = shell.runtime_audio
     if runtime_audio is None:
         return
-    runtime_audio.build_for_presentation(presentation)
+    if runtime_audio.is_playing():
+        runtime_audio.build_for_presentation(presentation)
     snapshot_state = getattr(runtime_audio, "snapshot_state", None)
     if callable(snapshot_state):
         shell.session.playback_state = snapshot_state(presentation)

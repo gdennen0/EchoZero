@@ -5,6 +5,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Protocol, Sequence
 
+from echozero.application.shared.cue_numbers import (
+    CueNumber,
+    cue_number_from_ref_text as shared_cue_number_from_ref_text,
+    parse_positive_cue_number,
+)
 
 @dataclass(frozen=True, slots=True)
 class MA3TrackSnapshot:
@@ -63,7 +68,11 @@ class MA3EventSnapshot:
     start: float | None = None
     end: float | None = None
     cmd: str | None = None
-    cue_number: int | None = None
+    cue_number: CueNumber | None = None
+    cue_ref: str | None = None
+    color: str | None = None
+    notes: str | None = None
+    payload_ref: str | None = None
 
 
 class MA3Adapter(Protocol):
@@ -267,6 +276,13 @@ def coerce_event_snapshot(raw_event: Any) -> MA3EventSnapshot:
         cue_number = _value(raw_event, "cueno")
     if cue_number in {None, ""}:
         cue_number = _value(raw_event, "cueNo")
+    cue_ref = _value(raw_event, "cue_ref")
+    if cue_ref in {None, ""}:
+        cue_ref = _value(raw_event, "cueRef")
+    if cue_ref in {None, ""}:
+        cue_ref = _value(raw_event, "cue_label")
+    if cue_ref in {None, ""}:
+        cue_ref = _value(raw_event, "cueLabel")
     start = _optional_float(_value(raw_event, "start"))
     if start is None:
         start = _optional_float(_value(raw_event, "time"))
@@ -280,13 +296,41 @@ def coerce_event_snapshot(raw_event: Any) -> MA3EventSnapshot:
         end = start + duration
     if start is not None and end is not None and end <= start:
         end = None
+    resolved_cue_number = parse_positive_cue_number(cue_number)
+    label_text = str(label or "Event").strip() or "Event"
+    resolved_cue_ref = None if cue_ref in {None, ""} else str(cue_ref).strip() or None
+    if resolved_cue_ref is None:
+        inferred_cue_ref, inferred_label = _split_transport_cue_prefix(
+            label_text,
+            cue_number=resolved_cue_number,
+        )
+        resolved_cue_ref = inferred_cue_ref
+        label_text = inferred_label
+    else:
+        label_text = _strip_transport_cue_prefix(label_text, resolved_cue_ref)
+    if resolved_cue_ref is None and resolved_cue_number is not None:
+        resolved_cue_ref = str(resolved_cue_number)
     return MA3EventSnapshot(
         event_id=str(event_id or ""),
-        label=str(label or "Event"),
+        label=label_text or resolved_cue_ref or "Event",
         start=start,
         end=end,
         cmd=None if _value(raw_event, "cmd") is None else str(_value(raw_event, "cmd")),
-        cue_number=_optional_positive_int(cue_number),
+        cue_number=resolved_cue_number,
+        cue_ref=resolved_cue_ref,
+        color=None if _value(raw_event, "color") in {None, ""} else str(_value(raw_event, "color")),
+        notes=(
+            None
+            if _value(raw_event, "notes") in {None, ""}
+            and _value(raw_event, "note") in {None, ""}
+            else str(_value(raw_event, "notes") or _value(raw_event, "note"))
+        ),
+        payload_ref=(
+            None
+            if _value(raw_event, "payload_ref") in {None, ""}
+            and _value(raw_event, "payloadRef") in {None, ""}
+            else str(_value(raw_event, "payload_ref") or _value(raw_event, "payloadRef"))
+        ),
     )
 
 
@@ -360,13 +404,87 @@ def event_snapshot_payload(raw_event: Any) -> dict[str, object]:
         "start": snapshot.start,
         "end": snapshot.end,
         "cue_number": snapshot.cue_number,
+        "cue_ref": snapshot.cue_ref,
+        "color": snapshot.color,
+        "notes": snapshot.notes,
+        "payload_ref": snapshot.payload_ref,
     }
+
+
+def transport_event_label(raw_event: Any) -> str:
+    """Render one cue-aware event label for MA transport round-trips."""
+
+    snapshot = coerce_event_snapshot(raw_event)
+    cue_ref = transport_event_cue_ref(raw_event)
+    label = str(snapshot.label or "").strip()
+    if cue_ref is None:
+        return label or "Event"
+    if not label:
+        return cue_ref
+    if label.casefold() == cue_ref.casefold():
+        return cue_ref
+    if label.casefold().startswith(f"{cue_ref.casefold()} "):
+        return label
+    return f"{cue_ref} {label}"
+
+
+def transport_event_cue_ref(raw_event: Any) -> str | None:
+    """Resolve only the explicit cue-ref payload we should write back to MA."""
+
+    cue_ref = _value(raw_event, "cue_ref")
+    if cue_ref in {None, ""}:
+        cue_ref = _value(raw_event, "cueRef")
+    if cue_ref in {None, ""}:
+        cue_ref = _value(raw_event, "cue_label")
+    if cue_ref in {None, ""}:
+        cue_ref = _value(raw_event, "cueLabel")
+    if cue_ref in {None, ""}:
+        return None
+    normalized = str(cue_ref).strip()
+    return normalized or None
 
 
 def _value(raw: Any, key: str) -> Any:
     if isinstance(raw, dict):
         return raw.get(key)
     return getattr(raw, key, None)
+
+
+def _cue_number_from_ref_text(cue_ref: str | None) -> CueNumber | None:
+    return shared_cue_number_from_ref_text(cue_ref)
+
+
+def _split_transport_cue_prefix(
+    label: str,
+    *,
+    cue_number: CueNumber | None,
+) -> tuple[str | None, str]:
+    text = str(label or "").strip()
+    if not text:
+        return None, "Event"
+    first_token, _separator, _remainder = text.partition(" ")
+    candidate = first_token.rstrip(":")
+    if cue_number is None:
+        return None, text
+    if _cue_number_from_ref_text(candidate) != cue_number:
+        return None, text
+    return candidate, _strip_transport_cue_prefix(text, candidate)
+
+
+def _strip_transport_cue_prefix(label: str, cue_ref: str) -> str:
+    text = str(label or "").strip()
+    normalized_cue_ref = str(cue_ref or "").strip()
+    if not text or not normalized_cue_ref:
+        return text or normalized_cue_ref or "Event"
+    if text.casefold() == normalized_cue_ref.casefold():
+        return normalized_cue_ref
+    if text.casefold().startswith(f"{normalized_cue_ref.casefold()}:"):
+        remainder = text[len(normalized_cue_ref) + 1 :].strip()
+        return remainder or normalized_cue_ref
+    if text.casefold().startswith(f"{normalized_cue_ref.casefold()} "):
+        remainder = text[len(normalized_cue_ref) :].strip()
+        return remainder or normalized_cue_ref
+    return text
 
 
 def _optional_int(value: Any) -> int | None:

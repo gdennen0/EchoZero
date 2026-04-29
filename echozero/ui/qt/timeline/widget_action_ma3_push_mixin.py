@@ -133,6 +133,7 @@ class TimelineWidgetMA3PushActionMixin(TimelineWidgetTransferWorkspaceMixin):
             scope=MA3PushScope.SELECTED_EVENTS,
             selected_event_ids=selected_event_ids,
             require_saved_route=True,
+            prompt_for_saved_route=True,
         )
 
     def _handle_send_to_different_track_once(self, params: dict[str, object]) -> bool:
@@ -188,6 +189,7 @@ class TimelineWidgetMA3PushActionMixin(TimelineWidgetTransferWorkspaceMixin):
         scope: MA3PushScope,
         selected_event_ids: list[EventId] | None = None,
         require_saved_route: bool,
+        prompt_for_saved_route: bool = False,
         explicit_target: ManualPushTrackOptionPresentation | None = None,
         explicit_sequence_action: MA3TrackSequenceAction | None = None,
         explicit_apply_mode: MA3PushApplyMode | None = None,
@@ -209,10 +211,12 @@ class TimelineWidgetMA3PushActionMixin(TimelineWidgetTransferWorkspaceMixin):
 
         target_mode = MA3PushTargetMode.SAVED_ROUTE
         target_track = explicit_target
-        saved_route_was_created = False
+        saved_route_was_set_via_popup = False
         sequence_action: MA3TrackSequenceAction | None = explicit_sequence_action
         apply_mode: MA3PushApplyMode | None = explicit_apply_mode
-        if require_saved_route and not layer.sync_target_label:
+        if require_saved_route and (
+            prompt_for_saved_route or not layer.sync_target_label
+        ):
             popup_result = self._coerce_route_popup_result(
                 self._open_manual_push_route_popup(
                     title=action_title,
@@ -242,7 +246,7 @@ class TimelineWidgetMA3PushActionMixin(TimelineWidgetTransferWorkspaceMixin):
                     sequence_action=sequence_action,
                 )
             )
-            saved_route_was_created = True
+            saved_route_was_set_via_popup = True
             presentation = host._get_presentation()
             layer = self._find_layer_presentation(presentation, layer_id)
             if layer is None:
@@ -336,7 +340,7 @@ class TimelineWidgetMA3PushActionMixin(TimelineWidgetTransferWorkspaceMixin):
                 if target_mode is MA3PushTargetMode.DIFFERENT_TRACK_ONCE
                 else None,
                 selected_event_ids=selected_ids,
-                sequence_action=None if saved_route_was_created else sequence_action,
+                sequence_action=None if saved_route_was_set_via_popup else sequence_action,
             )
         )
         return True
@@ -608,6 +612,22 @@ class TimelineWidgetMA3PushActionMixin(TimelineWidgetTransferWorkspaceMixin):
                 target_track_coord=dialog.selected_track_coord(),
             )
 
+        def _handle_refresh_requested() -> None:
+            refreshed_flow = host._get_presentation().manual_push_flow
+            selected_timecode_no = (
+                dialog.selected_timecode_no() or refreshed_flow.selected_timecode_no
+            )
+            selected_track_group_no = (
+                dialog.selected_track_group_no() or refreshed_flow.selected_track_group_no
+            )
+            if selected_timecode_no is None:
+                selected_track_group_no = None
+            _refresh_dialog_flow(
+                timecode_no=selected_timecode_no,
+                track_group_no=selected_track_group_no,
+                target_track_coord=dialog.selected_track_coord(),
+            )
+
         def _handle_create_timecode_requested() -> None:
             if not _dispatch_create_action(
                 action_title="Create MA3 Timecode",
@@ -688,6 +708,7 @@ class TimelineWidgetMA3PushActionMixin(TimelineWidgetTransferWorkspaceMixin):
 
         dialog.timecode_selected.connect(_handle_timecode_selected)
         dialog.track_group_selected.connect(_handle_track_group_selected)
+        dialog.refresh_requested.connect(_handle_refresh_requested)
         dialog.create_timecode_requested.connect(_handle_create_timecode_requested)
         dialog.create_track_group_requested.connect(_handle_create_track_group_requested)
         dialog.create_track_requested.connect(_handle_create_track_requested)

@@ -264,6 +264,7 @@ class TimelineOrchestratorSelectionStateMixin:
         timeline: Timeline,
         *,
         direction: int,
+        include_demoted: bool = False,
     ) -> None:
         step = 1 if direction > 0 else -1 if direction < 0 else 0
         if step == 0:
@@ -283,6 +284,13 @@ class TimelineOrchestratorSelectionStateMixin:
             for event_ref in self._selected_event_refs(timeline)
             if event_ref.layer_id == layer.id and event_ref.take_id == take.id
         ]
+        if not selected_refs and timeline.selection.selected_event_ids:
+            take_event_ids = {event.id for event in take.events}
+            selected_refs = [
+                self._event_ref(layer.id, take.id, event_id)
+                for event_id in timeline.selection.selected_event_ids
+                if event_id in take_event_ids
+            ]
         playhead_seconds = None
         if not selected_refs:
             playhead_seconds = float(self.transport_service.get_state().playhead)
@@ -291,6 +299,7 @@ class TimelineOrchestratorSelectionStateMixin:
             selected_refs,
             direction=step,
             playhead_seconds=playhead_seconds,
+            include_demoted=include_demoted,
         )
         if target_event is None:
             return
@@ -584,6 +593,7 @@ class TimelineOrchestratorSelectionStateMixin:
         *,
         direction: int,
         playhead_seconds: float | None = None,
+        include_demoted: bool = False,
     ) -> Event | None:
         if not ordered_events:
             return None
@@ -592,29 +602,44 @@ class TimelineOrchestratorSelectionStateMixin:
         if step == 0:
             return None
 
-        selected_ids = {event_ref.event_id for event_ref in selected_refs}
-        if not selected_ids:
+        if not selected_refs:
             return TimelineOrchestratorSelectionStateMixin._adjacent_event_for_playhead(
                 ordered_events,
                 direction=step,
                 playhead_seconds=playhead_seconds,
+                include_demoted=include_demoted,
             )
 
-        selected_indices = [
-            index for index, event in enumerate(ordered_events) if event.id in selected_ids
-        ]
+        selected_indices: list[int] = []
+        for selected_ref in selected_refs:
+            match_index = next(
+                (
+                    index
+                    for index, event in enumerate(ordered_events)
+                    if event.id == selected_ref.event_id
+                ),
+                None,
+            )
+            if match_index is not None:
+                selected_indices.append(match_index)
         if not selected_indices:
             return TimelineOrchestratorSelectionStateMixin._adjacent_event_for_playhead(
                 ordered_events,
                 direction=step,
                 playhead_seconds=playhead_seconds,
+                include_demoted=include_demoted,
             )
 
-        anchor_index = max(selected_indices) if step > 0 else min(selected_indices)
+        anchor_index = selected_indices[-1]
         target_index = anchor_index + step
-        if target_index < 0 or target_index >= len(ordered_events):
-            return None
-        return ordered_events[target_index]
+        while 0 <= target_index < len(ordered_events):
+            target_event = ordered_events[target_index]
+            if include_demoted or not TimelineOrchestratorSelectionStateMixin._event_is_demoted(
+                target_event
+            ):
+                return target_event
+            target_index += step
+        return None
 
     @staticmethod
     def _adjacent_event_for_playhead(
@@ -622,25 +647,42 @@ class TimelineOrchestratorSelectionStateMixin:
         *,
         direction: int,
         playhead_seconds: float | None,
+        include_demoted: bool = False,
     ) -> Event | None:
         if not ordered_events:
             return None
         if playhead_seconds is None:
-            return ordered_events[0] if direction > 0 else ordered_events[-1]
+            iterable = ordered_events if direction > 0 else reversed(ordered_events)
+            for event in iterable:
+                if include_demoted or not TimelineOrchestratorSelectionStateMixin._event_is_demoted(
+                    event
+                ):
+                    return event
+            return None
 
         playhead = float(playhead_seconds)
         if direction > 0:
             for event in ordered_events:
                 center = 0.5 * (float(event.start) + float(event.end))
-                if center >= playhead:
+                if center >= playhead and (
+                    include_demoted
+                    or not TimelineOrchestratorSelectionStateMixin._event_is_demoted(event)
+                ):
                     return event
             return None
 
         for event in reversed(ordered_events):
             center = 0.5 * (float(event.start) + float(event.end))
-            if center <= playhead:
+            if center <= playhead and (
+                include_demoted
+                or not TimelineOrchestratorSelectionStateMixin._event_is_demoted(event)
+            ):
                 return event
         return None
+
+    @staticmethod
+    def _event_is_demoted(event: Event) -> bool:
+        return event.promotion_state == "demoted"
 
     def _find_layer(self, timeline: Timeline, layer_id: LayerId) -> Layer:
         for layer in timeline.layers:

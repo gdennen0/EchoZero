@@ -15,16 +15,20 @@ from echozero.event_bus import EventBus
 from echozero.foundry.domain import CompatibilityReport, Dataset, EvalReport, ModelArtifact, TrainRun
 from echozero.foundry.persistence import (
     DatasetRepository,
+    DatasetVersionRepository,
     EvalReportRepository,
     ModelArtifactRepository,
     ReviewSessionRepository,
 )
 from echozero.foundry.presentation import FoundryActivityFeed
+from echozero.foundry.services.query_service import (
+    FoundryQueryService,
+    ProjectReviewDatasetVersionRef,
+)
 from echozero.foundry.services import (
     ArtifactService,
     DatasetService,
     EvalService,
-    FoundryQueryService,
     ReviewSessionService,
     RuntimeBundleInstallService,
     SplitBalanceService,
@@ -43,11 +47,16 @@ class FoundryApp:
         self.event_bus = EventBus()
 
         self._dataset_repo = DatasetRepository(root)
+        self._dataset_version_repo = DatasetVersionRepository(root)
         self._artifact_repo = ModelArtifactRepository(root)
         self._eval_repo = EvalReportRepository(root)
         self._review_repo = ReviewSessionRepository(root)
 
-        self.datasets = DatasetService(root, dataset_repo=self._dataset_repo)
+        self.datasets = DatasetService(
+            root,
+            dataset_repo=self._dataset_repo,
+            version_repo=self._dataset_version_repo,
+        )
         self.split_balance = SplitBalanceService()
         self.eval = EvalService(self._eval_repo)
         self.artifacts = ArtifactService(root, artifact_repository=self._artifact_repo)
@@ -56,9 +65,11 @@ class FoundryApp:
         self.runs = TrainRunService(root, eval_service=self.eval, artifact_service=self.artifacts)
         self.queries = FoundryQueryService(
             dataset_repo=self._dataset_repo,
+            version_repo=self._dataset_version_repo,
             artifact_repo=self._artifact_repo,
             eval_repo=self._eval_repo,
             run_service=self.runs,
+            root=root,
         )
 
         self.activity = FoundryActivityFeed(self.event_bus)
@@ -164,6 +175,25 @@ class FoundryApp:
             "balance_plan": balance_plan,
         }
 
+    def export_project_review_dataset(
+        self,
+        project_path: str | Path,
+        *,
+        project_ref: str | None = None,
+        song_id: str | None = None,
+        song_version_id: str | None = None,
+        layer_id: str | None = None,
+        queue_source_kind: str = "ez_project",
+    ) -> DatasetVersion:
+        return self.datasets.export_project_review_dataset(
+            project_path,
+            project_ref=project_ref,
+            song_id=song_id,
+            song_version_id=song_version_id,
+            layer_id=layer_id,
+            queue_source_kind=queue_source_kind,
+        )
+
     # ------------------------------------------------------------------
     # Query boundary for Foundry UI
     # ------------------------------------------------------------------
@@ -185,3 +215,25 @@ class FoundryApp:
 
     def list_eval_reports_for_run(self, run_id: str) -> list[EvalReport]:
         return self.queries.list_eval_reports_for_run(run_id)
+
+    def list_project_review_dataset_versions(
+        self,
+        *,
+        project_ref: str,
+        queue_source_kind: str | None = "ez_project",
+    ) -> list[ProjectReviewDatasetVersionRef]:
+        return self.queries.list_project_review_dataset_versions(
+            project_ref=project_ref,
+            queue_source_kind=queue_source_kind,
+        )
+
+    def get_latest_project_review_dataset_version(
+        self,
+        *,
+        project_ref: str,
+        queue_source_kind: str | None = "ez_project",
+    ) -> ProjectReviewDatasetVersionRef | None:
+        return self.queries.get_latest_project_review_dataset_version(
+            project_ref=project_ref,
+            queue_source_kind=queue_source_kind,
+        )

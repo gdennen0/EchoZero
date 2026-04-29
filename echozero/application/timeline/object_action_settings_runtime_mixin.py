@@ -6,6 +6,7 @@ Connects object-action descriptors to typed layer bindings and runtime model sel
 from __future__ import annotations
 
 from collections.abc import Callable
+import inspect
 from typing import Protocol
 
 from echozero.application.presentation.models import LayerPresentation, TimelinePresentation
@@ -101,8 +102,9 @@ class ObjectActionSettingsRuntimeMixin:
     def _format_locked_binding_value(value: object) -> str:
         return format_locked_binding_value(value)
 
-    @staticmethod
-    def _extract_classified_drums_model_defaults() -> dict[str, object]:
+    def _extract_classified_drums_model_defaults(
+        self: ObjectActionSettingsRuntimeShell,
+    ) -> dict[str, object]:
         return extract_classified_drums_model_defaults()
 
 
@@ -243,12 +245,56 @@ def extract_classified_drums_model_defaults() -> dict[str, object]:
         upgrade_installed_runtime_bundles,
     )
 
-    upgrade_installed_runtime_bundles(ensure_installed_models_dir())
-    bundles = resolve_installed_binary_drum_bundles()
-    return {
-        "kick_model_path": str(bundles["kick"].manifest_path),
-        "snare_model_path": str(bundles["snare"].manifest_path),
-    }
+    models_dir = ensure_installed_models_dir()
+    upgrade_installed_runtime_bundles(models_dir)
+    defaults: dict[str, object] = {}
+    for label in ("kick", "snare"):
+        try:
+            bundles = _resolve_installed_binary_drum_bundles_compat(
+                resolve_installed_binary_drum_bundles,
+                models_dir=models_dir,
+                labels=(label,),
+            )
+        except FileNotFoundError:
+            continue
+        defaults[f"{label}_model_path"] = str(bundles[label].manifest_path)
+    return defaults
+
+
+def _resolve_installed_binary_drum_bundles_compat(
+    resolver: Callable[..., dict[str, object]],
+    *,
+    models_dir: object,
+    labels: tuple[str, ...] | None = None,
+) -> dict[str, object]:
+    """Call bundle resolvers across the real keyword-only API and zero-arg test doubles."""
+
+    try:
+        parameters = inspect.signature(resolver).parameters
+    except (TypeError, ValueError):
+        kwargs = {"models_dir": models_dir}
+        if labels is not None:
+            kwargs["labels"] = labels
+        return resolver(**kwargs)
+
+    kwargs: dict[str, object] = {}
+    if "models_dir" in parameters or any(
+        parameter.kind is inspect.Parameter.VAR_KEYWORD
+        for parameter in parameters.values()
+    ):
+        kwargs["models_dir"] = models_dir
+    if labels is not None and (
+        "labels" in parameters
+        or any(parameter.kind is inspect.Parameter.VAR_KEYWORD for parameter in parameters.values())
+    ):
+        kwargs["labels"] = labels
+    if kwargs:
+        return resolver(**kwargs)
+    if not parameters:
+        return resolver()
+    if labels is not None and len(parameters) > 1:
+        return resolver(models_dir, labels)
+    return resolver(models_dir)
 
 
 def _object_action_binding_resolvers(

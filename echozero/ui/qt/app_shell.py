@@ -64,6 +64,10 @@ from echozero.ui.qt.app_shell_history import (
 )
 from echozero.ui.qt.app_shell_object_action_mixin import AppShellObjectActionMixin
 from echozero.ui.qt.app_shell_project_mixin import AppShellProjectMixin
+from echozero.ui.qt.app_shell_project_review import (
+    bind_phone_review_server_to_current_project,
+    clear_project_review_runtime_bridge,
+)
 from echozero.ui.qt.app_shell_runtime_services import build_runtime_timeline_application
 from echozero.ui.qt.app_shell_runtime_support import (
     RuntimeAudioController as _RuntimeAudioController,
@@ -99,6 +103,9 @@ from echozero.ui.qt.app_shell_storage_sync import (
     persist_manual_layer as _persist_manual_layer,
 )
 from echozero.ui.qt.app_shell_storage_sync import (
+    sync_storage_backed_layers as _sync_storage_backed_layers,
+)
+from echozero.ui.qt.app_shell_storage_sync import (
     store_manual_layer as _store_manual_layer,
 )
 from echozero.ui.qt.app_shell_storage_sync import (
@@ -107,6 +114,7 @@ from echozero.ui.qt.app_shell_storage_sync import (
 from echozero.ui.qt.app_shell_storage_sync import (
     sync_storage_backed_timeline as _sync_storage_backed_timeline,
 )
+from echozero.ui.qt.app_shell_specialized_model import AppShellSpecializedModelMixin
 _T = TypeVar("_T")
 
 
@@ -114,6 +122,7 @@ class AppShellRuntime(
     AppShellEditingMixin,
     AppShellProjectMixin,
     AppShellObjectActionMixin,
+    AppShellSpecializedModelMixin,
 ):
     _object_action_settings: ObjectActionService
     _pipeline_runs: PipelineRunService
@@ -137,6 +146,7 @@ class AppShellRuntime(
         self._history = UndoHistory(limit=_DEFAULT_HISTORY_LIMIT)
         self._is_dirty = False
         self._draft_layers: list[Layer] = []
+        self._staged_project_runtime_presentation: TimelinePresentation | None = None
         self._app: TimelineApplication = build_runtime_timeline_application(
             project_storage=project_storage,
             sync_bridge=sync_bridge,
@@ -177,6 +187,7 @@ class AppShellRuntime(
         """Enable the phone review server control path for this runtime."""
 
         self._review_server_controller.enable()
+        bind_phone_review_server_to_current_project(self)
 
     def disable_phone_review_service(self) -> None:
         """Disable the phone review server control path for this runtime."""
@@ -185,6 +196,14 @@ class AppShellRuntime(
 
     def presentation(self) -> TimelinePresentation:
         return self._app.presentation()
+
+    def stage_project_runtime_presentation(
+        self,
+        presentation: TimelinePresentation | None,
+    ) -> None:
+        """Stage one presentation snapshot to persist on the next project save."""
+
+        self._staged_project_runtime_presentation = presentation
 
     def can_undo(self) -> bool:
         return self._history.can_undo()
@@ -255,8 +274,12 @@ class AppShellRuntime(
     def _sync_storage_backed_timeline(self) -> None:
         _sync_storage_backed_timeline(self)
 
+    def _sync_storage_backed_layers(self, layer_ids: list[LayerId]) -> None:
+        _sync_storage_backed_layers(self, layer_ids=layer_ids)
+
     def shutdown(self) -> None:
         self._review_server_controller.stop()
+        clear_project_review_runtime_bridge(self)
         _shutdown_runtime(self)
 
     def enable_sync(self, mode: SyncMode = SyncMode.MA3) -> SyncState:

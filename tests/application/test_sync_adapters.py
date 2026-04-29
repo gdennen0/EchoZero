@@ -129,6 +129,101 @@ def test_ma3_sync_adapter_exposes_bridge_track_and_event_snapshots():
     assert timecodes == [{"number": 1, "name": "Song A"}]
 
 
+def test_ma3_sync_adapter_preserves_shared_cue_metadata_fields_when_present():
+    class _MetadataBridge(_Bridge):
+        def list_tracks(self, *, timecode_no=None):
+            del timecode_no
+            return []
+
+        def list_timecodes(self):
+            return []
+
+        def list_track_groups(self, *, timecode_no):
+            del timecode_no
+            return []
+
+        def list_track_events(self, track_coord: str):
+            del track_coord
+            return [
+                {
+                    "event_id": "ma3_evt_1",
+                    "name": "Verse",
+                    "start": 1.0,
+                    "cue_number": 11,
+                    "cue_ref": "Q11A",
+                    "color": "#ffaa00",
+                    "notes": "Imported exactly",
+                    "payload_ref": "payload://ma3_evt_1",
+                }
+            ]
+
+        def list_sequences(self, *, start_no=None, end_no=None):
+            del start_no, end_no
+            return []
+
+        def get_current_song_sequence_range(self):
+            return None
+
+        def assign_track_sequence(self, *, target_track_coord: str, sequence_no: int) -> None:
+            del target_track_coord, sequence_no
+
+        def create_sequence_next_available(self, *, preferred_name=None):
+            del preferred_name
+            return {"number": 1, "name": "Seq"}
+
+        def create_sequence_in_current_song_range(self, *, preferred_name=None):
+            del preferred_name
+            return {"number": 1, "name": "Seq"}
+
+        def create_timecode_next_available(self, *, preferred_name=None):
+            del preferred_name
+            return {"number": 1, "name": "Song"}
+
+        def create_track_group_next_available(self, *, timecode_no: int, preferred_name=None):
+            del timecode_no, preferred_name
+            return {"number": 1, "name": "Group"}
+
+        def create_track(self, *, timecode_no: int, track_group_no: int, preferred_name=None):
+            del timecode_no, track_group_no, preferred_name
+            return {"coord": "tc1_tg1_tr1", "name": "Track"}
+
+        def prepare_track_for_events(self, *, target_track_coord: str) -> None:
+            del target_track_coord
+
+        def send_console_command(self, command: str) -> None:
+            del command
+
+        def reload_plugins(self) -> None:
+            return None
+
+        def apply_push_transfer(
+            self,
+            *,
+            target_track_coord: str,
+            selected_events: list[object],
+            transfer_mode: str = "merge",
+        ) -> None:
+            del target_track_coord, selected_events, transfer_mode
+
+    service = MA3SyncAdapter(_MetadataBridge())
+
+    pull_events = service.list_pull_source_events("tc1_tg2_tr3")
+
+    assert pull_events == [
+        {
+            "event_id": "ma3_evt_1",
+            "label": "Verse",
+            "start": 1.0,
+            "end": None,
+            "cue_number": 11,
+            "cue_ref": "Q11A",
+            "color": "#ffaa00",
+            "notes": "Imported exactly",
+            "payload_ref": "payload://ma3_evt_1",
+        }
+    ]
+
+
 def test_ma3_sync_adapter_exposes_bridge_sequence_snapshots_and_current_song_range():
     bridge = SimulatedMA3Bridge()
     service = MA3SyncAdapter(bridge)
@@ -244,6 +339,76 @@ def test_ma3_sync_adapter_treats_zero_duration_ma3_events_as_one_shots():
             "start": 1.25,
             "end": None,
             "cue_number": None,
+            "cue_ref": None,
+            "color": None,
+            "notes": None,
+            "payload_ref": None,
+        }
+    ]
+
+
+class _PrefixedCueRefBridge(_Bridge):
+    def list_track_events(self, source_track_coord: str):
+        assert source_track_coord == "tc1_tg2_tr3"
+        return [
+            {
+                "id": "ma3_evt_1",
+                "name": "Q11A Verse",
+                "time": 1.25,
+                "cueNo": 11,
+        }
+    ]
+
+
+def test_ma3_sync_adapter_infers_cue_ref_from_prefixed_label_when_bridge_omits_explicit_field():
+    service = MA3SyncAdapter(_PrefixedCueRefBridge())
+
+    pull_events = service.list_pull_source_events("tc1_tg2_tr3")
+
+    assert pull_events == [
+        {
+            "event_id": "ma3_evt_1",
+            "label": "Verse",
+            "start": 1.25,
+            "end": None,
+            "cue_number": 11,
+            "cue_ref": "Q11A",
+            "color": None,
+            "notes": None,
+            "payload_ref": None,
+        }
+    ]
+
+
+class _FloatPrefixedCueRefBridge(_Bridge):
+    def list_track_events(self, source_track_coord: str):
+        assert source_track_coord == "tc1_tg2_tr3"
+        return [
+            {
+                "id": "ma3_evt_1",
+                "name": "Q11.5 Verse",
+                "time": 1.25,
+                "cueNo": 11.5,
+            }
+        ]
+
+
+def test_ma3_sync_adapter_preserves_float_cue_numbers_and_infers_float_cue_refs():
+    service = MA3SyncAdapter(_FloatPrefixedCueRefBridge())
+
+    pull_events = service.list_pull_source_events("tc1_tg2_tr3")
+
+    assert pull_events == [
+        {
+            "event_id": "ma3_evt_1",
+            "label": "Verse",
+            "start": 1.25,
+            "end": None,
+            "cue_number": 11.5,
+            "cue_ref": "Q11.5",
+            "color": None,
+            "notes": None,
+            "payload_ref": None,
         }
     ]
 
@@ -290,6 +455,61 @@ def test_ma3_sync_adapter_apply_push_transfer_updates_bridge_snapshot():
     }
 
 
+def test_ma3_sync_adapter_apply_push_transfer_round_trips_preserved_cue_ref():
+    bridge = SimulatedMA3Bridge()
+    service = MA3SyncAdapter(bridge)
+
+    service.apply_push_transfer(
+        target_track_coord="tc1_tg2_tr4",
+        selected_events=[
+            Event(
+                id="evt_section",
+                take_id="take_a",
+                start=0.5,
+                end=0.75,
+                cue_number=11,
+                cue_ref="Q11A",
+                label="Verse",
+            )
+        ],
+        transfer_mode="overwrite",
+    )
+
+    pull_events = service.list_pull_source_events("tc1_tg2_tr4")
+
+    assert len(pull_events) == 1
+    assert pull_events[0]["label"] == "Verse"
+    assert pull_events[0]["start"] == pytest.approx(0.5)
+    assert pull_events[0]["cue_number"] == 11
+    assert pull_events[0]["cue_ref"] == "Q11A"
+
+
+def test_ma3_sync_adapter_apply_push_transfer_round_trips_float_cue_numbers():
+    bridge = SimulatedMA3Bridge()
+    service = MA3SyncAdapter(bridge)
+
+    service.apply_push_transfer(
+        target_track_coord="tc1_tg2_tr4",
+        selected_events=[
+            Event(
+                id="evt_section",
+                take_id="take_a",
+                start=0.5,
+                end=0.75,
+                cue_number=11.5,
+                label="Verse",
+            )
+        ],
+        transfer_mode="overwrite",
+    )
+
+    pull_events = service.list_pull_source_events("tc1_tg2_tr4")
+
+    assert len(pull_events) == 1
+    assert pull_events[0]["cue_number"] == 11.5
+    assert pull_events[0]["cue_ref"] == "11.5"
+
+
 def test_ma3_sync_adapter_apply_push_transfer_raises_when_bridge_cannot_execute():
     bridge = _Bridge()
     service = MA3SyncAdapter(bridge)
@@ -299,3 +519,50 @@ def test_ma3_sync_adapter_apply_push_transfer_raises_when_bridge_cannot_execute(
             target_track_coord="tc1_tg2_tr3",
             selected_events=[],
         )
+
+
+def test_ma3_sync_adapter_refresh_push_track_options_uses_bridge_refresh_tracks_when_available():
+    class _RefreshTracksBridge(_Bridge):
+        def __init__(self) -> None:
+            super().__init__()
+            self.refresh_tracks_calls = 0
+
+        def refresh_tracks(self, *, timecode_no=None, track_group_no=None):
+            assert timecode_no is None
+            assert track_group_no is None
+            self.refresh_tracks_calls += 1
+            return []
+
+    bridge = _RefreshTracksBridge()
+    service = MA3SyncAdapter(bridge)
+
+    service.refresh_push_track_options(target_track_coord="tc1_tg2_tr3")
+
+    assert bridge.refresh_tracks_calls == 1
+
+
+def test_ma3_sync_adapter_refresh_push_track_options_forwards_timecode_and_track_group():
+    class _RefreshTracksBridge(_Bridge):
+        def __init__(self) -> None:
+            super().__init__()
+            self.calls: list[dict[str, int | None]] = []
+
+        def refresh_tracks(self, *, timecode_no=None, track_group_no=None):
+            self.calls.append(
+                {
+                    "timecode_no": timecode_no,
+                    "track_group_no": track_group_no,
+                }
+            )
+            return []
+
+    bridge = _RefreshTracksBridge()
+    service = MA3SyncAdapter(bridge)
+
+    service.refresh_push_track_options(
+        target_track_coord="tc2_tg4_tr8",
+        timecode_no=2,
+        track_group_no=4,
+    )
+
+    assert bridge.calls == [{"timecode_no": 2, "track_group_no": 4}]

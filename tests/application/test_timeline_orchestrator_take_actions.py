@@ -8,7 +8,7 @@ from echozero.application.playback.models import PlaybackState
 from echozero.application.playback.service import PlaybackService
 from echozero.application.session.models import Session
 from echozero.application.session.service import SessionService
-from echozero.application.shared.enums import LayerKind
+from echozero.application.shared.enums import FollowMode, LayerKind
 from echozero.application.shared.ids import (
     EventId,
     LayerId,
@@ -44,14 +44,16 @@ from echozero.application.timeline.intents import (
     SelectRegion,
     SelectTake,
     SetActivePlaybackTarget,
+    SetFollowCursorEnabled,
     SetGain,
+    SetLayerOutputBus,
     SetSelectedEvents,
     Stop,
     ToggleLayerExpanded,
     TriggerTakeAction,
     UpdateRegion,
 )
-from echozero.application.timeline.models import Event, Layer, Take, Timeline
+from echozero.application.timeline.models import Event, EventRef, Layer, Take, Timeline
 from echozero.application.timeline.orchestrator import TimelineOrchestrator
 from echozero.application.transport.models import TransportState
 from echozero.application.transport.service import TransportService
@@ -182,13 +184,20 @@ class _Assembler:
         return timeline
 
 
-def _event(event_id: str, take_id: str, start: float) -> Event:
+def _event(
+    event_id: str,
+    take_id: str,
+    start: float,
+    *,
+    metadata: dict[str, object] | None = None,
+) -> Event:
     return Event(
         id=EventId(event_id),
         take_id=TakeId(take_id),
         start=start,
         end=start + 0.2,
         label=event_id,
+        metadata=dict(metadata or {}),
     )
 
 
@@ -476,6 +485,112 @@ def test_select_adjacent_event_without_selection_uses_playhead_position():
     orchestrator.handle(timeline, SelectAdjacentEventInSelectedLayer(direction=-1))
 
     assert timeline.selection.selected_event_ids == [alt_take.events[0].id]
+
+
+def test_select_adjacent_event_skips_demoted_when_demoted_navigation_disabled():
+    orchestrator, timeline, layer, _main_take, alt_take = _build_orchestrator_and_timeline()
+    alt_take.events = [
+        _event("alt_1", "take_alt", 1.25),
+        _event(
+            "alt_2",
+            "take_alt",
+            2.25,
+            metadata={"review": {"promotion_state": "demoted"}},
+        ),
+        _event("alt_3", "take_alt", 3.25),
+    ]
+    timeline.selection.selected_layer_id = layer.id
+    timeline.selection.selected_layer_ids = [layer.id]
+    timeline.selection.selected_take_id = alt_take.id
+    timeline.selection.selected_event_ids = [alt_take.events[0].id]
+
+    orchestrator.handle(
+        timeline,
+        SelectAdjacentEventInSelectedLayer(direction=1, include_demoted=False),
+    )
+
+    assert timeline.selection.selected_event_ids == [alt_take.events[2].id]
+
+    orchestrator.handle(
+        timeline,
+        SelectAdjacentEventInSelectedLayer(direction=-1, include_demoted=False),
+    )
+
+    assert timeline.selection.selected_event_ids == [alt_take.events[0].id]
+
+
+def test_select_adjacent_event_can_include_demoted_when_enabled():
+    orchestrator, timeline, layer, _main_take, alt_take = _build_orchestrator_and_timeline()
+    alt_take.events = [
+        _event("alt_1", "take_alt", 1.25),
+        _event(
+            "alt_2",
+            "take_alt",
+            2.25,
+            metadata={"review": {"promotion_state": "demoted"}},
+        ),
+        _event("alt_3", "take_alt", 3.25),
+    ]
+    timeline.selection.selected_layer_id = layer.id
+    timeline.selection.selected_layer_ids = [layer.id]
+    timeline.selection.selected_take_id = alt_take.id
+    timeline.selection.selected_event_ids = [alt_take.events[0].id]
+
+    orchestrator.handle(
+        timeline,
+        SelectAdjacentEventInSelectedLayer(direction=1, include_demoted=True),
+    )
+
+    assert timeline.selection.selected_event_ids == [alt_take.events[1].id]
+
+    orchestrator.handle(
+        timeline,
+        SelectAdjacentEventInSelectedLayer(direction=1, include_demoted=True),
+    )
+
+    assert timeline.selection.selected_event_ids == [alt_take.events[2].id]
+
+
+def test_select_adjacent_event_anchors_to_most_recent_selected_ref_order() -> None:
+    orchestrator, timeline, layer, _main_take, alt_take = _build_orchestrator_and_timeline()
+    alt_take.events = [
+        _event(
+            "alt_1",
+            "take_alt",
+            1.25,
+            metadata={"review": {"promotion_state": "demoted"}},
+        ),
+        _event(
+            "alt_2",
+            "take_alt",
+            2.25,
+            metadata={"review": {"promotion_state": "demoted"}},
+        ),
+        _event(
+            "alt_3",
+            "take_alt",
+            3.25,
+            metadata={"review": {"promotion_state": "demoted"}},
+        ),
+    ]
+    timeline.selection.selected_layer_id = layer.id
+    timeline.selection.selected_layer_ids = [layer.id]
+    timeline.selection.selected_take_id = alt_take.id
+    timeline.selection.selected_event_refs = [
+        EventRef(layer_id=layer.id, take_id=alt_take.id, event_id=alt_take.events[1].id),
+        EventRef(layer_id=layer.id, take_id=alt_take.id, event_id=alt_take.events[0].id),
+    ]
+    timeline.selection.selected_event_ids = [
+        alt_take.events[1].id,
+        alt_take.events[0].id,
+    ]
+
+    orchestrator.handle(
+        timeline,
+        SelectAdjacentEventInSelectedLayer(direction=1, include_demoted=True),
+    )
+
+    assert timeline.selection.selected_event_ids == [alt_take.events[1].id]
 
 
 def test_clear_selection_clears_events_and_take_without_dropping_selected_layer():
@@ -873,6 +988,82 @@ def test_create_event_appends_sorted_event_and_selects_it():
     assert timeline.selection.selected_event_ids == [inserted.id]
 
 
+def test_create_event_accepts_float_cue_numbers():
+    orchestrator, timeline, layer, main_take, _alt_take = _build_orchestrator_and_timeline()
+
+    orchestrator.handle(
+        timeline,
+        CreateEvent(
+            layer_id=layer.id,
+            take_id=main_take.id,
+            time_range=TimeRange(start=1.4, end=1.7),
+            label="Inserted",
+            cue_number=1.5,
+        ),
+    )
+
+    inserted = next(event for event in main_take.events if event.label == "Inserted")
+    assert inserted.cue_number == 1.5
+
+
+def test_create_event_on_section_layer_creates_section_start_on_main_take():
+    orchestrator, timeline, _layer, _main_take, _alt_take = _build_orchestrator_and_timeline()
+    section_main_take = Take(
+        id=TakeId("take_sections_main"),
+        layer_id=LayerId("layer_sections"),
+        name="Main",
+        events=[
+            Event(
+                id=EventId("section_1"),
+                take_id=TakeId("take_sections_main"),
+                start=0.5,
+                end=0.58,
+                cue_number=7.5,
+                label="Verse",
+                cue_ref="Q7.5",
+            )
+        ],
+    )
+    section_alt_take = Take(
+        id=TakeId("take_sections_alt"),
+        layer_id=LayerId("layer_sections"),
+        name="Take 2",
+        events=[],
+    )
+    section_layer = Layer(
+        id=LayerId("layer_sections"),
+        timeline_id=timeline.id,
+        name="Sections",
+        kind=LayerKind.SECTION,
+        order_index=1,
+        takes=[section_main_take, section_alt_take],
+    )
+    timeline.layers.append(section_layer)
+
+    orchestrator.handle(
+        timeline,
+        CreateEvent(
+            layer_id=section_layer.id,
+            take_id=section_alt_take.id,
+            time_range=TimeRange(start=1.6, end=2.2),
+        ),
+    )
+
+    created = next(
+        event for event in section_main_take.events if event.id == EventId("take_sections_main:event:1")
+    )
+    assert created.start == pytest.approx(1.6)
+    assert created.end == pytest.approx(1.68)
+    assert created.cue_number == 8
+    assert created.cue_ref == "Q8"
+    assert created.label == "Section 8"
+    assert section_alt_take.events == []
+    assert timeline.selection.selected_layer_id == section_layer.id
+    assert timeline.selection.selected_layer_ids == [section_layer.id]
+    assert timeline.selection.selected_take_id == section_main_take.id
+    assert timeline.selection.selected_event_ids == [created.id]
+
+
 def test_delete_events_removes_records_and_clears_selected_take_when_selection_is_empty():
     orchestrator, timeline, layer, main_take, alt_take = _build_orchestrator_and_timeline()
     timeline.selection.selected_layer_id = layer.id
@@ -908,6 +1099,33 @@ def test_set_gain_updates_layer_mixer_state():
 
     orchestrator.handle(timeline, SetGain(layer.id, -6.0))
     assert layer.mixer.gain_db == -6.0
+
+
+def test_set_layer_output_bus_updates_layer_and_mixer_session_state():
+    orchestrator, timeline, layer, _main_take, _alt_take = _build_orchestrator_and_timeline()
+
+    orchestrator.handle(timeline, SetLayerOutputBus(layer.id, "outputs_3_4"))
+
+    assert layer.mixer.output_bus == "outputs_3_4"
+    mixer_state = orchestrator.mixer_service.get_state()
+    assert mixer_state.layer_states[layer.id].output_bus == "outputs_3_4"
+
+    orchestrator.handle(timeline, SetLayerOutputBus(layer.id, None))
+
+    assert layer.mixer.output_bus is None
+    assert mixer_state.layer_states[layer.id].output_bus is None
+
+
+def test_set_follow_cursor_enabled_updates_transport_follow_mode():
+    orchestrator, timeline, _layer, _main_take, _alt_take = _build_orchestrator_and_timeline()
+    session = orchestrator.session_service.get_session()
+    session.transport_state.follow_mode = FollowMode.CENTER
+
+    orchestrator.handle(timeline, SetFollowCursorEnabled(enabled=False))
+    assert session.transport_state.follow_mode == FollowMode.OFF
+
+    orchestrator.handle(timeline, SetFollowCursorEnabled(enabled=True))
+    assert session.transport_state.follow_mode == FollowMode.CENTER
 
 
 def test_trigger_take_action_overwrite_main_replaces_events_from_source_take():

@@ -91,6 +91,12 @@ class TimelineOrchestratorMA3PushMixin:
     """Handles saved-route MA3 updates and direct layer push execution."""
 
     def _handle_refresh_ma3_push_tracks(self, intent) -> None:
+        self._call_sync_capability_if_available(
+            "refresh_push_track_options",
+            target_track_coord=intent.target_track_coord,
+            timecode_no=intent.timecode_no,
+            track_group_no=intent.track_group_no,
+        )
         self._refresh_manual_push_tracks(
             target_track_coord=intent.target_track_coord,
             timecode_no=intent.timecode_no,
@@ -169,6 +175,15 @@ class TimelineOrchestratorMA3PushMixin:
         session.manual_push_flow.selected_event_ids = [event.id for event in selected_events]
         session.manual_push_flow.diff_gate_open = False
         session.manual_push_flow.diff_preview = None
+        try:
+            self._call_sync_capability_if_available(
+                "refresh_push_track_options",
+                target_track_coord=target_track_coord,
+            )
+            self._refresh_manual_push_tracks(target_track_coord=target_track_coord)
+        except Exception:
+            # Post-send polling should not fail a completed MA3 push.
+            pass
 
     def _refresh_manual_push_tracks(
         self,
@@ -180,7 +195,11 @@ class TimelineOrchestratorMA3PushMixin:
         session = cast(_MA3PushHost, self).session_service.get_session()
         flow = session.manual_push_flow
 
-        resolved_timecode_no = cast(_MA3PushHost, self)._coerce_optional_positive_int(timecode_no)
+        explicit_timecode_no = cast(_MA3PushHost, self)._coerce_optional_positive_int(timecode_no)
+        explicit_track_group_no = cast(_MA3PushHost, self)._coerce_optional_positive_int(
+            track_group_no
+        )
+        resolved_timecode_no = explicit_timecode_no
         if resolved_timecode_no is None:
             resolved_timecode_no = self._resolve_manual_push_timecode_no(
                 target_track_coord=target_track_coord
@@ -206,9 +225,6 @@ class TimelineOrchestratorMA3PushMixin:
 
         flow.available_track_groups = list(
             self._load_manual_push_track_group_options(timecode_no=resolved_timecode_no)
-        )
-        explicit_track_group_no = cast(_MA3PushHost, self)._coerce_optional_positive_int(
-            track_group_no
         )
         if explicit_track_group_no is None:
             preferred_track_coord = str(target_track_coord or "").strip() or None
@@ -439,6 +455,31 @@ class TimelineOrchestratorMA3PushMixin:
         }
         return capability(**supported_kwargs)
 
+    def _call_sync_capability_if_available(
+        self,
+        capability_name: str,
+        **kwargs: Any,
+    ) -> Any | None:
+        sync_service = cast(_MA3PushHost, self).sync_service
+        capability = getattr(sync_service, capability_name, None)
+        if not callable(capability):
+            return None
+
+        try:
+            parameters = inspect.signature(capability).parameters
+        except (TypeError, ValueError):
+            parameters = {}
+
+        if not parameters:
+            return capability()
+
+        supported_kwargs = {
+            key: value
+            for key, value in kwargs.items()
+            if key in parameters and (value is not None or parameters[key].default is inspect._empty)
+        }
+        return capability(**supported_kwargs)
+
     def _resolve_push_target_coord(self, layer: Layer, intent: PushLayerToMA3) -> str:
         if intent.target_mode is MA3PushTargetMode.SAVED_ROUTE:
             target_track_coord = str(layer.sync.ma3_track_coord or "").strip()
@@ -458,9 +499,12 @@ class TimelineOrchestratorMA3PushMixin:
         main_take = self._main_take(layer)
         if main_take is None or not main_take.events:
             raise ValueError("PushLayerToMA3 requires at least one main event on the layer")
+        promoted_main_events = [event for event in main_take.events if event.is_promoted]
+        if not promoted_main_events:
+            raise ValueError("PushLayerToMA3 requires at least one promoted main event on the layer")
 
         if intent.scope is MA3PushScope.LAYER_MAIN:
-            return list(main_take.events)
+            return promoted_main_events
 
         event_lookup = {str(event.id): event for event in main_take.events}
         selected_events: list[Event] = []
@@ -477,9 +521,10 @@ class TimelineOrchestratorMA3PushMixin:
                 "PushLayerToMA3 selected_event_ids must belong to the layer main take: "
                 + ", ".join(missing_ids)
             )
-        if not selected_events:
-            raise ValueError("PushLayerToMA3 requires selected main events to push")
-        return selected_events
+        promoted_selected_events = [event for event in selected_events if event.is_promoted]
+        if not promoted_selected_events:
+            raise ValueError("PushLayerToMA3 requires selected promoted main events to push")
+        return promoted_selected_events
 
     @staticmethod
     def _require_ma3_event_layer(layer: Layer, *, action_name: str) -> None:

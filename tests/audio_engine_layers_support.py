@@ -212,6 +212,84 @@ class TestMixer:
         np.testing.assert_array_almost_equal(out[:, 0], buf[:256])
         np.testing.assert_array_almost_equal(out[:, 1], buf[:256])
 
+    def test_output_bus_routes_layer_to_requested_stereo_pair(self) -> None:
+        buf = np.array([1.0, -1.0], dtype=np.float32)
+        mixer = Mixer()
+        mixer.add_layer(
+            AudioLayer(
+                "l1",
+                "timecode",
+                buf,
+                44100,
+                output_bus="outputs_3_4",
+            )
+        )
+
+        out = mixer.read_mix(0, 2, channels=4)
+
+        np.testing.assert_array_equal(
+            out,
+            np.array(
+                [
+                    [0.0, 0.0, 1.0, 1.0],
+                    [0.0, 0.0, -1.0, -1.0],
+                ],
+                dtype=np.float32,
+            ),
+        )
+
+    def test_output_bus_defaults_to_outputs_1_2_when_token_is_invalid(self) -> None:
+        buf = np.array([1.0, -1.0], dtype=np.float32)
+        mixer = Mixer()
+        mixer.add_layer(
+            AudioLayer(
+                "l1",
+                "song",
+                buf,
+                44100,
+                output_bus="invalid-bus-token",
+            )
+        )
+
+        out = mixer.read_mix(0, 2, channels=4)
+
+        np.testing.assert_array_equal(
+            out,
+            np.array(
+                [
+                    [1.0, 1.0, 0.0, 0.0],
+                    [-1.0, -1.0, 0.0, 0.0],
+                ],
+                dtype=np.float32,
+            ),
+        )
+
+    def test_output_bus_span_clips_to_available_output_channels(self) -> None:
+        buf = np.array([1.0, -1.0], dtype=np.float32)
+        mixer = Mixer()
+        mixer.add_layer(
+            AudioLayer(
+                "l1",
+                "timecode",
+                buf,
+                44100,
+                output_bus="outputs_3_4",
+            )
+        )
+
+        out = mixer.read_mix(0, 2, channels=3)
+
+        np.testing.assert_array_equal(
+            out,
+            np.array(
+                [
+                    [0.0, 0.0, 1.0],
+                    [0.0, 0.0, -1.0],
+                ],
+                dtype=np.float32,
+            ),
+        )
+
     def test_muted_layer_excluded(self) -> None:
         buf = _sine(1000)
         mixer = Mixer()

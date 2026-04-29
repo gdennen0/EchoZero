@@ -416,8 +416,13 @@ class AppSettingsService:
         audio = preferences.audio_output
         if audio.sample_rate is not None and audio.sample_rate <= 0:
             raise AppSettingsValidationError("Audio sample rate override must be greater than 0.")
-        if audio.output_channels is not None and audio.output_channels not in {1, 2}:
-            raise AppSettingsValidationError("Audio output channels must be 1, 2, or Auto.")
+        if (
+            audio.output_channels is not None
+            and (audio.output_channels < 1 or audio.output_channels > 16)
+        ):
+            raise AppSettingsValidationError(
+                "Audio output channels must be between 1 and 16, or Auto."
+            )
         if audio.blocksize is not None and audio.blocksize <= 0:
             raise AppSettingsValidationError("Audio blocksize override must be greater than 0.")
 

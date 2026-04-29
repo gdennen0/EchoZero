@@ -18,6 +18,8 @@ from echozero.foundry.domain.review import (
 )
 from echozero.persistence.session import ProjectStorage
 from echozero.takes import Take
+from .review_runtime_bridge import get_review_runtime_bridge
+from .review_event_state import normalize_review_label, updated_review_metadata
 
 
 class ReviewWritebackService:
@@ -33,6 +35,12 @@ class ReviewWritebackService:
         project_dir = self._resolve_project_dir(session.source_ref)
         if project_dir is None:
             return {"status": "skipped", "reason": "unsupported_project_source"}
+
+        runtime_bridge = get_review_runtime_bridge(project_dir)
+        if runtime_bridge is not None:
+            bridge_result = runtime_bridge.apply_review_signal(session, signal)
+            if isinstance(bridge_result, dict):
+                return bridge_result
 
         layer_id = self._ref_id(signal.source_provenance.get("layer_ref"), prefix="layer")
         if layer_id is None:
@@ -94,8 +102,6 @@ class ReviewWritebackService:
                     updated_events.append(event)
                     continue
                 next_event = self._updated_event(event=event, signal=signal, decision=decision)
-                if next_event is None:
-                    return {"reason": "decision_not_materializable"}
                 updated_events.append(next_event)
                 matched_event_id = event.id
                 changed = True
@@ -111,19 +117,23 @@ class ReviewWritebackService:
         event: Event,
         signal: ReviewSignal,
         decision: ReviewDecision,
-    ) -> Event | None:
+    ) -> Event:
         label = self._resolved_label(signal=signal, decision=decision)
-        if decision.kind == ReviewDecisionKind.REJECTED:
-            return None
-
         next_time = float(event.time)
         next_duration = float(event.duration)
-        if decision.kind in {
-            ReviewDecisionKind.BOUNDARY_CORRECTED,
-            ReviewDecisionKind.MISSED_EVENT_ADDED,
-        }:
+        if decision.kind == ReviewDecisionKind.BOUNDARY_CORRECTED:
             if decision.corrected_start_ms is None or decision.corrected_end_ms is None:
-                return None
+                return event
+            next_time = float(decision.corrected_start_ms) / 1000.0
+            next_duration = max(
+                0.0,
+                (float(decision.corrected_end_ms) - float(decision.corrected_start_ms)) / 1000.0,
+            )
+        elif (
+            decision.kind == ReviewDecisionKind.MISSED_EVENT_ADDED
+            and decision.corrected_start_ms is not None
+            and decision.corrected_end_ms is not None
+        ):
             next_time = float(decision.corrected_start_ms) / 1000.0
             next_duration = max(
                 0.0,
@@ -132,8 +142,43 @@ class ReviewWritebackService:
 
         classifications = dict(event.classifications or {})
         if label is not None:
-            classifications["class"] = label
+            normalized_label = normalize_review_label(label)
+            classifications["class"] = normalized_label
+            classifications["label"] = normalized_label
         metadata = dict(event.metadata or {})
+        promotion_state = "promoted"
+        review_state = "signed_off" if signal.review_outcome == ReviewOutcome.CORRECT else "corrected"
+        corrected_label = None
+        next_origin = event.origin
+        if decision.kind == ReviewDecisionKind.REJECTED:
+            promotion_state = "demoted"
+        elif decision.kind == ReviewDecisionKind.MISSED_EVENT_ADDED:
+            corrected_label = label
+            next_origin = "manual_added"
+        elif decision.kind in {
+            ReviewDecisionKind.RELABELED,
+            ReviewDecisionKind.BOUNDARY_CORRECTED,
+        }:
+            corrected_label = label
+        metadata = updated_review_metadata(
+            metadata,
+            promotion_state=promotion_state,
+            review_state=review_state,
+            review_outcome=signal.review_outcome,
+            decision_kind=decision.kind,
+            original_label=normalize_review_label(signal.predicted_label),
+            corrected_label=corrected_label,
+            review_note=decision.review_note or signal.review_note,
+            reviewed_at=signal.reviewed_at,
+            original_start_ms=decision.original_start_ms or (float(event.time) * 1000.0),
+            original_end_ms=decision.original_end_ms or ((float(event.time) + float(event.duration)) * 1000.0),
+            corrected_start_ms=decision.corrected_start_ms,
+            corrected_end_ms=decision.corrected_end_ms,
+            created_event_ref=decision.created_event_ref,
+            surface=decision.provenance.surface if decision.provenance is not None else None,
+            workflow=decision.provenance.workflow if decision.provenance is not None else None,
+            operator_action=decision.provenance.operator_action if decision.provenance is not None else None,
+        )
         metadata["foundry_review"] = {
             "review_outcome": signal.review_outcome.value,
             "decision_kind": decision.kind.value,
@@ -150,6 +195,7 @@ class ReviewWritebackService:
             duration=next_duration,
             classifications=classifications,
             metadata=metadata,
+            origin=next_origin,
         )
 
     @staticmethod

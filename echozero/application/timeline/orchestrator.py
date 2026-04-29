@@ -6,9 +6,11 @@ Connects the timeline app contract to selection, editing, transfer, and sync flo
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, cast
 
+from echozero.application.mixer.models import LayerMixerState
 from echozero.application.mixer.service import MixerService
 from echozero.application.playback.service import PlaybackService
 from echozero.application.presentation.models import TimelinePresentation
+from echozero.application.shared.cue_numbers import cue_number_text
 from echozero.application.session.models import (
     ManualPullDiffPreview,
     ManualPullEventOption,
@@ -20,6 +22,8 @@ from echozero.application.session.models import (
     Session,
 )
 from echozero.application.session.service import SessionService
+from echozero.application.shared.enums import FollowMode, LayerKind
+from echozero.application.shared.layer_kinds import is_event_like_layer_kind
 from echozero.application.shared.ids import EventId, LayerId, RegionId, TakeId
 from echozero.application.shared.ranges import TimeRange
 from echozero.application.sync.diff_service import SyncDiffService
@@ -55,6 +59,7 @@ from echozero.application.timeline.orchestrator_transfer_plan_mixin import (
 from echozero.application.timeline.orchestrator_transfer_lookup_mixin import (
     _PULL_TARGET_CREATE_NEW_LAYER_ID,
     _PULL_TARGET_CREATE_NEW_LAYER_PER_SOURCE_TRACK_ID,
+    _PULL_TARGET_CREATE_NEW_SECTION_LAYER_ID,
     TimelineOrchestratorTransferLookupMixin,
 )
 
@@ -91,6 +96,7 @@ from echozero.application.timeline.intents import (
     Pause,
     Play,
     PreviewTransferPlan,
+    ReplaceSectionCues,
     RenumberEventCueNumbers,
     SaveTransferPreset,
     Seek,
@@ -110,6 +116,8 @@ from echozero.application.timeline.intents import (
     SelectTake,
     SetActivePlaybackTarget,
     SetGain,
+    SetLayerOutputBus,
+    SetFollowCursorEnabled,
     SetLayerLiveSyncPauseReason,
     SetLayerLiveSyncState,
     SetPullImportMode,
@@ -123,6 +131,8 @@ from echozero.application.timeline.intents import (
     TimelineIntent,
     ToggleLayerExpanded,
     TriggerTakeAction,
+    TrimEvent,
+    UpdateEventLabel,
     UpdateRegion,
 )
 from echozero.application.timeline.models import (
@@ -132,6 +142,7 @@ from echozero.application.timeline.models import (
     Take,
     Timeline,
     TimelineRegion,
+    derive_section_cues_from_layers,
 )
 from echozero.application.transport.service import TransportService
 
@@ -187,6 +198,7 @@ class TimelineOrchestrator(
             self._handle_select_adjacent_event_in_selected_layer(
                 timeline,
                 direction=intent.direction,
+                include_demoted=bool(intent.include_demoted),
             )
 
         elif isinstance(intent, ClearSelection):
@@ -267,6 +279,28 @@ class TimelineOrchestrator(
                 color=intent.color,
             )
 
+        elif isinstance(intent, TrimEvent):
+            self._handle_trim_event(
+                timeline,
+                event_id=intent.event_id,
+                new_range=intent.new_range,
+            )
+
+        elif isinstance(intent, UpdateEventLabel):
+            self._handle_update_event_label(
+                timeline,
+                event_id=intent.event_id,
+                label=intent.label,
+                layer_id=intent.layer_id,
+                take_id=intent.take_id,
+            )
+
+        elif isinstance(intent, ReplaceSectionCues):
+            self._handle_replace_section_cues(
+                timeline,
+                cues=list(intent.cues),
+            )
+
         elif isinstance(intent, DeleteEvents):
             self._handle_delete_events(
                 timeline,
@@ -330,10 +364,28 @@ class TimelineOrchestrator(
         elif isinstance(intent, Seek):
             self.transport_service.seek(intent.position)
 
+        elif isinstance(intent, SetFollowCursorEnabled):
+            session = self.session_service.get_session()
+            if intent.enabled:
+                if session.transport_state.follow_mode == FollowMode.OFF:
+                    session.transport_state.follow_mode = FollowMode.CENTER
+            else:
+                session.transport_state.follow_mode = FollowMode.OFF
+
         elif isinstance(intent, SetGain):
             layer = self._find_layer(timeline, intent.layer_id)
             self.mixer_service.set_gain(intent.layer_id, intent.gain_db)
             layer.mixer.gain_db = intent.gain_db
+
+        elif isinstance(intent, SetLayerOutputBus):
+            layer = self._find_layer(timeline, intent.layer_id)
+            layer.mixer.output_bus = intent.output_bus
+            mixer_state = self.mixer_service.get_state()
+            state = mixer_state.layer_states.setdefault(
+                intent.layer_id,
+                LayerMixerState(),
+            )
+            state.output_bus = intent.output_bus
 
         elif isinstance(intent, EnableSync):
             sync_state = self.sync_service.set_mode(intent.mode)
@@ -814,7 +866,8 @@ class TimelineOrchestrator(
             )
             session.manual_pull_flow.target_layer_id = target_option.layer_id
             derived_import_mode = self._manual_pull_import_mode_for_target_layer(
-                target_option.layer_id
+                timeline,
+                target_option.layer_id,
             )
             active_source_coord = (
                 session.manual_pull_flow.active_source_track_coord
@@ -853,7 +906,10 @@ class TimelineOrchestrator(
                 else session.manual_pull_flow.target_layer_id
             )
             resolved_import_mode = (
-                self._manual_pull_import_mode_for_target_layer(resolved_target_layer_id)
+                self._manual_pull_import_mode_for_target_layer(
+                    timeline,
+                    resolved_target_layer_id,
+                )
                 if resolved_target_layer_id is not None
                 else intent.import_mode
             )
@@ -902,7 +958,8 @@ class TimelineOrchestrator(
                 intent.selected_ma3_event_ids
             )
             derived_import_mode = self._manual_pull_import_mode_for_target_layer(
-                target_option.layer_id
+                timeline,
+                target_option.layer_id,
             )
             session.manual_pull_flow.import_mode = derived_import_mode
             session.manual_pull_flow.import_mode_by_source_track[source_track.coord] = (
@@ -938,7 +995,10 @@ class TimelineOrchestrator(
                 target_layer_id=flow.target_layer_id,
                 source_track=source_track,
             )
-            resolved_import_mode = self._manual_pull_import_mode_for_target_layer(flow.target_layer_id)
+            resolved_import_mode = self._manual_pull_import_mode_for_target_layer(
+                timeline,
+                flow.target_layer_id,
+            )
             flow.import_mode = resolved_import_mode
             selected_take_id, selected_event_ids = self._apply_manual_pull_import(
                 target_layer=resolved_target_layer,
@@ -949,8 +1009,11 @@ class TimelineOrchestrator(
 
             flow.target_layer_id_by_source_track[source_track.coord] = resolved_target_layer.id
             flow.target_layer_id = resolved_target_layer.id
-            flow.import_mode_by_source_track[source_track.coord] = self._manual_pull_import_mode_for_target_layer(
-                resolved_target_layer.id
+            flow.import_mode_by_source_track[source_track.coord] = (
+                self._manual_pull_import_mode_for_target_layer(
+                    timeline,
+                    resolved_target_layer.id,
+                )
             )
             flow.import_mode = flow.import_mode_by_source_track[source_track.coord]
             self._refresh_manual_pull_target_options(timeline, session)
@@ -1020,6 +1083,7 @@ class TimelineOrchestrator(
             )
             if not self._plan_counters_locked(session.batch_transfer_plan):
                 self._rebuild_push_transfer_plan(timeline, session)
+        timeline.section_cues = derive_section_cues_from_layers(timeline.layers)
         audibility = self.mixer_service.resolve_audibility(timeline.layers)
         self.playback_service.update_runtime(
             timeline=timeline,
@@ -1095,7 +1159,10 @@ class TimelineOrchestrator(
             )
             flow.target_layer_id_by_source_track[source_track.coord] = target_layer_id
         flow.target_layer_id = target_layer_id
-        import_mode = self._manual_pull_import_mode_for_target_layer(target_layer_id)
+        import_mode = self._manual_pull_import_mode_for_target_layer(
+            timeline,
+            target_layer_id,
+        )
         flow.import_mode = import_mode
         flow.import_mode_by_source_track[source_track.coord] = import_mode
         flow.diff_gate_open = False
@@ -1143,16 +1210,27 @@ class TimelineOrchestrator(
             )
             flow.target_layer_id_by_source_track[active_source_coord] = target_layer_id
         flow.target_layer_id = target_layer_id
-        flow.import_mode = self._manual_pull_import_mode_for_target_layer(target_layer_id)
+        flow.import_mode = self._manual_pull_import_mode_for_target_layer(
+            timeline,
+            target_layer_id,
+        )
         flow.import_mode_by_source_track[active_source_coord] = flow.import_mode
 
     @staticmethod
-    def _manual_pull_import_mode_for_target_layer(target_layer_id: LayerId | None) -> str:
+    def _manual_pull_import_mode_for_target_layer(
+        timeline: Timeline,
+        target_layer_id: LayerId | None,
+    ) -> str:
         if target_layer_id in {
             _PULL_TARGET_CREATE_NEW_LAYER_ID,
+            _PULL_TARGET_CREATE_NEW_SECTION_LAYER_ID,
             _PULL_TARGET_CREATE_NEW_LAYER_PER_SOURCE_TRACK_ID,
         }:
             return "main"
+        if target_layer_id is not None:
+            for layer in timeline.layers:
+                if layer.id == target_layer_id and layer.kind is LayerKind.SECTION:
+                    return "main"
         return "new_take"
 
     def _default_manual_pull_timecode_no(
@@ -1236,7 +1314,27 @@ class TimelineOrchestrator(
         )
         if linked_layer_id is not None:
             return linked_layer_id
+        selected_layer_id = self._selected_manual_pull_target_layer_id(timeline)
+        if selected_layer_id is not None:
+            return selected_layer_id
         return _PULL_TARGET_CREATE_NEW_LAYER_ID
+
+    @staticmethod
+    def _selected_manual_pull_target_layer_id(timeline: Timeline) -> LayerId | None:
+        selected_layer_id = timeline.selection.selected_layer_id
+        if selected_layer_id is None:
+            return None
+        for layer in timeline.layers:
+            if layer.id != selected_layer_id:
+                continue
+            if (
+                is_event_like_layer_kind(layer.kind)
+                and layer.presentation_hints.visible
+                and not layer.presentation_hints.locked
+            ):
+                return layer.id
+            return None
+        return None
 
     @staticmethod
     def _selected_layer_ma3_track_coord(timeline: Timeline) -> str | None:
@@ -1310,9 +1408,16 @@ class TimelineOrchestrator(
             take_id=take_id,
             start=start,
             end=end,
+            origin="ma3_pull",
+            classifications={"label": source_event.label} if source_event.label else {},
+            metadata={},
             cue_number=source_event.cue_number or 1,
             label=source_event.label,
-            payload_ref=source_event.event_id,
+            cue_ref=source_event.cue_ref
+            or cue_number_text(source_event.cue_number),
+            color=source_event.color,
+            notes=source_event.notes,
+            payload_ref=source_event.payload_ref or source_event.event_id,
         )
 
     @staticmethod

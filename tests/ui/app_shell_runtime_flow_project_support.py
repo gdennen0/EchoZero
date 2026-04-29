@@ -4,6 +4,8 @@ Connects the compatibility wrapper to the bounded project support slice.
 """
 
 import echozero.ui.qt.app_shell_project_lifecycle as project_lifecycle
+from echozero.application.timeline.ma3_push_intents import SetLayerMA3Route
+from echozero.persistence.audio import AudioMetadata, PreparedAudioSource, compute_audio_hash
 
 from tests.ui.app_shell_runtime_flow_shared_support import *  # noqa: F401,F403
 
@@ -188,6 +190,187 @@ def test_app_shell_runtime_open_project_replaces_live_project_state():
         shutil.rmtree(temp_root, ignore_errors=True)
 
 
+def test_app_shell_runtime_persists_layer_ma3_route_across_save_and_open():
+    temp_root = _repo_local_temp_root()
+    working_root = temp_root / "working"
+    save_path = temp_root / "ma3-route-state.ez"
+
+    runtime = build_app_shell(
+        working_dir_root=working_root,
+        initial_project_name="MA3 Route Persistence",
+    )
+
+    assert isinstance(runtime, AppShellRuntime)
+
+    try:
+        audio = write_test_wav(temp_root / "fixtures" / "ma3-route-state.wav")
+        runtime.add_song_from_path("MA3 Route Song", audio)
+        runtime.add_layer(LayerKind.EVENT, "Route Me")
+        route_layer = next(layer for layer in runtime.presentation().layers if layer.title == "Route Me")
+
+        runtime.dispatch(
+            SetLayerMA3Route(
+                layer_id=route_layer.layer_id,
+                target_track_coord="tc1_tg2_tr7",
+            )
+        )
+        routed = next(
+            layer for layer in runtime.presentation().layers if layer.layer_id == route_layer.layer_id
+        )
+        assert routed.sync_target_label == "tc1_tg2_tr7"
+
+        runtime.save_project_as(save_path)
+        runtime.open_project(save_path)
+
+        reloaded = next(layer for layer in runtime.presentation().layers if layer.title == "Route Me")
+        assert reloaded.sync_target_label == "tc1_tg2_tr7"
+    finally:
+        runtime.shutdown()
+        shutil.rmtree(temp_root, ignore_errors=True)
+
+
+def test_app_shell_runtime_import_smpte_audio_to_layer_uses_extracted_ltc_when_available(
+    monkeypatch,
+):
+    temp_root = _repo_local_temp_root()
+    runtime = build_app_shell(
+        working_dir_root=temp_root / "working",
+        initial_project_name="SMPTE Import",
+    )
+
+    try:
+        source_song = write_test_wav(temp_root / "fixtures" / "smpte-import-song.wav")
+        runtime.add_song_from_path("SMPTE Import Song", source_song)
+        runtime.add_layer(LayerKind.AUDIO, "SMPTE Layer")
+        smpte_layer = next(
+            layer for layer in runtime.presentation().layers if layer.title == "SMPTE Layer"
+        )
+        assert smpte_layer.source_audio_path is None
+
+        printed_dual_track = Path(
+            write_test_wav(temp_root / "fixtures" / "printed-dual-track.wav")
+        )
+        extracted_ltc = Path(
+            write_test_wav(temp_root / "fixtures" / "extracted-ltc.wav")
+        )
+
+        scanned_paths: list[Path] = []
+        cleanup_calls: list[PreparedAudioSource] = []
+
+        def _fake_prepare(
+            source_path: Path,
+            working_dir: Path,
+            *,
+            options=None,
+            scan_fn=None,
+        ) -> PreparedAudioSource:
+            del working_dir, scan_fn
+            assert source_path == printed_dual_track.resolve()
+            assert options is not None and bool(options.strip_ltc_timecode)
+            return PreparedAudioSource(
+                source_path=source_path,
+                ltc_artifact_path=extracted_ltc,
+            )
+
+        def _fake_scan(path: Path, scan_fn=None) -> AudioMetadata:
+            del scan_fn
+            scanned_paths.append(path)
+            return AudioMetadata(duration_seconds=11.0, sample_rate=48000, channel_count=1)
+
+        monkeypatch.setattr(
+            "echozero.ui.qt.app_shell_editing_mixin.prepare_audio_for_import",
+            _fake_prepare,
+        )
+        monkeypatch.setattr(
+            "echozero.ui.qt.app_shell_editing_mixin.scan_audio_metadata",
+            _fake_scan,
+        )
+        monkeypatch.setattr(
+            "echozero.ui.qt.app_shell_editing_mixin.cleanup_prepared_audio",
+            lambda prepared: cleanup_calls.append(prepared),
+        )
+
+        updated = runtime.import_smpte_audio_to_layer(
+            str(smpte_layer.layer_id),
+            str(printed_dual_track),
+        )
+        reloaded_layer = next(
+            layer for layer in updated.layers if layer.layer_id == smpte_layer.layer_id
+        )
+
+        expected_hash_prefix = compute_audio_hash(extracted_ltc)[:16]
+        persisted_take = runtime.project_storage.takes.list_by_layer(str(smpte_layer.layer_id))[0]
+        assert isinstance(persisted_take.data, AudioData)
+        assert Path(str(persisted_take.data.file_path)).name == f"{expected_hash_prefix}.wav"
+        assert scanned_paths == [extracted_ltc]
+        assert len(cleanup_calls) == 1
+        assert reloaded_layer.source_audio_path is not None
+        assert reloaded_layer.source_audio_path.endswith(f"{expected_hash_prefix}.wav")
+    finally:
+        runtime.shutdown()
+        shutil.rmtree(temp_root, ignore_errors=True)
+
+
+def test_app_shell_runtime_import_smpte_audio_to_layer_uses_source_when_ltc_not_detected(
+    monkeypatch,
+):
+    temp_root = _repo_local_temp_root()
+    runtime = build_app_shell(
+        working_dir_root=temp_root / "working",
+        initial_project_name="SMPTE Import Fallback",
+    )
+
+    try:
+        source_song = write_test_wav(temp_root / "fixtures" / "smpte-fallback-song.wav")
+        runtime.add_song_from_path("SMPTE Fallback Song", source_song)
+        runtime.add_layer(LayerKind.AUDIO, "SMPTE Layer")
+        smpte_layer = next(
+            layer for layer in runtime.presentation().layers if layer.title == "SMPTE Layer"
+        )
+
+        smpte_source = Path(
+            write_test_wav(temp_root / "fixtures" / "standalone-smpte.wav")
+        )
+        scanned_paths: list[Path] = []
+
+        def _fake_prepare(
+            source_path: Path,
+            working_dir: Path,
+            *,
+            options=None,
+            scan_fn=None,
+        ) -> PreparedAudioSource:
+            del working_dir, scan_fn
+            assert source_path == smpte_source.resolve()
+            assert options is not None and bool(options.strip_ltc_timecode)
+            return PreparedAudioSource(source_path=source_path)
+
+        def _fake_scan(path: Path, scan_fn=None) -> AudioMetadata:
+            del scan_fn
+            scanned_paths.append(path)
+            return AudioMetadata(duration_seconds=9.5, sample_rate=44100, channel_count=1)
+
+        monkeypatch.setattr(
+            "echozero.ui.qt.app_shell_editing_mixin.prepare_audio_for_import",
+            _fake_prepare,
+        )
+        monkeypatch.setattr(
+            "echozero.ui.qt.app_shell_editing_mixin.scan_audio_metadata",
+            _fake_scan,
+        )
+
+        runtime.import_smpte_audio_to_layer(str(smpte_layer.layer_id), str(smpte_source))
+
+        expected_hash_prefix = compute_audio_hash(smpte_source)[:16]
+        persisted_take = runtime.project_storage.takes.list_by_layer(str(smpte_layer.layer_id))[0]
+        assert isinstance(persisted_take.data, AudioData)
+        assert Path(str(persisted_take.data.file_path)).name == f"{expected_hash_prefix}.wav"
+        assert scanned_paths == [smpte_source.resolve()]
+    finally:
+        runtime.shutdown()
+        shutil.rmtree(temp_root, ignore_errors=True)
+
+
 def test_app_shell_runtime_open_project_failure_keeps_current_project_live(monkeypatch):
     temp_root = _repo_local_temp_root()
     working_root = temp_root / "working"
@@ -267,6 +450,7 @@ def test_app_shell_runtime_exposes_transfer_surface_actions():
         assert "song.add" in empty_action_ids
         assert "add_event_layer" in empty_action_ids
         assert "add_marker_layer" in empty_action_ids
+        assert "add_section_layer" in empty_action_ids
         assert "add_automation_layer" not in empty_action_ids
         assert "add_reference_layer" not in empty_action_ids
 
@@ -804,6 +988,51 @@ def test_app_shell_runtime_open_project_preserves_playback_target_when_still_val
         assert reloaded.selected_layer_id == before_reload.selected_layer_id
         assert reloaded.active_playback_layer_id == before_reload.active_playback_layer_id
         assert reloaded.active_playback_take_id == before_reload.active_playback_take_id
+    finally:
+        runtime.shutdown()
+        shutil.rmtree(temp_root, ignore_errors=True)
+
+
+def test_app_shell_runtime_open_project_restores_saved_song_view_and_playhead_state():
+    temp_root = _repo_local_temp_root()
+    working_root = temp_root / "working"
+    save_path = temp_root / "restore-runtime-state.ez"
+    runtime = build_app_shell(
+        working_dir_root=working_root,
+        initial_project_name="Runtime State Restore",
+    )
+
+    assert isinstance(runtime, AppShellRuntime)
+
+    try:
+        runtime.add_song_from_path(
+            "Song One",
+            write_test_wav(temp_root / "fixtures" / "restore-state-1.wav", frames=441000),
+        )
+        song_1_id = str(runtime.session.active_song_id)
+        runtime.add_song_from_path(
+            "Song Two",
+            write_test_wav(temp_root / "fixtures" / "restore-state-2.wav", frames=882000),
+        )
+        song_2_id = str(runtime.session.active_song_id)
+        assert song_2_id != song_1_id
+
+        runtime.dispatch(Seek(6.25))
+        runtime._app.timeline.viewport.pixels_per_second = 180.0
+        runtime._app.timeline.viewport.scroll_x = 720.0
+        runtime._app.timeline.viewport.scroll_y = 0.0
+
+        runtime.save_project_as(save_path)
+        runtime.open_project(save_path)
+
+        reloaded = runtime.presentation()
+        assert str(runtime.session.active_song_id) == song_2_id
+        assert reloaded.active_song_id == song_2_id
+        assert runtime.session.transport_state.playhead == pytest.approx(6.25)
+        assert reloaded.playhead == pytest.approx(6.25)
+        assert reloaded.pixels_per_second == pytest.approx(180.0)
+        assert reloaded.scroll_x == pytest.approx(720.0)
+        assert reloaded.scroll_y == pytest.approx(0.0)
     finally:
         runtime.shutdown()
         shutil.rmtree(temp_root, ignore_errors=True)

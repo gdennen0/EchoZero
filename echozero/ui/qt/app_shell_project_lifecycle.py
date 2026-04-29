@@ -29,7 +29,12 @@ from echozero.ui.qt.app_shell_project_timeline import (
     apply_timeline_presentation_overlay,
     build_project_native_baseline_timeline,
 )
+from echozero.ui.qt.app_shell_project_runtime_state import (
+    persist_project_runtime_state,
+)
 from echozero.ui.qt.app_shell_runtime_services import build_runtime_timeline_application
+from echozero.ui.qt.app_shell_project_review import clear_project_review_runtime_bridge
+from echozero.ui.qt.app_shell_project_review import publish_project_review_runtime_context
 from echozero.ui.qt.app_shell_timeline_state import restore_timeline_targets
 
 logger = logging.getLogger(__name__)
@@ -78,23 +83,25 @@ class ProjectLifecycleShell(Protocol):
 
 def new_project(shell: ProjectLifecycleShell, name: str = "EchoZero Project") -> None:
     working_dir_root = shell.project_storage.working_dir.parent
+    clear_project_review_runtime_bridge(shell)
     project_storage = ProjectStorage.create_new(
         name=name,
         working_dir_root=working_dir_root,
     )
-    shell._review_server_controller.stop()
     _install_project_runtime(
         shell,
         project_storage=project_storage,
         project_path=None,
         runtime_audio=shell.runtime_audio,
     )
+    publish_project_review_runtime_context(shell, clear_active_session=True)
     shell._is_dirty = False
     shell._clear_history()
 
 
 def save_project_as(shell: ProjectLifecycleShell, path: str | Path) -> Path:
     target_path = Path(path)
+    _persist_project_runtime_state(shell)
     shell.project_storage.save_as(target_path)
     shell.project_path = target_path
     shell._is_dirty = False
@@ -112,6 +119,7 @@ def open_project(shell: ProjectLifecycleShell, path: str | Path) -> None:
     target_path = Path(path)
     working_dir_root = shell.project_storage.working_dir.parent
     prior_presentation = shell.presentation()
+    clear_project_review_runtime_bridge(shell)
     if _paths_match(shell.project_path, target_path):
         shell._pipeline_runs.shutdown()
         shell.project_storage.close()
@@ -124,13 +132,13 @@ def open_project(shell: ProjectLifecycleShell, path: str | Path) -> None:
             target_path,
             working_dir_root=working_dir_root,
         )
-    shell._review_server_controller.stop()
     _install_project_runtime(
         shell,
         project_storage=project_storage,
         project_path=target_path,
         runtime_audio=shell.runtime_audio,
     )
+    publish_project_review_runtime_context(shell, clear_active_session=True)
     restore_timeline_targets(
         timeline=shell._app.timeline,
         prior_presentation=prior_presentation,
@@ -469,6 +477,7 @@ def refresh_from_storage(
         active_version_record.ma3_timecode_pool_no if active_version_record is not None else None
     )
     shell.session.active_timeline_id = shell._app.timeline.id
+    publish_project_review_runtime_context(shell)
     shell._sync_runtime_audio_from_presentation(shell.presentation())
 
 
@@ -541,6 +550,46 @@ def _resolve_audio_import_options(shell: ProjectLifecycleShell) -> AudioImportOp
         return AudioImportOptions(strip_ltc_timecode=True)
     return AudioImportOptions(
         strip_ltc_timecode=bool(preferences.song_import.strip_ltc_timecode),
+    )
+
+
+def _consume_staged_project_runtime_presentation(
+    shell: ProjectLifecycleShell,
+) -> TimelinePresentation | None:
+    staged = getattr(shell, "_staged_project_runtime_presentation", None)
+    if isinstance(staged, TimelinePresentation):
+        setattr(shell, "_staged_project_runtime_presentation", None)
+        return staged
+    return None
+
+
+def _resolve_persist_playhead_seconds(
+    shell: ProjectLifecycleShell,
+    *,
+    fallback_presentation: TimelinePresentation,
+) -> float:
+    fallback_playhead = max(0.0, float(fallback_presentation.playhead))
+    runtime_audio = getattr(shell, "runtime_audio", None)
+    if runtime_audio is None:
+        return fallback_playhead
+    current_time_seconds = getattr(runtime_audio, "current_time_seconds", None)
+    if not callable(current_time_seconds):
+        return fallback_playhead
+    try:
+        return max(0.0, float(current_time_seconds()))
+    except Exception:
+        return fallback_playhead
+
+
+def _persist_project_runtime_state(shell: ProjectLifecycleShell) -> None:
+    presentation = _consume_staged_project_runtime_presentation(shell) or shell.presentation()
+    persist_project_runtime_state(
+        shell.project_storage,
+        presentation=presentation,
+        playhead=_resolve_persist_playhead_seconds(
+            shell,
+            fallback_presentation=presentation,
+        ),
     )
 
 

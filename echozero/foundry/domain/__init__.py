@@ -11,6 +11,8 @@ from .entities import (
     TrainRunStatus,
 )
 from .review import (
+    ExplicitReviewCommit,
+    ReviewCommitContext,
     ReviewDecision,
     ReviewDecisionKind,
     ReviewItem,
@@ -30,6 +32,8 @@ __all__ = [
     "DatasetVersion",
     "EvalReport",
     "ModelArtifact",
+    "ExplicitReviewCommit",
+    "ReviewCommitContext",
     "ReviewDecision",
     "ReviewDecisionKind",
     "ReviewItem",

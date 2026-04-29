@@ -109,6 +109,10 @@ class TimelineCanvasStyle:
     row_divider_hex: str
     no_takes_hint_hex: str
     no_takes_hint_dimmed_hex: str
+    section_even_hex: str
+    section_odd_hex: str
+    section_alpha: int
+    section_boundary_hex: str
     region_even_hex: str
     region_odd_hex: str
     region_alpha: int
@@ -179,6 +183,7 @@ class TakeRowStyle:
 @dataclass(frozen=True, slots=True)
 class EventLaneStyle:
     default_fill_hex: str
+    demoted_fill_hex: str
     dimmed_alpha: int
     selection_lighten_factor: int
     border_darkness_factor: int
@@ -206,6 +211,11 @@ class RulerStyle:
     tick_hex: str
     grid_hex: str
     label_hex: str
+    section_even_hex: str
+    section_odd_hex: str
+    section_alpha: int
+    section_boundary_hex: str
+    section_label_hex: str
     region_even_hex: str
     region_odd_hex: str
     region_alpha: int
@@ -247,14 +257,18 @@ TIMELINE_STYLE = TimelineShellStyle(
         row_divider_hex="#252c38",
         no_takes_hint_hex="#8b97a8",
         no_takes_hint_dimmed_hex="#5f6977",
+        section_even_hex="#f0b74f",
+        section_odd_hex="#6fc5c6",
+        section_alpha=28,
+        section_boundary_hex="#f6d37a",
         region_even_hex="#d9dee6",
         region_odd_hex="#c9d0da",
         region_alpha=16,
         region_selected_outline_hex="#9fc3ff",
     ),
     playhead=TimelinePlayheadStyle(
-        color_hex="#ff5f57",
-        line_width_px=2,
+        color_hex="#93A0B1",
+        line_width_px=1,
         head_outline_width_px=1,
     ),
     scroll_area_background_hex="#12151b",
@@ -291,9 +305,9 @@ TIMELINE_STYLE = TimelineShellStyle(
         button_font_weight=600,
         button_min_height_px=26,
         spin_min_height_px=24,
-        min_width_px=300,
-        max_width_px=500,
-        content_padding=BoxInsets(left=14, top=12, right=14, bottom=12),
+        min_width_px=272,
+        max_width_px=420,
+        content_padding=BoxInsets(left=10, top=10, right=10, bottom=10),
         section_spacing_px=10,
     ),
     transport_bar=TransportBarStyle(
@@ -369,6 +383,7 @@ TIMELINE_STYLE = TimelineShellStyle(
     ),
     event_lane=EventLaneStyle(
         default_fill_hex="#57a0ff",
+        demoted_fill_hex="#7f8a99",
         dimmed_alpha=120,
         selection_lighten_factor=130,
         border_darkness_factor=160,
@@ -392,6 +407,11 @@ TIMELINE_STYLE = TimelineShellStyle(
         tick_hex="#3b4352",
         grid_hex="#b8c0cc",
         label_hex="#b8c0cc",
+        section_even_hex="#f0b74f",
+        section_odd_hex="#6fc5c6",
+        section_alpha=38,
+        section_boundary_hex="#f6d37a",
+        section_label_hex="#0f141b",
         region_even_hex="#d9dee6",
         region_odd_hex="#c9d0da",
         region_alpha=28,

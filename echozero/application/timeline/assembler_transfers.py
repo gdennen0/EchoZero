@@ -145,6 +145,10 @@ def assemble_manual_pull_flow(session: Session) -> ManualPullFlowPresentation:
                 label=event.label,
                 start=event.start,
                 end=event.end,
+                cue_ref=event.cue_ref,
+                color=event.color,
+                notes=event.notes,
+                payload_ref=event.payload_ref,
             )
             for event in flow.available_events
         ],
@@ -159,6 +163,7 @@ def assemble_manual_pull_flow(session: Session) -> ManualPullFlowPresentation:
             ManualPullTargetOptionPresentation(
                 layer_id=target.layer_id,
                 name=target.name,
+                kind=target.kind,
             )
             for target in flow.available_target_layers
         ],

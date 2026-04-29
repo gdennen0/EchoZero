@@ -58,6 +58,7 @@ class _TimelineWidgetRuntimeHost(Protocol):
     _runtime_timing_snapshot: RuntimeAudioTimingSnapshot | None
     _edit_mode: str
     _fix_action: str
+    _fix_nav_include_demoted: bool
     _snap_enabled: bool
     _grid_mode: str
     _scroll: QScrollArea
@@ -79,6 +80,8 @@ class _TimelineWidgetRuntimeHost(Protocol):
     def _sync_pipeline_status_banner(self) -> None: ...
     def _set_pipeline_status_tone(self, tone: str) -> None: ...
     def _set_snap_enabled(self, enabled: bool) -> None: ...
+    def _set_fix_nav_include_demoted(self, enabled: bool) -> None: ...
+    def _toggle_fix_nav_include_demoted(self) -> None: ...
     def _set_grid_mode(self, mode: str) -> None: ...
     def _apply_zoom_factor(self, factor: float, *, anchor_x: float) -> None: ...
     def _sample_runtime_playhead(self) -> tuple[float, bool]: ...
@@ -121,6 +124,9 @@ class TimelineWidgetRuntimeMixin:
         self._sync_editor_state()
         self._sync_pipeline_status_banner()
         self._refresh_object_info_panel()
+        space_pause_shortcut = getattr(self, "_space_pause_shortcut", None)
+        if space_pause_shortcut is not None and hasattr(space_pause_shortcut, "setEnabled"):
+            space_pause_shortcut.setEnabled(bool(self.presentation.is_playing))
         self._ruler.set_presentation(self.presentation)
         self._canvas.set_presentation(self.presentation)
         if self._runtime_audio is not None:
@@ -237,6 +243,7 @@ class TimelineWidgetRuntimeMixin:
         self._editor_bar.set_state(
             edit_mode=self._edit_mode,
             fix_action=self._fix_action,
+            fix_nav_include_demoted=self._fix_nav_include_demoted,
             snap_enabled=self._snap_enabled,
             grid_mode=self._grid_mode,
             beat_available=beat_available,
@@ -244,6 +251,7 @@ class TimelineWidgetRuntimeMixin:
         self._canvas.set_editor_state(
             edit_mode=self._edit_mode,
             fix_action=self._fix_action,
+            fix_nav_include_demoted=self._fix_nav_include_demoted,
             snap_enabled=self._snap_enabled,
             grid_mode=self._grid_mode,
         )
@@ -291,6 +299,13 @@ class TimelineWidgetRuntimeMixin:
             normalized = "select"
         self._fix_action = normalized
         self._sync_editor_state()
+
+    def _set_fix_nav_include_demoted(self: _TimelineWidgetRuntimeHost, enabled: bool) -> None:
+        self._fix_nav_include_demoted = bool(enabled)
+        self._sync_editor_state()
+
+    def _toggle_fix_nav_include_demoted(self: _TimelineWidgetRuntimeHost) -> None:
+        self._set_fix_nav_include_demoted(not self._fix_nav_include_demoted)
 
     def _set_snap_enabled(self: _TimelineWidgetRuntimeHost, enabled: bool) -> None:
         self._snap_enabled = bool(enabled)
@@ -367,7 +382,6 @@ class TimelineWidgetRuntimeMixin:
         )
         self._update_horizontal_scroll_bounds(sync_bar_value=True)
         self._transport.set_presentation(self.presentation)
-        self._refresh_object_info_panel()
         self._ruler.set_presentation(self.presentation)
         self._canvas.set_presentation(self.presentation, recompute_layout=False)
         self._sync_pipeline_status_banner()

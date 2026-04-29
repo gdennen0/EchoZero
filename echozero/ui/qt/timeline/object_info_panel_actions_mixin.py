@@ -13,6 +13,9 @@ from PyQt6.QtWidgets import QFrame, QHBoxLayout, QLabel, QPushButton, QVBoxLayou
 from echozero.application.presentation.inspector_contract import InspectorAction
 from echozero.ui.qt.timeline.object_info_panel_text import plan_detail_text
 
+_ACTION_ROW_CONTENT_MARGIN_PX = 8
+_OUTPUT_BUS_ACTION_PREFIX = "set_layer_output_bus_"
+
 
 class _ObjectInfoPanelActionsMixin:
     _OBJECT_INFO_MA3_ACTION_IDS = frozenset({"route_layer_to_ma3_track"})
@@ -51,6 +54,17 @@ class _ObjectInfoPanelActionsMixin:
             )
         )
 
+    def _emit_apply_output_bus(self: Any) -> None:
+        if not self._output_bus_actions:
+            return
+        index = int(self._output_bus_combo.currentIndex())
+        if index < 0 or index >= len(self._output_bus_actions):
+            return
+        action = self._output_bus_actions[index]
+        if not action.enabled:
+            return
+        self.action_requested.emit(action)
+
     def _rebuild_action_sections(self: Any) -> None:
         self._clear_action_sections()
         for section in self._contract.context_sections:
@@ -58,6 +72,7 @@ class _ObjectInfoPanelActionsMixin:
                 action
                 for action in section.actions
                 if action.action_id not in {"set_active_playback_target", "preview_event_clip"}
+                and not action.action_id.startswith(_OUTPUT_BUS_ACTION_PREFIX)
                 and (
                     (action.group or "").strip().lower() != "transfer"
                     or action.action_id in self._OBJECT_INFO_MA3_ACTION_IDS
@@ -109,7 +124,12 @@ class _ObjectInfoPanelActionsMixin:
         row.setObjectName("timeline_object_info_action_row")
         row.setProperty("section", True)
         layout = QVBoxLayout(row)
-        layout.setContentsMargins(10, 10, 10, 10)
+        layout.setContentsMargins(
+            _ACTION_ROW_CONTENT_MARGIN_PX,
+            _ACTION_ROW_CONTENT_MARGIN_PX,
+            _ACTION_ROW_CONTENT_MARGIN_PX,
+            _ACTION_ROW_CONTENT_MARGIN_PX,
+        )
         layout.setSpacing(6)
 
         title = QLabel(plan.title, row)
@@ -186,3 +206,54 @@ class _ObjectInfoPanelActionsMixin:
         self._gain_apply_btn.setEnabled(
             has_gain_controls and route_action is not None and route_action.enabled
         )
+
+    def _sync_output_bus_controls(
+        self: Any,
+        *,
+        route_action: InspectorAction | None,
+        selected_output_bus: str | None,
+    ) -> None:
+        output_bus_actions = tuple(
+            action
+            for action in self._iter_contract_actions()
+            if action.action_id.startswith(_OUTPUT_BUS_ACTION_PREFIX)
+        )
+        self._output_bus_actions = output_bus_actions
+        self._output_bus_combo.blockSignals(True)
+        self._output_bus_combo.clear()
+        selected_bus = self._normalize_output_bus(selected_output_bus)
+        selected_index = 0
+        for index, action in enumerate(output_bus_actions):
+            output_bus = self._normalize_output_bus(action.params.get("output_bus"))
+            self._output_bus_combo.addItem(self._output_bus_option_label(output_bus))
+            if output_bus == selected_bus:
+                selected_index = index
+        if self._output_bus_combo.count() > 0:
+            self._output_bus_combo.setCurrentIndex(selected_index)
+        self._output_bus_combo.blockSignals(False)
+        has_controls = bool(output_bus_actions)
+        enabled = has_controls and route_action is not None and route_action.enabled
+        self._output_bus_combo.setVisible(has_controls)
+        self._output_bus_apply_btn.setVisible(has_controls)
+        self._output_bus_combo.setEnabled(enabled)
+        self._output_bus_apply_btn.setEnabled(enabled)
+
+    @staticmethod
+    def _normalize_output_bus(value: object) -> str | None:
+        if not isinstance(value, str):
+            return None
+        normalized = value.strip().lower()
+        return normalized or None
+
+    @staticmethod
+    def _output_bus_option_label(output_bus: str | None) -> str:
+        if output_bus is None:
+            return "Default Output (1/2)"
+        parts = output_bus.strip().lower().split("_")
+        if len(parts) == 3 and parts[0] == "outputs" and parts[1].isdigit() and parts[2].isdigit():
+            start_channel = int(parts[1])
+            end_channel = int(parts[2])
+            if start_channel == end_channel:
+                return f"Output {start_channel}"
+            return f"Outputs {start_channel}/{end_channel}"
+        return output_bus
