@@ -69,6 +69,7 @@ include = ["echozero", "echozero.*", "ui_automation", "ui_automation.*"]
 [tool.setuptools.package-data]
 echozero = [
     "foundry/contracts/*.json",
+    "foundry/web_assets/*",
     "testing/e2e/scenarios/*.json",
     "ui/qt/timeline/fixtures/*.json",
 ]

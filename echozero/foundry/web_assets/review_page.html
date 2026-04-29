@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>EZ Review</title>
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <style>__REVIEW_PAGE_STYLES__</style>
+</head>
+<body>
+  <main>
+    <section class="panel topbar">
+      <div class="title-row">
+        <div class="brand-stack">
+          <span class="eyebrow">Pocket Review Loop</span>
+          <h1 class="brand-title">EZ Review</h1>
+          <div class="title-meta">
+            <p class="project-name" id="project-name">Loading current project…</p>
+            <p class="session-name" id="session-name">Waiting for review run…</p>
+          </div>
+        </div>
+        <div class="counter panel-inset">
+          <span class="microcopy">Reviewed</span>
+          <strong id="counter">0 / 0</strong>
+          <span class="microcopy" id="counter-detail">Pending 0</span>
+        </div>
+      </div>
+
+      <div class="panel-inset meter-strip">
+        <div class="meter-row">
+          <span id="scope-summary">Locating queue…</span>
+          <div class="meter-actions">
+            <span id="history-meta">Queue</span>
+            <button class="icon-button" id="reload-status-btn" title="Reload review status" aria-label="Reload review status">&#8635;</button>
+          </div>
+        </div>
+        <div class="progress-boxes" id="progress-boxes"></div>
+      </div>
+
+      <div class="scope-grid">
+        <label>
+          <span class="control-label">View</span>
+          <select id="outcome-filter"></select>
+        </label>
+        <label>
+          <span class="control-label">Song</span>
+          <select id="song-select"></select>
+        </label>
+        <label>
+          <span class="control-label">Layer</span>
+          <select id="layer-select"></select>
+        </label>
+        <label>
+          <span class="control-label">Class</span>
+          <select id="class-filter"></select>
+        </label>
+      </div>
+
+      <details class="panel-inset session-drawer" id="session-drawer">
+        <summary>
+          <div class="session-drawer-copy">
+            <span class="section-label">Runs</span>
+            <strong id="session-drawer-title">Current run</strong>
+          </div>
+          <span class="microcopy" id="session-drawer-meta">0 loaded</span>
+        </summary>
+        <div class="session-drawer-body">
+          <label>
+            <span class="control-label">Run Archive</span>
+            <select id="session-select"></select>
+          </label>
+          <p class="status-line" id="archive-status"></p>
+        </div>
+      </details>
+    </section>
+
+    <section class="panel workspace">
+      <div class="meta-row">
+        <div class="meta-pills">
+          <span class="pill" id="mode-pill"><strong>Queue</strong></span>
+          <span class="pill kind-project" id="kind-pill">Session</span>
+          <span class="pill" id="sample-pill">Pending</span>
+        </div>
+        <div class="context-copy">
+          <strong id="active-context">Waiting for app context…</strong>
+          <span class="microcopy" id="source-context">No project source yet</span>
+        </div>
+      </div>
+      <div class="center" id="center"></div>
+      <p class="status-line" id="status-line">Switching clip…</p>
+    </section>
+
+    <section class="panel bottom-bar">
+      <div class="decision-row">
+        <button class="action incorrect" id="incorrect-btn" title="Incorrect">Incorrect</button>
+        <button class="action reclass" id="reclass-btn" title="Reclassify">Reclassify</button>
+        <button class="action correct" id="correct-btn" title="Correct">Correct</button>
+      </div>
+      <div class="nav-row">
+        <button class="action nav" id="prev-btn" title="Back">Back</button>
+        <button class="action nav" id="next-btn" title="Forward">Forward</button>
+      </div>
+    </section>
+  </main>
+
+  <div class="sheet-backdrop" id="sheet-backdrop"></div>
+  <section class="sheet" id="reclass-sheet">
+    <div class="sheet-head">
+      <h2 class="sheet-title">Reclassify Hit</h2>
+      <button class="sheet-close" id="sheet-close" title="Close">✕</button>
+    </div>
+    <div class="class-grid" id="class-grid"></div>
+    <label class="sheet-field">Pick or Type a Class
+      <input id="reclass-label" type="text" placeholder="kick, snare, shaker">
+    </label>
+    <label class="sheet-field">Operator Note
+      <textarea id="reclass-note" placeholder="What was wrong with this hit?"></textarea>
+    </label>
+    <button class="sheet-submit" id="sheet-submit">Save + Advance</button>
+  </section>
+
+  <audio id="player" preload="auto"></audio>
+
+  <script>__REVIEW_PAGE_SCRIPT__</script>
+</body>
+</html>
