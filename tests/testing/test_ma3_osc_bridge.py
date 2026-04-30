@@ -485,3 +485,37 @@ def test_ma3_osc_bridge_overwrite_waits_for_delayed_clear_before_rewriting_track
     assert [event.label for event in events] == ["Lead"]
     assert [event.cmd for event in events] == ["Go+ Cue 7"]
     assert [event.cue_number for event in events] == [7]
+
+
+def test_ma3_osc_bridge_throttles_large_pushes_in_small_write_batches(monkeypatch):
+    bridge = SimulatedMA3Bridge()
+    sleep_calls: list[float] = []
+    batch_settle_seconds = 0.12345
+
+    monkeypatch.setattr("echozero.infrastructure.sync.ma3_osc._PUSH_WRITE_BATCH_SIZE", 3)
+    monkeypatch.setattr(
+        "echozero.infrastructure.sync.ma3_osc._PUSH_WRITE_BATCH_SETTLE_SECONDS",
+        batch_settle_seconds,
+    )
+    monkeypatch.setattr(
+        "echozero.infrastructure.sync.ma3_osc.sleep",
+        lambda seconds: sleep_calls.append(float(seconds)),
+    )
+
+    bridge.apply_push_transfer(
+        target_track_coord="tc1_tg2_tr3",
+        selected_events=[
+            Event(
+                id=f"evt_{index}",
+                take_id="take_1",
+                start=0.1 * index,
+                end=(0.1 * index) + 0.05,
+                cue_number=index,
+                label=f"E{index}",
+            )
+            for index in range(1, 8)
+        ],
+        transfer_mode="overwrite",
+    )
+
+    assert sleep_calls.count(batch_settle_seconds) == 2

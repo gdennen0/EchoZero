@@ -105,23 +105,6 @@ class TimelineOrchestratorSelectionStateMixin:
         timeline.selection.selected_take_id = take_id
         self._set_selected_event_refs(timeline, [])
 
-    def _handle_set_active_playback_target(
-        self,
-        timeline: Timeline,
-        layer_id: LayerId | None,
-        take_id: TakeId | None,
-    ) -> None:
-        if layer_id is None:
-            timeline.playback_target.layer_id = None
-            timeline.playback_target.take_id = None
-            return
-
-        layer = self._find_layer(timeline, layer_id)
-        if take_id is not None:
-            self._find_take(layer, take_id)
-        timeline.playback_target.layer_id = layer.id
-        timeline.playback_target.take_id = take_id
-
     @staticmethod
     def _event_ref(layer_id: LayerId, take_id: TakeId, event_id: EventId) -> EventRef:
         return EventRef(layer_id=layer_id, take_id=take_id, event_id=event_id)

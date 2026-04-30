@@ -1,6 +1,9 @@
 # UI Change Checklist
 
-_Updated: 2026-04-18_
+Status: reference
+Last reviewed: 2026-04-30
+
+
 
 Use this checklist for meaningful UI or architecture work.
 Keep it lightweight.

@@ -18,6 +18,7 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 from echozero.domain.types import AudioData, Event as DomainEvent, EventData, Layer as DomainLayer
+from echozero.application.progress import OperationProgressUpdate
 from echozero.errors import ValidationError
 from echozero.execution import BlockExecutor, ExecutionEngine, GraphPlanner
 from echozero.persistence.entities import LayerRecord, PipelineConfigRecord
@@ -165,12 +166,18 @@ class Orchestrator:
         session: ProjectStorage,
         config_id: str,
         runtime_bindings: dict[str, Any] | None = None,
-        on_progress: Callable[[str, float], None] | None = None,
+        on_progress: Callable[[OperationProgressUpdate], None] | None = None,
     ) -> Result[AnalysisResult]:
         start_time = time.monotonic()
 
         if on_progress:
-            on_progress("Loading configuration", 0.0)
+            on_progress(
+                OperationProgressUpdate(
+                    stage="loading_configuration",
+                    message="Loading configuration",
+                    fraction_complete=0.0,
+                )
+            )
 
         with session.locked():
             config = session.pipeline_configs.get(config_id)
@@ -182,7 +189,13 @@ class Orchestrator:
                 return err(ValidationError(f"SongVersionRecord not found: {config.song_version_id}"))
 
         if on_progress:
-            on_progress("Preparing pipeline", 0.1)
+            on_progress(
+                OperationProgressUpdate(
+                    stage="preparing_pipeline",
+                    message="Preparing pipeline",
+                    fraction_complete=0.1,
+                )
+            )
 
         pipeline = config.to_pipeline()
 
@@ -217,7 +230,13 @@ class Orchestrator:
                 pipeline.graph.replace_block(updated)
 
         if on_progress:
-            on_progress("Executing pipeline", 0.2)
+            on_progress(
+                OperationProgressUpdate(
+                    stage="executing_pipeline",
+                    message="Executing pipeline",
+                    fraction_complete=0.2,
+                )
+            )
 
         runtime_bus = RuntimeBus()
         engine = ExecutionEngine(pipeline.graph, runtime_bus)
@@ -235,7 +254,13 @@ class Orchestrator:
         raw_outputs = unwrap(result)
 
         if on_progress:
-            on_progress("Persisting results", 0.8)
+            on_progress(
+                OperationProgressUpdate(
+                    stage="persisting_results",
+                    message="Persisting results",
+                    fraction_complete=0.8,
+                )
+            )
 
         with session.locked():
             generated_at = datetime.now(timezone.utc)
@@ -255,7 +280,13 @@ class Orchestrator:
             session.commit()
 
         if on_progress:
-            on_progress("Complete", 1.0)
+            on_progress(
+                OperationProgressUpdate(
+                    stage="complete",
+                    message="Complete",
+                    fraction_complete=1.0,
+                )
+            )
 
         duration_ms = (time.monotonic() - start_time) * 1000
 
@@ -279,7 +310,7 @@ class Orchestrator:
         pipeline_id: str,
         bindings: dict[str, Any] | None = None,
         runtime_bindings: dict[str, Any] | None = None,
-        on_progress: Callable[[str, float], None] | None = None,
+        on_progress: Callable[[OperationProgressUpdate], None] | None = None,
     ) -> Result[AnalysisResult]:
         config_result = self.create_config(
             session,
@@ -313,6 +344,12 @@ class Orchestrator:
         all_take_ids: list[str] = []
 
         custom_mappings = {m.output_name: m for m in self._output_mappings.get(pipeline_id, [])}
+        if pipeline_id == "extract_song_sections" and "sections" not in custom_mappings:
+            custom_mappings["sections"] = OutputMapping(
+                output_name="sections",
+                target="layer_take",
+                params={"manual_kind": "section"},
+            )
         config = session.pipeline_configs.get(pipeline_config_id)
         knob_values = dict(config.knob_values) if config is not None else {}
         selected_extract_song_stems = self._selected_extract_song_drum_stem_outputs(
@@ -505,6 +542,7 @@ class Orchestrator:
         analysis_build_id: str,
         now,
         source_audio_path: str | None = None,
+        manual_kind: str | None = None,
     ) -> LayerRecord:
         base = LayerRecord(
             id=layer_record_id,
@@ -519,7 +557,7 @@ class Orchestrator:
             source_pipeline=None,
             created_at=now,
         )
-        return initialize_generated_layer_state(
+        generated = initialize_generated_layer_state(
             base,
             pipeline_id=pipeline_id,
             pipeline_config_id=pipeline_config_id,
@@ -533,6 +571,12 @@ class Orchestrator:
             generated_at=now,
             source_audio_path=source_audio_path,
         )
+        normalized_manual_kind = str(manual_kind or "").strip().lower()
+        if normalized_manual_kind:
+            updated_state_flags = dict(generated.state_flags or {})
+            updated_state_flags["manual_kind"] = normalized_manual_kind
+            generated = replace(generated, state_flags=updated_state_flags)
+        return generated
 
     @staticmethod
     def _take_source_artifacts(source_audio_path: str | None) -> tuple[TakeArtifact, ...]:
@@ -564,6 +608,7 @@ class Orchestrator:
         label: str = "",
         output_name: str = "",
         source_audio_path: str | None = None,
+        manual_kind: str | None = None,
         **_,
     ) -> tuple[list[str], list[str]]:
         layer_ids: list[str] = []
@@ -579,6 +624,13 @@ class Orchestrator:
             existing_layers = session.layers.list_by_version(song_version_id)
             existing_names = [lr.name for lr in existing_layers]
             existing = self._find_matching_layer(existing_layers, layer_name)
+            if (
+                existing is not None
+                and manual_kind is not None
+                and str(existing.state_flags.get("manual_kind", "")).strip().lower()
+                != str(manual_kind).strip().lower()
+            ):
+                existing = None
             if existing is None:
                 logger.info(
                     "No matching layer found for pipeline output '%s' (%s) in version '%s'. "
@@ -619,6 +671,7 @@ class Orchestrator:
                     analysis_build_id=analysis_build_id,
                     now=now,
                     source_audio_path=source_audio_path,
+                    manual_kind=manual_kind,
                 )
                 session.layers.create(layer_record)
                 is_main = True

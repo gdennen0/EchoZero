@@ -223,7 +223,7 @@ def test_contract_add_song_action_queues_import_pipeline_actions_when_request_pa
             self._run_states[run_id] = _PipelineState(status="completed")
             return run_id
 
-        def get_pipeline_run_state(self, run_id: str):
+        def get_operation_state(self, run_id: str):
             return self._run_states.get(run_id)
 
     runtime = _Runtime()
@@ -1712,7 +1712,7 @@ def test_timeline_drop_batch_import_queues_pipeline_runs_in_context_menu_path_or
             self._run_states[run_id] = _PipelineState(status="completed")
             return run_id
 
-        def get_pipeline_run_state(self, run_id: str):
+        def get_operation_state(self, run_id: str):
             return self._run_states.get(run_id)
 
     monkeypatch.setattr(
@@ -2004,59 +2004,6 @@ def test_contract_add_event_layer_action_calls_runtime():
         app.processEvents()
 
 
-def test_contract_add_marker_layer_action_calls_runtime():
-    app = QApplication.instance() or QApplication([])
-
-    class _Runtime:
-        def __init__(self):
-            self.calls: list[LayerKind] = []
-            self._presentation = TimelinePresentation(
-                timeline_id=TimelineId("timeline_empty"),
-                title="Empty",
-                layers=[],
-                end_time_label="00:05.00",
-            )
-            self.runtime_audio = None
-
-        def presentation(self):
-            return self._presentation
-
-        def dispatch(self, intent):
-            return self._presentation
-
-        def add_layer(self, kind: LayerKind):
-            self.calls.append(kind)
-            self._presentation = replace(
-                self._presentation,
-                layers=[
-                    LayerPresentation(
-                        layer_id=LayerId("layer_marker"),
-                        title="Marker Layer",
-                        main_take_id=None,
-                        kind=kind,
-                        status=LayerStatusPresentation(),
-                    )
-                ],
-                selected_layer_id=LayerId("layer_marker"),
-                selected_layer_ids=[LayerId("layer_marker")],
-            )
-            return self._presentation
-
-    runtime = _Runtime()
-    widget = TimelineWidget(runtime.presentation(), on_intent=runtime.dispatch)
-    try:
-        widget._trigger_contract_action(
-            InspectorAction(action_id="add_marker_layer", label="Add Marker Layer")
-        )
-
-        assert runtime.calls == [LayerKind.MARKER]
-        assert [layer.title for layer in widget.presentation.layers] == ["Marker Layer"]
-        assert widget.presentation.layers[0].kind is LayerKind.MARKER
-    finally:
-        widget.close()
-        app.processEvents()
-
-
 def test_contract_add_section_layer_action_calls_runtime():
     app = QApplication.instance() or QApplication([])
 
@@ -2163,6 +2110,46 @@ def test_contract_add_smpte_layer_action_calls_runtime():
         app.processEvents()
 
 
+def test_contract_add_smpte_layer_from_import_split_action_calls_runtime():
+    app = QApplication.instance() or QApplication([])
+
+    class _Runtime:
+        def __init__(self):
+            self.calls = 0
+            self._presentation = TimelinePresentation(
+                timeline_id=TimelineId("timeline_empty"),
+                title="Empty",
+                layers=[],
+                end_time_label="00:05.00",
+            )
+            self.runtime_audio = None
+
+        def presentation(self):
+            return self._presentation
+
+        def dispatch(self, intent):
+            return self._presentation
+
+        def add_smpte_layer_from_import_split(self):
+            self.calls += 1
+            return self._presentation
+
+    runtime = _Runtime()
+    widget = TimelineWidget(runtime.presentation(), on_intent=runtime.dispatch)
+    try:
+        widget._trigger_contract_action(
+            InspectorAction(
+                action_id="add_smpte_layer_from_import_split",
+                label="Add SMPTE Layer from Import Split",
+            )
+        )
+
+        assert runtime.calls == 1
+    finally:
+        widget.close()
+        app.processEvents()
+
+
 def test_contract_import_smpte_audio_to_layer_action_calls_runtime(monkeypatch):
     app = QApplication.instance() or QApplication([])
 
@@ -2213,6 +2200,182 @@ def test_contract_import_smpte_audio_to_layer_action_calls_runtime(monkeypatch):
         )
 
         assert runtime.calls == [("layer_smpte", "C:/audio/smpte-print.wav")]
+    finally:
+        widget.close()
+        app.processEvents()
+
+
+def test_contract_import_smpte_audio_to_layer_prompts_for_uncertain_ltc_channel(
+    monkeypatch,
+    tmp_path: Path,
+):
+    app = QApplication.instance() or QApplication([])
+
+    class _Runtime:
+        def __init__(self):
+            self.calls: list[tuple[str, str, bool, str | None]] = []
+            self._presentation = TimelinePresentation(
+                timeline_id=TimelineId("timeline_empty"),
+                title="Empty",
+                layers=[
+                    LayerPresentation(
+                        layer_id=LayerId("layer_smpte"),
+                        title="SMPTE Layer",
+                        main_take_id=None,
+                        kind=LayerKind.AUDIO,
+                        status=LayerStatusPresentation(),
+                    )
+                ],
+                selected_layer_id=LayerId("layer_smpte"),
+                selected_layer_ids=[LayerId("layer_smpte")],
+                end_time_label="00:05.00",
+            )
+            self.runtime_audio = None
+
+        def presentation(self):
+            return self._presentation
+
+        def dispatch(self, intent):
+            return self._presentation
+
+        def import_smpte_audio_to_layer(
+            self,
+            layer_id: str,
+            audio_path: str,
+            *,
+            strip_ltc_timecode: bool = True,
+            ltc_channel_override: str | None = None,
+        ):
+            self.calls.append(
+                (layer_id, audio_path, strip_ltc_timecode, ltc_channel_override)
+            )
+            return self._presentation
+
+    source_path = tmp_path / "printed-dual-track.wav"
+    source_path.write_bytes(b"RIFF" + b"\x00" * 128)
+
+    runtime = _Runtime()
+    monkeypatch.setattr(
+        "echozero.ui.qt.timeline.widget.QFileDialog.getOpenFileName",
+        lambda *args, **kwargs: (str(source_path), "Audio Files"),
+    )
+    monkeypatch.setattr(
+        "echozero.ui.qt.timeline.widget_action_contract_mixin.scan_audio_metadata",
+        lambda _path: type("_Metadata", (), {"channel_count": 2})(),
+    )
+
+    def _fake_detect(_path: Path, *, mode: str = "strict") -> str | None:
+        if mode == "aggressive":
+            return "right"
+        return None
+
+    monkeypatch.setattr(
+        "echozero.ui.qt.timeline.widget_action_contract_mixin.detect_ltc_channel",
+        _fake_detect,
+    )
+    monkeypatch.setattr(
+        "echozero.ui.qt.timeline.widget.QInputDialog.getItem",
+        lambda *args, **kwargs: (args[3][1], True),
+    )
+
+    widget = TimelineWidget(runtime.presentation(), on_intent=runtime.dispatch)
+    try:
+        widget._trigger_contract_action(
+            InspectorAction(
+                action_id="import_smpte_audio_to_layer",
+                label="Import SMPTE Audio",
+                params={"layer_id": "layer_smpte"},
+            )
+        )
+
+        assert runtime.calls == [
+            ("layer_smpte", str(source_path), True, "left")
+        ]
+    finally:
+        widget.close()
+        app.processEvents()
+
+
+def test_contract_import_smpte_audio_to_layer_can_import_stereo_as_is_when_prompted(
+    monkeypatch,
+    tmp_path: Path,
+):
+    app = QApplication.instance() or QApplication([])
+
+    class _Runtime:
+        def __init__(self):
+            self.calls: list[tuple[str, str, bool, str | None]] = []
+            self._presentation = TimelinePresentation(
+                timeline_id=TimelineId("timeline_empty"),
+                title="Empty",
+                layers=[
+                    LayerPresentation(
+                        layer_id=LayerId("layer_smpte"),
+                        title="SMPTE Layer",
+                        main_take_id=None,
+                        kind=LayerKind.AUDIO,
+                        status=LayerStatusPresentation(),
+                    )
+                ],
+                selected_layer_id=LayerId("layer_smpte"),
+                selected_layer_ids=[LayerId("layer_smpte")],
+                end_time_label="00:05.00",
+            )
+            self.runtime_audio = None
+
+        def presentation(self):
+            return self._presentation
+
+        def dispatch(self, intent):
+            return self._presentation
+
+        def import_smpte_audio_to_layer(
+            self,
+            layer_id: str,
+            audio_path: str,
+            *,
+            strip_ltc_timecode: bool = True,
+            ltc_channel_override: str | None = None,
+        ):
+            self.calls.append(
+                (layer_id, audio_path, strip_ltc_timecode, ltc_channel_override)
+            )
+            return self._presentation
+
+    source_path = tmp_path / "printed-stereo.wav"
+    source_path.write_bytes(b"RIFF" + b"\x00" * 256)
+
+    runtime = _Runtime()
+    monkeypatch.setattr(
+        "echozero.ui.qt.timeline.widget.QFileDialog.getOpenFileName",
+        lambda *args, **kwargs: (str(source_path), "Audio Files"),
+    )
+    monkeypatch.setattr(
+        "echozero.ui.qt.timeline.widget_action_contract_mixin.scan_audio_metadata",
+        lambda _path: type("_Metadata", (), {"channel_count": 2})(),
+    )
+    monkeypatch.setattr(
+        "echozero.ui.qt.timeline.widget_action_contract_mixin.detect_ltc_channel",
+        lambda _path, *, mode="strict": None,
+    )
+    monkeypatch.setattr(
+        "echozero.ui.qt.timeline.widget.QInputDialog.getItem",
+        lambda *args, **kwargs: (args[3][2], True),
+    )
+
+    widget = TimelineWidget(runtime.presentation(), on_intent=runtime.dispatch)
+    try:
+        widget._trigger_contract_action(
+            InspectorAction(
+                action_id="import_smpte_audio_to_layer",
+                label="Import SMPTE Audio",
+                params={"layer_id": "layer_smpte"},
+            )
+        )
+
+        assert runtime.calls == [
+            ("layer_smpte", str(source_path), False, None)
+        ]
     finally:
         widget.close()
         app.processEvents()

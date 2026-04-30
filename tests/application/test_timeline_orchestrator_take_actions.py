@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from echozero.application.mixer.models import AudibilityState, MixerState
+from echozero.application.mixer.models import AudibilityState, LayerMixerState, MixerState
 from echozero.application.mixer.service import MixerService
 from echozero.application.playback.models import PlaybackState
 from echozero.application.playback.service import PlaybackService
@@ -40,13 +40,15 @@ from echozero.application.timeline.intents import (
     SelectAdjacentEventInSelectedLayer,
     SelectAdjacentLayer,
     SelectEveryOtherEvents,
+    SelectSimilarSoundingEvents,
     SelectEvent,
     SelectRegion,
     SelectTake,
-    SetActivePlaybackTarget,
     SetFollowCursorEnabled,
     SetGain,
+    SetLayerMute,
     SetLayerOutputBus,
+    SetLayerSolo,
     SetSelectedEvents,
     Stop,
     ToggleLayerExpanded,
@@ -121,15 +123,23 @@ class _MixerService(MixerService):
         return self._state
 
     def set_mute(self, layer_id, muted: bool):
+        state = self._state.layer_states.setdefault(layer_id, LayerMixerState())
+        state.mute = bool(muted)
         return self._state
 
     def set_solo(self, layer_id, soloed: bool):
+        state = self._state.layer_states.setdefault(layer_id, LayerMixerState())
+        state.solo = bool(soloed)
         return self._state
 
     def set_gain(self, layer_id, gain_db: float):
+        state = self._state.layer_states.setdefault(layer_id, LayerMixerState())
+        state.gain_db = float(gain_db)
         return self._state
 
     def set_pan(self, layer_id, pan: float):
+        state = self._state.layer_states.setdefault(layer_id, LayerMixerState())
+        state.pan = float(pan)
         return self._state
 
     def resolve_audibility(self, layers: list[Layer]) -> list[AudibilityState]:
@@ -256,61 +266,7 @@ def test_select_take_is_selection_only_and_does_not_change_main_truth():
     )
 
     assert timeline.selection.selected_take_id == alt_take.id
-    assert timeline.playback_target.layer_id is None
-    assert timeline.playback_target.take_id is None
     assert [event.id for event in main_take.events] == original_main_event_ids
-
-
-def test_set_active_playback_target_updates_playback_target_without_touching_selection():
-    orchestrator, timeline, layer, _main_take, alt_take = _build_orchestrator_and_timeline()
-
-    timeline.selection.selected_layer_id = layer.id
-    timeline.selection.selected_layer_ids = [layer.id]
-    timeline.selection.selected_take_id = alt_take.id
-
-    orchestrator.handle(
-        timeline,
-        SetActivePlaybackTarget(layer_id=layer.id, take_id=None),
-    )
-
-    assert timeline.playback_target.layer_id == layer.id
-    assert timeline.playback_target.take_id is None
-    assert timeline.selection.selected_layer_id == layer.id
-    assert timeline.selection.selected_take_id == alt_take.id
-
-
-def test_set_active_playback_target_uses_explicit_playback_target_path():
-    orchestrator, timeline, layer, _main_take, alt_take = _build_orchestrator_and_timeline()
-
-    orchestrator.handle(
-        timeline,
-        SetActivePlaybackTarget(layer_id=layer.id, take_id=alt_take.id),
-    )
-
-    assert timeline.playback_target.layer_id == layer.id
-    assert timeline.playback_target.take_id == alt_take.id
-    assert timeline.selection.selected_layer_id is None
-    assert timeline.selection.selected_take_id is None
-
-
-def test_set_active_playback_target_can_clear_target_without_clearing_selection():
-    orchestrator, timeline, layer, _main_take, alt_take = _build_orchestrator_and_timeline()
-
-    timeline.selection.selected_layer_id = layer.id
-    timeline.selection.selected_layer_ids = [layer.id]
-    timeline.selection.selected_take_id = alt_take.id
-    timeline.playback_target.layer_id = layer.id
-    timeline.playback_target.take_id = alt_take.id
-
-    orchestrator.handle(
-        timeline,
-        SetActivePlaybackTarget(layer_id=None, take_id=None),
-    )
-
-    assert timeline.playback_target.layer_id is None
-    assert timeline.playback_target.take_id is None
-    assert timeline.selection.selected_layer_id == layer.id
-    assert timeline.selection.selected_take_id == alt_take.id
 
 
 def test_toggle_layer_expanded_round_trips_through_assembled_presentation():
@@ -882,6 +838,106 @@ def test_select_every_other_events_uses_current_selected_event_scope():
     assert timeline.selection.selected_event_ids == [EventId("main_1"), EventId("alt_2")]
 
 
+def test_select_similar_sounding_events_uses_classification_label_in_same_take():
+    orchestrator, timeline, layer, main_take, _alt_take = _build_orchestrator_and_timeline()
+    main_take.events = [
+        Event(
+            id=EventId("main_1"),
+            take_id=main_take.id,
+            start=1.0,
+            end=1.2,
+            label="Kick",
+            classifications={"class": "kick", "confidence": 0.93},
+        ),
+        Event(
+            id=EventId("main_2"),
+            take_id=main_take.id,
+            start=2.0,
+            end=2.2,
+            label="Kick",
+            classifications={"class": "kick", "confidence": 0.77},
+        ),
+        Event(
+            id=EventId("main_3"),
+            take_id=main_take.id,
+            start=3.0,
+            end=3.2,
+            label="Snare",
+            classifications={"class": "snare", "confidence": 0.91},
+        ),
+    ]
+
+    orchestrator.handle(
+        timeline,
+        SelectSimilarSoundingEvents(
+            layer_id=layer.id,
+            take_id=main_take.id,
+            event_id=EventId("main_1"),
+        ),
+    )
+
+    assert timeline.selection.selected_layer_id == layer.id
+    assert timeline.selection.selected_layer_ids == [layer.id]
+    assert timeline.selection.selected_take_id == main_take.id
+    assert timeline.selection.selected_event_ids == [EventId("main_1"), EventId("main_2")]
+
+
+def test_select_similar_sounding_events_layer_scope_includes_other_takes():
+    orchestrator, timeline, layer, main_take, alt_take = _build_orchestrator_and_timeline()
+    main_take.events = [
+        Event(
+            id=EventId("main_1"),
+            take_id=main_take.id,
+            start=1.0,
+            end=1.2,
+            label="Kick",
+            classifications={"class": "kick", "confidence": 0.86},
+        ),
+        Event(
+            id=EventId("main_2"),
+            take_id=main_take.id,
+            start=2.0,
+            end=2.2,
+            label="Snare",
+            classifications={"class": "snare", "confidence": 0.89},
+        ),
+    ]
+    alt_take.events = [
+        Event(
+            id=EventId("alt_1"),
+            take_id=alt_take.id,
+            start=1.25,
+            end=1.45,
+            label="Kick",
+            classifications={"class": "kick", "confidence": 0.91},
+        ),
+        Event(
+            id=EventId("alt_2"),
+            take_id=alt_take.id,
+            start=2.25,
+            end=2.45,
+            label="Hat",
+            classifications={"class": "hihat", "confidence": 0.91},
+        ),
+    ]
+
+    orchestrator.handle(
+        timeline,
+        SelectSimilarSoundingEvents(
+            layer_id=layer.id,
+            take_id=alt_take.id,
+            event_id=EventId("alt_1"),
+            scope_mode="layer",
+            match_strength="balanced",
+        ),
+    )
+
+    assert timeline.selection.selected_layer_id == layer.id
+    assert timeline.selection.selected_layer_ids == [layer.id]
+    assert timeline.selection.selected_take_id == alt_take.id
+    assert timeline.selection.selected_event_ids == [EventId("main_1"), EventId("alt_1")]
+
+
 def test_select_every_other_events_restarts_per_selected_layer_main_scope():
     orchestrator, timeline, layer, main_take, alt_take = _build_orchestrator_and_timeline()
     other_take = Take(
@@ -1055,7 +1111,7 @@ def test_create_event_on_section_layer_creates_section_start_on_main_take():
     assert created.start == pytest.approx(1.6)
     assert created.end == pytest.approx(1.68)
     assert created.cue_number == 8
-    assert created.cue_ref == "Q8"
+    assert created.cue_ref == "Cue 8"
     assert created.label == "Section 8"
     assert section_alt_take.events == []
     assert timeline.selection.selected_layer_id == section_layer.id
@@ -1096,13 +1152,47 @@ def test_stop_resets_transport_playhead_and_playing_state():
 
 def test_set_gain_updates_layer_mixer_state():
     orchestrator, timeline, layer, _main_take, _alt_take = _build_orchestrator_and_timeline()
+    layer.kind = LayerKind.AUDIO
 
     orchestrator.handle(timeline, SetGain(layer.id, -6.0))
     assert layer.mixer.gain_db == -6.0
 
 
+def test_set_layer_mute_updates_layer_and_session_mixer_state():
+    orchestrator, timeline, layer, _main_take, _alt_take = _build_orchestrator_and_timeline()
+    layer.kind = LayerKind.AUDIO
+
+    orchestrator.handle(timeline, SetLayerMute(layer.id, True))
+
+    assert layer.mixer.mute is True
+    mixer_state = orchestrator.mixer_service.get_state()
+    assert mixer_state.layer_states[layer.id].mute is True
+
+    orchestrator.handle(timeline, SetLayerMute(layer.id, False))
+
+    assert layer.mixer.mute is False
+    assert mixer_state.layer_states[layer.id].mute is False
+
+
+def test_set_layer_solo_updates_layer_and_session_mixer_state():
+    orchestrator, timeline, layer, _main_take, _alt_take = _build_orchestrator_and_timeline()
+    layer.kind = LayerKind.AUDIO
+
+    orchestrator.handle(timeline, SetLayerSolo(layer.id, True))
+
+    assert layer.mixer.solo is True
+    mixer_state = orchestrator.mixer_service.get_state()
+    assert mixer_state.layer_states[layer.id].solo is True
+
+    orchestrator.handle(timeline, SetLayerSolo(layer.id, False))
+
+    assert layer.mixer.solo is False
+    assert mixer_state.layer_states[layer.id].solo is False
+
+
 def test_set_layer_output_bus_updates_layer_and_mixer_session_state():
     orchestrator, timeline, layer, _main_take, _alt_take = _build_orchestrator_and_timeline()
+    layer.kind = LayerKind.AUDIO
 
     orchestrator.handle(timeline, SetLayerOutputBus(layer.id, "outputs_3_4"))
 
@@ -1114,6 +1204,50 @@ def test_set_layer_output_bus_updates_layer_and_mixer_session_state():
 
     assert layer.mixer.output_bus is None
     assert mixer_state.layer_states[layer.id].output_bus is None
+
+
+def test_set_gain_is_stubbed_for_event_layers():
+    orchestrator, timeline, layer, _main_take, _alt_take = _build_orchestrator_and_timeline()
+    assert layer.kind is LayerKind.EVENT
+
+    orchestrator.handle(timeline, SetGain(layer.id, -6.0))
+
+    assert layer.mixer.gain_db == 0.0
+    mixer_state = orchestrator.mixer_service.get_state()
+    assert layer.id not in mixer_state.layer_states
+
+
+def test_set_layer_mute_is_stubbed_for_event_layers():
+    orchestrator, timeline, layer, _main_take, _alt_take = _build_orchestrator_and_timeline()
+    assert layer.kind is LayerKind.EVENT
+
+    orchestrator.handle(timeline, SetLayerMute(layer.id, True))
+
+    assert layer.mixer.mute is False
+    mixer_state = orchestrator.mixer_service.get_state()
+    assert layer.id not in mixer_state.layer_states
+
+
+def test_set_layer_solo_is_stubbed_for_event_layers():
+    orchestrator, timeline, layer, _main_take, _alt_take = _build_orchestrator_and_timeline()
+    assert layer.kind is LayerKind.EVENT
+
+    orchestrator.handle(timeline, SetLayerSolo(layer.id, True))
+
+    assert layer.mixer.solo is False
+    mixer_state = orchestrator.mixer_service.get_state()
+    assert layer.id not in mixer_state.layer_states
+
+
+def test_set_layer_output_bus_is_stubbed_for_event_layers():
+    orchestrator, timeline, layer, _main_take, _alt_take = _build_orchestrator_and_timeline()
+    assert layer.kind is LayerKind.EVENT
+
+    orchestrator.handle(timeline, SetLayerOutputBus(layer.id, "outputs_3_4"))
+
+    assert layer.mixer.output_bus is None
+    mixer_state = orchestrator.mixer_service.get_state()
+    assert layer.id not in mixer_state.layer_states
 
 
 def test_set_follow_cursor_enabled_updates_transport_follow_mode():
@@ -1195,8 +1329,6 @@ def test_trigger_take_action_delete_take_removes_non_main_take_and_falls_back_to
     timeline.selection.selected_layer_ids = [layer.id]
     timeline.selection.selected_take_id = alt_take.id
     timeline.selection.selected_event_ids = [alt_take.events[0].id]
-    timeline.playback_target.layer_id = layer.id
-    timeline.playback_target.take_id = alt_take.id
 
     orchestrator.handle(
         timeline,
@@ -1207,7 +1339,6 @@ def test_trigger_take_action_delete_take_removes_non_main_take_and_falls_back_to
     assert timeline.selection.selected_layer_id == layer.id
     assert timeline.selection.selected_take_id == main_take.id
     assert timeline.selection.selected_event_ids == []
-    assert timeline.playback_target.take_id == main_take.id
 
 
 def test_trigger_take_action_unknown_action_is_noop():

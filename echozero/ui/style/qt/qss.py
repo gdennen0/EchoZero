@@ -9,11 +9,17 @@ def build_object_info_panel_qss(tokens: ShellTokens = SHELL_TOKENS) -> str:
     root = "QWidget#objectInfoPanel"
     compact_field_padding_h = max(6, scales.field_padding_h - 2)
     compact_field_padding_v = max(4, scales.field_padding_v - 1)
+    compact_action_padding_h = max(5, compact_field_padding_h - 1)
+    compact_action_padding_v = max(2, compact_field_padding_v - 2)
     splitter_handle_margin_h = max(56, scales.panel_padding * 4)
     return f"""
         {root} {{
             background: {tokens.panel_bg};
             border-left: {scales.border_width}px solid {tokens.panel_border};
+        }}
+        {root}[collapsed=true] {{
+            background: transparent;
+            border: none;
         }}
         {root} QFrame#timeline_object_info_summary[section='true'],
         {root} QFrame#timeline_object_info_event_preview[section='true'],
@@ -22,6 +28,11 @@ def build_object_info_panel_qss(tokens: ShellTokens = SHELL_TOKENS) -> str:
             background: {tokens.panel_alt_bg};
             border: {scales.border_width}px solid {tokens.section_border};
             border-radius: {scales.panel_radius}px;
+        }}
+        {root} QFrame#timeline_object_info_action_row {{
+            background: {tokens.panel_alt_bg};
+            border: {scales.border_width}px solid {tokens.section_border};
+            border-radius: {scales.button_radius}px;
         }}
         {root} QFrame#timeline_object_info_event_preview_waveform {{
             background: {tokens.control_bg};
@@ -79,11 +90,29 @@ def build_object_info_panel_qss(tokens: ShellTokens = SHELL_TOKENS) -> str:
             font-weight: 700;
             padding: 0;
         }}
+        {root}[collapsed=true] QToolButton#objectInfoCollapseButton {{
+            background: transparent;
+            border: none;
+            border-radius: 0;
+            color: {tokens.text_primary};
+        }}
         {root} QLabel#timeline_object_info_section {{
             color: {tokens.text_secondary};
             font-size: 11px;
             font-weight: 700;
             padding: 0 0 2px 0;
+        }}
+        {root} QToolButton#timeline_object_info_section_toggle {{
+            background: transparent;
+            border: none;
+            color: {tokens.text_secondary};
+            font-size: 10px;
+            font-weight: 600;
+            text-align: left;
+            padding: 2px 0;
+        }}
+        {root} QToolButton#timeline_object_info_section_toggle:hover {{
+            color: {tokens.text_primary};
         }}
         {root} QLabel[sectionTitle='true'] {{
             color: {tokens.text_primary};
@@ -106,6 +135,11 @@ def build_object_info_panel_qss(tokens: ShellTokens = SHELL_TOKENS) -> str:
             font-size: 13px;
             font-weight: 600;
         }}
+        {root} QLabel#timeline_object_info_action_label {{
+            color: {tokens.text_primary};
+            font-size: 11px;
+            font-weight: 500;
+        }}
         {root} QLabel#selectionSecondaryLabel, {root} QLabel#selectionMetaLabel, {root} QLabel#gainLabel {{
             color: {tokens.text_secondary};
             font-size: 11px;
@@ -125,6 +159,10 @@ def build_object_info_panel_qss(tokens: ShellTokens = SHELL_TOKENS) -> str:
             padding: {compact_field_padding_v}px {compact_field_padding_h}px;
             min-height: 28px;
             font-weight: 600;
+        }}
+        {root} QPushButton[compact='true'] {{
+            padding: {compact_action_padding_v}px {compact_action_padding_h}px;
+            min-height: 24px;
         }}
         {root} QPushButton:disabled {{
             color: {tokens.control_text_disabled};
@@ -299,10 +337,34 @@ def build_timeline_pipeline_status_qss(tokens: ShellTokens = SHELL_TOKENS) -> st
             border-top-color: #8c3947;
             border-bottom-color: #8c3947;
         }}
+        {root}[tone='success'] {{
+            background: #1f3a2b;
+            border-top-color: #2f7f52;
+            border-bottom-color: #2f7f52;
+        }}
         {root} QLabel#timelinePipelineStatusLabel {{
             color: {tokens.text_primary};
             font-size: 11px;
             font-weight: 600;
+        }}
+        {root} QPushButton#timelinePipelineStatusCloseButton {{
+            color: {tokens.text_primary};
+            background: transparent;
+            border: {scales.border_width}px solid {tokens.panel_border};
+            border-radius: {max(3, scales.panel_radius - 1)}px;
+            font-size: 10px;
+            font-weight: 700;
+            padding: 0;
+        }}
+        {root} QPushButton#timelinePipelineStatusCloseButton:hover {{
+            background: {tokens.control_bg_active};
+            border-color: {tokens.control_border_active};
+        }}
+        {root}[tone='error'] QPushButton#timelinePipelineStatusCloseButton {{
+            border-color: #8c3947;
+        }}
+        {root}[tone='success'] QPushButton#timelinePipelineStatusCloseButton {{
+            border-color: #2f7f52;
         }}
     """
 
@@ -519,6 +581,12 @@ def build_song_browser_panel_qss(tokens: ShellTokens = SHELL_TOKENS) -> str:
         {root} QLabel#songBrowserBatchMeta {{
             color: {tokens.text_secondary};
             font-size: 11px;
+        }}
+        {root} QLabel#songBrowserSongsMeta {{
+            padding: 2px 4px 4px 4px;
+        }}
+        {root} QLabel#songBrowserBatchMeta {{
+            padding: 4px 8px 6px 8px;
         }}
         {root} QLabel#songBrowserSectionTitle {{
             color: {tokens.text_primary};

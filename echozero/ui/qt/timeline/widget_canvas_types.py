@@ -9,13 +9,15 @@ from typing import TypedDict
 
 from PyQt6.QtCore import QPointF, QRectF, Qt
 
-from echozero.application.shared.ids import EventId, LayerId, TakeId
+from echozero.application.shared.ids import EventId, LayerId, SectionCueId, TakeId
 
 TakeRect = tuple[QRectF, LayerId, TakeId]
 TakeActionRect = tuple[QRectF, LayerId, TakeId, str]
 EventRect = tuple[QRectF, LayerId, TakeId | None, EventId]
 EventLaneRect = tuple[QRectF, LayerId, TakeId | None]
 FixEventRect = tuple[QRectF, LayerId, TakeId | None, str, float, float, bool]
+SectionLabelRect = tuple[QRectF, SectionCueId]
+SectionBoundaryRect = tuple[QRectF, SectionCueId]
 
 
 class LayerDragCandidate(TypedDict):

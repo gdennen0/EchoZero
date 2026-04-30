@@ -1,6 +1,9 @@
 # UI Cleanup Map
 
-_Updated: 2026-04-16_
+Status: reference
+Last reviewed: 2026-04-30
+
+
 
 This file is the working cleanup and hardening map for the EchoZero UI stack.
 It exists to separate the reusable Stage Zero shell from demo/dev-only surfaces

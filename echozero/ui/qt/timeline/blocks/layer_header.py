@@ -108,19 +108,14 @@ class LayerHeaderBlock:
         *,
         dimmed: bool,
     ) -> list[tuple[str, QRectF]]:
+        del active_rect
         control_rects: list[tuple[str, QRectF]] = []
-        x = controls_rect.left()
+        total_controls_width = (
+            sum(self._control_width(control) for control in controls)
+            + max(0, len(controls) - 1) * 6.0
+        )
+        x = max(controls_rect.left(), controls_rect.right() - total_controls_width)
         for control in controls:
-            if control.control_id == "set_active_playback_target":
-                rect = QRectF(active_rect)
-                self._draw_active_symbol_button(
-                    painter,
-                    rect,
-                    active=control.active,
-                    dimmed=dimmed,
-                )
-                control_rects.append((control.control_id, rect))
-                continue
             width = self._control_width(control)
             if x + width > controls_rect.right():
                 width = max(0.0, controls_rect.right() - x)
@@ -149,6 +144,8 @@ class LayerHeaderBlock:
     @staticmethod
     def _control_width(control: LayerHeaderControlPresentation) -> float:
         if control.kind == "toggle":
+            if control.control_id in {"set_layer_mute", "set_layer_solo"}:
+                return 24.0
             return 52.0
         return max(40.0, 10.0 + (len(control.label) * 7.0))
 
@@ -216,34 +213,6 @@ class LayerHeaderBlock:
             label,
         )
         painter.setFont(prior_font)
-
-    def _draw_active_symbol_button(
-        self,
-        painter: QPainter,
-        rect: QRectF,
-        *,
-        active: bool,
-        dimmed: bool,
-    ) -> None:
-        button_style = self.style.mute_solo
-        state_style = button_style.active if active else button_style.inactive
-        fill_hex = state_style.fill_hex
-        if dimmed and not active:
-            fill_hex = button_style.dimmed_inactive_fill_hex
-        painter.setPen(QColor(button_style.border_hex))
-        painter.setBrush(QBrush(QColor(fill_hex)))
-        painter.drawRoundedRect(rect, button_style.corner_radius, button_style.corner_radius)
-
-        symbol_rect = rect.adjusted(4.0, 4.0, -4.0, -4.0)
-        symbol_color = QColor(state_style.text_hex)
-        if dimmed and not active:
-            symbol_color = QColor(self.style.dimmed_title_hex)
-        painter.setPen(symbol_color)
-        if active:
-            painter.setBrush(QBrush(symbol_color))
-        else:
-            painter.setBrush(Qt.BrushStyle.NoBrush)
-        painter.drawEllipse(symbol_rect)
 
     def _draw_action_button(self, painter: QPainter, rect: QRectF, label: str, *, dimmed: bool) -> None:
         button_style = self.style.mute_solo

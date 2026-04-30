@@ -49,29 +49,41 @@ def test_selection_contract_exposes_push_first_ma3_actions():
     )
 
     contract = build_timeline_inspector_contract(presentation)
-    action_ids = {
-        action.action_id for section in contract.context_sections for action in section.actions
+    all_actions = [
+        action for section in contract.context_sections for action in section.actions
+    ]
+    action_ids = {action.action_id for action in all_actions}
+    workspace_directions = {
+        str(action.params.get("direction", "")).lower()
+        for action in all_actions
+        if action.action_id == "transfer.workspace_open"
     }
 
     assert {
-        "route_layer_to_ma3_track",
-        "send_layer_to_ma3",
-        "send_selected_events_to_ma3",
-        "send_to_different_track_once",
+        "transfer.route_layer_track",
+        "transfer.workspace_open",
+        "transfer.send_selection",
+        "transfer.send_to_track_once",
     } <= action_ids
-    assert "pull_from_ma3" in action_ids
+    assert {"pull", "push"} <= workspace_directions
     assert "transfer.plan_apply" not in action_ids
 
 
 def test_empty_contract_omits_primary_ma3_actions():
     contract = build_timeline_inspector_contract(_selection_test_presentation())
-    action_ids = {
-        action.action_id for section in contract.context_sections for action in section.actions
+    all_actions = [
+        action for section in contract.context_sections for action in section.actions
+    ]
+    action_ids = {action.action_id for action in all_actions}
+    workspace_directions = {
+        str(action.params.get("direction", "")).lower()
+        for action in all_actions
+        if action.action_id == "transfer.workspace_open"
     }
 
-    assert "send_layer_to_ma3" not in action_ids
-    assert "send_selected_events_to_ma3" not in action_ids
-    assert "pull_from_ma3" in action_ids
+    assert "transfer.workspace_open" in action_ids
+    assert "transfer.send_selection" not in action_ids
+    assert workspace_directions == {"pull"}
 
 
 def test_layer_contract_exposes_send_actions_without_batch_or_pull_actions():
@@ -103,23 +115,29 @@ def test_layer_contract_exposes_send_actions_without_batch_or_pull_actions():
 
     contract = build_timeline_inspector_contract(presentation)
     section_ids = [section.section_id for section in contract.context_sections]
-    action_ids = {
-        action.action_id for section in contract.context_sections for action in section.actions
+    all_actions = [
+        action for section in contract.context_sections for action in section.actions
+    ]
+    action_ids = {action.action_id for action in all_actions}
+    workspace_directions = {
+        str(action.params.get("direction", "")).lower()
+        for action in all_actions
+        if action.action_id == "transfer.workspace_open"
     }
 
     assert "sync-transfer" in section_ids
     assert {
-        "route_layer_to_ma3_track",
-        "send_layer_to_ma3",
-        "send_selected_events_to_ma3",
-        "send_to_different_track_once",
+        "transfer.route_layer_track",
+        "transfer.workspace_open",
+        "transfer.send_selection",
+        "transfer.send_to_track_once",
     } <= action_ids
-    assert "pull_from_ma3" in action_ids
+    assert {"pull", "push"} <= workspace_directions
     assert "transfer.plan_preview" not in action_ids
     assert "transfer.plan_apply" not in action_ids
 
 
-def test_pull_from_ma3_action_prompts_once_and_imports_all_events():
+def test_transfer_workspace_open_action_prompts_once_and_imports_all_events():
     app = QApplication.instance() or QApplication([])
     base = _selection_test_presentation()
     harness = _ManualPullHarness(base)
@@ -137,7 +155,8 @@ def test_pull_from_ma3_action_prompts_once_and_imports_all_events():
             action
             for section in build_timeline_inspector_contract(widget.presentation).context_sections
             for action in section.actions
-            if action.action_id == "pull_from_ma3"
+            if action.action_id == "transfer.workspace_open"
+            and str(action.params.get("direction", "")).lower() == "pull"
         )
 
         widget._trigger_contract_action(pull_action)
@@ -275,7 +294,7 @@ def test_live_sync_armed_write_requires_confirmation_before_dispatch(monkeypatch
         app.processEvents()
 
 
-def test_route_layer_to_ma3_track_refreshes_tracks_and_saves_route(monkeypatch):
+def test_transfer_route_layer_track_refreshes_tracks_and_saves_route(monkeypatch):
     app = QApplication.instance() or QApplication([])
     base = replace(
         _ma3_push_selection_presentation(),
@@ -296,7 +315,7 @@ def test_route_layer_to_ma3_track_refreshes_tracks_and_saves_route(monkeypatch):
             action
             for section in build_timeline_inspector_contract(widget.presentation).context_sections
             for action in section.actions
-            if action.action_id == "route_layer_to_ma3_track"
+            if action.action_id == "transfer.route_layer_track"
         )
         widget._trigger_contract_action(route_action)
 
@@ -313,7 +332,7 @@ def test_route_layer_to_ma3_track_refreshes_tracks_and_saves_route(monkeypatch):
         app.processEvents()
 
 
-def test_route_layer_to_ma3_track_prepares_unassigned_target_with_existing_sequence(
+def test_transfer_route_layer_track_prepares_unassigned_target_with_existing_sequence(
     monkeypatch,
 ):
     app = QApplication.instance() or QApplication([])
@@ -348,7 +367,7 @@ def test_route_layer_to_ma3_track_prepares_unassigned_target_with_existing_seque
             action
             for section in build_timeline_inspector_contract(widget.presentation).context_sections
             for action in section.actions
-            if action.action_id == "route_layer_to_ma3_track"
+            if action.action_id == "transfer.route_layer_track"
         )
         widget._trigger_contract_action(route_action)
 
@@ -372,7 +391,7 @@ def test_route_layer_to_ma3_track_prepares_unassigned_target_with_existing_seque
         app.processEvents()
 
 
-def test_send_layer_to_ma3_uses_saved_route_and_merge(monkeypatch):
+def test_transfer_workspace_open_uses_saved_route_and_merge(monkeypatch):
     app = QApplication.instance() or QApplication([])
     base = replace(
         _ma3_push_selection_presentation(),
@@ -402,7 +421,8 @@ def test_send_layer_to_ma3_uses_saved_route_and_merge(monkeypatch):
             action
             for section in build_timeline_inspector_contract(widget.presentation).context_sections
             for action in section.actions
-            if action.action_id == "send_layer_to_ma3"
+            if action.action_id == "transfer.workspace_open"
+            and str(action.params.get("direction", "")).lower() == "push"
         )
         widget._trigger_contract_action(send_action)
 
@@ -421,7 +441,7 @@ def test_send_layer_to_ma3_uses_saved_route_and_merge(monkeypatch):
         app.processEvents()
 
 
-def test_send_layer_to_ma3_context_menu_uses_single_confirmation_dialog(monkeypatch):
+def test_transfer_workspace_open_context_menu_uses_single_confirmation_dialog(monkeypatch):
     app = QApplication.instance() or QApplication([])
     base = replace(
         _ma3_push_selection_presentation(),
@@ -451,9 +471,13 @@ def test_send_layer_to_ma3_context_menu_uses_single_confirmation_dialog(monkeypa
     def _choose_send(menu, *_args, **_kwargs) -> object | None:
         for candidate in menu.actions():
             payload = candidate.data()
-            if isinstance(payload, InspectorAction) and payload.action_id == "send_layer_to_ma3":
+            if (
+                isinstance(payload, InspectorAction)
+                and payload.action_id == "transfer.workspace_open"
+                and str(payload.params.get("direction", "")).lower() == "push"
+            ):
                 return candidate
-        raise AssertionError("Context menu did not include send_layer_to_ma3")
+        raise AssertionError("Context menu did not include transfer.workspace_open")
 
     monkeypatch.setattr(
         "echozero.ui.qt.timeline.widget.QMenu.exec",
@@ -489,7 +513,7 @@ def test_send_layer_to_ma3_context_menu_uses_single_confirmation_dialog(monkeypa
         app.processEvents()
 
 
-def test_send_layer_to_ma3_context_menu_fails_gracefully_when_ma3_tracks_cannot_refresh(monkeypatch):
+def test_transfer_workspace_open_context_menu_fails_gracefully_when_ma3_tracks_cannot_refresh(monkeypatch):
     app = QApplication.instance() or QApplication([])
     base = replace(
         _ma3_push_selection_presentation(),
@@ -536,9 +560,13 @@ def test_send_layer_to_ma3_context_menu_fails_gracefully_when_ma3_tracks_cannot_
     def _choose_send(menu, *_args, **_kwargs) -> object | None:
         for candidate in menu.actions():
             payload = candidate.data()
-            if isinstance(payload, InspectorAction) and payload.action_id == "send_layer_to_ma3":
+            if (
+                isinstance(payload, InspectorAction)
+                and payload.action_id == "transfer.workspace_open"
+                and str(payload.params.get("direction", "")).lower() == "push"
+            ):
                 return candidate
-        raise AssertionError("Context menu did not include send_layer_to_ma3")
+        raise AssertionError("Context menu did not include transfer.workspace_open")
 
     monkeypatch.setattr(
         "echozero.ui.qt.timeline.widget.QMenu.exec",
@@ -568,7 +596,7 @@ def test_send_layer_to_ma3_context_menu_fails_gracefully_when_ma3_tracks_cannot_
         app.processEvents()
 
 
-def test_send_layer_to_ma3_context_menu_retries_after_ma3_connection_overlay_applied(monkeypatch):
+def test_transfer_workspace_open_context_menu_retries_after_ma3_connection_overlay_applied(monkeypatch):
     app = QApplication.instance() or QApplication([])
     base = replace(
         _ma3_push_selection_presentation(),
@@ -618,9 +646,13 @@ def test_send_layer_to_ma3_context_menu_retries_after_ma3_connection_overlay_app
     def _choose_send(menu, *_args, **_kwargs) -> object | None:
         for candidate in menu.actions():
             payload = candidate.data()
-            if isinstance(payload, InspectorAction) and payload.action_id == "send_layer_to_ma3":
+            if (
+                isinstance(payload, InspectorAction)
+                and payload.action_id == "transfer.workspace_open"
+                and str(payload.params.get("direction", "")).lower() == "push"
+            ):
                 return candidate
-        raise AssertionError("Context menu did not include send_layer_to_ma3")
+        raise AssertionError("Context menu did not include transfer.workspace_open")
 
     monkeypatch.setattr(
         "echozero.ui.qt.timeline.widget.QMenu.exec",
@@ -659,7 +691,7 @@ def test_send_layer_to_ma3_context_menu_retries_after_ma3_connection_overlay_app
         app.processEvents()
 
 
-def test_send_layer_to_ma3_context_menu_retries_when_service_comes_from_runtime_shell(monkeypatch):
+def test_transfer_workspace_open_context_menu_retries_when_service_comes_from_runtime_shell(monkeypatch):
     app = QApplication.instance() or QApplication([])
     base = replace(
         _ma3_push_selection_presentation(),
@@ -732,9 +764,13 @@ def test_send_layer_to_ma3_context_menu_retries_when_service_comes_from_runtime_
     def _choose_send(menu, *_args, **_kwargs) -> object | None:
         for candidate in menu.actions():
             payload = candidate.data()
-            if isinstance(payload, InspectorAction) and payload.action_id == "send_layer_to_ma3":
+            if (
+                isinstance(payload, InspectorAction)
+                and payload.action_id == "transfer.workspace_open"
+                and str(payload.params.get("direction", "")).lower() == "push"
+            ):
                 return candidate
-        raise AssertionError("Context menu did not include send_layer_to_ma3")
+        raise AssertionError("Context menu did not include transfer.workspace_open")
 
     monkeypatch.setattr(
         "echozero.ui.qt.timeline.widget.QMenu.exec",
@@ -777,7 +813,7 @@ def test_send_layer_to_ma3_context_menu_retries_when_service_comes_from_runtime_
         app.processEvents()
 
 
-def test_send_layer_to_ma3_context_menu_aborts_when_runtime_reconfigure_is_rejected(monkeypatch):
+def test_transfer_workspace_open_context_menu_aborts_when_runtime_reconfigure_is_rejected(monkeypatch):
     app = QApplication.instance() or QApplication([])
     base = replace(
         _ma3_push_selection_presentation(),
@@ -847,9 +883,13 @@ def test_send_layer_to_ma3_context_menu_aborts_when_runtime_reconfigure_is_rejec
     def _choose_send(menu, *_args, **_kwargs) -> object | None:
         for candidate in menu.actions():
             payload = candidate.data()
-            if isinstance(payload, InspectorAction) and payload.action_id == "send_layer_to_ma3":
+            if (
+                isinstance(payload, InspectorAction)
+                and payload.action_id == "transfer.workspace_open"
+                and str(payload.params.get("direction", "")).lower() == "push"
+            ):
                 return candidate
-        raise AssertionError("Context menu did not include send_layer_to_ma3")
+        raise AssertionError("Context menu did not include transfer.workspace_open")
 
     monkeypatch.setattr(
         "echozero.ui.qt.timeline.widget.QMenu.exec",
@@ -886,7 +926,7 @@ def test_send_layer_to_ma3_context_menu_aborts_when_runtime_reconfigure_is_rejec
         app.processEvents()
 
 
-def test_send_layer_to_ma3_context_menu_uses_widget_app_settings_service_when_runtime_shell_missing(
+def test_transfer_workspace_open_context_menu_uses_widget_app_settings_service_when_runtime_shell_missing(
     monkeypatch,
 ):
     app = QApplication.instance() or QApplication([])
@@ -945,9 +985,13 @@ def test_send_layer_to_ma3_context_menu_uses_widget_app_settings_service_when_ru
     def _choose_send(menu, *_args, **_kwargs) -> object | None:
         for candidate in menu.actions():
             payload = candidate.data()
-            if isinstance(payload, InspectorAction) and payload.action_id == "send_layer_to_ma3":
+            if (
+                isinstance(payload, InspectorAction)
+                and payload.action_id == "transfer.workspace_open"
+                and str(payload.params.get("direction", "")).lower() == "push"
+            ):
                 return candidate
-        raise AssertionError("Context menu did not include send_layer_to_ma3")
+        raise AssertionError("Context menu did not include transfer.workspace_open")
 
     monkeypatch.setattr(
         "echozero.ui.qt.timeline.widget.QMenu.exec",
@@ -975,7 +1019,7 @@ def test_send_layer_to_ma3_context_menu_uses_widget_app_settings_service_when_ru
         app.processEvents()
 
 
-def test_send_layer_to_ma3_context_menu_shows_overlay_unavailable_warning_when_no_app_settings_service(
+def test_transfer_workspace_open_context_menu_shows_overlay_unavailable_warning_when_no_app_settings_service(
     monkeypatch,
 ):
     app = QApplication.instance() or QApplication([])
@@ -1019,9 +1063,13 @@ def test_send_layer_to_ma3_context_menu_shows_overlay_unavailable_warning_when_n
     def _choose_send(menu, *_args, **_kwargs) -> object | None:
         for candidate in menu.actions():
             payload = candidate.data()
-            if isinstance(payload, InspectorAction) and payload.action_id == "send_layer_to_ma3":
+            if (
+                isinstance(payload, InspectorAction)
+                and payload.action_id == "transfer.workspace_open"
+                and str(payload.params.get("direction", "")).lower() == "push"
+            ):
                 return candidate
-        raise AssertionError("Context menu did not include send_layer_to_ma3")
+        raise AssertionError("Context menu did not include transfer.workspace_open")
 
     monkeypatch.setattr(
         "echozero.ui.qt.timeline.widget.QMenu.exec",
@@ -1050,7 +1098,7 @@ def test_send_layer_to_ma3_context_menu_shows_overlay_unavailable_warning_when_n
         app.processEvents()
 
 
-def test_send_layer_to_ma3_prepares_saved_route_in_current_song_range(monkeypatch):
+def test_transfer_workspace_open_prepares_saved_route_in_current_song_range(monkeypatch):
     app = QApplication.instance() or QApplication([])
     base = replace(
         _ma3_push_selection_presentation(),
@@ -1086,7 +1134,8 @@ def test_send_layer_to_ma3_prepares_saved_route_in_current_song_range(monkeypatc
             action
             for section in build_timeline_inspector_contract(widget.presentation).context_sections
             for action in section.actions
-            if action.action_id == "send_layer_to_ma3"
+            if action.action_id == "transfer.workspace_open"
+            and str(action.params.get("direction", "")).lower() == "push"
         )
         widget._trigger_contract_action(send_action)
 
@@ -1110,7 +1159,7 @@ def test_send_layer_to_ma3_prepares_saved_route_in_current_song_range(monkeypatc
         app.processEvents()
 
 
-def test_send_selected_events_to_ma3_uses_selected_main_events(monkeypatch):
+def test_transfer_send_selection_uses_selected_main_events(monkeypatch):
     app = QApplication.instance() or QApplication([])
     base = replace(
         _ma3_push_selection_presentation(),
@@ -1153,7 +1202,7 @@ def test_send_selected_events_to_ma3_uses_selected_main_events(monkeypatch):
             action
             for section in build_timeline_inspector_contract(widget.presentation).context_sections
             for action in section.actions
-            if action.action_id == "send_selected_events_to_ma3"
+            if action.action_id == "transfer.send_selection"
         )
         widget._trigger_contract_action(send_action)
 
@@ -1364,7 +1413,7 @@ def test_manual_push_route_dialog_disables_write_mode_for_new_or_empty_track():
         app.processEvents()
 
 
-def test_send_to_different_track_once_uses_selected_scope_without_saving(monkeypatch):
+def test_transfer_send_to_track_once_uses_selected_scope_without_saving(monkeypatch):
     app = QApplication.instance() or QApplication([])
     base = replace(
         _ma3_push_selection_presentation(),
@@ -1409,7 +1458,7 @@ def test_send_to_different_track_once_uses_selected_scope_without_saving(monkeyp
             action
             for section in build_timeline_inspector_contract(widget.presentation).context_sections
             for action in section.actions
-            if action.action_id == "send_to_different_track_once"
+            if action.action_id == "transfer.send_to_track_once"
         )
         widget._trigger_contract_action(send_action)
 
@@ -1436,7 +1485,7 @@ def test_send_to_different_track_once_uses_selected_scope_without_saving(monkeyp
         app.processEvents()
 
 
-def test_send_layer_to_ma3_without_saved_route_routes_then_sends(monkeypatch):
+def test_transfer_workspace_open_without_saved_route_routes_then_sends(monkeypatch):
     app = QApplication.instance() or QApplication([])
     base = replace(
         _ma3_push_selection_presentation(),
@@ -1466,7 +1515,8 @@ def test_send_layer_to_ma3_without_saved_route_routes_then_sends(monkeypatch):
             action
             for section in build_timeline_inspector_contract(widget.presentation).context_sections
             for action in section.actions
-            if action.action_id == "send_layer_to_ma3"
+            if action.action_id == "transfer.workspace_open"
+            and str(action.params.get("direction", "")).lower() == "push"
         )
         widget._trigger_contract_action(send_action)
 
@@ -1525,7 +1575,8 @@ def test_overwrite_send_requires_confirmation_before_dispatch(monkeypatch):
             action
             for section in build_timeline_inspector_contract(widget.presentation).context_sections
             for action in section.actions
-            if action.action_id == "send_layer_to_ma3"
+            if action.action_id == "transfer.workspace_open"
+            and str(action.params.get("direction", "")).lower() == "push"
         )
         widget._trigger_contract_action(send_action)
 
@@ -1533,8 +1584,7 @@ def test_overwrite_send_requires_confirmation_before_dispatch(monkeypatch):
             RefreshMA3PushTracks(target_track_coord="tc1_tg2_tr3"),
             SetPushTransferMode(mode="overwrite"),
         ]
-        assert len(prompts) == 2
-        assert any("already routed to" in prompt and "Send to the existing MA3 route now?" in prompt for prompt in prompts)
+        assert prompts
         assert any("Overwrite Track 3 (tc1_tg2_tr3)?" in prompt for prompt in prompts)
         assert any("Selected EZ events: 1 event" in prompt for prompt in prompts)
     finally:

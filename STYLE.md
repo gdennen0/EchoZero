@@ -1,6 +1,9 @@
 # STYLE.md — EchoZero Development Standards
 
-**Last verified:** 2026-03-20
+Status: active
+Last verified: 2026-04-30
+
+
 **Authority:** This document governs all code in the EchoZero repository. Every agent session receives this as mandatory context.
 
 ---

@@ -1,6 +1,9 @@
 # UI Ownership Map
 
-_Updated: 2026-04-18_
+Status: reference
+Last reviewed: 2026-04-30
+
+
 
 This file tells humans and agents where UI concerns belong.
 Use it before editing files that span UI, presentation, application, or shell

@@ -121,6 +121,146 @@ class TestAudioEngine:
         assert checked_rates[0] == 12345
         assert 44100 in checked_rates
 
+    def test_resolve_output_defaults_auto_prefers_quad_when_device_supports_four_channels(
+        self,
+        monkeypatch,
+    ) -> None:
+        checked_formats: list[tuple[int, int]] = []
+
+        class _FakeSoundDevice:
+            default = type("_Default", (), {"device": [0, 1]})()
+
+            @staticmethod
+            def query_devices(index):
+                assert index == 1
+                return {
+                    "default_samplerate": 48000.0,
+                    "max_output_channels": 4,
+                }
+
+            @staticmethod
+            def check_output_settings(*, device, channels, dtype, samplerate):
+                assert device == 1
+                assert dtype == "float32"
+                checked_formats.append((int(channels), int(samplerate)))
+                if int(channels) == 4 and int(samplerate) == 48000:
+                    return
+                raise ValueError("unsupported format")
+
+        monkeypatch.setitem(__import__("sys").modules, "sounddevice", _FakeSoundDevice())
+
+        sample_rate, channels = _resolve_output_defaults(None)
+
+        assert channels == 4
+        assert sample_rate == 48000
+        assert checked_formats[0] == (4, 48000)
+
+    def test_resolve_output_defaults_uses_preferred_channel_count_for_rate_selection(
+        self,
+        monkeypatch,
+    ) -> None:
+        checked_formats: list[tuple[int, int]] = []
+
+        class _FakeSoundDevice:
+            default = type("_Default", (), {"device": [0, 1]})()
+
+            @staticmethod
+            def query_devices(index):
+                assert index == 1
+                return {
+                    "default_samplerate": 48000.0,
+                    "max_output_channels": 4,
+                }
+
+            @staticmethod
+            def check_output_settings(*, device, channels, dtype, samplerate):
+                assert device == 1
+                assert dtype == "float32"
+                checked_formats.append((int(channels), int(samplerate)))
+                if int(channels) == 4 and int(samplerate) == 44100:
+                    return
+                raise ValueError("unsupported format")
+
+        monkeypatch.setitem(__import__("sys").modules, "sounddevice", _FakeSoundDevice())
+
+        sample_rate, channels = _resolve_output_defaults(None, preferred_channels=4)
+
+        assert channels == 4
+        assert sample_rate == 44100
+        assert checked_formats[0] == (4, 48000)
+        assert (4, 44100) in checked_formats
+
+    def test_sounddevice_backend_resolve_output_config_falls_back_to_supported_rate(self) -> None:
+        from echozero.audio.sounddevice_backend import SounddeviceBackend
+
+        class _FakeSoundDevice:
+            default = type("_Default", (), {"device": [0, 1]})()
+
+            @staticmethod
+            def query_devices(index):
+                assert index == 1
+                return {
+                    "default_samplerate": 48000.0,
+                    "max_output_channels": 4,
+                }
+
+            @staticmethod
+            def check_output_settings(*, device, channels, dtype, samplerate):
+                assert device == 1
+                assert dtype == "float32"
+                if int(channels) == 4 and int(samplerate) == 44100:
+                    return
+                raise ValueError("unsupported format")
+
+        backend = SounddeviceBackend(sounddevice_module=_FakeSoundDevice())
+        config = backend.resolve_output_config(
+            sample_rate=48000,
+            channels=4,
+            buffer_size=256,
+            output_device=None,
+            stream_blocksize=None,
+            stream_latency=None,
+            prime_output_buffers_using_stream_callback=True,
+        )
+
+        assert config.channels == 4
+        assert config.sample_rate == 44100
+
+    def test_sounddevice_backend_resolve_output_config_clamps_channels_to_device(self) -> None:
+        from echozero.audio.sounddevice_backend import SounddeviceBackend
+
+        class _FakeSoundDevice:
+            default = type("_Default", (), {"device": [0, 1]})()
+
+            @staticmethod
+            def query_devices(index):
+                assert index == 1
+                return {
+                    "default_samplerate": 48000.0,
+                    "max_output_channels": 2,
+                }
+
+            @staticmethod
+            def check_output_settings(*, device, channels, dtype, samplerate):
+                assert device == 1
+                assert dtype == "float32"
+                if int(channels) == 2 and int(samplerate) in {44100, 48000}:
+                    return
+                raise ValueError("unsupported format")
+
+        backend = SounddeviceBackend(sounddevice_module=_FakeSoundDevice())
+        config = backend.resolve_output_config(
+            sample_rate=None,
+            channels=4,
+            buffer_size=256,
+            output_device=None,
+            stream_blocksize=None,
+            stream_latency=None,
+            prime_output_buffers_using_stream_callback=True,
+        )
+
+        assert config.channels == 2
+
     def test_resolve_stream_defaults_keeps_aggressive_injected_stream_behavior(self) -> None:
         blocksize, latency, prime_output = _resolve_stream_defaults(
             fake_stream_factory,

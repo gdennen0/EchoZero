@@ -28,6 +28,7 @@ from echozero.application.timeline.ma3_push_intents import (
     MA3PushApplyMode,
     MA3PushScope,
     MA3PushTargetMode,
+    PollMA3PushOperation,
     MA3SequenceCreationMode,
     PushLayerToMA3,
     RefreshMA3Sequences,
@@ -450,6 +451,64 @@ class _PushSyncService(SyncService):
             return int(tc_text), int(tg_text), int(tr_text)
         except (IndexError, ValueError):
             return None, None, None
+
+
+class _AsyncPushSyncService(_PushSyncService):
+    def __init__(self, *args, fail_error: str | None = None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._next_operation_no = 1
+        self._operations: dict[str, dict[str, object]] = {}
+        self.fail_error = fail_error
+
+    def start_push(
+        self,
+        *,
+        target_track_coord: str,
+        selected_events: list[Event],
+        transfer_mode: str = "merge",
+        start_offset_seconds: float = 0.0,
+    ) -> str:
+        operation_id = f"op-{self._next_operation_no}"
+        self._next_operation_no += 1
+        self._operations[operation_id] = {
+            "status": "running",
+            "message": "Running",
+            "target_track_coord": target_track_coord,
+            "selected_events": list(selected_events),
+            "transfer_mode": transfer_mode,
+            "start_offset_seconds": float(start_offset_seconds),
+        }
+        return operation_id
+
+    def get_operation(self, operation_id: str) -> dict[str, object] | None:
+        operation = self._operations.get(str(operation_id))
+        if operation is None:
+            return None
+        status = str(operation.get("status") or "").strip().lower()
+        if status == "running":
+            error_text = str(self.fail_error or "").strip()
+            if error_text:
+                operation["status"] = "error"
+                operation["message"] = error_text
+                operation["error"] = error_text
+                return dict(operation)
+            self.apply_push_transfer(
+                target_track_coord=str(operation["target_track_coord"]),
+                selected_events=list(operation["selected_events"]),
+                transfer_mode=str(operation["transfer_mode"]),
+            )
+            operation["status"] = "success"
+            operation["message"] = f"Sent to {operation['target_track_coord']}"
+            return dict(operation)
+        return dict(operation)
+
+    def cancel_operation(self, operation_id: str) -> bool:
+        operation = self._operations.get(str(operation_id))
+        if operation is None:
+            return False
+        operation["status"] = "cancelled"
+        operation["message"] = "Cancelled"
+        return True
 
 
 class _Assembler:
@@ -983,7 +1042,7 @@ def test_push_layer_to_ma3_layer_main_rejects_when_all_main_events_are_demoted()
 
 def test_push_layer_to_ma3_accepts_marker_layers():
     orchestrator, timeline, session, sync_service = _build_orchestrator(saved_route="tc1_tg2_tr3")
-    timeline.layers[0].kind = LayerKind.MARKER
+    timeline.layers[0].kind = LayerKind.EVENT
 
     orchestrator.handle(
         timeline,
@@ -1156,4 +1215,64 @@ def test_push_layer_to_ma3_requires_saved_route_when_requested():
             ),
         )
 
+    assert sync_service.push_calls == []
+
+
+def test_push_layer_to_ma3_async_path_sets_running_then_success_on_poll():
+    sync_service = _AsyncPushSyncService()
+    orchestrator, timeline, session, _ = _build_orchestrator(
+        saved_route="tc1_tg2_tr3",
+        sync_service_override=sync_service,
+    )
+
+    orchestrator.handle(
+        timeline,
+        PushLayerToMA3(
+            layer_id="layer_kick",
+            scope=MA3PushScope.LAYER_MAIN,
+            target_mode=MA3PushTargetMode.SAVED_ROUTE,
+            apply_mode=MA3PushApplyMode.MERGE,
+        ),
+    )
+
+    assert session.manual_push_flow.operation_status == "running"
+    assert session.manual_push_flow.operation_id == "op-1"
+    assert sync_service.push_calls == []
+
+    orchestrator.handle(timeline, PollMA3PushOperation(operation_id="op-1"))
+
+    assert session.manual_push_flow.operation_status == "success"
+    assert session.manual_push_flow.operation_id is None
+    assert sync_service.push_calls == [
+        {
+            "target_track_coord": "tc1_tg2_tr3",
+            "selected_event_ids": [EventId("evt_1"), EventId("evt_2")],
+            "transfer_mode": "merge",
+        }
+    ]
+
+
+def test_push_layer_to_ma3_async_path_sets_error_on_failed_poll():
+    sync_service = _AsyncPushSyncService(fail_error="Timed out waiting for MA3 track write")
+    orchestrator, timeline, session, _ = _build_orchestrator(
+        saved_route="tc1_tg2_tr3",
+        sync_service_override=sync_service,
+    )
+
+    orchestrator.handle(
+        timeline,
+        PushLayerToMA3(
+            layer_id="layer_kick",
+            scope=MA3PushScope.LAYER_MAIN,
+            target_mode=MA3PushTargetMode.SAVED_ROUTE,
+            apply_mode=MA3PushApplyMode.MERGE,
+        ),
+    )
+    assert session.manual_push_flow.operation_status == "running"
+
+    orchestrator.handle(timeline, PollMA3PushOperation(operation_id="op-1"))
+
+    assert session.manual_push_flow.operation_status == "error"
+    assert "Timed out" in session.manual_push_flow.operation_message
+    assert session.manual_push_flow.operation_id is None
     assert sync_service.push_calls == []

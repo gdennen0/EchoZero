@@ -8,6 +8,7 @@ The UI talks to Project. Project talks to everything else.
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -22,6 +23,7 @@ from echozero.persistence.entities import ProjectSettingsRecord, SongRecord, Son
 from echozero.persistence.session import ProjectStorage
 from echozero.pipelines.registry import PipelineRegistry, get_registry
 from echozero.progress import RuntimeBus
+from echozero.application.progress import OperationProgressUpdate
 from echozero.result import Result, is_ok
 from echozero.services.foundry_orchestrator import FoundryOrchestrator
 from echozero.services.orchestrator import AnalysisResult, Orchestrator
@@ -233,7 +235,7 @@ class Project:
         song_version_id: str,
         template_id: str,
         knob_overrides: dict[str, Any] | None = None,
-        on_progress: Any = None,
+        on_progress: Callable[[OperationProgressUpdate], None] | None = None,
     ) -> Result[AnalysisResult]:
         """Run analysis pipeline and persist results."""
         return self._orchestrator.analyze(
@@ -247,7 +249,7 @@ class Project:
     def execute_config(
         self,
         config_id: str,
-        on_progress: Any = None,
+        on_progress: Callable[[OperationProgressUpdate], None] | None = None,
     ) -> Result[AnalysisResult]:
         """Execute from an existing PipelineConfigRecord."""
         return self._orchestrator.execute(

@@ -65,7 +65,7 @@ class ProjectSpecializedModelService:
         """Train, validate, and install project-derived kick/snare runtime bundles."""
         app = self._foundry_app_factory(self._root)
         selected_labels = self._resolve_requested_labels(labels)
-        review_dataset, review_version = self._export_project_review_dataset(
+        review_dataset, review_version = self._extract_project_review_dataset(
             app,
             project_ref=project_ref,
         )
@@ -159,13 +159,13 @@ class ProjectSpecializedModelService:
             raise ValueError("At least one specialized model label is required.")
         return tuple(normalized_labels)
 
-    def _export_project_review_dataset(
+    def _extract_project_review_dataset(
         self,
         app: FoundryApp,
         *,
         project_ref: str,
     ) -> tuple[Dataset, DatasetVersion]:
-        version = app.export_project_review_dataset(
+        version = app.extract_project_review_dataset(
             self._root,
             project_ref=project_ref,
         )

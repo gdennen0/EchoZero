@@ -300,6 +300,10 @@ def _layer_contract(
         InspectorFactRow(
             "playback state", _playback_state_label(presentation, layer=layer, take=None)
         ),
+        InspectorFactRow("mute", "On" if layer.muted else "Off"),
+        InspectorFactRow("solo", "On" if layer.soloed else "Off"),
+        InspectorFactRow("gain", f"{layer.gain_db:+.1f} dB"),
+        InspectorFactRow("pan", f"{layer.pan:+.2f}"),
         InspectorFactRow(
             "output route",
             "Outputs 1/2 (Default)" if layer.output_bus is None else layer.output_bus,

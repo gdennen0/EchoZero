@@ -26,7 +26,7 @@ from echozero.application.timeline.intents import (
     Play,
     Seek,
     SelectLayer,
-    SetActivePlaybackTarget,
+    SetLayerMute,
     Stop,
 )
 from echozero.audio.engine import AudioEngine
@@ -215,7 +215,7 @@ def _audio_presentation() -> TimelinePresentation:
     return replace(
         base,
         layers=[audio_layer],
-        active_playback_layer_id=audio_layer.layer_id,
+        selected_layer_id=audio_layer.layer_id,
         playhead=0.0,
         is_playing=False,
         current_time_label="00:00.00",

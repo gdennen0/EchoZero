@@ -42,6 +42,7 @@ class FoundryWindow(
         self._root = Path(root)
         self._app = FoundryApp(self._root)
         self._review_server_controller = ReviewServerController()
+        self._review_server_controller.enable()
         self._app.activity.set_listener(self._on_activity)
         self._show_error_dialogs = os.environ.get("QT_QPA_PLATFORM", "").lower() != "offscreen"
 

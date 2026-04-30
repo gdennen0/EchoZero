@@ -1,5 +1,9 @@
 # MA3 Hardware Handoff — 2026-04-22
 
+Status: reference
+Last reviewed: 2026-04-30
+
+
 ## Status And Authority
 
 This is a continuation note for the MA3 push lane.

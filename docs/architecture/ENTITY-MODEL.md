@@ -1,5 +1,9 @@
 # EchoZero 2 — Entity Model
 
+Status: reference
+Last reviewed: 2026-04-30
+
+
 Describes the persistence-layer entities, their relationships, field-level invariants,
 and SQLite table mappings.
 

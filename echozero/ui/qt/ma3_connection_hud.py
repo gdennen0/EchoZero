@@ -5,6 +5,7 @@ Connects AppSettingsService values to lightweight test-and-save controls.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import TYPE_CHECKING
 
 from PyQt6.QtCore import Qt
@@ -17,7 +18,6 @@ from PyQt6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
-    QMessageBox,
     QPushButton,
     QSpinBox,
     QVBoxLayout,
@@ -39,11 +39,18 @@ if TYPE_CHECKING:
 class MA3ConnectionHUD(QDialog):
     """Reusable MA3 OSC troubleshooting overlay used by MA3 send paths."""
 
-    def __init__(self, settings_service: AppSettingsService, *, parent: QWidget | None = None):
+    def __init__(
+        self,
+        settings_service: AppSettingsService,
+        *,
+        on_saved: Callable[["AppSettingsUpdateResult"], None] | None = None,
+        parent: QWidget | None = None,
+    ):
         super().__init__(parent)
         self.setObjectName("ma3ConnectionHUD")
         ensure_qt_theme_installed()
         self._settings_service = settings_service
+        self._on_saved = on_saved
         self.setWindowTitle("MA3 OSC Connection")
         self.setMinimumWidth(520)
 
@@ -219,12 +226,12 @@ class MA3ConnectionHUD(QDialog):
         except Exception as exc:
             self._set_message(f"Unable to save MA3 OSC settings: {exc}", severity="error")
             return
-        if result.restart_required:
-            QMessageBox.information(
-                self,
-                "MA3 OSC Settings",
-                "\n".join(result.restart_reasons),
-            )
+        if self._on_saved is not None:
+            try:
+                self._on_saved(result)
+            except Exception as exc:
+                self._set_message(f"Unable to apply MA3 OSC settings: {exc}", severity="error")
+                return
         self.accept()
 
     def _require_button(self, standard_button: QDialogButtonBox.StandardButton) -> QPushButton:

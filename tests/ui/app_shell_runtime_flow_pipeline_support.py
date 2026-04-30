@@ -938,5 +938,77 @@ def test_app_shell_runtime_binary_drum_selection_stays_on_selected_class_layer(m
         shutil.rmtree(temp_root, ignore_errors=True)
 
 
+def test_app_shell_runtime_extract_song_sections_persists_section_layer():
+    temp_root = _repo_local_temp_root()
+    analysis_service = build_mock_analysis_service()
+    captured_audio_paths: list[str] = []
+
+    class _CaptureSongSectionsExecutor:
+        def execute(self, block_id: str, context):
+            audio = context.get_input(block_id, "audio_in", AudioData)
+            assert audio is not None
+            captured_audio_paths.append(str(audio.file_path))
+            return ok(
+                EventData(
+                    layers=(
+                        DomainLayer(
+                            id="generated_sections",
+                            name="Sections",
+                            events=(
+                                DomainEvent(
+                                    id="sec_intro",
+                                    time=0.0,
+                                    duration=0.0,
+                                    classifications={"label": "Intro", "confidence": 0.95},
+                                    metadata={"cue_ref": "intro_01", "cue_number": 1},
+                                    origin="detect_song_sections",
+                                ),
+                                DomainEvent(
+                                    id="sec_chorus",
+                                    time=1.1,
+                                    duration=0.0,
+                                    classifications={"label": "Chorus", "confidence": 0.9},
+                                    metadata={"cue_ref": "chorus_02", "cue_number": 2},
+                                    origin="detect_song_sections",
+                                ),
+                            ),
+                        ),
+                    )
+                )
+            )
+
+    analysis_service._executors["DetectSongSections"] = _CaptureSongSectionsExecutor()
+    runtime = build_app_shell(
+        working_dir_root=temp_root / "working",
+        analysis_service=analysis_service,
+    )
+
+    assert isinstance(runtime, AppShellRuntime)
+
+    try:
+        audio_path = write_test_wav(temp_root / "fixtures" / "section-source.wav")
+        runtime.add_song_from_path("Section Source", audio_path)
+        presentation = runtime.extract_song_sections("source_audio")
+
+        section_layer = next(layer for layer in presentation.layers if layer.title == "Sections")
+        assert section_layer.kind is LayerKind.SECTION
+        assert [event.label for event in section_layer.events] == ["Intro", "Chorus"]
+        assert section_layer.status.source_layer_id == "source_audio"
+        assert section_layer.source_audio_path
+        assert Path(str(section_layer.source_audio_path)).name == "section-source.wav"
+        assert presentation.section_cues
+        assert presentation.section_cues[0].cue_ref == "intro_01"
+        rerun_presentation = runtime.extract_song_sections(section_layer.layer_id)
+        rerun_section_layer = next(layer for layer in rerun_presentation.layers if layer.title == "Sections")
+        assert rerun_section_layer.kind is LayerKind.SECTION
+        assert [Path(path).name for path in captured_audio_paths] == [
+            "section-source.wav",
+            "section-source.wav",
+        ]
+    finally:
+        runtime.shutdown()
+        shutil.rmtree(temp_root, ignore_errors=True)
+
+
 
 __all__ = [name for name in globals() if name.startswith("test_")]

@@ -1,7 +1,12 @@
 # SMPTE Playback Reliability RFC (Skeleton)
 
-Status: Draft skeleton  
-Date: 2026-04-24  
+Status: historical
+Last reviewed: 2026-04-30
+
+This document is archived historical context.
+For current implementation truth, use `docs/STATUS.md`.
+
+
 Owner: TBD  
 Reviewers: TBD
 

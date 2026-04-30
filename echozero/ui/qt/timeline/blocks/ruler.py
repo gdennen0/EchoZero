@@ -4,9 +4,10 @@ from dataclasses import dataclass
 from math import ceil, floor
 
 from PyQt6.QtCore import QPointF, QRectF, Qt
-from PyQt6.QtGui import QColor, QPainter, QPen, QPolygonF
+from PyQt6.QtGui import QColor, QFont, QPainter, QPen, QPolygonF
 
 from echozero.application.presentation.models import TimelinePresentation
+from echozero.ui.FEEL import RULER_FONT_SIZE, RULER_MIN_TICK_SPACING_PX
 from echozero.ui.qt.timeline.style import RulerStyle, TIMELINE_STYLE
 
 
@@ -28,6 +29,9 @@ class RulerBlock:
         painter.fillRect(QRectF(rect.left(), rect.top(), layout.header_width, rect.height()), QColor(self.style.header_background_hex))
         painter.setPen(QColor(self.style.title_hex))
         painter.drawText(14, int(rect.top()) + 18, 'Timeline')
+        label_font = QFont(painter.font())
+        label_font.setPointSize(max(7, int(RULER_FONT_SIZE)))
+        painter.setFont(label_font)
 
         pps = max(1.0, presentation.pixels_per_second)
         content_width = max(1.0, rect.width() - layout.header_width)
@@ -74,13 +78,6 @@ class RulerBlock:
         pixels_per_second: float,
         header_width: float,
     ) -> None:
-        self._paint_section_regions(
-            painter,
-            rect=rect,
-            presentation=presentation,
-            pixels_per_second=pixels_per_second,
-            header_width=header_width,
-        )
         if not presentation.regions:
             return
         for index, region in enumerate(presentation.regions):
@@ -132,65 +129,6 @@ class RulerBlock:
                 painter.setPen(selected_pen)
                 painter.drawRect(region_rect.adjusted(1.0, 1.0, -1.0, -1.0))
 
-    def _paint_section_regions(
-        self,
-        painter: QPainter,
-        *,
-        rect: QRectF,
-        presentation: TimelinePresentation,
-        pixels_per_second: float,
-        header_width: float,
-    ) -> None:
-        if not presentation.section_regions:
-            return
-        for index, region in enumerate(presentation.section_regions):
-            start_x = timeline_x_for_time(
-                region.start,
-                scroll_x=presentation.scroll_x,
-                pixels_per_second=pixels_per_second,
-                content_start_x=header_width,
-            )
-            end_x = timeline_x_for_time(
-                region.end,
-                scroll_x=presentation.scroll_x,
-                pixels_per_second=pixels_per_second,
-                content_start_x=header_width,
-            )
-            left = max(header_width, min(start_x, end_x))
-            right = min(rect.right(), max(start_x, end_x))
-            width = max(0.0, right - left)
-            if width <= 0.0:
-                continue
-
-            section_rect = QRectF(left, rect.top() + 1.0, width, max(1.0, rect.height() - 2.0))
-            fill_hex = (
-                region.color
-                or (
-                    self.style.section_even_hex
-                    if index % 2 == 0
-                    else self.style.section_odd_hex
-                )
-            )
-            fill_color = QColor(fill_hex)
-            fill_color.setAlpha(max(0, min(255, int(self.style.section_alpha))))
-            painter.fillRect(section_rect, fill_color)
-            painter.setPen(QPen(QColor(self.style.section_boundary_hex), 2))
-            painter.drawLine(
-                int(round(left)),
-                int(round(rect.top() + 1.0)),
-                int(round(left)),
-                int(round(rect.bottom() - 1.0)),
-            )
-            if width >= 72.0:
-                label = region.cue_ref if region.name.casefold() == region.cue_ref.casefold() else f"{region.cue_ref} {region.name}"
-                label_color = QColor(self.style.section_label_hex)
-                painter.setPen(label_color)
-                painter.drawText(
-                    section_rect.adjusted(6.0, 0.0, -6.0, 0.0),
-                    int(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft),
-                    label,
-                )
-
 
 def visible_ruler_seconds(
     *,
@@ -201,11 +139,15 @@ def visible_ruler_seconds(
 ) -> list[tuple[int, float]]:
     """Compute visible (second, screen_x) marks for the current horizontal viewport."""
     pps = max(1.0, pixels_per_second)
-    start_second = max(0, int(floor(scroll_x / pps)) - 1)
-    end_second = int(ceil((scroll_x + content_width) / pps)) + 1
+    major_step_seconds = max(1, int(ceil(float(RULER_MIN_TICK_SPACING_PX) / pps)))
+    start_second = max(0, int(floor(scroll_x / pps)) - major_step_seconds)
+    end_second = int(ceil((scroll_x + content_width) / pps)) + major_step_seconds
+    first_mark_second = (start_second // major_step_seconds) * major_step_seconds
 
     marks: list[tuple[int, float]] = []
-    for second in range(start_second, max(start_second, end_second) + 1):
+    for second in range(first_mark_second, max(start_second, end_second) + 1, major_step_seconds):
+        if second < 0:
+            continue
         x = content_start_x + (second * pps) - scroll_x
         if content_start_x <= x <= (content_start_x + content_width):
             marks.append((second, x))

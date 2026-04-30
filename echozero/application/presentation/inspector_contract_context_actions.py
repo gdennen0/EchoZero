@@ -30,6 +30,7 @@ from echozero.application.timeline.event_batch_scope import (
 )
 from echozero.application.timeline.object_actions import (
     SONG_ADD_DESCRIPTOR,
+    descriptor_for_action,
     pipeline_actions_for_audio_layer,
 )
 
@@ -47,20 +48,37 @@ def event_context_sections(
         take=take,
         event=event,
     )
-    if preview_params is None:
+    take_id = take.take_id if take is not None else layer.main_take_id
+    actions: list[InspectorAction] = []
+    if preview_params is not None:
+        actions.append(
+            InspectorAction(
+                action_id="preview_event_clip",
+                label="Play Clip",
+                group="selection",
+                params=preview_params,
+            )
+        )
+    if take_id is not None:
+        actions.append(
+            InspectorAction(
+                action_id="selection.find_similar_sounding",
+                label="Find Similar Sounds",
+                group="selection",
+                params={
+                    "layer_id": layer.layer_id,
+                    "take_id": take_id,
+                    "event_id": event.event_id,
+                },
+            )
+        )
+    if not actions:
         return ()
     return (
         InspectorContextSection(
             section_id="event-preview",
             label="Clip",
-            actions=(
-                InspectorAction(
-                    action_id="preview_event_clip",
-                    label="Play Clip",
-                    group="selection",
-                    params=preview_params,
-                ),
-            ),
+            actions=tuple(actions),
         ),
     )
 
@@ -221,11 +239,6 @@ def shared_context_sections(
                         group="tools",
                     ),
                     InspectorAction(
-                        action_id="add_marker_layer",
-                        label="Add Marker Layer",
-                        group="tools",
-                    ),
-                    InspectorAction(
                         action_id="add_section_layer",
                         label="Add Section Layer",
                         group="tools",
@@ -236,9 +249,15 @@ def shared_context_sections(
                         group="tools",
                     ),
                     InspectorAction(
-                        action_id="pull_from_ma3",
+                        action_id="add_smpte_layer_from_import_split",
+                        label="Add SMPTE Layer from Import Split",
+                        group="tools",
+                    ),
+                    InspectorAction(
+                        action_id="transfer.workspace_open",
                         label="Import Event Layer from MA3",
                         group="tools",
+                        params={"direction": "pull"},
                     ),
                 ),
             )
@@ -267,16 +286,16 @@ def shared_context_sections(
                 label="Selection",
                 actions=(
                     InspectorAction(
-                        action_id="nudge_left",
+                        action_id="timeline.nudge_selection",
                         label="Nudge Left",
                         group="selection",
-                        params={"direction": -1, "steps": 1},
+                        params={"direction": "left", "steps": 1},
                     ),
                     InspectorAction(
-                        action_id="nudge_right",
+                        action_id="timeline.nudge_selection",
                         label="Nudge Right",
                         group="selection",
-                        params={"direction": 1, "steps": 1},
+                        params={"direction": "right", "steps": 1},
                     ),
                     InspectorAction(
                         action_id="timeline.duplicate_selection",
@@ -320,18 +339,8 @@ def shared_context_sections(
             )
 
     if layer is not None:
+        mix_controls_enabled = layer.kind is not LayerKind.EVENT
         layer_actions = [
-            InspectorAction(
-                action_id="set_active_playback_target",
-                label=(
-                    "Audio Routed to Master"
-                    if presentation.active_playback_layer_id == layer.layer_id
-                    else "Route Audio to Master"
-                ),
-                group="layer",
-                params={"layer_id": layer.layer_id},
-                enabled=bool(layer.source_audio_path or layer.playback_source_ref),
-            ),
             InspectorAction(
                 action_id="delete_layer",
                 label="Delete Layer",
@@ -340,6 +349,24 @@ def shared_context_sections(
                 enabled=layer.layer_id != "source_audio",
             ),
         ]
+        if layer.kind is not LayerKind.EVENT:
+            layer_actions = [
+                InspectorAction(
+                    action_id=_layer_mute_action_id(layer),
+                    label=_layer_mute_action_label(layer),
+                    group="mix",
+                    params={"layer_id": layer.layer_id, "muted": (not layer.muted)},
+                    enabled=True,
+                ),
+                InspectorAction(
+                    action_id=_layer_solo_action_id(layer),
+                    label=_layer_solo_action_label(layer),
+                    group="mix",
+                    params={"layer_id": layer.layer_id, "soloed": (not layer.soloed)},
+                    enabled=True,
+                ),
+                *layer_actions,
+            ]
         if layer.kind is LayerKind.AUDIO:
             layer_actions.extend(_layer_smpte_import_actions(layer))
             layer_actions.extend(
@@ -355,18 +382,21 @@ def shared_context_sections(
                     label="Set Gain -6 dB",
                     group="gain",
                     params={"layer_id": layer.layer_id, "gain_db": -6.0},
+                    enabled=mix_controls_enabled,
                 ),
                 InspectorAction(
                     action_id="gain_unity",
                     label="Set Gain 0 dB",
                     group="gain",
                     params={"layer_id": layer.layer_id, "gain_db": 0.0},
+                    enabled=mix_controls_enabled,
                 ),
                 InspectorAction(
                     action_id="gain_up",
                     label="Set Gain +6 dB",
                     group="gain",
                     params={"layer_id": layer.layer_id, "gain_db": 6.0},
+                    enabled=mix_controls_enabled,
                 ),
             )
         )
@@ -528,11 +558,17 @@ def format_seconds(value: float) -> str:
 
 
 def pipeline_actions_for_layer(layer: LayerPresentation) -> tuple[InspectorAction, ...]:
-    descriptors = pipeline_actions_for_audio_layer(
+    descriptors = list(
+        pipeline_actions_for_audio_layer(
         is_stem_capable=is_stem_capable_layer(layer),
         is_drum_capable=is_drum_capable_layer(layer),
         is_song_drum_capable=is_song_drum_capable_layer(layer),
+        )
     )
+    if layer.kind is LayerKind.SECTION:
+        section_descriptor = descriptor_for_action("timeline.extract_song_sections")
+        if section_descriptor is not None:
+            descriptors.append(section_descriptor)
     return tuple(
         InspectorAction(
             action_id=descriptor.action_id,
@@ -600,33 +636,33 @@ def transfer_context_actions(
 
     return (
         InspectorAction(
-            action_id="pull_from_ma3",
+            action_id="transfer.workspace_open",
             label="Import Event Layer from MA3",
             group="transfer",
-            params={"layer_id": layer.layer_id},
+            params={"layer_id": layer.layer_id, "direction": "pull"},
         ),
         InspectorAction(
-            action_id="route_layer_to_ma3_track",
+            action_id="transfer.route_layer_track",
             label=route_label,
             group="transfer",
             params={"layer_id": layer.layer_id},
         ),
         InspectorAction(
-            action_id="send_layer_to_ma3",
+            action_id="transfer.workspace_open",
             label="Send Layer to MA3",
             group="transfer",
-            params={"layer_id": layer.layer_id},
+            params={"layer_id": layer.layer_id, "direction": "push"},
             enabled=layer.main_take_id is not None,
         ),
         InspectorAction(
-            action_id="send_selected_events_to_ma3",
+            action_id="transfer.send_selection",
             label="Send Event to MA3" if explicit_event_ids else "Send Selected Events to MA3",
             group="transfer",
             params=send_selected_params,
             enabled=bool(explicit_event_ids) or (layer.is_selected and has_selected_events),
         ),
         InspectorAction(
-            action_id="send_to_different_track_once",
+            action_id="transfer.send_to_track_once",
             label="Send to Different Track Once",
             group="transfer",
             params={"layer_id": layer.layer_id},
@@ -646,6 +682,22 @@ def apply_transfer_plan_label(plan: BatchTransferPlanPresentation) -> str:
 def ready_count_label(count: int) -> str:
     noun = "ready row" if count == 1 else "ready rows"
     return f"{count} {noun}"
+
+
+def _layer_mute_action_id(layer: LayerPresentation) -> str:
+    return "set_layer_mute_off" if layer.muted else "set_layer_mute_on"
+
+
+def _layer_mute_action_label(layer: LayerPresentation) -> str:
+    return "Unmute Layer" if layer.muted else "Mute Layer"
+
+
+def _layer_solo_action_id(layer: LayerPresentation) -> str:
+    return "set_layer_solo_off" if layer.soloed else "set_layer_solo_on"
+
+
+def _layer_solo_action_label(layer: LayerPresentation) -> str:
+    return "Unsolo Layer" if layer.soloed else "Solo Layer"
 
 
 def _output_bus_auto_label(layer: LayerPresentation) -> str:

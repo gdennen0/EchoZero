@@ -24,8 +24,10 @@ ZOOM_SPEED_MULTIPLIER = 1.0  # Scale factor for zoom sensitivity
 ZOOM_MIN_SCALE = 0.001  # Minimum zoom level (full song overview)
 ZOOM_MAX_SCALE = 100.0  # Maximum zoom level (individual samples)
 TIMELINE_ZOOM_STEP_FACTOR = 1.12  # Per-notch timeline zoom multiplier
-TIMELINE_ZOOM_MIN_PPS = 20.0  # Minimum timeline zoom clamp in pixels/second
+TIMELINE_ZOOM_MIN_PPS = 5.0  # Minimum timeline zoom clamp in pixels/second
 TIMELINE_ZOOM_MAX_PPS = 720.0  # Maximum timeline zoom clamp in pixels/second
+TIMELINE_RUNTIME_TICK_ACTIVE_MS = 16  # Runtime timer cadence while transport is actively moving
+TIMELINE_RUNTIME_TICK_IDLE_MS = 64  # Runtime timer cadence while idle (reduced overhead)
 
 # =============================================================================
 # PLAYHEAD
@@ -46,6 +48,8 @@ WAVEFORM_COLOR = "#4488CC"  # Base waveform color
 WAVEFORM_RMS_COLOR = "#3366AA"  # RMS fill color (darker)
 WAVEFORM_ANTIALIAS_OUTLINE = True  # Anti-alias envelope outline
 WAVEFORM_ANTIALIAS_FILL = False  # Don't anti-alias fill (performance)
+WAVEFORM_COLUMN_STEP_REFERENCE_PPS = 20.0  # Below this zoom level, bucket waveform columns more aggressively
+WAVEFORM_COLUMN_STEP_MAX_PX = 4  # Maximum horizontal bucket size when heavily zoomed out
 
 # =============================================================================
 # EVENTS (Timeline)
@@ -61,6 +65,7 @@ EVENT_SELECTION_TINY_WIDTH_EXTRA_PX = 1  # Extra outline width for tiny selected
 EVENT_MIN_VISIBLE_WIDTH_PX = 2  # Minimum rendered width (even for zero-duration)
 EVENT_LABEL_MIN_WIDTH_PX = 40  # Don't render labels on events narrower than this
 EVENT_FALSE_BORDER_STYLE = "dash"  # Visual for false/uncertain events ("dash" or "dot")
+TIMELINE_ADD_MODE_DEFAULT_EVENT_DURATION_SECONDS = 0.5  # Draw-mode quick-add event length
 
 # =============================================================================
 # INTERACTION
@@ -97,7 +102,10 @@ RULER_TICK_COLOR = "#666666"  # Tick mark color
 # LAYERS
 # =============================================================================
 
-LAYER_HEADER_WIDTH_PX = 320  # Width of layer name sidebar
+LAYER_HEADER_WIDTH_PX = 320  # Default width of layer name sidebar
+LAYER_HEADER_MIN_WIDTH_PX = 220  # Minimum layer name sidebar width
+LAYER_HEADER_MAX_WIDTH_PX = 560  # Maximum layer name sidebar width
+LAYER_HEADER_RESIZE_HANDLE_HALF_WIDTH_PX = 6  # Horizontal hit radius around header divider drag target
 LAYER_ROW_HEIGHT_PX = 60  # Fallback default height per main layer row
 TAKE_ROW_HEIGHT_PX = 44  # Height of subordinate take rows
 LAYER_HEADER_TOP_PADDING_PX = 8  # Top offset before first lane row

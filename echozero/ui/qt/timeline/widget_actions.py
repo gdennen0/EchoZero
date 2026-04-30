@@ -88,8 +88,8 @@ class _RequestObjectActionRuntimeShell(_TimelineRuntimeShell, Protocol):
     ) -> str: ...
 
 
-class _PipelineRunStateLookupRuntimeShell(_TimelineRuntimeShell, Protocol):
-    def get_pipeline_run_state(self, run_id: str) -> object | None: ...
+class _OperationProgressStateLookupRuntimeShell(_TimelineRuntimeShell, Protocol):
+    def get_operation_state(self, operation_id: str) -> object | None: ...
 
 
 class _RunObjectActionRuntimeShell(_TimelineRuntimeShell, Protocol):
@@ -567,11 +567,11 @@ class TimelineWidgetActionRouter(
         if not run_pipeline_actions or not pipeline_action_ids:
             return False
         request_runtime = cast(_RequestObjectActionRuntimeShell | None, runtime)
-        state_runtime = cast(_PipelineRunStateLookupRuntimeShell | None, runtime)
+        state_runtime = cast(_OperationProgressStateLookupRuntimeShell | None, runtime)
         switch_runtime = cast(_SwitchSongVersionRuntimeShell | None, runtime)
         return (
             callable(getattr(request_runtime, "request_object_action_run", None))
-            and callable(getattr(state_runtime, "get_pipeline_run_state", None))
+            and callable(getattr(state_runtime, "get_operation_state", None))
             and callable(getattr(switch_runtime, "switch_song_version", None))
         )
 
@@ -613,11 +613,11 @@ class TimelineWidgetActionRouter(
 
         if current is not None:
             current_runtime, run_id, _action_id, _source_label = current
-            state_runtime = cast(_PipelineRunStateLookupRuntimeShell | None, current_runtime)
+            state_runtime = cast(_OperationProgressStateLookupRuntimeShell | None, current_runtime)
             lookup = (
-                state_runtime.get_pipeline_run_state
+                state_runtime.get_operation_state
                 if state_runtime is not None
-                and callable(getattr(state_runtime, "get_pipeline_run_state", None))
+                and callable(getattr(state_runtime, "get_operation_state", None))
                 else None
             )
             if callable(lookup):

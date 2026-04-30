@@ -29,7 +29,6 @@ _DEFAULT_CONFIG_PATH = Path(__file__).resolve().parent / "config" / "layer_heigh
 _DEFAULT_LAYER_KIND_HEIGHTS = {
     LayerKind.AUDIO: LAYER_ROW_HEIGHT_PX,
     LayerKind.EVENT: LAYER_ROW_HEIGHT_PX,
-    LayerKind.MARKER: LAYER_ROW_HEIGHT_PX,
     LayerKind.SECTION: LAYER_ROW_HEIGHT_PX,
     LayerKind.AUTOMATION: LAYER_ROW_HEIGHT_PX,
     LayerKind.REFERENCE: LAYER_ROW_HEIGHT_PX,

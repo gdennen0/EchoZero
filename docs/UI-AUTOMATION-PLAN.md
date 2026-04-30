@@ -1,6 +1,9 @@
 # UI Automation Plan
 
-_Updated: 2026-04-16_
+Status: reference
+Last reviewed: 2026-04-30
+
+
 
 This document defines how EchoZero should expose full app control for OpenClaw
 and agents.
@@ -10,14 +13,14 @@ It connects existing app-flow testing, Qt runtime surfaces, and future
 OpenClaw integration into one plan.
 
 The concrete execution board for this redesign lives in
-[UI Automation Implementation Board](/Users/march/Documents/GitHub/EchoZero/docs/UI-AUTOMATION-IMPLEMENTATION-BOARD.md:1).
+[UI Automation Implementation Board](UI-AUTOMATION-IMPLEMENTATION-BOARD.md).
 
 The short policy for choosing canonical versus internal-only automation surfaces
 lives in
-[Automation Surface Policy](/Users/march/Documents/GitHub/EchoZero/docs/AUTOMATION-SURFACE-POLICY.md:1).
+[Automation Surface Policy](AUTOMATION-SURFACE-POLICY.md).
 
 For the reusable library boundary that should sit under this app-specific
-adoption path, see [UI Automation Library Plan](/Users/march/Documents/GitHub/EchoZero/docs/UI-AUTOMATION-LIBRARY-PLAN.md:1).
+adoption path, see [UI Automation Library Plan](UI-AUTOMATION-LIBRARY-PLAN.md).
 
 ## Goal
 

@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from echozero.application.shared.enums import LayerKind
 
-EVENT_LIKE_LAYER_KINDS = frozenset({LayerKind.EVENT, LayerKind.MARKER, LayerKind.SECTION})
+EVENT_LIKE_LAYER_KINDS = frozenset({LayerKind.EVENT, LayerKind.SECTION})
 
 
 def is_event_like_layer_kind(kind: LayerKind | str | None) -> bool:

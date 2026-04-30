@@ -26,6 +26,7 @@ from PyQt6.QtWidgets import (
     QMenu,
     QMenuBar,
     QMessageBox,
+    QPushButton,
     QScrollArea,
     QScrollBar,
     QSplitter,
@@ -33,7 +34,9 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from echozero.application.presentation.models import TimelinePresentation
+from echozero.application.presentation.models import LayerPresentation, TimelinePresentation
+from echozero.application.shared.enums import LayerKind
+from echozero.application.shared.ids import LayerId, SectionCueId
 from echozero.application.shared.ranges import TimeRange
 from echozero.application.timeline.intents import (
     CommitMissedEventsReview,
@@ -41,16 +44,20 @@ from echozero.application.timeline.intents import (
     CreateEvent,
     CreateRegion,
     DeleteRegion,
-    Pause,
+    Play,
     ReplaceSectionCues,
     SectionCueEdit,
     SelectRegion,
+    Stop,
     TimelineIntent,
     UpdateRegion,
 )
 from echozero.application.settings import AppSettingsService
 from echozero.models.paths import ensure_installed_models_dir
-from echozero.ui.FEEL import TIMELINE_TRANSPORT_TOP_GAP_PX
+from echozero.ui.FEEL import (
+    TIMELINE_RUNTIME_TICK_ACTIVE_MS,
+    TIMELINE_TRANSPORT_TOP_GAP_PX,
+)
 from echozero.ui.qt.song_browser_drop import (
     SongBrowserAudioDrop,
     dropped_audio_paths,
@@ -99,6 +106,7 @@ class TimelineWidget(TimelineWidgetRuntimeMixin, TimelineWidgetContractMixin, QW
         *,
         runtime_audio: TimelineRuntimeAudioController | None = None,
         app_settings_service: AppSettingsService | None = None,
+        initial_header_width: int | None = None,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
@@ -116,14 +124,23 @@ class TimelineWidget(TimelineWidgetRuntimeMixin, TimelineWidgetContractMixin, QW
         self._fix_nav_include_demoted = False
         self._snap_enabled = True
         self._grid_mode = TimelineGridMode.AUTO.value
+        self._pipeline_status_visible_key: str | None = None
+        self._pipeline_status_dismissed_key: str | None = None
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.setWindowTitle(self._style.window_title)
-        self._space_pause_shortcut = QShortcut(QKeySequence(Qt.Key.Key_Space), self)
-        self._space_pause_shortcut.setContext(
+        self._space_play_shortcut = QShortcut(QKeySequence(Qt.Key.Key_Space), self)
+        self._space_play_shortcut.setContext(
             Qt.ShortcutContext.WidgetWithChildrenShortcut
         )
-        self._space_pause_shortcut.activated.connect(self._pause_transport_from_spacebar)
-        self._space_pause_shortcut.setEnabled(bool(self.presentation.is_playing))
+        self._space_play_shortcut.activated.connect(self._play_transport_from_spacebar)
+        self._space_play_shortcut.setEnabled(True)
+        self._shift_space_preview_shortcut = QShortcut(QKeySequence("Shift+Space"), self)
+        self._shift_space_preview_shortcut.setContext(
+            Qt.ShortcutContext.WidgetWithChildrenShortcut
+        )
+        self._shift_space_preview_shortcut.activated.connect(
+            self._preview_selected_event_from_shift_space
+        )
 
         root_layout = QVBoxLayout(self)
         root_layout.setContentsMargins(0, 0, 0, 0)
@@ -156,12 +173,15 @@ class TimelineWidget(TimelineWidgetRuntimeMixin, TimelineWidgetContractMixin, QW
         self._editor_bar.fix_nav_include_demoted_toggled.connect(self._set_fix_nav_include_demoted)
         self._editor_bar.snap_toggled.connect(self._set_snap_enabled)
         self._editor_bar.grid_mode_changed.connect(self._set_grid_mode)
+        self._editor_bar.add_event_at_playhead_requested.connect(
+            self._create_event_at_playhead
+        )
+        self._editor_bar.zoom_fit_requested.connect(self._zoom_to_fit_all)
         self._editor_bar.settings_requested.connect(self._open_settings_dialog)
         self._editor_bar.osc_settings_requested.connect(self._open_osc_settings_dialog)
         self._editor_bar.pipeline_settings_requested.connect(
             self._open_pipeline_settings_browser
         )
-        self._editor_bar.sections_requested.connect(self._open_section_manager_dialog)
         self._editor_bar.regions_requested.connect(self._open_region_manager_dialog)
         left_layout.addWidget(self._editor_bar)
 
@@ -179,9 +199,23 @@ class TimelineWidget(TimelineWidgetRuntimeMixin, TimelineWidgetContractMixin, QW
             | Qt.TextInteractionFlag.TextSelectableByKeyboard
         )
         pipeline_status_layout.addWidget(self._pipeline_status_label, 1)
+        self._pipeline_status_close_button = QPushButton("X", self._pipeline_status)
+        self._pipeline_status_close_button.setObjectName("timelinePipelineStatusCloseButton")
+        self._pipeline_status_close_button.setToolTip("Dismiss")
+        self._pipeline_status_close_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._pipeline_status_close_button.setFixedSize(22, 22)
+        self._pipeline_status_close_button.clicked.connect(self._dismiss_pipeline_status_banner)
+        pipeline_status_layout.addWidget(self._pipeline_status_close_button, 0)
         left_layout.addWidget(self._pipeline_status)
+        self._pipeline_status_auto_dismiss_timer = QTimer(self)
+        self._pipeline_status_auto_dismiss_timer.setSingleShot(True)
+        self._pipeline_status_auto_dismiss_timer.timeout.connect(
+            self._on_pipeline_status_auto_dismiss_timeout
+        )
 
         self._canvas = TimelineCanvas(self.presentation)
+        if initial_header_width is not None:
+            self._canvas.set_header_width(initial_header_width)
         self._ruler = TimelineRuler(self.presentation, header_width=self._canvas._header_width)
         left_layout.addWidget(self._ruler)
 
@@ -192,10 +226,12 @@ class TimelineWidget(TimelineWidgetRuntimeMixin, TimelineWidgetContractMixin, QW
         self._canvas.layer_clicked.connect(self._select_layer)
         self._canvas.layer_reorder_requested.connect(self._reorder_layer)
         self._canvas.select_adjacent_layer_requested.connect(self._select_adjacent_layer)
-        self._canvas.active_clicked.connect(self._set_active_playback_target)
+        self._canvas.mute_clicked.connect(self._toggle_layer_mute_from_header)
+        self._canvas.solo_clicked.connect(self._toggle_layer_solo_from_header)
         self._canvas.pipeline_actions_clicked.connect(self._open_layer_pipeline_actions)
         self._canvas.push_clicked.connect(self._open_push_from_layer_action)
         self._canvas.pull_clicked.connect(self._open_pull_from_layer_action)
+        self._canvas.section_manager_clicked.connect(self._open_section_manager_from_header)
         self._canvas.take_toggle_clicked.connect(self._toggle_take_selector)
         self._canvas.take_selected.connect(self._select_take)
         self._canvas.event_selected.connect(self._select_event)
@@ -215,6 +251,8 @@ class TimelineWidget(TimelineWidgetRuntimeMixin, TimelineWidgetContractMixin, QW
         self._canvas.select_all_requested.connect(self._select_all_events)
         self._canvas.set_selected_events_requested.connect(self._set_selected_events)
         self._canvas.create_event_requested.connect(self._create_event)
+        self._canvas.section_label_double_clicked.connect(self._rename_section_cue_from_canvas)
+        self._canvas.section_boundary_double_clicked.connect(self._edit_section_cue_from_canvas)
         self._canvas.delete_events_requested.connect(self._delete_events)
         self._canvas.nudge_requested.connect(self._nudge_selected_events)
         self._canvas.duplicate_requested.connect(self._duplicate_selected_events)
@@ -229,10 +267,12 @@ class TimelineWidget(TimelineWidgetRuntimeMixin, TimelineWidgetContractMixin, QW
         self._canvas.fix_promote_selected_requested.connect(self._promote_fix_selected_events)
         self._canvas.snap_toggle_requested.connect(self._toggle_snap_enabled)
         self._canvas.grid_mode_cycle_requested.connect(self._cycle_grid_mode)
+        self._canvas.add_event_at_playhead_requested.connect(self._create_event_at_playhead)
         self._canvas.preview_transfer_plan_requested.connect(self._preview_active_transfer_plan)
         self._canvas.apply_transfer_plan_requested.connect(self._apply_active_transfer_plan)
         self._canvas.cancel_transfer_plan_requested.connect(self._cancel_active_transfer_plan)
         self._canvas.preview_selected_event_clip_requested.connect(self._preview_selected_event_clip)
+        self._canvas.header_width_changed.connect(self._on_canvas_header_width_changed)
         self._ruler.seek_requested.connect(self._seek)
         self._ruler.region_span_requested.connect(self._create_region_from_ruler_span)
         self._ruler.region_selected.connect(self._select_region_from_ruler)
@@ -276,7 +316,7 @@ class TimelineWidget(TimelineWidgetRuntimeMixin, TimelineWidgetContractMixin, QW
 
         self._runtime_timer = QTimer(self)
         self._runtime_timer.setTimerType(Qt.TimerType.PreciseTimer)
-        self._runtime_timer.setInterval(8)
+        self._runtime_timer.setInterval(TIMELINE_RUNTIME_TICK_ACTIVE_MS)
         self._runtime_timer.timeout.connect(self._on_runtime_tick)
         self._runtime_timer.start()
         self._action_router = TimelineWidgetActionRouter(
@@ -342,10 +382,24 @@ class TimelineWidget(TimelineWidgetRuntimeMixin, TimelineWidgetContractMixin, QW
 
         self.set_presentation(self.presentation)
 
-    def _pause_transport_from_spacebar(self) -> None:
-        if not bool(self.presentation.is_playing):
-            return
-        self._dispatch(Pause())
+    def layer_header_width_px(self) -> int:
+        return int(self._canvas._header_width)
+
+    def set_layer_header_width(self, width: int) -> None:
+        self._canvas.set_header_width(int(width))
+        self._on_canvas_header_width_changed(int(self._canvas._header_width))
+
+    def _on_canvas_header_width_changed(self, width: int) -> None:
+        self._ruler.set_header_width(float(width))
+        self._update_horizontal_scroll_bounds(sync_bar_value=False)
+        self._ruler.update()
+        self._canvas.update()
+
+    def _play_transport_from_spacebar(self) -> None:
+        self._dispatch(Stop() if self.presentation.is_playing else Play())
+
+    def _preview_selected_event_from_shift_space(self) -> None:
+        self._preview_selected_event_clip()
 
     def _open_settings_dialog(self) -> None:
         actions = getattr(self, "_launcher_actions", {})
@@ -370,11 +424,145 @@ class TimelineWidget(TimelineWidgetRuntimeMixin, TimelineWidgetContractMixin, QW
             return
         self._apply_region_manager_changes(dialog.region_drafts())
 
-    def _open_section_manager_dialog(self) -> None:
-        dialog = SectionManagerDialog(self.presentation, parent=self)
+    def _section_manager_target_layer(
+        self,
+        *,
+        preferred_layer_id: LayerId | None = None,
+    ) -> LayerPresentation | None:
+        if preferred_layer_id is not None:
+            explicit_layer = next(
+                (
+                    layer
+                    for layer in self.presentation.layers
+                    if layer.layer_id == preferred_layer_id and layer.kind is LayerKind.SECTION
+                ),
+                None,
+            )
+            if explicit_layer is not None:
+                return explicit_layer
+        selected_layer_id = self.presentation.selected_layer_id
+        if selected_layer_id is not None:
+            selected_layer = next(
+                (
+                    layer
+                    for layer in self.presentation.layers
+                    if layer.layer_id == selected_layer_id and layer.kind is LayerKind.SECTION
+                ),
+                None,
+            )
+            if selected_layer is not None:
+                return selected_layer
+        section_layers = [
+            layer for layer in self.presentation.layers if layer.kind is LayerKind.SECTION
+        ]
+        if len(section_layers) == 1:
+            return section_layers[0]
+        return None
+
+    def _open_section_manager_from_header(self, layer_id: LayerId) -> None:
+        self._focus_layer_for_header_action(layer_id)
+        self._open_section_manager_dialog(target_layer_id=layer_id)
+
+    @staticmethod
+    def _section_layer_drafts(layer: LayerPresentation) -> list[SectionCueDraft]:
+        ordered_events = sorted(
+            layer.events,
+            key=lambda event: (float(event.start), float(event.end), str(event.event_id)),
+        )
+        drafts: list[SectionCueDraft] = []
+        for event in ordered_events:
+            cue_ref = str(event.cue_ref or "").strip()
+            if not cue_ref:
+                continue
+            drafts.append(
+                SectionCueDraft(
+                    cue_id=SectionCueId(str(event.event_id)),
+                    start=float(event.start),
+                    cue_ref=cue_ref,
+                    name=str(event.label or "").strip() or cue_ref,
+                    cue_number=event.cue_number,
+                    color=event.color,
+                    notes=event.notes,
+                    payload_ref=event.payload_ref,
+                )
+            )
+        return drafts
+
+    def _open_section_manager_dialog(
+        self,
+        *,
+        selected_cue_id: SectionCueId | None = None,
+        target_layer_id: LayerId | None = None,
+    ) -> None:
+        target_layer = self._section_manager_target_layer(preferred_layer_id=target_layer_id)
+        if target_layer is None:
+            QMessageBox.information(
+                self,
+                "Select Section Layer",
+                (
+                    "Section manager is per section layer.\n\n"
+                    "Select a section layer first (or create one) to open its cue stack."
+                ),
+            )
+            return
+        dialog = SectionManagerDialog(
+            self.presentation,
+            parent=self,
+            cues=self._section_layer_drafts(target_layer),
+            worksheet_title=f"{target_layer.title} Cue Stack",
+            selected_cue_id=selected_cue_id,
+        )
         if dialog.exec() != SectionManagerDialog.DialogCode.Accepted:
             return
-        self._apply_section_manager_changes(dialog.section_cue_drafts())
+        self._apply_section_manager_changes(
+            dialog.section_cue_drafts(),
+            target_layer_id=target_layer.layer_id,
+        )
+
+    def _rename_section_cue_from_canvas(self, cue_id: object) -> None:
+        section_cue_id = SectionCueId(str(cue_id or "").strip())
+        target_layer = self._section_manager_target_layer()
+        if target_layer is None:
+            return
+        layer_drafts = self._section_layer_drafts(target_layer)
+        current_draft = next((cue for cue in layer_drafts if cue.cue_id == section_cue_id), None)
+        if current_draft is None:
+            return
+        current_name = str(current_draft.name or "").strip() or str(current_draft.cue_ref or "").strip()
+        renamed_value, accepted = QInputDialog.getText(
+            self,
+            "Rename Section",
+            "Section name",
+            text=current_name,
+        )
+        if not accepted:
+            return
+        next_name = str(renamed_value or "").strip()
+        if not next_name or next_name == current_name:
+            return
+        drafts: list[SectionCueDraft] = [
+            SectionCueDraft(
+                cue_id=cue.cue_id,
+                start=float(cue.start),
+                cue_ref=cue.cue_ref,
+                name=next_name if cue.cue_id == section_cue_id else cue.name,
+                cue_number=cue.cue_number,
+                color=cue.color,
+                notes=cue.notes,
+                payload_ref=cue.payload_ref,
+            )
+            for cue in layer_drafts
+        ]
+        self._apply_section_manager_changes(
+            drafts,
+            target_layer_id=target_layer.layer_id,
+        )
+
+    def _edit_section_cue_from_canvas(self, cue_id: object) -> None:
+        section_cue_id = SectionCueId(str(cue_id or "").strip())
+        if not str(section_cue_id).strip():
+            return
+        self._open_section_manager_dialog(selected_cue_id=section_cue_id)
 
     def _promote_fix_onset_event(
         self,
@@ -567,20 +755,31 @@ class TimelineWidget(TimelineWidgetRuntimeMixin, TimelineWidgetContractMixin, QW
                 )
             )
 
-    def _apply_section_manager_changes(self, drafts: list[SectionCueDraft]) -> None:
+    def _apply_section_manager_changes(
+        self,
+        drafts: list[SectionCueDraft],
+        *,
+        target_layer_id: LayerId | None = None,
+    ) -> None:
         edits = [
             SectionCueEdit(
                 cue_id=draft.cue_id,
                 start=float(draft.start),
                 cue_ref=draft.cue_ref,
                 name=draft.name,
+                cue_number=draft.cue_number,
                 color=draft.color,
                 notes=draft.notes,
                 payload_ref=draft.payload_ref,
             )
             for draft in drafts
         ]
-        self._dispatch(ReplaceSectionCues(cues=edits))
+        self._dispatch(
+            ReplaceSectionCues(
+                cues=edits,
+                target_layer_id=target_layer_id,
+            )
+        )
 
     def configure_launcher_actions(self, actions: Mapping[str, QAction]) -> None:
         """Attach the canonical launcher actions to the widget menu bar."""
@@ -597,13 +796,6 @@ class TimelineWidget(TimelineWidgetRuntimeMixin, TimelineWidgetContractMixin, QW
         self._add_menu_action(file_menu, actions, "save_project")
         self._add_menu_action(file_menu, actions, "save_project_as")
         self._add_menu_action(file_menu, actions, "enable_phone_review_service")
-        self._add_menu_action(file_menu, actions, "disable_phone_review_service")
-        self._add_menu_action(file_menu, actions, "open_project_review")
-        self._add_menu_action(file_menu, actions, "open_project_review_all")
-        self._add_menu_action(file_menu, actions, "open_project_review_dataset_folder")
-        self._add_menu_action(file_menu, actions, "open_project_review_dataset_artifact")
-        self._add_menu_action(file_menu, actions, "create_project_specialized_model")
-        self._add_menu_action(file_menu, actions, "create_project_specialized_snare_model")
 
         edit_menu = self._launcher_menu_bar.addMenu("&Edit")
         if edit_menu is None:

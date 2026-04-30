@@ -15,7 +15,9 @@ from echozero.application.playback.models import PlaybackState
 from echozero.application.sync.models import SyncState
 
 if TYPE_CHECKING:
-    from echozero.application.timeline.pipeline_run_service import PipelineRunState
+    from echozero.application.timeline.operation_progress_service import (
+        OperationProgressState,
+    )
 
 
 @dataclass(slots=True)
@@ -81,6 +83,9 @@ class ManualPushFlowState:
     current_song_sequence_range: ManualPushSequenceRange | None = None
     target_track_coord: str | None = None
     transfer_mode: str = "merge"
+    operation_id: str | None = None
+    operation_status: str = "idle"
+    operation_message: str = ""
     diff_gate_open: bool = False
     diff_preview: ManualPushDiffPreview | None = None
 
@@ -221,5 +226,7 @@ class Session:
     manual_pull_flow: ManualPullFlowState = field(default_factory=ManualPullFlowState)
     batch_transfer_plan: BatchTransferPlanState | None = None
     transfer_presets: list[TransferPresetState] = field(default_factory=list)
-    pipeline_runs: dict[str, PipelineRunState] = field(default_factory=dict)
+    operation_progress_by_id: dict[str, OperationProgressState] = field(
+        default_factory=dict
+    )
     ui_prefs_ref: str | None = None

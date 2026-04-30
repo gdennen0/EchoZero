@@ -267,6 +267,7 @@ def test_app_shell_runtime_import_smpte_audio_to_layer_uses_extracted_ltc_when_a
             del working_dir, scan_fn
             assert source_path == printed_dual_track.resolve()
             assert options is not None and bool(options.strip_ltc_timecode)
+            assert options.ltc_detection_mode == "aggressive"
             return PreparedAudioSource(
                 source_path=source_path,
                 ltc_artifact_path=extracted_ltc,
@@ -343,6 +344,7 @@ def test_app_shell_runtime_import_smpte_audio_to_layer_uses_source_when_ltc_not_
             del working_dir, scan_fn
             assert source_path == smpte_source.resolve()
             assert options is not None and bool(options.strip_ltc_timecode)
+            assert options.ltc_detection_mode == "aggressive"
             return PreparedAudioSource(source_path=source_path)
 
         def _fake_scan(path: Path, scan_fn=None) -> AudioMetadata:
@@ -366,6 +368,47 @@ def test_app_shell_runtime_import_smpte_audio_to_layer_uses_source_when_ltc_not_
         assert isinstance(persisted_take.data, AudioData)
         assert Path(str(persisted_take.data.file_path)).name == f"{expected_hash_prefix}.wav"
         assert scanned_paths == [smpte_source.resolve()]
+    finally:
+        runtime.shutdown()
+        shutil.rmtree(temp_root, ignore_errors=True)
+
+
+def test_app_shell_runtime_add_smpte_layer_from_import_split_uses_matching_ltc_artifact():
+    temp_root = _repo_local_temp_root()
+    runtime = build_app_shell(
+        working_dir_root=temp_root / "working",
+        initial_project_name="SMPTE Import Split Action",
+    )
+
+    try:
+        source_song = Path(write_test_wav(temp_root / "fixtures" / "split-action-source.wav"))
+        runtime.add_song_from_path("Split Action Song", source_song)
+
+        active_song_version_id = runtime.session.active_song_version_id
+        assert active_song_version_id is not None
+        version_record = runtime.project_storage.song_versions.get(str(active_song_version_id))
+        assert version_record is not None
+
+        split_dir = runtime.project_storage.working_dir / "audio" / "split_channels"
+        split_dir.mkdir(parents=True, exist_ok=True)
+        split_prefix = "1122334455667788"
+        program_artifact = split_dir / f"{split_prefix}_program_left.wav"
+        ltc_artifact = split_dir / f"{split_prefix}_ltc_right.wav"
+        shutil.copy2(source_song, program_artifact)
+        write_test_wav(ltc_artifact)
+
+        assert compute_audio_hash(program_artifact) == version_record.audio_hash
+
+        updated = runtime.add_smpte_layer_from_import_split()
+
+        smpte_layer = next(layer for layer in updated.layers if layer.title == "SMPTE Layer")
+        persisted_take = runtime.project_storage.takes.list_by_layer(str(smpte_layer.layer_id))[0]
+        assert isinstance(persisted_take.data, AudioData)
+
+        expected_hash_prefix = compute_audio_hash(ltc_artifact)[:16]
+        assert Path(str(persisted_take.data.file_path)).name == f"{expected_hash_prefix}.wav"
+        assert smpte_layer.source_audio_path is not None
+        assert smpte_layer.source_audio_path.endswith(f"{expected_hash_prefix}.wav")
     finally:
         runtime.shutdown()
         shutil.rmtree(temp_root, ignore_errors=True)
@@ -449,7 +492,6 @@ def test_app_shell_runtime_exposes_transfer_surface_actions():
         }
         assert "song.add" in empty_action_ids
         assert "add_event_layer" in empty_action_ids
-        assert "add_marker_layer" in empty_action_ids
         assert "add_section_layer" in empty_action_ids
         assert "add_automation_layer" not in empty_action_ids
         assert "add_reference_layer" not in empty_action_ids
@@ -667,9 +709,27 @@ def test_app_shell_runtime_scopes_pipeline_progress_to_active_song_version():
 
     def _blocking_execute(session, config_id, runtime_bindings=None, on_progress=None):
         if on_progress is not None:
-            on_progress("Loading configuration", 0.0)
-            on_progress("Preparing pipeline", 0.1)
-            on_progress("Executing pipeline", 0.2)
+            on_progress(
+                OperationProgressUpdate(
+                    stage="loading_configuration",
+                    message="Loading configuration",
+                    fraction_complete=0.0,
+                )
+            )
+            on_progress(
+                OperationProgressUpdate(
+                    stage="preparing_pipeline",
+                    message="Preparing pipeline",
+                    fraction_complete=0.1,
+                )
+            )
+            on_progress(
+                OperationProgressUpdate(
+                    stage="executing_pipeline",
+                    message="Executing pipeline",
+                    fraction_complete=0.2,
+                )
+            )
         gate.wait(timeout=5.0)
         return original_execute(
             session,
@@ -709,20 +769,20 @@ def test_app_shell_runtime_scopes_pipeline_progress_to_active_song_version():
         )
         assert _wait_until(
             lambda: (
-                runtime.get_pipeline_run_state(run_1_id) is not None
-                and runtime.get_pipeline_run_state(run_1_id).status in {"resolving", "running"}
+                runtime.get_operation_state(run_1_id) is not None
+                and runtime.get_operation_state(run_1_id).status in {"resolving", "running"}
             )
         )
 
-        banner = runtime.presentation().pipeline_run_banner
+        banner = runtime.presentation().operation_progress_banner
         assert banner is not None
-        assert banner.run_id == run_1_id
+        assert banner.operation_id == run_1_id
         assert runtime.presentation().active_song_version_id == version_1_id
 
         runtime.select_song(song_2_id)
 
         assert runtime.presentation().active_song_version_id == version_2_id
-        assert runtime.presentation().pipeline_run_banner is None
+        assert runtime.presentation().operation_progress_banner is None
         song_2_plan = runtime.describe_object_action(
             "timeline.extract_stems",
             {"layer_id": "source_audio"},
@@ -730,7 +790,7 @@ def test_app_shell_runtime_scopes_pipeline_progress_to_active_song_version():
             object_type="layer",
         )
         assert song_2_plan.is_running is False
-        assert song_2_plan.run_id is None
+        assert song_2_plan.operation_id is None
 
         run_2_id = runtime.request_object_action_run(
             "timeline.extract_stems",
@@ -739,14 +799,14 @@ def test_app_shell_runtime_scopes_pipeline_progress_to_active_song_version():
         )
         assert _wait_until(
             lambda: (
-                runtime.get_pipeline_run_state(run_2_id) is not None
-                and runtime.get_pipeline_run_state(run_2_id).status in {"resolving", "running"}
+                runtime.get_operation_state(run_2_id) is not None
+                and runtime.get_operation_state(run_2_id).status in {"resolving", "running"}
             )
         )
 
-        song_2_banner = runtime.presentation().pipeline_run_banner
+        song_2_banner = runtime.presentation().operation_progress_banner
         assert song_2_banner is not None
-        assert song_2_banner.run_id == run_2_id
+        assert song_2_banner.operation_id == run_2_id
         song_2_plan = runtime.describe_object_action(
             "timeline.extract_stems",
             {"layer_id": "source_audio"},
@@ -754,13 +814,13 @@ def test_app_shell_runtime_scopes_pipeline_progress_to_active_song_version():
             object_type="layer",
         )
         assert song_2_plan.is_running is True
-        assert song_2_plan.run_id == run_2_id
+        assert song_2_plan.operation_id == run_2_id
 
         runtime.select_song(song_1_id)
 
-        song_1_banner = runtime.presentation().pipeline_run_banner
+        song_1_banner = runtime.presentation().operation_progress_banner
         assert song_1_banner is not None
-        assert song_1_banner.run_id == run_1_id
+        assert song_1_banner.operation_id == run_1_id
         song_1_plan = runtime.describe_object_action(
             "timeline.extract_stems",
             {"layer_id": "source_audio"},
@@ -768,11 +828,11 @@ def test_app_shell_runtime_scopes_pipeline_progress_to_active_song_version():
             object_type="layer",
         )
         assert song_1_plan.is_running is True
-        assert song_1_plan.run_id == run_1_id
+        assert song_1_plan.operation_id == run_1_id
 
         gate.set()
-        assert runtime.wait_for_pipeline_run(run_1_id, timeout=5.0).status == "completed"
-        assert runtime.wait_for_pipeline_run(run_2_id, timeout=5.0).status == "completed"
+        assert runtime.wait_for_operation(run_1_id, timeout=5.0).status == "completed"
+        assert runtime.wait_for_operation(run_2_id, timeout=5.0).status == "completed"
     finally:
         runtime.shutdown()
         shutil.rmtree(temp_root, ignore_errors=True)
@@ -952,7 +1012,7 @@ def test_app_shell_widget_contract_switches_song_and_song_version():
         shutil.rmtree(temp_root, ignore_errors=True)
 
 
-def test_app_shell_runtime_open_project_preserves_playback_target_when_still_valid():
+def test_app_shell_runtime_open_project_preserves_selected_take_when_still_valid():
     temp_root = _repo_local_temp_root()
     working_root = temp_root / "working"
     save_path = temp_root / "preserve-target.ez"
@@ -973,21 +1033,19 @@ def test_app_shell_runtime_open_project_preserves_playback_target_when_still_val
         drums_layer = next(layer for layer in second_pass.layers if layer.title == "Drums")
         drums_take = drums_layer.takes[0]
 
-        runtime.dispatch(
-            SetActivePlaybackTarget(layer_id=drums_layer.layer_id, take_id=drums_take.take_id)
-        )
+        runtime.dispatch(SelectTake(layer_id=drums_layer.layer_id, take_id=drums_take.take_id))
         before_reload = runtime.presentation()
         assert before_reload.selected_layer_id == second_pass.selected_layer_id
-        assert before_reload.active_playback_layer_id == drums_layer.layer_id
-        assert before_reload.active_playback_take_id == drums_take.take_id
+        assert before_reload.selected_layer_id == drums_layer.layer_id
+        assert before_reload.selected_take_id == drums_take.take_id
 
         runtime.save_project_as(save_path)
         runtime.open_project(save_path)
         reloaded = runtime.presentation()
 
         assert reloaded.selected_layer_id == before_reload.selected_layer_id
-        assert reloaded.active_playback_layer_id == before_reload.active_playback_layer_id
-        assert reloaded.active_playback_take_id == before_reload.active_playback_take_id
+        assert reloaded.selected_layer_id == before_reload.selected_layer_id
+        assert reloaded.selected_take_id == before_reload.selected_take_id
     finally:
         runtime.shutdown()
         shutil.rmtree(temp_root, ignore_errors=True)
@@ -1082,7 +1140,7 @@ def test_app_shell_runtime_open_project_clears_stale_selected_event_refs():
         shutil.rmtree(temp_root, ignore_errors=True)
 
 
-def test_app_shell_runtime_refresh_repairs_missing_playback_target_to_baseline_layer():
+def test_app_shell_runtime_refresh_repairs_missing_selection_to_baseline_layer():
     temp_root = _repo_local_temp_root()
     runtime = build_app_shell(
         working_dir_root=temp_root / "working",
@@ -1101,9 +1159,7 @@ def test_app_shell_runtime_refresh_repairs_missing_playback_target_to_baseline_l
         drums_layer = next(layer for layer in second_pass.layers if layer.title == "Drums")
         drums_take = drums_layer.takes[0]
 
-        runtime.dispatch(
-            SetActivePlaybackTarget(layer_id=drums_layer.layer_id, take_id=drums_take.take_id)
-        )
+        runtime.dispatch(SelectTake(layer_id=drums_layer.layer_id, take_id=drums_take.take_id))
         version_2 = runtime.add_song_version(
             str(runtime.session.active_song_id),
             write_test_wav(temp_root / "fixtures" / "repair-target-2.wav", frames=8820),
@@ -1111,8 +1167,8 @@ def test_app_shell_runtime_refresh_repairs_missing_playback_target_to_baseline_l
         )
 
         assert version_2.layers[0].title == "Repair Target Song"
-        assert version_2.active_playback_layer_id == version_2.layers[0].layer_id
-        assert version_2.active_playback_take_id is None
+        assert version_2.selected_layer_id == version_2.layers[0].layer_id
+        assert version_2.selected_take_id is None
         assert version_2.selected_layer_id == version_2.layers[0].layer_id
         assert len(version_2.layers) == 1
     finally:

@@ -1,5 +1,9 @@
 # EchoZero Worker Roles
 
+Status: reference
+Last reviewed: 2026-04-30
+
+
 This repo uses a `lead-dev` plus disposable worker model.
 
 `lead-dev` is the primary engineering interface for EchoZero. It owns planning,
@@ -20,6 +24,7 @@ Purpose:
 - keep work aligned with first principles
 - choose the correct proof lane
 - assign bounded file ownership
+- keep a visible current-task anchor in the parent lane
 - integrate worker output
 - reject work that violates truth-model or sync boundaries
 
@@ -29,6 +34,7 @@ Must enforce:
 - main-only sync semantics
 - no speculative refactor during scoped delivery
 - proof at the application boundary, not just helper/demo level
+- parent-visible task identity so delegated work can be recovered after context loss
 
 ## `impl`
 

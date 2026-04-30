@@ -15,6 +15,7 @@ from typing import Any
 import pytest
 
 import echozero.pipelines.templates  # noqa: F401 — register templates
+from echozero.application.progress import OperationProgressUpdate
 from echozero.domain.types import AudioData, Event, EventData, Layer
 from echozero.errors import ExecutionError, ValidationError
 from echozero.execution import ExecutionContext
@@ -495,10 +496,10 @@ class TestOrchestratorProgress:
         session, song, version = _create_session_with_song(tmp_path)
         service = Orchestrator(get_registry(), _default_executors())
 
-        progress_calls: list[tuple[str, float]] = []
+        progress_calls: list[OperationProgressUpdate] = []
 
-        def on_progress(message: str, percent: float) -> None:
-            progress_calls.append((message, percent))
+        def on_progress(update: OperationProgressUpdate) -> None:
+            progress_calls.append(update)
 
         result = service.analyze(
             session, version.id, "onset_detection",
@@ -507,9 +508,9 @@ class TestOrchestratorProgress:
 
         assert isinstance(result, Ok)
         assert len(progress_calls) >= 3
-        assert progress_calls[0][1] == 0.0
-        assert progress_calls[-1][1] == 1.0
-        assert progress_calls[-1][0] == "Complete"
+        assert progress_calls[0].fraction_complete == 0.0
+        assert progress_calls[-1].fraction_complete == 1.0
+        assert progress_calls[-1].message == "Complete"
 
         session.close()
 

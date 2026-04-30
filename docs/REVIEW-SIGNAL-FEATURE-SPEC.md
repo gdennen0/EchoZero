@@ -1,7 +1,9 @@
 # Review Signal Feature Spec
 
-Status: proposed implementation target
-Last verified: 2026-04-24
+Status: active
+Last reviewed: 2026-04-30
+
+
 
 This spec defines the canonical human-review and training-signal lane for
 EchoZero.

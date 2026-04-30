@@ -5,6 +5,8 @@ Connects app-settings persistence to reusable OSC status + ping probes in one mo
 
 from __future__ import annotations
 
+from collections.abc import Callable
+
 from PyQt6.QtWidgets import (
     QDialog,
     QDialogButtonBox,
@@ -18,6 +20,7 @@ from PyQt6.QtWidgets import (
 
 from echozero.application.settings import (
     AppSettingsService,
+    AppSettingsUpdateResult,
     AppSettingsValidationError,
     SettingsPage,
 )
@@ -33,12 +36,14 @@ class OscSettingsDialog(QDialog):
         self,
         settings_service: AppSettingsService,
         *,
+        on_saved: Callable[[AppSettingsUpdateResult], None] | None = None,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
         self.setObjectName("oscSettingsDialog")
         ensure_qt_theme_installed()
         self._settings_service = settings_service
+        self._on_saved = on_saved
         self.resize(700, 640)
 
         layout = QVBoxLayout(self)
@@ -148,13 +153,12 @@ class OscSettingsDialog(QDialog):
         except AppSettingsValidationError as exc:
             QMessageBox.warning(self, "Invalid OSC Settings", str(exc))
             return
-
-        if result.restart_required:
-            QMessageBox.information(
-                self,
-                "Restart Required",
-                "\n".join(result.restart_reasons),
-            )
+        if self._on_saved is not None:
+            try:
+                self._on_saved(result)
+            except Exception as exc:
+                QMessageBox.warning(self, "Apply OSC Settings", str(exc))
+                return
         self.accept()
 
     def _on_field_value_changed(self, key: str, _value: object) -> None:

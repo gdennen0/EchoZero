@@ -1,6 +1,13 @@
 # Launch Remediation Task Board
 
-Last updated: 2026-04-18
+Status: historical
+Last reviewed: 2026-04-30
+
+
+Originally updated: 2026-04-18
+
+This document is retained as a historical execution board.
+For current launcher/runtime truth, use `docs/STATUS.md`.
 
 This board turns the current launcher/runtime regression into executable work.
 It is intentionally concrete:

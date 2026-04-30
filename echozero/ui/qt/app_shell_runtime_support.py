@@ -14,7 +14,9 @@ from echozero.application.shared.ids import EventId, LayerId, TakeId
 from echozero.application.sync.adapters import MA3SyncBridge
 from echozero.application.timeline.app import TimelineApplication
 from echozero.application.timeline.object_actions import ObjectActionService
-from echozero.application.timeline.pipeline_run_service import PipelineRunService
+from echozero.application.timeline.operation_progress_service import (
+    OperationProgressService,
+)
 from echozero.infrastructure.osc import OscUdpSendTransport
 from echozero.persistence.session import ProjectStorage
 from echozero.services.orchestrator import Orchestrator
@@ -59,7 +61,7 @@ class RuntimeSupportShell(Protocol):
     _app: TimelineApplication
     _analysis_service: Orchestrator
     _object_action_settings: ObjectActionService
-    _pipeline_runs: PipelineRunService
+    _pipeline_runs: OperationProgressService
     _sync_bridge: MA3SyncBridge | None
     _app_settings_service: AppSettingsService | None
     project_storage: ProjectStorage
@@ -83,7 +85,7 @@ def build_object_action_services(shell: RuntimeSupportShell) -> None:
         presentation_getter=shell.presentation,
         require_layer=lambda layer_id: require_layer(shell, LayerId(str(layer_id))),
         analysis_service=shell._analysis_service,
-        active_run_lookup=lambda action_id, object_id, object_type: shell._pipeline_runs.visible_run_for(
+        active_run_lookup=lambda action_id, object_id, object_type: shell._pipeline_runs.visible_operation_for(
             action_id=action_id,
             object_id=object_id,
             object_type=object_type,
@@ -91,11 +93,11 @@ def build_object_action_services(shell: RuntimeSupportShell) -> None:
             song_version_id=shell.session.active_song_version_id,
         ),
     )
-    shell._pipeline_runs = PipelineRunService(
+    shell._pipeline_runs = OperationProgressService(
         project_storage_getter=lambda: shell.project_storage,
         session_getter=lambda: shell.session,
         analysis_service=shell._analysis_service,
-        prepare_run=lambda action_id, params, object_id, object_type, persist_scope: shell._object_action_settings.prepare_run(
+        prepare_operation=lambda action_id, params, object_id, object_type, persist_scope: shell._object_action_settings.prepare_run(
             action_id,
             params,
             object_id=object_id,
@@ -115,8 +117,6 @@ def select_active_source_layer(shell: RuntimeSupportShell) -> None:
     timeline.selection.selected_layer_ids = [source_layer_id]
     timeline.selection.selected_take_id = None
     clear_selected_events(timeline)
-    timeline.playback_target.layer_id = source_layer_id
-    timeline.playback_target.take_id = None
     sync_runtime_audio_from_presentation(shell, shell.presentation())
 
 

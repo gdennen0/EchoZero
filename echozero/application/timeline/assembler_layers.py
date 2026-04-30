@@ -11,6 +11,7 @@ from echozero.application.presentation.models import (
     LayerStatusPresentation,
     TakeActionPresentation,
     TakeLanePresentation,
+    default_layer_header_controls,
     default_take_actions,
 )
 from echozero.application.session.models import BatchTransferPlanRowState, Session
@@ -18,7 +19,10 @@ from echozero.application.shared.enums import LayerKind, SyncMode
 from echozero.application.shared.ids import LayerId, TakeId
 from echozero.application.timeline.assembler_state import TimelineAssemblyState
 from echozero.application.timeline.models import Event, Layer, Take
-from echozero.application.timeline.object_actions import pipeline_actions_for_audio_layer
+from echozero.application.timeline.object_actions import (
+    descriptor_for_action,
+    pipeline_actions_for_audio_layer,
+)
 
 __all__ = ["assemble_layer"]
 
@@ -65,12 +69,14 @@ def assemble_layer(
         subtitle="",
         kind=layer.kind,
         is_selected=layer_selected,
-        is_playback_active=layer.id == state.active_playback_layer_id,
+        is_playback_active=False,
         is_expanded=layer.presentation_hints.expanded,
         events=main_events,
         takes=take_rows,
         visible=layer.presentation_hints.visible,
         locked=layer.presentation_hints.locked,
+        muted=layer.mixer.mute,
+        soloed=layer.mixer.solo,
         gain_db=layer.mixer.gain_db,
         pan=layer.mixer.pan,
         output_bus=layer.mixer.output_bus,
@@ -94,7 +100,6 @@ def assemble_layer(
         badges=badges,
         header_controls=_assemble_header_controls(
             layer,
-            is_playback_active=layer.id == state.active_playback_layer_id,
             is_selected=layer_selected,
         ),
         playback_source_ref=layer.playback.armed_source_ref,
@@ -105,26 +110,34 @@ def assemble_layer(
 def _assemble_header_controls(
     layer: Layer,
     *,
-    is_playback_active: bool,
     is_selected: bool,
 ) -> list[LayerHeaderControlPresentation]:
-    controls = [
-        LayerHeaderControlPresentation(
-            control_id="set_active_playback_target",
-            label="ACTIVE",
-            kind="toggle",
-            active=is_playback_active,
-        )
-    ]
+    controls = default_layer_header_controls(
+        kind=layer.kind,
+        main_take_id=_main_take_id(layer),
+        is_muted=bool(layer.mixer.mute),
+        is_soloed=bool(layer.mixer.solo),
+        is_selected=is_selected,
+    )
     if is_selected and _layer_pipeline_action_count(layer) > 0:
-        controls.append(
-            LayerHeaderControlPresentation(
-                control_id="layer_pipeline_actions",
-                label="Pipelines",
-                kind="action",
-            )
+        has_pipeline_control = any(
+            control.control_id == "layer_pipeline_actions"
+            for control in controls
         )
+        if not has_pipeline_control:
+            controls.append(
+                LayerHeaderControlPresentation(
+                    control_id="layer_pipeline_actions",
+                    label="Pipelines",
+                    kind="action",
+                )
+            )
     return controls
+
+
+def _main_take_id(layer: Layer) -> TakeId | None:
+    main_take = _main_take(layer)
+    return main_take.id if main_take is not None else None
 
 
 def _assemble_take_rows(
@@ -140,10 +153,7 @@ def _assemble_take_rows(
             is_main=False,
             kind=layer.kind,
             is_selected=layer_selected and take.id == state.selected_take_id,
-            is_playback_active=(
-                layer.id == state.active_playback_layer_id
-                and take.id == state.active_playback_take_id
-            ),
+            is_playback_active=False,
             events=_assemble_events(layer.id, take.id, take.events, state),
             source_ref=take.source_ref,
             playback_source_ref=layer.playback.armed_source_ref,
@@ -261,13 +271,19 @@ def _coerce_sync_mode(raw_mode: object) -> SyncMode:
 
 
 def _layer_pipeline_action_count(layer: Layer) -> int:
-    return len(
+    count = len(
         pipeline_actions_for_audio_layer(
             is_stem_capable=_is_stem_capable_layer(layer),
             is_drum_capable=_is_drum_capable_layer(layer),
             is_song_drum_capable=_is_song_drum_capable_layer(layer),
         )
     )
+    if (
+        layer.kind is LayerKind.SECTION
+        and descriptor_for_action("timeline.extract_song_sections") is not None
+    ):
+        count += 1
+    return count
 
 
 def _is_stem_capable_layer(layer: Layer) -> bool:

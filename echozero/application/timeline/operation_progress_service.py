@@ -1,6 +1,6 @@
-"""Application-owned background pipeline run execution.
-Exists to keep object-action execution and transient run state out of Qt widgets.
-Connects prepared object-action requests to background orchestrator runs and app-visible status.
+"""Application-owned background operation progress execution and state.
+Exists to keep long-running object-action execution and status tracking out of widgets.
+Connects object-action requests to orchestrator execution and app-visible progress banners.
 """
 
 from __future__ import annotations
@@ -13,6 +13,11 @@ from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING
 
+from echozero.application.progress import (
+    ACTIVE_OPERATION_PROGRESS_STATUSES,
+    OperationProgressStatus,
+    OperationProgressUpdate,
+)
 from echozero.result import is_err, unwrap
 from echozero.services.orchestrator import Orchestrator
 
@@ -20,13 +25,10 @@ if TYPE_CHECKING:
     from echozero.application.session.models import Session
     from echozero.persistence.session import ProjectStorage
 
-_ACTIVE_PIPELINE_RUN_STATUSES = frozenset({"queued", "resolving", "running", "persisting"})
-_FINAL_PIPELINE_RUN_STATUSES = frozenset({"completed", "failed", "cancelled"})
-
 
 @dataclass(slots=True, frozen=True)
-class PreparedPipelineRun:
-    """Resolved object-action run request ready for the orchestrator."""
+class PreparedOperation:
+    """Resolved object-action operation request ready for the orchestrator."""
 
     action_id: str
     workflow_id: str
@@ -42,10 +44,11 @@ class PreparedPipelineRun:
 
 
 @dataclass(slots=True, frozen=True)
-class PipelineRunState:
-    """Transient application-owned state for one pipeline run."""
+class OperationProgressState:
+    """Transient application-owned progress state for one operation."""
 
-    run_id: str
+    operation_id: str
+    kind: str
     action_id: str
     workflow_id: str
     display_label: str
@@ -54,9 +57,9 @@ class PipelineRunState:
     source_layer_id: str | None
     song_id: str | None
     song_version_id: str | None
-    status: str
+    status: OperationProgressStatus
     message: str
-    percent: float | None
+    fraction_complete: float | None
     started_at: float
     finished_at: float | None = None
     can_cancel: bool = False
@@ -66,15 +69,15 @@ class PipelineRunState:
 
 
 @dataclass(slots=True, frozen=True)
-class PipelineRunNotification:
-    """Coalesced update emitted to runtime adapters when run state changes."""
+class OperationProgressNotification:
+    """Coalesced update emitted to runtime adapters when operation state changes."""
 
     revision: int
     refresh_presentation: bool = False
 
 
 @dataclass(slots=True, frozen=True)
-class _PipelineRunRequest:
+class _OperationRequest:
     action_id: str
     params: dict[str, object] | None
     object_id: object | None
@@ -82,8 +85,8 @@ class _PipelineRunRequest:
     persist_scope: str | None
 
 
-class PipelineRunService:
-    """Execute prepared object actions off-thread and track transient run state."""
+class OperationProgressService:
+    """Execute prepared object actions off-thread and track transient operation state."""
 
     def __init__(
         self,
@@ -91,22 +94,22 @@ class PipelineRunService:
         project_storage_getter: Callable[[], ProjectStorage],
         session_getter: Callable[[], Session],
         analysis_service: Orchestrator,
-        prepare_run: Callable[[str, dict[str, object] | None, object | None, str | None, str | None], PreparedPipelineRun],
+        prepare_operation: Callable[[str, dict[str, object] | None, object | None, str | None, str | None], PreparedOperation],
         persist_generated_source_layer_id: Callable[..., None],
         max_workers: int = 4,
     ) -> None:
         self._project_storage_getter = project_storage_getter
         self._session_getter = session_getter
         self._analysis_service = analysis_service
-        self._prepare_run = prepare_run
+        self._prepare_operation = prepare_operation
         self._persist_generated_source_layer_id = persist_generated_source_layer_id
         self._lock = threading.RLock()
         self._executor = ThreadPoolExecutor(
             max_workers=max(1, int(max_workers)),
-            thread_name_prefix="ez-pipeline-run",
+            thread_name_prefix="ez-operation",
         )
         self._futures: dict[str, Future[None]] = {}
-        self._subject_run_ids: dict[tuple[str, str, str], str] = {}
+        self._subject_operation_ids: dict[tuple[str, str, str], str] = {}
         self._revision = 0
         self._pending_refresh = False
 
@@ -114,7 +117,7 @@ class PipelineRunService:
     def session(self) -> Session:
         return self._session_getter()
 
-    def request_run(
+    def request_operation(
         self,
         action_id: str,
         params: dict[str, object] | None = None,
@@ -123,7 +126,7 @@ class PipelineRunService:
         object_type: str | None = None,
         persist_scope: str | None = "version",
     ) -> str:
-        """Queue one object-action run and return its `run_id` immediately."""
+        """Queue one object-action operation and return its `operation_id` immediately."""
 
         session = self.session
         requested_object_id = str(object_id or "")
@@ -144,16 +147,17 @@ class PipelineRunService:
             requested_object_type,
             requested_object_id,
         )
-        run_id = f"pipeline_run_{uuid.uuid4().hex[:12]}"
-        request = _PipelineRunRequest(
+        operation_id = f"operation_{uuid.uuid4().hex[:12]}"
+        request = _OperationRequest(
             action_id=action_id,
             params=dict(params) if params is not None else None,
             object_id=object_id,
             object_type=object_type,
             persist_scope=persist_scope,
         )
-        initial_state = PipelineRunState(
-            run_id=run_id,
+        initial_state = OperationProgressState(
+            operation_id=operation_id,
+            kind="pipeline",
             action_id=action_id,
             workflow_id="",
             display_label=self._display_label_from_action_id(action_id),
@@ -164,43 +168,52 @@ class PipelineRunService:
             song_version_id=requested_song_version_id,
             status="queued",
             message="Queued",
-            percent=0.0,
+            fraction_complete=0.0,
             started_at=time.time(),
         )
         with self._lock:
-            active_run_id = self._subject_run_ids.get(subject_key)
-            active_state = self.session.pipeline_runs.get(active_run_id) if active_run_id is not None else None
+            active_operation_id = self._subject_operation_ids.get(subject_key)
+            active_state = (
+                self.session.operation_progress_by_id.get(active_operation_id)
+                if active_operation_id is not None
+                else None
+            )
             if active_state is not None and self.is_active(active_state):
                 raise RuntimeError(
                     f"{action_id} is already running for {requested_object_type} '{requested_object_id}'."
                 )
-            self._subject_run_ids[subject_key] = run_id
+            self._subject_operation_ids[subject_key] = operation_id
             self._store_state(initial_state)
-            self._futures[run_id] = self._executor.submit(
-                self._execute_requested_run,
-                run_id,
+            self._futures[operation_id] = self._executor.submit(
+                self._execute_requested_operation,
+                operation_id,
                 request,
                 subject_key,
             )
-        return run_id
+        return operation_id
 
-    def wait_for_run(self, run_id: str, *, timeout: float | None = None) -> PipelineRunState:
-        """Block until the target run has finished and return the final state."""
+    def wait_for_operation(
+        self,
+        operation_id: str,
+        *,
+        timeout: float | None = None,
+    ) -> OperationProgressState:
+        """Block until the target operation has finished and return the final state."""
 
         with self._lock:
-            future = self._futures.get(run_id)
+            future = self._futures.get(operation_id)
         if future is not None:
             future.result(timeout=timeout)
-        state = self.get_run(run_id)
+        state = self.get_operation(operation_id)
         if state is None:
-            raise ValueError(f"Unknown pipeline run '{run_id}'.")
+            raise ValueError(f"Unknown operation '{operation_id}'.")
         return state
 
-    def get_run(self, run_id: str) -> PipelineRunState | None:
+    def get_operation(self, operation_id: str) -> OperationProgressState | None:
         with self._lock:
-            return self.session.pipeline_runs.get(run_id)
+            return self.session.operation_progress_by_id.get(operation_id)
 
-    def visible_run_for(
+    def visible_operation_for(
         self,
         *,
         action_id: str,
@@ -208,8 +221,8 @@ class PipelineRunService:
         object_type: str | None,
         song_id: object | None = None,
         song_version_id: object | None = None,
-    ) -> PipelineRunState | None:
-        """Return the latest run worth surfacing in plans for one object action."""
+    ) -> OperationProgressState | None:
+        """Return the latest operation worth surfacing for one object action."""
 
         requested_object_id = str(object_id or "")
         requested_object_type = str(object_type or "object")
@@ -220,10 +233,10 @@ class PipelineRunService:
         with self._lock:
             matching = [
                 state
-                for state in self.session.pipeline_runs.values()
+                for state in self.session.operation_progress_by_id.values()
                 if state.action_id == action_id
                 and state.object_type == requested_object_type
-                and self._run_matches_context(
+                and self._operation_matches_context(
                     state,
                     song_id=requested_song_id,
                     song_version_id=requested_song_version_id,
@@ -236,17 +249,20 @@ class PipelineRunService:
         if not matching:
             return None
         latest = max(matching, key=lambda state: state.started_at)
-        if latest.status in _ACTIVE_PIPELINE_RUN_STATUSES or latest.status == "failed":
+        if latest.status in ACTIVE_OPERATION_PROGRESS_STATUSES or latest.status == "failed":
             return latest
         return None
 
-    def consume_updates_since(self, revision: int) -> PipelineRunNotification | None:
+    def consume_updates_since(
+        self,
+        revision: int,
+    ) -> OperationProgressNotification | None:
         """Return the latest coalesced notification after `revision`, if any."""
 
         with self._lock:
             if revision >= self._revision:
                 return None
-            notification = PipelineRunNotification(
+            notification = OperationProgressNotification(
                 revision=self._revision,
                 refresh_presentation=self._pending_refresh,
             )
@@ -257,24 +273,24 @@ class PipelineRunService:
         self._executor.shutdown(wait=wait, cancel_futures=False)
 
     @staticmethod
-    def is_active(state: PipelineRunState | None) -> bool:
-        return state is not None and state.status in _ACTIVE_PIPELINE_RUN_STATUSES
+    def is_active(state: OperationProgressState | None) -> bool:
+        return state is not None and state.status in ACTIVE_OPERATION_PROGRESS_STATUSES
 
-    def _execute_requested_run(
+    def _execute_requested_operation(
         self,
-        run_id: str,
-        request: _PipelineRunRequest,
+        operation_id: str,
+        request: _OperationRequest,
         subject_key: tuple[str, str, str],
     ) -> None:
-        prepared: PreparedPipelineRun | None = None
+        prepared: PreparedOperation | None = None
         try:
             self._update_state(
-                run_id,
+                operation_id,
                 status="resolving",
                 message="Resolving object action",
-                percent=0.0,
+                fraction_complete=0.0,
             )
-            prepared = self._prepare_run(
+            prepared = self._prepare_operation(
                 request.action_id,
                 request.params,
                 request.object_id,
@@ -282,7 +298,7 @@ class PipelineRunService:
                 request.persist_scope,
             )
             self._update_state(
-                run_id,
+                operation_id,
                 workflow_id=prepared.workflow_id,
                 display_label=prepared.display_label,
                 object_id=prepared.object_id,
@@ -291,16 +307,15 @@ class PipelineRunService:
                 song_id=prepared.song_id,
                 song_version_id=prepared.song_version_id,
                 message="Preparing pipeline",
-                percent=0.1,
+                fraction_complete=0.1,
             )
             result = self._analysis_service.execute(
                 self._project_storage_getter(),
                 prepared.config_id,
                 runtime_bindings=prepared.runtime_bindings,
-                on_progress=lambda message, percent: self._handle_progress(
-                    run_id,
-                    message=message,
-                    percent=percent,
+                on_progress=lambda update: self._handle_progress(
+                    operation_id,
+                    update=update,
                 ),
             )
             if is_err(result):
@@ -311,17 +326,17 @@ class PipelineRunService:
                 source_layer_id=prepared.source_layer_id,
             )
             self._update_state(
-                run_id,
+                operation_id,
                 status="completed",
                 message="Complete",
-                percent=1.0,
+                fraction_complete=1.0,
                 finished_at=time.time(),
                 output_layer_ids=tuple(analysis_result.layer_ids),
                 refresh_presentation=True,
             )
         except Exception as exc:
             self._update_state(
-                run_id,
+                operation_id,
                 workflow_id=prepared.workflow_id if prepared is not None else None,
                 display_label=prepared.display_label if prepared is not None else None,
                 object_id=prepared.object_id if prepared is not None else None,
@@ -337,26 +352,34 @@ class PipelineRunService:
             )
         finally:
             with self._lock:
-                active_run_id = self._subject_run_ids.get(subject_key)
-                if active_run_id == run_id:
-                    self._subject_run_ids.pop(subject_key, None)
+                active_operation_id = self._subject_operation_ids.get(subject_key)
+                if active_operation_id == operation_id:
+                    self._subject_operation_ids.pop(subject_key, None)
 
-    def _handle_progress(self, run_id: str, *, message: str, percent: float) -> None:
-        status = "running"
-        if message in {"Loading configuration", "Preparing pipeline"}:
-            status = "resolving"
-        elif message == "Persisting results":
-            status = "persisting"
+    def _handle_progress(
+        self,
+        operation_id: str,
+        *,
+        update: OperationProgressUpdate,
+    ) -> None:
+        stage_to_status: dict[str, OperationProgressStatus] = {
+            "loading_configuration": "resolving",
+            "preparing_pipeline": "resolving",
+            "executing_pipeline": "running",
+            "persisting_results": "persisting",
+            "complete": "completed",
+        }
+        status = stage_to_status.get(update.stage, "running")
         self._update_state(
-            run_id,
+            operation_id,
             status=status,
-            message=message,
-            percent=round(float(percent), 3),
+            message=update.message,
+            fraction_complete=update.fraction_complete,
         )
 
     def _update_state(
         self,
-        run_id: str,
+        operation_id: str,
         *,
         workflow_id: str | None = None,
         display_label: str | None = None,
@@ -365,9 +388,9 @@ class PipelineRunService:
         source_layer_id: str | None = None,
         song_id: str | None = None,
         song_version_id: str | None = None,
-        status: str | None = None,
+        status: OperationProgressStatus | None = None,
         message: str | None = None,
-        percent: float | None = None,
+        fraction_complete: float | None = None,
         finished_at: float | None = None,
         error: str | None = None,
         exception: BaseException | None = None,
@@ -375,7 +398,7 @@ class PipelineRunService:
         refresh_presentation: bool = False,
     ) -> None:
         with self._lock:
-            current = self.session.pipeline_runs.get(run_id)
+            current = self.session.operation_progress_by_id.get(operation_id)
             if current is None:
                 return
             updated = replace(
@@ -393,7 +416,11 @@ class PipelineRunService:
                 ),
                 status=status if status is not None else current.status,
                 message=message if message is not None else current.message,
-                percent=percent if percent is not None else current.percent,
+                fraction_complete=(
+                    self._clamp_fraction(fraction_complete)
+                    if fraction_complete is not None
+                    else current.fraction_complete
+                ),
                 finished_at=finished_at if finished_at is not None else current.finished_at,
                 error=error if error is not None else current.error,
                 exception=exception if exception is not None else current.exception,
@@ -407,11 +434,11 @@ class PipelineRunService:
 
     def _store_state(
         self,
-        state: PipelineRunState,
+        state: OperationProgressState,
         *,
         refresh_presentation: bool = False,
     ) -> None:
-        self.session.pipeline_runs[state.run_id] = state
+        self.session.operation_progress_by_id[state.operation_id] = state
         self._revision += 1
         if refresh_presentation:
             self._pending_refresh = True
@@ -419,7 +446,7 @@ class PipelineRunService:
     @staticmethod
     def _display_label_from_action_id(action_id: str) -> str:
         normalized = str(action_id).split(".")[-1].replace("_", " ").strip()
-        return normalized.title() if normalized else "Pipeline Run"
+        return normalized.title() if normalized else "Operation"
 
     @staticmethod
     def _subject_scope_key(
@@ -434,8 +461,8 @@ class PipelineRunService:
         return "global"
 
     @staticmethod
-    def _run_matches_context(
-        state: PipelineRunState,
+    def _operation_matches_context(
+        state: OperationProgressState,
         *,
         song_id: str | None,
         song_version_id: str | None,
@@ -445,3 +472,7 @@ class PipelineRunService:
         if song_id is not None:
             return state.song_id == song_id
         return True
+
+    @staticmethod
+    def _clamp_fraction(fraction_complete: float) -> float:
+        return max(0.0, min(1.0, float(fraction_complete)))

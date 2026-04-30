@@ -31,7 +31,6 @@
           <span id="scope-summary">Locating queue…</span>
           <div class="meter-actions">
             <span id="history-meta">Queue</span>
-            <button class="icon-button" id="reload-status-btn" title="Reload review status" aria-label="Reload review status">&#8635;</button>
           </div>
         </div>
         <div class="progress-boxes" id="progress-boxes"></div>
@@ -39,39 +38,14 @@
 
       <div class="scope-grid">
         <label>
-          <span class="control-label">View</span>
-          <select id="outcome-filter"></select>
-        </label>
-        <label>
           <span class="control-label">Song</span>
           <select id="song-select"></select>
         </label>
         <label>
-          <span class="control-label">Layer</span>
+          <span class="control-label">Event Layer</span>
           <select id="layer-select"></select>
         </label>
-        <label>
-          <span class="control-label">Class</span>
-          <select id="class-filter"></select>
-        </label>
       </div>
-
-      <details class="panel-inset session-drawer" id="session-drawer">
-        <summary>
-          <div class="session-drawer-copy">
-            <span class="section-label">Runs</span>
-            <strong id="session-drawer-title">Current run</strong>
-          </div>
-          <span class="microcopy" id="session-drawer-meta">0 loaded</span>
-        </summary>
-        <div class="session-drawer-body">
-          <label>
-            <span class="control-label">Run Archive</span>
-            <select id="session-select"></select>
-          </label>
-          <p class="status-line" id="archive-status"></p>
-        </div>
-      </details>
     </section>
 
     <section class="panel workspace">
@@ -92,9 +66,9 @@
 
     <section class="panel bottom-bar">
       <div class="decision-row">
-        <button class="action incorrect" id="incorrect-btn" title="Incorrect">Incorrect</button>
+        <button class="action incorrect" id="incorrect-btn" title="Demote">Demote</button>
         <button class="action reclass" id="reclass-btn" title="Reclassify">Reclassify</button>
-        <button class="action correct" id="correct-btn" title="Correct">Correct</button>
+        <button class="action correct" id="correct-btn" title="Promote">Promote</button>
       </div>
       <div class="nav-row">
         <button class="action nav" id="prev-btn" title="Back">Back</button>

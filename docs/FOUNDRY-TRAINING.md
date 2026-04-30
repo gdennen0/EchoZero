@@ -1,5 +1,9 @@
 # Foundry End-to-End Training
 
+Status: reference
+Last reviewed: 2026-04-30
+
+
 This flow matches the current `ez-foundry` CLI and produces a dataset version, split plan, train run, exported model, and compatibility validation report.
 
 ## Windows desktop run path

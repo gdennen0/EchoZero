@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from PyQt6.QtCore import QRectF, Qt
-from PyQt6.QtGui import QBrush, QColor, QFont, QPainter, QPen
+from PyQt6.QtGui import QBrush, QColor, QFont, QFontMetrics, QPainter, QPen
 
 from echozero.application.shared.enums import FollowMode
 from echozero.application.presentation.models import TimelinePresentation
@@ -29,17 +29,18 @@ class TransportBarBlock:
         painter.setBrush(QBrush(panel_fill))
         painter.drawRoundedRect(panel_rect, 10, 10)
 
+        side_text_rect = layout.title_rect.adjusted(0.0, -1.0, 0.0, -4.0)
         title_label_rect = QRectF(
-            layout.title_rect.left(),
-            layout.title_rect.top(),
-            layout.title_rect.width(),
-            layout.title_rect.height() * 0.46,
+            side_text_rect.left(),
+            side_text_rect.top(),
+            side_text_rect.width(),
+            side_text_rect.height() * 0.46,
         )
         title_value_rect = QRectF(
-            layout.title_rect.left(),
+            side_text_rect.left(),
             title_label_rect.bottom(),
-            layout.title_rect.width(),
-            max(0.0, layout.title_rect.height() - title_label_rect.height()),
+            side_text_rect.width(),
+            max(0.0, side_text_rect.height() - title_label_rect.height()),
         )
         self._draw_title_block(
             painter,
@@ -74,22 +75,57 @@ class TransportBarBlock:
 
         status_color = QColor("#7fd1ae") if presentation.is_playing else QColor(self.style.meta_hex)
         painter.setPen(status_color)
-        separator = "\u2022"
+        prior_font = painter.font()
+        meta_font = QFont(prior_font)
+        meta_font.setPointSize(max(8, prior_font.pointSize() - 1))
+        painter.setFont(meta_font)
+        meta_text = self._status_meta_text(
+            presentation=presentation,
+            available_width=layout.meta_rect.width(),
+            font_metrics=painter.fontMetrics(),
+        )
         painter.drawText(
-            layout.meta_rect,
+            layout.meta_rect.adjusted(0.0, -1.0, 0.0, -4.0),
             Qt.AlignmentFlag.AlignRight
             | Qt.AlignmentFlag.AlignVCenter
             | Qt.TextFlag.TextSingleLine,
-            f"{'PLAYING' if presentation.is_playing else 'STOPPED'}  {separator}  "
-            f"{len(presentation.layers)} layers  {separator}  "
-            f"Zoom: {presentation.pixels_per_second:.0f}px/s",
+            meta_text,
         )
+        painter.setFont(prior_font)
 
         return {
             "play": play_rect,
             "stop": stop_rect,
             "follow": follow_rect,
         }
+
+    def _status_meta_text(
+        self,
+        *,
+        presentation: TimelinePresentation,
+        available_width: float,
+        font_metrics: QFontMetrics,
+    ) -> str:
+        status_text = "PLAYING" if presentation.is_playing else "STOPPED"
+        layer_count = len(presentation.layers)
+        zoom_speed = f"{presentation.pixels_per_second:.0f}px/s"
+        separator = "\u2022"
+        candidates = (
+            f"{status_text}  {separator}  {layer_count} layers  {separator}  Zoom: {zoom_speed}",
+            f"{status_text}  {separator}  {layer_count} layers  {separator}  {zoom_speed}",
+            f"{status_text}  {separator}  {layer_count}L  {separator}  {zoom_speed}",
+            f"{status_text}  {separator}  {layer_count}L",
+            status_text,
+        )
+        max_text_width = max(0, int(available_width) - 4)
+        for candidate in candidates:
+            if font_metrics.horizontalAdvance(candidate) <= max_text_width:
+                return candidate
+        return font_metrics.elidedText(
+            status_text,
+            Qt.TextElideMode.ElideRight,
+            max_text_width,
+        )
 
     def _button_rects(self, controls_rect: QRectF) -> tuple[QRectF, QRectF, QRectF]:
         button_gap = 8.0

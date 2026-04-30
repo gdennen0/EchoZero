@@ -339,6 +339,19 @@ class PushLayerToMA3(TimelineIntent):
             )
 
 
+@dataclass(slots=True)
+class PollMA3PushOperation(TimelineIntent):
+    """Poll one in-flight MA3 push operation and refresh push-flow status when complete."""
+
+    operation_id: str
+
+    def __post_init__(self) -> None:
+        operation_id = str(self.operation_id or "").strip()
+        if not operation_id:
+            raise ValueError("PollMA3PushOperation requires a non-empty operation_id")
+        self.operation_id = operation_id
+
+
 __all__ = [
     "AssignMA3TrackSequence",
     "CreateMA3Timecode",
@@ -351,6 +364,7 @@ __all__ = [
     "MA3SequenceCreationMode",
     "MA3SequenceRefreshRangeMode",
     "MA3TrackSequenceAction",
+    "PollMA3PushOperation",
     "PrepareMA3TrackForPush",
     "PushLayerToMA3",
     "RefreshMA3Sequences",

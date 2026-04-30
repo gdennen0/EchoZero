@@ -185,6 +185,15 @@ class ExplicitReviewCommit:
     signal_id: str | None = None
 
 
+@dataclass(slots=True)
+class ReviewCommitCommand:
+    """Canonical review-commit command shared across producer surfaces."""
+
+    context: ReviewCommitContext
+    commit: ExplicitReviewCommit
+    apply_project_writeback: bool = True
+
+
 def build_review_decision(
     outcome: ReviewOutcome,
     *,

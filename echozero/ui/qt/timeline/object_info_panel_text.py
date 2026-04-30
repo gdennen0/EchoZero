@@ -29,18 +29,19 @@ def contract_detail_text(contract: InspectorContract) -> str:
 
 def plan_detail_text(plan: ObjectActionSettingsPlan) -> str:
     parts: list[str] = []
-    if plan.is_running and plan.run_message:
-        if plan.run_percent is not None:
-            parts.append(f"Run: {plan.run_message} ({int(round(plan.run_percent * 100.0))}%)")
+    if plan.is_running and plan.operation_message:
+        if plan.operation_fraction is not None:
+            parts.append(
+                f"Run: {plan.operation_message} "
+                f"({int(round(plan.operation_fraction * 100.0))}%)"
+            )
         else:
-            parts.append(f"Run: {plan.run_message}")
-    elif plan.run_error:
-        parts.append(f"Run failed: {plan.run_error}")
+            parts.append(f"Run: {plan.operation_message}")
+    elif plan.operation_error:
+        parts.append(f"Run failed: {plan.operation_error}")
     overrides = plan_override_preview(plan)
     if overrides:
         parts.append(f"Saved: {overrides}")
-    elif plan.editable_fields or plan.advanced_fields:
-        parts.append("Saved: defaults")
     if plan.locked_bindings:
         locked = ", ".join(f"{key}: {value}" for key, value in plan.locked_bindings)
         parts.append(f"Locked: {locked}")

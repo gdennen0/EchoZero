@@ -31,7 +31,7 @@ from echozero.application.timeline.models import (
     TimelineRegion,
     derive_section_regions,
 )
-from echozero.application.timeline.pipeline_run_service import PipelineRunState
+from echozero.application.timeline.operation_progress_service import OperationProgressState
 
 
 def _event(event_id: str, take_id: str, start: float) -> Event:
@@ -70,9 +70,10 @@ def test_assembler_filters_pipeline_banner_to_active_song_version():
         active_song_id=SongId("song_1"),
         active_song_version_id=SongVersionId("version_1"),
         active_timeline_id=timeline.id,
-        pipeline_runs={
-            "run_version_1": PipelineRunState(
-                run_id="run_version_1",
+        operation_progress_by_id={
+            "run_version_1": OperationProgressState(
+                operation_id="run_version_1",
+                kind="pipeline",
                 action_id="timeline.extract_stems",
                 workflow_id="layer.audio.extract_stems",
                 display_label="Extract Stems",
@@ -83,11 +84,12 @@ def test_assembler_filters_pipeline_banner_to_active_song_version():
                 song_version_id="version_1",
                 status="running",
                 message="Executing pipeline",
-                percent=0.2,
+                fraction_complete=0.2,
                 started_at=10.0,
             ),
-            "run_version_2": PipelineRunState(
-                run_id="run_version_2",
+            "run_version_2": OperationProgressState(
+                operation_id="run_version_2",
+                kind="pipeline",
                 action_id="timeline.extract_stems",
                 workflow_id="layer.audio.extract_stems",
                 display_label="Extract Stems",
@@ -98,7 +100,7 @@ def test_assembler_filters_pipeline_banner_to_active_song_version():
                 song_version_id="version_2",
                 status="running",
                 message="Executing pipeline",
-                percent=0.6,
+                fraction_complete=0.6,
                 started_at=20.0,
             ),
         },
@@ -106,9 +108,136 @@ def test_assembler_filters_pipeline_banner_to_active_song_version():
 
     assembled = TimelineAssembler().assemble(timeline, session)
 
-    assert assembled.pipeline_run_banner is not None
-    assert assembled.pipeline_run_banner.run_id == "run_version_1"
-    assert assembled.pipeline_run_banner.percent == 0.2
+    assert assembled.operation_progress_banner is not None
+    assert assembled.operation_progress_banner.operation_id == "run_version_1"
+    assert assembled.operation_progress_banner.fraction_complete == 0.2
+
+
+def test_assembler_prefers_active_operation_banner_over_failed_banner():
+    main_take = Take(
+        id=TakeId("take_main"),
+        layer_id=LayerId("layer_1"),
+        name="Main",
+        events=[_event("main_a", "take_main", 1.0)],
+    )
+    layer = Layer(
+        id=LayerId("layer_1"),
+        timeline_id=TimelineId("timeline_1"),
+        name="Kick",
+        kind=LayerKind.EVENT,
+        order_index=0,
+        takes=[main_take],
+    )
+    timeline = Timeline(
+        id=TimelineId("timeline_1"),
+        song_version_id=SongVersionId("version_1"),
+        layers=[layer],
+    )
+    session = Session(
+        id=SessionId("session_1"),
+        project_id=ProjectId("project_1"),
+        active_song_id=SongId("song_1"),
+        active_song_version_id=SongVersionId("version_1"),
+        active_timeline_id=timeline.id,
+        operation_progress_by_id={
+            "failed_old": OperationProgressState(
+                operation_id="failed_old",
+                kind="pipeline",
+                action_id="timeline.extract_stems",
+                workflow_id="layer.audio.extract_stems",
+                display_label="Extract Stems",
+                object_id="source_audio",
+                object_type="layer",
+                source_layer_id="source_audio",
+                song_id="song_1",
+                song_version_id="version_1",
+                status="failed",
+                message="Failed",
+                fraction_complete=0.4,
+                started_at=10.0,
+                finished_at=12.0,
+                error="boom",
+            ),
+            "active_new": OperationProgressState(
+                operation_id="active_new",
+                kind="pipeline",
+                action_id="timeline.extract_stems",
+                workflow_id="layer.audio.extract_stems",
+                display_label="Extract Stems",
+                object_id="source_audio",
+                object_type="layer",
+                source_layer_id="source_audio",
+                song_id="song_1",
+                song_version_id="version_1",
+                status="running",
+                message="Executing pipeline",
+                fraction_complete=0.6,
+                started_at=20.0,
+            ),
+        },
+    )
+
+    assembled = TimelineAssembler().assemble(timeline, session)
+
+    assert assembled.operation_progress_banner is not None
+    assert assembled.operation_progress_banner.operation_id == "active_new"
+    assert assembled.operation_progress_banner.is_error is False
+
+
+def test_assembler_surfaces_failed_operation_when_no_active_operation_exists():
+    main_take = Take(
+        id=TakeId("take_main"),
+        layer_id=LayerId("layer_1"),
+        name="Main",
+        events=[_event("main_a", "take_main", 1.0)],
+    )
+    layer = Layer(
+        id=LayerId("layer_1"),
+        timeline_id=TimelineId("timeline_1"),
+        name="Kick",
+        kind=LayerKind.EVENT,
+        order_index=0,
+        takes=[main_take],
+    )
+    timeline = Timeline(
+        id=TimelineId("timeline_1"),
+        song_version_id=SongVersionId("version_1"),
+        layers=[layer],
+    )
+    session = Session(
+        id=SessionId("session_1"),
+        project_id=ProjectId("project_1"),
+        active_song_id=SongId("song_1"),
+        active_song_version_id=SongVersionId("version_1"),
+        active_timeline_id=timeline.id,
+        operation_progress_by_id={
+            "failed_latest": OperationProgressState(
+                operation_id="failed_latest",
+                kind="pipeline",
+                action_id="timeline.extract_stems",
+                workflow_id="layer.audio.extract_stems",
+                display_label="Extract Stems",
+                object_id="source_audio",
+                object_type="layer",
+                source_layer_id="source_audio",
+                song_id="song_1",
+                song_version_id="version_1",
+                status="failed",
+                message="Failed",
+                fraction_complete=0.3,
+                started_at=10.0,
+                finished_at=11.0,
+                error="bad things",
+            )
+        },
+    )
+
+    assembled = TimelineAssembler().assemble(timeline, session)
+
+    assert assembled.operation_progress_banner is not None
+    assert assembled.operation_progress_banner.operation_id == "failed_latest"
+    assert assembled.operation_progress_banner.is_error is True
+    assert "bad things" in assembled.operation_progress_banner.message
 
 
 def test_assembler_uses_main_take_as_truth_even_when_alt_take_selected():
@@ -140,8 +269,6 @@ def test_assembler_uses_main_take_as_truth_even_when_alt_take_selected():
     )
     timeline.selection.selected_layer_id = layer.id
     timeline.selection.selected_take_id = alt_take.id
-    timeline.playback_target.layer_id = layer.id
-    timeline.playback_target.take_id = main_take.id
 
     session = Session(
         id=SessionId("session_1"),
@@ -156,17 +283,17 @@ def test_assembler_uses_main_take_as_truth_even_when_alt_take_selected():
 
     assert assembled_layer.main_take_id == main_take.id
     assert [str(e.event_id) for e in assembled_layer.events] == ["main_a", "main_b"]
-    assert assembled.active_playback_layer_id == layer.id
-    assert assembled.active_playback_take_id == main_take.id
+    assert assembled.selected_layer_id == layer.id
+    assert assembled.selected_take_id == alt_take.id
     assert assembled_layer.is_selected is True
-    assert assembled_layer.is_playback_active is True
+    assert assembled_layer.is_playback_active is False
     assert len(assembled_layer.takes) == 1
     assert assembled_layer.takes[0].take_id == alt_take.id
     assert assembled_layer.takes[0].is_selected is True
     assert assembled_layer.takes[0].is_playback_active is False
 
 
-def test_assembler_preserves_independent_selection_and_playback_target_fields():
+def test_assembler_preserves_selection_fields_across_layers():
     main_take = Take(
         id=TakeId("take_main"),
         layer_id=LayerId("layer_1"),
@@ -209,8 +336,6 @@ def test_assembler_preserves_independent_selection_and_playback_target_fields():
     timeline.selection.selected_layer_id = selected_layer.id
     timeline.selection.selected_layer_ids = [selected_layer.id]
     timeline.selection.selected_take_id = alt_take.id
-    timeline.playback_target.layer_id = playback_layer.id
-    timeline.playback_target.take_id = other_take.id
 
     session = Session(
         id=SessionId("session_1"),
@@ -224,12 +349,10 @@ def test_assembler_preserves_independent_selection_and_playback_target_fields():
 
     assert assembled.selected_layer_id == selected_layer.id
     assert assembled.selected_take_id == alt_take.id
-    assert assembled.active_playback_layer_id == playback_layer.id
-    assert assembled.active_playback_take_id == other_take.id
     assert assembled.layers[0].is_selected is True
     assert assembled.layers[0].is_playback_active is False
     assert assembled.layers[1].is_selected is False
-    assert assembled.layers[1].is_playback_active is True
+    assert assembled.layers[1].is_playback_active is False
 
 
 def test_assembler_projects_playback_output_channel_count():
@@ -286,7 +409,7 @@ def test_assembler_projects_event_cue_numbers_into_presentation():
         id=LayerId("layer_marker"),
         timeline_id=TimelineId("timeline_1"),
         name="Markers",
-        kind=LayerKind.MARKER,
+        kind=LayerKind.EVENT,
         order_index=0,
         takes=[main_take],
     )
@@ -385,6 +508,44 @@ def test_assembler_projects_section_cues_and_derived_regions_without_fake_prefir
     assert all(region.start >= 12.0 for region in assembled.section_regions)
 
 
+def test_assembler_adds_pipeline_header_control_for_selected_section_layer():
+    section_take = Take(
+        id=TakeId("take_sections"),
+        layer_id=LayerId("layer_sections"),
+        name="Main",
+        events=[],
+    )
+    section_layer = Layer(
+        id=LayerId("layer_sections"),
+        timeline_id=TimelineId("timeline_sections_pipeline"),
+        name="Sections",
+        kind=LayerKind.SECTION,
+        order_index=0,
+        takes=[section_take],
+    )
+    timeline = Timeline(
+        id=TimelineId("timeline_sections_pipeline"),
+        song_version_id=SongVersionId("version_sections_pipeline"),
+        layers=[section_layer],
+    )
+    timeline.selection.selected_layer_id = section_layer.id
+    timeline.selection.selected_layer_ids = [section_layer.id]
+
+    session = Session(
+        id=SessionId("session_sections_pipeline"),
+        project_id=ProjectId("project_sections_pipeline"),
+        active_song_id=SongId("song_sections_pipeline"),
+        active_song_version_id=SongVersionId("version_sections_pipeline"),
+        active_timeline_id=timeline.id,
+    )
+
+    assembled = TimelineAssembler().assemble(timeline, session)
+    controls = [control.control_id for control in assembled.layers[0].header_controls]
+
+    assert "open_section_layer_manager" in controls
+    assert "layer_pipeline_actions" in controls
+
+
 def test_assembler_projects_regions_in_sorted_order_with_selection_state():
     main_take = Take(
         id=TakeId("take_main"),
@@ -447,7 +608,7 @@ def test_assembler_projects_regions_in_sorted_order_with_selection_state():
     assert assembled.regions[0].kind == "structure"
 
 
-def test_assembler_marks_take_lane_selection_and_playback_target_independently():
+def test_assembler_marks_take_lane_selection_without_playback_target_state():
     main_take = Take(
         id=TakeId("take_main"),
         layer_id=LayerId("layer_1"),
@@ -482,8 +643,6 @@ def test_assembler_marks_take_lane_selection_and_playback_target_independently()
     timeline.selection.selected_layer_id = layer.id
     timeline.selection.selected_layer_ids = [layer.id]
     timeline.selection.selected_take_id = selected_take.id
-    timeline.playback_target.layer_id = layer.id
-    timeline.playback_target.take_id = active_take.id
 
     session = Session(
         id=SessionId("session_1"),
@@ -499,11 +658,11 @@ def test_assembler_marks_take_lane_selection_and_playback_target_independently()
     active_lane = next(take for take in assembled_layer.takes if take.take_id == active_take.id)
 
     assert assembled_layer.is_selected is True
-    assert assembled_layer.is_playback_active is True
+    assert assembled_layer.is_playback_active is False
     assert selected_lane.is_selected is True
     assert selected_lane.is_playback_active is False
     assert active_lane.is_selected is False
-    assert active_lane.is_playback_active is True
+    assert active_lane.is_playback_active is False
 
 
 def test_assembler_adds_selection_to_main_action_when_take_has_selected_events():

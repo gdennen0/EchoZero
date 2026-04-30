@@ -1,7 +1,9 @@
 # Project Adaptive Review Loop Spec
 
-Status: active implementation target
-Last verified: 2026-04-26
+Status: active
+Last reviewed: 2026-04-30
+
+
 
 This spec defines the EZ-owned operator loop that turns explicit Project review
 into better runtime bundles.
@@ -213,4 +215,3 @@ Not required for this milestone:
 - automatic global dataset promotion from every Project
 - automatic global bundle switching with no operator confirmation
 - full hyperparameter editing in the first EZ specialized-model action
-

@@ -1,12 +1,17 @@
 # Repo Cleanup Execution Plan
 
-Status: complete historical remediation plan
-Last verified: 2026-04-21
+Status: historical
+Last reviewed: 2026-04-30
+
+This document is archived historical context.
+For current implementation truth, use `docs/STATUS.md`.
+
+
 
 This plan turns the current cleanup issues `1-12` into executable work.
-Use [STATUS.md](STATUS.md) for current repo truth.
-Use [LLM-CLEANUP-BOARD.md](LLM-CLEANUP-BOARD.md) for campaign posture.
-Use [BACKLOG-CLEARANCE-PLAN.md](BACKLOG-CLEARANCE-PLAN.md) for the current
+Use [STATUS.md](../STATUS.md) for current repo truth.
+Use [LLM-CLEANUP-BOARD.md](../LLM-CLEANUP-BOARD.md) for campaign posture.
+Use [BACKLOG-CLEARANCE-PLAN.md](../BACKLOG-CLEARANCE-PLAN.md) for the current
 ordered backlog path after this remediation plan completed.
 Use this file for the completed dependency order, task sequencing, and
 acceptance record for issues `1-12`.

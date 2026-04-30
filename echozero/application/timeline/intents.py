@@ -61,12 +61,6 @@ class SelectTake(TimelineIntent):
 
 
 @dataclass(slots=True)
-class SetActivePlaybackTarget(TimelineIntent):
-    layer_id: LayerId | None
-    take_id: TakeId | None = None
-
-
-@dataclass(slots=True)
 class SelectEvent(TimelineIntent):
     layer_id: LayerId
     take_id: TakeId | None
@@ -155,6 +149,37 @@ class SelectEveryOtherEvents(TimelineIntent):
     """Replace the current selection with every other event inside one resolved scope."""
 
     scope: EventBatchScope
+
+
+@dataclass(slots=True)
+class SelectSimilarSoundingEvents(TimelineIntent):
+    """Select similar-sounding events relative to one anchor event in a layer take."""
+
+    layer_id: LayerId
+    take_id: TakeId
+    event_id: EventId
+    scope_mode: str = "take"
+    match_strength: str = "balanced"
+
+    def __post_init__(self) -> None:
+        if self.layer_id is None or not str(self.layer_id).strip():
+            raise ValueError("SelectSimilarSoundingEvents requires a non-empty layer_id")
+        if self.take_id is None or not str(self.take_id).strip():
+            raise ValueError("SelectSimilarSoundingEvents requires a non-empty take_id")
+        if self.event_id is None or not str(self.event_id).strip():
+            raise ValueError("SelectSimilarSoundingEvents requires a non-empty event_id")
+        scope_mode = (self.scope_mode or "").strip().lower()
+        if scope_mode not in {"take", "layer", "selected_layers_main"}:
+            raise ValueError(
+                "SelectSimilarSoundingEvents requires scope_mode 'take', 'layer', or 'selected_layers_main'"
+            )
+        self.scope_mode = scope_mode
+        match_strength = (self.match_strength or "").strip().lower()
+        if match_strength not in {"strict", "balanced", "loose"}:
+            raise ValueError(
+                "SelectSimilarSoundingEvents requires match_strength 'strict', 'balanced', or 'loose'"
+            )
+        self.match_strength = match_strength
 
 
 @dataclass(slots=True)
@@ -550,6 +575,7 @@ class SectionCueEdit:
     start: float
     cue_ref: str
     name: str
+    cue_number: CueNumber | None = None
     color: str | None = None
     notes: str | None = None
     payload_ref: str | None = None
@@ -562,6 +588,8 @@ class SectionCueEdit:
         if not cue_ref:
             raise ValueError("SectionCueEdit requires a non-empty cue_ref")
         self.cue_ref = cue_ref
+        if self.cue_number is not None:
+            self.cue_number = coerce_positive_cue_number(self.cue_number)
         name = str(self.name or "").strip()
         self.name = name or cue_ref
         if self.color is not None:
@@ -578,6 +606,7 @@ class SectionCueEdit:
 @dataclass(slots=True)
 class ReplaceSectionCues(TimelineIntent):
     cues: list[SectionCueEdit]
+    target_layer_id: LayerId | None = None
 
 
 @dataclass(slots=True)
@@ -623,6 +652,28 @@ class SetFollowCursorEnabled(TimelineIntent):
 class SetGain(TimelineIntent):
     layer_id: LayerId
     gain_db: float
+
+
+@dataclass(slots=True)
+class SetLayerMute(TimelineIntent):
+    layer_id: LayerId
+    muted: bool
+
+    def __post_init__(self) -> None:
+        if self.layer_id is None or not str(self.layer_id).strip():
+            raise ValueError("SetLayerMute requires a non-empty layer_id")
+        self.muted = bool(self.muted)
+
+
+@dataclass(slots=True)
+class SetLayerSolo(TimelineIntent):
+    layer_id: LayerId
+    soloed: bool
+
+    def __post_init__(self) -> None:
+        if self.layer_id is None or not str(self.layer_id).strip():
+            raise ValueError("SetLayerSolo requires a non-empty layer_id")
+        self.soloed = bool(self.soloed)
 
 
 @dataclass(slots=True)

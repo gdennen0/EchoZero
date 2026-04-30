@@ -45,6 +45,7 @@ def get_default_executors() -> dict[str, BlockExecutor]:
         ("GenerateWaveform", "echozero.processors.generate_waveform", "GenerateWaveformProcessor"),
         ("TranscribeNotes", "echozero.processors.transcribe_notes", "TranscribeNotesProcessor"),
         ("PyTorchAudioClassify", "echozero.processors.pytorch_audio_classify", "PyTorchAudioClassifyProcessor"),
+        ("DetectSongSections", "echozero.processors.song_sections", "SongSectionsProcessor"),
         ("DatasetViewer", "echozero.processors.dataset_viewer", "DatasetViewerProcessor"),
     ]
 

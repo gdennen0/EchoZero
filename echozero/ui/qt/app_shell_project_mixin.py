@@ -40,8 +40,8 @@ from echozero.ui.qt.app_shell_project_review import (
     latest_project_review_dataset_folder,
     list_project_review_dataset_versions,
     open_project_review_session,
-    reload_phone_review_status,
 )
+from echozero.ui.qt.timeline_review_sample_export import review_sample_export_root
 
 
 class AppShellProjectMixin:
@@ -231,11 +231,6 @@ class AppShellProjectMixin:
             item_limit=item_limit,
         )
 
-    def reload_phone_review_status(
-        self: ProjectLifecycleShell,
-    ) -> ProjectReviewLaunch:
-        return reload_phone_review_status(self)
-
     def list_project_review_dataset_versions(
         self: ProjectLifecycleShell,
         *,
@@ -275,3 +270,8 @@ class AppShellProjectMixin:
             self,
             queue_source_kind=queue_source_kind,
         )
+
+    def timeline_review_sample_export_folder(
+        self: ProjectLifecycleShell,
+    ) -> Path:
+        return review_sample_export_root(ensure_exists=True)

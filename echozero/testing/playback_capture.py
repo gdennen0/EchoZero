@@ -86,8 +86,6 @@ def capture_playback_video(
         harness.widget.set_presentation(
             replace(
                 presentation,
-                active_playback_layer_id=layer_id,
-                active_playback_take_id=None,
                 selected_layer_id=layer_id,
                 selected_layer_ids=[layer_id],
                 selected_take_id=None,

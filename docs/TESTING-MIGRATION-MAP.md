@@ -1,6 +1,9 @@
 # Testing Migration Map
 
-_Updated: 2026-04-18_
+Status: reference
+Last reviewed: 2026-04-30
+
+
 
 This document maps the current EchoZero testing and demo surfaces onto the
 canonical primitive and executor contract.
@@ -25,11 +28,11 @@ The goal is to make one contract canonical and route the rest toward it.
 Target stack:
 
 1. primitive catalog:
-   [docs/TESTING-PRIMITIVES.md](/Users/march/Documents/GitHub/EchoZero/docs/TESTING-PRIMITIVES.md:1)
+   [docs/TESTING-PRIMITIVES.md](TESTING-PRIMITIVES.md)
 2. executor contract:
-   [docs/TESTING-EXECUTORS.md](/Users/march/Documents/GitHub/EchoZero/docs/TESTING-EXECUTORS.md:1)
+   [docs/TESTING-EXECUTORS.md](TESTING-EXECUTORS.md)
 3. scenario schema:
-   [docs/TESTING-SCENARIO-SCHEMA.md](/Users/march/Documents/GitHub/EchoZero/docs/TESTING-SCENARIO-SCHEMA.md:1)
+   [docs/TESTING-SCENARIO-SCHEMA.md](TESTING-SCENARIO-SCHEMA.md)
 4. live app automation bridge and `packages/ui_automation/**` as public app
    control surface
 

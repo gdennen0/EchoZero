@@ -1,5 +1,9 @@
 # EchoZero 2
 
+Status: active
+Last verified: 2026-04-30
+
+
 EchoZero is now trimmed to the EZ2 app lane in this branch.
 
 The canonical app surfaces in this repo are:

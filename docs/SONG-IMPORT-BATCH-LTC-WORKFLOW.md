@@ -1,7 +1,9 @@
 # Song Import Batch + LTC Workflow
 
-Status: implemented behavior map  
-Last verified: 2026-04-25 (batch UX pass)
+Status: active
+Last verified: 2026-04-30
+
+
 
 This document captures how song import works today across UI, runtime, settings, and persistence.
 It is intentionally implementation-oriented so we can rework safely without re-discovering behavior.

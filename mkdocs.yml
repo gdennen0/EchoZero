@@ -32,6 +32,10 @@ theme:
 plugins:
   - search
 
+validation:
+  links:
+    not_found: ignore
+
 markdown_extensions:
   - pymdownx.highlight:
       anchor_linenums: true
@@ -48,25 +52,31 @@ markdown_extensions:
 
 nav:
   - Home: index.md
+  - Status: STATUS.md
   - Agent Context: AGENT-CONTEXT.md
   - Getting Started: GETTING-STARTED.md
   - Unified Plan: UNIFIED-IMPLEMENTATION-PLAN.md
   - App Delivery: APP-DELIVERY-PLAN.md
+  - Backlog Clearance: BACKLOG-CLEARANCE-PLAN.md
   - Architecture: ARCHITECTURE.md
   - Project Class: PROJECT-CLASS.md
   - Entity Model: architecture/ENTITY-MODEL.md
   - Timeline First Principles: architecture/TIMELINE-FIRST-PRINCIPLES-2026-04-02.md
-  - LD Workflow: LD-WORKFLOW.md
-  - Dev Lanes: DEV-LANES.md
-  - Cleanup Map: EZ2-CODEBASE-CLEANUP-MAP.md
+  - Song Import + LTC: SONG-IMPORT-BATCH-LTC-WORKFLOW.md
+  - UI Standard: UI-STANDARD.md
+  - Testing: TESTING.md
+  - Release Checklist: RELEASE-CHECKLIST.md
   - Decisions:
     - Architecture Decisions: architecture/DECISIONS.md
     - Pipeline Config: architecture/PIPELINE-CONFIG-REDESIGN.md
     - Contract Guardrails: architecture/CONTRACT-EVOLUTION-GUARDRAILS.md
   - MA3:
+    - MA3 Push V1 Plan: MA3-PUSH-V1-EXECUTION-PLAN.md
     - Batch Transfer UX: MA3-BATCH-TRANSFER-UX-SPEC.md
-    - Manual Push/Pull: MA3-MANUAL-PUSH-PULL-IMPLEMENTATION-PLAN.md
   - Foundry: FOUNDRY-TRAINING.md
   - Perf Guardrails: PERF-GUARDRAILS.md
+  - Dev Lanes: DEV-LANES.md
+  - Cleanup Map: EZ2-CODEBASE-CLEANUP-MAP.md
+  - Archive: archive/README.md
   - Packaging: packaging/PACKAGING.md
   - Contributing: CONTRIBUTING.md

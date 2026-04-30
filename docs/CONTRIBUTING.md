@@ -1,5 +1,9 @@
 # Contributing (Git Publish Guardrails)
 
+Status: reference
+Last reviewed: 2026-04-30
+
+
 This repo uses a **branch + PR publish workflow**. Treat `origin/main` as the source of truth.
 
 ## Publish flow (avoid local-main/origin-main drift)
@@ -53,7 +57,7 @@ Recommended local hooks:
 ```
 
 Use `.work/` for temporary notes, logs, generated diffs, and throwaway artifacts.
-Use [docs/agent-task-template.md](docs/agent-task-template.md) when handing work to
+Use [docs/agent-task-template.md](agent-task-template.md) when handing work to
 another agent or a separate worktree.
 
 ## Pre-push checklist (exact commands)

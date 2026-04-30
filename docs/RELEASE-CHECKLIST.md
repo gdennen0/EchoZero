@@ -1,5 +1,9 @@
 # EchoZero Release Checklist
 
+Status: reference
+Last reviewed: 2026-04-30
+
+
 Use this checklist for release-affecting work and milestone signoff.
 
 This complements `docs/APP-DELIVERY-PLAN.md`; it does not replace it.

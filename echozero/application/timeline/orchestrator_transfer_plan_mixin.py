@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping
 import inspect
+from time import monotonic, sleep
 from typing import Any, Protocol, cast
 
 from echozero.application.session.models import (
@@ -307,18 +308,29 @@ class TimelineOrchestratorTransferPlanMixin:
                 status="failed",
                 issue="No main-take events selected for push",
             )
+        start_push = getattr(host.sync_service, "start_push", None)
+        get_operation = getattr(host.sync_service, "get_operation", None)
+        if callable(start_push) and callable(get_operation):
+            session = host.session_service.get_session()
+            operation_id = start_push(
+                target_track_coord=row.target_track_coord,
+                selected_events=selected_events,
+                transfer_mode=session.manual_push_flow.transfer_mode,
+                start_offset_seconds=self._project_ma3_push_offset_seconds(session),
+            )
+            operation = self._wait_for_push_operation(
+                get_operation=get_operation,
+                operation_id=str(operation_id),
+            )
+            status = str(operation.get("status") or "").strip().lower()
+            if status == "success":
+                return self._copy_plan_row(row, status="applied", issue=None)
+            issue = str(operation.get("error") or operation.get("message") or "Push failed").strip()
+            return self._copy_plan_row(row, status="failed", issue=issue or "Push failed")
         apply_push = getattr(host.sync_service, "apply_push_transfer", None)
         if callable(apply_push):
             self._invoke_push_apply(
                 apply_push,
-                target_track_coord=row.target_track_coord,
-                selected_events=selected_events,
-            )
-            return self._copy_plan_row(row, status="applied", issue=None)
-        execute_push = getattr(host.sync_service, "execute_push_transfer", None)
-        if callable(execute_push):
-            self._invoke_push_apply(
-                execute_push,
                 target_track_coord=row.target_track_coord,
                 selected_events=selected_events,
             )
@@ -328,6 +340,25 @@ class TimelineOrchestratorTransferPlanMixin:
             status="failed",
             issue="Push execution endpoint unavailable",
         )
+
+    @staticmethod
+    def _wait_for_push_operation(
+        *,
+        get_operation: Callable[[str], dict[str, object] | None],
+        operation_id: str,
+        timeout_seconds: float = 60.0,
+    ) -> dict[str, object]:
+        deadline = monotonic() + max(0.1, float(timeout_seconds))
+        while monotonic() <= deadline:
+            operation = get_operation(operation_id)
+            if operation is None:
+                sleep(0.05)
+                continue
+            status = str(operation.get("status") or "").strip().lower()
+            if status in {"success", "error", "failed", "cancelled"}:
+                return operation
+            sleep(0.05)
+        raise TimeoutError(f"Timed out waiting for MA3 push operation {operation_id}")
 
     def _invoke_push_apply(
         self,
@@ -427,6 +458,9 @@ class TimelineOrchestratorTransferPlanMixin:
         session.manual_push_flow.available_tracks = []
         session.manual_push_flow.target_track_coord = None
         session.manual_push_flow.transfer_mode = "merge"
+        session.manual_push_flow.operation_id = None
+        session.manual_push_flow.operation_status = "idle"
+        session.manual_push_flow.operation_message = ""
         session.manual_push_flow.diff_gate_open = False
         session.manual_push_flow.diff_preview = None
 

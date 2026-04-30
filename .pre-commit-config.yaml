@@ -21,3 +21,8 @@ repos:
         entry: python scripts/check_lane_ownership.py
         language: system
         pass_filenames: false
+      - id: docs-audit
+        name: docs audit
+        entry: python scripts/docs_audit.py
+        language: system
+        pass_filenames: false

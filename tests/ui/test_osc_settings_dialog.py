@@ -72,17 +72,12 @@ def test_osc_settings_dialog_restore_defaults_resets_form_values() -> None:
         app.processEvents()
 
 
-def test_osc_settings_dialog_save_persists_settings_and_reports_restart(monkeypatch) -> None:
+def test_osc_settings_dialog_save_persists_settings_and_calls_saved_hook(monkeypatch) -> None:
     app = QApplication.instance() or QApplication([])
     service = AppSettingsService(_MemoryStore(), audio_device_options_provider=_device_options)
-    info_messages: list[str] = []
-    dialog = OscSettingsDialog(service)
+    saved = {"called": False}
+    dialog = OscSettingsDialog(service, on_saved=lambda _result: saved.__setitem__("called", True))
 
-    monkeypatch.setattr(
-        QMessageBox,
-        "information",
-        lambda *_args: info_messages.append(str(_args[2])) or QMessageBox.StandardButton.Ok,
-    )
     monkeypatch.setattr(
         QMessageBox,
         "warning",
@@ -107,7 +102,7 @@ def test_osc_settings_dialog_save_persists_settings_and_reports_restart(monkeypa
         assert service.preferences().ma3_osc.receive.port == 7100
         assert service.preferences().ma3_osc.send.enabled is True
         assert service.preferences().ma3_osc.send.port == 9000
-        assert info_messages == ["Restart EchoZero to apply saved OSC settings."]
+        assert saved["called"] is True
         assert dialog.result() != 0
     finally:
         dialog.close()

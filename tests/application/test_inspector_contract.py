@@ -137,18 +137,25 @@ def _section_rows(contract):
 
 def test_inspector_contract_no_selection_state():
     contract = build_timeline_inspector_contract(_contract_test_presentation())
-    action_ids = [
-        action.action_id for section in contract.context_sections for action in section.actions
+    all_actions = [
+        action for section in contract.context_sections for action in section.actions
     ]
+    action_ids = [action.action_id for action in all_actions]
+    workspace_directions = {
+        str(action.params.get("direction", "")).lower()
+        for action in all_actions
+        if action.action_id == "transfer.workspace_open"
+    }
 
     assert contract.identity is None
     assert contract.title == "No timeline object selected."
     assert render_inspector_contract_text(contract) == "No timeline object selected."
-    assert "send_layer_to_ma3" not in action_ids
+    assert "transfer.workspace_open" in action_ids
+    assert workspace_directions == {"pull"}
     assert "add_event_layer" in action_ids
-    assert "add_marker_layer" in action_ids
     assert "add_section_layer" in action_ids
     assert "add_smpte_layer" in action_ids
+    assert "add_smpte_layer_from_import_split" in action_ids
     assert "add_automation_layer" not in action_ids
     assert "add_reference_layer" not in action_ids
 
@@ -201,25 +208,48 @@ def test_inspector_contract_layer_selection_state():
     assert rows["kind"] == "EVENT"
     assert rows["main take"] == "take_main"
     assert rows["status flags"] == "none"
-    assert rows["playback state"] == "Set Active"
+    assert rows["playback state"] == "Selected"
     assert rows["sync state"] == "Off"
     assert rows["sync mapping"] == "tc1_tg2_tr3"
     assert rows["selected identity"] == "Layer Kick (layer_kick)"
-    assert rows["playback target"] == "none"
-    assert {"set_active_playback_target", "gain_down", "gain_unity", "gain_up"} <= set(action_ids)
+    assert {
+        "gain_down",
+        "gain_unity",
+        "gain_up",
+    } <= set(action_ids)
+    assert "set_layer_mute_on" not in action_ids
+    assert "set_layer_solo_on" not in action_ids
     assert {
         "selection.select_every_other",
         "selection.renumber_cues_from_one",
     } <= set(action_ids)
     assert {
-        "route_layer_to_ma3_track",
-        "send_layer_to_ma3",
-        "send_selected_events_to_ma3",
-        "send_to_different_track_once",
+        "transfer.route_layer_track",
+        "transfer.workspace_open",
+        "transfer.send_selection",
+        "transfer.send_to_track_once",
     } <= set(action_ids)
     assert "event-batch" in section_ids
     assert "sync-transfer" in section_ids
     assert "live-sync" not in [section.section_id for section in contract.context_sections]
+
+
+def test_inspector_contract_event_layer_hides_mix_actions_and_disables_gain_actions():
+    presentation = _contract_test_presentation()
+    presentation.selected_layer_id = LayerId("layer_kick")
+
+    contract = build_timeline_inspector_contract(presentation)
+    actions_by_id = {
+        action.action_id: action
+        for section in contract.context_sections
+        for action in section.actions
+    }
+
+    assert "set_layer_mute_on" not in actions_by_id
+    assert "set_layer_solo_on" not in actions_by_id
+    assert actions_by_id["gain_down"].enabled is False
+    assert actions_by_id["gain_unity"].enabled is False
+    assert actions_by_id["gain_up"].enabled is False
 
 
 def test_inspector_contract_layer_selection_keeps_song_switching_actions_available():
@@ -267,10 +297,10 @@ def test_inspector_contract_audio_layer_hides_ma3_controls():
     section_ids = [section.section_id for section in contract.context_sections]
 
     assert "sync-transfer" not in section_ids
-    assert "route_layer_to_ma3_track" not in action_ids
-    assert "send_layer_to_ma3" not in action_ids
-    assert "send_selected_events_to_ma3" not in action_ids
-    assert "send_to_different_track_once" not in action_ids
+    assert "transfer.route_layer_track" not in action_ids
+    assert "transfer.workspace_open" not in action_ids
+    assert "transfer.send_selection" not in action_ids
+    assert "transfer.send_to_track_once" not in action_ids
 
 
 def test_inspector_contract_smpte_audio_layer_shows_smpte_import_action():
@@ -343,6 +373,26 @@ def test_inspector_contract_audio_layer_keeps_selected_output_bus_label():
     assert routed_action.label == "Routed to Outputs 3/4"
 
 
+def test_inspector_contract_layer_mix_actions_reflect_current_mute_and_solo_state():
+    presentation = _contract_test_presentation()
+    presentation.selected_layer_id = LayerId("layer_kick")
+    presentation.layers[0].kind = LayerKind.AUDIO
+    presentation.layers[0].muted = True
+    presentation.layers[0].soloed = True
+
+    contract = build_timeline_inspector_contract(presentation)
+    actions_by_id = {
+        action.action_id: action
+        for section in contract.context_sections
+        for action in section.actions
+    }
+
+    assert actions_by_id["set_layer_mute_off"].label == "Unmute Layer"
+    assert actions_by_id["set_layer_mute_off"].params["muted"] is False
+    assert actions_by_id["set_layer_solo_off"].label == "Unsolo Layer"
+    assert actions_by_id["set_layer_solo_off"].params["soloed"] is False
+
+
 def test_inspector_contract_hides_legacy_transfer_surface_even_if_legacy_state_exists():
     presentation = _contract_test_presentation()
     presentation.selected_layer_id = LayerId("layer_kick")
@@ -376,7 +426,7 @@ def test_inspector_contract_hides_legacy_transfer_surface_even_if_legacy_state_e
     assert "transfer.plan_preview" not in action_ids
     assert "transfer.plan_apply" not in action_ids
     assert "transfer.plan_cancel" not in action_ids
-    assert "pull_from_ma3" in action_ids
+    assert "transfer.workspace_open" in action_ids
 
 
 def test_inspector_contract_hides_transfer_preset_actions_from_primary_transfer_surface():
@@ -465,27 +515,29 @@ def test_inspector_contract_main_event_state():
     assert rows["take"] == "Main take (take_main)"
     assert rows["classification"] == "Kick"
     assert rows["confidence score"] == "0.91"
-    assert rows["playback state"] == "Set Active"
+    assert rows["playback state"] == "Selected"
     assert rows["sync mapping"] == "tc1_tg2_tr3"
     assert rows["selected identity"] == "Event Main (main_evt) on Kick / Main take (take_main)"
-    assert rows["playback target"] == "none"
     assert transfer_section.label == "Sync & Transfer"
     assert {
+        "selection.find_similar_sounding",
         "selection.select_every_other",
         "selection.renumber_cues_from_one",
     } <= set(action_ids)
     assert {
-        "route_layer_to_ma3_track",
-        "send_layer_to_ma3",
-        "send_selected_events_to_ma3",
-        "send_to_different_track_once",
+        "transfer.route_layer_track",
+        "transfer.workspace_open",
+        "transfer.send_selection",
+        "transfer.send_to_track_once",
     } <= set(action_ids)
 
 
 def test_inspector_contract_take_event_state():
     presentation = _contract_test_presentation()
-    presentation.active_playback_layer_id = LayerId("layer_kick")
-    presentation.active_playback_take_id = TakeId("take_alt")
+    presentation.selected_layer_id = None
+    presentation.selected_layer_ids = []
+    presentation.selected_take_id = None
+    presentation.selected_event_ids = []
 
     contract = build_timeline_inspector_contract(
         presentation,
@@ -506,23 +558,23 @@ def test_inspector_contract_take_event_state():
     assert rows["take"] == "Take 2 (take_alt)"
     assert rows["classification"] == "Snare"
     assert rows["confidence score"] == "0.73"
-    assert rows["playback state"] == "Active"
-    assert rows["selected identity"] == "none"
-    assert rows["playback target"] == "Active Kick / Take 2 (take_alt)"
+    assert rows["playback state"] == "Main Mix"
+    assert "selected identity" not in rows
     assert {
         "seek_here",
         "overwrite_main",
         "merge_main",
         "delete_take",
+        "selection.find_similar_sounding",
         "selection.select_every_other",
         "selection.renumber_cues_from_one",
     } <= set(action_ids)
     assert {
-        "pull_from_ma3",
-        "route_layer_to_ma3_track",
-        "send_layer_to_ma3",
-        "send_selected_events_to_ma3",
-        "send_to_different_track_once",
+        "transfer.workspace_open",
+        "transfer.route_layer_track",
+        "transfer.workspace_open",
+        "transfer.send_selection",
+        "transfer.send_to_track_once",
     } <= set(action_ids)
 
 
@@ -611,11 +663,11 @@ def test_inspector_contract_empty_main_take_layer_keeps_ma3_transfer_actions_vis
     assert "event-batch" not in section_ids
     assert "sync-transfer" in section_ids
     assert {
-        "pull_from_ma3",
-        "route_layer_to_ma3_track",
-        "send_layer_to_ma3",
-        "send_selected_events_to_ma3",
-        "send_to_different_track_once",
+        "transfer.workspace_open",
+        "transfer.route_layer_track",
+        "transfer.workspace_open",
+        "transfer.send_selection",
+        "transfer.send_to_track_once",
     } <= action_ids
 
 
@@ -645,12 +697,15 @@ def test_inspector_contract_render_text_tracks_selection_transition_sequence():
             "main take: take_main",
             "takes: 2",
             "status flags: none",
-            "playback state: Set Active",
+            "playback state: Selected",
+            "mute: Off",
+            "solo: Off",
+            "gain: +0.0 dB",
+            "pan: +0.00",
             "output route: Outputs 1/2 (Default)",
             "sync state: Off",
             "sync mapping: none",
             "selected identity: Layer Kick (layer_kick)",
-            "playback target: none",
         ]
     )
     assert render_inspector_contract_text(event_contract) == "\n".join(
@@ -664,35 +719,28 @@ def test_inspector_contract_render_text_tracks_selection_transition_sequence():
             "take: Main take (take_main)",
             "classification: Kick",
             "confidence score: 0.91",
-            "playback state: Set Active",
+            "playback state: Selected",
             "sync state: Off",
             "sync mapping: none",
             "selected identity: Event Main (main_evt) on Kick / Main take (take_main)",
-            "playback target: none",
         ]
     )
     assert render_inspector_contract_text(cleared_contract) == "No timeline object selected."
 
 
-def test_inspector_contract_empty_state_with_playback_target_shows_target_separately():
+def test_inspector_contract_empty_state_hides_selection_context_rows():
     presentation = _contract_test_presentation()
-    presentation.active_playback_layer_id = LayerId("layer_kick")
-    presentation.active_playback_take_id = TakeId("take_main")
+    presentation.selected_layer_id = None
+    presentation.selected_layer_ids = []
+    presentation.selected_take_id = None
 
     contract = build_timeline_inspector_contract(presentation)
     rows = _section_rows(contract)
 
     assert contract.identity is None
-    assert contract.title == "Timeline"
-    assert rows["selected identity"] == "none"
-    assert rows["playback target"] == "Active Kick / Main take (take_main)"
-    assert render_inspector_contract_text(contract) == "\n".join(
-        [
-            "Timeline",
-            "selected identity: none",
-            "playback target: Active Kick / Main take (take_main)",
-        ]
-    )
+    assert contract.title == "No timeline object selected."
+    assert "selected identity" not in rows
+    assert render_inspector_contract_text(contract) == "No timeline object selected."
 
 
 def test_inspector_contract_no_takes_hit_target_excludes_take_actions():

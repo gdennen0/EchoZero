@@ -1,5 +1,9 @@
 ## Real App Automation
 
+Status: reference
+Last reviewed: 2026-04-30
+
+
 EchoZero automation should target the canonical app path, not demo-only helper
 surfaces.
 

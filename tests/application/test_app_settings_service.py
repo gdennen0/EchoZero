@@ -83,7 +83,7 @@ def test_app_settings_service_describe_surfaces_audio_osc_and_import_sections() 
     assert 16 in output_channel_values
     assert page.warnings == (
         "Changes are saved to the local config JSON only.",
-        "Restart EchoZero to use updated audio or OSC settings.",
+        "Changes apply live in the active shell when supported, and always apply on next launch.",
     )
 
 
@@ -105,11 +105,8 @@ def test_app_settings_service_apply_updates_persists_audio_osc_and_import_change
     assert result.audio_changed is True
     assert result.osc_changed is True
     assert result.song_import_changed is True
-    assert result.restart_required is True
-    assert result.restart_reasons == (
-        "Restart EchoZero to apply saved audio output settings.",
-        "Restart EchoZero to apply saved OSC settings.",
-    )
+    assert result.restart_required is False
+    assert result.restart_reasons == ()
     assert result.preferences.audio_output.sample_rate == 48000
     assert result.preferences.ma3_osc.send.enabled is True
     assert result.preferences.ma3_osc.send.port == 9000

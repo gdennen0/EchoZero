@@ -20,6 +20,7 @@ from echozero.application.presentation.inspector_contract import (
 )
 from echozero.application.shared.enums import SyncMode
 from echozero.application.timeline.intents import Pause, Play, Stop
+from echozero.application.timeline.object_actions import resolve_action_id
 from echozero.testing.app_flow import AppFlowHarness
 
 from ...core.models import (
@@ -222,6 +223,7 @@ class EchoZeroAutomationBackend:
                     )
                 )
 
+        seen_event_ids: set[str] = set()
         for rect, layer_id, _take_id, event_id in self._harness.widget._canvas._event_rects:
             layer = next(
                 (item for item in presentation.layers if str(item.layer_id) == str(layer_id)), None
@@ -233,6 +235,7 @@ class EchoZeroAutomationBackend:
                         event_label = candidate.label
                         break
             target_id = self._event_target_id(str(event_id))
+            seen_event_ids.add(str(event_id))
             targets.append(
                 AutomationTarget(
                     kind="event",
@@ -252,6 +255,44 @@ class EchoZeroAutomationBackend:
                     metadata={"layer_id": str(layer_id), "event_id": str(event_id)},
                 )
             )
+
+        # Keep semantic event targets available even when transient paint-cache
+        # rectangles are unavailable (for example right after drag transitions).
+        for layer in presentation.layers:
+            layer_id = str(layer.layer_id)
+            for event in layer.events:
+                event_id = str(event.event_id)
+                if event_id in seen_event_ids:
+                    continue
+                targets.append(
+                    AutomationTarget(
+                        kind="event",
+                        target_id=self._event_target_id(event_id),
+                        parent_id=self._layer_target_id(layer_id),
+                        label=event.label,
+                        bounds=None,
+                        time_seconds=event.start,
+                        metadata={"layer_id": layer_id, "event_id": event_id},
+                    )
+                )
+                seen_event_ids.add(event_id)
+            for take in layer.takes:
+                for event in take.events:
+                    event_id = str(event.event_id)
+                    if event_id in seen_event_ids:
+                        continue
+                    targets.append(
+                        AutomationTarget(
+                            kind="event",
+                            target_id=self._event_target_id(event_id),
+                            parent_id=self._layer_target_id(layer_id),
+                            label=event.label,
+                            bounds=None,
+                            time_seconds=event.start,
+                            metadata={"layer_id": layer_id, "event_id": event_id},
+                        )
+                    )
+                    seen_event_ids.add(event_id)
 
         actions = [
             AutomationAction(action_id="transport.play", label="Play", group="transport"),
@@ -572,20 +613,31 @@ class EchoZeroAutomationBackend:
         params: dict[str, Any] | None = None,
     ) -> AutomationSnapshot:
         payload = dict(params or {})
+        resolved_action_id = resolve_action_id(action_id, warn_on_alias=True) or action_id
+        if resolved_action_id == "transfer.workspace_open":
+            if action_id in {"open_push_surface", "push_to_ma3", "send_to_ma3", "send_layer_to_ma3"}:
+                payload.setdefault("direction", "push")
+            elif action_id in {"open_pull_surface", "pull_from_ma3"}:
+                payload.setdefault("direction", "pull")
+        elif resolved_action_id == "timeline.nudge_selection":
+            if action_id == "nudge_left":
+                payload.setdefault("direction", "left")
+            elif action_id == "nudge_right":
+                payload.setdefault("direction", "right")
         if target_id is not None:
             self._select_target(target_id)
 
-        if action_id == "transport.play":
+        if resolved_action_id == "transport.play":
             self._harness.runtime.dispatch(Play())
-        elif action_id == "transport.pause":
+        elif resolved_action_id == "transport.pause":
             self._harness.runtime.dispatch(Pause())
-        elif action_id == "transport.stop":
+        elif resolved_action_id == "transport.stop":
             self._harness.runtime.dispatch(Stop())
-        elif action_id == "sync.enable":
+        elif resolved_action_id == "sync.enable":
             self._harness.enable_sync(SyncMode.MA3)
-        elif action_id == "sync.disable":
+        elif resolved_action_id == "sync.disable":
             self._harness.disable_sync()
-        elif action_id == "app.new":
+        elif resolved_action_id == "app.new":
             project_name = str(payload.get("name", "EchoZero Project"))
             if project_name == "EchoZero Project":
                 self._harness.trigger_action("new_project")
@@ -593,7 +645,7 @@ class EchoZeroAutomationBackend:
                 self._harness.runtime.new_project(project_name)
                 self._harness.widget.set_presentation(self._harness.runtime.presentation())
                 QApplication.processEvents()
-        elif action_id == "app.save":
+        elif resolved_action_id == "app.save":
             project_path = payload.get("path")
             if project_path is not None:
                 target_path = Path(str(project_path))
@@ -605,7 +657,7 @@ class EchoZeroAutomationBackend:
                     self._restore_dialog_paths()
             else:
                 self._harness.trigger_action("save_project")
-        elif action_id == "app.save_as":
+        elif resolved_action_id == "app.save_as":
             if "path" not in payload:
                 raise ValueError("app.save_as requires params.path")
             target_path = Path(str(payload["path"]))
@@ -615,7 +667,7 @@ class EchoZeroAutomationBackend:
                 self._harness.trigger_action("save_project_as")
             finally:
                 self._restore_dialog_paths()
-        elif action_id == "app.open":
+        elif resolved_action_id == "app.open":
             if "path" not in payload:
                 raise ValueError("app.open requires params.path")
             self._harness.queue_open_path(Path(str(payload["path"])))
@@ -623,7 +675,7 @@ class EchoZeroAutomationBackend:
                 self._harness.trigger_action("open_project")
             finally:
                 self._restore_dialog_paths()
-        elif action_id == "song.add":
+        elif resolved_action_id == "song.add":
             contract_action = self._find_contract_action("song.add")
             if contract_action is None:
                 contract_action = InspectorAction(action_id="song.add", label="Add Song")
@@ -637,19 +689,19 @@ class EchoZeroAutomationBackend:
             ):
                 self._harness.widget._trigger_contract_action(contract_action)
             QApplication.processEvents()
-        elif action_id in {"song.select", "song.version.switch", "song.version.add"}:
+        elif resolved_action_id in {"song.select", "song.version.switch", "song.version.add"}:
             self._harness.widget._trigger_contract_action(
-                self._merged_contract_action(action_id, payload)
+                self._merged_contract_action(resolved_action_id, payload)
             )
             QApplication.processEvents()
-        elif is_object_action(action_id):
-            descriptor = descriptor_for_action(action_id)
+        elif is_object_action(resolved_action_id):
+            descriptor = descriptor_for_action(resolved_action_id)
             assert descriptor is not None
-            contract_action = self._merged_contract_action(action_id, payload)
+            contract_action = self._merged_contract_action(resolved_action_id, payload)
             dialog_file_responses: list[tuple[str, str]] = []
             if descriptor.params_schema.get("model_path") == "dialog:file:model":
                 if "model_path" not in payload:
-                    raise ValueError(f"{action_id} requires params.model_path")
+                    raise ValueError(f"{resolved_action_id} requires params.model_path")
                 dialog_file_responses.append((str(payload["model_path"]), ""))
             with self._dialog_overrides(
                 open_file_responses=dialog_file_responses or None,
@@ -657,7 +709,9 @@ class EchoZeroAutomationBackend:
                 self._harness.widget._trigger_contract_action(contract_action)
             QApplication.processEvents()
         else:
-            self._harness.widget._trigger_contract_action(self._require_contract_action(action_id))
+            self._harness.widget._trigger_contract_action(
+                self._require_contract_action(resolved_action_id)
+            )
             QApplication.processEvents()
         return self.snapshot()
 
@@ -885,7 +939,9 @@ class EchoZeroAutomationBackend:
         for rect, candidate_layer_id in self._harness.widget._canvas._header_select_rects:
             if str(candidate_layer_id) == layer_id:
                 return rect
-        for rect, candidate_layer_id in self._harness.widget._canvas._row_body_select_rects:
+        for entry in self._harness.widget._canvas._row_body_select_rects:
+            rect = entry[0]
+            candidate_layer_id = entry[1]
             if str(candidate_layer_id) == layer_id:
                 return rect
         return None

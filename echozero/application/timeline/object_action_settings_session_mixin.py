@@ -37,9 +37,9 @@ from echozero.application.timeline.object_actions.session import (
 from echozero.application.timeline.object_actions.settings import (
     ObjectActionSettingsPlan,
 )
-from echozero.application.timeline.pipeline_run_service import (
-    PipelineRunService,
-    PipelineRunState,
+from echozero.application.timeline.operation_progress_service import (
+    OperationProgressService,
+    OperationProgressState,
 )
 from echozero.persistence.session import ProjectStorage
 from echozero.pipelines.registry import get_registry
@@ -97,7 +97,7 @@ class ObjectActionSettingsSessionMixin(ObjectActionSettingsCopyMixin):
         *,
         object_id: object | None,
         object_type: str | None,
-    ) -> PipelineRunState | None:
+    ) -> OperationProgressState | None:
         raise NotImplementedError
 
     @staticmethod
@@ -278,7 +278,7 @@ class ObjectActionSettingsSessionMixin(ObjectActionSettingsCopyMixin):
                 else "object"
             )
         )
-        active_run = self._lookup_active_run(
+        active_operation = self._lookup_active_run(
             action_id,
             object_id=(
                 object_id
@@ -287,7 +287,7 @@ class ObjectActionSettingsSessionMixin(ObjectActionSettingsCopyMixin):
             ),
             object_type=resolved_object_type,
         )
-        run_is_active = PipelineRunService.is_active(active_run)
+        run_is_active = OperationProgressService.is_active(active_operation)
         return ObjectActionSettingsSession(
             session_id=session_id,
             action_id=action_id,

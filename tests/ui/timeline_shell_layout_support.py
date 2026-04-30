@@ -148,16 +148,16 @@ def test_transport_bar_is_below_timeline_viewport():
 
 def test_timeline_widget_surfaces_pipeline_status_banner_from_presentation():
     app = QApplication.instance() or QApplication([])
-    banner = PipelineRunBannerPresentation(
-        run_id="pipeline_run_1",
+    banner = OperationProgressBannerPresentation(
+        operation_id="pipeline_run_1",
         title="Extract Stems",
         status="running",
         message="Executing pipeline",
-        percent=0.2,
+        fraction_complete=0.2,
         is_error=False,
     )
     widget = TimelineWidget(
-        replace(_selection_test_presentation(), pipeline_run_banner=banner)
+        replace(_selection_test_presentation(), operation_progress_banner=banner)
     )
     try:
         widget.show()
@@ -172,11 +172,72 @@ def test_timeline_widget_surfaces_pipeline_status_banner_from_presentation():
             & Qt.TextInteractionFlag.TextSelectableByMouse
         )
 
-        widget.set_presentation(replace(widget.presentation, pipeline_run_banner=None))
+        widget.set_presentation(replace(widget.presentation, operation_progress_banner=None))
         app.processEvents()
         assert widget._pipeline_status.isHidden() is True
     finally:
         widget.close()
+
+
+def test_timeline_widget_pipeline_status_banner_can_be_closed_manually():
+    app = QApplication.instance() or QApplication([])
+    banner = OperationProgressBannerPresentation(
+        operation_id="pipeline_run_1",
+        title="Extract Stems",
+        status="running",
+        message="Executing pipeline",
+        fraction_complete=0.2,
+        is_error=False,
+    )
+    widget = TimelineWidget(
+        replace(_selection_test_presentation(), operation_progress_banner=banner)
+    )
+    try:
+        widget.show()
+        app.processEvents()
+        assert widget._pipeline_status.isHidden() is False
+
+        QTest.mouseClick(
+            widget._pipeline_status_close_button,
+            Qt.MouseButton.LeftButton,
+        )
+        app.processEvents()
+
+        assert widget._pipeline_status.isHidden() is True
+    finally:
+        widget.close()
+        app.processEvents()
+
+
+def test_timeline_widget_auto_dismisses_ma3_success_status_banner(monkeypatch):
+    app = QApplication.instance() or QApplication([])
+    monkeypatch.setattr(
+        "echozero.ui.qt.timeline.widget_runtime_mixin._MA3_PUSH_SUCCESS_BANNER_AUTO_DISMISS_MS",
+        20,
+    )
+    base = _selection_test_presentation()
+    widget = TimelineWidget(
+        replace(
+            base,
+            operation_progress_banner=None,
+            manual_push_flow=replace(
+                base.manual_push_flow,
+                operation_status="success",
+                operation_message="Sent 2 event(s) to tc1_tg2_tr3",
+            ),
+        )
+    )
+    try:
+        widget.show()
+        app.processEvents()
+        assert widget._pipeline_status.isHidden() is False
+
+        QTest.qWait(40)
+        app.processEvents()
+        assert widget._pipeline_status.isHidden() is True
+    finally:
+        widget.close()
+        app.processEvents()
 
 
 def test_timeline_widget_file_menu_shows_open_recent_project_submenu():
@@ -218,6 +279,19 @@ def test_timeline_widget_file_menu_shows_open_recent_project_submenu():
 
 def test_pipeline_context_actions_include_phase1_ids():
     presentation = _audio_pipeline_presentation()
+    section_presentation = replace(
+        presentation,
+        layers=[
+            *presentation.layers,
+            LayerPresentation(
+                layer_id=LayerId("layer_sections"),
+                title="Sections",
+                main_take_id=TakeId("take_sections"),
+                kind=LayerKind.SECTION,
+                status=LayerStatusPresentation(),
+            ),
+        ],
+    )
 
     empty_contract = build_timeline_inspector_contract(
         replace(
@@ -233,6 +307,10 @@ def test_pipeline_context_actions_include_phase1_ids():
     drums_contract = build_timeline_inspector_contract(
         presentation,
         hit_target=TimelineInspectorHitTarget(kind="layer", layer_id=LayerId("layer_drums")),
+    )
+    section_contract = build_timeline_inspector_contract(
+        section_presentation,
+        hit_target=TimelineInspectorHitTarget(kind="layer", layer_id=LayerId("layer_sections")),
     )
 
     empty_action_ids = {
@@ -250,10 +328,14 @@ def test_pipeline_context_actions_include_phase1_ids():
         for section in drums_contract.context_sections
         for action in section.actions
     }
+    section_action_ids = {
+        action.action_id
+        for section in section_contract.context_sections
+        for action in section.actions
+    }
 
     assert "song.add" in empty_action_ids
     assert "add_event_layer" in empty_action_ids
-    assert "add_marker_layer" in empty_action_ids
     assert "add_section_layer" in empty_action_ids
     assert "add_automation_layer" not in empty_action_ids
     assert "add_reference_layer" not in empty_action_ids
@@ -261,12 +343,14 @@ def test_pipeline_context_actions_include_phase1_ids():
     assert "song.add" not in drums_action_ids
     assert "timeline.extract_stems" in song_action_ids
     assert "timeline.extract_song_drum_events" in song_action_ids
+    assert "timeline.extract_song_sections" in song_action_ids
     assert "timeline.extract_drum_events" not in song_action_ids
     assert "timeline.classify_drum_events" not in song_action_ids
     assert "timeline.extract_stems" in drums_action_ids
     assert "timeline.extract_classified_drums" in drums_action_ids
     assert "timeline.extract_drum_events" in drums_action_ids
     assert "timeline.classify_drum_events" not in drums_action_ids
+    assert "timeline.extract_song_sections" in section_action_ids
 
 
 

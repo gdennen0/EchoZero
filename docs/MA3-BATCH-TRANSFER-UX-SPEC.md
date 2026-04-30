@@ -1,6 +1,9 @@
 # MA3 Batch Transfer UX Spec (Socratic + First Principles)
 
-_Last updated: 2026-04-11_
+Status: reference
+Last reviewed: 2026-04-30
+
+
 
 ## 1) Why this exists
 

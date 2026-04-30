@@ -1,6 +1,9 @@
 # Testing Executors
 
-_Updated: 2026-04-18_
+Status: reference
+Last reviewed: 2026-04-30
+
+
 
 This document defines the canonical executor interface for EchoZero testing,
 demos, and automation.
@@ -10,7 +13,7 @@ test harness, and future tool adapters.
 ## Purpose
 
 The primitive catalog in
-[docs/TESTING-PRIMITIVES.md](/Users/march/Documents/GitHub/EchoZero/docs/TESTING-PRIMITIVES.md:1)
+[docs/TESTING-PRIMITIVES.md](TESTING-PRIMITIVES.md)
 defines what actions mean.
 This document defines how an executor consumes those actions and reports
 results.

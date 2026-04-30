@@ -241,7 +241,7 @@ def test_foundry_window_latest_artifact_package_reports_missing_path(tmp_path: P
     qt_app.processEvents()
 
 
-def test_foundry_window_creates_and_opens_project_review_batches(tmp_path: Path, monkeypatch):
+def test_foundry_window_opens_active_live_review(tmp_path: Path, monkeypatch):
     _ez_path, working_dir, _refs = _build_project_review_fixture(tmp_path)
     qt_app = _qt_app()
     window = FoundryWindow(working_dir)
@@ -253,27 +253,13 @@ def test_foundry_window_creates_and_opens_project_review_batches(tmp_path: Path,
     )
 
     window.review_source_path.setText(str(working_dir))
-    window.review_session_name.setText("Questionable Project Hits")
-    window.review_phone_service_enabled.setChecked(True)
-    window.review_score_threshold.setValue(0.8)
-    window.review_item_limit.setValue(2)
-
-    window._create_review_batch()
-
-    assert window.review_session_list.count() == 1
-    current_item = window.review_session_list.currentItem()
-    assert current_item is not None
-    session_id = current_item.data(Qt.ItemDataRole.UserRole)
-    assert session_id is not None
-    assert window._review_server_controller.is_enabled is True
-    assert "Questionable Max Score: 0.80" in window.review_summary.toPlainText()
-    assert "Review Mode: questionables" in window.review_summary.toPlainText()
-    assert "Selected / Total: 2 / 4" in window.review_summary.toPlainText()
-
-    window._open_selected_review_session()
+    window._open_active_live_review()
 
     assert opened_urls
-    assert f"sessionId={session_id}" in opened_urls[0]
+    assert opened_urls[0].startswith("http://127.0.0.1:")
+    assert window._review_server_controller.is_enabled is True
+    assert "Mode: Active live controller" in window.review_summary.toPlainText()
+    assert "Pending / Reviewed:" in window.review_summary.toPlainText()
 
     window.close()
     qt_app.processEvents()

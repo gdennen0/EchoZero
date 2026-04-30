@@ -14,6 +14,7 @@ from tests.ui.app_shell_runtime_flow_support import (
     test_app_shell_runtime_extract_drum_events_rerun_surfaces_new_take_with_saved_threshold,
     test_app_shell_runtime_extract_song_drum_events_adds_selected_stem_layers,
     test_app_shell_runtime_extract_song_drum_events_from_source_audio,
+    test_app_shell_runtime_extract_song_sections_persists_section_layer,
     test_app_shell_runtime_extract_stems_from_derived_audio_layer_is_deferred,
     test_app_shell_runtime_pipeline_runs_do_not_auto_save_projects,
     test_app_shell_runtime_extract_stems_passes_explicit_source_audio_binding,

@@ -1,5 +1,5 @@
-"""Object-action and pipeline-run helpers for the Qt app shell.
-Exists to isolate action-session orchestration and pipeline-run refresh handling.
+"""Object-action and operation-progress helpers for the Qt app shell.
+Exists to isolate action-session orchestration and operation refresh handling.
 Connects app-shell runtime services to explicit object-action workflows.
 """
 
@@ -21,7 +21,10 @@ from echozero.application.timeline.object_actions import (
     SaveSessionToDefaults,
     SaveSession,
 )
-from echozero.application.timeline.pipeline_run_service import PipelineRunService, PipelineRunState
+from echozero.application.timeline.operation_progress_service import (
+    OperationProgressService,
+    OperationProgressState,
+)
 from echozero.ui.qt.app_shell_timeline_state import surface_new_take_rows
 
 
@@ -29,7 +32,7 @@ class _PipelineRunShell(Protocol):
     _app: TimelineApplication
     _is_dirty: bool
     _last_pipeline_run_revision: int
-    _pipeline_runs: PipelineRunService
+    _pipeline_runs: OperationProgressService
 
     @property
     def session(self) -> Session: ...
@@ -72,19 +75,19 @@ def run_object_action(
     object_type: str | None = None,
 ) -> TimelinePresentation:
     """Compatibility helper that blocks until one object action finishes."""
-    run_id = request_object_action_run(
+    operation_id = request_object_action_run(
         shell,
         action_id,
         params,
         object_id=object_id,
         object_type=object_type,
     )
-    state = wait_for_pipeline_run(shell, run_id)
+    state = wait_for_operation(shell, operation_id)
     if state.exception is not None:
         raise state.exception
     if state.error:
         raise RuntimeError(state.error)
-    updated = consume_pipeline_run_presentation_update(shell)
+    updated = consume_operation_presentation_update(shell)
     if updated is not None:
         return updated
     return shell.presentation()
@@ -99,8 +102,8 @@ def request_object_action_run(
     object_type: str | None = None,
     persist_scope: str | None = "version",
 ) -> str:
-    """Queue one object-scoped action on the app-owned pipeline run service."""
-    run_id = shell._pipeline_runs.request_run(
+    """Queue one object-scoped action on the app-owned operation progress service."""
+    operation_id = shell._pipeline_runs.request_operation(
         action_id,
         params,
         object_id=object_id,
@@ -109,23 +112,26 @@ def request_object_action_run(
     )
     if persist_scope is not None:
         shell._is_dirty = True
-    return run_id
+    return operation_id
 
 
-def wait_for_pipeline_run(
+def wait_for_operation(
     shell: _PipelineRunShell,
-    run_id: str,
+    operation_id: str,
     *,
     timeout: float | None = None,
-) -> PipelineRunState:
-    return shell._pipeline_runs.wait_for_run(run_id, timeout=timeout)
+) -> OperationProgressState:
+    return shell._pipeline_runs.wait_for_operation(operation_id, timeout=timeout)
 
 
-def get_pipeline_run_state(shell: _PipelineRunShell, run_id: str) -> PipelineRunState | None:
-    return shell._pipeline_runs.get_run(run_id)
+def get_operation_state(
+    shell: _PipelineRunShell,
+    operation_id: str,
+) -> OperationProgressState | None:
+    return shell._pipeline_runs.get_operation(operation_id)
 
 
-def consume_pipeline_run_presentation_update(
+def consume_operation_presentation_update(
     shell: _PipelineRunShell,
 ) -> TimelinePresentation | None:
     notification = shell._pipeline_runs.consume_updates_since(shell._last_pipeline_run_revision)

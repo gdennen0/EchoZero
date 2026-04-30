@@ -14,6 +14,7 @@ from urllib.parse import parse_qs, urlparse
 
 from echozero.foundry.domain import ReviewOutcome
 from echozero.foundry.services import ReviewSessionService
+from echozero.foundry.services.review_commit_mapper import normalize_review_payload
 from echozero.foundry.review_web import build_review_page
 
 
@@ -78,14 +79,6 @@ class _ReviewRequestHandler(BaseHTTPRequestHandler):
         if parsed.path == "/":
             self._write_html(build_review_page())
             return
-        if parsed.path == "/api/sessions":
-            payload = self.server.service.build_session_index(
-                default_session_id=self.server.default_session_id or None,
-                application_session=self.server.current_application_session,
-            )
-            payload["stateRevision"] = self.server.state_revision
-            self._write_json(payload)
-            return
         if parsed.path == "/api/session":
             try:
                 payload = self._snapshot_from_query(parsed.query)
@@ -95,52 +88,26 @@ class _ReviewRequestHandler(BaseHTTPRequestHandler):
                 self._write_json({"error": str(exc)}, status=HTTPStatus.BAD_REQUEST)
             return
         if parsed.path.startswith("/audio/"):
-            self._serve_audio(parsed.path.rsplit("/", 1)[-1], query=parsed.query)
+            self._serve_audio(parsed.path.rsplit("/", 1)[-1])
             return
         self.send_error(HTTPStatus.NOT_FOUND, "Unknown route")
 
     def do_POST(self) -> None:  # noqa: N802
         parsed = urlparse(self.path)
-        if parsed.path != "/api/review":
-            self.send_error(HTTPStatus.NOT_FOUND, "Unknown route")
+        if parsed.path == "/api/review":
+            self._handle_review_commit(parsed.query)
             return
-        payload = self._read_json_body()
-        try:
-            outcome = ReviewOutcome(str(payload.get("outcome", "")).strip())
-            item_id = str(payload.get("itemId", "")).strip()
-            if not item_id:
-                raise ValueError("itemId is required")
-            self.server.service.set_item_review(
-                self._resolve_session_id(parsed.query),
-                item_id,
-                outcome=outcome,
-                corrected_label=_optional_payload_text(payload, "correctedLabel"),
-                review_note=_optional_payload_text(payload, "reviewNote"),
-                decision_kind=_optional_payload_text(payload, "decisionKind"),
-                original_start_ms=_optional_payload_float(payload, "originalStartMs"),
-                original_end_ms=_optional_payload_float(payload, "originalEndMs"),
-                corrected_start_ms=_optional_payload_float(payload, "correctedStartMs"),
-                corrected_end_ms=_optional_payload_float(payload, "correctedEndMs"),
-                created_event_ref=_optional_payload_text(payload, "createdEventRef"),
-                surface=_optional_payload_text(payload, "surface") or "phone_review",
-                workflow=_optional_payload_text(payload, "workflow") or "manual_review",
-                operator_action=_optional_payload_text(payload, "operatorAction"),
-            )
-            snapshot = self._snapshot_from_query(parsed.query)
-        except (ValueError, KeyError) as exc:
-            self._write_json({"error": str(exc)}, status=HTTPStatus.BAD_REQUEST)
-            return
-        self._write_json(snapshot)
+        self.send_error(HTTPStatus.NOT_FOUND, "Unknown route")
 
     def log_message(self, format: str, *args) -> None:  # noqa: A003
         return
 
     def _snapshot_from_query(self, query: str) -> dict[str, object]:
         params = parse_qs(query)
-        session_id = self._resolve_session_id(query)
+        session_id = self._resolve_session_id()
         payload = self.server.service.build_snapshot(  # type: ignore[attr-defined]
             session_id,
-            outcome=_first_param(params, "outcome", default="pending"),
+            outcome=_first_param(params, "outcome", default="all"),
             polarity=_first_param(params, "polarity"),
             target_class=_first_param(params, "targetClass"),
             song_ref=_first_param(params, "songRef"),
@@ -150,18 +117,46 @@ class _ReviewRequestHandler(BaseHTTPRequestHandler):
         )
         current_item = payload.get("currentItem")
         if isinstance(current_item, dict):
-            current_item["audioUrl"] = f"/audio/{current_item['itemId']}?sessionId={session_id}"
+            current_item["audioUrl"] = f"/audio/{current_item['itemId']}"
         return payload
 
-    def _resolve_session_id(self, query: str) -> str:
-        params = parse_qs(query)
-        session_id = _first_param(params, "sessionId", default=self.server.default_session_id)
+    def _handle_review_commit(self, query: str) -> None:
+        payload = normalize_review_payload(self._read_json_body())
+        try:
+            outcome = ReviewOutcome(str(payload.get("outcome", "")).strip())
+            item_id = str(payload.get("item_id", "")).strip()
+            if not item_id:
+                raise ValueError("itemId is required")
+            self.server.service.set_item_review(
+                self._resolve_session_id(),
+                item_id,
+                outcome=outcome,
+                corrected_label=_optional_payload_text(payload, "corrected_label"),
+                review_note=_optional_payload_text(payload, "review_note"),
+                decision_kind=_optional_payload_text(payload, "decision_kind"),
+                original_start_ms=_optional_payload_float(payload, "original_start_ms"),
+                original_end_ms=_optional_payload_float(payload, "original_end_ms"),
+                corrected_start_ms=_optional_payload_float(payload, "corrected_start_ms"),
+                corrected_end_ms=_optional_payload_float(payload, "corrected_end_ms"),
+                created_event_ref=_optional_payload_text(payload, "created_event_ref"),
+                surface=_optional_payload_text(payload, "surface") or "phone_review",
+                workflow=_optional_payload_text(payload, "workflow") or "manual_review",
+                operator_action=_optional_payload_text(payload, "operator_action"),
+            )
+            snapshot = self._snapshot_from_query(query)
+        except (ValueError, KeyError) as exc:
+            self._write_json({"error": str(exc)}, status=HTTPStatus.BAD_REQUEST)
+            return
+        self._write_json(snapshot)
+
+    def _resolve_session_id(self) -> str:
+        session_id = str(self.server.default_session_id or "").strip()
         if not session_id:
-            raise ValueError("sessionId is required")
+            raise ValueError("Live review session is not available yet.")
         return session_id
 
-    def _serve_audio(self, item_id: str, *, query: str) -> None:
-        session = self.server.service.get_session(self._resolve_session_id(query))
+    def _serve_audio(self, item_id: str) -> None:
+        session = self.server.service.get_session(self._resolve_session_id())
         if session is None:
             self.send_error(HTTPStatus.NOT_FOUND, "Review session not found")
             return

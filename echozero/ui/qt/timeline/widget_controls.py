@@ -63,12 +63,13 @@ class TimelineEditorModeBar(QWidget):
     edit_mode_changed = pyqtSignal(str)
     fix_action_changed = pyqtSignal(str)
     fix_nav_include_demoted_toggled = pyqtSignal(bool)
+    add_event_at_playhead_requested = pyqtSignal()
     snap_toggled = pyqtSignal(bool)
     grid_mode_changed = pyqtSignal(str)
+    zoom_fit_requested = pyqtSignal()
     settings_requested = pyqtSignal()
     osc_settings_requested = pyqtSignal()
     pipeline_settings_requested = pyqtSignal()
-    sections_requested = pyqtSignal()
     regions_requested = pyqtSignal()
     _COMPACT_WIDTH_THRESHOLD_PX = 1400
 
@@ -165,6 +166,22 @@ class TimelineEditorModeBar(QWidget):
         self._grid_button.clicked.connect(self._cycle_grid_mode)
         assist_layout.addWidget(self._grid_button, 0, Qt.AlignmentFlag.AlignVCenter)
 
+        self._fit_button = QPushButton("Fit All", assist_group)
+        self._fit_button.setObjectName("timelineEditorFitAllButton")
+        self._fit_button.setToolTip("Fit full timeline into view")
+        self._fit_button.clicked.connect(self.zoom_fit_requested.emit)
+        assist_layout.addWidget(self._fit_button, 0, Qt.AlignmentFlag.AlignVCenter)
+
+        self._add_event_at_playhead_button = QPushButton("+ Playhead", assist_group)
+        self._add_event_at_playhead_button.setObjectName("timelineEditorAddAtPlayheadButton")
+        self._add_event_at_playhead_button.setToolTip(
+            "Draw mode: add a 0.5s event at the current playhead (shortcut: A)"
+        )
+        self._add_event_at_playhead_button.clicked.connect(
+            self.add_event_at_playhead_requested.emit
+        )
+        assist_layout.addWidget(self._add_event_at_playhead_button, 0, Qt.AlignmentFlag.AlignVCenter)
+
         self._fix_remove_button = QPushButton("−", assist_group)
         self._fix_remove_button.setObjectName("timelineEditorFixRemoveButton")
         self._fix_remove_button.setCheckable(True)
@@ -217,11 +234,13 @@ class TimelineEditorModeBar(QWidget):
         self._fix_remove_button.setEnabled(False)
         self._fix_select_button.setEnabled(False)
         self._fix_include_demoted_button.setEnabled(False)
+        self._add_event_at_playhead_button.setEnabled(False)
         self._fix_select_button.setChecked(True)
         self._fix_promote_button.setVisible(False)
         self._fix_remove_button.setVisible(False)
         self._fix_select_button.setVisible(False)
         self._fix_include_demoted_button.setVisible(False)
+        self._add_event_at_playhead_button.setVisible(False)
 
         layout.addWidget(assist_group, 0, Qt.AlignmentFlag.AlignVCenter)
         layout.addStretch(1)
@@ -254,11 +273,6 @@ class TimelineEditorModeBar(QWidget):
             0,
             Qt.AlignmentFlag.AlignVCenter,
         )
-        self._sections_button = QPushButton("§ Sections", shell_group)
-        self._sections_button.setObjectName("timelineEditorSectionsButton")
-        self._sections_button.setToolTip("Open sections manager")
-        self._sections_button.clicked.connect(self.sections_requested.emit)
-        shell_layout.addWidget(self._sections_button, 0, Qt.AlignmentFlag.AlignVCenter)
         self._regions_button = QPushButton("▤ Regions", shell_group)
         self._regions_button.setObjectName("timelineEditorRegionsButton")
         self._regions_button.setToolTip("Open timeline regions manager")
@@ -306,6 +320,9 @@ class TimelineEditorModeBar(QWidget):
             button.setChecked(action_name == resolved_fix_action)
             button.setVisible(fix_action_enabled)
             button.blockSignals(False)
+        add_action_enabled = edit_mode == "draw"
+        self._add_event_at_playhead_button.setEnabled(add_action_enabled)
+        self._add_event_at_playhead_button.setVisible(add_action_enabled)
         self._fix_include_demoted_button.blockSignals(True)
         self._fix_include_demoted_button.setEnabled(fix_action_enabled)
         self._fix_include_demoted_button.setChecked(bool(fix_nav_include_demoted))
@@ -366,6 +383,7 @@ class TimelineEditorModeBar(QWidget):
         self._sync_fix_include_demoted_button_label(
             enabled=bool(self._fix_include_demoted_button.isChecked())
         )
+        self._sync_add_at_playhead_button_label()
         self._apply_button_width_hints(compact=enabled)
         self._sync_grid_button_text()
         self._sync_grid_button_tooltip()
@@ -405,13 +423,11 @@ class TimelineEditorModeBar(QWidget):
             self._settings_button.setText("⚙")
             self._osc_settings_button.setText("O")
             self._pipeline_settings_button.setText("P")
-            self._sections_button.setText("§")
             self._regions_button.setText("▤")
             return
         self._settings_button.setText("⚙ Settings")
         self._osc_settings_button.setText("OSC")
         self._pipeline_settings_button.setText("Pipeline")
-        self._sections_button.setText("§ Sections")
         self._regions_button.setText("▤ Regions")
 
     def _sync_fix_include_demoted_button_label(self, *, enabled: bool) -> None:
@@ -422,6 +438,9 @@ class TimelineEditorModeBar(QWidget):
             f"D Demoted {'On' if enabled else 'Off'}"
         )
 
+    def _sync_add_at_playhead_button_label(self) -> None:
+        self._add_event_at_playhead_button.setText("+@" if self._compact_mode else "+ Playhead")
+
     def _apply_button_width_hints(self, *, compact: bool) -> None:
         mode_width = 32 if compact else 58
         snap_width = 34 if compact else 64
@@ -430,6 +449,7 @@ class TimelineEditorModeBar(QWidget):
         fix_small_width = 22 if compact else 30
         fix_select_width = 28 if compact else 36
         fix_toggle_width = 48 if compact else 90
+        add_playhead_width = 36 if compact else 92
 
         for button in self._mode_buttons.values():
             button.setMinimumWidth(mode_width)
@@ -438,12 +458,12 @@ class TimelineEditorModeBar(QWidget):
         self._settings_button.setMinimumWidth(shell_width)
         self._osc_settings_button.setMinimumWidth(shell_width)
         self._pipeline_settings_button.setMinimumWidth(shell_width)
-        self._sections_button.setMinimumWidth(shell_width)
         self._regions_button.setMinimumWidth(shell_width)
         self._fix_remove_button.setMinimumWidth(fix_small_width)
         self._fix_promote_button.setMinimumWidth(fix_small_width)
         self._fix_select_button.setMinimumWidth(fix_select_width)
         self._fix_include_demoted_button.setMinimumWidth(fix_toggle_width)
+        self._add_event_at_playhead_button.setMinimumWidth(add_playhead_width)
 
     def _repolish_toolbar_widgets(self) -> None:
         widgets: tuple[QWidget, ...] = (
@@ -453,12 +473,12 @@ class TimelineEditorModeBar(QWidget):
             self._settings_button,
             self._osc_settings_button,
             self._pipeline_settings_button,
-            self._sections_button,
             self._regions_button,
             self._fix_remove_button,
             self._fix_select_button,
             self._fix_promote_button,
             self._fix_include_demoted_button,
+            self._add_event_at_playhead_button,
             *tuple(self._mode_buttons.values()),
         )
         for widget in widgets:
@@ -591,6 +611,13 @@ class TimelineRuler(QWidget):
 
     def set_presentation(self, presentation: TimelinePresentation) -> None:
         self.presentation = presentation
+        self.update()
+
+    def set_header_width(self, width: float) -> None:
+        next_width = max(1.0, float(width))
+        if abs(next_width - self._header_width) <= 0.1:
+            return
+        self._header_width = next_width
         self.update()
 
     def set_editor_mode(self, mode: str) -> None:

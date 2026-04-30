@@ -69,6 +69,7 @@ class ObjectInfoPanel(_ObjectInfoPanelActionsMixin, QFrame):
             min(style.max_width_px, _PANEL_DEFAULT_EXPANDED_WIDTH),
         )
         self.setObjectName(style.frame_object_name)
+        self.setProperty("collapsed", False)
         self.setMinimumWidth(style.min_width_px)
         self.setMaximumWidth(style.max_width_px)
 
@@ -196,7 +197,7 @@ class ObjectInfoPanel(_ObjectInfoPanelActionsMixin, QFrame):
         )
         self._action_sections_layout = QVBoxLayout(self._action_sections)
         self._action_sections_layout.setContentsMargins(0, 0, 0, 0)
-        self._action_sections_layout.setSpacing(style.section_spacing_px)
+        self._action_sections_layout.setSpacing(max(4, style.section_spacing_px - 6))
         self._action_sections_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
         self._action_sections_layout.setSizeConstraint(QLayout.SizeConstraint.SetMinimumSize)
         self._actions_scroll.setWidget(self._action_sections)
@@ -212,46 +213,95 @@ class ObjectInfoPanel(_ObjectInfoPanelActionsMixin, QFrame):
             _SECTION_CONTENT_MARGIN_PX,
         )
         layer_controls_layout.setSpacing(6)
-        playback_section = QLabel("PLAYBACK", self._layer_controls)
+        playback_section = QLabel("AUDIO", self._layer_controls)
         playback_section.setObjectName("timeline_object_info_section")
         layer_controls_layout.addWidget(playback_section)
 
-        layer_actions = QGridLayout()
-        layer_actions.setContentsMargins(0, 0, 0, 0)
-        layer_actions.setHorizontalSpacing(6)
-        layer_actions.setVerticalSpacing(6)
-        self._route_audio_btn = QPushButton("Route Audio", self._layer_controls)
-        self._set_button_appearance(self._route_audio_btn, "subtle")
+        self._layer_controls_title = QLabel("No layer selected.", self._layer_controls)
+        self._layer_controls_title.setObjectName("selectionSecondaryLabel")
+        self._layer_controls_title.setWordWrap(True)
+        layer_controls_layout.addWidget(self._layer_controls_title)
+
+        route_row = QGridLayout()
+        route_row.setContentsMargins(0, 0, 0, 0)
+        route_row.setHorizontalSpacing(6)
+        route_row.setVerticalSpacing(6)
+        route_label = QLabel("Output Route", self._layer_controls)
+        route_label.setObjectName("selectionMetaLabel")
         self._output_bus_combo = QComboBox(self._layer_controls)
-        self._output_bus_apply_btn = QPushButton("Apply Output Route", self._layer_controls)
+        self._output_bus_apply_btn = QPushButton("Apply Route", self._layer_controls)
         self._set_button_appearance(self._output_bus_apply_btn, "primary")
+        route_row.addWidget(route_label, 0, 0)
+        route_row.addWidget(self._output_bus_combo, 1, 0)
+        route_row.addWidget(self._output_bus_apply_btn, 1, 1)
+        layer_controls_layout.addLayout(route_row)
+
+        mix_row = QHBoxLayout()
+        mix_row.setContentsMargins(0, 0, 0, 0)
+        mix_row.setSpacing(6)
+        self._panel_mute_btn = QPushButton("Mute", self._layer_controls)
+        self._set_button_appearance(self._panel_mute_btn, "subtle")
+        self._panel_solo_btn = QPushButton("Solo", self._layer_controls)
+        self._set_button_appearance(self._panel_solo_btn, "subtle")
+        mix_row.addWidget(self._panel_mute_btn, 1)
+        mix_row.addWidget(self._panel_solo_btn, 1)
+        layer_controls_layout.addLayout(mix_row)
+
+        gain_preset_row = QHBoxLayout()
+        gain_preset_row.setContentsMargins(0, 0, 0, 0)
+        gain_preset_row.setSpacing(6)
+        self._gain_down_btn = QPushButton("-6 dB", self._layer_controls)
+        self._set_button_appearance(self._gain_down_btn, "subtle")
+        self._gain_unity_btn = QPushButton("0 dB", self._layer_controls)
+        self._set_button_appearance(self._gain_unity_btn, "subtle")
+        self._gain_up_btn = QPushButton("+6 dB", self._layer_controls)
+        self._set_button_appearance(self._gain_up_btn, "subtle")
+        gain_preset_row.addWidget(self._gain_down_btn, 1)
+        gain_preset_row.addWidget(self._gain_unity_btn, 1)
+        gain_preset_row.addWidget(self._gain_up_btn, 1)
+        layer_controls_layout.addLayout(gain_preset_row)
+
+        gain_custom_row = QGridLayout()
+        gain_custom_row.setContentsMargins(0, 0, 0, 0)
+        gain_custom_row.setHorizontalSpacing(6)
+        gain_custom_row.setVerticalSpacing(6)
+        gain_label = QLabel("Gain", self._layer_controls)
+        gain_label.setObjectName("gainLabel")
         self._gain_spin = QDoubleSpinBox(self._layer_controls)
         self._gain_spin.setRange(-60.0, 12.0)
         self._gain_spin.setSingleStep(0.5)
         self._gain_spin.setSuffix(" dB")
         self._gain_apply_btn = QPushButton("Apply Gain", self._layer_controls)
         self._set_button_appearance(self._gain_apply_btn, "primary")
-        layer_actions.addWidget(self._route_audio_btn, 0, 0, 1, 2)
-        layer_actions.addWidget(self._output_bus_combo, 1, 0)
-        layer_actions.addWidget(self._output_bus_apply_btn, 1, 1)
-        layer_actions.addWidget(self._gain_spin, 2, 0)
-        layer_actions.addWidget(self._gain_apply_btn, 2, 1)
-        layer_controls_layout.addLayout(layer_actions)
+        gain_custom_row.addWidget(gain_label, 0, 0)
+        gain_custom_row.addWidget(self._gain_spin, 1, 0)
+        gain_custom_row.addWidget(self._gain_apply_btn, 1, 1)
+        layer_controls_layout.addLayout(gain_custom_row)
         details_layout.addWidget(self._layer_controls)
 
-        self._route_audio_btn.clicked.connect(self._emit_route_audio)
         self._output_bus_apply_btn.clicked.connect(self._emit_apply_output_bus)
+        self._panel_mute_btn.clicked.connect(self._emit_toggle_mute_from_panel)
+        self._panel_solo_btn.clicked.connect(self._emit_toggle_solo_from_panel)
+        self._gain_down_btn.clicked.connect(
+            lambda _checked=False: self._emit_gain_preset("gain_down")
+        )
+        self._gain_unity_btn.clicked.connect(
+            lambda _checked=False: self._emit_gain_preset("gain_unity")
+        )
+        self._gain_up_btn.clicked.connect(
+            lambda _checked=False: self._emit_gain_preset("gain_up")
+        )
         self._gain_apply_btn.clicked.connect(self._emit_apply_gain)
 
         self._action_buttons: dict[str, QPushButton] = {}
         self._settings_buttons: dict[str, QPushButton] = {}
         self._pipeline_action_plans: dict[str, ObjectActionSettingsPlan] = {}
         self._pipeline_action_rows: dict[str, QWidget] = {}
+        self._action_section_expanded: dict[str, bool] = {}
         self._output_bus_actions: tuple[InspectorAction, ...] = ()
         self._set_controls_enabled(has_layer=False)
         self._event_preview_card.setVisible(False)
         self._layer_controls.setVisible(False)
-        self._set_button_active(self._route_audio_btn, False)
         self._content_splitter.setStretchFactor(0, 0)
         self._content_splitter.setStretchFactor(1, 1)
         self._content_splitter.setSizes(
@@ -286,6 +336,7 @@ class ObjectInfoPanel(_ObjectInfoPanelActionsMixin, QFrame):
             self.updateGeometry()
 
     def _apply_collapsed_state(self) -> None:
+        self._set_collapsed_style_state(self._collapsed)
         if self._collapsed:
             self._root_layout.setContentsMargins(2, 2, 2, 2)
             self._root_layout.setSpacing(0)
@@ -312,19 +363,29 @@ class ObjectInfoPanel(_ObjectInfoPanelActionsMixin, QFrame):
             "Expand Object Info" if self._collapsed else "Collapse Object Info"
         )
 
+    def _set_collapsed_style_state(self, collapsed: bool) -> None:
+        current = bool(self.property("collapsed"))
+        if current == collapsed:
+            return
+        self.setProperty("collapsed", collapsed)
+        for widget in (self, self._collapse_button):
+            style = widget.style()
+            if style is None:
+                continue
+            style.unpolish(widget)
+            style.polish(widget)
+            widget.update()
+
     def _set_controls_enabled(self, *, has_layer: bool) -> None:
-        self._route_audio_btn.setEnabled(has_layer)
         self._output_bus_combo.setEnabled(has_layer)
         self._output_bus_apply_btn.setEnabled(has_layer)
+        self._panel_mute_btn.setEnabled(has_layer)
+        self._panel_solo_btn.setEnabled(has_layer)
+        self._gain_down_btn.setEnabled(has_layer)
+        self._gain_unity_btn.setEnabled(has_layer)
+        self._gain_up_btn.setEnabled(has_layer)
         self._gain_spin.setEnabled(has_layer)
         self._gain_apply_btn.setEnabled(has_layer)
-
-    @staticmethod
-    def _set_button_active(button: QPushButton, active: bool) -> None:
-        button.setProperty("active", active)
-        button.style().unpolish(button)
-        button.style().polish(button)
-        button.update()
 
     @staticmethod
     def _set_button_appearance(button: QPushButton, appearance: str) -> None:
@@ -346,10 +407,17 @@ class ObjectInfoPanel(_ObjectInfoPanelActionsMixin, QFrame):
         self._output_bus_actions = ()
         self._sync_event_preview(None)
         self._layer_controls.setVisible(False)
+        self._layer_controls_title.setText("No layer selected.")
+        self._panel_mute_btn.setText("Mute")
+        self._panel_solo_btn.setText("Solo")
+        self._set_button_active(self._panel_mute_btn, False)
+        self._set_button_active(self._panel_solo_btn, False)
+        self._set_button_active(self._gain_down_btn, False)
+        self._set_button_active(self._gain_unity_btn, False)
+        self._set_button_active(self._gain_up_btn, False)
         self._output_bus_combo.clear()
         self._output_bus_combo.setVisible(False)
         self._output_bus_apply_btn.setVisible(False)
-        self._set_button_active(self._route_audio_btn, False)
 
     def set_contract(
         self, presentation: TimelinePresentation, contract: InspectorContract
@@ -365,21 +433,23 @@ class ObjectInfoPanel(_ObjectInfoPanelActionsMixin, QFrame):
         object_type = _contract_kind_label(contract)
         self._kind.setText(object_type)
 
-        has_layer = self._find_contract_action("set_active_playback_target") is not None
+        layer_id = self._layer_id_for_controls()
+        has_layer = layer_id is not None
         self._set_controls_enabled(has_layer=has_layer)
         self._layer_controls.setVisible(has_layer)
 
-        route_action = self._find_contract_action("set_active_playback_target")
-        self._route_audio_btn.setText(
-            route_action.label if route_action is not None else "Route Audio"
-        )
-        route_layer_id = route_action.params.get("layer_id") if route_action is not None else None
-        self._set_button_active(
-            self._route_audio_btn,
-            route_layer_id is not None and route_layer_id == presentation.active_playback_layer_id,
-        )
-        if route_action is not None:
-            self._route_audio_btn.setEnabled(route_action.enabled)
+        route_layer_id = layer_id
+        layer_action = None
+        selected_layer = None
+        if route_layer_id is not None:
+            layer_action = next(
+                (
+                    action
+                    for action in self._iter_contract_actions()
+                    if action.params.get("layer_id") == route_layer_id
+                ),
+                None,
+            )
         selected_output_bus = None
         if route_layer_id is not None:
             selected_layer = next(
@@ -388,11 +458,19 @@ class ObjectInfoPanel(_ObjectInfoPanelActionsMixin, QFrame):
             )
             if selected_layer is not None:
                 selected_output_bus = selected_layer.output_bus
+                self._layer_controls_title.setText(
+                    f"Layer: {selected_layer.title} ({selected_layer.layer_id})"
+                )
+            else:
+                self._layer_controls_title.setText(f"Layer: {route_layer_id}")
+        else:
+            self._layer_controls_title.setText("No layer selected.")
         self._sync_output_bus_controls(
-            route_action=route_action,
+            layer_action=layer_action,
             selected_output_bus=selected_output_bus,
         )
-        self._sync_gain_controls(route_action)
+        self._sync_mute_solo_controls(selected_layer=selected_layer)
+        self._sync_gain_controls(layer_action, selected_layer=selected_layer)
 
     def set_action_settings_plans(self, plans: tuple[ObjectActionSettingsPlan, ...]) -> None:
         """Attach inspector settings plans for pipeline-backed object actions."""

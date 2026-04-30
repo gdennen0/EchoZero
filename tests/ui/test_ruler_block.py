@@ -4,6 +4,7 @@ from echozero.ui.qt.timeline.blocks.ruler import (
     timeline_x_for_time,
     visible_ruler_seconds,
 )
+from echozero.ui.FEEL import RULER_MIN_TICK_SPACING_PX
 from echozero.ui.qt.timeline.blocks.waveform_lane import waveform_x_for_time
 
 
@@ -47,6 +48,19 @@ def test_visible_ruler_seconds_screen_x_remains_in_content_band():
     assert marks
     for _, x in marks:
         assert content_start_x <= x <= (content_start_x + content_width)
+
+
+def test_visible_ruler_seconds_respects_min_major_tick_spacing_when_zoomed_out():
+    marks = visible_ruler_seconds(
+        scroll_x=0.0,
+        pixels_per_second=20.0,
+        content_width=900.0,
+        content_start_x=320.0,
+    )
+
+    assert len(marks) > 1
+    deltas = [right_x - left_x for (_, left_x), (_, right_x) in zip(marks, marks[1:])]
+    assert all(delta >= float(RULER_MIN_TICK_SPACING_PX) for delta in deltas)
 
 
 def test_seek_time_for_x_maps_ruler_x_to_timeline_time():

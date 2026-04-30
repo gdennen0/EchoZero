@@ -1,8 +1,10 @@
 # Playback Crackle Elimination Task
 
+Status: active
+Last reviewed: 2026-04-30
+
+
 Task ID: `PB-CR-01`  
-Status: in progress  
-Last updated: 2026-04-29
 
 This task is the focused execution slice for the audible playback crackle/static bug in the real EZ app path.
 
@@ -225,7 +227,7 @@ Interpretation:
 
 Relevant note:
 
-- [docs/PLAYBACK-SMOKE-NOTE-2026-04-18.md](/Users/march/Documents/GitHub/EchoZero/docs/PLAYBACK-SMOKE-NOTE-2026-04-18.md:1)
+- [docs/PLAYBACK-SMOKE-NOTE-2026-04-18.md](archive/PLAYBACK-SMOKE-NOTE-2026-04-18.md)
 
 This note already names the operator checks that matter:
 
@@ -354,7 +356,7 @@ Done when:
 
 ### PB-CR-01D: Add a real-device playback smoke workflow with recorded diagnostics
 
-- Use the real EZ launcher/app path from [docs/PLAYBACK-SMOKE-NOTE-2026-04-18.md](/Users/march/Documents/GitHub/EchoZero/docs/PLAYBACK-SMOKE-NOTE-2026-04-18.md:1)
+- Use the real EZ launcher/app path from [docs/PLAYBACK-SMOKE-NOTE-2026-04-18.md](archive/PLAYBACK-SMOKE-NOTE-2026-04-18.md)
 - Record:
   - machine
   - output device

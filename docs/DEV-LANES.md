@@ -1,5 +1,12 @@
 # Dev Lanes: Foundry + EZ Parallel Workflow
 
+Status: reference
+Last reviewed: 2026-04-30
+
+
+
+This file captures one lane setup pattern and may require adaptation to your machine and branch model.
+
 Use two isolated git worktrees so Foundry and EZ can move in parallel without stepping on each other.
 
 ## 1) Worktree setup

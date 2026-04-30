@@ -1,5 +1,9 @@
 # EchoZero 2 — Getting Started
 
+Status: reference
+Last reviewed: 2026-04-30
+
+
 ---
 
 ## Prerequisites

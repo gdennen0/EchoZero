@@ -84,12 +84,6 @@ def build_layer_signature(
         str(state.selected_layer_id) if state.selected_layer_id is not None else None,
         tuple(str(layer_id) for layer_id in state.selected_layer_ids),
         str(state.selected_take_id) if state.selected_take_id is not None else None,
-        (
-            str(state.active_playback_layer_id)
-            if state.active_playback_layer_id is not None
-            else None
-        ),
-        str(state.active_playback_take_id) if state.active_playback_take_id is not None else None,
         tuple(sorted(state.selected_event_ref_keys)),
         tuple(sorted(str(event_id) for event_id in state.selected_event_ids_set)),
         build_session_transfer_signature(session),
@@ -193,25 +187,11 @@ def build_session_transfer_signature(session: Session) -> AssemblerSignature:
 
 
 def _events_signature(events: list[Event]) -> AssemblerSignature:
+    first_event_id = str(events[0].id) if events else None
+    last_event_id = str(events[-1].id) if events else None
     return (
         id(events),
-        tuple(
-            (
-                str(event.id),
-                str(event.take_id),
-                float(event.start),
-                float(event.end),
-                str(event.label),
-                event.cue_number,
-                event.cue_ref,
-                event.color,
-                event.notes,
-                event.payload_ref,
-                bool(event.muted),
-                event.origin,
-                event.promotion_state,
-                event.review_state,
-            )
-            for event in events
-        ),
+        len(events),
+        first_event_id,
+        last_event_id,
     )

@@ -1,6 +1,6 @@
 """Object-action facade mixin for the Qt app shell runtime.
-Exists to isolate object-action sessions, pipeline-run access, and action shortcuts.
-Connects AppShellRuntime to the app-owned object-action and pipeline-run helpers.
+Exists to isolate object-action sessions, operation access, and action shortcuts.
+Connects AppShellRuntime to the app-owned object-action and operation helpers.
 """
 
 from __future__ import annotations
@@ -17,19 +17,22 @@ from echozero.application.timeline.object_actions import (
     ObjectActionSettingsPlan,
     ObjectActionSettingsSession,
 )
-from echozero.application.timeline.pipeline_run_service import PipelineRunService, PipelineRunState
+from echozero.application.timeline.operation_progress_service import (
+    OperationProgressService,
+    OperationProgressState,
+)
 from echozero.ui.qt.app_shell_object_actions import (
     apply_object_action_settings_copy,
-    consume_pipeline_run_presentation_update,
+    consume_operation_presentation_update,
     describe_object_action,
     dispatch_object_action_command,
-    get_pipeline_run_state,
+    get_operation_state,
     open_object_action_session,
     preview_object_action_settings_copy,
     request_object_action_run,
     run_object_action,
     save_object_action_settings,
-    wait_for_pipeline_run,
+    wait_for_operation,
 )
 from echozero.ui.qt.app_shell_runtime_support import RuntimeSupportShell, preview_event_clip
 
@@ -39,7 +42,7 @@ class AppShellObjectActionShell(RuntimeSupportShell, Protocol):
     _is_dirty: bool
     _last_pipeline_run_revision: int
     _object_action_settings: ObjectActionService
-    _pipeline_runs: PipelineRunService
+    _pipeline_runs: OperationProgressService
 
     @property
     def session(self) -> Session: ...
@@ -110,24 +113,24 @@ class AppShellObjectActionMixin:
             persist_scope=persist_scope,
         )
 
-    def wait_for_pipeline_run(
+    def wait_for_operation(
         self: AppShellObjectActionShell,
-        run_id: str,
+        operation_id: str,
         *,
         timeout: float | None = None,
-    ) -> PipelineRunState:
-        return wait_for_pipeline_run(self, run_id, timeout=timeout)
+    ) -> OperationProgressState:
+        return wait_for_operation(self, operation_id, timeout=timeout)
 
-    def get_pipeline_run_state(
+    def get_operation_state(
         self: AppShellObjectActionShell,
-        run_id: str,
-    ) -> PipelineRunState | None:
-        return get_pipeline_run_state(self, run_id)
+        operation_id: str,
+    ) -> OperationProgressState | None:
+        return get_operation_state(self, operation_id)
 
-    def consume_pipeline_run_presentation_update(
+    def consume_operation_presentation_update(
         self: AppShellObjectActionShell,
     ) -> TimelinePresentation | None:
-        return consume_pipeline_run_presentation_update(self)
+        return consume_operation_presentation_update(self)
 
     def open_object_action_session(
         self: AppShellObjectActionShell,
@@ -264,6 +267,16 @@ class AppShellObjectActionMixin:
     ) -> TimelinePresentation:
         return self.run_object_action(
             "timeline.extract_song_drum_events",
+            object_id=layer_id,
+            object_type="layer",
+        )
+
+    def extract_song_sections(
+        self: AppShellObjectActionShell,
+        layer_id: LayerId,
+    ) -> TimelinePresentation:
+        return self.run_object_action(
+            "timeline.extract_song_sections",
             object_id=layer_id,
             object_type="layer",
         )

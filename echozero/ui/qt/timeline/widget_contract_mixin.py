@@ -19,10 +19,13 @@ from echozero.application.presentation.inspector_contract import (
 )
 from echozero.application.presentation.models import (
     BatchTransferPlanPresentation,
+    LayerPresentation,
     ManualPullFlowPresentation,
     TimelinePresentation,
 )
+from echozero.application.shared.enums import LayerKind
 from echozero.application.shared.ids import EventId, LayerId, TakeId
+from echozero.application.shared.layer_kinds import is_event_like_layer_kind
 from echozero.application.shared.ranges import TimeRange
 from echozero.application.timeline.intents import (
     ClearSelection,
@@ -36,7 +39,6 @@ from echozero.application.timeline.intents import (
     MoveSelectedEventsToAdjacentLayer,
     MoveSelectedEvents,
     NudgeSelectedEvents,
-    OpenPullFromMA3Dialog,
     OpenPushToMA3Dialog,
     Seek,
     SelectAdjacentEventInSelectedLayer,
@@ -45,7 +47,8 @@ from echozero.application.timeline.intents import (
     SelectEvent,
     SelectLayer,
     SelectTake,
-    SetActivePlaybackTarget,
+    SetLayerMute,
+    SetLayerSolo,
     SetSelectedEvents,
     TimelineIntent,
     ToggleLayerExpanded,
@@ -57,6 +60,7 @@ from echozero.ui.qt.timeline.manual_pull import (
     ManualPullTimelineSelectionResult,
 )
 from echozero.ui.qt.timeline.object_info_panel import ObjectInfoPanel
+from echozero.ui.FEEL import TIMELINE_ADD_MODE_DEFAULT_EVENT_DURATION_SECONDS
 
 
 class _TimelineRuntimeShell(Protocol):
@@ -191,6 +195,66 @@ class TimelineWidgetContractMixin:
                 ),
             )
         )
+
+    def _create_event_at_playhead(self: _TimelineWidgetContractHost) -> None:
+        target_lane = self._resolve_event_creation_lane()
+        if target_lane is None:
+            return
+        layer_id, take_id = target_lane
+        start_seconds = max(0.0, float(self.presentation.playhead))
+        end_seconds = (
+            start_seconds + float(TIMELINE_ADD_MODE_DEFAULT_EVENT_DURATION_SECONDS)
+        )
+        self._create_event(
+            layer_id,
+            take_id,
+            start_seconds,
+            end_seconds,
+        )
+
+    def _resolve_event_creation_lane(
+        self: _TimelineWidgetContractHost,
+    ) -> tuple[LayerId, TakeId | None] | None:
+        selected_layer_id = self.presentation.selected_layer_id
+        selected_layer = self._find_layer_presentation(selected_layer_id)
+        if selected_layer is not None and is_event_like_layer_kind(selected_layer.kind):
+            return (
+                selected_layer.layer_id,
+                self._resolve_selected_take_for_layer(selected_layer),
+            )
+
+        for layer in self.presentation.layers:
+            if is_event_like_layer_kind(layer.kind):
+                return (layer.layer_id, layer.main_take_id)
+        return None
+
+    def _find_layer_presentation(
+        self: _TimelineWidgetContractHost,
+        layer_id: LayerId | None,
+    ) -> LayerPresentation | None:
+        if layer_id is None:
+            return None
+        return next(
+            (
+                layer
+                for layer in self.presentation.layers
+                if layer.layer_id == layer_id
+            ),
+            None,
+        )
+
+    def _resolve_selected_take_for_layer(
+        self: _TimelineWidgetContractHost,
+        layer: LayerPresentation,
+    ) -> TakeId | None:
+        selected_take_id = self.presentation.selected_take_id
+        if selected_take_id is None:
+            return layer.main_take_id
+        if selected_take_id == layer.main_take_id:
+            return selected_take_id
+        if any(take.take_id == selected_take_id for take in layer.takes):
+            return selected_take_id
+        return layer.main_take_id
 
     def _delete_events(
         self: _TimelineWidgetContractHost,
@@ -397,11 +461,41 @@ class TimelineWidgetContractMixin:
             )
         )
 
-    def _set_active_playback_target(
+    def _toggle_layer_mute_from_header(
         self: _TimelineWidgetContractHost,
         layer_id: LayerId,
     ) -> None:
-        self._dispatch(SetActivePlaybackTarget(layer_id=layer_id, take_id=None))
+        layer = next(
+            (
+                candidate
+                for candidate in self.presentation.layers
+                if candidate.layer_id == layer_id
+            ),
+            None,
+        )
+        if layer is None:
+            return
+        if layer.kind is LayerKind.EVENT:
+            return
+        self._dispatch(SetLayerMute(layer_id=layer_id, muted=not bool(layer.muted)))
+
+    def _toggle_layer_solo_from_header(
+        self: _TimelineWidgetContractHost,
+        layer_id: LayerId,
+    ) -> None:
+        layer = next(
+            (
+                candidate
+                for candidate in self.presentation.layers
+                if candidate.layer_id == layer_id
+            ),
+            None,
+        )
+        if layer is None:
+            return
+        if layer.kind is LayerKind.EVENT:
+            return
+        self._dispatch(SetLayerSolo(layer_id=layer_id, soloed=not bool(layer.soloed)))
 
     def _open_push_from_layer_action(
         self: _TimelineWidgetContractHost,
@@ -410,9 +504,9 @@ class TimelineWidgetContractMixin:
         self._focus_layer_for_header_action(layer_id)
         self._handle_contract_action(
             InspectorAction(
-                action_id="send_layer_to_ma3",
+                action_id="transfer.workspace_open",
                 label="Send Layer to MA3",
-                params={"layer_id": layer_id},
+                params={"layer_id": layer_id, "direction": "push"},
             )
         )
 
@@ -421,7 +515,13 @@ class TimelineWidgetContractMixin:
         layer_id: LayerId,
     ) -> None:
         self._focus_layer_for_header_action(layer_id)
-        self._dispatch(OpenPullFromMA3Dialog())
+        self._handle_contract_action(
+            InspectorAction(
+                action_id="transfer.workspace_open",
+                label="Import Event Layer from MA3",
+                params={"layer_id": layer_id, "direction": "pull"},
+            )
+        )
 
     def _focus_layer_for_header_action(
         self: _TimelineWidgetContractHost,
@@ -557,7 +657,7 @@ class TimelineWidgetContractMixin:
             action
             for section in contract.context_sections
             for action in section.actions
-            if action.action_id.startswith("timeline.")
+            if (action.group or "").strip().lower() == "pipeline"
         ]
         if not pipeline_actions:
             return
@@ -661,7 +761,7 @@ class TimelineWidgetContractMixin:
         object_identity = contract.identity
         for section in contract.context_sections:
             for action in section.actions:
-                if not action.action_id.startswith("timeline."):
+                if (action.group or "").strip().lower() != "pipeline":
                     continue
                 try:
                     plan = describe(

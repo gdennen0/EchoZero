@@ -1,5 +1,9 @@
 # Agent Task Template
 
+Status: reference
+Last reviewed: 2026-04-30
+
+
 Use this template when assigning work to a disposable worker or starting a
 bounded session in a separate worktree.
 For prompt phrasing and EchoZero-specific tricks, pair this with
@@ -11,6 +15,8 @@ For prompt phrasing and EchoZero-specific tricks, pair this with
 - Goal:
 - Why now:
 - User-visible outcome:
+- Parent task anchor:
+- Lead-dev next step on return:
 
 ## Scope and ownership
 
@@ -59,6 +65,7 @@ For prompt phrasing and EchoZero-specific tricks, pair this with
 - Files changed:
 - Commands run:
 - Pass/fail result:
+- Parent task anchor restated:
 - Strongest failure signal if broken:
 - Residual risks/blockers:
 - Spawn/session proof:

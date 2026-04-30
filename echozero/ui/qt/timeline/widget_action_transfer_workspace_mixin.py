@@ -95,7 +95,10 @@ class TimelineWidgetTransferWorkspaceMixin:
         if action_id == "exit_push_mode":
             host._dispatch(ExitPushToMA3Mode())
             return True
-        if action_id == "pull_from_ma3":
+        if action_id == "transfer.workspace_open":
+            direction = str(params.get("direction", "")).strip().lower()
+            if direction != "pull":
+                return False
             layer_id = _coerce_layer_id(params.get("layer_id"))
             if layer_id is not None:
                 host._focus_layer_for_header_action(layer_id)

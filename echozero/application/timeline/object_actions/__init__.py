@@ -3,14 +3,18 @@ Exists to keep object-action descriptors, settings contracts, and orchestration 
 """
 
 from echozero.application.timeline.object_actions.descriptors import (
+    ActionAlias,
     ActionDescriptor,
     SONG_ADD_DESCRIPTOR,
     action_descriptors,
+    action_aliases,
     canonical_action_id,
+    canonical_action_ids,
     descriptor_for_action,
     is_object_action,
     object_action_descriptors,
     pipeline_actions_for_audio_layer,
+    resolve_action_id,
     workflow_descriptor_for_action,
 )
 from echozero.application.timeline.object_actions.service import ObjectActionService
@@ -41,6 +45,7 @@ from echozero.application.timeline.object_actions.settings import (
 
 __all__ = [
     "ActionDescriptor",
+    "ActionAlias",
     "ApplyCopySource",
     "ChangeSessionScope",
     "ObjectActionService",
@@ -63,11 +68,14 @@ __all__ = [
     "SaveSessionToDefaults",
     "SaveSession",
     "SetSessionFieldValue",
+    "action_aliases",
     "action_descriptors",
     "canonical_action_id",
+    "canonical_action_ids",
     "descriptor_for_action",
     "is_object_action",
     "object_action_descriptors",
     "pipeline_actions_for_audio_layer",
+    "resolve_action_id",
     "workflow_descriptor_for_action",
 ]

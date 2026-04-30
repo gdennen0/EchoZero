@@ -1,6 +1,13 @@
 # Playback And Clock Clean-Sheet Design
 
-Last updated: 2026-04-18
+Status: historical
+Last reviewed: 2026-04-30
+
+
+Originally updated: 2026-04-18
+
+This design note is retained as historical context.
+For current playback behavior, use `docs/STATUS.md`.
 
 ## Goal
 
@@ -122,4 +129,3 @@ Widget/runtime helpers should stop owning playback semantics directly.
 - no `QTimer`-driven transport truth
 - no human-path demo claims on simulated callback-driven recorder helpers
 - no further broadening of widget-owned playback logic
-

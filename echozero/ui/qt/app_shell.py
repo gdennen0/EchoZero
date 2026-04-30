@@ -28,18 +28,24 @@ from echozero.application.timeline.history import UndoHistory
 from echozero.application.timeline.models import (
     Layer,
 )
-from echozero.application.timeline.pipeline_run_service import PipelineRunService
+from echozero.application.timeline.operation_progress_service import (
+    OperationProgressService,
+)
 from echozero.application.timeline.object_actions import (
     ObjectActionService,
 )
 from echozero.domain.types import AudioData
-from echozero.foundry.review_server_controller import ReviewServerController
+from echozero.foundry.review_server_controller import (
+    ReviewServerController,
+    ReviewServerLaunch,
+)
 from echozero.models.runtime_bundle_selection import resolve_installed_binary_drum_bundles  # noqa: F401
 from echozero.persistence.session import ProjectStorage
 from echozero.pipelines.registry import get_registry
 from echozero.processors import (
     AudioFilterProcessor,
     DetectOnsetsProcessor,
+    SongSectionsProcessor,
     LoadAudioProcessor,
     PyTorchAudioClassifyProcessor,
     SeparateAudioProcessor,
@@ -125,7 +131,7 @@ class AppShellRuntime(
     AppShellSpecializedModelMixin,
 ):
     _object_action_settings: ObjectActionService
-    _pipeline_runs: PipelineRunService
+    _pipeline_runs: OperationProgressService
 
     def __init__(
         self,
@@ -147,6 +153,7 @@ class AppShellRuntime(
         self._is_dirty = False
         self._draft_layers: list[Layer] = []
         self._staged_project_runtime_presentation: TimelinePresentation | None = None
+        self._staged_layer_header_width_px: int | None = None
         self._app: TimelineApplication = build_runtime_timeline_application(
             project_storage=project_storage,
             sync_bridge=sync_bridge,
@@ -183,11 +190,11 @@ class AppShellRuntime(
 
         return self._review_server_controller.is_enabled
 
-    def enable_phone_review_service(self) -> None:
+    def enable_phone_review_service(self) -> ReviewServerLaunch | None:
         """Enable the phone review server control path for this runtime."""
 
         self._review_server_controller.enable()
-        bind_phone_review_server_to_current_project(self)
+        return bind_phone_review_server_to_current_project(self)
 
     def disable_phone_review_service(self) -> None:
         """Disable the phone review server control path for this runtime."""
@@ -200,10 +207,17 @@ class AppShellRuntime(
     def stage_project_runtime_presentation(
         self,
         presentation: TimelinePresentation | None,
+        *,
+        layer_header_width_px: int | None = None,
     ) -> None:
         """Stage one presentation snapshot to persist on the next project save."""
 
         self._staged_project_runtime_presentation = presentation
+        self._staged_layer_header_width_px = (
+            int(layer_header_width_px)
+            if isinstance(layer_header_width_px, int) and layer_header_width_px > 0
+            else None
+        )
 
     def can_undo(self) -> bool:
         return self._history.can_undo()
@@ -340,6 +354,7 @@ def _build_runtime_orchestrator() -> Orchestrator:
             "AudioFilter": AudioFilterProcessor(),
             "SeparateAudio": SeparateAudioProcessor(),
             "DetectOnsets": DetectOnsetsProcessor(),
+            "DetectSongSections": SongSectionsProcessor(),
             "PyTorchAudioClassify": PyTorchAudioClassifyProcessor(),
             "BinaryDrumClassify": BinaryDrumClassifyProcessor(),
         },

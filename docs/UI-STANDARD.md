@@ -1,9 +1,10 @@
 # UI Standard
 
-Status: active canonical UI standard
-Last verified: 2026-04-21
+Status: active
+Last verified: 2026-04-30
 
-_Updated: 2026-04-16_
+
+
 
 This document defines the North Star for EchoZero UI design and implementation.
 It exists to give the repo one stable standard for desktop UI decisions before

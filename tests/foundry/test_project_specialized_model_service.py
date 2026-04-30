@@ -141,7 +141,7 @@ def test_project_specialized_model_service_runs_expected_flow_and_installs_globa
         datasets = _FakeDatasets()
         runtime_bundles = _FakeRuntimeBundles()
 
-        def export_project_review_dataset(
+        def extract_project_review_dataset(
             self,
             project_path: str | Path,
             *,
@@ -337,7 +337,7 @@ def test_project_specialized_model_service_can_promote_only_snare(
         datasets = _FakeDatasets()
         runtime_bundles = _FakeRuntimeBundles()
 
-        def export_project_review_dataset(
+        def extract_project_review_dataset(
             self,
             project_path: str | Path,
             *,
@@ -538,7 +538,7 @@ def test_project_specialized_model_service_restores_previous_global_index_on_lat
         datasets = _FakeDatasets()
         runtime_bundles = _FakeRuntimeBundles()
 
-        def export_project_review_dataset(
+        def extract_project_review_dataset(
             self,
             project_path: str | Path,
             *,

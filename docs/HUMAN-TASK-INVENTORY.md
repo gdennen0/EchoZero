@@ -1,5 +1,9 @@
 ## Human Task Inventory
 
+Status: reference
+Last reviewed: 2026-04-30
+
+
 This is the working plan for full human-flow coverage in EchoZero.
 
 Primary rule:

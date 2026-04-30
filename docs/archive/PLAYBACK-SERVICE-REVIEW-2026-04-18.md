@@ -1,17 +1,24 @@
 # Playback Service Review
 
-Last updated: 2026-04-18
+Status: historical
+Last reviewed: 2026-04-30
+
+
+Originally updated: 2026-04-18
+
+This review is a point-in-time remediation checkpoint.
+For current playback boundaries, use `docs/STATUS.md`.
 
 This is the PB-34 review gate for the playback service boundary work.
 
 ## Scope Reviewed
 
-- [echozero/application/playback/runtime.py](/Users/march/Documents/GitHub/EchoZero/echozero/application/playback/runtime.py:1)
-- [echozero/ui/qt/timeline/runtime_audio.py](/Users/march/Documents/GitHub/EchoZero/echozero/ui/qt/timeline/runtime_audio.py:1)
-- [echozero/ui/qt/app_shell.py](/Users/march/Documents/GitHub/EchoZero/echozero/ui/qt/app_shell.py:484)
-- [echozero/ui/qt/timeline/demo_app.py](/Users/march/Documents/GitHub/EchoZero/echozero/ui/qt/timeline/demo_app.py:174)
-- [tests/ui/test_runtime_audio.py](/Users/march/Documents/GitHub/EchoZero/tests/ui/test_runtime_audio.py:257)
-- [tests/ui/test_app_shell_runtime_flow.py](/Users/march/Documents/GitHub/EchoZero/tests/ui/test_app_shell_runtime_flow.py:722)
+- [echozero/application/playback/runtime.py](../../echozero/application/playback/runtime.py)
+- [echozero/ui/qt/timeline/runtime_audio.py](../../echozero/ui/qt/timeline/runtime_audio.py)
+- [echozero/ui/qt/app_shell.py](../../echozero/ui/qt/app_shell.py)
+- [echozero/ui/qt/timeline/demo_app.py](../../echozero/ui/qt/timeline/demo_app.py)
+- [tests/ui/test_runtime_audio.py](../../tests/ui/test_runtime_audio.py)
+- [tests/ui/test_app_shell_runtime_flow.py](../../tests/ui/test_app_shell_runtime_flow.py)
 
 ## Findings
 

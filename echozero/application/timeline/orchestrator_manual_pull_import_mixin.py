@@ -68,6 +68,8 @@ class TimelineOrchestratorManualPullImportMixin:
     ) -> tuple[TakeId, list[EventId]]:
         host = cast(_ManualPullImportHost, self)
         resolved_import_mode = "main" if target_layer.kind is LayerKind.SECTION else import_mode
+        if target_layer.kind is LayerKind.SECTION:
+            self._validate_section_pull_source_events(selected_events, source_track=source_track)
         self._maybe_link_manual_pull_target_layer(
             target_layer=target_layer,
             source_track=source_track,
@@ -97,6 +99,25 @@ class TimelineOrchestratorManualPullImportMixin:
         target_layer.takes.append(imported_take)
         host._sort_take_events(imported_take)
         return imported_take.id, [event.id for event in imported_take.events]
+
+    @staticmethod
+    def _validate_section_pull_source_events(
+        selected_events: list[ManualPullEventOption],
+        *,
+        source_track: ManualPullTrackOption,
+    ) -> None:
+        missing_cue_numbers = [
+            str(event.event_id)
+            for event in selected_events
+            if event.cue_number is None
+        ]
+        if not missing_cue_numbers:
+            return
+        missing_text = ", ".join(missing_cue_numbers)
+        raise ValueError(
+            "Section pull import requires cue numbers on source sequence events. "
+            f"Track '{source_track.name}' is missing cue_number for: {missing_text}"
+        )
 
     def _resolve_or_create_manual_pull_main_take(self, layer: Layer) -> Take:
         main_take = cast(_ManualPullImportHost, self)._main_take(layer)

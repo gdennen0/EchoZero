@@ -3,7 +3,13 @@ Exists to keep click, drag, keyboard, and transport coverage separate from fixtu
 Connects the compatibility wrapper to the bounded interaction support slice.
 """
 
-from echozero.application.presentation.models import SectionRegionPresentation
+from echozero.application.presentation.models import (
+    SectionCuePresentation,
+    SectionRegionPresentation,
+)
+from echozero.application.timeline.intents import ReplaceSectionCues
+from echozero.ui.FEEL import TIMELINE_ADD_MODE_DEFAULT_EVENT_DURATION_SECONDS
+from echozero.ui.qt.timeline.section_manager import SectionCueDraft
 
 from tests.ui.timeline_shell_shared_support import *  # noqa: F401,F403
 
@@ -90,6 +96,15 @@ def _section_overlay_scope_presentation() -> TimelinePresentation:
                 color="#f0b74f",
             )
         ],
+        section_cues=[
+            SectionCuePresentation(
+                cue_id="cue_intro",
+                start=0.0,
+                cue_ref="Q1",
+                name="Intro",
+                color="#f0b74f",
+            )
+        ],
         pixels_per_second=100.0,
         end_time_label="00:08.00",
     )
@@ -116,6 +131,117 @@ def test_section_overlay_renders_only_on_section_layer_rows():
 
         assert event_row_color == base_row_color
         assert section_row_color != base_row_color
+    finally:
+        widget.close()
+        app.processEvents()
+
+
+def test_ruler_does_not_render_section_region_highlight():
+    app = QApplication.instance() or QApplication([])
+    widget = TimelineWidget(_section_overlay_scope_presentation())
+    try:
+        _render_for_hit_testing(widget)
+        ruler_image = widget._ruler.grab().toImage()
+        sample_x = int(widget._canvas._header_width + 150)
+        sample_y = int(widget._ruler.height() * 0.5)
+        sampled = ruler_image.pixelColor(sample_x, sample_y).name()
+        expected_background = QColor(widget._ruler._block.style.background_hex).name()
+        assert sampled == expected_background
+    finally:
+        widget.close()
+        app.processEvents()
+
+
+def test_double_click_section_label_dispatches_replace_section_cues_with_new_name(monkeypatch):
+    app = QApplication.instance() or QApplication([])
+    intents: list[object] = []
+    presentation = _section_overlay_scope_presentation()
+    widget = TimelineWidget(
+        presentation, on_intent=lambda intent: intents.append(intent) or presentation
+    )
+    try:
+        monkeypatch.setattr(
+            "echozero.ui.qt.timeline.widget.QInputDialog.getText",
+            lambda *args, **kwargs: ("Verse", True),
+        )
+        _render_for_hit_testing(widget)
+        label_rect, _cue_id = widget._canvas._section_label_rects[0]
+        QTest.mouseDClick(
+            widget._canvas,
+            Qt.MouseButton.LeftButton,
+            Qt.KeyboardModifier.NoModifier,
+            QPoint(int(label_rect.center().x()), int(label_rect.center().y())),
+        )
+        QApplication.processEvents()
+
+        replace_intents = [intent for intent in intents if isinstance(intent, ReplaceSectionCues)]
+        assert len(replace_intents) == 1
+        assert [cue.name for cue in replace_intents[0].cues] == ["Verse"]
+    finally:
+        widget.close()
+        app.processEvents()
+
+
+def test_double_click_section_boundary_opens_section_editor_and_dispatches_changes(monkeypatch):
+    app = QApplication.instance() or QApplication([])
+    intents: list[object] = []
+    presentation = _section_overlay_scope_presentation()
+    widget = TimelineWidget(
+        presentation, on_intent=lambda intent: intents.append(intent) or presentation
+    )
+
+    class _FakeSectionManagerDialog:
+        class DialogCode:
+            Accepted = 1
+
+        def __init__(
+            self,
+            _presentation,
+            parent=None,
+            *,
+            cues=None,
+            worksheet_title=None,
+            selected_cue_id=None,
+        ):
+            del parent
+            del cues
+            del worksheet_title
+            assert str(selected_cue_id) == "cue_intro"
+
+        def exec(self):
+            return self.DialogCode.Accepted
+
+        def section_cue_drafts(self):
+            return [
+                SectionCueDraft(
+                    cue_id="cue_intro",
+                    start=0.0,
+                    cue_ref="Q1",
+                    name="Intro",
+                    color="#112233",
+                    notes="updated",
+                )
+            ]
+
+    try:
+        monkeypatch.setattr(
+            "echozero.ui.qt.timeline.widget.SectionManagerDialog",
+            _FakeSectionManagerDialog,
+        )
+        _render_for_hit_testing(widget)
+        boundary_rect, _cue_id = widget._canvas._section_boundary_rects[0]
+        QTest.mouseDClick(
+            widget._canvas,
+            Qt.MouseButton.LeftButton,
+            Qt.KeyboardModifier.NoModifier,
+            QPoint(int(boundary_rect.center().x()), int(boundary_rect.center().y())),
+        )
+        QApplication.processEvents()
+
+        replace_intents = [intent for intent in intents if isinstance(intent, ReplaceSectionCues)]
+        assert len(replace_intents) == 1
+        assert replace_intents[0].cues[0].color == "#112233"
+        assert replace_intents[0].cues[0].notes == "updated"
     finally:
         widget.close()
         app.processEvents()
@@ -234,13 +360,13 @@ def test_take_row_empty_space_click_dispatches_take_selection_not_seek():
         app.processEvents()
 
 
-def test_main_rows_expose_active_hit_targets_without_take_row_duplicates():
+def test_main_rows_expose_mix_hit_targets_without_take_row_duplicates():
     app = QApplication.instance() or QApplication([])
     presentation = _selection_test_presentation()
     presentation.layers[0].header_controls = [
         LayerHeaderControlPresentation(
-            control_id="set_active_playback_target",
-            label="ACTIVE",
+            control_id="set_layer_mute",
+            label="M",
             kind="toggle",
         ),
         LayerHeaderControlPresentation(control_id="send_to_ma3", label="Send"),
@@ -249,7 +375,7 @@ def test_main_rows_expose_active_hit_targets_without_take_row_duplicates():
     try:
         _render_for_hit_testing(widget)
 
-        assert len(widget._canvas._active_rects) == len(presentation.layers)
+        assert len(widget._canvas._mute_rects) == len(presentation.layers)
         assert len(widget._canvas._push_rects) == len(
             [
                 layer
@@ -270,7 +396,7 @@ def test_audio_layer_header_hides_transfer_hit_targets():
     try:
         _render_for_hit_testing(widget)
 
-        assert len(widget._canvas._active_rects) == len(presentation.layers)
+        assert len(widget._canvas._mute_rects) == len(presentation.layers)
         assert widget._canvas._push_rects == []
         assert widget._canvas._pull_rects == []
     finally:
@@ -284,13 +410,13 @@ def test_layer_presentation_declares_header_controls():
 
     layer.header_controls = [
         LayerHeaderControlPresentation(
-            control_id="set_active_playback_target", label="ACTIVE", kind="toggle"
+            control_id="set_layer_mute", label="M", kind="toggle"
         ),
         LayerHeaderControlPresentation(control_id="send_to_ma3", label="Send"),
     ]
 
     assert [control.control_id for control in layer.header_controls] == [
-        "set_active_playback_target",
+        "set_layer_mute",
         "send_to_ma3",
     ]
 
@@ -306,10 +432,75 @@ def test_selected_audio_layer_declares_pipeline_header_control():
     ]
 
     assert selected_layer_controls == [
-        "set_active_playback_target",
+        "set_layer_mute",
+        "set_layer_solo",
         "layer_pipeline_actions",
     ]
-    assert "layer_pipeline_actions" not in unselected_layer_controls
+    assert unselected_layer_controls == [
+        "set_layer_mute",
+        "set_layer_solo",
+    ]
+
+
+def test_section_layer_header_control_opens_layer_scoped_section_manager(monkeypatch):
+    app = QApplication.instance() or QApplication([])
+    intents: list[object] = []
+    presentation = _section_overlay_scope_presentation()
+    widget = TimelineWidget(
+        presentation, on_intent=lambda intent: intents.append(intent) or presentation
+    )
+
+    class _FakeSectionManagerDialog:
+        class DialogCode:
+            Accepted = 1
+
+        def __init__(
+            self,
+            _presentation,
+            parent=None,
+            *,
+            cues=None,
+            worksheet_title=None,
+            selected_cue_id=None,
+        ):
+            del parent
+            del selected_cue_id
+            assert worksheet_title == "Sections Cue Stack"
+            assert cues is not None
+            assert len(cues) == 0
+
+        def exec(self):
+            return self.DialogCode.Accepted
+
+        def section_cue_drafts(self):
+            return [
+                SectionCueDraft(
+                    cue_id=None,
+                    start=1.0,
+                    cue_ref="Cue 1",
+                    name="Intro",
+                    cue_number=1,
+                )
+            ]
+
+    try:
+        monkeypatch.setattr(
+            "echozero.ui.qt.timeline.widget.SectionManagerDialog",
+            _FakeSectionManagerDialog,
+        )
+        _render_for_hit_testing(widget)
+        assert len(widget._canvas._section_manager_rects) == 1
+        rect, layer_id = widget._canvas._section_manager_rects[0]
+        assert layer_id == LayerId("layer_sections")
+        _click_rect(widget, rect)
+
+        replace_intents = [intent for intent in intents if isinstance(intent, ReplaceSectionCues)]
+        assert len(replace_intents) == 1
+        assert replace_intents[0].target_layer_id == LayerId("layer_sections")
+        assert replace_intents[0].cues[0].cue_number == 1
+    finally:
+        widget.close()
+        app.processEvents()
 
 
 def test_ruler_click_dispatches_seek():
@@ -356,21 +547,13 @@ def test_ruler_click_dispatches_seek_using_scroll_offset():
         app.processEvents()
 
 
-def test_main_row_active_click_dispatches_playback_target_intent_only():
+def test_main_row_mute_click_dispatches_layer_mute_intent():
     app = QApplication.instance() or QApplication([])
     intents: list[object] = []
+    base = _selection_test_presentation()
     presentation = replace(
-        _selection_test_presentation(),
-        selected_layer_id=LayerId("layer_kick"),
-        selected_layer_ids=[LayerId("layer_kick")],
-        selected_take_id=TakeId("take_alt"),
-        layers=[
-            replace(
-                _selection_test_presentation().layers[0],
-                is_selected=True,
-                is_playback_active=False,
-            )
-        ],
+        base,
+        layers=[replace(base.layers[0], kind=LayerKind.AUDIO)],
     )
     widget = TimelineWidget(
         presentation, on_intent=lambda intent: intents.append(intent) or presentation
@@ -378,37 +561,72 @@ def test_main_row_active_click_dispatches_playback_target_intent_only():
     try:
         _render_for_hit_testing(widget)
 
-        active_rect, active_layer_id = widget._canvas._active_rects[0]
+        mute_rect, mute_layer_id = widget._canvas._mute_rects[0]
 
-        _click_rect(widget, active_rect)
+        _click_rect(widget, mute_rect)
 
-        assert intents == [
-            SetActivePlaybackTarget(layer_id=active_layer_id, take_id=None),
-        ]
+        assert intents == [SetLayerMute(layer_id=mute_layer_id, muted=True)]
     finally:
         widget.close()
         app.processEvents()
 
 
-def test_layer_header_renders_selection_background_and_active_button_independently():
+def test_main_row_solo_click_dispatches_layer_solo_intent():
+    app = QApplication.instance() or QApplication([])
+    intents: list[object] = []
+    base = _selection_test_presentation()
+    presentation = replace(
+        base,
+        layers=[replace(base.layers[0], kind=LayerKind.AUDIO)],
+    )
+    widget = TimelineWidget(
+        presentation, on_intent=lambda intent: intents.append(intent) or presentation
+    )
+    try:
+        _render_for_hit_testing(widget)
+
+        solo_rect, solo_layer_id = widget._canvas._solo_rects[0]
+
+        _click_rect(widget, solo_rect)
+
+        assert intents == [SetLayerSolo(layer_id=solo_layer_id, soloed=True)]
+    finally:
+        widget.close()
+        app.processEvents()
+
+
+def test_main_row_event_layer_hides_mute_and_solo_controls():
+    app = QApplication.instance() or QApplication([])
+    presentation = _selection_test_presentation()
+    widget = TimelineWidget(presentation, on_intent=lambda intent: presentation)
+    try:
+        _render_for_hit_testing(widget)
+        assert widget._canvas._mute_rects == []
+        assert widget._canvas._solo_rects == []
+    finally:
+        widget.close()
+        app.processEvents()
+
+
+def test_layer_header_renders_selection_background_and_mute_button_independently():
     app = QApplication.instance() or QApplication([])
     base = _selection_test_presentation()
     selected_layer = replace(
         base.layers[0],
         is_selected=True,
-        is_playback_active=False,
+        muted=False,
     )
     playback_layer = replace(
         base.layers[0],
         layer_id=LayerId("layer_snare"),
         title="Snare",
         is_selected=False,
-        is_playback_active=True,
+        muted=True,
     )
     header_controls = [
         LayerHeaderControlPresentation(
-            control_id="set_active_playback_target",
-            label="ACTIVE",
+            control_id="set_layer_mute",
+            label="M",
             kind="toggle",
             active=False,
         ),
@@ -427,7 +645,7 @@ def test_layer_header_renders_selection_background_and_active_button_independent
         title_rect=QRectF(16, 8, 140, 20),
         subtitle_rect=QRectF(16, 30, 140, 16),
         status_rect=QRectF(16, 50, 120, 16),
-        controls_rect=QRectF(160, 8, 144, 18),
+        controls_rect=QRectF(160, 8, 104, 18),
         active_rect=QRectF(272, 12, 14, 14),
         toggle_rect=QRectF(292, 50, 16, 16),
         metadata_rect=QRectF(0, 0, 0, 0),
@@ -448,19 +666,22 @@ def test_layer_header_renders_selection_background_and_active_button_independent
 
     selected_header_color = selected_image.pixelColor(12, 12)
     playback_header_color = playback_image.pixelColor(12, 12)
-    selected_active_rect = dict(selected_hit_targets.control_rects)["set_active_playback_target"]
-    playback_active_rect = dict(playback_hit_targets.control_rects)["set_active_playback_target"]
+    selected_active_rect = dict(selected_hit_targets.control_rects)["set_layer_mute"]
+    playback_active_rect = dict(playback_hit_targets.control_rects)["set_layer_mute"]
+    selected_center_x = int(selected_active_rect.center().x())
+    selected_center_y = int(selected_active_rect.center().y())
+    playback_center_x = int(playback_active_rect.center().x())
+    playback_center_y = int(playback_active_rect.center().y())
     selected_button_color = selected_image.pixelColor(
-        int(selected_active_rect.left()) + 3, int(selected_active_rect.top()) + 9
+        selected_center_x, selected_center_y
     )
     playback_button_color = playback_image.pixelColor(
-        int(playback_active_rect.left()) + 3, int(playback_active_rect.top()) + 9
+        playback_center_x, playback_center_y
     )
 
     assert selected_header_color.name() == "#202833"
     assert playback_header_color.name() == "#1b212a"
-    assert selected_button_color.name() == "#18202a"
-    assert playback_button_color.name() == "#2b6bf0"
+    assert selected_button_color.name() != playback_button_color.name()
     app.processEvents()
 
 
@@ -480,8 +701,8 @@ def test_layer_header_send_control_routes_then_dispatches_typed_push_intents(mon
     )
     presentation.layers[0].header_controls = [
         LayerHeaderControlPresentation(
-            control_id="set_active_playback_target",
-            label="ACTIVE",
+            control_id="set_layer_mute",
+            label="M",
             kind="toggle",
         ),
         LayerHeaderControlPresentation(control_id="send_to_ma3", label="Send"),
@@ -568,6 +789,39 @@ def test_layer_header_pipeline_control_opens_workspace_pipeline_menu(monkeypatch
                 params={"layer_id": LayerId("layer_song")},
             )
         ]
+    finally:
+        widget.close()
+        app.processEvents()
+
+
+def test_layer_header_pipeline_menu_ignores_non_pipeline_timeline_actions(monkeypatch):
+    app = QApplication.instance() or QApplication([])
+    presentation = replace(
+        _audio_pipeline_presentation(),
+        selected_event_ids=[EventId("evt_selected")],
+    )
+    widget = TimelineWidget(presentation)
+    menu_labels: list[str] = []
+    try:
+        _render_for_hit_testing(widget)
+
+        def _capture_only(menu, *_args, **_kwargs):
+            menu_labels.extend(
+                action.text() for action in menu.actions() if not action.isSeparator()
+            )
+            return None
+
+        monkeypatch.setattr(
+            "echozero.ui.qt.timeline.widget.QMenu.exec",
+            _capture_only,
+        )
+
+        pipeline_rect, _layer_id = widget._canvas._pipeline_action_rects[0]
+        _click_rect(widget, pipeline_rect)
+
+        assert any("Extract Stems" in label for label in menu_labels)
+        assert not any("Nudge" in label for label in menu_labels)
+        assert not any("Duplicate" in label for label in menu_labels)
     finally:
         widget.close()
         app.processEvents()
@@ -1320,8 +1574,8 @@ def test_select_mode_keys_dispatch_navigation_intents():
             SelectAdjacentEventInSelectedLayer(direction=-1),
             SelectAdjacentEventInSelectedLayer(direction=1),
             SelectAdjacentEventInSelectedLayer(direction=-1),
-            SelectTake(layer_id=LayerId("layer_kick"), take_id=TakeId("take_alt")),
-            SelectLayer(layer_id=LayerId("layer_kick"), mode="replace"),
+            SelectAdjacentLayer(direction=1),
+            SelectAdjacentLayer(direction=-1),
         ]
     finally:
         widget.close()
@@ -1592,7 +1846,7 @@ def test_select_mode_right_arrow_centers_on_newly_selected_event():
         app.processEvents()
 
 
-def test_select_mode_space_triggers_event_clip_preview_action(monkeypatch):
+def test_select_mode_shift_space_triggers_event_clip_preview_action(monkeypatch):
     app = QApplication.instance() or QApplication([])
     layer_id = LayerId("layer_kick")
     take_id = TakeId("take_main")
@@ -1623,7 +1877,11 @@ def test_select_mode_space_triggers_event_clip_preview_action(monkeypatch):
             lambda action: captured_actions.append(action),
         )
         _render_for_hit_testing(widget)
-        QTest.keyClick(widget._canvas, Qt.Key.Key_Space)
+        QTest.keyClick(
+            widget._canvas,
+            Qt.Key.Key_Space,
+            Qt.KeyboardModifier.ShiftModifier,
+        )
         QApplication.processEvents()
 
         assert len(captured_actions) == 1
@@ -1638,7 +1896,7 @@ def test_select_mode_space_triggers_event_clip_preview_action(monkeypatch):
         app.processEvents()
 
 
-def test_space_pauses_transport_when_timeline_is_playing(monkeypatch):
+def test_space_dispatches_stop_transport_intent_when_timeline_is_playing(monkeypatch):
     app = QApplication.instance() or QApplication([])
     intents: list[object] = []
     base = _selection_test_presentation()
@@ -1648,7 +1906,7 @@ def test_space_pauses_transport_when_timeline_is_playing(monkeypatch):
     def _on_intent(intent):
         nonlocal presentation_state
         intents.append(intent)
-        if isinstance(intent, Pause):
+        if isinstance(intent, Stop):
             presentation_state = replace(presentation_state, is_playing=False)
         return presentation_state
 
@@ -1663,14 +1921,46 @@ def test_space_pauses_transport_when_timeline_is_playing(monkeypatch):
         QTest.keyClick(widget._canvas, Qt.Key.Key_Space)
         QApplication.processEvents()
 
-        assert intents == [Pause()]
+        assert intents == [Stop()]
         assert captured_actions == []
     finally:
         widget.close()
         app.processEvents()
 
 
-def test_fix_mode_space_and_enter_preview_selected_event_clip(monkeypatch):
+def test_space_dispatches_play_transport_intent_when_timeline_is_stopped(monkeypatch):
+    app = QApplication.instance() or QApplication([])
+    intents: list[object] = []
+    base = _selection_test_presentation()
+    presentation_state = replace(base, is_playing=False)
+    captured_actions: list[object] = []
+
+    def _on_intent(intent):
+        nonlocal presentation_state
+        intents.append(intent)
+        if isinstance(intent, Play):
+            presentation_state = replace(presentation_state, is_playing=True)
+        return presentation_state
+
+    widget = TimelineWidget(presentation_state, on_intent=_on_intent)
+    try:
+        monkeypatch.setattr(
+            widget._action_router,
+            "trigger_contract_action",
+            lambda action: captured_actions.append(action),
+        )
+        _render_for_hit_testing(widget)
+        QTest.keyClick(widget._canvas, Qt.Key.Key_Space)
+        QApplication.processEvents()
+
+        assert intents == [Play()]
+        assert captured_actions == []
+    finally:
+        widget.close()
+        app.processEvents()
+
+
+def test_fix_mode_shift_space_and_enter_preview_selected_event_clip(monkeypatch):
     app = QApplication.instance() or QApplication([])
     layer_id = LayerId("layer_kick")
     take_id = TakeId("take_main")
@@ -1704,7 +1994,11 @@ def test_fix_mode_space_and_enter_preview_selected_event_clip(monkeypatch):
         widget._editor_bar._mode_buttons["fix"].click()
         QApplication.processEvents()
 
-        QTest.keyClick(widget._canvas, Qt.Key.Key_Space)
+        QTest.keyClick(
+            widget._canvas,
+            Qt.Key.Key_Space,
+            Qt.KeyboardModifier.ShiftModifier,
+        )
         QTest.keyClick(widget._canvas, Qt.Key.Key_Return)
         QApplication.processEvents()
 
@@ -1800,6 +2094,23 @@ def test_transport_bar_clicks_dispatch_play_pause_and_stop():
         _click_transport_rect(widget, "stop")
         assert widget.presentation.is_playing is False
         assert widget.presentation.playhead == 0.0
+    finally:
+        widget.close()
+        app.processEvents()
+
+
+def test_manual_horizontal_scroll_disengages_follow_mode():
+    app = QApplication.instance() or QApplication([])
+    demo = build_demo_app()
+    widget = TimelineWidget(demo.presentation(), on_intent=demo.dispatch)
+    try:
+        _render_for_hit_testing(widget)
+
+        assert widget.presentation.follow_mode == FollowMode.CENTER
+        widget._scroll_horizontally_by_steps(120.0)
+        QApplication.processEvents()
+
+        assert widget.presentation.follow_mode == FollowMode.OFF
     finally:
         widget.close()
         app.processEvents()
@@ -2052,6 +2363,77 @@ def test_draw_mode_drag_dispatches_create_event_intent():
         app.processEvents()
 
 
+def test_draw_mode_shortcut_a_dispatches_create_event_at_playhead() -> None:
+    app = QApplication.instance() or QApplication([])
+    intents: list[object] = []
+    base = _selection_test_presentation()
+    presentation = replace(
+        base,
+        playhead=2.25,
+        selected_layer_id=LayerId("layer_kick"),
+        selected_layer_ids=[LayerId("layer_kick")],
+        selected_take_id=TakeId("take_main"),
+    )
+    widget = TimelineWidget(
+        presentation, on_intent=lambda intent: intents.append(intent) or presentation
+    )
+    try:
+        _render_for_hit_testing(widget)
+        widget._editor_bar._mode_buttons["draw"].click()
+        QApplication.processEvents()
+
+        QTest.keyClick(widget._canvas, Qt.Key.Key_A, Qt.KeyboardModifier.NoModifier)
+        QApplication.processEvents()
+
+        assert len(intents) == 1
+        assert isinstance(intents[0], CreateEvent)
+        assert intents[0].layer_id == LayerId("layer_kick")
+        assert intents[0].take_id == TakeId("take_main")
+        assert intents[0].time_range.start == 2.25
+        assert intents[0].time_range.end == (
+            2.25 + TIMELINE_ADD_MODE_DEFAULT_EVENT_DURATION_SECONDS
+        )
+    finally:
+        widget.close()
+        app.processEvents()
+
+
+def test_draw_mode_toolbar_add_at_playhead_dispatches_create_event() -> None:
+    app = QApplication.instance() or QApplication([])
+    intents: list[object] = []
+    base = _selection_test_presentation()
+    presentation = replace(
+        base,
+        playhead=1.5,
+        selected_layer_id=LayerId("layer_kick"),
+        selected_layer_ids=[LayerId("layer_kick")],
+        selected_take_id=TakeId("take_main"),
+    )
+    widget = TimelineWidget(
+        presentation, on_intent=lambda intent: intents.append(intent) or presentation
+    )
+    try:
+        _render_for_hit_testing(widget)
+        widget._editor_bar._mode_buttons["draw"].click()
+        QApplication.processEvents()
+
+        assert widget._editor_bar._add_event_at_playhead_button.isVisible() is True
+        widget._editor_bar._add_event_at_playhead_button.click()
+        QApplication.processEvents()
+
+        assert len(intents) == 1
+        assert isinstance(intents[0], CreateEvent)
+        assert intents[0].layer_id == LayerId("layer_kick")
+        assert intents[0].take_id == TakeId("take_main")
+        assert intents[0].time_range.start == 1.5
+        assert intents[0].time_range.end == (
+            1.5 + TIMELINE_ADD_MODE_DEFAULT_EVENT_DURATION_SECONDS
+        )
+    finally:
+        widget.close()
+        app.processEvents()
+
+
 def test_erase_mode_click_dispatches_delete_events_intent():
     app = QApplication.instance() or QApplication([])
     intents: list[object] = []
@@ -2113,6 +2495,36 @@ def test_fix_mode_plus_click_promotes_missing_correlated_onset() -> None:
         assert intents[0].source_event_id == "onset_b"
         assert intents[0].payload_ref == "onset_b"
         assert intents[0].time_range.start < intents[0].time_range.end
+    finally:
+        widget.close()
+        app.processEvents()
+
+
+def test_fix_mode_plus_click_promotes_existing_event() -> None:
+    app = QApplication.instance() or QApplication([])
+    intents: list[object] = []
+    presentation = _fix_mode_test_presentation()
+    widget = TimelineWidget(
+        presentation, on_intent=lambda intent: intents.append(intent) or presentation
+    )
+    try:
+        _render_for_hit_testing(widget)
+        widget._editor_bar._mode_buttons["fix"].click()
+        QTest.keyClick(widget._canvas, Qt.Key.Key_C, Qt.KeyboardModifier.NoModifier)
+        QApplication.processEvents()
+        _click_event_rect(widget, "kick_evt")
+
+        assert intents == [
+            CommitVerifiedEventsReview(
+                event_refs=[
+                    EventRef(
+                        layer_id=LayerId("layer_kick"),
+                        take_id=TakeId("take_kick"),
+                        event_id=EventId("kick_evt"),
+                    )
+                ]
+            )
+        ]
     finally:
         widget.close()
         app.processEvents()
@@ -2336,7 +2748,11 @@ def test_fix_mode_selecting_source_onset_updates_selection_and_preview(monkeypat
         assert latest_selected.anchor_take_id == TakeId("take_kick")
         assert latest_selected.selected_layer_ids == [LayerId("layer_kick")]
 
-        QTest.keyClick(widget._canvas, Qt.Key.Key_Space)
+        QTest.keyClick(
+            widget._canvas,
+            Qt.Key.Key_Space,
+            Qt.KeyboardModifier.ShiftModifier,
+        )
         QApplication.processEvents()
 
         assert len(captured_actions) == 1

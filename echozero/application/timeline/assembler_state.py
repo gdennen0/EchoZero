@@ -27,8 +27,6 @@ class TimelineAssemblyState:
     selected_layer_id: LayerId | None
     selected_layer_ids: tuple[LayerId, ...]
     selected_take_id: TakeId | None
-    active_playback_layer_id: LayerId | None
-    active_playback_take_id: TakeId | None
     selected_event_refs: tuple[EventRef, ...]
     selected_event_ref_keys: frozenset[SelectionEventRefKey]
     selected_event_ids: tuple[EventId, ...]
@@ -48,8 +46,6 @@ def build_timeline_assembly_state(timeline: Timeline) -> TimelineAssemblyState:
         selected_layer_id=timeline.selection.selected_layer_id,
         selected_layer_ids=tuple(selected_layer_ids),
         selected_take_id=timeline.selection.selected_take_id,
-        active_playback_layer_id=timeline.playback_target.layer_id,
-        active_playback_take_id=timeline.playback_target.take_id,
         selected_event_refs=selected_event_refs,
         selected_event_ref_keys=_selected_event_ref_keys(selected_event_refs),
         selected_event_ids=selected_event_ids,

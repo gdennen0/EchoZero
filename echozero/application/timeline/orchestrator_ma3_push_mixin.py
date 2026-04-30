@@ -5,7 +5,6 @@ Connects typed push intents to layer main-take data and the sync-service push bo
 
 from __future__ import annotations
 
-import inspect
 from typing import Any, Protocol, cast
 
 from echozero.application.session.models import (
@@ -24,6 +23,7 @@ from echozero.application.timeline.ma3_push_intents import (
     CreateMA3Sequence,
     MA3PushScope,
     MA3PushTargetMode,
+    PollMA3PushOperation,
     MA3SequenceCreationMode,
     MA3SequenceRefreshRangeMode,
     MA3TrackSequenceAction,
@@ -91,8 +91,9 @@ class TimelineOrchestratorMA3PushMixin:
     """Handles saved-route MA3 updates and direct layer push execution."""
 
     def _handle_refresh_ma3_push_tracks(self, intent) -> None:
-        self._call_sync_capability_if_available(
+        self._call_sync_capability(
             "refresh_push_track_options",
+            error_message="Sync service does not support MA3 push-track refresh",
             target_track_coord=intent.target_track_coord,
             timecode_no=intent.timecode_no,
             track_group_no=intent.track_group_no,
@@ -162,28 +163,153 @@ class TimelineOrchestratorMA3PushMixin:
         )
         session = cast(_MA3PushHost, self).session_service.get_session()
         push_offset_seconds = self._resolve_project_ma3_push_offset_seconds(session)
-        self._call_sync_capability(
-            "apply_push_transfer",
-            error_message="Sync service does not support push apply",
+        session.manual_push_flow.target_track_coord = target_track_coord
+        session.manual_push_flow.selected_event_ids = [event.id for event in selected_events]
+        session.manual_push_flow.diff_gate_open = False
+        session.manual_push_flow.diff_preview = None
+        start_push = getattr(cast(_MA3PushHost, self).sync_service, "start_push", None)
+        if callable(start_push):
+            operation_id = str(
+                self._call_sync_capability(
+                    "start_push",
+                    error_message="Sync service does not support MA3 async push operations",
+                    target_track_coord=target_track_coord,
+                    selected_events=selected_events,
+                    transfer_mode=intent.apply_mode.value,
+                    start_offset_seconds=push_offset_seconds,
+                )
+                or ""
+            ).strip()
+            if not operation_id:
+                raise RuntimeError("Sync service returned an empty MA3 operation id")
+            session.manual_push_flow.operation_id = operation_id
+            session.manual_push_flow.operation_status = "running"
+            session.manual_push_flow.operation_message = (
+                f"Sending {len(selected_events)} event(s) to {target_track_coord}"
+            )
+            return
+
+        self._apply_sync_push_transfer_legacy(
             target_track_coord=target_track_coord,
             selected_events=selected_events,
             transfer_mode=intent.apply_mode.value,
             start_offset_seconds=push_offset_seconds,
         )
+        session.manual_push_flow.operation_id = None
+        session.manual_push_flow.operation_status = "success"
+        session.manual_push_flow.operation_message = (
+            f"Sent {len(selected_events)} event(s) to {target_track_coord}"
+        )
+        self._call_sync_capability(
+            "refresh_push_track_options",
+            error_message="Sync service does not support MA3 push-track refresh",
+            target_track_coord=target_track_coord,
+        )
+        self._refresh_manual_push_tracks(target_track_coord=target_track_coord)
 
-        session.manual_push_flow.target_track_coord = target_track_coord
-        session.manual_push_flow.selected_event_ids = [event.id for event in selected_events]
-        session.manual_push_flow.diff_gate_open = False
-        session.manual_push_flow.diff_preview = None
-        try:
-            self._call_sync_capability_if_available(
+    def _apply_sync_push_transfer_legacy(
+        self,
+        *,
+        target_track_coord: str,
+        selected_events: list[Event],
+        transfer_mode: str,
+        start_offset_seconds: float,
+    ) -> None:
+        sync_service = cast(_MA3PushHost, self).sync_service
+        capability = getattr(sync_service, "apply_push_transfer", None)
+        if not callable(capability):
+            raise RuntimeError("Sync service does not support MA3 push apply")
+
+        candidates = [
+            {
+                "target_track_coord": target_track_coord,
+                "selected_events": selected_events,
+                "transfer_mode": transfer_mode,
+                "start_offset_seconds": start_offset_seconds,
+            },
+            {
+                "target_track_coord": target_track_coord,
+                "selected_events": selected_events,
+                "transfer_mode": transfer_mode,
+                "push_offset_seconds": start_offset_seconds,
+            },
+            {
+                "target_track_coord": target_track_coord,
+                "selected_events": selected_events,
+                "transfer_mode": transfer_mode,
+            },
+            {
+                "target_track_coord": target_track_coord,
+                "selected_events": selected_events,
+                "mode": transfer_mode,
+            },
+            {
+                "target_track_coord": target_track_coord,
+                "selected_events": selected_events,
+            },
+        ]
+        last_exc: TypeError | None = None
+        for kwargs in candidates:
+            try:
+                capability(**kwargs)
+                return
+            except TypeError as exc:
+                last_exc = exc
+        if last_exc is not None:
+            raise last_exc
+
+    def _handle_poll_ma3_push_operation(
+        self,
+        timeline: Timeline,
+        intent: PollMA3PushOperation,
+    ) -> None:
+        del timeline
+        session = cast(_MA3PushHost, self).session_service.get_session()
+        flow = session.manual_push_flow
+        if flow.operation_id != intent.operation_id:
+            return
+        operation = self._call_sync_capability(
+            "get_operation",
+            error_message="Sync service does not support MA3 operation polling",
+            operation_id=intent.operation_id,
+        )
+        if not isinstance(operation, dict):
+            raise RuntimeError("MA3 operation polling returned a non-dict payload")
+
+        status = str(operation.get("status") or "").strip().lower()
+        message = str(operation.get("message") or "").strip()
+        if status in {"running", "queued"}:
+            flow.operation_status = "running"
+            if message:
+                flow.operation_message = message
+            return
+
+        if status == "success":
+            flow.operation_status = "success"
+            flow.operation_message = message or "MA3 push completed"
+            self._call_sync_capability(
                 "refresh_push_track_options",
-                target_track_coord=target_track_coord,
+                error_message="Sync service does not support MA3 push-track refresh",
+                target_track_coord=flow.target_track_coord,
             )
-            self._refresh_manual_push_tracks(target_track_coord=target_track_coord)
-        except Exception:
-            # Post-send polling should not fail a completed MA3 push.
-            pass
+            self._refresh_manual_push_tracks(target_track_coord=flow.target_track_coord)
+            flow.operation_id = None
+            return
+
+        if status in {"error", "failed"}:
+            error_text = str(operation.get("error") or message or "MA3 push failed").strip()
+            flow.operation_status = "error"
+            flow.operation_message = error_text
+            flow.operation_id = None
+            return
+
+        if status == "cancelled":
+            flow.operation_status = "idle"
+            flow.operation_message = "Push cancelled"
+            flow.operation_id = None
+            return
+
+        raise RuntimeError(f"Unsupported MA3 operation status: {status or 'unknown'}")
 
     def _refresh_manual_push_tracks(
         self,
@@ -365,6 +491,16 @@ class TimelineOrchestratorMA3PushMixin:
             target_track_coord,
             refresh=True,
         )
+        if (target_track is None or target_track.sequence_no is None) and sequence_action is None:
+            self._call_sync_capability(
+                "refresh_push_track_options",
+                error_message="Sync service does not support MA3 push-track refresh",
+                target_track_coord=target_track_coord,
+            )
+            target_track = self._cached_manual_push_track_option_by_coord(
+                target_track_coord,
+                refresh=True,
+            )
         if target_track is not None and target_track.sequence_no is not None:
             return
 
@@ -439,46 +575,7 @@ class TimelineOrchestratorMA3PushMixin:
         capability = getattr(sync_service, capability_name, None)
         if not callable(capability):
             raise RuntimeError(error_message)
-
-        try:
-            parameters = inspect.signature(capability).parameters
-        except (TypeError, ValueError):
-            parameters = {}
-
-        if not parameters:
-            return capability(**kwargs)
-
-        supported_kwargs = {
-            key: value
-            for key, value in kwargs.items()
-            if key in parameters and (value is not None or parameters[key].default is inspect._empty)
-        }
-        return capability(**supported_kwargs)
-
-    def _call_sync_capability_if_available(
-        self,
-        capability_name: str,
-        **kwargs: Any,
-    ) -> Any | None:
-        sync_service = cast(_MA3PushHost, self).sync_service
-        capability = getattr(sync_service, capability_name, None)
-        if not callable(capability):
-            return None
-
-        try:
-            parameters = inspect.signature(capability).parameters
-        except (TypeError, ValueError):
-            parameters = {}
-
-        if not parameters:
-            return capability()
-
-        supported_kwargs = {
-            key: value
-            for key, value in kwargs.items()
-            if key in parameters and (value is not None or parameters[key].default is inspect._empty)
-        }
-        return capability(**supported_kwargs)
+        return capability(**kwargs)
 
     def _resolve_push_target_coord(self, layer: Layer, intent: PushLayerToMA3) -> str:
         if intent.target_mode is MA3PushTargetMode.SAVED_ROUTE:

@@ -149,6 +149,8 @@ def build_storage_layer(
             stale_reason=state_flags.get("stale_reason"),
         ),
         mixer=LayerMixerState(
+            mute=bool(state_flags.get("mute", False)),
+            solo=bool(state_flags.get("solo", False)),
             output_bus=_state_flag_output_bus(state_flags),
         ),
         sync=LayerSyncState(ma3_track_coord=_state_flag_ma3_track_coord(state_flags)),
@@ -222,8 +224,11 @@ def resolve_storage_layer_kind(layer_record, main_take) -> LayerKind:
     state_flags = getattr(layer_record, "state_flags", {}) or {}
     manual_kind = state_flags.get("manual_kind")
     if isinstance(manual_kind, str) and manual_kind:
+        normalized_manual_kind = manual_kind.strip().lower()
+        if normalized_manual_kind == "marker":
+            return LayerKind.EVENT
         try:
-            return LayerKind(manual_kind)
+            return LayerKind(normalized_manual_kind)
         except ValueError:
             pass
     return take_kind(main_take)

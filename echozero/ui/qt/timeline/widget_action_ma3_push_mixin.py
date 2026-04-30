@@ -211,7 +211,6 @@ class TimelineWidgetMA3PushActionMixin(TimelineWidgetTransferWorkspaceMixin):
 
         target_mode = MA3PushTargetMode.SAVED_ROUTE
         target_track = explicit_target
-        saved_route_was_set_via_popup = False
         sequence_action: MA3TrackSequenceAction | None = explicit_sequence_action
         apply_mode: MA3PushApplyMode | None = explicit_apply_mode
         if require_saved_route and (
@@ -246,7 +245,6 @@ class TimelineWidgetMA3PushActionMixin(TimelineWidgetTransferWorkspaceMixin):
                     sequence_action=sequence_action,
                 )
             )
-            saved_route_was_set_via_popup = True
             presentation = host._get_presentation()
             layer = self._find_layer_presentation(presentation, layer_id)
             if layer is None:
@@ -258,11 +256,13 @@ class TimelineWidgetMA3PushActionMixin(TimelineWidgetTransferWorkspaceMixin):
             )
             if target_track is None:
                 return True
-            if not self._confirm_send_to_saved_ma3_route(
+            selected_apply_mode = self._confirm_send_to_saved_ma3_route(
                 layer=layer,
                 target_track=target_track,
-            ):
+            )
+            if selected_apply_mode is None:
                 return True
+            apply_mode = selected_apply_mode
         elif not require_saved_route:
             target_mode = MA3PushTargetMode.DIFFERENT_TRACK_ONCE
             if target_track is None:
@@ -311,9 +311,7 @@ class TimelineWidgetMA3PushActionMixin(TimelineWidgetTransferWorkspaceMixin):
             apply_mode = MA3PushApplyMode.MERGE
 
         if apply_mode is None:
-            apply_mode = self._choose_ma3_apply_mode()
-            if apply_mode is None:
-                return True
+            apply_mode = self._current_ma3_apply_mode()
         host._dispatch(SetPushTransferMode(mode=apply_mode.value))
 
         selected_count = len(selected_ids) if scope is MA3PushScope.SELECTED_EVENTS else len(
@@ -340,7 +338,7 @@ class TimelineWidgetMA3PushActionMixin(TimelineWidgetTransferWorkspaceMixin):
                 if target_mode is MA3PushTargetMode.DIFFERENT_TRACK_ONCE
                 else None,
                 selected_event_ids=selected_ids,
-                sequence_action=None if saved_route_was_set_via_popup else sequence_action,
+                sequence_action=sequence_action,
             )
         )
         return True
@@ -350,7 +348,7 @@ class TimelineWidgetMA3PushActionMixin(TimelineWidgetTransferWorkspaceMixin):
         *,
         layer: LayerPresentation,
         target_track: ManualPushTrackOptionPresentation | None,
-    ) -> bool:
+    ) -> MA3PushApplyMode | None:
         host = cast(_TransferActionHost, self)
         target_label = (
             f"{target_track.name} ({target_track.coord})"
@@ -360,17 +358,31 @@ class TimelineWidgetMA3PushActionMixin(TimelineWidgetTransferWorkspaceMixin):
         if not target_label:
             target_label = "a saved MA3 target"
         layer_label = layer.title or str(layer.layer_id)
+        mode = self._current_ma3_apply_mode()
+        default_button = (
+            host._message_box.StandardButton.No
+            if mode is MA3PushApplyMode.OVERWRITE
+            else host._message_box.StandardButton.Yes
+        )
         reply = host._message_box.question(
             host._widget,
             "Send to MA3",
             (
                 f"'{layer_label}' is already routed to {target_label}.\n\n"
-                "Send to the existing MA3 route now?"
+                "Choose a write mode for this send.\n"
+                "Yes = Merge\n"
+                "No = Overwrite"
             ),
-            host._message_box.StandardButton.Yes | host._message_box.StandardButton.No,
-            host._message_box.StandardButton.No,
+            host._message_box.StandardButton.Yes
+            | host._message_box.StandardButton.No
+            | host._message_box.StandardButton.Cancel,
+            default_button,
         )
-        return reply == host._message_box.StandardButton.Yes
+        if reply == host._message_box.StandardButton.Yes:
+            return MA3PushApplyMode.MERGE
+        if reply == host._message_box.StandardButton.No:
+            return MA3PushApplyMode.OVERWRITE
+        return None
 
     def _resolve_ma3_sequence_action(
         self,
@@ -1000,25 +1012,17 @@ class TimelineWidgetMA3PushActionMixin(TimelineWidgetTransferWorkspaceMixin):
                 "MA3 OSC settings are not available in this shell.",
             )
             return False
-        dialog = MA3ConnectionHUD(settings_service, parent=host._widget)
-        if not bool(dialog.exec()):
-            return False
-        try:
-            if not self._apply_ma3_osc_runtime_config(host):
-                host._message_box.warning(
-                    host._widget,
-                    "MA3 OSC Connection",
-                    "Unable to reconfigure the live MA3 connection for this session.",
-                )
-                return False
-        except Exception as exc:
-            host._message_box.warning(
-                host._widget,
-                "MA3 OSC Connection",
-                f"Unable to apply MA3 OSC connection settings: {exc}",
-            )
-            return False
-        return True
+        dialog = MA3ConnectionHUD(
+            settings_service,
+            on_saved=lambda _result: self._require_apply_ma3_osc_runtime_config(host),
+            parent=host._widget,
+        )
+        return bool(dialog.exec())
+
+    def _require_apply_ma3_osc_runtime_config(self, host: _TransferActionHost) -> None:
+        if self._apply_ma3_osc_runtime_config(host):
+            return
+        raise RuntimeError("Unable to reconfigure the live MA3 connection for this session.")
 
     def _apply_ma3_osc_runtime_config(self, host: _TransferActionHost) -> bool:
         resolve_runtime_shell = getattr(host, "_resolve_runtime_shell", None)

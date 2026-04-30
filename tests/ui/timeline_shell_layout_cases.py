@@ -11,6 +11,8 @@ from tests.ui.timeline_shell_support import (
     test_scroll_bounds_grow_with_zoom_level,
     test_take_lanes_exist_without_inline_action_requirements,
     test_timeline_span_estimate_uses_events_and_end_label,
+    test_timeline_widget_auto_dismisses_ma3_success_status_banner,
+    test_timeline_widget_pipeline_status_banner_can_be_closed_manually,
     test_timeline_widget_surfaces_pipeline_status_banner_from_presentation,
     test_toggle_layer_expansion_round_trips,
 )

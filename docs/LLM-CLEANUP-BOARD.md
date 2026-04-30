@@ -1,16 +1,17 @@
 # LLM Cleanup Board
 
-Status: active cleanup campaign
-Last verified: 2026-04-21
+Status: active
+Last reviewed: 2026-04-30
 
-_Updated: 2026-04-21_
+
+
 
 This board is the repo-local campaign for making the canonical EchoZero lane
 smaller, less ambiguous, and easier for LLMs to load correctly.
 
 Use [STATUS.md](STATUS.md) for current implementation truth.
 Use this board for cleanup sequencing and progress.
-Use [EXECUTION-PLAN.md](EXECUTION-PLAN.md) for the ordered remediation plan across issues `1-12`.
+Use [EXECUTION-PLAN.md](archive/EXECUTION-PLAN.md) for the ordered remediation plan across issues `1-12`.
 Use [BACKLOG-CLEARANCE-PLAN.md](BACKLOG-CLEARANCE-PLAN.md) for the ordered
 post-remediation backlog-clearance pass.
 

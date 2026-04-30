@@ -52,22 +52,6 @@ class ReviewSessionRepository:
                     "polarity": item.polarity.value,
                     "score": item.score,
                     "source_provenance": item.source_provenance,
-                    "review_outcome": item.review_outcome.value,
-                    "review_decision": serialize_review_decision_state(
-                        item.review_decision
-                        or build_review_decision(
-                            item.review_outcome,
-                            corrected_label=item.corrected_label,
-                            review_note=item.review_note,
-                            provenance=build_review_provenance(
-                                item.source_provenance,
-                                queue_session_ref=session.id,
-                            ),
-                        )
-                    ),
-                    "corrected_label": item.corrected_label,
-                    "review_note": item.review_note,
-                    "reviewed_at": item.reviewed_at.isoformat() if item.reviewed_at else None,
                 }
                 for item in session.items
             ],
@@ -80,6 +64,15 @@ class ReviewSessionRepository:
         row = _read_state(self._path, self._schema).get(session_id)
         if row is None:
             return None
+        return self._deserialize(row)
+
+    def list(self) -> list[ReviewSession]:
+        """Return all persisted review sessions."""
+        rows = _read_state(self._path, self._schema)
+        return [self._deserialize(row) for row in rows.values()]
+
+    @staticmethod
+    def _deserialize(row: dict[str, Any]) -> ReviewSession:
         return ReviewSession(
             id=row["id"],
             name=row["name"],
@@ -112,15 +105,6 @@ class ReviewSessionRepository:
                 for item in row.get("items", [])
             ],
         )
-
-    def list(self) -> list[ReviewSession]:
-        """Return all persisted review sessions."""
-        sessions: list[ReviewSession] = []
-        for session_id in _read_state(self._path, self._schema).keys():
-            session = self.get(session_id)
-            if session is not None:
-                sessions.append(session)
-        return sessions
 
 def serialize_review_decision_state(decision: ReviewDecision | None) -> dict[str, Any] | None:
     """Persist one review decision in the Foundry state-file shape."""

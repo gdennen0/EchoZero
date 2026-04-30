@@ -1,5 +1,9 @@
 # Timeline First Principles — 2026-04-02
 
+Status: reference
+Last reviewed: 2026-04-30
+
+
 ## Purpose
 
 Lock the application model for layers, takes, pipelines, provenance, staleness, MA3 sync, and song-version evolution before more UI is built.

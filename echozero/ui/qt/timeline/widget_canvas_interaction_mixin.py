@@ -42,6 +42,14 @@ class _TimelineCanvasInteractionMixin:
         if event is None:
             return
         if (
+            self._header_resize_candidate is not None
+            and event.buttons() & Qt.MouseButton.LeftButton
+        ):
+            self._set_header_width_from_drag(event.position().x())
+            self._set_resize_cursor_for_position(event.position())
+            event.accept()
+            return
+        if (
             self._layer_row_resize_candidate is not None
             and event.buttons() & Qt.MouseButton.LeftButton
         ):
@@ -126,6 +134,7 @@ class _TimelineCanvasInteractionMixin:
 
     def leaveEvent(self: Any, event: QEvent | None) -> None:
         self._hovered_layer_id = None
+        self._header_resize_candidate = None
         self._layer_row_resize_candidate = None
         self._dragging_playhead = False
         self._drag_candidate = None
@@ -160,6 +169,11 @@ class _TimelineCanvasInteractionMixin:
             event.accept()
             return
         if event.button() == Qt.MouseButton.LeftButton and self._edit_mode == "select":
+            if self._header_resize_handle_contains(pos):
+                self._header_resize_candidate = (float(pos.x()), int(self._header_width))
+                self._set_resize_cursor_for_position(pos)
+                event.accept()
+                return
             resize_layer_id = self._resize_target_layer_id(pos)
             if resize_layer_id is not None:
                 self._layer_row_resize_candidate = LayerResizeCandidate(
@@ -170,9 +184,13 @@ class _TimelineCanvasInteractionMixin:
                 self._set_resize_cursor_for_position(pos)
                 event.accept()
                 return
-        for rect, layer_id in self._active_rects:
+        for rect, layer_id in self._mute_rects:
             if rect.contains(pos):
-                self.active_clicked.emit(layer_id)
+                self.mute_clicked.emit(layer_id)
+                return
+        for rect, layer_id in self._solo_rects:
+            if rect.contains(pos):
+                self.solo_clicked.emit(layer_id)
                 return
         for rect, layer_id in self._pipeline_action_rects:
             if rect.contains(pos):
@@ -185,6 +203,10 @@ class _TimelineCanvasInteractionMixin:
         for rect, layer_id in self._pull_rects:
             if rect.contains(pos):
                 self.pull_clicked.emit(layer_id)
+                return
+        for rect, layer_id in self._section_manager_rects:
+            if rect.contains(pos):
+                self.section_manager_clicked.emit(layer_id)
                 return
         for rect, layer_id, take_id, action_id in self._take_action_rects:
             if rect.contains(pos):
@@ -217,14 +239,19 @@ class _TimelineCanvasInteractionMixin:
                         self.update()
                         return
                 _rect, layer_id, take_id, source_event_id, start, end, matched = fix_hit
-                if self._fix_action == "promote" and not matched:
-                    self.fix_promote_requested.emit(
-                        layer_id,
-                        take_id,
-                        float(start),
-                        float(end),
-                        source_event_id,
-                    )
+                if self._fix_action == "promote":
+                    if matched:
+                        target_event_ref = self._resolve_fix_overlay_target_event_ref(fix_hit)
+                        if target_event_ref is not None:
+                            self.fix_promote_selected_requested.emit([target_event_ref])
+                    else:
+                        self.fix_promote_requested.emit(
+                            layer_id,
+                            take_id,
+                            float(start),
+                            float(end),
+                            source_event_id,
+                        )
                 event.accept()
                 self.update()
                 return
@@ -233,6 +260,17 @@ class _TimelineCanvasInteractionMixin:
                 if self._edit_mode == "fix":
                     if self._fix_action == "remove" and event_take_id is not None:
                         self.delete_events_requested.emit(
+                            [
+                                EventRef(
+                                    layer_id=layer_id,
+                                    take_id=event_take_id,
+                                    event_id=event_id,
+                                )
+                            ]
+                        )
+                        return
+                    if self._fix_action == "promote" and event_take_id is not None:
+                        self.fix_promote_selected_requested.emit(
                             [
                                 EventRef(
                                     layer_id=layer_id,
@@ -405,6 +443,23 @@ class _TimelineCanvasInteractionMixin:
             )
         return True
 
+    def mouseDoubleClickEvent(self: Any, event: QMouseEvent | None) -> None:
+        if event is None:
+            return
+        if event.button() == Qt.MouseButton.LeftButton:
+            pos = event.position()
+            section_label_hit = self._section_label_hit(pos)
+            if section_label_hit is not None:
+                self.section_label_double_clicked.emit(section_label_hit)
+                event.accept()
+                return
+            section_boundary_hit = self._section_boundary_hit(pos)
+            if section_boundary_hit is not None:
+                self.section_boundary_double_clicked.emit(section_boundary_hit)
+                event.accept()
+                return
+        super().mouseDoubleClickEvent(event)
+
     def _build_context_menu(
         self: Any,
         contract: InspectorContract,
@@ -446,7 +501,17 @@ class _TimelineCanvasInteractionMixin:
         kind = (hit_kind or "").strip().lower()
         allowed_groups_by_kind = {
             "timeline": {"tools", "transport"},
-            "layer": {"batch", "layer", "gain", "pipeline", "transfer", "live_sync", "transport"},
+            "layer": {
+                "batch",
+                "layer",
+                "mix",
+                "gain",
+                "pipeline",
+                "routing",
+                "transfer",
+                "live_sync",
+                "transport",
+            },
             "take": {"batch", "take", "transfer", "transport"},
             "event": {"batch", "selection", "take", "transfer", "transport"},
         }
@@ -459,6 +524,11 @@ class _TimelineCanvasInteractionMixin:
         if event is None:
             return
         if event.button() == Qt.MouseButton.LeftButton:
+            if self._header_resize_candidate is not None:
+                self._header_resize_candidate = None
+                self._set_resize_cursor_for_position(event.position())
+                event.accept()
+                return
             if self._layer_row_resize_candidate is not None:
                 self._layer_row_resize_candidate = None
                 self._set_resize_cursor_for_position(event.position())
@@ -517,7 +587,7 @@ class _TimelineCanvasInteractionMixin:
         if event is None:
             return
         if event.modifiers() & Qt.KeyboardModifier.ControlModifier:
-            delta = event.angleDelta().y() or event.angleDelta().x()
+            delta = event.pixelDelta().y() or event.angleDelta().y() or event.angleDelta().x()
             if delta:
                 self.zoom_requested.emit(int(delta), float(event.position().x()))
                 event.accept()
@@ -610,7 +680,7 @@ class _TimelineCanvasInteractionMixin:
         if (
             not has_primary
             and not has_shift
-            and event.key() in (Qt.Key.Key_Space, Qt.Key.Key_Return, Qt.Key.Key_Enter)
+            and event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter)
             and (self.presentation.selected_event_refs or self.presentation.selected_event_ids)
         ):
             self.preview_selected_event_clip_requested.emit()
@@ -638,6 +708,10 @@ class _TimelineCanvasInteractionMixin:
             return
         if not has_primary and not has_shift and event.key() == Qt.Key.Key_F:
             self.edit_mode_requested.emit("fix")
+            event.accept()
+            return
+        if not has_primary and not has_shift and self._edit_mode == "draw" and event.key() == Qt.Key.Key_A:
+            self.add_event_at_playhead_requested.emit()
             event.accept()
             return
         if (
@@ -1179,6 +1253,12 @@ class _TimelineCanvasInteractionMixin:
         self._set_main_row_height_for_layer(candidate["layer_id"], next_height)
 
     def _set_resize_cursor_for_position(self: Any, pos: QPointF) -> None:
+        if self._header_resize_candidate is not None:
+            self.setCursor(Qt.CursorShape.SizeHorCursor)
+            return
+        if self._edit_mode == "select" and self._header_resize_handle_contains(pos):
+            self.setCursor(Qt.CursorShape.SizeHorCursor)
+            return
         if self._layer_row_resize_candidate is not None:
             self.setCursor(Qt.CursorShape.SizeVerCursor)
             return
@@ -1186,6 +1266,15 @@ class _TimelineCanvasInteractionMixin:
             self.setCursor(Qt.CursorShape.SizeVerCursor)
             return
         self._sync_cursor()
+
+    def _header_resize_handle_contains(self: Any, pos: QPointF) -> bool:
+        if self._edit_mode != "select":
+            return False
+        if float(pos.x()) < 0.0:
+            return False
+        return abs(float(pos.x()) - float(self._header_width)) <= float(
+            self._header_resize_handle_half_width
+        )
 
     def _event_lane_hit(self: Any, pos: QPointF) -> EventLaneRect | None:
         for rect, layer_id, take_id in self._event_lane_rects:
@@ -1200,6 +1289,18 @@ class _TimelineCanvasInteractionMixin:
         for fix_rect in self._fix_event_rects:
             if fix_rect[0].contains(pos):
                 return fix_rect
+        return None
+
+    def _section_label_hit(self: Any, pos: QPointF):
+        for rect, cue_id in reversed(self._section_label_rects):
+            if rect.contains(pos):
+                return cue_id
+        return None
+
+    def _section_boundary_hit(self: Any, pos: QPointF):
+        for rect, cue_id in reversed(self._section_boundary_rects):
+            if rect.contains(pos):
+                return cue_id
         return None
 
     def _resolve_draw_time(self: Any, x: float, *, modifiers: Qt.KeyboardModifier) -> float:

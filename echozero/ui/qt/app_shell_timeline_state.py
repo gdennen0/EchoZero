@@ -45,21 +45,10 @@ def restore_timeline_targets(
         layer_id=selected_layer_id,
         take_id=prior_presentation.selected_take_id,
     )
-    active_playback_layer_id = _resolve_preserved_active_playback_layer_id(
-        prior_presentation,
-        current_presentation,
-    )
-    active_playback_take_id = _resolve_take_id(
-        current_presentation,
-        layer_id=active_playback_layer_id,
-        take_id=prior_presentation.active_playback_take_id,
-    )
     timeline.selection.selected_layer_id = selected_layer_id
     timeline.selection.selected_layer_ids = [selected_layer_id] if selected_layer_id is not None else []
     timeline.selection.selected_take_id = selected_take_id
     clear_selected_events(timeline)
-    timeline.playback_target.layer_id = active_playback_layer_id
-    timeline.playback_target.take_id = active_playback_take_id
 
 
 def surface_new_take_rows(
@@ -209,20 +198,6 @@ def _resolve_preserved_selected_layer_id(
         prior_presentation.selected_layer_id,
     ):
         return prior_presentation.selected_layer_id
-    return current_presentation.selected_layer_id
-
-
-def _resolve_preserved_active_playback_layer_id(
-    prior_presentation: TimelinePresentation,
-    current_presentation: TimelinePresentation,
-) -> LayerId | None:
-    if prior_presentation.active_playback_layer_id is not None and _has_layer(
-        current_presentation,
-        prior_presentation.active_playback_layer_id,
-    ):
-        return prior_presentation.active_playback_layer_id
-    if current_presentation.active_playback_layer_id is not None:
-        return current_presentation.active_playback_layer_id
     return current_presentation.selected_layer_id
 
 

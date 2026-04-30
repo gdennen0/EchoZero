@@ -1,11 +1,18 @@
 # Playback Remediation Execution Plan
 
-Last updated: 2026-04-18
+Status: historical
+Last reviewed: 2026-04-30
+
+
+Originally updated: 2026-04-18
+
+This document is retained for remediation history.
+For current playback behavior, use `docs/STATUS.md`.
 
 This document explains how to execute the playback remediation task board efficiently with bounded parallel work.
 
 Primary source:
-- [docs/PLAYBACK-REMEDIATION-TASK-BOARD.md](/Users/march/Documents/GitHub/EchoZero/docs/PLAYBACK-REMEDIATION-TASK-BOARD.md:1)
+- [docs/PLAYBACK-REMEDIATION-TASK-BOARD.md](PLAYBACK-REMEDIATION-TASK-BOARD.md)
 
 ## Strategy
 

@@ -342,8 +342,8 @@ def test_app_shell_runtime_object_action_session_commands_save_preview_copy_and_
         )
 
         session = runtime.dispatch_object_action_command(session.session_id, RunSession())
-        assert session.plan.run_id is not None
-        runtime.wait_for_pipeline_run(session.plan.run_id, timeout=5.0)
+        assert session.plan.operation_id is not None
+        runtime.wait_for_operation(session.plan.operation_id, timeout=5.0)
         assert captured
         assert captured[-1] is not None
         assert "audio_file" in captured[-1]
@@ -452,9 +452,27 @@ def test_app_shell_runtime_request_object_action_run_returns_immediately_and_ref
 
     def _blocking_execute(session, config_id, runtime_bindings=None, on_progress=None):
         if on_progress is not None:
-            on_progress("Loading configuration", 0.0)
-            on_progress("Preparing pipeline", 0.1)
-            on_progress("Executing pipeline", 0.2)
+            on_progress(
+                OperationProgressUpdate(
+                    stage="loading_configuration",
+                    message="Loading configuration",
+                    fraction_complete=0.0,
+                )
+            )
+            on_progress(
+                OperationProgressUpdate(
+                    stage="preparing_pipeline",
+                    message="Preparing pipeline",
+                    fraction_complete=0.1,
+                )
+            )
+            on_progress(
+                OperationProgressUpdate(
+                    stage="executing_pipeline",
+                    message="Executing pipeline",
+                    fraction_complete=0.2,
+                )
+            )
         started.set()
         gate.wait(timeout=5.0)
         return original_execute(
@@ -484,7 +502,7 @@ def test_app_shell_runtime_request_object_action_run_returns_immediately_and_ref
 
         assert elapsed < 0.2
         assert _wait_until(lambda: started.is_set())
-        banner = runtime.presentation().pipeline_run_banner
+        banner = runtime.presentation().operation_progress_banner
         assert banner is not None
         assert banner.title == "Extract Stems"
         assert banner.is_error is False
@@ -496,13 +514,13 @@ def test_app_shell_runtime_request_object_action_run_returns_immediately_and_ref
         )
         assert plan.is_running is True
         assert plan.run_label == "Running..."
-        assert plan.run_id == run_id
+        assert plan.operation_id == run_id
 
         gate.set()
-        final_state = runtime.wait_for_pipeline_run(run_id, timeout=5.0)
+        final_state = runtime.wait_for_operation(run_id, timeout=5.0)
         assert final_state.status == "completed"
         assert _wait_until(
-            lambda: runtime.consume_pipeline_run_presentation_update() is not None,
+            lambda: runtime.consume_operation_presentation_update() is not None,
             timeout=5.0,
         )
         presentation = runtime.presentation()
@@ -527,9 +545,27 @@ def test_app_shell_runtime_object_action_session_run_requests_background_pipelin
 
     def _blocking_execute(session, config_id, runtime_bindings=None, on_progress=None):
         if on_progress is not None:
-            on_progress("Loading configuration", 0.0)
-            on_progress("Preparing pipeline", 0.1)
-            on_progress("Executing pipeline", 0.2)
+            on_progress(
+                OperationProgressUpdate(
+                    stage="loading_configuration",
+                    message="Loading configuration",
+                    fraction_complete=0.0,
+                )
+            )
+            on_progress(
+                OperationProgressUpdate(
+                    stage="preparing_pipeline",
+                    message="Preparing pipeline",
+                    fraction_complete=0.1,
+                )
+            )
+            on_progress(
+                OperationProgressUpdate(
+                    stage="executing_pipeline",
+                    message="Executing pipeline",
+                    fraction_complete=0.2,
+                )
+            )
         started.set()
         gate.wait(timeout=5.0)
         return original_execute(
@@ -564,7 +600,8 @@ def test_app_shell_runtime_object_action_session_run_requests_background_pipelin
         assert session.run_disabled_reason == "This stage is already running."
 
         gate.set()
-        final_state = runtime.wait_for_pipeline_run(session.plan.run_id, timeout=5.0)
+        assert session.plan.operation_id is not None
+        final_state = runtime.wait_for_operation(session.plan.operation_id, timeout=5.0)
         assert final_state.status == "completed"
     finally:
         runtime.shutdown()
@@ -613,8 +650,8 @@ def test_app_shell_runtime_object_action_session_classify_uses_descriptor_bound_
             object_type="layer",
         )
         session = runtime.dispatch_object_action_command(session.session_id, RunSession())
-        assert session.plan.run_id is not None
-        runtime.wait_for_pipeline_run(session.plan.run_id, timeout=5.0)
+        assert session.plan.operation_id is not None
+        runtime.wait_for_operation(session.plan.operation_id, timeout=5.0)
         plan = runtime.describe_object_action(
             "timeline.classify_drum_events",
             {"layer_id": drums_layer.layer_id},
@@ -1247,10 +1284,10 @@ def test_app_shell_runtime_object_action_session_save_and_copy_do_not_refresh_pr
         assert refresh_calls == []
 
         session = runtime.dispatch_object_action_command(session.session_id, RunSession())
-        assert session.plan.run_id is not None
+        assert session.plan.operation_id is not None
         assert refresh_calls == []
-        runtime.wait_for_pipeline_run(session.plan.run_id, timeout=5.0)
-        assert runtime.consume_pipeline_run_presentation_update() is not None
+        runtime.wait_for_operation(session.plan.operation_id, timeout=5.0)
+        assert runtime.consume_operation_presentation_update() is not None
         assert len(refresh_calls) == 1
     finally:
         runtime.shutdown()

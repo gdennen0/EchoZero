@@ -67,7 +67,7 @@ class TimelineOrchestratorEventEditMixin(TimelineOrchestratorSelectionStateMixin
                 metadata={},
                 cue_number=section_cue_number,
                 label=section_label,
-                cue_ref=f"Q{cue_suffix}",
+                cue_ref=f"Cue {cue_suffix}",
                 source_event_id=source_event_id,
                 payload_ref=payload_ref,
                 color=color,
@@ -261,11 +261,14 @@ class TimelineOrchestratorEventEditMixin(TimelineOrchestratorSelectionStateMixin
         timeline: Timeline,
         *,
         cues: list[SectionCueEdit],
+        target_layer_id: LayerId | None = None,
     ) -> None:
-        section_layer = self._section_layer(timeline)
+        section_layer = self._section_layer(timeline, target_layer_id=target_layer_id)
         if section_layer is None and not cues:
             return
         if section_layer is None:
+            if target_layer_id is not None:
+                return
             section_layer = self._create_section_layer(timeline)
         if section_layer.presentation_hints.locked:
             return
@@ -293,9 +296,13 @@ class TimelineOrchestratorEventEditMixin(TimelineOrchestratorSelectionStateMixin
                     origin=existing.origin if existing is not None else "manual_added",
                     classifications={"label": cue.name} if cue.name else {},
                     metadata=deepcopy(existing.metadata) if existing is not None else {},
-                    cue_number=cue_number_from_ref(
-                        cue.cue_ref,
-                        fallback=existing.cue_number if existing is not None else 1,
+                    cue_number=(
+                        cue.cue_number
+                        if cue.cue_number is not None
+                        else cue_number_from_ref(
+                            cue.cue_ref,
+                            fallback=existing.cue_number if existing is not None else 1,
+                        )
                     ),
                     source_event_id=existing.source_event_id if existing is not None else None,
                     parent_event_id=existing.parent_event_id if existing is not None else None,
@@ -315,7 +322,22 @@ class TimelineOrchestratorEventEditMixin(TimelineOrchestratorSelectionStateMixin
         self._set_selected_event_refs(timeline, [])
 
     @staticmethod
-    def _section_layer(timeline: Timeline) -> Layer | None:
+    def _section_layer(
+        timeline: Timeline,
+        *,
+        target_layer_id: LayerId | None = None,
+    ) -> Layer | None:
+        if target_layer_id is not None:
+            explicit = next(
+                (
+                    layer
+                    for layer in timeline.layers
+                    if layer.id == target_layer_id and layer.kind is LayerKind.SECTION
+                ),
+                None,
+            )
+            if explicit is not None:
+                return explicit
         section_layers = sorted(
             (layer for layer in timeline.layers if layer.kind is LayerKind.SECTION),
             key=lambda layer: (int(layer.order_index), str(layer.id)),
@@ -407,11 +429,6 @@ class TimelineOrchestratorEventEditMixin(TimelineOrchestratorSelectionStateMixin
             timeline.selection.selected_layer_ids = [layer.id]
             timeline.selection.selected_take_id = main_take.id
             self._set_selected_event_refs(timeline, [])
-            if (
-                timeline.playback_target.layer_id == layer.id
-                and timeline.playback_target.take_id == source_take.id
-            ):
-                timeline.playback_target.take_id = main_take.id
             return
         else:
             return

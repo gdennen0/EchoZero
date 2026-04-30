@@ -1,59 +1,52 @@
-# EchoZero 2
+# EchoZero Docs
 
-Audio analysis workstation for live lighting design.
+Status: active
+Last verified: 2026-04-30
 
-## Quick Links
 
-- [Status](STATUS.md) — Canonical current-state map for the repo
-- [Getting Started](GETTING-STARTED.md) — Set up your dev environment
-- [Agent Context](AGENT-CONTEXT.md) — Compact orientation for coding agents
-- [OpenClaw / Codex Prompting](OPENCLAW-CODEX-PROMPTING.md) — Canonical prompt patterns and task-shaping rules for EchoZero agent work
-- [LLM Cleanup Board](LLM-CLEANUP-BOARD.md) — Cleanup campaign for LLM readability and canonical-path organization
-- [Execution Plan](EXECUTION-PLAN.md) — Ordered remediation plan for the current cleanup issues
-- [Backlog Clearance Plan](BACKLOG-CLEARANCE-PLAN.md) — Ordered cleanup, streamlining, doc, and release backlog plan after the remediation pass
-- [Worker Roles](WORKER-ROLES.md) — `lead-dev` and disposable worker contract
-- [Testing](TESTING.md) — Verification lanes and proof map
-- [Testing Primitives](TESTING-PRIMITIVES.md) — Canonical action vocabulary for tests, demos, and automation
-- [Testing Executors](TESTING-EXECUTORS.md) — Standard executor interface for automation and proof surfaces
-- [Testing Scenario Schema](TESTING-SCENARIO-SCHEMA.md) — Preferred scenario file shape built on canonical primitives
-- [Testing Migration Map](TESTING-MIGRATION-MAP.md) — Explicit migration path from current test/demo surfaces
-- [Object Pipeline Action Architecture](OBJECT-PIPELINE-ACTION-ARCHITECTURE.md) — Refactor spec for object-owned pipeline workflows and generic action execution
-- [Song Import Batch + LTC Workflow](SONG-IMPORT-BATCH-LTC-WORKFLOW.md) — Implemented behavior map for folder import, import actions, and LTC stripping
-- [Release Checklist](RELEASE-CHECKLIST.md) — Release signoff checklist
-- [Unified Plan](UNIFIED-IMPLEMENTATION-PLAN.md) — Canonical implementation direction
-- [Architecture](ARCHITECTURE.md) — System design and structure  
-- [UI Standard](UI-STANDARD.md) — North Star for desktop UI design and implementation
-- [UI Automation Plan](UI-AUTOMATION-PLAN.md) — Make the desktop app controllable by OpenClaw and agents
-- [UI Automation Library Plan](UI-AUTOMATION-LIBRARY-PLAN.md) — Separate reusable desktop app-control library plan
-- [UI Cleanup Map](UI-CLEANUP-MAP.md) — Preserve/extract/delete/prove-next for the UI stack
-- [UI Engine Redevelopment Plan](UI-ENGINE-REDEVELOPMENT-PLAN.md) — Reusable UI engine extraction and rebuild path
-- [Project Class](PROJECT-CLASS.md) — The UI developer's API guide
-- [Entity Model](architecture/ENTITY-MODEL.md) — Data relationships
-- [LD Workflow](LD-WORKFLOW.md) — How lighting designers use EchoZero
-- [Cleanup Map](EZ2-CODEBASE-CLEANUP-MAP.md) — Current keep/remove posture
+
+Use this page to find current-truth docs first, then active plans, then historical references.
+
+## Start Here
+
+- [Status](STATUS.md) - canonical current-state map for the repo
+- [Getting Started](GETTING-STARTED.md) - local setup and first-run path
+- [Agent Context](AGENT-CONTEXT.md) - compact orientation for coding agents
+- [Testing](TESTING.md) - verification lanes and proof map
+
+## Canonical Product Docs
+
+- [Architecture](ARCHITECTURE.md) - system design and core boundaries
+- [Unified Implementation Plan](UNIFIED-IMPLEMENTATION-PLAN.md) - canonical implementation direction
+- [App Delivery Plan](APP-DELIVERY-PLAN.md) - release and app-first delivery path
+- [UI Standard](UI-STANDARD.md) - north-star desktop UI direction
+- [Song Import Batch + LTC Workflow](SONG-IMPORT-BATCH-LTC-WORKFLOW.md) - implemented import behavior map
+- [Release Checklist](RELEASE-CHECKLIST.md) - release signoff guardrails
 
 ## Subsystem Maps
 
-- [Timeline Application](../echozero/application/timeline/README.md) — Canonical timeline contract and proof surfaces
-- [Presentation Layer](../echozero/application/presentation/README.md) — UI-facing presentation and inspector contract map
-- [Timeline Qt Surface](../echozero/ui/qt/timeline/README.md) — Stage Zero UI runtime versus support-only surfaces
-- [Foundry](../echozero/foundry/README.md) — Training, artifacts, and validation lane
+- [Timeline Application](../echozero/application/timeline/README.md) - timeline app contract and proof surfaces
+- [Presentation Layer](../echozero/application/presentation/README.md) - presentation and inspector contracts
+- [Timeline Qt Surface](../echozero/ui/qt/timeline/README.md) - Stage Zero UI runtime vs support-only surfaces
+- [Foundry](../echozero/foundry/README.md) - training, artifacts, and validation lane
+- [MA3 Integration](../MA3/README.md) - MA3 integration behavior and operations
 
-## What is EchoZero?
+## Active Implementation Plans
 
-EchoZero analyzes music and extracts time-stamped events (beats, onsets, classifications) that sync with grandMA3 lighting consoles. It's built for lighting designers who need precise, reliable show programming tools.
+- [Backlog Clearance Plan](BACKLOG-CLEARANCE-PLAN.md)
+- [Project Adaptive Review Loop Spec](PROJECT-ADAPTIVE-REVIEW-LOOP-SPEC.md)
+- [Project Adaptive Review Loop Execution Plan](PROJECT-ADAPTIVE-REVIEW-LOOP-EXECUTION-PLAN.md)
+- [Sections Feature Spec](SECTIONS-FEATURE-SPEC.md)
+- [Sections Execution Plan](SECTIONS-EXECUTION-PLAN.md)
+- [Sync Entrypoint Guardrail Execution Plan](SYNC-ENTRYPOINT-GUARDRAIL-EXECUTION-PLAN.md)
 
-## Current Status
+## Operational Docs
 
-- **Canonical app:** `run_echozero.py` launches the active EZ2 desktop shell
-- **Core runtime:** `echozero/` contains the engine, application layer, UI, and Foundry code
-- **Current truth map:** `docs/STATUS.md` is the fastest current-state orientation doc
-- **Docs set:** trimmed to active architecture, delivery, and MA3/Foundry context
-- **Repo posture:** legacy EZ1 code and historical doc surfaces have been removed from this branch
+- [OpenClaw / Codex Prompting](OPENCLAW-CODEX-PROMPTING.md)
+- [Agent Workflow](AGENT-WORKFLOW.md)
+- [Worker Roles](WORKER-ROLES.md)
+- [Archive](archive/README.md)
 
-## Tech Stack
+## What EchoZero Is
 
-- Python 3.11+
-- PyQt6 (UI)
-- SQLite + WAL (persistence)
-- librosa, essentia, demucs, pytorch (ML/audio)
+EchoZero is an audio analysis workstation for live lighting design. It extracts time-stamped events and synchronizes event data with grandMA3 console workflows through explicit application contracts.

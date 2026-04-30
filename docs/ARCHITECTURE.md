@@ -1,9 +1,20 @@
 # EchoZero 2 — Architecture
 
+Status: active
+Last verified: 2026-04-30
+
+
 ## Overview
 
 Desktop audio analysis workstation for live lighting design.
 Analyzes music → extracts time-stamped events → syncs with grandMA3.
+
+### Application Progress Standard v1
+
+- Canonical app progress contract lives in `echozero/application/progress.py`.
+- Timeline app operation state is tracked by `echozero/application/timeline/operation_progress_service.py`.
+- Current producer coverage: pipeline object-action execution.
+- Pending producer migration: MA3 push/import UX progress paths.
 
 ---
 

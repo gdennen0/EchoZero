@@ -1,5 +1,9 @@
 # Pipeline Config Redesign
 
+Status: reference
+Last reviewed: 2026-04-30
+
+
 ## Problem
 
 Settings are reconstructed every time from `SongPipelineConfig.bindings` + template code.

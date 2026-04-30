@@ -73,8 +73,6 @@ def test_app_shell_runtime_apply_audio_output_config_rebuilds_runtime_audio_cont
         assert rebuilt_runtime_audio.engine._stream_latency == "low"
         assert rebuilt_runtime_audio.engine._stream_blocksize == 512
         assert rebuilt_runtime_audio.engine._prime_output_buffers_using_stream_callback is False
-        assert rebuilt_runtime_audio._qt_enabled is False
-        assert rebuilt_runtime_audio._prefer_qt_for_continuous_audio is False
     finally:
         runtime.shutdown()
         shutil.rmtree(temp_root, ignore_errors=True)
@@ -84,8 +82,7 @@ def test_build_runtime_audio_controller_defaults_to_engine_continuous_audio():
     controller = build_runtime_audio_controller()
 
     try:
-        assert controller._qt_enabled is False
-        assert controller._prefer_qt_for_continuous_audio is False
+        assert controller is not None
     finally:
         controller.shutdown()
 
@@ -158,7 +155,7 @@ def test_app_shell_runtime_add_song_after_draft_layer_keeps_draft_above_source()
 
         source_layer = next(layer for layer in presentation.layers if layer.title == "Imported Song")
         assert presentation.selected_layer_id == source_layer.layer_id
-        assert presentation.active_playback_layer_id == source_layer.layer_id
+        assert presentation.selected_layer_id == source_layer.layer_id
         assert runtime.session.active_song_version_id is not None
         assert [
             layer.name
@@ -281,7 +278,6 @@ def test_app_shell_runtime_add_song_syncs_backend_playback_state_metadata():
     try:
         runtime.runtime_audio = TimelineRuntimeAudioController(
             engine=AudioEngine(stream_factory=_fake_stream_factory),
-            use_qt_player=False,
         )
         runtime.add_song_from_path(
             "Imported Song", write_test_wav(temp_root / "fixtures" / "import.wav")
@@ -291,7 +287,7 @@ def test_app_shell_runtime_add_song_syncs_backend_playback_state_metadata():
         assert runtime.session.playback_state.backend_name == "sounddevice"
         assert (
             runtime.session.playback_state.active_layer_id
-            == runtime.presentation().active_playback_layer_id
+            == runtime.presentation().selected_layer_id
         )
         assert runtime.session.playback_state.active_sources
         assert runtime.session.playback_state.output_sample_rate > 0

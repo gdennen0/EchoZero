@@ -1,7 +1,10 @@
 # Alpha UI Contract
 
+Status: draft
+Last reviewed: 2026-04-30
+
+
 _Status: working draft_
-_Date: 2026-04-16_
 
 This document freezes the intended Alpha contract for the EchoZero desktop UI.
 It is a contract-first build guide, not a paint-first mockup.

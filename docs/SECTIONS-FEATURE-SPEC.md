@@ -1,7 +1,9 @@
 # Sections Feature Spec
 
-Status: proposed implementation target
-Last verified: 2026-04-26
+Status: active
+Last reviewed: 2026-04-30
+
+
 
 This spec defines the canonical `Sections` concept for EchoZero.
 

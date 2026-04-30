@@ -2,11 +2,18 @@
 
 from __future__ import annotations
 
-import inspect
 from dataclasses import replace
 from typing import Any, Protocol
 
 from echozero.application.shared.enums import SyncMode
+from echozero.application.sync.ma3_push_service import (
+    MA3CatalogService,
+    MA3OperationRunner,
+    MA3OperationSnapshot,
+    MA3ProtocolClient,
+    MA3PushService,
+    _translate_ma3_error,
+)
 from echozero.application.sync.models import SyncState
 from echozero.application.sync.service import SyncService
 from echozero.application.transport.models import TransportState
@@ -21,19 +28,35 @@ from echozero.infrastructure.sync.ma3_adapter import (
 
 
 class MA3SyncBridge(Protocol):
-    """Minimal bridge contract expected from MA3/show-manager runtime layer."""
+    """Strict MA3 bridge contract expected by the app sync adapter."""
 
     def on_ma3_connected(self) -> None: ...
 
     def on_ma3_disconnected(self) -> None: ...
 
-    def list_tracks(self, *, timecode_no: int | None = None) -> list[object]: ...
+    def list_tracks(
+        self,
+        *,
+        timecode_no: int | None = None,
+        track_group_no: int | None = None,
+    ) -> list[object]: ...
+
+    def refresh_tracks(
+        self,
+        *,
+        timecode_no: int | None = None,
+        track_group_no: int | None = None,
+    ) -> list[object]: ...
 
     def list_timecodes(self) -> list[object]: ...
 
     def list_track_groups(self, *, timecode_no: int) -> list[object]: ...
 
+    def refresh_track_groups(self, *, timecode_no: int) -> list[object]: ...
+
     def list_track_events(self, track_coord: str) -> list[object]: ...
+
+    def refresh_track_events(self, track_coord: str) -> list[object]: ...
 
     def list_sequences(
         self,
@@ -100,6 +123,128 @@ class MA3SyncBridge(Protocol):
     ) -> None: ...
 
 
+class _BridgeProtocolClient(MA3ProtocolClient):
+    """Strict protocol client that delegates directly to the MA3 bridge."""
+
+    def __init__(self, bridge: MA3SyncBridge):
+        self._bridge = bridge
+
+    def list_tracks(
+        self,
+        *,
+        timecode_no: int | None = None,
+        track_group_no: int | None = None,
+    ) -> list[object]:
+        return self._bridge.list_tracks(timecode_no=timecode_no, track_group_no=track_group_no)
+
+    def refresh_tracks(
+        self,
+        *,
+        timecode_no: int | None = None,
+        track_group_no: int | None = None,
+    ) -> list[object]:
+        return self._bridge.refresh_tracks(timecode_no=timecode_no, track_group_no=track_group_no)
+
+    def list_timecodes(self) -> list[object]:
+        return self._bridge.list_timecodes()
+
+    def list_track_groups(self, *, timecode_no: int) -> list[object]:
+        return self._bridge.list_track_groups(timecode_no=timecode_no)
+
+    def refresh_track_groups(self, *, timecode_no: int) -> list[object]:
+        return self._bridge.refresh_track_groups(timecode_no=timecode_no)
+
+    def list_track_events(self, track_coord: str) -> list[object]:
+        return self._bridge.list_track_events(track_coord)
+
+    def refresh_track_events(self, track_coord: str) -> list[object]:
+        return self._bridge.refresh_track_events(track_coord)
+
+    def list_sequences(
+        self,
+        *,
+        start_no: int | None = None,
+        end_no: int | None = None,
+    ) -> list[object]:
+        return self._bridge.list_sequences(start_no=start_no, end_no=end_no)
+
+    def get_current_song_sequence_range(self) -> object | None:
+        return self._bridge.get_current_song_sequence_range()
+
+    def assign_track_sequence(self, *, target_track_coord: str, sequence_no: int) -> None:
+        self._bridge.assign_track_sequence(
+            target_track_coord=target_track_coord,
+            sequence_no=sequence_no,
+        )
+
+    def create_sequence_next_available(self, *, preferred_name: str | None = None) -> object:
+        return self._bridge.create_sequence_next_available(preferred_name=preferred_name)
+
+    def create_sequence_in_current_song_range(
+        self,
+        *,
+        preferred_name: str | None = None,
+    ) -> object:
+        return self._bridge.create_sequence_in_current_song_range(preferred_name=preferred_name)
+
+    def create_timecode_next_available(self, *, preferred_name: str | None = None) -> object:
+        return self._bridge.create_timecode_next_available(preferred_name=preferred_name)
+
+    def create_track_group_next_available(
+        self,
+        *,
+        timecode_no: int,
+        preferred_name: str | None = None,
+    ) -> object:
+        return self._bridge.create_track_group_next_available(
+            timecode_no=timecode_no,
+            preferred_name=preferred_name,
+        )
+
+    def create_track(
+        self,
+        *,
+        timecode_no: int,
+        track_group_no: int,
+        preferred_name: str | None = None,
+    ) -> object:
+        return self._bridge.create_track(
+            timecode_no=timecode_no,
+            track_group_no=track_group_no,
+            preferred_name=preferred_name,
+        )
+
+    def prepare_track_for_events(self, *, target_track_coord: str) -> None:
+        self._bridge.prepare_track_for_events(target_track_coord=target_track_coord)
+
+    def send_console_command(self, command: str) -> None:
+        self._bridge.send_console_command(command)
+
+    def reload_plugins(self) -> None:
+        try:
+            self._bridge.reload_plugins()
+        except AttributeError:
+            self._bridge.send_console_command("RP")
+
+    def apply_push_transfer(
+        self,
+        *,
+        target_track_coord: str,
+        selected_events: list[object],
+        transfer_mode: str,
+        start_offset_seconds: float,
+    ) -> None:
+        try:
+            self._bridge.apply_push_transfer(
+                target_track_coord=target_track_coord,
+                selected_events=selected_events,
+                transfer_mode=transfer_mode,
+                start_offset_seconds=start_offset_seconds,
+            )
+        except AttributeError as exc:
+            raise RuntimeError("MA3 bridge does not support push apply") from exc
+
+
 class InMemorySyncService(SyncService):
     """Simple stateful implementation used by demos/tests."""
 
@@ -135,7 +280,7 @@ class InMemorySyncService(SyncService):
 
 
 class MA3SyncAdapter(SyncService):
-    """App-layer SyncService adapter over MA3/show-manager bridge callbacks."""
+    """App-layer SyncService adapter over strict MA3 protocol services."""
 
     def __init__(
         self,
@@ -146,6 +291,10 @@ class MA3SyncAdapter(SyncService):
     ):
         self._bridge = bridge
         self._state = state or SyncState(mode=SyncMode.MA3, connected=False, target_ref=target_ref)
+        self._client = _BridgeProtocolClient(bridge)
+        self._catalog = MA3CatalogService(self._client)
+        self._push_service = MA3PushService(client=self._client, catalog=self._catalog)
+        self._operations = MA3OperationRunner(max_workers=2)
 
     def get_state(self) -> SyncState:
         return self._state
@@ -193,10 +342,13 @@ class MA3SyncAdapter(SyncService):
         timecode_no: int | None = None,
         track_group_no: int | None = None,
     ) -> list[dict[str, object]]:
-        return self._list_bridge_tracks(
-            timecode_no=timecode_no,
-            track_group_no=track_group_no,
-        )
+        return [
+            track_snapshot_payload(item)
+            for item in self._catalog.list_tracks(
+                timecode_no=timecode_no,
+                track_group_no=track_group_no,
+            )
+        ]
 
     def list_pull_track_options(
         self,
@@ -204,37 +356,27 @@ class MA3SyncAdapter(SyncService):
         timecode_no: int | None = None,
         track_group_no: int | None = None,
     ) -> list[dict[str, object]]:
-        return self._list_bridge_tracks(
-            timecode_no=timecode_no,
-            track_group_no=track_group_no,
-        )
-
-    def list_timecodes(self) -> list[dict[str, object]]:
-        method = self._bridge_method("list_timecodes", "list_ma3_timecodes")
-        if method is None:
-            return []
         return [
-            timecode_snapshot_payload(raw_timecode)
-            for raw_timecode in method() or []
+            track_snapshot_payload(item)
+            for item in self._catalog.list_tracks(
+                timecode_no=timecode_no,
+                track_group_no=track_group_no,
+            )
         ]
 
+    def list_timecodes(self) -> list[dict[str, object]]:
+        return [timecode_snapshot_payload(item) for item in self._catalog.list_timecodes()]
+
     def list_track_groups(self, *, timecode_no: int) -> list[dict[str, object]]:
-        method = self._bridge_method("list_track_groups", "list_ma3_track_groups")
-        if method is None:
-            return []
         return [
-            trackgroup_snapshot_payload(raw_trackgroup)
-            for raw_trackgroup in method(timecode_no=timecode_no) or []
+            trackgroup_snapshot_payload(item)
+            for item in self._catalog.list_track_groups(timecode_no=timecode_no)
         ]
 
     def list_pull_source_events(self, source_track_coord: str) -> list[dict[str, object]]:
-        method = self._bridge_method(
-            "list_track_events", "list_ma3_track_events", "get_available_ma3_events"
-        )
-        if method is None:
-            return []
         return [
-            event_snapshot_payload(raw_event) for raw_event in method(source_track_coord) or []
+            event_snapshot_payload(item)
+            for item in self._catalog.list_track_events(source_track_coord)
         ]
 
     def list_sequences(
@@ -243,22 +385,16 @@ class MA3SyncAdapter(SyncService):
         start_no: int | None = None,
         end_no: int | None = None,
     ) -> list[dict[str, object]]:
-        method = self._bridge_method("list_sequences", "list_ma3_sequences")
-        if method is None:
-            return []
         return [
-            sequence_snapshot_payload(raw_sequence)
-            for raw_sequence in method(start_no=start_no, end_no=end_no) or []
+            sequence_snapshot_payload(item)
+            for item in self._catalog.list_sequences(start_no=start_no, end_no=end_no)
         ]
 
     def get_current_song_sequence_range(self) -> dict[str, object] | None:
-        method = self._bridge_method(
-            "get_current_song_sequence_range",
-            "get_ma3_current_song_sequence_range",
-        )
-        if method is None:
+        snapshot = self._catalog.get_current_song_sequence_range(refresh=True)
+        if snapshot is None:
             return None
-        return sequence_range_snapshot_payload(method())
+        return sequence_range_snapshot_payload(snapshot)
 
     def assign_track_sequence(
         self,
@@ -266,46 +402,38 @@ class MA3SyncAdapter(SyncService):
         target_track_coord: str,
         sequence_no: int,
     ) -> None:
-        method = self._bridge_method("assign_track_sequence")
-        if method is None:
-            raise RuntimeError("MA3 bridge does not support sequence assignment")
-        method(target_track_coord=target_track_coord, sequence_no=sequence_no)
+        self._call(self._client.assign_track_sequence, target_track_coord=target_track_coord, sequence_no=sequence_no)
+        self._catalog.refresh_tracks_scope(target_track_coord=target_track_coord)
 
     def create_sequence_next_available(
         self,
         *,
         preferred_name: str | None = None,
     ) -> dict[str, object]:
-        method = self._bridge_method("create_sequence_next_available")
-        if method is None:
-            raise RuntimeError("MA3 bridge does not support sequence creation")
-        return sequence_snapshot_payload(method(preferred_name=preferred_name))
+        raw = self._call(self._client.create_sequence_next_available, preferred_name=preferred_name)
+        self._catalog.list_sequences(refresh=True)
+        return sequence_snapshot_payload(raw)
 
     def create_sequence_in_current_song_range(
         self,
         *,
         preferred_name: str | None = None,
     ) -> dict[str, object]:
-        method = self._bridge_method("create_sequence_in_current_song_range")
-        if method is None:
-            raise RuntimeError("MA3 bridge does not support current-song sequence creation")
-        return sequence_snapshot_payload(method(preferred_name=preferred_name))
+        raw = self._call(
+            self._client.create_sequence_in_current_song_range,
+            preferred_name=preferred_name,
+        )
+        self._catalog.list_sequences(refresh=True)
+        return sequence_snapshot_payload(raw)
 
     def create_timecode_next_available(
         self,
         *,
         preferred_name: str | None = None,
     ) -> dict[str, object]:
-        method = self._bridge_method("create_timecode_next_available")
-        if method is None:
-            raise RuntimeError("MA3 bridge does not support timecode creation")
-        return timecode_snapshot_payload(
-            self._call_with_supported_kwargs(
-                method,
-                preferred_name=preferred_name,
-                name=preferred_name,
-            )
-        )
+        raw = self._call(self._client.create_timecode_next_available, preferred_name=preferred_name)
+        self._catalog.list_timecodes(refresh=True)
+        return timecode_snapshot_payload(raw)
 
     def create_track_group_next_available(
         self,
@@ -313,18 +441,13 @@ class MA3SyncAdapter(SyncService):
         timecode_no: int,
         preferred_name: str | None = None,
     ) -> dict[str, object]:
-        method = self._bridge_method("create_track_group_next_available")
-        if method is None:
-            raise RuntimeError("MA3 bridge does not support track-group creation")
-        return trackgroup_snapshot_payload(
-            self._call_with_supported_kwargs(
-                method,
-                timecode_no=timecode_no,
-                tc_no=timecode_no,
-                preferred_name=preferred_name,
-                name=preferred_name,
-            )
+        raw = self._call(
+            self._client.create_track_group_next_available,
+            timecode_no=timecode_no,
+            preferred_name=preferred_name,
         )
+        self._catalog.list_track_groups(timecode_no=timecode_no, refresh=True)
+        return trackgroup_snapshot_payload(raw)
 
     def create_track(
         self,
@@ -333,40 +456,57 @@ class MA3SyncAdapter(SyncService):
         track_group_no: int,
         preferred_name: str | None = None,
     ) -> dict[str, object]:
-        method = self._bridge_method("create_track")
-        if method is None:
-            raise RuntimeError("MA3 bridge does not support track creation")
-        return track_snapshot_payload(
-            self._call_with_supported_kwargs(
-                method,
-                timecode_no=timecode_no,
-                tc_no=timecode_no,
-                track_group_no=track_group_no,
-                tg_no=track_group_no,
-                preferred_name=preferred_name,
-                track_name=preferred_name,
-                name=preferred_name,
-            )
+        raw = self._call(
+            self._client.create_track,
+            timecode_no=timecode_no,
+            track_group_no=track_group_no,
+            preferred_name=preferred_name,
         )
+        created = track_snapshot_payload(raw)
+        self._catalog.refresh_tracks_scope(
+            target_track_coord=str(created.get("coord") or ""),
+            timecode_no=timecode_no,
+            track_group_no=track_group_no,
+        )
+        return created
 
     def prepare_track_for_events(self, *, target_track_coord: str) -> None:
-        method = self._bridge_method("prepare_track_for_events")
-        if method is None:
-            raise RuntimeError("MA3 bridge does not support track preparation")
-        method(target_track_coord=target_track_coord)
+        self._call(self._client.prepare_track_for_events, target_track_coord=target_track_coord)
+        self._catalog.refresh_tracks_scope(target_track_coord=target_track_coord)
 
     def send_console_command(self, command: str) -> None:
-        method = self._bridge_method("send_console_command")
-        if method is None:
-            raise RuntimeError("MA3 bridge does not support raw console commands")
-        method(command)
+        self._call(self._client.send_console_command, command)
 
     def reload_plugins(self) -> None:
-        method = self._bridge_method("reload_plugins")
-        if method is not None:
-            method()
-            return
-        self.send_console_command("RP")
+        self._call(self._client.reload_plugins)
+
+    def start_push(
+        self,
+        *,
+        target_track_coord: str,
+        selected_events: list[object],
+        transfer_mode: str = "merge",
+        start_offset_seconds: float = 0.0,
+    ) -> str:
+        return self._operations.start(
+            kind="ma3.push",
+            message=f"Sending {len(list(selected_events or []))} event(s) to MA3",
+            callback=lambda: self._push_service.push(
+                target_track_coord=target_track_coord,
+                selected_events=list(selected_events or []),
+                transfer_mode=transfer_mode,
+                start_offset_seconds=start_offset_seconds,
+            ),
+        )
+
+    def get_operation(self, operation_id: str) -> dict[str, object] | None:
+        snapshot = self._operations.get(operation_id)
+        if snapshot is None:
+            return None
+        return _operation_payload(snapshot)
+
+    def cancel_operation(self, operation_id: str) -> bool:
+        return self._operations.cancel(operation_id)
 
     def apply_push_transfer(
         self,
@@ -376,39 +516,15 @@ class MA3SyncAdapter(SyncService):
         transfer_mode: str = "merge",
         start_offset_seconds: float = 0.0,
     ) -> None:
-        callback = self._bridge_method("apply_push_transfer", "execute_push_transfer")
-        if callback is None:
-            raise RuntimeError("MA3 bridge does not support push apply")
-
-        resolved_start_offset_seconds = _coerce_start_offset_seconds(start_offset_seconds)
-        kwargs: dict[str, Any] = {
-            "target_track_coord": target_track_coord,
-            "selected_events": selected_events,
-        }
-        try:
-            parameters = inspect.signature(callback).parameters
-        except (TypeError, ValueError):
-            parameters = {}
-
-        if (
-            resolved_start_offset_seconds != 0.0
-            and "start_offset_seconds" not in parameters
-            and "push_offset_seconds" not in parameters
-        ):
-            kwargs["selected_events"] = _shift_event_starts(
-                selected_events,
-                resolved_start_offset_seconds,
-            )
-
-        if "transfer_mode" in parameters:
-            kwargs["transfer_mode"] = transfer_mode
-        elif "mode" in parameters:
-            kwargs["mode"] = transfer_mode
-        if "start_offset_seconds" in parameters:
-            kwargs["start_offset_seconds"] = resolved_start_offset_seconds
-        elif "push_offset_seconds" in parameters:
-            kwargs["push_offset_seconds"] = resolved_start_offset_seconds
-        callback(**kwargs)
+        operation_id = self.start_push(
+            target_track_coord=str(target_track_coord),
+            selected_events=list(selected_events or []),
+            transfer_mode=transfer_mode,
+            start_offset_seconds=float(start_offset_seconds),
+        )
+        snapshot = self._operations.wait(operation_id, timeout=60.0)
+        if snapshot.status == "error":
+            raise RuntimeError(snapshot.error or snapshot.message or "MA3 push failed")
 
     def refresh_push_track_options(
         self,
@@ -417,142 +533,28 @@ class MA3SyncAdapter(SyncService):
         timecode_no: int | None = None,
         track_group_no: int | None = None,
     ) -> None:
-        del target_track_coord
-        method = self._bridge_method("refresh_tracks")
-        if method is None:
-            return
-        self._call_with_supported_kwargs(
-            method,
+        self._catalog.refresh_tracks_scope(
+            target_track_coord=target_track_coord,
             timecode_no=timecode_no,
             track_group_no=track_group_no,
         )
 
-    def _list_bridge_tracks(
-        self,
-        *,
-        timecode_no: int | None = None,
-        track_group_no: int | None = None,
-    ) -> list[dict[str, object]]:
-        method = self._bridge_method("list_tracks", "list_ma3_tracks", "get_available_ma3_tracks")
-        if method is None:
-            return []
-        tracks = [
-            track_snapshot_payload(raw_track)
-            for raw_track in self._call_with_supported_kwargs(
-                method,
-                timecode_no=timecode_no,
-                track_group_no=track_group_no,
-            ) or []
-        ]
-        if timecode_no is not None:
-            tracks = [
-                track
-                for track in tracks
-                if _track_coord_timecode_no(track.get("coord")) == int(timecode_no)
-            ]
-        if track_group_no is not None:
-            tracks = [
-                track
-                for track in tracks
-                if _track_coord_track_group_no(track.get("coord")) == int(track_group_no)
-            ]
-        return tracks
-
-    def _bridge_method(self, *names: str):
-        for name in names:
-            method = getattr(self._bridge, name, None)
-            if callable(method):
-                return method
-        return None
-
     @staticmethod
-    def _call_with_supported_kwargs(method, **kwargs):
+    def _call(callback, *args, **kwargs):
         try:
-            parameters = inspect.signature(method).parameters
-        except (TypeError, ValueError):
-            parameters = {}
-        if not parameters:
-            return method()
-        supported_kwargs = {
-            key: value
-            for key, value in kwargs.items()
-            if key in parameters and value is not None
-        }
-        return method(**supported_kwargs)
+            return callback(*args, **kwargs)
+        except Exception as exc:
+            raise _translate_ma3_error(exc) from exc
 
 
-def _track_coord_timecode_no(raw_coord: object) -> int | None:
-    coord = str(raw_coord or "").strip().lower()
-    if not coord.startswith("tc"):
-        return None
-    tc_text = coord[2:].split("_", 1)[0]
-    try:
-        resolved = int(tc_text)
-    except ValueError:
-        return None
-    return resolved if resolved > 0 else None
-
-
-def _track_coord_track_group_no(raw_coord: object) -> int | None:
-    coord = str(raw_coord or "").strip().lower()
-    if "_tg" not in coord:
-        return None
-    group_text = coord.split("_tg", 1)[1].split("_", 1)[0]
-    try:
-        resolved = int(group_text)
-    except ValueError:
-        return None
-    return resolved if resolved > 0 else None
-
-
-def _coerce_start_offset_seconds(value: object) -> float:
-    try:
-        return float(value)
-    except (TypeError, ValueError):
-        return 0.0
-
-
-def _shift_event_starts(
-    selected_events: list[object] | tuple[object, ...] | None,
-    offset_seconds: float,
-) -> list[object]:
-    shifted_events: list[object] = []
-    for raw_event in selected_events or []:
-        shifted_events.append(_shift_event_start(raw_event, offset_seconds))
-    return shifted_events
-
-
-def _shift_event_start(raw_event: object, offset_seconds: float) -> object:
-    if isinstance(raw_event, dict):
-        return _shift_dict_event_start(raw_event, offset_seconds)
-
-    start = _event_start_seconds(raw_event)
-    if start is None:
-        return raw_event
-    shifted_start = max(0.0, start + offset_seconds)
-    try:
-        return replace(raw_event, start=shifted_start)
-    except TypeError:
-        return raw_event
-
-
-def _shift_dict_event_start(raw_event: dict[str, object], offset_seconds: float) -> dict[str, object]:
-    copied = dict(raw_event)
-    start_value = copied.get("start", copied.get("time"))
-    try:
-        start = float(start_value)
-    except (TypeError, ValueError):
-        return copied
-    shifted_start = max(0.0, start + offset_seconds)
-    copied["start"] = shifted_start
-    if "time" in copied:
-        copied["time"] = shifted_start
-    return copied
-
-
-def _event_start_seconds(raw_event: object) -> float | None:
-    start_value = getattr(raw_event, "start", None)
-    try:
-        return None if start_value is None else float(start_value)
-    except (TypeError, ValueError):
-        return None
+def _operation_payload(snapshot: MA3OperationSnapshot) -> dict[str, object]:
+    return {
+        "operation_id": snapshot.operation_id,
+        "status": snapshot.status,
+        "message": snapshot.message,
+        "kind": snapshot.kind,
+        "started_at": snapshot.started_at,
+        "completed_at": snapshot.completed_at,
+        "result": snapshot.result,
+        "error": snapshot.error,
+    }

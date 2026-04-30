@@ -233,9 +233,12 @@ class Event:
         review_value = str(self.review_metadata.get("promotion_state", "")).strip().lower()
         if review_value in {"promoted", "demoted"}:
             return review_value
-        legacy_value = str(self.metadata.get("promotion_state", "")).strip().lower()
-        if legacy_value in {"promoted", "demoted"}:
-            return legacy_value
+        detection_value = str(self.detection_metadata.get("promotion_state", "")).strip().lower()
+        if detection_value in {"promoted", "demoted"}:
+            return detection_value
+        detection_threshold = _coerce_optional_bool(self.detection_metadata.get("threshold_passed"))
+        if detection_threshold is not None:
+            return "promoted" if detection_threshold else "demoted"
         return "promoted"
 
     @property
@@ -243,9 +246,6 @@ class Event:
         review_value = str(self.review_metadata.get("review_state", "")).strip().lower()
         if review_value in {"unreviewed", "corrected", "signed_off"}:
             return review_value
-        legacy_value = str(self.metadata.get("review_state", "")).strip().lower()
-        if legacy_value in {"unreviewed", "corrected", "signed_off"}:
-            return legacy_value
         return "unreviewed"
 
     @property
@@ -308,6 +308,20 @@ class SectionCue:
             notes=self.notes,
             payload_ref=self.payload_ref,
         )
+
+
+def _coerce_optional_bool(value: object) -> bool | None:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return bool(value)
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in {"true", "1", "yes", "on"}:
+            return True
+        if normalized in {"false", "0", "no", "off"}:
+            return False
+    return None
 
 
 @dataclass(slots=True)
@@ -413,12 +427,6 @@ class TimelineSelection:
 
 
 @dataclass(slots=True)
-class TimelinePlaybackTarget:
-    layer_id: LayerId | None = None
-    take_id: TakeId | None = None
-
-
-@dataclass(slots=True)
 class TimelineViewport:
     pixels_per_second: float = 100.0
     scroll_x: float = 0.0
@@ -436,7 +444,6 @@ class Timeline:
     regions: list[TimelineRegion] = field(default_factory=list)
     loop_region: TimeRange | None = None
     selection: TimelineSelection = field(default_factory=TimelineSelection)
-    playback_target: TimelinePlaybackTarget = field(default_factory=TimelinePlaybackTarget)
     viewport: TimelineViewport = field(default_factory=TimelineViewport)
 
 
@@ -474,8 +481,12 @@ def derive_section_cues_from_events(events: list[Event]) -> list[SectionCue]:
     )
 
 
-def derive_section_cues_from_layers(layers: list[Layer]) -> list[SectionCue]:
-    """Resolve the canonical section-cue source from timeline layers."""
+def derive_section_cues_from_layers(
+    layers: list[Layer],
+    *,
+    preferred_layer_id: LayerId | None = None,
+) -> list[SectionCue]:
+    """Resolve canonical section cues from one preferred section layer when available."""
 
     section_layers = sorted(
         (layer for layer in layers if layer.kind is LayerKind.SECTION),
@@ -483,7 +494,21 @@ def derive_section_cues_from_layers(layers: list[Layer]) -> list[SectionCue]:
     )
     if not section_layers:
         return []
-    main_take = section_layers[0].takes[0] if section_layers[0].takes else None
+
+    source_layer = section_layers[0]
+    if preferred_layer_id is not None:
+        preferred = next(
+            (
+                layer
+                for layer in section_layers
+                if layer.id == preferred_layer_id
+            ),
+            None,
+        )
+        if preferred is not None:
+            source_layer = preferred
+
+    main_take = source_layer.takes[0] if source_layer.takes else None
     if main_take is None:
         return []
     return derive_section_cues_from_events(main_take.events)

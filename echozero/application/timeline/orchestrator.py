@@ -35,6 +35,7 @@ from echozero.application.timeline.ma3_push_intents import (
     CreateMA3Track,
     CreateMA3TrackGroup,
     CreateMA3Sequence,
+    PollMA3PushOperation,
     PrepareMA3TrackForPush,
     PushLayerToMA3,
     RefreshMA3Sequences,
@@ -104,6 +105,7 @@ from echozero.application.timeline.intents import (
     SelectAdjacentEventInSelectedLayer,
     SelectAdjacentLayer,
     SelectEveryOtherEvents,
+    SelectSimilarSoundingEvents,
     SelectEvent,
     SelectLayer,
     SelectPullSourceEvents,
@@ -114,9 +116,10 @@ from echozero.application.timeline.intents import (
     SelectPullTargetLayer,
     SelectPushTargetTrack,
     SelectTake,
-    SetActivePlaybackTarget,
     SetGain,
+    SetLayerMute,
     SetLayerOutputBus,
+    SetLayerSolo,
     SetFollowCursorEnabled,
     SetLayerLiveSyncPauseReason,
     SetLayerLiveSyncState,
@@ -177,13 +180,6 @@ class TimelineOrchestrator(
 
         elif isinstance(intent, SelectTake):
             self._handle_select_take(timeline, intent.layer_id, intent.take_id)
-
-        elif isinstance(intent, SetActivePlaybackTarget):
-            self._handle_set_active_playback_target(
-                timeline,
-                layer_id=intent.layer_id,
-                take_id=intent.take_id,
-            )
 
         elif isinstance(intent, SelectEvent):
             self._handle_select_event(
@@ -258,6 +254,16 @@ class TimelineOrchestrator(
                 scope=intent.scope,
             )
 
+        elif isinstance(intent, SelectSimilarSoundingEvents):
+            self._handle_select_similar_sounding_events(
+                timeline,
+                layer_id=intent.layer_id,
+                take_id=intent.take_id,
+                event_id=intent.event_id,
+                scope_mode=intent.scope_mode,
+                match_strength=intent.match_strength,
+            )
+
         elif isinstance(intent, RenumberEventCueNumbers):
             self._handle_renumber_event_cue_numbers(
                 timeline,
@@ -299,6 +305,7 @@ class TimelineOrchestrator(
             self._handle_replace_section_cues(
                 timeline,
                 cues=list(intent.cues),
+                target_layer_id=intent.target_layer_id,
             )
 
         elif isinstance(intent, DeleteEvents):
@@ -374,18 +381,36 @@ class TimelineOrchestrator(
 
         elif isinstance(intent, SetGain):
             layer = self._find_layer(timeline, intent.layer_id)
-            self.mixer_service.set_gain(intent.layer_id, intent.gain_db)
-            layer.mixer.gain_db = intent.gain_db
+            # Event-layer playback controls are intentionally stubbed for now.
+            if layer.kind is not LayerKind.EVENT:
+                self.mixer_service.set_gain(intent.layer_id, intent.gain_db)
+                layer.mixer.gain_db = intent.gain_db
+
+        elif isinstance(intent, SetLayerMute):
+            layer = self._find_layer(timeline, intent.layer_id)
+            # Event-layer playback controls are intentionally stubbed for now.
+            if layer.kind is not LayerKind.EVENT:
+                self.mixer_service.set_mute(intent.layer_id, intent.muted)
+                layer.mixer.mute = bool(intent.muted)
+
+        elif isinstance(intent, SetLayerSolo):
+            layer = self._find_layer(timeline, intent.layer_id)
+            # Event-layer playback controls are intentionally stubbed for now.
+            if layer.kind is not LayerKind.EVENT:
+                self.mixer_service.set_solo(intent.layer_id, intent.soloed)
+                layer.mixer.solo = bool(intent.soloed)
 
         elif isinstance(intent, SetLayerOutputBus):
             layer = self._find_layer(timeline, intent.layer_id)
-            layer.mixer.output_bus = intent.output_bus
-            mixer_state = self.mixer_service.get_state()
-            state = mixer_state.layer_states.setdefault(
-                intent.layer_id,
-                LayerMixerState(),
-            )
-            state.output_bus = intent.output_bus
+            # Event-layer playback controls are intentionally stubbed for now.
+            if layer.kind is not LayerKind.EVENT:
+                layer.mixer.output_bus = intent.output_bus
+                mixer_state = self.mixer_service.get_state()
+                state = mixer_state.layer_states.setdefault(
+                    intent.layer_id,
+                    LayerMixerState(),
+                )
+                state.output_bus = intent.output_bus
 
         elif isinstance(intent, EnableSync):
             sync_state = self.sync_service.set_mode(intent.mode)
@@ -470,6 +495,9 @@ class TimelineOrchestrator(
         elif isinstance(intent, PushLayerToMA3):
             self._handle_push_layer_to_ma3(timeline, intent)
 
+        elif isinstance(intent, PollMA3PushOperation):
+            self._handle_poll_ma3_push_operation(timeline, intent)
+
         elif isinstance(intent, OpenPushToMA3Dialog):
             session = self.session_service.get_session()
             self._set_selected_event_refs(
@@ -487,6 +515,9 @@ class TimelineOrchestrator(
             session.manual_push_flow.selected_event_ids = list(intent.selection_event_ids)
             session.manual_push_flow.target_track_coord = None
             session.manual_push_flow.transfer_mode = "merge"
+            session.manual_push_flow.operation_id = None
+            session.manual_push_flow.operation_status = "idle"
+            session.manual_push_flow.operation_message = ""
             session.manual_push_flow.diff_gate_open = False
             session.manual_push_flow.diff_preview = None
             self._refresh_manual_push_tracks()
@@ -507,6 +538,13 @@ class TimelineOrchestrator(
             session.manual_push_flow.current_song_sequence_range = None
             session.manual_push_flow.target_track_coord = None
             session.manual_push_flow.transfer_mode = "merge"
+            operation_id = session.manual_push_flow.operation_id
+            cancel_operation = getattr(self.sync_service, "cancel_operation", None)
+            if operation_id and callable(cancel_operation):
+                cancel_operation(operation_id)
+            session.manual_push_flow.operation_id = None
+            session.manual_push_flow.operation_status = "idle"
+            session.manual_push_flow.operation_message = ""
             session.manual_push_flow.diff_gate_open = False
             session.manual_push_flow.diff_preview = None
             session.batch_transfer_plan = None
@@ -1083,7 +1121,19 @@ class TimelineOrchestrator(
             )
             if not self._plan_counters_locked(session.batch_transfer_plan):
                 self._rebuild_push_transfer_plan(timeline, session)
-        timeline.section_cues = derive_section_cues_from_layers(timeline.layers)
+        preferred_section_layer_id = None
+        selected_layer_id = timeline.selection.selected_layer_id
+        if selected_layer_id is not None:
+            selected_layer = next(
+                (layer for layer in timeline.layers if layer.id == selected_layer_id),
+                None,
+            )
+            if selected_layer is not None and selected_layer.kind is LayerKind.SECTION:
+                preferred_section_layer_id = selected_layer.id
+        timeline.section_cues = derive_section_cues_from_layers(
+            timeline.layers,
+            preferred_layer_id=preferred_section_layer_id,
+        )
         audibility = self.mixer_service.resolve_audibility(timeline.layers)
         self.playback_service.update_runtime(
             timeline=timeline,

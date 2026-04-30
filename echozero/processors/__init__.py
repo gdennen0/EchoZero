@@ -17,6 +17,7 @@ from echozero.processors.generate_waveform import GenerateWaveformProcessor
 from echozero.processors.load_audio import LoadAudioProcessor
 from echozero.processors.pytorch_audio_classify import PyTorchAudioClassifyProcessor
 from echozero.processors.separate_audio import SeparateAudioProcessor
+from echozero.processors.song_sections import SongSectionsProcessor
 from echozero.processors.transcribe_notes import TranscribeNotesProcessor
 
 __all__ = [
@@ -33,5 +34,6 @@ __all__ = [
     "LoadAudioProcessor",
     "PyTorchAudioClassifyProcessor",
     "SeparateAudioProcessor",
+    "SongSectionsProcessor",
     "TranscribeNotesProcessor",
 ]

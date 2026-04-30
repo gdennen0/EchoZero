@@ -1,5 +1,9 @@
 # Shared Inference/Eval Contract Evolution Guardrails
 
+Status: reference
+Last reviewed: 2026-04-30
+
+
 ## Why this exists
 
 Foundry training artifacts and EchoZero runtime checkpoints must stay compatible as each side evolves.

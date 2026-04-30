@@ -61,6 +61,29 @@ jobs:
       - name: Lane ownership guardrails
         run: python scripts/check_lane_ownership.py
 
+      - name: Docs audit guardrails
+        run: python scripts/docs_audit.py
+
+  docs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install docs tools
+        run: |
+          pip install --upgrade pip
+          pip install mkdocs mkdocs-material pymdown-extensions
+
+      - name: Run docs audit
+        run: python scripts/docs_audit.py
+
+      - name: Build docs site
+        run: mkdocs build --strict
+
   test:
     runs-on: ubuntu-latest
     steps:

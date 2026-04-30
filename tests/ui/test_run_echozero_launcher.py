@@ -542,18 +542,10 @@ def test_launcher_actions_invoke_canonical_runtime_methods(monkeypatch):
     assert widget.presentation_updates[2:4] == ["after-new", "after-open"]
 
 
-def test_launcher_exposes_questionable_review_action_when_runtime_supports_it(monkeypatch, tmp_path):
-    review_calls: list[dict[str, object]] = []
-    opened_targets: list[str] = []
+def test_launcher_exposes_enable_phone_review_service_when_runtime_supports_it(monkeypatch):
     info_messages: list[tuple[str, str]] = []
     phone_review_events: list[str] = []
-    specialized_model_calls: list[dict[str, object]] = []
-    snare_specialized_model_calls: list[dict[str, object]] = []
-    review_dataset_folder = tmp_path / "foundry" / "cache" / "review_projects" / "fixture" / "clips"
-    review_dataset_folder.mkdir(parents=True, exist_ok=True)
-    review_dataset_record = tmp_path / "foundry" / "state" / "dataset_versions.json"
-    review_dataset_record.parent.mkdir(parents=True, exist_ok=True)
-    review_dataset_record.write_text("{}", encoding="utf-8")
+    open_review_calls: list[dict[str, object]] = []
     runtime = SimpleNamespace(
         runtime_audio=FakeRuntimeAudio(),
         is_dirty=False,
@@ -562,47 +554,18 @@ def test_launcher_exposes_questionable_review_action_when_runtime_supports_it(mo
         presentation=lambda: "presentation",
         dispatch=lambda intent: intent,
     )
-    runtime.open_project_review_session = lambda **kwargs: review_calls.append(kwargs) or SimpleNamespace(
+    runtime.enable_phone_review_service = lambda: phone_review_events.append("enable") or SimpleNamespace(
         url="http://127.0.0.1:8421/",
         desktop_url="http://127.0.0.1:8421/",
         phone_url="http://192.168.1.44:8421/",
     )
-    runtime.reload_phone_review_status = lambda: phone_review_events.append("reload") or SimpleNamespace(
+    runtime.open_project_review_session = lambda **kwargs: open_review_calls.append(kwargs) or SimpleNamespace(
         url="http://127.0.0.1:8421/",
         desktop_url="http://127.0.0.1:8421/",
         phone_url="http://192.168.1.44:8421/",
     )
-    runtime.create_project_specialized_drum_models = lambda: specialized_model_calls.append(
-        {"project_ref": "project:fixture", "review_dataset_version_id": "dsv_fixture"}
-    ) or SimpleNamespace(
-        project_ref="project:fixture",
-        review_dataset_id="ds_fixture",
-        review_dataset_version_id="dsv_fixture",
-        promotions=(
-            SimpleNamespace(label="kick", manifest_path=review_dataset_folder / "kick.manifest.json"),
-            SimpleNamespace(label="snare", manifest_path=review_dataset_folder / "snare.manifest.json"),
-        ),
-    )
-    runtime.create_project_specialized_snare_model = lambda: snare_specialized_model_calls.append(
-        {"project_ref": "project:fixture", "review_dataset_version_id": "dsv_fixture_snare"}
-    ) or SimpleNamespace(
-        project_ref="project:fixture",
-        review_dataset_id="ds_fixture",
-        review_dataset_version_id="dsv_fixture_snare",
-        promotions=(
-            SimpleNamespace(label="snare", manifest_path=review_dataset_folder / "snare-only.manifest.json"),
-        ),
-    )
-    runtime.enable_phone_review_service = lambda: phone_review_events.append("enable")
-    runtime.disable_phone_review_service = lambda: phone_review_events.append("disable")
-    runtime.latest_project_review_dataset_folder = lambda: review_dataset_folder
-    runtime.latest_project_review_dataset_artifact_path = lambda: review_dataset_record
 
     monkeypatch.setattr(launcher_surface, "QAction", FakeAction)
-    monkeypatch.setattr(
-        "echozero.ui.qt.launcher_review_actions.QDesktopServices.openUrl",
-        lambda url: opened_targets.append(url.toLocalFile() or url.toString()) or True,
-    )
     monkeypatch.setattr(
         "echozero.ui.qt.launcher_review_actions.QMessageBox.information",
         lambda _parent, title, message: info_messages.append((title, message)),
@@ -612,80 +575,22 @@ def test_launcher_exposes_questionable_review_action_when_runtime_supports_it(mo
     launcher = run_echozero.LauncherController(runtime=runtime, widget=widget)
     launcher.install()
 
-    assert "open_project_review" in widget._launcher_actions
-    assert "open_project_review_all" in widget._launcher_actions
     assert "enable_phone_review_service" in widget._launcher_actions
-    assert "disable_phone_review_service" in widget._launcher_actions
-    assert "reload_phone_review_status" in widget._launcher_actions
-    assert "open_project_review_dataset_folder" in widget._launcher_actions
-    assert "open_project_review_dataset_artifact" in widget._launcher_actions
-    assert "create_project_specialized_model" in widget._launcher_actions
-    assert "create_project_specialized_snare_model" in widget._launcher_actions
-
     widget._launcher_actions["enable_phone_review_service"].trigger()
-    widget._launcher_actions["open_project_review"].trigger()
-    widget._launcher_actions["open_project_review_all"].trigger()
-    widget._launcher_actions["reload_phone_review_status"].trigger()
-    widget._launcher_actions["open_project_review_dataset_folder"].trigger()
-    widget._launcher_actions["open_project_review_dataset_artifact"].trigger()
-    widget._launcher_actions["create_project_specialized_model"].trigger()
-    widget._launcher_actions["create_project_specialized_snare_model"].trigger()
-    widget._launcher_actions["disable_phone_review_service"].trigger()
-
-    assert opened_targets == [
-        "http://127.0.0.1:8421/",
-        "http://127.0.0.1:8421/",
-        str(review_dataset_folder.resolve()),
-        str(review_dataset_record.resolve()),
-    ]
     assert info_messages == [
         (
-            "Phone Review Ready",
-            "Desktop review opened.\n\nPhone URL:\nhttp://192.168.1.44:8421/",
-        ),
-        (
-            "Phone Review Ready",
-            "Desktop review opened.\n\nPhone URL:\nhttp://192.168.1.44:8421/",
-        ),
-        (
-            "Phone Review Reloaded",
-            "Phone review status reloaded.\n\nPhone URL:\nhttp://192.168.1.44:8421/",
-        ),
-        (
-            "Project Specialized Model Ready",
-            "Created Project-specialized model.\n\n"
-            "Project: project:fixture\n"
-            "Review dataset: ds_fixture / dsv_fixture\n"
-            f"Promoted kick: {review_dataset_folder / 'kick.manifest.json'}\n"
-            f"Promoted snare: {review_dataset_folder / 'snare.manifest.json'}",
-        ),
-        (
-            "Project Specialized Model Ready",
-            "Created Project-specialized model.\n\n"
-            "Project: project:fixture\n"
-            "Review dataset: ds_fixture / dsv_fixture_snare\n"
-            f"Promoted snare: {review_dataset_folder / 'snare-only.manifest.json'}",
+            "Phone Review Service Enabled",
+            "Live link enabled for the current EZ session.\n\n"
+            "Phone URL:\nhttp://192.168.1.44:8421/",
         ),
     ]
-    assert phone_review_events == ["enable", "reload", "disable"]
-    assert specialized_model_calls == [
-        {"project_ref": "project:fixture", "review_dataset_version_id": "dsv_fixture"}
-    ]
-    assert snare_specialized_model_calls == [
-        {"project_ref": "project:fixture", "review_dataset_version_id": "dsv_fixture_snare"}
-    ]
-    assert review_calls == [
-        {
-            "song_version_id": "ver_active",
-            "review_mode": "questionables",
-            "questionable_score_threshold": 0.8,
-            "item_limit": 25,
-        },
+    assert phone_review_events == ["enable"]
+    assert open_review_calls == [
         {
             "song_version_id": "ver_active",
             "review_mode": "all_events",
             "item_limit": None,
-        },
+        }
     ]
 
 

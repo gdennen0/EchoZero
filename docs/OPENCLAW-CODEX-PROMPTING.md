@@ -1,7 +1,9 @@
 # OpenClaw / Codex Prompting
 
-Status: active canonical agent prompting guide
-Last verified: 2026-04-21
+Status: active
+Last reviewed: 2026-04-30
+
+
 
 Use this doc when you need to hand a bounded EchoZero task to Codex, OpenClaw,
 or any disposable worker session.
@@ -161,7 +163,9 @@ These short clauses consistently improve OpenClaw/Codex output in EchoZero.
 
 ### Use when the task is long-running or delegated across sessions
 
+- `Parent task anchor:` `<short task label + desired end state>.`
 - `Emit visible status heartbeats every 60 seconds while active.`
+- `Restate the parent task anchor in spawn proof, heartbeat, and return summary.`
 - `If blocked or silent for 300 seconds, treat it as stuck and report.`
 
 ## Prompt Shapes By Role
@@ -174,12 +178,15 @@ Use when you need tracing and references before editing.
 Role: research
 Goal: trace the canonical implementation and proof surface for <task>.
 Why now: <reason>
+Parent task anchor: <short label + desired end state>
+Lead-dev next step on return: <integrate / verify / decide X>
 Owned paths: <docs/files to inspect>
 Forbidden paths: no edits
 Canonical docs to read first: STYLE.md, GLOSSARY.md, <doc>, <doc>
 Deliverable:
 - direct answer
 - file references
+- parent task anchor restated
 - recommended proof lane
 - remaining uncertainty
 ```
@@ -193,6 +200,8 @@ Role: impl
 Goal: implement <specific behavior>.
 Why now: <reason>
 User-visible outcome: <what becomes true>
+Parent task anchor: <short label + desired end state>
+Lead-dev next step on return: <integrate / verify / decide X>
 
 Owned paths:
 - <path cluster>
@@ -224,6 +233,7 @@ Return:
 - files changed
 - commands run
 - pass/fail result
+- parent task anchor restated
 - residual risks/blockers
 ```
 
@@ -234,6 +244,8 @@ Use when a worker should only prove or reject a claim.
 ```md
 Role: verify
 Goal: prove whether <change/behavior> holds on the canonical path.
+Parent task anchor: <short label + desired end state>
+Lead-dev next step on return: <integrate / retry proof / decide X>
 Owned paths: no edits unless fixing a broken test is explicitly allowed
 Proof commands:
 - <command>
@@ -241,6 +253,7 @@ Proof commands:
 Return:
 - commands run
 - pass/fail result
+- parent task anchor restated
 - strongest failure signal
 - untested surfaces
 ```
@@ -252,6 +265,8 @@ Use when the task is bug-finding, not implementation.
 ```md
 Role: review
 Goal: audit <change area> for bugs, regressions, and missing proof.
+Parent task anchor: <short label + desired end state>
+Lead-dev next step on return: <accept / request fixes / decide X>
 Focus:
 - truth-model leakage
 - stale-state regression
@@ -260,6 +275,7 @@ Focus:
 - FEEL drift or magic numbers
 Return:
 - findings first with severity and file references
+- parent task anchor restated
 - then residual risks or testing gaps
 ```
 

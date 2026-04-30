@@ -19,7 +19,7 @@ from echozero.application.timeline.intents import (
     SelectAllEvents,
     SetPushTransferMode,
 )
-from echozero.application.timeline.object_actions import is_object_action
+from echozero.application.timeline.object_actions import is_object_action, resolve_action_id
 from echozero.ui.qt.timeline.widget_action_ma3_push_mixin import (
     TimelineWidgetMA3PushActionMixin,
 )
@@ -36,46 +36,55 @@ class TimelineWidgetTransferActionMixin(
     def handle_transfer_action(self, action_id: str, params: dict[str, object]) -> bool:
         """Route transfer and runtime-pipeline actions and report whether they were handled."""
         host = cast(_TransferActionHost, self)
-        if action_id in {"push_to_ma3", "send_to_ma3", "send_layer_to_ma3"}:
-            return self._handle_send_layer_to_ma3(params)
-        if action_id == "route_layer_to_ma3_track":
+        resolved_action_id = resolve_action_id(action_id, warn_on_alias=True) or action_id
+        if resolved_action_id == "transfer.workspace_open":
+            direction = str(params.get("direction", "")).strip().lower()
+            if direction == "push":
+                return self._handle_send_layer_to_ma3(params)
+            if direction == "pull":
+                return self._handle_manual_transfer_workspace_action(
+                    "transfer.workspace_open",
+                    params,
+                )
+            return False
+        if resolved_action_id == "transfer.route_layer_track":
             return self._handle_route_layer_to_ma3_track(params)
-        if action_id == "send_selected_events_to_ma3":
+        if resolved_action_id == "transfer.send_selection":
             return self._handle_send_selected_events_to_ma3(params)
-        if action_id == "send_to_different_track_once":
+        if resolved_action_id == "transfer.send_to_track_once":
             return self._handle_send_to_different_track_once(params)
-        if action_id == "push_legacy_mode":
+        if resolved_action_id == "push_legacy_mode":
             selected_event_ids = host._selected_event_ids_for_selected_layers()
             host._dispatch(OpenPushToMA3Dialog(selection_event_ids=selected_event_ids))
             return True
-        if action_id == "push_select_all_events":
+        if resolved_action_id == "push_select_all_events":
             host._dispatch(SelectAllEvents())
             return True
-        if action_id == "push_unselect_all_events":
+        if resolved_action_id == "push_unselect_all_events":
             host._dispatch(ClearSelection())
             return True
-        if action_id == "set_push_transfer_mode":
+        if resolved_action_id == "set_push_transfer_mode":
             return self._handle_set_push_transfer_mode()
-        if action_id == "save_transfer_preset":
+        if resolved_action_id == "save_transfer_preset":
             return self._handle_save_transfer_preset()
-        if action_id in {"apply_transfer_preset", "delete_transfer_preset"}:
-            return self._handle_transfer_preset_action(action_id)
-        if action_id in {"transfer.plan_preview", "transfer.plan_apply", "transfer.plan_cancel"}:
-            return self._handle_transfer_plan_action(action_id, params)
-        if action_id in {
+        if resolved_action_id in {"apply_transfer_preset", "delete_transfer_preset"}:
+            return self._handle_transfer_preset_action(resolved_action_id)
+        if resolved_action_id in {"transfer.plan_preview", "transfer.plan_apply", "transfer.plan_cancel"}:
+            return self._handle_transfer_plan_action(resolved_action_id, params)
+        if resolved_action_id in {
             "select_push_target_track",
             "preview_push_diff",
             "exit_push_mode",
-            "pull_from_ma3",
+            "transfer.workspace_open",
             "select_pull_source_tracks",
             "select_pull_source_events",
             "set_pull_target_layer_mapping",
             "preview_pull_diff",
             "exit_pull_workspace",
         }:
-            return self._handle_manual_transfer_workspace_action(action_id, params)
-        if is_object_action(action_id):
-            return host._handle_runtime_pipeline_action(action_id, params)
+            return self._handle_manual_transfer_workspace_action(resolved_action_id, params)
+        if is_object_action(resolved_action_id):
+            return host._handle_runtime_pipeline_action(resolved_action_id, params)
         return False
 
     def _handle_set_push_transfer_mode(self) -> bool:

@@ -1,6 +1,9 @@
 # LD Workflow Spec
+
+Status: reference
+Last reviewed: 2026-04-30
+
 **Source:** Griff brain dump, 2026-03-20
-**Last verified:** 2026-03-20
 
 ---
 

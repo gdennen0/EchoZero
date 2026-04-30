@@ -1,11 +1,14 @@
 # UI Automation Library Plan
 
-_Updated: 2026-04-16_
+Status: reference
+Last reviewed: 2026-04-30
+
+
 
 This document defines the plan for a reusable desktop UI automation library
 that EchoZero can adopt without making the library EchoZero-shaped.
 
-It is the companion to [UI Automation Plan](/Users/march/Documents/GitHub/EchoZero/docs/UI-AUTOMATION-PLAN.md:1),
+It is the companion to [UI Automation Plan](UI-AUTOMATION-PLAN.md),
 which remains the EchoZero-specific adoption and rollout plan.
 
 ## Goal
@@ -264,11 +267,11 @@ That means:
 
 Existing seed surfaces:
 
-- [echozero/testing/app_flow.py](/Users/march/Documents/GitHub/EchoZero/echozero/testing/app_flow.py:1)
-- [echozero/testing/gui_dsl.py](/Users/march/Documents/GitHub/EchoZero/echozero/testing/gui_dsl.py:1)
-- [echozero/testing/gui_lane_b.py](/Users/march/Documents/GitHub/EchoZero/echozero/testing/gui_lane_b.py:1)
-- [echozero/ui/qt/app_shell.py](/Users/march/Documents/GitHub/EchoZero/echozero/ui/qt/app_shell.py:1)
-- [echozero/ui/qt/timeline/widget.py](/Users/march/Documents/GitHub/EchoZero/echozero/ui/qt/timeline/widget.py:1)
+- [echozero/testing/app_flow.py](../echozero/testing/app_flow.py)
+- [echozero/testing/gui_dsl.py](../echozero/testing/gui_dsl.py)
+- [echozero/testing/gui_lane_b.py](../echozero/testing/gui_lane_b.py)
+- [echozero/ui/qt/app_shell.py](../echozero/ui/qt/app_shell.py)
+- [echozero/ui/qt/timeline/widget.py](../echozero/ui/qt/timeline/widget.py)
 
 The test harness is the seed vocabulary.
 The runtime shell and timeline are the first provider implementation.
@@ -408,11 +411,11 @@ Use EchoZero to prove the library.
 
 Primary proof surfaces:
 
-- [tests/testing/test_app_flow_harness.py](/Users/march/Documents/GitHub/EchoZero/tests/testing/test_app_flow_harness.py:1)
-- [tests/testing/test_gui_dsl.py](/Users/march/Documents/GitHub/EchoZero/tests/testing/test_gui_dsl.py:1)
-- [tests/testing/test_gui_lane_b.py](/Users/march/Documents/GitHub/EchoZero/tests/testing/test_gui_lane_b.py:1)
-- [tests/ui/test_app_shell_runtime_flow.py](/Users/march/Documents/GitHub/EchoZero/tests/ui/test_app_shell_runtime_flow.py:1)
-- [tests/ui/test_timeline_shell.py](/Users/march/Documents/GitHub/EchoZero/tests/ui/test_timeline_shell.py:1)
+- [tests/testing/test_app_flow_harness.py](../tests/testing/test_app_flow_harness.py)
+- [tests/testing/test_gui_dsl.py](../tests/testing/test_gui_dsl.py)
+- [tests/testing/test_gui_lane_b.py](../tests/testing/test_gui_lane_b.py)
+- [tests/ui/test_app_shell_runtime_flow.py](../tests/ui/test_app_shell_runtime_flow.py)
+- [tests/ui/test_timeline_shell.py](../tests/ui/test_timeline_shell.py)
 
 Do not call the library “proven reusable” until a second app uses it.
 

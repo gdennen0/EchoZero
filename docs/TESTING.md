@@ -1,7 +1,9 @@
 # EchoZero Testing Guide
 
-Status: active canonical verification guide
-Last verified: 2026-04-21
+Status: active
+Last verified: 2026-04-30
+
+
 
 This file is the execution map for proving work in EchoZero.
 

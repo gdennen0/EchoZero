@@ -297,6 +297,9 @@ function EZ.GetTracks(tcNo, tgNo, request_id)
         tg = tgNo,
         count = total,
         plugin_version = EZ._version,
+        offset = 1,
+        chunk_index = 1,
+        total_chunks = 1,
         tracks = result
     }
     if request_id ~= nil then
@@ -442,6 +445,9 @@ function EZ.GetEvents(tcNo, tgNo, trackNo, request_id)
             tg = tgNo, 
             track = trackNo, 
             count = total, 
+            offset = 1,
+            chunk_index = 1,
+            total_chunks = 1,
             request_id = request_id,
             checksum = checksum,
             events = events
@@ -1047,19 +1053,41 @@ local function prepareTrackForEventsInternal(tcNo, tgNo, trackNo, emitReply)
 end
 
 -- PUBLIC API: SEQUENCE MANAGEMENT
-function EZ.GetSequences(startNo, endNo)
-    EZ.log(string.format("GetSequences(%s, %s) called", tostring(startNo), tostring(endNo)))
+function EZ.GetSequences(startNo, endNo, request_id)
+    EZ.log(string.format("GetSequences(%s, %s, %s) called", tostring(startNo), tostring(endNo), tostring(request_id)))
 
     local result, err = listSequencesInRange(startNo, endNo)
     if not result then
-        EZ.sendMessage("sequences", "error", {error = err})
+        local errorPayload = {error = err}
+        if request_id ~= nil then
+            errorPayload.request_id = request_id
+        end
+        EZ.sendMessage("sequences", "error", errorPayload)
         return nil
     end
 
-    EZ.sendMessage("sequences", "list", {
-        count = #result,
-        sequences = result
-    })
+    local count = #result
+    local maxPer = 40
+    local totalChunks = math.max(1, math.ceil(count / maxPer))
+    for chunkIdx = 1, totalChunks do
+        local startIdx = (chunkIdx - 1) * maxPer + 1
+        local endIdx = math.min(startIdx + maxPer - 1, count)
+        local chunk = {}
+        for index = startIdx, endIdx do
+            table.insert(chunk, result[index])
+        end
+        local payload = {
+            count = count,
+            offset = startIdx,
+            chunk_index = chunkIdx,
+            total_chunks = totalChunks,
+            sequences = chunk
+        }
+        if request_id ~= nil then
+            payload.request_id = request_id
+        end
+        EZ.sendMessage("sequences", "list", payload)
+    end
     return result
 end
 
@@ -1150,9 +1178,39 @@ function EZ.AddEvent(tcNo, tgNo, trackNo, time, cmd, eventName, cueNo, cueLabel)
 
     -- Step 4: Create the event
     local time_units = math.floor((tonumber(time) or 0) * one_second_internally)
-    local event = cmd_subtrack:Acquire()
-    event:Set("Time", time_units)
-    event:Set("Cmd", cmd or "")
+    local okAcquire, event = pcall(function() return cmd_subtrack:Acquire() end)
+    if not okAcquire or not event then
+        EZ.sendMessage("event", "error", {
+            tc = tcNo,
+            tg = tgNo,
+            track = trackNo,
+            error = "Acquire event failed",
+            detail = tostring(event)
+        })
+        return false
+    end
+    local okSetTime, timeErr = pcall(function() event:Set("Time", time_units) end)
+    if not okSetTime then
+        EZ.sendMessage("event", "error", {
+            tc = tcNo,
+            tg = tgNo,
+            track = trackNo,
+            error = "Set event time failed",
+            detail = tostring(timeErr)
+        })
+        return false
+    end
+    local okSetCmd, cmdErr = pcall(function() event:Set("Cmd", cmd or "") end)
+    if not okSetCmd then
+        EZ.sendMessage("event", "error", {
+            tc = tcNo,
+            tg = tgNo,
+            track = trackNo,
+            error = "Set event cmd failed",
+            detail = tostring(cmdErr)
+        })
+        return false
+    end
 
     local resolvedName = tostring(eventName or cueLabel or ""):gsub("^%s+", ""):gsub("%s+$", "")
     if resolvedName ~= "" then

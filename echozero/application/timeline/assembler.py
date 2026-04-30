@@ -24,7 +24,7 @@ from echozero.application.timeline.assembler_transfers import (
     assemble_batch_transfer_plan,
     assemble_manual_pull_flow,
     assemble_manual_push_flow,
-    assemble_pipeline_run_banner,
+    assemble_operation_progress_banner,
     assemble_transfer_presets,
 )
 from echozero.application.timeline.models import Timeline, derive_section_regions
@@ -70,8 +70,6 @@ class TimelineAssembler:
                 selected_layer_ids=list(state.selected_layer_ids),
                 selected_take_id=state.selected_take_id,
                 selected_event_refs=list(state.selected_event_refs),
-                active_playback_layer_id=state.active_playback_layer_id,
-                active_playback_take_id=state.active_playback_take_id,
                 playback_output_channels=max(0, int(session.playback_state.output_channels)),
                 selected_event_ids=list(state.selected_event_ids),
                 selected_region_id=timeline.selection.selected_region_id,
@@ -84,7 +82,7 @@ class TimelineAssembler:
                 manual_pull_flow=assemble_manual_pull_flow(session),
                 batch_transfer_plan=assemble_batch_transfer_plan(session),
                 transfer_presets=assemble_transfer_presets(session),
-                pipeline_run_banner=assemble_pipeline_run_banner(
+                operation_progress_banner=assemble_operation_progress_banner(
                     session,
                     song_version_id=str(timeline.song_version_id),
                 ),

@@ -311,6 +311,11 @@ def _object_action_binding_resolvers(
             layer=layer,
             params=params,
         ),
+        "extract_song_sections": lambda *, layer, params: _resolve_extract_song_sections_object_bindings(
+            shell,
+            layer=layer,
+            params=params,
+        ),
         "extract_drum_events": lambda *, layer, params: _resolve_extract_drum_events_object_bindings(
             shell,
             layer=layer,
@@ -366,6 +371,17 @@ def _resolve_extract_drum_events_object_bindings(
     del shell, params
     assert layer is not None
     return _bindings_for_extract_drum_events(layer)
+
+
+def _resolve_extract_song_sections_object_bindings(
+    shell: ObjectActionSettingsRuntimeShell,
+    *,
+    layer: LayerPresentation | None,
+    params: dict[str, object],
+) -> dict[str, object]:
+    del params
+    assert layer is not None
+    return _bindings_for_extract_song_sections(shell, layer=layer)
 
 
 def _resolve_classify_drum_events_object_bindings(
@@ -433,6 +449,29 @@ def _bindings_for_extract_song_drum_events(layer: LayerPresentation) -> dict[str
     )
 
 
+def _bindings_for_extract_song_sections(
+    shell: ObjectActionSettingsRuntimeShell,
+    *,
+    layer: LayerPresentation,
+) -> dict[str, object]:
+    if layer.kind is LayerKind.AUDIO:
+        return _bindings_for_song_audio_pipeline_action(
+            layer,
+            action_name="timeline.extract_song_sections",
+        )
+    if layer.kind is not LayerKind.SECTION:
+        raise ValueError(
+            "timeline.extract_song_sections requires an audio or section layer, "
+            f"got {layer.kind.name.lower()}."
+        )
+    source_layer = _resolve_source_song_audio_layer(shell)
+    if source_layer is None or not source_layer.source_audio_path:
+        raise RuntimeError(
+            "timeline.extract_song_sections requires a source song audio layer with a resolved path."
+        )
+    return {"audio_file": str(source_layer.source_audio_path)}
+
+
 def _bindings_for_song_audio_pipeline_action(
     layer: LayerPresentation,
     *,
@@ -448,6 +487,40 @@ def _bindings_for_song_audio_pipeline_action(
     if not layer.source_audio_path:
         raise ValueError(f"{action_name} requires a resolved source audio path.")
     return {"audio_file": str(layer.source_audio_path)}
+
+
+def _resolve_source_song_audio_layer(
+    shell: ObjectActionSettingsRuntimeShell,
+) -> LayerPresentation | None:
+    presentation = shell.presentation()
+    audio_layers = [
+        candidate
+        for candidate in presentation.layers
+        if candidate.kind is LayerKind.AUDIO and bool(candidate.source_audio_path)
+    ]
+    if not audio_layers:
+        return None
+    direct_source = next(
+        (candidate for candidate in audio_layers if str(candidate.layer_id).strip() == "source_audio"),
+        None,
+    )
+    if direct_source is not None:
+        return direct_source
+    canonical_song_layer = next(
+        (
+            candidate
+            for candidate in audio_layers
+            if candidate.status is None
+            or (
+                not str(candidate.status.source_layer_id or "").strip()
+                and not str(candidate.status.pipeline_id or "").strip()
+            )
+        ),
+        None,
+    )
+    if canonical_song_layer is not None:
+        return canonical_song_layer
+    return audio_layers[0]
 
 
 def _bindings_for_extract_drum_events(layer: LayerPresentation) -> dict[str, object]:

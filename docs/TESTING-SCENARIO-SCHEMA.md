@@ -1,6 +1,9 @@
 # Testing Scenario Schema
 
-_Updated: 2026-04-18_
+Status: reference
+Last reviewed: 2026-04-30
+
+
 
 This document defines the preferred scenario file shape for EchoZero tests,
 demos, and automation flows.
@@ -22,7 +25,7 @@ Different executors may run the same scenario at different fidelity levels.
 ## Canonical Rule
 
 - scenarios reference canonical primitive ids from
-  [docs/TESTING-PRIMITIVES.md](/Users/march/Documents/GitHub/EchoZero/docs/TESTING-PRIMITIVES.md:1)
+  [docs/TESTING-PRIMITIVES.md](TESTING-PRIMITIVES.md)
 - scenarios do not invent executor-local action names
 - selector shape must prefer semantic ids over labels
 - simulated-only steps must be labeled as such in metadata if they exist

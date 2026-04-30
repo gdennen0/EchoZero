@@ -12,6 +12,7 @@ from .entities import (
 )
 from .review import (
     ExplicitReviewCommit,
+    ReviewCommitCommand,
     ReviewCommitContext,
     ReviewDecision,
     ReviewDecisionKind,
@@ -33,6 +34,7 @@ __all__ = [
     "EvalReport",
     "ModelArtifact",
     "ExplicitReviewCommit",
+    "ReviewCommitCommand",
     "ReviewCommitContext",
     "ReviewDecision",
     "ReviewDecisionKind",

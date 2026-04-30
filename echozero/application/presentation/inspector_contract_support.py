@@ -27,13 +27,9 @@ def selection_playback_context_rows(
     presentation: TimelinePresentation,
 ) -> tuple[InspectorFactRow, ...]:
     selection_label = selected_identity_label(presentation)
-    playback_label = playback_target_label(presentation)
-    if selection_label == "none" and playback_label == "none":
+    if selection_label == "none":
         return ()
-    return (
-        InspectorFactRow("selected identity", selection_label),
-        InspectorFactRow("playback target", playback_label),
-    )
+    return (InspectorFactRow("selected identity", selection_label),)
 
 
 def selected_identity_label(presentation: TimelinePresentation) -> str:
@@ -62,35 +58,18 @@ def selected_identity_label(presentation: TimelinePresentation) -> str:
     return "none"
 
 
-def playback_target_label(presentation: TimelinePresentation) -> str:
-    layer_id = presentation.active_playback_layer_id
-    if layer_id is None:
-        return "none"
-    layer = find_layer(presentation, layer_id)
-    if layer is None:
-        return f"Active layer {layer_id}"
-    take_id = presentation.active_playback_take_id
-    if take_id is None or take_id == layer.main_take_id:
-        return f"Active {layer.title} / Main take ({layer.main_take_id or 'none'})"
-    take_match = find_take(presentation, layer_id=layer.layer_id, take_id=take_id)
-    if take_match is not None:
-        _, take = take_match
-        return f"Active {layer.title} / {take.name} ({take.take_id})"
-    return f"Active {layer.title} / Take {take_id}"
-
-
 def playback_state_label(
     presentation: TimelinePresentation,
     *,
     layer: LayerPresentation,
     take: TakeLanePresentation | None,
 ) -> str:
-    if presentation.active_playback_layer_id != layer.layer_id:
-        return "Set Active"
-    active_take_id = presentation.active_playback_take_id
+    if presentation.selected_layer_id != layer.layer_id:
+        return "Main Mix"
+    selected_take_id = presentation.selected_take_id
     if take is None:
-        return "Active" if active_take_id in (None, layer.main_take_id) else "Set Active"
-    return "Active" if active_take_id == take.take_id else "Set Active"
+        return "Selected" if selected_take_id in (None, layer.main_take_id) else "Main Mix"
+    return "Selected" if selected_take_id == take.take_id else "Main Mix"
 
 
 def take_identity_label(layer: LayerPresentation, take: TakeLanePresentation | None) -> str:

@@ -3,19 +3,25 @@ from __future__ import annotations
 import json
 import threading
 from dataclasses import replace
+from datetime import UTC, datetime
 from pathlib import Path
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
 import pytest
+import echozero.foundry.review_server as review_server_module
 
 from echozero.domain.types import EventData, Layer as DomainLayer
 from echozero.foundry.domain import ReviewDecisionKind, ReviewItem, ReviewOutcome, ReviewPolarity
+from echozero.foundry.domain.review import ReviewSignal
 from echozero.foundry.persistence import ReviewSessionRepository
+from echozero.foundry.persistence.review_signal_repository import ReviewSignalRepository
 from echozero.foundry.review_server_controller import ReviewServerController
 from echozero.foundry.review_server import create_review_http_server
 from echozero.foundry.services.project_review_queue_builder import ProjectReviewQueue
 from echozero.foundry.services.review_event_state import updated_review_metadata
+from echozero.foundry.services.review_pipeline_controller import ReviewPipelineController
+from echozero.foundry.services.review_signal_service import ReviewSignalService
 from echozero.foundry.services.review_session_service import ReviewSessionService
 from echozero.persistence.session import ProjectStorage
 from tests.foundry.audio_fixtures import write_percussion_dataset
@@ -27,23 +33,34 @@ def test_review_session_import_round_trip_and_update(tmp_path: Path):
     service = ReviewSessionService(tmp_path)
 
     session = service.import_session_file(review_items_path, name="Mobile Review")
-    updated = service.set_item_outcome(session.id, session.items[0].item_id, ReviewOutcome.CORRECT)
+    updated = service.set_item_review(
+        session.id,
+        session.items[0].item_id,
+        outcome=ReviewOutcome.CORRECT,
+        corrected_label=None,
+        review_note=None,
+    )
     persisted = ReviewSessionRepository(tmp_path).get(session.id)
 
     assert updated.name == "Mobile Review"
     assert len(updated.items) == 2
     assert persisted is not None
-    assert persisted.items[0].review_outcome == ReviewOutcome.CORRECT
-    assert persisted.items[0].review_decision is not None
-    assert persisted.items[0].review_decision.kind == ReviewDecisionKind.VERIFIED
-    assert persisted.items[0].review_decision.provenance is not None
-    assert persisted.items[0].review_decision.provenance.surface.value == "phone_review"
-    assert persisted.items[0].review_decision.provenance.project_ref == "project:fixture"
-    assert persisted.items[0].review_decision.provenance.song_ref == "song:arcade"
-    assert persisted.items[0].review_decision.provenance.layer_ref == "layer:kick"
-    assert persisted.items[0].review_decision.training_eligibility.allows_positive_signal is True
-    assert persisted.items[0].review_decision.training_eligibility.allows_negative_signal is False
-    assert persisted.items[0].reviewed_at is not None
+    assert persisted.items[0].review_outcome == ReviewOutcome.PENDING
+    assert persisted.items[0].review_decision is None
+    signal = ReviewSignalRepository(tmp_path).get(
+        ReviewSignalService.build_signal_id(session.id, session.items[0].item_id)
+    )
+    assert signal is not None
+    assert signal.review_decision is not None
+    assert signal.review_decision.kind == ReviewDecisionKind.VERIFIED
+    assert signal.review_decision.provenance is not None
+    assert signal.review_decision.provenance.surface.value == "phone_review"
+    assert signal.review_decision.provenance.project_ref == "project:fixture"
+    assert signal.review_decision.provenance.song_ref == "song:arcade"
+    assert signal.review_decision.provenance.layer_ref == "layer:kick"
+    assert signal.review_decision.training_eligibility.allows_positive_signal is True
+    assert signal.review_decision.training_eligibility.allows_negative_signal is False
+    assert signal.reviewed_at is not None
     assert persisted.class_map == ["kick", "snare"]
 
 
@@ -66,12 +83,18 @@ def test_review_session_reclassify_persists_label_and_note(tmp_path: Path):
     assert updated.items[0].review_decision is not None
     assert updated.items[0].review_decision.kind == ReviewDecisionKind.RELABELED
     assert persisted is not None
-    assert persisted.items[0].corrected_label == "tom"
-    assert persisted.items[0].review_note == "short mid drum with more body than kick"
-    assert persisted.items[0].review_decision is not None
-    assert persisted.items[0].review_decision.kind == ReviewDecisionKind.RELABELED
-    assert persisted.items[0].review_decision.training_eligibility.allows_positive_signal is True
-    assert persisted.items[0].review_decision.training_eligibility.allows_negative_signal is True
+    assert persisted.items[0].review_outcome == ReviewOutcome.PENDING
+    assert persisted.items[0].review_decision is None
+    signal = ReviewSignalRepository(tmp_path).get(
+        ReviewSignalService.build_signal_id(session.id, session.items[0].item_id)
+    )
+    assert signal is not None
+    assert signal.corrected_label == "tom"
+    assert signal.review_note == "short mid drum with more body than kick"
+    assert signal.review_decision is not None
+    assert signal.review_decision.kind == ReviewDecisionKind.RELABELED
+    assert signal.review_decision.training_eligibility.allows_positive_signal is True
+    assert signal.review_decision.training_eligibility.allows_negative_signal is True
 
 
 def test_review_session_snapshot_supports_cursor_navigation_and_reject_decision(tmp_path: Path):
@@ -106,7 +129,13 @@ def test_review_session_pending_snapshot_progress_keeps_reviewed_scope_status(tm
     service = ReviewSessionService(tmp_path)
 
     session = service.import_session_file(review_items_path)
-    service.set_item_outcome(session.id, session.items[0].item_id, ReviewOutcome.CORRECT)
+    service.set_item_review(
+        session.id,
+        session.items[0].item_id,
+        outcome=ReviewOutcome.CORRECT,
+        corrected_label=None,
+        review_note=None,
+    )
     snapshot = service.build_snapshot(session.id, outcome="pending")
 
     assert snapshot["filteredCount"] == 1
@@ -118,6 +147,44 @@ def test_review_session_pending_snapshot_progress_keeps_reviewed_scope_status(tm
     assert snapshot["navigation"]["scopeCount"] == 2
     assert snapshot["navigation"]["scopePendingCount"] == 1
     assert snapshot["navigation"]["scopeReviewedCount"] == 1
+
+
+def test_non_project_review_commit_reuses_cached_materialization_without_full_merge(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    review_items_path = _write_review_items_json_with_count(tmp_path, item_count=256)
+    service = ReviewSessionService(tmp_path)
+    session = service.import_session_file(review_items_path)
+    warmed = service.get_session(session.id)
+    assert warmed is not None
+
+    merge_calls = 0
+    original_merge = service._merge_signal_items
+
+    def _merge_spy(items, *, signal_by_item_id):
+        nonlocal merge_calls
+        merge_calls += 1
+        return original_merge(items, signal_by_item_id=signal_by_item_id)
+
+    monkeypatch.setattr(service, "_merge_signal_items", _merge_spy)
+    service.set_item_review(
+        session.id,
+        session.items[0].item_id,
+        outcome=ReviewOutcome.INCORRECT,
+        corrected_label="tom",
+        review_note="cache warmup commit",
+    )
+    service.set_item_review(
+        session.id,
+        session.items[0].item_id,
+        outcome=ReviewOutcome.CORRECT,
+        corrected_label=None,
+        review_note=None,
+    )
+    service.build_snapshot(session.id, outcome="all")
+
+    assert merge_calls == 0
 
 
 def test_review_session_supports_boundary_and_missed_event_decisions(tmp_path: Path):
@@ -164,10 +231,14 @@ def test_review_session_supports_boundary_and_missed_event_decisions(tmp_path: P
     assert missed_updated.items[1].review_decision.provenance is not None
     assert missed_updated.items[1].review_decision.provenance.surface.value == "timeline_fix_mode"
     assert persisted is not None
-    assert persisted.items[0].review_decision is not None
-    assert persisted.items[0].review_decision.original_start_ms == 112.5
-    assert persisted.items[1].review_decision is not None
-    assert persisted.items[1].review_decision.created_event_ref == "event:manual-snare-02"
+    assert persisted.items[0].review_outcome == ReviewOutcome.PENDING
+    assert persisted.items[1].review_outcome == ReviewOutcome.PENDING
+    signals = ReviewSignalRepository(tmp_path).list_for_session(session.id)
+    signal_by_item_id = {signal.item_id: signal for signal in signals}
+    assert signal_by_item_id[session.items[0].item_id].review_decision is not None
+    assert signal_by_item_id[session.items[0].item_id].review_decision.original_start_ms == 112.5
+    assert signal_by_item_id[session.items[1].item_id].review_decision is not None
+    assert signal_by_item_id[session.items[1].item_id].review_decision.created_event_ref == "event:manual-snare-02"
 
 
 def test_review_repository_loads_legacy_review_decisions_with_default_semantics(tmp_path: Path):
@@ -382,6 +453,32 @@ def test_project_review_session_index_refreshes_counts_from_canonical_event_stat
     assert sessions_index["items"][0]["reviewedCount"] == 1
 
 
+def test_project_review_session_state_recovers_review_truth_from_signals(tmp_path: Path):
+    _ez_path, working_dir, refs = _build_project_review_fixture(tmp_path)
+    service = ReviewSessionService(tmp_path)
+
+    session = service.create_project_session(
+        working_dir,
+        name="Project Queue",
+        song_id=refs["alpha_song_id"],
+        layer_id="layer_alpha_kick",
+    )
+    service.set_item_review(
+        session.id,
+        session.items[0].item_id,
+        outcome=ReviewOutcome.CORRECT,
+        corrected_label=None,
+        review_note=None,
+    )
+    persisted = ReviewSessionRepository(tmp_path).get(session.id)
+    snapshot = service.build_snapshot(session.id, outcome="all")
+
+    assert persisted is not None
+    assert persisted.items[0].review_outcome == ReviewOutcome.PENDING
+    assert snapshot["currentItem"]["reviewOutcome"] == "correct"
+    assert snapshot["session"]["reviewedCount"] >= 1
+
+
 def test_review_session_snapshot_supports_song_layer_filters_and_history_focus(tmp_path: Path):
     _ez_path, working_dir, refs = _build_project_review_fixture(tmp_path)
     service = ReviewSessionService(tmp_path)
@@ -398,7 +495,13 @@ def test_review_session_snapshot_supports_song_layer_filters_and_history_focus(t
         song_ref=refs["alpha_song_ref"],
         layer_ref="layer:layer_alpha_kick",
     )
-    service.set_item_outcome(session.id, session.items[0].item_id, ReviewOutcome.CORRECT)
+    service.set_item_review(
+        session.id,
+        session.items[0].item_id,
+        outcome=ReviewOutcome.CORRECT,
+        corrected_label=None,
+        review_note=None,
+    )
     history_snapshot = service.build_snapshot(
         session.id,
         outcome="pending",
@@ -439,7 +542,7 @@ def test_project_review_snapshot_reuses_cached_materialization_between_navigatio
     builder = _FakeProjectReviewQueueBuilder(project_root)
     service = ReviewSessionService(
         tmp_path,
-        signal_service=_FakeReviewSignalService(),
+        signal_service=_FakeReviewSignalService(root=tmp_path),
         project_queue_builder=builder,
     )
 
@@ -484,12 +587,49 @@ def test_project_review_snapshot_uses_cached_session_after_phone_review_save(
     assert builder.build_calls == 0
 
 
+def test_project_review_commit_reuses_cached_materialization_between_decisions(
+    tmp_path: Path,
+):
+    project_root = _build_fake_project_root(tmp_path)
+    builder = _FakeProjectReviewQueueBuilder(project_root)
+    signal_service = _FakeReviewSignalService(touch_path=project_root / "project.db")
+    service = ReviewSessionService(
+        tmp_path,
+        signal_service=signal_service,
+        project_queue_builder=builder,
+    )
+
+    session = service.create_project_session(project_root, name="Project Queue")
+    builder.build_calls = 0
+
+    service.set_item_review(
+        session.id,
+        "ri_fixture_kick",
+        outcome=ReviewOutcome.CORRECT,
+        corrected_label=None,
+        review_note=None,
+    )
+    service.set_item_review(
+        session.id,
+        "ri_fixture_kick",
+        outcome=ReviewOutcome.INCORRECT,
+        corrected_label="tom",
+        review_note="second pass relabel",
+    )
+    snapshot = service.build_snapshot(session.id, outcome="all")
+
+    assert snapshot["currentItem"]["reviewOutcome"] == "incorrect"
+    assert snapshot["currentItem"]["correctedLabel"] == "tom"
+    assert signal_service.calls == 2
+    assert builder.build_calls == 0
+
+
 def test_project_review_snapshot_rebuilds_after_structural_review_save(tmp_path: Path):
     project_root = _build_fake_project_root(tmp_path)
     builder = _FakeProjectReviewQueueBuilder(project_root)
     service = ReviewSessionService(
         tmp_path,
-        signal_service=_FakeReviewSignalService(),
+        signal_service=_FakeReviewSignalService(root=tmp_path),
         project_queue_builder=builder,
     )
 
@@ -515,6 +655,26 @@ def test_project_review_snapshot_rebuilds_after_structural_review_save(tmp_path:
 
     assert snapshot["currentItem"]["reviewDecision"]["kind"] == "boundary_corrected"
     assert builder.build_calls == 1
+
+
+def test_review_snapshot_avoids_filter_items_multipass_path(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    session = ReviewSessionService(tmp_path).import_session_file(
+        _write_review_items_json_with_count(tmp_path, item_count=128),
+    )
+    service = ReviewSessionService(tmp_path)
+
+    def _fail_filter(*_args, **_kwargs):
+        raise AssertionError("build_snapshot should not call filter_items")
+
+    monkeypatch.setattr(service, "filter_items", _fail_filter)
+
+    snapshot = service.build_snapshot(session.id, outcome="pending", cursor=3)
+
+    assert snapshot["filteredCount"] == 128
+    assert snapshot["navigation"]["cursor"] == 3
 
 
 def test_review_server_controller_requires_explicit_enable(tmp_path: Path):
@@ -592,7 +752,6 @@ def test_review_server_serves_html_api_audio_and_review_updates(tmp_path: Path):
     review_items_path = _write_review_items_json(tmp_path)
     service = ReviewSessionService(tmp_path)
     session = service.import_session_file(review_items_path, name="Phone Queue")
-    other = service.import_session_file(review_items_path, name="Batch B")
     server = create_review_http_server(tmp_path, session.id, host="127.0.0.1", port=0)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
@@ -600,11 +759,10 @@ def test_review_server_serves_html_api_audio_and_review_updates(tmp_path: Path):
 
     try:
         html = _read_text(f"{base_url}/")
-        sessions_payload = _read_json(f"{base_url}/api/sessions")
-        snapshot = _read_json(f"{base_url}/api/session?sessionId={session.id}&outcome=pending")
-        shifted = _read_json(f"{base_url}/api/session?sessionId={session.id}&outcome=pending&cursor=1")
+        snapshot = _read_json(f"{base_url}/api/session")
+        shifted = _read_json(f"{base_url}/api/session?cursor=1")
         scoped = _read_json(
-            f"{base_url}/api/session?sessionId={session.id}&outcome=pending&songRef=song:arcade&layerRef=layer:snare"
+            f"{base_url}/api/session?songRef=song:arcade&layerRef=layer:snare"
         )
         audio_bytes = _read_bytes(f"{base_url}{snapshot['currentItem']['audioUrl']}")
         audio_range = _read_bytes(
@@ -612,21 +770,20 @@ def test_review_server_serves_html_api_audio_and_review_updates(tmp_path: Path):
             headers={"Range": "bytes=0-7"},
         )
         updated = _post_json(
-            f"{base_url}/api/review?sessionId={session.id}&outcome=pending&targetClass=all",
+            f"{base_url}/api/review",
             {"itemId": snapshot["currentItem"]["itemId"], "outcome": "correct"},
         )
-        switched = _read_json(f"{base_url}/api/session?sessionId={other.id}&outcome=pending")
         relabeled = _post_json(
-            f"{base_url}/api/review?sessionId={other.id}&outcome=pending&targetClass=all",
+            f"{base_url}/api/review",
             {
-                "itemId": switched["currentItem"]["itemId"],
+                "itemId": shifted["currentItem"]["itemId"],
                 "outcome": "incorrect",
                 "correctedLabel": "tom",
                 "reviewNote": "felt more like a tom hit",
             },
         )
         focused = _read_json(
-            f"{base_url}/api/session?sessionId={session.id}&outcome=pending&itemId={session.items[0].item_id}"
+            f"{base_url}/api/session?itemId={session.items[0].item_id}"
         )
     finally:
         server.shutdown()
@@ -634,105 +791,18 @@ def test_review_server_serves_html_api_audio_and_review_updates(tmp_path: Path):
         thread.join(timeout=5)
 
     persisted = ReviewSessionRepository(tmp_path).get(session.id)
-    other_persisted = ReviewSessionRepository(tmp_path).get(other.id)
     assert "EZ Review" in html
+    assert "Event Layer" in html
+    assert "Demote" in html
+    assert "Promote" in html
     assert "Reclassify" in html
     assert "Back" in html
     assert "Forward" in html
     assert "progress-boxes" in html
-    assert 'id="reload-status-btn"' in html
-    assert "overflow-x: auto;" in html
-    assert "scrollIntoView({ block: 'nearest', inline: 'center' })" in html
-    assert "waveform" in html
-    assert "audioClipCache: new Map()" in html
-    assert "prefetchNeighborMedia(state.snapshot?.navigation)" in html
-    assert "fetch(item.audioUrl, { cache: 'no-store' })" not in html
-    assert 'class="title-meta"' in html
-    assert 'class="replay-button" id="play-button"' in html
-    assert 'class="nav-row"' in html
-    assert "flex-direction: column;" in html
-    assert "overflow-y: auto;" in html
-    assert '<h2 class="prediction">' not in html
-    assert 'class="hero-label"' in html
-    assert 'class="hero panel-inset"' not in html
-    assert "grid-template-rows: auto auto auto auto;" in html
-    assert "grid-template-columns: repeat(5, minmax(0, 1fr));" not in html
-    assert ".bottom-bar .action.nav" not in html
-    assert "const initialQuery = new URLSearchParams(window.location.search);" in html
-    assert "explicitSessionQuery: initialQuery.has('sessionId')" in html
-    assert "function currentSearchParams()" in html
-    assert "nextUrl.searchParams.delete('sessionId')" in html
-    assert "const REFRESH_INTERVAL_MS = 4000;" in html
-    assert "scheduleAutoRefresh();" in html
-    assert "manualReloadStatus" in html
-    assert "stateRevision" in html
-    assert "refreshSessionState().catch(() => undefined);" in html
-    assert "function renderIdleProjectState()" in html
-    assert "if (!selectedSessionId()) {" in html
-    assert "renderIdleProjectState();" in html
-    assert "currentScopeItemNumber" in html
-    assert "document.addEventListener('visibilitychange'" in html
-    assert "Song" in html
-    assert "Layer" in html
-    assert "focusItemFromCurrentView(button.dataset.progressItem)" in html
-    load_sessions_block = html.split("async function loadSessions() {", 1)[1].split(
-        "async function requestSnapshot", 1
-    )[0]
-    load_live_cursor_block = html.split("async function loadLiveCursor(cursor = 0) {", 1)[1].split(
-        "async function loadFocusedItem(itemId) {", 1
-    )[0]
-    post_review_block = html.split("async function postReview(outcome, extra = {}) {", 1)[1].split(
-        "async function focusItemFromCurrentView(itemId) {", 1
-    )[0]
-    apply_navigation_block = html.split("async function applyNavigationTransition(run, { historyStack = null, clearForward = false } = {}) {", 1)[1].split(
-        "function isMissingHistoryItemError(error) {", 1
-    )[0]
-    focus_item_block = html.split("async function focusItemFromCurrentView(itemId) {", 1)[1].split(
-        "async function navigateBack() {", 1
-    )[0]
-    navigate_back_block = html.split("async function navigateBack() {", 1)[1].split(
-        "async function navigateForward() {", 1
-    )[0]
-    navigate_forward_block = html.split("async function navigateForward() {", 1)[1].split(
-        "function renderSessionSelect()", 1
-    )[0]
-    refresh_state_block = html.split(
-        "async function refreshSessionState({ forceRender = false, resetCursor = false } = {}) {",
-        1,
-    )[1].split("async function manualReloadStatus() {", 1)[0]
-    manual_reload_block = html.split("async function manualReloadStatus() {", 1)[1].split(
-        "function scheduleAutoRefresh()", 1
-    )[0]
-    assert "resetReviewState();" in load_sessions_block
-    assert "state.outcome = 'pending';" in load_sessions_block
-    assert "state.songRef = 'all';" in load_sessions_block
-    assert "state.layerRef = 'all';" in load_sessions_block
-    assert "state.targetClass = 'all';" in load_sessions_block
-    assert "const nextCursor = Math.max(0, Number(cursor) || 0);" in load_live_cursor_block
-    assert "requestSnapshot({ cursor: nextCursor })" in load_live_cursor_block
-    assert "syncNavigationButtons(state.snapshot?.navigation);" in apply_navigation_block
-    assert "await applyNavigationTransition(async () => {" in post_review_block
-    assert "{ historyStack: state.historyBack, clearForward: true }" in post_review_block
-    assert "await applyNavigationTransition(" in focus_item_block
-    assert "{ historyStack: state.historyBack, clearForward: true }" in focus_item_block
-    assert "while (state.historyBack.length > 0)" in navigate_back_block
-    assert "isMissingHistoryItemError(error)" in navigate_back_block
-    assert "{ historyStack: state.historyForward }" in navigate_back_block
-    assert "() => loadLiveCursor(previousCursor)" in navigate_back_block
-    assert "while (state.historyForward.length > 0)" in navigate_forward_block
-    assert "isMissingHistoryItemError(error)" in navigate_forward_block
-    assert "{ historyStack: state.historyBack }" in navigate_forward_block
-    assert "{ historyStack: state.historyBack, clearForward: true }" in navigate_forward_block
-    assert "() => loadLiveCursor(nextCursor)" in navigate_forward_block
-    assert "const focusedHistoryItemId = !shouldResetCursor && navigation.viewMode === 'history'" in refresh_state_block
-    assert "? { itemId: focusedHistoryItemId }" in refresh_state_block
-    assert ": { cursor: shouldResetCursor ? 0 : state.cursor }" in refresh_state_block
-    assert "clearMediaCaches();" in manual_reload_block
-    assert "state.currentAudioUrl = '';" in manual_reload_block
-    assert "await refreshSessionState({ forceRender: true });" in manual_reload_block
-    assert sessions_payload["defaultSessionId"] == session.id
-    assert sessions_payload["stateRevision"] == 0
-    assert len(sessions_payload["items"]) == 2
+    assert 'id="outcome-filter"' not in html
+    assert 'id="class-filter"' not in html
+    assert 'id="session-drawer"' not in html
+    assert 'id="reload-status-btn"' not in html
     assert snapshot["currentItem"]["targetClass"] == "kick"
     assert snapshot["stateRevision"] == 0
     assert shifted["currentItem"]["itemId"] == session.items[1].item_id
@@ -745,65 +815,90 @@ def test_review_server_serves_html_api_audio_and_review_updates(tmp_path: Path):
     assert len(audio_range["body"]) == 8
     assert updated["session"]["countsByOutcome"]["correct"] == 1
     assert updated["navigation"]["cursor"] == 0
-    assert updated["navigation"]["currentScopeItemNumber"] == 2
+    assert updated["navigation"]["currentScopeItemNumber"] == 1
     assert updated["navigation"]["scopeCount"] == 2
     assert updated["progress"]["items"][0]["reviewOutcome"] == "correct"
-    assert updated["progress"]["items"][1]["isCurrent"] is True
+    assert updated["progress"]["items"][0]["isCurrent"] is True
     assert focused["currentItem"]["itemId"] == session.items[0].item_id
     assert focused["currentItem"]["reviewOutcome"] == "correct"
-    assert focused["navigation"]["viewMode"] == "history"
+    assert focused["navigation"]["viewMode"] == "queue"
     assert persisted is not None
-    assert persisted.items[0].review_outcome == ReviewOutcome.CORRECT
+    assert persisted.items[0].review_outcome == ReviewOutcome.PENDING
     assert relabeled["session"]["countsByOutcome"]["incorrect"] == 1
-    assert other_persisted is not None
-    assert other_persisted.items[0].corrected_label == "tom"
-    assert other_persisted.items[0].review_note == "felt more like a tom hit"
-    assert other_persisted.items[0].review_decision is not None
-    assert other_persisted.items[0].review_decision.kind == ReviewDecisionKind.RELABELED
+    signal_rows = ReviewSignalRepository(tmp_path).list_for_session(session.id)
+    relabeled_signal = next(
+        signal
+        for signal in signal_rows
+        if signal.item_id == shifted["currentItem"]["itemId"]
+    )
+    assert relabeled_signal.corrected_label == "tom"
+    assert relabeled_signal.review_note == "felt more like a tom hit"
+    assert relabeled_signal.review_decision is not None
+    assert relabeled_signal.review_decision.kind == ReviewDecisionKind.RELABELED
 
 
-def test_review_server_sessions_api_exposes_live_project_context_without_active_session(tmp_path: Path):
-    storage = ProjectStorage.create_new(
-        name="Idle Runtime Project",
-        working_dir_root=tmp_path / "working",
-    )
-    server = create_review_http_server(
-        storage.working_dir,
-        None,
-        host="127.0.0.1",
-        port=0,
-        application_session={
-            "sessionId": "sess_idle",
-            "projectName": "Idle Runtime Project",
-            "projectRef": f"project:{storage.project.id}",
-            "activeSongRef": "song:alpha",
-        },
-    )
+def test_phone_review_api_routes_commits_through_shared_pipeline_controller(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    class _PipelineSpy:
+        def __init__(self):
+            self.commands = []
+
+        def commit(self, command):
+            self.commands.append(command)
+            return ReviewPipelineController(tmp_path).commit(command)
+
+    spy = _PipelineSpy()
+    service = ReviewSessionService(tmp_path, pipeline_controller=spy)  # type: ignore[arg-type]
+    session = service.import_session_file(_write_review_items_json(tmp_path), name="Phone Queue")
+    monkeypatch.setattr(review_server_module, "ReviewSessionService", lambda _root: service)
+    server = create_review_http_server(tmp_path, session.id, host="127.0.0.1", port=0)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     base_url = f"http://127.0.0.1:{server.server_port}"
 
     try:
-        payload = _read_json(f"{base_url}/api/sessions")
+        snapshot = _read_json(f"{base_url}/api/session")
+        _post_json(
+            f"{base_url}/api/review",
+            {
+                "itemId": snapshot["currentItem"]["itemId"],
+                "outcome": "incorrect",
+                "correctedLabel": "tom",
+                "reviewNote": "phone producer boundary test",
+            },
+        )
     finally:
         server.shutdown()
         server.server_close()
         thread.join(timeout=5)
-        storage.close()
 
-    assert payload["defaultSessionId"] is None
-    assert payload["items"] == []
-    assert payload["project"] == {
-        "projectRef": f"project:{storage.project.id}",
-        "projectName": "Idle Runtime Project",
-        "projectRoot": str(storage.working_dir.resolve()),
-        "applicationSession": {
-            "sessionId": "sess_idle",
-            "projectName": "Idle Runtime Project",
-            "projectRef": f"project:{storage.project.id}",
-            "activeSongRef": "song:alpha",
-        },
-    }
+    assert len(spy.commands) == 1
+    command = spy.commands[0]
+    assert command.context.session_id == session.id
+    assert command.commit.item_id == snapshot["currentItem"]["itemId"]
+    assert command.commit.review_decision is not None
+    assert command.commit.review_decision.kind == ReviewDecisionKind.RELABELED
+
+
+def test_review_server_rejects_removed_sessions_endpoint(tmp_path: Path):
+    review_items_path = _write_review_items_json(tmp_path)
+    session = ReviewSessionService(tmp_path).import_session_file(review_items_path, name="Phone Queue")
+    server = create_review_http_server(tmp_path, session.id, host="127.0.0.1", port=0)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    base_url = f"http://127.0.0.1:{server.server_port}"
+
+    try:
+        with pytest.raises(HTTPError) as exc_info:
+            _read_json(f"{base_url}/api/sessions")
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
+    assert exc_info.value.code == 404
 
 
 def test_review_server_returns_404_for_missing_audio(tmp_path: Path):
@@ -961,15 +1056,53 @@ class _FakeProjectReviewQueueBuilder:
 
 
 class _FakeReviewSignalService:
-    def __init__(self, *, touch_path: Path | None = None) -> None:
+    def __init__(self, *, root: Path | None = None, touch_path: Path | None = None) -> None:
+        if root is None:
+            if touch_path is None:
+                raise ValueError("root is required when touch_path is not provided")
+            root = touch_path.parent.parent
+        self._repo = ReviewSignalRepository(root)
         self._touch_path = touch_path
         self.calls = 0
 
-    def record_session_item_review(self, session, item) -> None:
-        del session, item
+    def record_explicit_review(
+        self,
+        context,
+        commit,
+        *,
+        apply_project_writeback: bool = True,
+    ):
+        del apply_project_writeback
         self.calls += 1
+        reviewed_at = commit.reviewed_at or datetime.now(UTC)
+        signal_id = commit.signal_id or f"rsig_{context.session_id}_{commit.item_id}"
+        existing = self._repo.get(signal_id)
+        source_provenance = dict(commit.source_provenance)
+        source_provenance["project_writeback"] = {"status": "deferred", "reason": "fake_service"}
+        source_provenance["dataset_materialization"] = {"status": "deferred", "reason": "fake_service"}
+        signal = self._repo.save(
+            ReviewSignal(
+                id=signal_id,
+                session_id=context.session_id,
+                item_id=commit.item_id,
+                audio_path=commit.audio_path,
+                predicted_label=commit.predicted_label,
+                target_class=commit.target_class,
+                polarity=commit.polarity,
+                score=commit.score,
+                source_provenance=source_provenance,
+                review_outcome=commit.review_outcome,
+                review_decision=commit.review_decision,
+                corrected_label=commit.corrected_label,
+                review_note=commit.review_note,
+                reviewed_at=reviewed_at,
+                created_at=existing.created_at if existing is not None else reviewed_at,
+                updated_at=reviewed_at,
+            )
+        )
         if self._touch_path is not None:
             self._touch_path.write_text(f"project-db-{self.calls}", encoding="utf-8")
+        return signal
 
 
 def _write_review_items_json(tmp_path: Path) -> Path:
@@ -1016,6 +1149,36 @@ def _write_review_items_json(tmp_path: Path) -> Path:
         },
     ]
     path = tmp_path / "review_items.json"
+    path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    return path
+
+
+def _write_review_items_json_with_count(tmp_path: Path, *, item_count: int) -> Path:
+    samples = tmp_path / "samples"
+    write_percussion_dataset(samples)
+    payload = [
+        {
+            "item_id": f"ri_kick_{index:04d}",
+            "audio_path": str(samples / "kick" / "k1.wav"),
+            "predicted_label": "kick",
+            "target_class": "kick",
+            "polarity": "positive",
+            "score": 0.97,
+            "source_provenance": {
+                "kind": "fixture",
+                "source": f"kick_{index:04d}",
+                "project_ref": "project:fixture",
+                "song_ref": "song:arcade",
+                "version_ref": "version:main",
+                "layer_ref": "layer:kick",
+                "event_ref": f"event:kick-{index:04d}",
+                "source_event_ref": f"event:kick-source-{index:04d}",
+                "model_ref": "bundle:fixture-v1",
+            },
+        }
+        for index in range(item_count)
+    ]
+    path = tmp_path / "review_items_many.json"
     path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
     return path
 
@@ -1073,3 +1236,22 @@ def _post_json(url: str, payload: dict[str, object]) -> dict:
     )
     with urlopen(request, timeout=5) as response:
         return json.loads(response.read().decode("utf-8"))
+
+
+def test_review_server_rejects_removed_review_export_endpoint(tmp_path: Path):
+    review_items_path = _write_review_items_json(tmp_path)
+    session = ReviewSessionService(tmp_path).import_session_file(review_items_path, name="Phone Queue")
+    server = create_review_http_server(tmp_path, session.id, host="127.0.0.1", port=0)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    base_url = f"http://127.0.0.1:{server.server_port}"
+
+    try:
+        with pytest.raises(HTTPError) as exc_info:
+            _post_json(f"{base_url}/api/review/export", {"sessionId": session.id})
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
+    assert exc_info.value.code == 404

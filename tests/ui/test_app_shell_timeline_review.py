@@ -5,6 +5,7 @@ Connects explicit missed-event review intents to durable Foundry signal material
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 from echozero.application.shared.ids import EventId, LayerId
@@ -20,9 +21,9 @@ from echozero.application.timeline.intents import (
     CommitVerifiedEventReview,
 )
 from echozero.application.timeline.models import EventRef
-from echozero.foundry.app import FoundryApp
 from echozero.foundry.domain.review import ReviewDecisionKind
 from echozero.foundry.persistence import ReviewSignalRepository
+from echozero.foundry.services.review_pipeline_controller import ReviewPipelineController
 from echozero.testing.analysis_mocks import build_mock_analysis_service, write_test_wav
 from echozero.ui.qt.app_shell import AppShellRuntime, build_app_shell
 
@@ -57,6 +58,45 @@ def _runtime_event(runtime: AppShellRuntime, *, layer_id: LayerId, event_id: str
     raise AssertionError(f"Runtime event not found: {event_id}")
 
 
+def test_timeline_fix_mode_routes_review_commits_through_shared_pipeline_controller(
+    tmp_path: Path,
+    monkeypatch,
+):
+    captured_commands = []
+    original_commit = ReviewPipelineController.commit
+
+    def _capture_commit(self, command):
+        captured_commands.append(command)
+        return original_commit(self, command)
+
+    monkeypatch.setattr(ReviewPipelineController, "commit", _capture_commit)
+    runtime, layer_id, event_id, _start, _end = _build_timeline_review_runtime(tmp_path)
+    try:
+        runtime.dispatch(
+            CommitVerifiedEventReview(
+                layer_id=layer_id,
+                event_id=event_id,
+                review_note="controller seam check",
+            )
+        )
+    finally:
+        runtime.shutdown()
+
+    assert len(captured_commands) == 1
+    command = captured_commands[0]
+    assert command.context.session_id.startswith("timeline_review_")
+    assert command.context.metadata["queue_source_kind"] == "timeline_review_mode"
+    assert command.commit.item_id.startswith("timeline_review:")
+    assert command.commit.review_decision is not None
+    assert command.commit.review_decision.kind == ReviewDecisionKind.VERIFIED
+    assert command.commit.source_provenance["project_ref"].startswith("project:")
+    assert command.commit.source_provenance["song_ref"].startswith("song:")
+    assert command.commit.source_provenance["layer_ref"].startswith("layer:")
+    assert command.commit.source_provenance["event_ref"].startswith("event:")
+    assert "projectRef" not in command.commit.source_provenance
+    assert "songRef" not in command.commit.source_provenance
+
+
 def test_app_shell_runtime_commit_missed_event_review_creates_signal_and_updates_runtime_state(tmp_path: Path):
     runtime, layer_id, event_id, _start, _end = _build_timeline_review_runtime(tmp_path)
     try:
@@ -86,7 +126,7 @@ def test_app_shell_runtime_commit_missed_event_review_creates_signal_and_updates
         assert signal.review_decision is not None
         assert signal.review_decision.kind == ReviewDecisionKind.MISSED_EVENT_ADDED
         assert signal.source_provenance["project_writeback"]["reason"] == "non_project_session"
-        assert signal.source_provenance["dataset_materialization"]["status"] == "materialized"
+        assert signal.source_provenance["dataset_materialization"]["status"] == "deferred"
         assert runtime_event.origin == "manual_added"
         assert runtime_event.metadata["review"]["promotion_state"] == "promoted"
         assert runtime_event.metadata["review"]["review_state"] == "corrected"
@@ -111,7 +151,7 @@ def test_app_shell_runtime_commit_verified_event_review_creates_signal(tmp_path:
         assert any(layer.layer_id == layer_id for layer in reviewed.layers)
         assert signal.review_decision is not None
         assert signal.review_decision.kind == ReviewDecisionKind.VERIFIED
-        assert signal.source_provenance["dataset_materialization"]["status"] == "materialized"
+        assert signal.source_provenance["dataset_materialization"]["status"] == "deferred"
         assert runtime_event.metadata["review"]["promotion_state"] == "promoted"
         assert runtime_event.metadata["review"]["review_state"] == "signed_off"
     finally:
@@ -170,16 +210,6 @@ def test_app_shell_runtime_commit_verified_events_review_batches_signals(tmp_pat
             dataset_materialization = signal.source_provenance.get("dataset_materialization", {})
             assert isinstance(dataset_materialization, dict)
             assert dataset_materialization.get("status") == "deferred"
-        foundry = FoundryApp(Path(runtime.project_storage.working_dir).resolve())
-        project_datasets = [
-            dataset
-            for dataset in foundry.list_datasets()
-            if dataset.source_kind == "project_review_export"
-        ]
-        assert len(project_datasets) == 1
-        versions = foundry.datasets.list_versions(project_datasets[0].id)
-        assert versions[-1].stats["sample_count"] >= len(verified_signals)
-        assert versions[-1].stats["review_positive_count"] >= len(verified_signals)
         for target_id in target_ids:
             runtime_event = _runtime_event(runtime, layer_id=layer_id, event_id=target_id)
             assert runtime_event.metadata["review"]["promotion_state"] == "promoted"
@@ -212,7 +242,7 @@ def test_app_shell_runtime_commit_rejected_event_review_demotes_event_and_create
         assert len(updated_layer.events) == before_count
         assert signal.review_decision is not None
         assert signal.review_decision.kind == ReviewDecisionKind.REJECTED
-        assert signal.source_provenance["dataset_materialization"]["status"] == "materialized"
+        assert signal.source_provenance["dataset_materialization"]["status"] == "deferred"
         assert runtime_event.metadata["review"]["promotion_state"] == "demoted"
         assert runtime_event.metadata["review"]["review_state"] == "corrected"
     finally:
@@ -330,7 +360,10 @@ def test_app_shell_runtime_commit_missed_events_review_batches_signals_and_creat
 
 def test_app_shell_runtime_commit_relabel_event_review_updates_label_and_creates_signal(
     tmp_path: Path,
+    monkeypatch,
 ):
+    export_root = tmp_path / "review-sample-export"
+    monkeypatch.setenv("ECHOZERO_REVIEW_SAMPLE_EXPORT_ROOT", str(export_root))
     runtime, layer_id, event_id, _start, _end = _build_timeline_review_runtime(tmp_path)
     try:
         reviewed = runtime.dispatch(
@@ -351,16 +384,31 @@ def test_app_shell_runtime_commit_relabel_event_review_updates_label_and_creates
         assert signal.review_decision is not None
         assert signal.review_decision.kind == ReviewDecisionKind.RELABELED
         assert signal.corrected_label == "snare"
-        assert signal.source_provenance["dataset_materialization"]["status"] == "materialized"
+        assert signal.source_provenance["dataset_materialization"]["status"] == "deferred"
         assert runtime_event.metadata["review"]["original_label"] == "kick"
         assert runtime_event.metadata["review"]["corrected_label"] == "snare"
+        exported = sorted((export_root / "snare").glob("*.wav"))
+        assert exported
+        manifest_path = export_root / "manifest.jsonl"
+        assert manifest_path.exists()
+        manifest_rows = [
+            json.loads(line)
+            for line in manifest_path.read_text(encoding="utf-8").splitlines()
+            if line.strip()
+        ]
+        assert manifest_rows
+        assert any(row["decision_kind"] == "relabeled" for row in manifest_rows)
+        assert any(row["class_label"] == "snare" for row in manifest_rows)
     finally:
         runtime.shutdown()
 
 
 def test_app_shell_runtime_commit_boundary_corrected_event_review_updates_timing_and_creates_signal(
     tmp_path: Path,
+    monkeypatch,
 ):
+    export_root = tmp_path / "review-sample-export"
+    monkeypatch.setenv("ECHOZERO_REVIEW_SAMPLE_EXPORT_ROOT", str(export_root))
     runtime, layer_id, event_id, start, end = _build_timeline_review_runtime(tmp_path)
     try:
         corrected_range = TimeRange(start + 0.04, end + 0.06)
@@ -384,8 +432,16 @@ def test_app_shell_runtime_commit_boundary_corrected_event_review_updates_timing
         assert signal.review_decision.kind == ReviewDecisionKind.BOUNDARY_CORRECTED
         assert signal.review_decision.corrected_start_ms == corrected_range.start * 1000.0
         assert signal.review_decision.corrected_end_ms == corrected_range.end * 1000.0
-        assert signal.source_provenance["dataset_materialization"]["status"] == "materialized"
+        assert signal.source_provenance["dataset_materialization"]["status"] == "deferred"
         assert runtime_event.metadata["review"]["review_state"] == "corrected"
         assert runtime_event.metadata["review"]["corrected_start_ms"] == corrected_range.start * 1000.0
+        exported = sorted((export_root / "kick").glob("*.wav"))
+        assert exported
+        manifest_rows = [
+            json.loads(line)
+            for line in (export_root / "manifest.jsonl").read_text(encoding="utf-8").splitlines()
+            if line.strip()
+        ]
+        assert any(row["decision_kind"] == "boundary_corrected" for row in manifest_rows)
     finally:
         runtime.shutdown()

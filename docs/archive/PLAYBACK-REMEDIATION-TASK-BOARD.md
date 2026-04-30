@@ -1,6 +1,13 @@
 # Playback Remediation Task Board
 
-Last updated: 2026-04-18
+Status: historical
+Last reviewed: 2026-04-30
+
+
+Originally updated: 2026-04-18
+
+This board is retained as historical remediation context.
+For current playback behavior, use `docs/STATUS.md`.
 
 This board turns the playback/clock audit into executable work.
 It is intentionally concrete:

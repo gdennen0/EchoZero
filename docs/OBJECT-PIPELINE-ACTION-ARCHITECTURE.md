@@ -1,6 +1,9 @@
 # Object Pipeline Action Architecture
 
-_Updated: 2026-04-19_
+Status: reference
+Last reviewed: 2026-04-30
+
+
 
 This document defines the intended object-action architecture for EchoZero.
 It exists to restore the original plan: object workflows should be driven by
@@ -19,9 +22,9 @@ partly imperative.
 
 That drift shows up most clearly in:
 
-- [echozero/application/presentation/inspector_contract.py](/Users/march/Documents/GitHub/EchoZero/echozero/application/presentation/inspector_contract.py:70)
-- [echozero/ui/qt/timeline/widget_actions.py](/Users/march/Documents/GitHub/EchoZero/echozero/ui/qt/timeline/widget_actions.py:142)
-- [echozero/ui/qt/app_shell.py](/Users/march/Documents/GitHub/EchoZero/echozero/ui/qt/app_shell.py:293)
+- [echozero/application/presentation/inspector_contract.py](../echozero/application/presentation/inspector_contract.py)
+- [echozero/ui/qt/timeline/widget_actions.py](../echozero/ui/qt/timeline/widget_actions.py)
+- [echozero/ui/qt/app_shell.py](../echozero/ui/qt/app_shell.py)
 
 ## Current State
 
@@ -31,7 +34,7 @@ The canonical action inventory is built in the inspector contract layer.
 
 Key location:
 
-- [echozero/application/presentation/inspector_contract.py](/Users/march/Documents/GitHub/EchoZero/echozero/application/presentation/inspector_contract.py:70)
+- [echozero/application/presentation/inspector_contract.py](../echozero/application/presentation/inspector_contract.py)
 
 Concrete facts:
 
@@ -64,15 +67,15 @@ The current execution path is:
 
 Primary bypass points:
 
-- [echozero/ui/qt/timeline/widget_actions.py](/Users/march/Documents/GitHub/EchoZero/echozero/ui/qt/timeline/widget_actions.py:142)
-- [echozero/ui/qt/app_shell.py](/Users/march/Documents/GitHub/EchoZero/echozero/ui/qt/app_shell.py:293)
+- [echozero/ui/qt/timeline/widget_actions.py](../echozero/ui/qt/timeline/widget_actions.py)
+- [echozero/ui/qt/app_shell.py](../echozero/ui/qt/app_shell.py)
 
 The clearest examples are:
 
-- [AppShellRuntime.extract_stems](/Users/march/Documents/GitHub/EchoZero/echozero/ui/qt/app_shell.py:293)
-- [AppShellRuntime.extract_drum_events](/Users/march/Documents/GitHub/EchoZero/echozero/ui/qt/app_shell.py:318)
-- [AppShellRuntime.classify_drum_events](/Users/march/Documents/GitHub/EchoZero/echozero/ui/qt/app_shell.py:338)
-- [AppShellRuntime.extract_classified_drums](/Users/march/Documents/GitHub/EchoZero/echozero/ui/qt/app_shell.py:365)
+- [AppShellRuntime.extract_stems](../echozero/ui/qt/app_shell.py)
+- [AppShellRuntime.extract_drum_events](../echozero/ui/qt/app_shell.py)
+- [AppShellRuntime.classify_drum_events](../echozero/ui/qt/app_shell.py)
+- [AppShellRuntime.extract_classified_drums](../echozero/ui/qt/app_shell.py)
 
 These methods are pipeline-backed, but not pipeline-driven at the contract
 boundary.
@@ -102,16 +105,16 @@ The current codebase already has the parts needed for the correct model.
 
 ### 1. A pipeline registry exists
 
-- [echozero/pipelines/registry.py](/Users/march/Documents/GitHub/EchoZero/echozero/pipelines/registry.py:1)
+- [echozero/pipelines/registry.py](../echozero/pipelines/registry.py)
 
 ### 2. Pipeline templates exist for the relevant workflows
 
-- [echozero/pipelines/templates/drum_classification.py](/Users/march/Documents/GitHub/EchoZero/echozero/pipelines/templates/drum_classification.py:1)
-- [echozero/pipelines/templates/extract_classified_drums.py](/Users/march/Documents/GitHub/EchoZero/echozero/pipelines/templates/extract_classified_drums.py:1)
+- [echozero/pipelines/templates/drum_classification.py](../echozero/pipelines/templates/drum_classification.py)
+- [echozero/pipelines/templates/extract_classified_drums.py](../echozero/pipelines/templates/extract_classified_drums.py)
 
 ### 3. The orchestrator already supports template-id plus bindings execution
 
-- [echozero/services/orchestrator.py](/Users/march/Documents/GitHub/EchoZero/echozero/services/orchestrator.py:178)
+- [echozero/services/orchestrator.py](../echozero/services/orchestrator.py)
 
 The missing piece is a first-class object-action-to-pipeline layer.
 
@@ -300,7 +303,7 @@ This model gives the harness exactly what it should have:
 
 That aligns with:
 
-- [packages/ui_automation/src/ui_automation/adapters/echozero/provider.py](/Users/march/Documents/GitHub/EchoZero/packages/ui_automation/src/ui_automation/adapters/echozero/provider.py:246)
+- [packages/ui_automation/src/ui_automation/adapters/echozero/provider.py](../packages/ui_automation/src/ui_automation/adapters/echozero/provider.py)
 
 The provider should not need to know about:
 
@@ -371,7 +374,7 @@ Preferred approach:
 
 Replace action-specific runtime branches in:
 
-- [echozero/ui/qt/timeline/widget_actions.py](/Users/march/Documents/GitHub/EchoZero/echozero/ui/qt/timeline/widget_actions.py:142)
+- [echozero/ui/qt/timeline/widget_actions.py](../echozero/ui/qt/timeline/widget_actions.py)
 
 Specifically remove special handling for:
 
@@ -386,10 +389,10 @@ and route them all through generic object action execution.
 
 Delete these after the generic path is proven:
 
-- [AppShellRuntime.extract_stems](/Users/march/Documents/GitHub/EchoZero/echozero/ui/qt/app_shell.py:293)
-- [AppShellRuntime.extract_drum_events](/Users/march/Documents/GitHub/EchoZero/echozero/ui/qt/app_shell.py:318)
-- [AppShellRuntime.classify_drum_events](/Users/march/Documents/GitHub/EchoZero/echozero/ui/qt/app_shell.py:338)
-- [AppShellRuntime.extract_classified_drums](/Users/march/Documents/GitHub/EchoZero/echozero/ui/qt/app_shell.py:365)
+- [AppShellRuntime.extract_stems](../echozero/ui/qt/app_shell.py)
+- [AppShellRuntime.extract_drum_events](../echozero/ui/qt/app_shell.py)
+- [AppShellRuntime.classify_drum_events](../echozero/ui/qt/app_shell.py)
+- [AppShellRuntime.extract_classified_drums](../echozero/ui/qt/app_shell.py)
 
 ### 6. Make automation consume object actions only
 

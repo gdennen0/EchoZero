@@ -1,5 +1,6 @@
 from dataclasses import replace
 
+import pytest
 from PyQt6.QtCore import QEvent, QPoint, QPointF, Qt
 from PyQt6.QtGui import QMouseEvent
 from PyQt6.QtWidgets import QApplication
@@ -7,11 +8,15 @@ from PyQt6.QtWidgets import QApplication
 from echozero.application.shared.enums import LayerKind
 from echozero.ui.FEEL import (
     EVENT_BAR_HEIGHT_PX,
+    LAYER_HEADER_MAX_WIDTH_PX,
+    LAYER_HEADER_MIN_WIDTH_PX,
     LAYER_HEADER_TOP_PADDING_PX,
     LAYER_HEADER_WIDTH_PX,
     LAYER_ROW_HEIGHT_PX,
     RULER_HEIGHT_PX,
     TIMELINE_RIGHT_PADDING_PX,
+    TIMELINE_RUNTIME_TICK_ACTIVE_MS,
+    TIMELINE_RUNTIME_TICK_IDLE_MS,
     TIMELINE_ZOOM_MAX_PPS,
     TIMELINE_ZOOM_MIN_PPS,
     TIMELINE_ZOOM_STEP_FACTOR,
@@ -211,5 +216,72 @@ def test_timeline_zoom_out_clamps_to_feel_min_pps():
         widget._zoom_from_input(-120, anchor_x=widget._canvas._header_width + 120.0)
 
         assert widget.presentation.pixels_per_second == TIMELINE_ZOOM_MIN_PPS
+    finally:
+        widget.close()
+
+
+def test_layer_header_width_setter_clamps_to_feel_bounds():
+    app = QApplication.instance() or QApplication([])
+    presentation = build_demo_app().presentation()
+    widget = TimelineWidget(presentation)
+    try:
+        widget.set_layer_header_width(int(LAYER_HEADER_MIN_WIDTH_PX) - 80)
+        assert widget.layer_header_width_px() == int(LAYER_HEADER_MIN_WIDTH_PX)
+
+        widget.set_layer_header_width(int(LAYER_HEADER_MAX_WIDTH_PX) + 80)
+        assert widget.layer_header_width_px() == int(LAYER_HEADER_MAX_WIDTH_PX)
+    finally:
+        widget.close()
+
+
+def test_timeline_zoom_scales_continuously_from_partial_wheel_delta():
+    app = QApplication.instance() or QApplication([])
+    presentation = build_demo_app().presentation()
+    widget = TimelineWidget(presentation)
+    try:
+        widget.set_presentation(
+            replace(
+                widget.presentation,
+                pixels_per_second=100.0,
+            )
+        )
+        widget._zoom_from_input(60, anchor_x=widget._canvas._header_width + 120.0)
+        expected = 100.0 * (TIMELINE_ZOOM_STEP_FACTOR ** 0.5)
+        assert widget.presentation.pixels_per_second == pytest.approx(expected, rel=1e-6)
+    finally:
+        widget.close()
+
+
+def test_zoom_to_fit_all_resets_scroll_and_fits_timeline_span():
+    app = QApplication.instance() or QApplication([])
+    presentation = build_demo_app().presentation()
+    widget = TimelineWidget(presentation)
+    try:
+        widget.resize(1200, 640)
+        widget.set_presentation(
+            replace(
+                widget.presentation,
+                pixels_per_second=260.0,
+                scroll_x=640.0,
+            )
+        )
+        widget._zoom_to_fit_all()
+
+        assert widget.presentation.scroll_x == 0.0
+        assert TIMELINE_ZOOM_MIN_PPS <= widget.presentation.pixels_per_second <= TIMELINE_ZOOM_MAX_PPS
+    finally:
+        widget.close()
+
+
+def test_runtime_timer_cadence_slows_when_idle_and_speeds_when_playing():
+    app = QApplication.instance() or QApplication([])
+    presentation = build_demo_app().presentation()
+    widget = TimelineWidget(presentation)
+    try:
+        widget.set_presentation(replace(widget.presentation, is_playing=False))
+        assert widget._runtime_timer.interval() == TIMELINE_RUNTIME_TICK_IDLE_MS
+
+        widget.set_presentation(replace(widget.presentation, is_playing=True))
+        assert widget._runtime_timer.interval() == TIMELINE_RUNTIME_TICK_ACTIVE_MS
     finally:
         widget.close()

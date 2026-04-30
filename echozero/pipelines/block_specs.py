@@ -94,6 +94,21 @@ def DetectOnsets(**settings: Any) -> BlockSpec:
     )
 
 
+def DetectSongSections(**settings: Any) -> BlockSpec:
+    """Detect section boundaries and labels from song audio."""
+    return BlockSpec(
+        block_type="DetectSongSections",
+        name="Detect Song Sections",
+        input_ports=(
+            PortSpec("audio_in", PortType.AUDIO, Direction.INPUT),
+        ),
+        output_ports=(
+            PortSpec("events_out", PortType.EVENT, Direction.OUTPUT),
+        ),
+        settings=settings,
+    )
+
+
 def AudioFilter(**settings: Any) -> BlockSpec:
     """Apply audio filtering (EQ, highpass, lowpass, etc.)."""
     return BlockSpec(

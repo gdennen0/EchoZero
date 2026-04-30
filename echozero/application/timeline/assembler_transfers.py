@@ -23,11 +23,12 @@ from echozero.application.presentation.models import (
     ManualPushSequenceOptionPresentation,
     ManualPushSequenceRangePresentation,
     ManualPushTrackOptionPresentation,
-    PipelineRunBannerPresentation,
+    OperationProgressBannerPresentation,
     SyncDiffRowPresentation,
     SyncDiffSummaryPresentation,
     TransferPresetPresentation,
 )
+from echozero.application.progress import ACTIVE_OPERATION_PROGRESS_STATUSES
 from echozero.application.session.models import (
     ManualPullDiffPreview,
     ManualPushDiffPreview,
@@ -36,13 +37,15 @@ from echozero.application.session.models import (
 from echozero.application.sync.diff_service import SyncDiffRow, SyncDiffSummary
 
 if TYPE_CHECKING:
-    from echozero.application.timeline.pipeline_run_service import PipelineRunState
+    from echozero.application.timeline.operation_progress_service import (
+        OperationProgressState,
+    )
 
 __all__ = [
     "assemble_batch_transfer_plan",
     "assemble_manual_pull_flow",
     "assemble_manual_push_flow",
-    "assemble_pipeline_run_banner",
+    "assemble_operation_progress_banner",
     "assemble_transfer_presets",
 ]
 
@@ -96,6 +99,9 @@ def assemble_manual_push_flow(session: Session) -> ManualPushFlowPresentation:
         ),
         target_track_coord=flow.target_track_coord,
         transfer_mode=flow.transfer_mode,
+        operation_id=flow.operation_id,
+        operation_status=flow.operation_status,
+        operation_message=flow.operation_message,
         diff_gate_open=flow.diff_gate_open,
         diff_preview=_assemble_manual_push_diff_preview(flow.diff_preview),
     )
@@ -224,18 +230,18 @@ def assemble_transfer_presets(session: Session) -> list[TransferPresetPresentati
     ]
 
 
-def assemble_pipeline_run_banner(
+def assemble_operation_progress_banner(
     session: Session,
     *,
     song_id: str | None = None,
     song_version_id: str | None = None,
-) -> PipelineRunBannerPresentation | None:
-    """Build the latest active or failed pipeline run banner."""
+) -> OperationProgressBannerPresentation | None:
+    """Build the latest active or failed operation progress banner."""
 
-    runs = [
+    operations = [
         state
-        for state in session.pipeline_runs.values()
-        if _pipeline_run_matches_context(
+        for state in session.operation_progress_by_id.values()
+        if _operation_matches_context(
             state,
             song_id=song_id,
             song_version_id=song_version_id,
@@ -243,39 +249,39 @@ def assemble_pipeline_run_banner(
     ]
     active = [
         state
-        for state in runs
-        if state.status in {"queued", "resolving", "running", "persisting"}
+        for state in operations
+        if state.status in ACTIVE_OPERATION_PROGRESS_STATUSES
     ]
     if active:
         state = max(active, key=lambda value: value.started_at)
-        return PipelineRunBannerPresentation(
-            run_id=state.run_id,
+        return OperationProgressBannerPresentation(
+            operation_id=state.operation_id,
             title=state.display_label,
             status=state.status,
             message=state.message,
-            percent=state.percent,
+            fraction_complete=state.fraction_complete,
             is_error=False,
         )
 
-    failed = [state for state in runs if state.status == "failed"]
+    failed = [state for state in operations if state.status == "failed"]
     if not failed:
         return None
     state = max(
         failed,
         key=lambda value: value.finished_at if value.finished_at is not None else value.started_at,
     )
-    return PipelineRunBannerPresentation(
-        run_id=state.run_id,
+    return OperationProgressBannerPresentation(
+        operation_id=state.operation_id,
         title=state.display_label,
         status=state.status,
         message=state.error or state.message,
-        percent=state.percent,
+        fraction_complete=state.fraction_complete,
         is_error=True,
     )
 
 
-def _pipeline_run_matches_context(
-    state: "PipelineRunState",
+def _operation_matches_context(
+    state: "OperationProgressState",
     *,
     song_id: str | None,
     song_version_id: str | None,

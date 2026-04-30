@@ -32,7 +32,7 @@ from echozero.ui.qt.timeline.blocks.event_lane import EventLanePresentation
 from echozero.ui.qt.timeline.blocks.layouts import MainRowLayout, TakeRowLayout
 from echozero.ui.qt.timeline.blocks.ruler import playhead_head_polygon, timeline_x_for_time
 from echozero.ui.qt.timeline.blocks.waveform_lane import WaveformLanePresentation
-from echozero.ui.qt.timeline.time_grid import visible_grid_lines
+from echozero.ui.qt.timeline.time_grid import GridLine, visible_grid_lines
 from echozero.ui.qt.timeline.widget_canvas_types import EventRect, TakeActionRect, TakeRect
 
 
@@ -49,7 +49,6 @@ def badge_tooltip_labels(badges: list[str]) -> list[str]:
         "stem": "Stem output",
         "audio": "Audio lane",
         "event": "Event lane",
-        "marker": "Marker lane",
         "section": "Sections lane",
         "classifier-preview": "Classifier preview",
         "real-data": "Real data",
@@ -68,17 +67,31 @@ class _TimelineCanvasPaintMixin:
         if event is None:
             return
         painter = QPainter(self)
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, False)
+        painter.setRenderHint(QPainter.RenderHint.TextAntialiasing, True)
         painter.fillRect(self.rect(), QColor(self._style.canvas.background_hex))
+        content_left = float(self._header_width)
+        content_width = max(1.0, float(self.width()) - content_left)
+        self._frame_visible_grid_lines: list[GridLine] = visible_grid_lines(
+            scroll_x=self.presentation.scroll_x,
+            pixels_per_second=self.presentation.pixels_per_second,
+            content_width=content_width,
+            mode=self._grid_mode,
+            bpm=self.presentation.bpm,
+        )
         self._take_rects.clear()
         self._take_option_rects.clear()
         self._take_action_rects.clear()
         self._toggle_rects.clear()
-        self._active_rects.clear()
+        self._mute_rects.clear()
+        self._solo_rects.clear()
         self._pipeline_action_rects.clear()
         self._push_rects.clear()
         self._pull_rects.clear()
+        self._section_manager_rects.clear()
         self._event_rects.clear()
+        self._section_label_rects.clear()
+        self._section_boundary_rects.clear()
         self._fix_event_rects.clear()
         self._event_lane_rects.clear()
         self._header_select_rects.clear()
@@ -91,17 +104,11 @@ class _TimelineCanvasPaintMixin:
         with timed("timeline.paint.playhead"):
             self._draw_playhead(painter)
         self._draw_interaction_overlays(painter)
+        self._frame_visible_grid_lines = []
 
     def _draw_time_grid_band(self: Any, painter: QPainter, *, top: int, row_height: int) -> None:
         content_left = float(self._header_width)
-        content_width = max(1.0, float(self.width()) - content_left)
-        lines = visible_grid_lines(
-            scroll_x=self.presentation.scroll_x,
-            pixels_per_second=self.presentation.pixels_per_second,
-            content_width=content_width,
-            mode=self._grid_mode,
-            bpm=self.presentation.bpm,
-        )
+        lines = list(getattr(self, "_frame_visible_grid_lines", []))
         if not lines:
             return
 
@@ -215,7 +222,55 @@ class _TimelineCanvasPaintMixin:
                 int(round(left)),
                 int(round(top + max(1, row_height) - 1)),
             )
+            painter.drawLine(
+                int(round(right)),
+                int(round(top)),
+                int(round(right)),
+                int(round(top + max(1, row_height) - 1)),
+            )
             painter.restore()
+            label_text = (
+                region.cue_ref
+                if str(region.name or "").casefold() == str(region.cue_ref or "").casefold()
+                else f"{region.cue_ref} {region.name}"
+            )
+            if label_text:
+                label_rect = QRectF(
+                    left + 6.0,
+                    float(top),
+                    max(24.0, width - 12.0),
+                    float(max(1, row_height) - 1),
+                )
+                painter.setPen(QColor(self._style.canvas.section_boundary_hex))
+                painter.drawText(
+                    label_rect,
+                    int(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft),
+                    label_text,
+                )
+                self._section_label_rects.append((label_rect, region.cue_id))
+            boundary_hit_half_width = 4.0
+            self._section_boundary_rects.append(
+                (
+                    QRectF(
+                        left - boundary_hit_half_width,
+                        float(top),
+                        boundary_hit_half_width * 2.0,
+                        float(max(1, row_height)),
+                    ),
+                    region.cue_id,
+                )
+            )
+            self._section_boundary_rects.append(
+                (
+                    QRectF(
+                        right - boundary_hit_half_width,
+                        float(top),
+                        boundary_hit_half_width * 2.0,
+                        float(max(1, row_height)),
+                    ),
+                    region.cue_id,
+                )
+            )
 
     @staticmethod
     def _shows_section_overlay_for_layer(layer: LayerPresentation) -> bool:
@@ -304,7 +359,8 @@ class _TimelineCanvasPaintMixin:
             painter.restore()
         if self._shows_section_overlay_for_layer(layer):
             self._draw_section_overlay_band(painter, top=top, row_height=row_height)
-        self._draw_region_overlay_band(painter, top=top, row_height=row_height)
+        if layer.kind is not LayerKind.SECTION:
+            self._draw_region_overlay_band(painter, top=top, row_height=row_height)
         self._draw_time_grid_band(painter, top=top, row_height=row_height)
         painter.fillRect(
             0,
@@ -337,14 +393,18 @@ class _TimelineCanvasPaintMixin:
             self._event_lane_rects.append((layout.content_rect, layer.layer_id, layer.main_take_id))
         hit_targets = self._header_block.paint(painter, slots, layer, dimmed=dimmed)
         for control_id, rect in hit_targets.control_rects:
-            if control_id == "set_active_playback_target":
-                self._active_rects.append((rect, layer.layer_id))
+            if control_id == "set_layer_mute":
+                self._mute_rects.append((rect, layer.layer_id))
+            elif control_id == "set_layer_solo":
+                self._solo_rects.append((rect, layer.layer_id))
             elif control_id == "layer_pipeline_actions":
                 self._pipeline_action_rects.append((rect, layer.layer_id))
             elif control_id in {"push_to_ma3", "send_to_ma3"}:
                 self._push_rects.append((rect, layer.layer_id))
             elif control_id == "pull_from_ma3":
                 self._pull_rects.append((rect, layer.layer_id))
+            elif control_id == "open_section_layer_manager":
+                self._section_manager_rects.append((rect, layer.layer_id))
 
         painter.save()
         painter.setClipRect(layout.content_rect)
@@ -362,53 +422,44 @@ class _TimelineCanvasPaintMixin:
                         width=self.width(),
                         dimmed=dimmed,
                         waveform_key=layer.waveform_key,
+                        source_audio_path=layer.source_audio_path,
+                        unavailable_reason="Waveform unavailable",
                     ),
                 )
             else:
-                visible_events = self._visible_lane_events(layer.events)
-                event_lane_top = float(top + max(0.0, (row_height - self._event_height) * 0.5))
-                self._draw_fix_overlay_events(
-                    painter,
-                    layer=layer,
-                    take_id=layer.main_take_id,
-                    lane_events=visible_events,
-                    top=event_lane_top,
-                )
-                self._event_rects.extend(
-                    cast(
-                        list[EventRect],
-                        self._event_lane_block.paint(
-                            painter,
-                            int(round(event_lane_top)),
-                            EventLanePresentation(
-                                layer_id=layer.layer_id,
-                                take_id=layer.main_take_id,
-                                events=visible_events,
-                                layer_kind=layer.kind,
-                                default_fill_hex=layer.color,
-                                pixels_per_second=self.presentation.pixels_per_second,
-                                scroll_x=self.presentation.scroll_x,
-                                header_width=self._header_width,
-                                event_height=self._event_height,
-                                dimmed=dimmed,
-                                viewport_width=self.width(),
-                            ),
-                        ),
+                if layer.kind is not LayerKind.SECTION:
+                    visible_events = self._visible_lane_events(layer.events)
+                    event_lane_top = float(top + max(0.0, (row_height - self._event_height) * 0.5))
+                    self._draw_fix_overlay_events(
+                        painter,
+                        layer=layer,
+                        take_id=layer.main_take_id,
+                        lane_events=visible_events,
+                        top=event_lane_top,
                     )
-                )
+                    self._event_rects.extend(
+                        cast(
+                            list[EventRect],
+                            self._event_lane_block.paint(
+                                painter,
+                                int(round(event_lane_top)),
+                                EventLanePresentation(
+                                    layer_id=layer.layer_id,
+                                    take_id=layer.main_take_id,
+                                    events=visible_events,
+                                    layer_kind=layer.kind,
+                                    default_fill_hex=layer.color,
+                                    pixels_per_second=self.presentation.pixels_per_second,
+                                    scroll_x=self.presentation.scroll_x,
+                                    header_width=self._header_width,
+                                    event_height=self._event_height,
+                                    dimmed=dimmed,
+                                    viewport_width=self.width(),
+                                ),
+                            ),
+                        )
+                    )
 
-            if not layer.takes:
-                hint_color = (
-                    self._style.canvas.no_takes_hint_dimmed_hex
-                    if dimmed
-                    else self._style.canvas.no_takes_hint_hex
-                )
-                painter.setPen(QColor(hint_color))
-                painter.drawText(
-                    layout.content_rect.adjusted(10, 0, -10, 0),
-                    Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter,
-                    "No takes yet",
-                )
         finally:
             painter.restore()
 
@@ -440,7 +491,8 @@ class _TimelineCanvasPaintMixin:
         )
         if self._shows_section_overlay_for_layer(layer):
             self._draw_section_overlay_band(painter, top=top, row_height=self._take_row_height)
-        self._draw_region_overlay_band(painter, top=top, row_height=self._take_row_height)
+        if layer.kind is not LayerKind.SECTION:
+            self._draw_region_overlay_band(painter, top=top, row_height=self._take_row_height)
         self._draw_time_grid_band(painter, top=top, row_height=self._take_row_height)
         self._take_rects.append(cast(TakeRect, hit_targets.take_rect))
         self._row_body_select_rects.append((layout.content_rect, layer.layer_id, take.take_id))
@@ -467,42 +519,45 @@ class _TimelineCanvasPaintMixin:
                         width=self.width(),
                         dimmed=True or dimmed,
                         waveform_key=take.waveform_key,
+                        source_audio_path=take.source_audio_path,
+                        unavailable_reason="Waveform unavailable",
                     ),
                 )
             else:
-                visible_events = self._visible_lane_events(take.events)
-                event_lane_top = float(
-                    top + max(0.0, (self._take_row_height - self._event_height) * 0.5)
-                )
-                self._draw_fix_overlay_events(
-                    painter,
-                    layer=layer,
-                    take_id=take.take_id,
-                    lane_events=visible_events,
-                    top=event_lane_top,
-                )
-                self._event_rects.extend(
-                    cast(
-                        list[EventRect],
-                        self._event_lane_block.paint(
-                            painter,
-                            int(round(event_lane_top)),
-                            EventLanePresentation(
-                                layer_id=layer.layer_id,
-                                take_id=take.take_id,
-                                events=visible_events,
-                                layer_kind=take.kind,
-                                default_fill_hex=layer.color,
-                                pixels_per_second=self.presentation.pixels_per_second,
-                                scroll_x=self.presentation.scroll_x,
-                                header_width=self._header_width,
-                                event_height=self._event_height,
-                                dimmed=True or dimmed,
-                                viewport_width=self.width(),
-                            ),
-                        ),
+                if take.kind is not LayerKind.SECTION:
+                    visible_events = self._visible_lane_events(take.events)
+                    event_lane_top = float(
+                        top + max(0.0, (self._take_row_height - self._event_height) * 0.5)
                     )
-                )
+                    self._draw_fix_overlay_events(
+                        painter,
+                        layer=layer,
+                        take_id=take.take_id,
+                        lane_events=visible_events,
+                        top=event_lane_top,
+                    )
+                    self._event_rects.extend(
+                        cast(
+                            list[EventRect],
+                            self._event_lane_block.paint(
+                                painter,
+                                int(round(event_lane_top)),
+                                EventLanePresentation(
+                                    layer_id=layer.layer_id,
+                                    take_id=take.take_id,
+                                    events=visible_events,
+                                    layer_kind=take.kind,
+                                    default_fill_hex=layer.color,
+                                    pixels_per_second=self.presentation.pixels_per_second,
+                                    scroll_x=self.presentation.scroll_x,
+                                    header_width=self._header_width,
+                                    event_height=self._event_height,
+                                    dimmed=True or dimmed,
+                                    viewport_width=self.width(),
+                                ),
+                            ),
+                        )
+                    )
         finally:
             painter.restore()
 
@@ -836,7 +891,7 @@ class _TimelineCanvasPaintMixin:
             f"Fix: {current_tool}  |  Z -  |  X Select  |  C +  |  +/- toggle  |  "
             f"Drag marquee applies current tool  |  Arrows navigate events (demoted {demoted_nav_label})  |  "
             "D toggles demoted nav  |  "
-            ",/. navigate preview  |  Space/Enter preview"
+            ",/. navigate preview  |  Shift+Space/Enter preview"
         )
         painter.save()
         try:

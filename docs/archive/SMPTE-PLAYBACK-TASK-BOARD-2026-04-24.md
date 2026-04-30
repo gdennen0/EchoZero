@@ -1,11 +1,18 @@
 # SMPTE Playback Task Board
 
-Last updated: 2026-04-24
+Status: historical
+Last reviewed: 2026-04-30
+
+
+Originally updated: 2026-04-24
+
+This board is retained as historical planning context.
+For current SMPTE behavior, use `docs/STATUS.md` and `MA3/README.md`.
 
 This board turns the SMPTE playback RFC skeleton into executable work with bounded scope and proof gates.
 
 Primary source:
-- [SMPTE-PLAYBACK-RFC-SKELETON-2026-04-24.md](/Users/march/Documents/GitHub/EchoZero/docs/SMPTE-PLAYBACK-RFC-SKELETON-2026-04-24.md:1)
+- [SMPTE-PLAYBACK-RFC-SKELETON-2026-04-24.md](SMPTE-PLAYBACK-RFC-SKELETON-2026-04-24.md)
 
 ## Goal
 
@@ -352,4 +359,3 @@ Work in this order:
 | Master mode reliability | SP-20 through SP-24 | integration + human-path |
 | Chase mode reliability | SP-30 through SP-34 | integration + human-path |
 | Release drift and determinism | SP-40, SP-41, SP-42 | long-run + regression |
-

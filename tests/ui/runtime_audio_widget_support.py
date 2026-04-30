@@ -4,6 +4,7 @@ Connects the compatibility wrapper to the bounded runtime-audio widget slice.
 """
 
 from tests.ui.runtime_audio_shared_support import *  # noqa: F401,F403
+from echozero.ui.FEEL import TIMELINE_RUNTIME_TICK_IDLE_MS
 
 def test_widget_runtime_tick_tracks_provider_smoothly_without_seek_dispatch():
     app = QApplication.instance() or QApplication([])
@@ -88,15 +89,13 @@ def test_widget_dispatch_preserves_runtime_playhead_on_audio_route_update():
         return replace(
             presentation,
             layers=[layer],
-            active_playback_layer_id=(
+            selected_layer_id=(
                 intent.layer_id
-                if isinstance(intent, SetActivePlaybackTarget)
-                else presentation.active_playback_layer_id
+                if isinstance(intent, SetLayerMute)
+                else presentation.selected_layer_id
             ),
-            active_playback_take_id=(
-                intent.take_id
-                if isinstance(intent, SetActivePlaybackTarget)
-                else presentation.active_playback_take_id
+            selected_take_id=(
+                presentation.selected_take_id
             ),
             playhead=0.0,
             is_playing=False,
@@ -110,7 +109,7 @@ def test_widget_dispatch_preserves_runtime_playhead_on_audio_route_update():
         widget.show()
         app.processEvents()
 
-        widget._dispatch(SetActivePlaybackTarget(presentation.layers[0].layer_id))
+        widget._dispatch(SetLayerMute(layer_id=presentation.layers[0].layer_id, muted=True))
 
         assert widget.presentation.playhead == 4.25
         assert widget.presentation.is_playing is True
@@ -186,11 +185,11 @@ def test_widget_set_presentation_avoids_rebuilding_runtime_layers_when_sources_u
         app.processEvents()
 
 
-def test_widget_set_presentation_routes_runtime_audio_without_rebuild_when_playback_target_changes():
+def test_widget_set_presentation_routes_runtime_audio_without_rebuild_when_selection_changes():
     app = QApplication.instance() or QApplication([])
     presentation = replace(
         _event_slice_presentation(),
-        active_playback_layer_id=LayerId("bed"),
+        selected_layer_id=LayerId("bed"),
     )
     runtime_audio = CountingRuntimeAudio()
     widget = TimelineWidget(
@@ -209,7 +208,7 @@ def test_widget_set_presentation_routes_runtime_audio_without_rebuild_when_playb
 
         next_presentation = replace(
             presentation,
-            active_playback_layer_id=LayerId("kick_lane"),
+            selected_layer_id=LayerId("kick_lane"),
         )
         widget.set_presentation(next_presentation)
 
@@ -272,7 +271,7 @@ def test_widget_uses_precise_runtime_timer_with_8ms_interval():
     widget = TimelineWidget(presentation)
     try:
         assert widget._runtime_timer.timerType() == Qt.TimerType.PreciseTimer
-        assert widget._runtime_timer.interval() == 8
+        assert widget._runtime_timer.interval() == TIMELINE_RUNTIME_TICK_IDLE_MS
     finally:
         widget.close()
         app.processEvents()
@@ -304,7 +303,7 @@ def test_runtime_controller_uses_unified_sounddevice_backend_for_audio_layers():
 
         assert state.backend_name == "sounddevice"
         assert (
-            controller.engine.mixer.get_layer(TimelineRuntimeAudioController._MONITOR_LAYER_ID)
+            controller.engine.mixer.get_layer(TimelineRuntimeAudioController._PRIMARY_TRACK_ID)
             is not None
         )
     finally:
@@ -323,15 +322,13 @@ def test_widget_runtime_ticks_do_not_snap_backward_during_audio_route_churn():
         current = state["presentation"]
         updated = replace(
             current,
-            active_playback_layer_id=(
+            selected_layer_id=(
                 intent.layer_id
-                if isinstance(intent, SetActivePlaybackTarget)
-                else current.active_playback_layer_id
+                if isinstance(intent, SetLayerMute)
+                else current.selected_layer_id
             ),
-            active_playback_take_id=(
-                intent.take_id
-                if isinstance(intent, SetActivePlaybackTarget)
-                else current.active_playback_take_id
+            selected_take_id=(
+                current.selected_take_id
             ),
             playhead=0.0,
             is_playing=False,
@@ -360,13 +357,13 @@ def test_widget_runtime_ticks_do_not_snap_backward_during_audio_route_churn():
         samples.append(widget.presentation.playhead)
 
         runtime_audio.current_time = 4.018
-        widget._dispatch(SetActivePlaybackTarget(base_presentation.layers[0].layer_id))
+        widget._dispatch(SetLayerMute(layer_id=base_presentation.layers[0].layer_id, muted=True))
         samples.append(widget.presentation.playhead)
         widget._on_runtime_tick()
         samples.append(widget.presentation.playhead)
 
         runtime_audio.current_time = 4.019
-        widget._dispatch(SetActivePlaybackTarget(base_presentation.layers[0].layer_id))
+        widget._dispatch(SetLayerMute(layer_id=base_presentation.layers[0].layer_id, muted=False))
         samples.append(widget.presentation.playhead)
         widget._on_runtime_tick()
         samples.append(widget.presentation.playhead)
@@ -408,11 +405,15 @@ def test_widget_seek_churn_keeps_seek_anchor_through_stale_runtime_samples():
                 playhead=float(intent.position),
                 current_time_label="00:00.75",
             )
-        elif isinstance(intent, SetActivePlaybackTarget):
+        elif isinstance(intent, SetLayerMute):
             updated = replace(
                 current,
-                active_playback_layer_id=intent.layer_id,
-                active_playback_take_id=intent.take_id,
+                layers=[
+                    replace(layer, muted=bool(intent.muted))
+                    if layer.layer_id == intent.layer_id
+                    else layer
+                    for layer in current.layers
+                ],
                 playhead=0.0,
                 is_playing=False,
                 current_time_label="00:00.00",
@@ -448,11 +449,11 @@ def test_widget_seek_churn_keeps_seek_anchor_through_stale_runtime_samples():
         assert widget.presentation.playhead == 0.75
 
         runtime_audio.current_time = 0.720
-        widget._dispatch(SetActivePlaybackTarget(base_presentation.layers[0].layer_id))
+        widget._dispatch(SetLayerMute(layer_id=base_presentation.layers[0].layer_id, muted=True))
         assert widget.presentation.playhead == 0.75
 
         runtime_audio.current_time = 0.710
-        widget._dispatch(SetActivePlaybackTarget(base_presentation.layers[0].layer_id))
+        widget._dispatch(SetLayerMute(layer_id=base_presentation.layers[0].layer_id, muted=False))
         assert widget.presentation.playhead == 0.75
 
         runtime_audio.current_time = 0.810

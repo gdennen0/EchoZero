@@ -28,10 +28,10 @@ from echozero.application.timeline.object_action_scoped_config import (
 from echozero.application.timeline.object_action_settings_runtime_mixin import ObjectActionSettingsRuntimeMixin
 from echozero.application.timeline.object_actions.session import ObjectActionSettingsSession
 from echozero.application.timeline.object_actions.settings import ObjectActionSettingsPlan
-from echozero.application.timeline.pipeline_run_service import (
-    PipelineRunService,
-    PipelineRunState,
-    PreparedPipelineRun,
+from echozero.application.timeline.operation_progress_service import (
+    OperationProgressService,
+    OperationProgressState,
+    PreparedOperation,
 )
 from echozero.application.presentation.models import LayerPresentation, TimelinePresentation
 from echozero.application.session.models import Session
@@ -67,7 +67,7 @@ class ObjectActionSettingsService(
         presentation_getter: Callable[[], TimelinePresentation],
         require_layer: Callable[[object], LayerPresentation],
         analysis_service: Orchestrator,
-        active_run_lookup: Callable[[str, object | None, str | None], PipelineRunState | None] | None = None,
+        active_run_lookup: Callable[[str, object | None, str | None], OperationProgressState | None] | None = None,
     ) -> None:
         self._project_storage_getter = project_storage_getter
         self._session_getter = session_getter
@@ -177,12 +177,12 @@ class ObjectActionSettingsService(
                 for key, value in sorted(object_bindings.items())
             )
             summary = layer.title if layer is not None else "No target layer selected"
-            active_run = self._lookup_active_run(
+            active_operation = self._lookup_active_run(
                 action_id,
                 object_id=(object_id if object_id is not None else layer_id),
                 object_type=(object_type or (workflow.object_types[0] if workflow.object_types else "object")),
             )
-            is_running = PipelineRunService.is_active(active_run)
+            is_running = OperationProgressService.is_active(active_operation)
             run_label = "Run Again" if has_prior_outputs else "Run"
             warnings: tuple[str, ...] = (
                 (
@@ -192,8 +192,8 @@ class ObjectActionSettingsService(
             ) if missing_target_layer else ()
             if is_running:
                 run_label = "Running..."
-            elif active_run is not None and active_run.status == "failed" and active_run.error:
-                warnings = (*warnings, active_run.error)
+            elif active_operation is not None and active_operation.status == "failed" and active_operation.error:
+                warnings = (*warnings, active_operation.error)
             return ObjectActionSettingsPlan(
                 action_id=action_id,
                 title=workflow.label,
@@ -209,12 +209,12 @@ class ObjectActionSettingsService(
                 rerun_hint=rerun_hint,
                 summary=f"{summary} · {'Song Default' if scope == 'song_default' else 'This Version'}",
                 warnings=warnings,
-                run_id=active_run.run_id if active_run is not None else None,
+                operation_id=active_operation.operation_id if active_operation is not None else None,
                 is_running=is_running,
-                run_status=active_run.status if active_run is not None else "",
-                run_message=active_run.message if active_run is not None else "",
-                run_percent=active_run.percent if active_run is not None else None,
-                run_error=active_run.error if active_run is not None else None,
+                operation_status=active_operation.status if active_operation is not None else "",
+                operation_message=active_operation.message if active_operation is not None else "",
+                operation_fraction=active_operation.fraction_complete if active_operation is not None else None,
+                operation_error=active_operation.error if active_operation is not None else None,
             )
 
     @property
@@ -255,7 +255,7 @@ class ObjectActionSettingsService(
         object_id: object | None = None,
         object_type: str | None = None,
         persist_scope: str | None = "version",
-    ) -> PreparedPipelineRun:
+    ) -> PreparedOperation:
         """Resolve and optionally persist one object-action run without executing it."""
 
         with self.project_storage.locked():
@@ -279,7 +279,7 @@ class ObjectActionSettingsService(
             workflow_id = workflow.workflow_id
             if workflow_id is None:
                 raise ValueError(f"Unsupported object action '{action_id}'.")
-            return PreparedPipelineRun(
+            return PreparedOperation(
                 action_id=action_id,
                 workflow_id=workflow_id,
                 pipeline_template_id=pipeline_template_id,
@@ -413,7 +413,7 @@ class ObjectActionSettingsService(
         *,
         object_id: object | None,
         object_type: str | None,
-    ) -> PipelineRunState | None:
+    ) -> OperationProgressState | None:
         if self._active_run_lookup is None:
             return None
         return self._active_run_lookup(action_id, object_id, object_type)

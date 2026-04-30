@@ -49,6 +49,18 @@ def build_parser() -> argparse.ArgumentParser:
     review_serve.add_argument("--host", default="127.0.0.1")
     review_serve.add_argument("--port", type=int, default=8421)
 
+    extract_review_dataset = sub.add_parser("extract-project-review-dataset")
+    extract_review_dataset.add_argument("project_path")
+    extract_review_dataset.add_argument("--project-ref")
+    extract_review_dataset.add_argument("--song-id")
+    extract_review_dataset.add_argument("--song-version-id")
+    extract_review_dataset.add_argument("--layer-id")
+    extract_review_dataset.add_argument("--queue-source-kind", default="ez_project")
+
+    extract_signal = sub.add_parser("extract-review-signal")
+    extract_signal.add_argument("session_id")
+    extract_signal.add_argument("signal_id")
+
     plan = sub.add_parser("plan-version")
     plan.add_argument("version_id")
     plan.add_argument("--val", type=float, default=0.15)
@@ -203,6 +215,38 @@ def main(argv: list[str] | None = None) -> int:
             host=args.host,
             port=args.port,
         )
+
+    if args.command == "extract-project-review-dataset":
+        version = app.extract_project_review_dataset(
+            args.project_path,
+            project_ref=args.project_ref,
+            song_id=args.song_id,
+            song_version_id=args.song_version_id,
+            layer_id=args.layer_id,
+            queue_source_kind=args.queue_source_kind,
+        )
+        print(
+            json.dumps(
+                {
+                    "operation": "review_extraction",
+                    "dataset_id": version.dataset_id,
+                    "version_id": version.id,
+                    "version": version.version,
+                    "sample_count": int(version.stats.get("sample_count", len(version.samples))),
+                },
+                indent=2,
+            )
+        )
+        return 0
+
+    if args.command == "extract-review-signal":
+        payload = app.extract_review_signal(
+            session_id=args.session_id,
+            signal_id=args.signal_id,
+        )
+        payload["operation"] = "review_extraction"
+        print(json.dumps(payload, indent=2))
+        return 0
 
     if args.command == "plan-version":
         planned = app.plan_version(

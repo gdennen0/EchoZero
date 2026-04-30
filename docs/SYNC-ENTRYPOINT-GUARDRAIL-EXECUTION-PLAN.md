@@ -1,11 +1,13 @@
 # Sync Entrypoint Guardrail Execution Plan
 
-Status: active focused remediation plan
-Last updated: 2026-04-29
+Status: active
+Last reviewed: 2026-04-30
+
+
 
 This plan documents the execution order for closing the canonical app-shell sync-entrypoint gap.
-Use [docs/STATUS.md](/Users/march/Documents/GitHub/EchoZero/docs/STATUS.md:1) for current repo truth.
-Use [docs/TESTING.md](/Users/march/Documents/GitHub/EchoZero/docs/TESTING.md:1) for proof-lane rules.
+Use [docs/STATUS.md](STATUS.md) for current repo truth.
+Use [docs/TESTING.md](TESTING.md) for proof-lane rules.
 
 ## Goal
 

@@ -28,6 +28,15 @@ from echozero.runtime_models.loader import (
 
 _DEFAULT_MIN_EVENT_PEAK = 1e-3
 _DEFAULT_MIN_EVENT_RMS = 2e-4
+_REVIEW_METADATA_KEYS = frozenset(
+    {
+        "review",
+        "review_state",
+        "review_outcome",
+        "review_decision_kind",
+        "promotion_state",
+    }
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -431,7 +440,7 @@ def _apply_assignment_config(
             )
             resolved[candidate.label].append(
                 (
-                    _with_promotion_state(
+                    _with_detection_promotion_state(
                         candidate.event,
                         promotion_state="promoted" if candidate_promoted else "demoted",
                     ),
@@ -459,11 +468,13 @@ def _build_classified_event(
     event_rms: float,
 ) -> Event:
     threshold_passed = score >= positive_threshold
+    promotion_state = "promoted" if threshold_passed else "demoted"
     detection_metadata = {
         "schema": "echozero.event_detection.v1",
         "classifier_score": round(score, 4),
         "positive_threshold": round(positive_threshold, 4),
         "threshold_passed": threshold_passed,
+        "promotion_state": promotion_state,
         "source_audio": source_audio,
         "source_model": source_model,
         "model_artifact": model_artifact,
@@ -472,11 +483,6 @@ def _build_classified_event(
         "event_rms": round(event_rms, 6),
         "min_event_peak": round(assignment.min_event_peak, 6),
         "min_event_rms": round(assignment.min_event_rms, 6),
-    }
-    review_metadata = {
-        "schema": "echozero.event_review.v1",
-        "promotion_state": "promoted" if threshold_passed else "demoted",
-        "review_state": "unreviewed",
     }
     classifications = dict(event.classifications)
     classifications.update(
@@ -487,7 +493,7 @@ def _build_classified_event(
             "model_artifact": model_artifact,
         }
     )
-    metadata = dict(event.metadata)
+    metadata = _without_review_metadata(event.metadata)
     metadata.update(
         {
             "classified": True,
@@ -501,9 +507,6 @@ def _build_classified_event(
             "event_rms": round(event_rms, 6),
             "min_event_peak": round(assignment.min_event_peak, 6),
             "min_event_rms": round(assignment.min_event_rms, 6),
-            "promotion_state": review_metadata["promotion_state"],
-            "review_state": review_metadata["review_state"],
-            "review": review_metadata,
             "detection": detection_metadata,
         }
     )
@@ -519,19 +522,25 @@ def _event_threshold_passed(event: Event) -> bool:
     detection = event.metadata.get("detection")
     if isinstance(detection, dict) and "threshold_passed" in detection:
         return bool(detection.get("threshold_passed"))
-    return bool(event.metadata.get("classifier_score", 0.0) >= event.metadata.get("positive_threshold", 1.0))
+    return False
 
 
-def _with_promotion_state(event: Event, *, promotion_state: str) -> Event:
-    metadata = dict(event.metadata)
-    review_metadata = dict(event.metadata.get("review", {}))
-    review_metadata["schema"] = "echozero.event_review.v1"
-    review_metadata["promotion_state"] = promotion_state
-    review_metadata.setdefault("review_state", str(metadata.get("review_state", "unreviewed")))
-    metadata["promotion_state"] = promotion_state
-    metadata["review_state"] = review_metadata["review_state"]
-    metadata["review"] = review_metadata
-    return replace(event, metadata=metadata)
+def _with_detection_promotion_state(event: Event, *, promotion_state: str) -> Event:
+    detection_metadata = dict(event.metadata.get("detection") or {})
+    detection_metadata["promotion_state"] = promotion_state
+    next_metadata = dict(event.metadata)
+    next_metadata["detection"] = detection_metadata
+    return replace(
+        event,
+        metadata=next_metadata,
+    )
+
+
+def _without_review_metadata(metadata: dict[str, Any]) -> dict[str, Any]:
+    sanitized = dict(metadata or {})
+    for key in _REVIEW_METADATA_KEYS:
+        sanitized.pop(key, None)
+    return sanitized
 
 
 def _group_candidates_by_time(

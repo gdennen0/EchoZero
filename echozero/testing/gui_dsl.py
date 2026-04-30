@@ -14,6 +14,7 @@ SUPPORTED_ACTIONS = {
     "timeline.extract_classified_drums",
     "timeline.duplicate_selection",
     "timeline.extract_drum_events",
+    "timeline.extract_song_sections",
     "timeline.extract_stems",
     "timeline.nudge_selection",
     "selection.first_event",
@@ -105,6 +106,7 @@ def _validate_step(*, action: str, params: dict[str, Any], step_index: int) -> N
             raise ValueError(f"Step {step_index} song.version.add params.label must be a string")
     elif action in {
         "timeline.extract_stems",
+        "timeline.extract_song_sections",
         "timeline.extract_drum_events",
         "timeline.classify_drum_events",
         "timeline.extract_classified_drums",

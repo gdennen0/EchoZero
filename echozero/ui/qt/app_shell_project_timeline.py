@@ -177,7 +177,6 @@ def build_project_native_baseline_timeline(
     )
     timeline.selection.selected_layer_id = source_layer_id
     timeline.selection.selected_layer_ids = [source_layer_id]
-    timeline.playback_target.layer_id = source_layer_id
 
     return (
         timeline,

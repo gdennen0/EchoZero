@@ -29,16 +29,30 @@ from echozero.application.timeline.intents import (
     RenumberEventCueNumbers,
     Seek,
     SelectEveryOtherEvents,
-    SetActivePlaybackTarget,
+    SelectSimilarSoundingEvents,
     SetGain,
+    SetLayerMute,
     SetLayerOutputBus,
     SetLayerLiveSyncPauseReason,
     SetLayerLiveSyncState,
+    SetLayerSolo,
     TriggerTakeAction,
 )
-from echozero.application.timeline.object_actions import canonical_action_id
+from echozero.application.timeline.object_actions import resolve_action_id
+from echozero.persistence.audio import detect_ltc_channel, scan_audio_metadata
 
 _AUDIO_FILE_DIALOG_FILTER = "Audio Files (*.wav *.mp3 *.flac *.aiff *.aif *.ogg);;All Files (*)"
+_FIND_SIMILAR_SCOPE_LABELS: tuple[tuple[str, str], ...] = (
+    ("This Take", "take"),
+    ("This Layer (All Takes)", "layer"),
+    ("Selected Layers (Main Takes)", "selected_layers_main"),
+)
+_FIND_SIMILAR_STRENGTH_LABELS: tuple[tuple[str, str], ...] = (
+    ("Strict", "strict"),
+    ("Balanced", "balanced"),
+    ("Loose", "loose"),
+)
+_IMPORT_SMPTE_AS_IS_LABEL = "Import As-Is (No LTC Extraction)"
 
 
 class _TimelineRuntimeShell(Protocol):
@@ -140,7 +154,14 @@ class _ImportSmpteAudioLayerRuntimeShell(_TimelineRuntimeShell, Protocol):
         self,
         layer_id: str,
         audio_path: str,
+        *,
+        strip_ltc_timecode: bool = True,
+        ltc_channel_override: str | None = None,
     ) -> TimelinePresentation | None: ...
+
+
+class _AddImportSplitSmpteLayerRuntimeShell(_TimelineRuntimeShell, Protocol):
+    def add_smpte_layer_from_import_split(self) -> TimelinePresentation | None: ...
 
 
 class _PreviewEventRuntimeShell(_TimelineRuntimeShell, Protocol):
@@ -366,20 +387,17 @@ class TimelineWidgetContractActionMixin:
         """Execute one inspector contract action against the widget/runtime surface."""
         host = cast(_ContractActionHost, self)
         params = action.params
-        action_id = canonical_action_id(action.action_id) or action.action_id
+        action_id = resolve_action_id(action.action_id, warn_on_alias=True) or action.action_id
         if action_id == "seek_here":
             time_seconds = params.get("time_seconds")
             if isinstance(time_seconds, (int, float)):
                 host._dispatch(Seek(float(time_seconds)))
             return
-        if action_id == "nudge_left":
+        if action_id == "timeline.nudge_selection":
+            raw_direction = params.get("direction", "left")
+            direction = 1 if raw_direction in {1, "1", "right"} else -1
             host._dispatch(
-                NudgeSelectedEvents(direction=-1, steps=_coerce_step_count(params.get("steps", 1)))
-            )
-            return
-        if action_id == "nudge_right":
-            host._dispatch(
-                NudgeSelectedEvents(direction=1, steps=_coerce_step_count(params.get("steps", 1)))
+                NudgeSelectedEvents(direction=direction, steps=_coerce_step_count(params.get("steps", 1)))
             )
             return
         if action_id == "timeline.duplicate_selection":
@@ -392,13 +410,36 @@ class TimelineWidgetContractActionMixin:
             if scope is not None:
                 host._dispatch(SelectEveryOtherEvents(scope=scope))
             return
+        if action_id == "selection.find_similar_sounding":
+            layer_id = _coerce_layer_id(params.get("layer_id"))
+            take_id = _coerce_take_id(params.get("take_id"))
+            event_id = _coerce_event_id(params.get("event_id"))
+            if layer_id is None or take_id is None or event_id is None:
+                return
+            options = self._prompt_find_similar_sounding_options(
+                default_scope_mode="take",
+                default_match_strength="balanced",
+            )
+            if options is None:
+                return
+            scope_mode, match_strength = options
+            host._dispatch(
+                SelectSimilarSoundingEvents(
+                    layer_id=layer_id,
+                    take_id=take_id,
+                    event_id=event_id,
+                    scope_mode=scope_mode,
+                    match_strength=match_strength,
+                )
+            )
+            return
         if action_id == "selection.renumber_cues_from_one":
             scope = event_batch_scope_from_params(params)
             if scope is not None:
                 host._dispatch(RenumberEventCueNumbers(scope=scope, start_at=1, step=1))
             return
         if action_id == "song.add":
-            self._run_add_song_from_path_action()
+            self._run_add_song_from_path_action(params)
             return
         if action_id == "song.select":
             self._run_select_song_action(params)
@@ -424,14 +465,14 @@ class TimelineWidgetContractActionMixin:
         if action_id == "add_event_layer":
             self._run_add_layer_action(LayerKind.EVENT)
             return
-        if action_id == "add_marker_layer":
-            self._run_add_layer_action(LayerKind.MARKER)
-            return
         if action_id == "add_section_layer":
             self._run_add_layer_action(LayerKind.SECTION)
             return
         if action_id == "add_smpte_layer":
             self._run_add_layer_action(LayerKind.AUDIO, title="SMPTE Layer")
+            return
+        if action_id == "add_smpte_layer_from_import_split":
+            self._run_add_smpte_layer_from_import_split_action()
             return
         if action_id == "delete_layer":
             self._run_delete_layer_action(params)
@@ -442,16 +483,25 @@ class TimelineWidgetContractActionMixin:
         if action_id == "preview_event_clip":
             self._handle_preview_event_clip(params)
             return
-        if action_id == "set_active_playback_target":
-            layer_id = _coerce_layer_id(params.get("layer_id"))
-            if layer_id is not None:
-                host._dispatch(SetActivePlaybackTarget(layer_id=layer_id, take_id=None))
-            return
         if action_id in {"gain_down", "gain_unity", "gain_up", "set_gain_custom"}:
             layer_id = _coerce_layer_id(params.get("layer_id"))
             gain_db = params.get("gain_db")
             if layer_id is not None and isinstance(gain_db, (int, float)):
                 host._dispatch(SetGain(layer_id=layer_id, gain_db=float(gain_db)))
+            return
+        if action_id in {"set_layer_mute_on", "set_layer_mute_off"}:
+            layer_id = _coerce_layer_id(params.get("layer_id"))
+            if layer_id is None:
+                return
+            muted = bool(params.get("muted", action_id == "set_layer_mute_on"))
+            host._dispatch(SetLayerMute(layer_id=layer_id, muted=muted))
+            return
+        if action_id in {"set_layer_solo_on", "set_layer_solo_off"}:
+            layer_id = _coerce_layer_id(params.get("layer_id"))
+            if layer_id is None:
+                return
+            soloed = bool(params.get("soloed", action_id == "set_layer_solo_on"))
+            host._dispatch(SetLayerSolo(layer_id=layer_id, soloed=soloed))
             return
         if action_id == "set_layer_output_bus_auto" or action_id.startswith(
             "set_layer_output_bus_"
@@ -520,7 +570,7 @@ class TimelineWidgetContractActionMixin:
             state = LiveSyncState.OFF
         host._dispatch(SetLayerLiveSyncState(layer_id=layer_id, live_sync_state=state))
 
-    def _run_add_song_from_path_action(self) -> None:
+    def _run_add_song_from_path_action(self, params: dict[str, object] | None = None) -> None:
         host = cast(_ContractActionHost, self)
         runtime = cast(_AddSongRuntimeShell | None, host._resolve_runtime_shell())
         if runtime is None or not callable(getattr(runtime, "add_song_from_path", None)):
@@ -530,10 +580,20 @@ class TimelineWidgetContractActionMixin:
                 "This runtime does not support adding songs from a path.",
             )
             return
-        audio_path = self._prompt_for_audio_path(title="Select Audio File")
+        payload = params or {}
+        raw_audio_path = payload.get("audio_path")
+        audio_path = str(raw_audio_path).strip() if isinstance(raw_audio_path, str) else ""
+        if audio_path:
+            self._remember_audio_picker_directory(audio_path)
+        else:
+            audio_path = self._prompt_for_audio_path(title="Select Audio File") or ""
         if not audio_path:
             return
-        title = self._default_song_title_from_audio_path(audio_path)
+        requested_title = payload.get("title")
+        if isinstance(requested_title, str) and requested_title.strip():
+            title = requested_title.strip()
+        else:
+            title = self._default_song_title_from_audio_path(audio_path)
         configured_action_ids = self._configured_import_pipeline_action_ids(runtime)
         canonical_import = getattr(self, "_invoke_add_song_from_path", None)
         if callable(canonical_import) and configured_action_ids is not None:
@@ -987,10 +1047,124 @@ class TimelineWidgetContractActionMixin:
         if not audio_path:
             return
 
+        accepted, ltc_channel_override, strip_ltc_timecode = self._resolve_smpte_import_ltc_strategy(
+            audio_path
+        )
+        if not accepted:
+            return
+
         try:
-            updated = runtime.import_smpte_audio_to_layer(layer_id.strip(), audio_path)
+            updated = self._invoke_with_supported_kwargs(
+                runtime.import_smpte_audio_to_layer,
+                layer_id.strip(),
+                audio_path,
+                strip_ltc_timecode=strip_ltc_timecode,
+                ltc_channel_override=ltc_channel_override,
+            )
         except Exception as exc:
             host._message_box.warning(host._widget, "Import SMPTE Audio", str(exc))
+            return
+        host._set_presentation(updated if updated is not None else runtime.presentation())
+
+    def _resolve_smpte_import_ltc_strategy(
+        self,
+        audio_path: str,
+    ) -> tuple[bool, str | None, bool]:
+        source_path = Path(audio_path).expanduser()
+        if not source_path.exists():
+            return True, None, True
+
+        try:
+            metadata = scan_audio_metadata(source_path)
+        except Exception:
+            return True, None, True
+        if int(metadata.channel_count) < 2:
+            return True, None, False
+
+        strict_channel = detect_ltc_channel(source_path, mode="strict")
+        if strict_channel in {"left", "right"}:
+            return True, strict_channel, True
+
+        aggressive_channel = detect_ltc_channel(source_path, mode="aggressive")
+        return self._prompt_smpte_ltc_channel_choice(aggressive_channel)
+
+    def _prompt_smpte_ltc_channel_choice(
+        self,
+        aggressive_channel: str | None,
+    ) -> tuple[bool, str | None, bool]:
+        host = cast(_ContractActionHost, self)
+        option_labels: list[str] = []
+        option_values: dict[str, tuple[str | None, bool]] = {}
+        prompt = "LTC detection was not confident. Choose how to import this stereo file."
+
+        if aggressive_channel in {"left", "right"}:
+            recommended_label = (
+                f"Use {aggressive_channel.title()} Channel as LTC (Recommended)"
+            )
+            alternate_channel = "right" if aggressive_channel == "left" else "left"
+            alternate_label = f"Use {alternate_channel.title()} Channel as LTC"
+            option_labels = [
+                recommended_label,
+                alternate_label,
+                _IMPORT_SMPTE_AS_IS_LABEL,
+            ]
+            option_values = {
+                recommended_label: (aggressive_channel, True),
+                alternate_label: (alternate_channel, True),
+                _IMPORT_SMPTE_AS_IS_LABEL: (None, False),
+            }
+            prompt = (
+                "LTC detection is low confidence for this stereo file. "
+                "Choose which channel should be treated as LTC."
+            )
+        else:
+            option_labels = [
+                "Use Left Channel as LTC",
+                "Use Right Channel as LTC",
+                _IMPORT_SMPTE_AS_IS_LABEL,
+            ]
+            option_values = {
+                "Use Left Channel as LTC": ("left", True),
+                "Use Right Channel as LTC": ("right", True),
+                _IMPORT_SMPTE_AS_IS_LABEL: (None, False),
+            }
+
+        selected_label, accepted = host._input_dialog.getItem(
+            host._widget,
+            "Import SMPTE Audio",
+            prompt,
+            option_labels,
+            0,
+            False,
+        )
+        if not accepted:
+            return False, None, False
+        selected_value = option_values.get(str(selected_label))
+        if selected_value is None:
+            return False, None, False
+        override, strip_ltc = selected_value
+        return True, override, strip_ltc
+
+    def _run_add_smpte_layer_from_import_split_action(self) -> None:
+        host = cast(_ContractActionHost, self)
+        runtime = cast(
+            _AddImportSplitSmpteLayerRuntimeShell | None,
+            host._resolve_runtime_shell(),
+        )
+        if runtime is None or not callable(
+            getattr(runtime, "add_smpte_layer_from_import_split", None)
+        ):
+            host._message_box.warning(
+                host._widget,
+                "Add SMPTE Layer from Import Split",
+                "This runtime does not support adding SMPTE layers from import splits.",
+            )
+            return
+
+        try:
+            updated = runtime.add_smpte_layer_from_import_split()
+        except Exception as exc:
+            host._message_box.warning(host._widget, "Add SMPTE Layer from Import Split", str(exc))
             return
         host._set_presentation(updated if updated is not None else runtime.presentation())
 
@@ -1416,6 +1590,62 @@ class TimelineWidgetContractActionMixin:
             None,
         )
         return None if selected_song is None else selected_song.song_id
+
+    def _prompt_find_similar_sounding_options(
+        self,
+        *,
+        default_scope_mode: str,
+        default_match_strength: str,
+    ) -> tuple[str, str] | None:
+        host = cast(_ContractActionHost, self)
+        scope_labels = [label for label, _value in _FIND_SIMILAR_SCOPE_LABELS]
+        scope_lookup = {label: value for label, value in _FIND_SIMILAR_SCOPE_LABELS}
+        default_scope_index = next(
+            (
+                index
+                for index, (_label, value) in enumerate(_FIND_SIMILAR_SCOPE_LABELS)
+                if value == default_scope_mode
+            ),
+            0,
+        )
+        selected_scope_label, accepted = host._input_dialog.getItem(
+            host._widget,
+            "Find Similar Sounds",
+            "Scope",
+            scope_labels,
+            default_scope_index,
+            False,
+        )
+        if not accepted:
+            return None
+        scope_mode = scope_lookup.get(selected_scope_label)
+        if scope_mode is None:
+            return None
+
+        strength_labels = [label for label, _value in _FIND_SIMILAR_STRENGTH_LABELS]
+        strength_lookup = {label: value for label, value in _FIND_SIMILAR_STRENGTH_LABELS}
+        default_strength_index = next(
+            (
+                index
+                for index, (_label, value) in enumerate(_FIND_SIMILAR_STRENGTH_LABELS)
+                if value == default_match_strength
+            ),
+            1,
+        )
+        selected_strength_label, accepted = host._input_dialog.getItem(
+            host._widget,
+            "Find Similar Sounds",
+            "Match Strength",
+            strength_labels,
+            default_strength_index,
+            False,
+        )
+        if not accepted:
+            return None
+        match_strength = strength_lookup.get(selected_strength_label)
+        if match_strength is None:
+            return None
+        return (scope_mode, match_strength)
 
     def _resolve_song_title(self, song_id: str) -> str:
         host = cast(_ContractActionHost, self)

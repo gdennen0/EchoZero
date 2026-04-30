@@ -1,6 +1,9 @@
 # EZ2 Codebase Cleanup Map
 
-_Updated: 2026-04-15_
+Status: reference
+Last reviewed: 2026-04-30
+
+
 
 This file is the working map for the EZ2-only branch state.
 

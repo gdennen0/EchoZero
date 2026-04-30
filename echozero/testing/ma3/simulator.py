@@ -1099,14 +1099,31 @@ class SimulatedMA3Bridge:
             track_group_no=track_group_no,
         )
 
+    def refresh_tracks(
+        self,
+        *,
+        timecode_no: int | None = None,
+        track_group_no: int | None = None,
+    ) -> list[MA3TrackSnapshot]:
+        return self._require_bridge().refresh_tracks(
+            timecode_no=timecode_no,
+            track_group_no=track_group_no,
+        )
+
     def list_timecodes(self) -> list[MA3TimecodeSnapshot]:
         return self._require_bridge().list_timecodes()
 
     def list_track_groups(self, *, timecode_no: int) -> list[MA3TrackGroupSnapshot]:
         return self._require_bridge().list_track_groups(timecode_no=timecode_no)
 
+    def refresh_track_groups(self, *, timecode_no: int) -> list[MA3TrackGroupSnapshot]:
+        return self._require_bridge().refresh_track_groups(timecode_no=timecode_no)
+
     def list_track_events(self, track_coord: str) -> list[MA3EventSnapshot]:
         return self._require_bridge().list_track_events(track_coord)
+
+    def refresh_track_events(self, track_coord: str) -> list[MA3EventSnapshot]:
+        return self._require_bridge().refresh_track_events(track_coord)
 
     def list_sequences(
         self,
@@ -1211,6 +1228,12 @@ class SimulatedMA3Bridge:
 
     def prepare_track_for_events(self, *, target_track_coord: str) -> None:
         self._require_bridge().prepare_track_for_events(target_track_coord=target_track_coord)
+
+    def send_console_command(self, command: str) -> None:
+        self._require_bridge().send_console_command(command)
+
+    def reload_plugins(self) -> None:
+        self._require_bridge().reload_plugins()
 
     def apply_push_transfer(
         self,

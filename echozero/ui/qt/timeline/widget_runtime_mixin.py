@@ -6,6 +6,7 @@ Connects presentation updates and runtime timing to the reusable timeline contro
 from __future__ import annotations
 
 import time
+from math import pow
 from collections.abc import Callable
 from dataclasses import replace
 from typing import Protocol, cast
@@ -15,14 +16,19 @@ from PyQt6.QtWidgets import QFrame, QLabel, QScrollArea, QScrollBar, QWidget
 
 from echozero.application.playback.timecode import format_clock_label
 from echozero.application.presentation.models import TimelinePresentation
+from echozero.application.shared.enums import FollowMode
+from echozero.application.timeline.ma3_push_intents import PollMA3PushOperation
 from echozero.application.timeline.intents import (
     Seek,
+    SetFollowCursorEnabled,
     SelectAdjacentEventInSelectedLayer,
     Stop,
     TimelineIntent,
 )
 from echozero.application.timeline.models import EventRef
 from echozero.ui.FEEL import (
+    TIMELINE_RUNTIME_TICK_ACTIVE_MS,
+    TIMELINE_RUNTIME_TICK_IDLE_MS,
     TIMELINE_ZOOM_MAX_PPS,
     TIMELINE_ZOOM_MIN_PPS,
     TIMELINE_ZOOM_STEP_FACTOR,
@@ -42,11 +48,14 @@ from echozero.ui.qt.timeline.widget_controls import (
 from echozero.ui.qt.timeline.widget_viewport import (
     compute_follow_scroll_x,
     compute_scroll_bounds,
+    estimate_timeline_span_seconds,
 )
+
+_MA3_PUSH_SUCCESS_BANNER_AUTO_DISMISS_MS = 3500
 
 
 class _RuntimeShellWithPipelineUpdate(Protocol):
-    def consume_pipeline_run_presentation_update(self) -> TimelinePresentation | None: ...
+    def consume_operation_presentation_update(self) -> TimelinePresentation | None: ...
 
 
 class _TimelineWidgetRuntimeHost(Protocol):
@@ -69,6 +78,10 @@ class _TimelineWidgetRuntimeHost(Protocol):
     _editor_bar: TimelineEditorModeBar
     _pipeline_status: QFrame
     _pipeline_status_label: QLabel
+    _pipeline_status_visible_key: str | None
+    _pipeline_status_dismissed_key: str | None
+    _pipeline_status_auto_dismiss_timer: object
+    _runtime_timer: object
 
     def width(self) -> int: ...
     def _refresh_object_info_panel(self) -> None: ...
@@ -79,6 +92,8 @@ class _TimelineWidgetRuntimeHost(Protocol):
     def _sync_editor_state(self) -> None: ...
     def _sync_pipeline_status_banner(self) -> None: ...
     def _set_pipeline_status_tone(self, tone: str) -> None: ...
+    def _dismiss_pipeline_status_banner(self) -> None: ...
+    def _on_pipeline_status_auto_dismiss_timeout(self) -> None: ...
     def _set_snap_enabled(self, enabled: bool) -> None: ...
     def _set_fix_nav_include_demoted(self, enabled: bool) -> None: ...
     def _toggle_fix_nav_include_demoted(self) -> None: ...
@@ -88,6 +103,7 @@ class _TimelineWidgetRuntimeHost(Protocol):
     def _stabilize_runtime_playhead(self, runtime_time: float, *, playing: bool) -> float: ...
     def _current_runtime_timing_snapshot(self) -> RuntimeAudioTimingSnapshot | None: ...
     def _resolve_runtime_time(self, snapshot: RuntimeAudioTimingSnapshot | None) -> float: ...
+    def _sync_runtime_timer_cadence(self) -> None: ...
 
 
 class TimelineWidgetRuntimeMixin:
@@ -124,11 +140,9 @@ class TimelineWidgetRuntimeMixin:
         self._sync_editor_state()
         self._sync_pipeline_status_banner()
         self._refresh_object_info_panel()
-        space_pause_shortcut = getattr(self, "_space_pause_shortcut", None)
-        if space_pause_shortcut is not None and hasattr(space_pause_shortcut, "setEnabled"):
-            space_pause_shortcut.setEnabled(bool(self.presentation.is_playing))
         self._ruler.set_presentation(self.presentation)
         self._canvas.set_presentation(self.presentation)
+        self._sync_runtime_timer_cadence()
         if self._runtime_audio is not None:
             if hasattr(self._runtime_audio, "presentation_signature"):
                 runtime_signature = self._runtime_audio.presentation_signature(self.presentation)
@@ -184,7 +198,11 @@ class TimelineWidgetRuntimeMixin:
     ) -> None:
         viewport_widget = self._scroll.viewport()
         viewport = max(1, viewport_widget.width() if viewport_widget is not None else self.width())
-        _, max_scroll = compute_scroll_bounds(self.presentation, viewport)
+        _, max_scroll = compute_scroll_bounds(
+            self.presentation,
+            viewport,
+            header_width=self._canvas._header_width,
+        )
 
         current = int(round(self.presentation.scroll_x))
         clamped = max(0, min(current, max_scroll))
@@ -218,9 +236,11 @@ class TimelineWidgetRuntimeMixin:
     ) -> None:
         if delta == 0:
             return
+        if self.presentation.follow_mode != FollowMode.OFF:
+            self._dispatch(SetFollowCursorEnabled(enabled=False))
         if abs(delta) >= 120.0:
-            notches = max(-6, min(6, int(delta / 120)))
-            scroll_delta = float(notches * self._hscroll.singleStep())
+            scaled = max(-24.0, min(24.0, float(delta) / 120.0))
+            scroll_delta = float(scaled * self._hscroll.singleStep())
         else:
             scroll_delta = delta
         next_value = int(round(self._hscroll.value() + scroll_delta))
@@ -258,22 +278,77 @@ class TimelineWidgetRuntimeMixin:
         self._ruler.set_editor_mode(self._edit_mode)
 
     def _sync_pipeline_status_banner(self: _TimelineWidgetRuntimeHost) -> None:
-        banner = self.presentation.pipeline_run_banner
+        timer = getattr(self, "_pipeline_status_auto_dismiss_timer", None)
+
+        banner = self.presentation.operation_progress_banner
         if banner is None:
+            manual_push_flow = self.presentation.manual_push_flow
+            operation_status = str(manual_push_flow.operation_status or "idle").strip().lower()
+            if operation_status in {"running", "success", "error"}:
+                message = str(manual_push_flow.operation_message or "").strip()
+                if operation_status == "running":
+                    prefix = "MA3 Push Running"
+                    tone = "running"
+                    self._pipeline_status_dismissed_key = None
+                elif operation_status == "success":
+                    prefix = "MA3 Push Complete"
+                    tone = "success"
+                else:
+                    prefix = "MA3 Push Failed"
+                    tone = "error"
+                banner_text = message if message else prefix
+                banner_key = f"ma3:{operation_status}:{banner_text}"
+                self._pipeline_status_visible_key = banner_key
+                if self._pipeline_status_dismissed_key == banner_key:
+                    self._pipeline_status.setVisible(False)
+                    return
+                self._pipeline_status_label.setText(banner_text)
+                self._set_pipeline_status_tone(tone)
+                self._pipeline_status.setVisible(True)
+                if hasattr(timer, "stop"):
+                    timer.stop()
+                if operation_status == "success" and hasattr(timer, "start"):
+                    timer.start(_MA3_PUSH_SUCCESS_BANNER_AUTO_DISMISS_MS)
+                return
+            self._pipeline_status_visible_key = None
             self._pipeline_status_label.setText("")
             self._set_pipeline_status_tone("")
             self._pipeline_status.setVisible(False)
+            if hasattr(timer, "stop"):
+                timer.stop()
             return
+
+        if hasattr(timer, "stop"):
+            timer.stop()
         detail = (banner.message or banner.status.replace("_", " ").title()).strip()
         percent_text = ""
-        if banner.percent is not None and not banner.is_error:
-            percent_text = f" ({int(round(float(banner.percent) * 100.0))}%)"
+        if banner.fraction_complete is not None and not banner.is_error:
+            percent_text = f" ({int(round(float(banner.fraction_complete) * 100.0))}%)"
         prefix = "Pipeline Failed" if banner.is_error else "Pipeline Running"
-        self._pipeline_status_label.setText(
-            f"{prefix}: {banner.title} · {detail}{percent_text}"
+        text = f"{prefix}: {banner.title} · {detail}{percent_text}"
+        banner_key = (
+            f"pipeline:{banner.operation_id}:{banner.status}:{banner.message or ''}:"
+            f"{banner.fraction_complete}:{banner.is_error}"
         )
+        self._pipeline_status_visible_key = banner_key
+        if self._pipeline_status_dismissed_key == banner_key:
+            self._pipeline_status.setVisible(False)
+            return
+        self._pipeline_status_label.setText(text)
         self._set_pipeline_status_tone("error" if banner.is_error else "running")
         self._pipeline_status.setVisible(True)
+
+    def _dismiss_pipeline_status_banner(self: _TimelineWidgetRuntimeHost) -> None:
+        key = getattr(self, "_pipeline_status_visible_key", None)
+        if key:
+            self._pipeline_status_dismissed_key = str(key)
+        timer = getattr(self, "_pipeline_status_auto_dismiss_timer", None)
+        if hasattr(timer, "stop"):
+            timer.stop()
+        self._pipeline_status.setVisible(False)
+
+    def _on_pipeline_status_auto_dismiss_timeout(self: _TimelineWidgetRuntimeHost) -> None:
+        self._dismiss_pipeline_status_banner()
 
     def _set_pipeline_status_tone(self: _TimelineWidgetRuntimeHost, tone: str) -> None:
         current_tone = str(self._pipeline_status.property("tone") or "")
@@ -348,8 +423,32 @@ class TimelineWidgetRuntimeMixin:
     ) -> None:
         if delta == 0:
             return
-        factor = TIMELINE_ZOOM_STEP_FACTOR if delta > 0 else (1.0 / TIMELINE_ZOOM_STEP_FACTOR)
+        zoom_steps = float(delta) / 120.0
+        factor = float(pow(TIMELINE_ZOOM_STEP_FACTOR, zoom_steps))
         self._apply_zoom_factor(factor, anchor_x=anchor_x)
+
+    def _zoom_to_fit_all(self: _TimelineWidgetRuntimeHost) -> None:
+        viewport_widget = self._scroll.viewport()
+        viewport = max(1, viewport_widget.width() if viewport_widget is not None else self.width())
+        content_width = max(1.0, float(viewport - self._canvas._header_width))
+        span_seconds = max(0.01, float(estimate_timeline_span_seconds(self.presentation)))
+        target_pps = max(
+            TIMELINE_ZOOM_MIN_PPS,
+            min(TIMELINE_ZOOM_MAX_PPS, content_width / span_seconds),
+        )
+        if abs(target_pps - float(self.presentation.pixels_per_second)) < 0.001:
+            return
+
+        self.presentation = replace(
+            self.presentation,
+            pixels_per_second=float(target_pps),
+            scroll_x=0.0,
+        )
+        self._update_horizontal_scroll_bounds(sync_bar_value=True)
+        self._transport.set_presentation(self.presentation)
+        self._ruler.set_presentation(self.presentation)
+        self._canvas.set_presentation(self.presentation, recompute_layout=False)
+        self._sync_pipeline_status_banner()
 
     def _apply_zoom_factor(
         self: _TimelineWidgetRuntimeHost,
@@ -491,11 +590,16 @@ class TimelineWidgetRuntimeMixin:
         return None
 
     def _on_runtime_tick(self: _TimelineWidgetRuntimeHost) -> None:
+        operation_id = str(self.presentation.manual_push_flow.operation_id or "").strip()
+        operation_status = str(self.presentation.manual_push_flow.operation_status or "").strip().lower()
+        if operation_id and operation_status == "running":
+            self._dispatch(PollMA3PushOperation(operation_id=operation_id))
+
         runtime = self._resolve_runtime_shell()
         consume_pipeline_update = (
-            cast(_RuntimeShellWithPipelineUpdate, runtime).consume_pipeline_run_presentation_update
+            cast(_RuntimeShellWithPipelineUpdate, runtime).consume_operation_presentation_update
             if runtime is not None
-            and callable(getattr(runtime, "consume_pipeline_run_presentation_update", None))
+            and callable(getattr(runtime, "consume_operation_presentation_update", None))
             else None
         )
         if callable(consume_pipeline_update):
@@ -510,6 +614,7 @@ class TimelineWidgetRuntimeMixin:
                 self.set_presentation(updated)
 
         if self._runtime_audio is None:
+            self._sync_runtime_timer_cadence()
             return
 
         current_time, playing = self._sample_runtime_playhead()
@@ -520,6 +625,7 @@ class TimelineWidgetRuntimeMixin:
             and playing == self.presentation.is_playing
             and current_label == self.presentation.current_time_label
         ):
+            self._sync_runtime_timer_cadence()
             return
 
         next_presentation = replace(
@@ -540,6 +646,23 @@ class TimelineWidgetRuntimeMixin:
         self._ruler.set_presentation(self.presentation)
         self._canvas.set_presentation(self.presentation, recompute_layout=False)
         self._sync_pipeline_status_banner()
+        self._sync_runtime_timer_cadence()
+
+    def _sync_runtime_timer_cadence(self: _TimelineWidgetRuntimeHost) -> None:
+        timer = getattr(self, "_runtime_timer", None)
+        if timer is None or not hasattr(timer, "setInterval"):
+            return
+        active = (
+            bool(self.presentation.is_playing)
+            or self.presentation.operation_progress_banner is not None
+            or str(self.presentation.manual_push_flow.operation_status or "").strip().lower()
+            == "running"
+        )
+        interval = TIMELINE_RUNTIME_TICK_ACTIVE_MS if active else TIMELINE_RUNTIME_TICK_IDLE_MS
+        current_interval = int(timer.interval()) if hasattr(timer, "interval") else None
+        if current_interval == int(interval):
+            return
+        timer.setInterval(int(interval))
 
     def _sample_runtime_playhead(
         self: _TimelineWidgetRuntimeHost,

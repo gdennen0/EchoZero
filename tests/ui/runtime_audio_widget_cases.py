@@ -9,7 +9,7 @@ from tests.ui.runtime_audio_support import (
     test_widget_seek_churn_keeps_seek_anchor_through_stale_runtime_samples,
     test_widget_set_presentation_avoids_rebuilding_runtime_layers_when_sources_unchanged,
     test_widget_set_presentation_rebuilds_runtime_layers_when_event_slice_source_changes,
-    test_widget_set_presentation_routes_runtime_audio_without_rebuild_when_playback_target_changes,
+    test_widget_set_presentation_routes_runtime_audio_without_rebuild_when_selection_changes,
     test_widget_uses_precise_runtime_timer_with_8ms_interval,
     test_widget_zoom_keeps_anchor_time_under_cursor,
 )

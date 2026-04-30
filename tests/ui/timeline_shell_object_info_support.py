@@ -47,7 +47,6 @@ def test_object_info_panel_shows_current_song_version_without_selection():
             _song_switching_presentation(),
             selected_layer_id=None,
             selected_layer_ids=[],
-            active_playback_layer_id=None,
         )
     )
     try:
@@ -80,9 +79,8 @@ def test_object_info_panel_updates_for_layer_selection():
         assert "main take: take_main" in info
         assert "takes: 2" in info
         assert "status flags: none" in info
-        assert "playback state: Set Active" in info
+        assert "playback state: Selected" in info
         assert "selected identity: Layer Kick (layer_kick)" in info
-        assert "playback target: none" in info
     finally:
         widget.close()
         app.processEvents()
@@ -154,6 +152,104 @@ def test_object_info_panel_audio_output_route_selector_dispatches_set_layer_outp
         app.processEvents()
 
 
+def test_object_info_panel_audio_settings_panel_reflects_and_dispatches_layer_mix_state():
+    app = QApplication.instance() or QApplication([])
+    intents: list[object] = []
+    base = _selection_test_presentation()
+    audio_layer = replace(
+        base.layers[0],
+        kind=LayerKind.AUDIO,
+        source_audio_path="kick.wav",
+        playback_source_ref="kick.wav",
+        muted=True,
+        soloed=True,
+        gain_db=-6.0,
+        output_bus="outputs_3_4",
+    )
+    presentation = replace(
+        base,
+        layers=[audio_layer],
+        selected_layer_id=LayerId("layer_kick"),
+        selected_layer_ids=[LayerId("layer_kick")],
+        playback_output_channels=4,
+    )
+    widget = TimelineWidget(
+        presentation, on_intent=lambda intent: intents.append(intent) or presentation
+    )
+
+    try:
+        _render_for_hit_testing(widget)
+
+        assert widget._object_info._layer_controls_title.text().startswith("Layer: Kick")
+        assert widget._object_info._panel_mute_btn.text() == "Unmute"
+        assert widget._object_info._panel_solo_btn.text() == "Unsolo"
+        assert widget._object_info._output_bus_combo.currentText() == "Outputs 3/4"
+        assert widget._object_info._gain_spin.value() == -6.0
+
+        widget._object_info._panel_mute_btn.click()
+        widget._object_info._panel_solo_btn.click()
+        widget._object_info._gain_up_btn.click()
+        widget._object_info._gain_spin.setValue(1.5)
+        widget._object_info._gain_apply_btn.click()
+
+        assert intents == [
+            SetLayerMute(layer_id=LayerId("layer_kick"), muted=False),
+            SetLayerSolo(layer_id=LayerId("layer_kick"), soloed=False),
+            SetGain(layer_id=LayerId("layer_kick"), gain_db=6.0),
+            SetGain(layer_id=LayerId("layer_kick"), gain_db=1.5),
+        ]
+    finally:
+        widget.close()
+        app.processEvents()
+
+
+def test_object_info_panel_mix_buttons_dispatch_mute_and_solo_intents():
+    app = QApplication.instance() or QApplication([])
+    intents: list[object] = []
+    base = _selection_test_presentation()
+    audio_layer = replace(base.layers[0], kind=LayerKind.AUDIO)
+    presentation = replace(
+        base,
+        layers=[audio_layer],
+        selected_layer_id=LayerId("layer_kick"),
+        selected_layer_ids=[LayerId("layer_kick")],
+    )
+    widget = TimelineWidget(
+        presentation, on_intent=lambda intent: intents.append(intent) or presentation
+    )
+    try:
+        _render_for_hit_testing(widget)
+
+        widget._object_info._action_buttons["set_layer_mute_on"].click()
+        widget._object_info._action_buttons["set_layer_solo_on"].click()
+
+        assert intents == [
+            SetLayerMute(layer_id=LayerId("layer_kick"), muted=True),
+            SetLayerSolo(layer_id=LayerId("layer_kick"), soloed=True),
+        ]
+    finally:
+        widget.close()
+        app.processEvents()
+
+
+def test_object_info_panel_event_layer_hides_mix_buttons():
+    app = QApplication.instance() or QApplication([])
+    base = _selection_test_presentation()
+    presentation = replace(
+        base,
+        selected_layer_id=LayerId("layer_kick"),
+        selected_layer_ids=[LayerId("layer_kick")],
+    )
+    widget = TimelineWidget(presentation, on_intent=lambda intent: presentation)
+    try:
+        _render_for_hit_testing(widget)
+        assert "set_layer_mute_on" not in widget._object_info._action_buttons
+        assert "set_layer_solo_on" not in widget._object_info._action_buttons
+    finally:
+        widget.close()
+        app.processEvents()
+
+
 def test_object_info_panel_updates_for_main_lane_event_selection():
     app = QApplication.instance() or QApplication([])
     harness = _SelectionInspectorHarness(_selection_test_presentation())
@@ -170,9 +266,8 @@ def test_object_info_panel_updates_for_main_lane_event_selection():
         assert "duration: 0.50s" in info
         assert "layer: Kick" in info
         assert "take: Main take (take_main)" in info
-        assert "playback state: Set Active" in info
+        assert "playback state: Selected" in info
         assert "selected identity: Event Main (main_evt) on Kick / Main take (take_main)" in info
-        assert "playback target: none" in info
     finally:
         widget.close()
         app.processEvents()
@@ -192,16 +287,39 @@ def test_object_info_panel_batch_buttons_dispatch_scoped_event_intents():
     widget = TimelineWidget(
         presentation, on_intent=lambda intent: intents.append(intent) or presentation
     )
+
+    class _FindSimilarDialog:
+        _responses = [
+            ("This Take", True),
+            ("Balanced", True),
+        ]
+
+        @classmethod
+        def getItem(cls, *_args, **_kwargs):
+            if cls._responses:
+                return cls._responses.pop(0)
+            return ("Balanced", True)
+
+    widget._action_router._input_dialog = _FindSimilarDialog
     try:
         _render_for_hit_testing(widget)
 
+        assert "selection.find_similar_sounding" in widget._object_info._action_buttons
         assert "selection.select_every_other" in widget._object_info._action_buttons
         assert "selection.renumber_cues_from_one" in widget._object_info._action_buttons
 
+        widget._object_info._action_buttons["selection.find_similar_sounding"].click()
         widget._object_info._action_buttons["selection.select_every_other"].click()
         widget._object_info._action_buttons["selection.renumber_cues_from_one"].click()
 
         assert intents == [
+            SelectSimilarSoundingEvents(
+                layer_id=LayerId("layer_kick"),
+                take_id=TakeId("take_main"),
+                event_id=EventId("main_evt"),
+                scope_mode="take",
+                match_strength="balanced",
+            ),
             SelectEveryOtherEvents(scope=EventBatchScope(mode="selected_events")),
             RenumberEventCueNumbers(
                 scope=EventBatchScope(mode="selected_events"),
@@ -253,9 +371,8 @@ def test_object_info_panel_updates_for_take_lane_event_selection():
         assert "duration: 0.50s" in info
         assert "layer: Kick" in info
         assert "take: Take 2 (take_alt)" in info
-        assert "playback state: Set Active" in info
+        assert "playback state: Selected" in info
         assert "selected identity: Event Take (take_evt) on Kick / Take 2 (take_alt)" in info
-        assert "playback target: none" in info
     finally:
         widget.close()
         app.processEvents()
@@ -302,25 +419,15 @@ def test_object_info_panel_event_clip_button_routes_to_runtime_preview():
         app.processEvents()
 
 
-def test_object_info_panel_shows_playback_target_separately_when_nothing_is_selected():
+def test_object_info_panel_shows_timeline_when_nothing_is_selected():
     app = QApplication.instance() or QApplication([])
-    presentation = replace(
-        _selection_test_presentation(),
-        active_playback_layer_id=LayerId("layer_kick"),
-        active_playback_take_id=TakeId("take_main"),
-    )
+    presentation = _selection_test_presentation()
     widget = TimelineWidget(presentation)
     try:
         _render_for_hit_testing(widget)
 
         info = widget._object_info.text()
-        assert info == "\n".join(
-            [
-                "Timeline",
-                "selected identity: none",
-                "playback target: Active Kick / Main take (take_main)",
-            ]
-        )
+        assert info == "No timeline object selected."
     finally:
         widget.close()
         app.processEvents()
@@ -573,9 +680,9 @@ def test_context_menu_timeline_hit_is_scoped_to_timeline_actions():
 
         assert "Add Song" in labels
         assert "Add SMPTE Layer" in labels
+        assert "Add SMPTE Layer from Import Split" in labels
         assert any(label.startswith("Seek to") for label in labels)
         assert "Push to MA3" not in labels
-        assert "Route Audio to Master" not in labels
         assert "Overwrite Main" not in labels
         assert "Delete Take" not in labels
     finally:
@@ -604,7 +711,6 @@ def test_context_menu_layer_hit_is_scoped_to_layer_actions():
         assert "Send to Different Track Once" in labels
         assert "Push to MA3" not in labels
         assert "Pull from MA3" not in labels
-        assert "Route Audio to Master" in labels
         assert "Select Every Other in Layer" in labels
         assert "Renumber Cues from 1 in Layer" in labels
         assert "Add Song" not in labels
@@ -676,7 +782,6 @@ def test_context_menu_take_hit_is_scoped_to_take_actions():
         assert "Send Layer to MA3" in labels
         assert "Send Selected Events to MA3" in labels
         assert "Send to Different Track Once" in labels
-        assert "Route Audio to Master" not in labels
         assert "Add Song" not in labels
     finally:
         widget.close()
@@ -719,7 +824,6 @@ def test_context_menu_event_hit_is_scoped_to_event_selection_actions():
         assert "Send Selected Events to MA3" in labels
         assert "Send to Different Track Once" in labels
         assert "Push to MA3" not in labels
-        assert "Route Audio to Master" not in labels
         assert "Add Song" not in labels
     finally:
         widget.close()
@@ -751,6 +855,94 @@ def test_context_menu_unselected_main_event_can_send_single_event_to_ma3():
         assert "Route Layer to MA3 Track" in labels
         assert "Send Layer to MA3" in labels
         assert "Send to Different Track Once" in labels
+    finally:
+        widget.close()
+        app.processEvents()
+
+
+def test_fix_mode_demoted_event_context_menu_exposes_and_dispatches_find_similar_sounds():
+    app = QApplication.instance() or QApplication([])
+    intents: list[object] = []
+    base = _selection_test_presentation()
+    demoted_event = EventPresentation(
+        event_id=EventId("demoted_evt"),
+        start=2.7,
+        end=3.0,
+        label="Demoted",
+        badges=["demoted"],
+        classifications={"class": "snare", "confidence": 0.82},
+    )
+    first_layer = replace(
+        base.layers[0],
+        events=[*base.layers[0].events, demoted_event],
+    )
+    presentation = replace(
+        base,
+        layers=[first_layer, *base.layers[1:]],
+    )
+    widget = TimelineWidget(
+        presentation, on_intent=lambda intent: intents.append(intent) or presentation
+    )
+
+    class _FindSimilarDialog:
+        _responses = [
+            ("This Take", True),
+            ("Balanced", True),
+        ]
+
+        @classmethod
+        def getItem(cls, *_args, **_kwargs):
+            if cls._responses:
+                return cls._responses.pop(0)
+            return ("Balanced", True)
+
+    widget._action_router._input_dialog = _FindSimilarDialog
+    try:
+        _render_for_hit_testing(widget)
+        widget._editor_bar._mode_buttons["fix"].click()
+        QApplication.processEvents()
+        widget._canvas.repaint()
+        QApplication.processEvents()
+
+        demoted_entry = next(
+            (
+                (rect, layer_id, take_id, event_id)
+                for rect, layer_id, take_id, event_id in widget._canvas._event_rects
+                if event_id == EventId("demoted_evt")
+            ),
+            None,
+        )
+        assert demoted_entry is not None
+        rect, layer_id, take_id, event_id = demoted_entry
+
+        hit_target = widget._canvas._hit_target_for_position(rect.center())
+        assert hit_target.kind == "event"
+        assert hit_target.event_id == EventId("demoted_evt")
+
+        contract = build_timeline_inspector_contract(
+            widget.presentation,
+            hit_target=hit_target,
+        )
+        menu = widget._canvas._build_context_menu(contract, hit_kind="event")
+        labels = [action.text() for action in menu.actions() if not action.isSeparator()]
+        assert "Find Similar Sounds" in labels
+
+        find_similar_action = next(
+            action
+            for section in contract.context_sections
+            for action in section.actions
+            if action.action_id == "selection.find_similar_sounding"
+        )
+        widget._trigger_contract_action(find_similar_action)
+
+        assert intents
+        assert intents[-1] == SelectSimilarSoundingEvents(
+            layer_id=layer_id,
+            take_id=take_id,
+            event_id=event_id,
+            scope_mode="take",
+            match_strength="balanced",
+        )
     finally:
         widget.close()
         app.processEvents()

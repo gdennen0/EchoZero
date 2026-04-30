@@ -51,10 +51,16 @@ from echozero.foundry.services.review_event_state import (
     normalize_review_label,
     updated_review_metadata,
 )
-from echozero.foundry.services.dataset_service import DatasetService
+from echozero.foundry.services.review_commit_mapper import (
+    build_review_commit_command,
+)
+from echozero.foundry.services.review_pipeline_controller import ReviewPipelineController
 from echozero.foundry.services.review_signal_service import ReviewSignalService
 from echozero.persistence.session import ProjectStorage
 from echozero.ui.qt.app_shell_project_timeline_storage import resolve_project_audio_path
+from echozero.ui.qt.timeline_review_sample_export import (
+    safe_export_timeline_review_sample,
+)
 
 
 class TimelineReviewShell(Protocol):
@@ -74,10 +80,10 @@ def commit_missed_event_review(
     intent: CommitMissedEventReview,
     *,
     sync_runtime: bool = True,
+    pipeline_controller: ReviewPipelineController | None = None,
     signal_service: ReviewSignalService | None = None,
     review_context: ReviewCommitContext | None = None,
     apply_project_writeback: bool = True,
-    materialize_dataset: bool = True,
 ) -> TimelinePresentation:
     """Create one missing event and emit one canonical timeline review signal."""
 
@@ -186,12 +192,22 @@ def commit_missed_event_review(
         corrected_label=review_label,
         review_note=review_note,
     )
-    service = signal_service or ReviewSignalService(Path(shell.project_storage.working_dir).resolve())
-    service.record_explicit_review(
-        context,
-        commit,
+    signal = _commit_timeline_review_command(
+        shell,
+        context=context,
+        commit=commit,
+        pipeline_controller=pipeline_controller,
+        signal_service=signal_service,
         apply_project_writeback=apply_project_writeback,
-        materialize_dataset=materialize_dataset,
+    )
+    safe_export_timeline_review_sample(
+        signal=signal,
+        class_label=review_label,
+        source_audio_path=source_audio_path,
+        start_seconds=float(runtime_event.start),
+        end_seconds=float(runtime_event.end),
+        event_id=str(runtime_event.id),
+        decision_kind=ReviewDecisionKind.MISSED_EVENT_ADDED,
     )
     _apply_runtime_review_state(
         runtime_event,
@@ -224,12 +240,12 @@ def commit_verified_review(
     intent: CommitVerifiedEventReview,
     *,
     sync_runtime: bool = True,
+    pipeline_controller: ReviewPipelineController | None = None,
     signal_service: ReviewSignalService | None = None,
     review_context: ReviewCommitContext | None = None,
     resolved_target: ReviewEventContext | None = None,
     resolved_review_context: tuple[object, object, object, object, object] | None = None,
     apply_project_writeback: bool = True,
-    materialize_dataset: bool = True,
 ) -> TimelinePresentation:
     """Record one explicit verified event review signal without changing event truth."""
 
@@ -287,12 +303,22 @@ def commit_verified_review(
         review_decision=decision,
         review_note=review_note,
     )
-    service = signal_service or ReviewSignalService(Path(shell.project_storage.working_dir).resolve())
-    service.record_explicit_review(
-        context,
-        commit,
+    signal = _commit_timeline_review_command(
+        shell,
+        context=context,
+        commit=commit,
+        pipeline_controller=pipeline_controller,
+        signal_service=signal_service,
         apply_project_writeback=apply_project_writeback,
-        materialize_dataset=materialize_dataset,
+    )
+    safe_export_timeline_review_sample(
+        signal=signal,
+        class_label=review_label,
+        source_audio_path=target.source_audio_path,
+        start_seconds=float(target.event.start),
+        end_seconds=float(target.event.end),
+        event_id=str(target.event.event_id),
+        decision_kind=ReviewDecisionKind.VERIFIED,
     )
     _apply_runtime_review_state(
         _require_runtime_event(
@@ -328,12 +354,12 @@ def commit_rejected_review(
     intent: CommitRejectedEventReview,
     *,
     sync_runtime: bool = True,
+    pipeline_controller: ReviewPipelineController | None = None,
     signal_service: ReviewSignalService | None = None,
     review_context: ReviewCommitContext | None = None,
     resolved_target: ReviewEventContext | None = None,
     resolved_review_context: tuple[object, object, object, object, object] | None = None,
     apply_project_writeback: bool = True,
-    materialize_dataset: bool = True,
 ) -> TimelinePresentation:
     """Demote one false-positive event and emit one canonical rejection signal."""
 
@@ -391,12 +417,22 @@ def commit_rejected_review(
         review_decision=decision,
         review_note=review_note,
     )
-    service = signal_service or ReviewSignalService(Path(shell.project_storage.working_dir).resolve())
-    service.record_explicit_review(
-        context,
-        commit,
+    signal = _commit_timeline_review_command(
+        shell,
+        context=context,
+        commit=commit,
+        pipeline_controller=pipeline_controller,
+        signal_service=signal_service,
         apply_project_writeback=apply_project_writeback,
-        materialize_dataset=materialize_dataset,
+    )
+    safe_export_timeline_review_sample(
+        signal=signal,
+        class_label=review_label,
+        source_audio_path=target.source_audio_path,
+        start_seconds=float(target.event.start),
+        end_seconds=float(target.event.end),
+        event_id=str(target.event.event_id),
+        decision_kind=ReviewDecisionKind.REJECTED,
     )
     _apply_runtime_review_state(
         _require_runtime_event(
@@ -443,20 +479,18 @@ def commit_missed_events_review(
             "review_surface": ReviewSurface.TIMELINE_FIX_MODE.value,
         },
     )
-    service = ReviewSignalService(Path(shell.project_storage.working_dir).resolve())
+    controller = ReviewPipelineController(Path(shell.project_storage.working_dir).resolve())
     touched_layer_ids = {entry.layer_id for entry in intent.intents}
     for entry in intent.intents:
         commit_missed_event_review(
             shell,
             entry,
             sync_runtime=False,
-            signal_service=service,
+            pipeline_controller=controller,
             review_context=review_context,
             apply_project_writeback=False,
-            materialize_dataset=False,
         )
     shell._sync_storage_backed_layers(list(touched_layer_ids))
-    _refresh_project_review_export(shell)
     return shell.presentation()
 
 
@@ -468,7 +502,7 @@ def commit_verified_events_review(
 
     project, active_song_id, active_song_version_id, version, song = _require_review_context(shell)
     review_context = _review_commit_context(shell, project, active_song_version_id)
-    service = ReviewSignalService(Path(shell.project_storage.working_dir).resolve())
+    controller = ReviewPipelineController(Path(shell.project_storage.working_dir).resolve())
     presentation = shell.presentation()
     resolved_context = (project, active_song_id, active_song_version_id, version, song)
     touched_layer_ids: set[LayerId] = set()
@@ -491,15 +525,13 @@ def commit_verified_events_review(
                 review_note=intent.review_note,
             ),
             sync_runtime=False,
-            signal_service=service,
+            pipeline_controller=controller,
             review_context=review_context,
             resolved_target=target,
             resolved_review_context=resolved_context,
             apply_project_writeback=False,
-            materialize_dataset=False,
         )
     shell._sync_storage_backed_layers(list(touched_layer_ids))
-    _refresh_project_review_export(shell)
     return shell.presentation()
 
 
@@ -511,7 +543,7 @@ def commit_rejected_events_review(
 
     project, active_song_id, active_song_version_id, version, song = _require_review_context(shell)
     review_context = _review_commit_context(shell, project, active_song_version_id)
-    service = ReviewSignalService(Path(shell.project_storage.working_dir).resolve())
+    controller = ReviewPipelineController(Path(shell.project_storage.working_dir).resolve())
     presentation = shell.presentation()
     resolved_context = (project, active_song_id, active_song_version_id, version, song)
     touched_layer_ids: set[LayerId] = set()
@@ -534,15 +566,13 @@ def commit_rejected_events_review(
                 review_note=intent.review_note,
             ),
             sync_runtime=False,
-            signal_service=service,
+            pipeline_controller=controller,
             review_context=review_context,
             resolved_target=target,
             resolved_review_context=resolved_context,
             apply_project_writeback=False,
-            materialize_dataset=False,
         )
     shell._sync_storage_backed_layers(list(touched_layer_ids))
-    _refresh_project_review_export(shell)
     return shell.presentation()
 
 
@@ -611,9 +641,19 @@ def commit_relabel_review(
         corrected_label=normalized_corrected_label,
         review_note=review_note,
     )
-    ReviewSignalService(Path(shell.project_storage.working_dir).resolve()).record_explicit_review(
-        context,
-        commit,
+    signal = _commit_timeline_review_command(
+        shell,
+        context=context,
+        commit=commit,
+    )
+    safe_export_timeline_review_sample(
+        signal=signal,
+        class_label=normalized_corrected_label,
+        source_audio_path=target.source_audio_path,
+        start_seconds=float(target.event.start),
+        end_seconds=float(target.event.end),
+        event_id=str(target.event.event_id),
+        decision_kind=ReviewDecisionKind.RELABELED,
     )
     _apply_runtime_review_state(
         _require_runtime_event(
@@ -718,9 +758,19 @@ def commit_boundary_corrected_review(
         corrected_label=review_label,
         review_note=review_note,
     )
-    ReviewSignalService(Path(shell.project_storage.working_dir).resolve()).record_explicit_review(
-        context,
-        commit,
+    signal = _commit_timeline_review_command(
+        shell,
+        context=context,
+        commit=commit,
+    )
+    safe_export_timeline_review_sample(
+        signal=signal,
+        class_label=review_label,
+        source_audio_path=target.source_audio_path,
+        start_seconds=float(intent.corrected_range.start),
+        end_seconds=float(intent.corrected_range.end),
+        event_id=str(target.event.event_id),
+        decision_kind=ReviewDecisionKind.BOUNDARY_CORRECTED,
     )
     _apply_runtime_review_state(
         _require_runtime_event(
@@ -1149,6 +1199,28 @@ def _require_event_on_layer(
     raise ValueError(f"Timeline review event not found: {event_id}")
 
 
+def _commit_timeline_review_command(
+    shell: TimelineReviewShell,
+    *,
+    context: ReviewCommitContext,
+    commit: ExplicitReviewCommit,
+    pipeline_controller: ReviewPipelineController | None = None,
+    signal_service: ReviewSignalService | None = None,
+    apply_project_writeback: bool = True,
+) -> ReviewSignal:
+    controller = pipeline_controller or ReviewPipelineController(
+        Path(shell.project_storage.working_dir).resolve(),
+        signal_service=signal_service,
+    )
+    return controller.commit(
+        build_review_commit_command(
+            context=context,
+            commit=commit,
+            apply_project_writeback=apply_project_writeback,
+        )
+    )
+
+
 def _review_commit_context(
     shell: TimelineReviewShell,
     project,
@@ -1182,15 +1254,6 @@ def _require_review_context(
     if song is None:
         raise ValueError(f"Active song not found: {active_song_id}")
     return project, active_song_id, active_song_version_id, version, song
-
-
-def _refresh_project_review_export(shell: TimelineReviewShell) -> None:
-    project_dir = Path(shell.project_storage.working_dir).resolve()
-    service = DatasetService(project_dir)
-    try:
-        service.export_project_review_dataset(project_dir, queue_source_kind="ez_project")
-    except ValueError:
-        return
 
 
 def _review_source_provenance(
@@ -1259,6 +1322,8 @@ def _resolve_source_audio_path(
             if candidate.playback_source_ref:
                 return candidate.playback_source_ref
     return str(resolve_project_audio_path(shell.project_storage, version_audio_file))
+
+
 def _build_ref(prefix: str, value: object) -> str:
     return f"{prefix}:{value}"
 

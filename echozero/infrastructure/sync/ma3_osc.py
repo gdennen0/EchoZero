@@ -46,6 +46,8 @@ from echozero.infrastructure.sync.ma3_protocol import (
 _TARGET_CONFIG_SETTLE_SECONDS = 0.25
 _WRITE_ERROR_GRACE_SECONDS = 0.35
 _CMD_SUBTRACK_RETRY_SETTLE_SECONDS = 0.2
+_PUSH_WRITE_BATCH_SIZE = 200
+_PUSH_WRITE_BATCH_SETTLE_SECONDS = 0.01
 
 
 class MA3CommandTransport(Protocol):
@@ -834,6 +836,7 @@ class MA3OSCBridge:
             )
 
         first_event = True
+        sent_event_count = 0
         for raw_event in selected_events or []:
             snapshot = coerce_event_snapshot(raw_event)
             command = self._event_command_text(snapshot)
@@ -873,6 +876,12 @@ class MA3OSCBridge:
                     after_index=send_start_index,
                 )
                 first_event = False
+            sent_event_count += 1
+            if (
+                _PUSH_WRITE_BATCH_SIZE > 0
+                and sent_event_count % _PUSH_WRITE_BATCH_SIZE == 0
+            ):
+                sleep(_PUSH_WRITE_BATCH_SETTLE_SECONDS)
 
         self.refresh_track_events(coord)
 

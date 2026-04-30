@@ -1,11 +1,18 @@
 # SMPTE Playback Execution Plan
 
-Last updated: 2026-04-24
+Status: historical
+Last reviewed: 2026-04-30
+
+
+Originally updated: 2026-04-24
+
+This plan is retained as a point-in-time SMPTE sequencing artifact.
+For current SMPTE behavior, use `docs/STATUS.md` and `MA3/README.md`.
 
 Primary sources:
 
-1. [SMPTE-PLAYBACK-RFC-SKELETON-2026-04-24.md](/Users/march/Documents/GitHub/EchoZero/docs/SMPTE-PLAYBACK-RFC-SKELETON-2026-04-24.md:1)
-2. [SMPTE-PLAYBACK-TASK-BOARD-2026-04-24.md](/Users/march/Documents/GitHub/EchoZero/docs/SMPTE-PLAYBACK-TASK-BOARD-2026-04-24.md:1)
+1. [SMPTE-PLAYBACK-RFC-SKELETON-2026-04-24.md](SMPTE-PLAYBACK-RFC-SKELETON-2026-04-24.md)
+2. [SMPTE-PLAYBACK-TASK-BOARD-2026-04-24.md](SMPTE-PLAYBACK-TASK-BOARD-2026-04-24.md)
 
 ## Strategy
 
@@ -65,4 +72,3 @@ For each phase gate:
 2. list proof lanes run
 3. list residual risk/open defects
 4. explicitly label human-path vs synthetic proof
-

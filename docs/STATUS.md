@@ -1,7 +1,9 @@
 # EchoZero Status
 
-Status: active canonical current-state reference
-Last verified: 2026-04-25
+Status: active
+Last verified: 2026-04-30
+
+
 
 Use this file to answer one question quickly: what is true in the repo now.
 This file is not a plan, board, or historical design note.
@@ -36,7 +38,10 @@ When older docs disagree with current implementation, start here, then verify in
 - Batch import pipeline execution is ordered:
   - songs/versions import first
   - queued per-song pipeline actions execute sequentially in import order
-- Queued pipeline progress is surfaced in the main timeline pipeline status banner.
+- Queued pipeline operations surface progress through the application Operation Progress v1 contract in the main timeline status banner.
+- Operation Progress v1 producer coverage in this branch:
+  - pipeline object-action execution is migrated
+  - MA3 push/import progress flows are not yet migrated
 - Import pipeline actions can run for each imported file on:
   - drag/drop imports
   - add-song dialog imports

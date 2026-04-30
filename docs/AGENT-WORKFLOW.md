@@ -1,5 +1,9 @@
 # EchoZero Agent Workflow
 
+Status: reference
+Last reviewed: 2026-04-30
+
+
 This document defines the default operating model for agent-driven work in
 EchoZero.
 It exists so orchestration, delegation, proof, and cleanup stay consistent
@@ -8,7 +12,7 @@ It connects `AGENTS.md`, `docs/WORKER-ROLES.md`, `docs/DEV-LANES.md`, and
 `docs/TESTING.md` into one practical workflow.
 
 Prompt construction for OpenClaw/Codex work is standardized in
-[docs/OPENCLAW-CODEX-PROMPTING.md](/Users/march/Documents/GitHub/EchoZero/docs/OPENCLAW-CODEX-PROMPTING.md:1).
+[docs/OPENCLAW-CODEX-PROMPTING.md](OPENCLAW-CODEX-PROMPTING.md).
 
 ## Purpose
 
@@ -34,6 +38,7 @@ It must:
 - decompose work into bounded assignments
 - choose the correct proof lane before edits begin
 - assign explicit file/lane ownership
+- keep the parent lane anchored to the current task and next integration step
 - integrate outputs from disposable agents
 - reject work that violates truth-model, sync, FEEL, or app-boundary rules
 - close agents and sessions that are no longer needed
@@ -75,6 +80,8 @@ Every delegated task must specify:
 
 - goal
 - why now / user-visible outcome
+- parent task anchor
+- next parent-side step on return
 - owned paths
 - forbidden paths
 - canonical docs to read first
@@ -84,9 +91,9 @@ Every delegated task must specify:
 - expected output
 - residual-risk reporting requirement
 
-Use [docs/agent-task-template.md](/Users/march/Documents/GitHub/EchoZero/docs/agent-task-template.md:1)
+Use [docs/agent-task-template.md](agent-task-template.md)
 for the assignment format and
-[docs/OPENCLAW-CODEX-PROMPTING.md](/Users/march/Documents/GitHub/EchoZero/docs/OPENCLAW-CODEX-PROMPTING.md:1)
+[docs/OPENCLAW-CODEX-PROMPTING.md](OPENCLAW-CODEX-PROMPTING.md)
 for the phrasing and prompt-shape rules.
 
 ## Prompt Construction
@@ -95,6 +102,7 @@ Every good EchoZero worker prompt should make these explicit before work starts:
 
 - role: `research`, `impl`, `verify`, or `review`
 - exact outcome and why it matters now
+- parent task anchor and next parent-side step on return
 - owned paths and forbidden paths
 - smallest useful doc/code context package
 - canonical truth or automation surface
@@ -110,8 +118,8 @@ For OpenClaw or app automation work, prompts should also state:
 
 ## Ownership Rules
 
-Follow [docs/WORKER-ROLES.md](/Users/march/Documents/GitHub/EchoZero/docs/WORKER-ROLES.md:1)
-and [docs/DEV-LANES.md](/Users/march/Documents/GitHub/EchoZero/docs/DEV-LANES.md:1).
+Follow [docs/WORKER-ROLES.md](WORKER-ROLES.md)
+and [docs/DEV-LANES.md](DEV-LANES.md).
 
 Default lane ownership:
 
@@ -173,10 +181,20 @@ Use this format after any real delegation:
 Do not say an agent was spawned until the spawn call has succeeded.
 If no agent was spawned, say `0`.
 
+Every real delegation should also preserve task identity in the parent lane.
+
+Minimum anchor:
+
+- `current task`: short label plus desired end state
+- `why active`: why this task matters now
+- `delegated work`: active agent ids and bounded ownership
+- `lead-dev next step`: what the parent lane will do when agents return
+
 When an agent returns, `lead-dev` should provide at least a short summary of:
 
 - what the agent concluded or produced
 - whether the result was accepted, still in review, or blocked
+- the current task anchor if the parent lane could lose context without it
 
 When an agent is closed, `lead-dev` should report closeout when it is contextually relevant.
 
@@ -199,11 +217,28 @@ Example:
 
 Use short follow-up notes only when there is something actionable or abnormal.
 
+The compact status line is not enough by itself when the parent lane could lose
+context.
+`lead-dev` should keep a visible queue snapshot beside it whenever delegated
+work is active.
+
+Minimum queue snapshot fields:
+
+- `current task`: top-level task label or operator-visible outcome
+- `state`: `queued`, `running`, `blocked`, `review`, or `done`
+- `workers`: active agent/session ids when present
+- `next`: the next parent-side action after worker return
+
+If there is only one task, the queue snapshot can collapse to a single line.
+If the channel gets interrupted or `lead-dev` loses context, restate the latest
+queue snapshot before spawning more agents or changing scope.
+
 For long-running delegated work, visible status heartbeats are required.
 
 Default timer rules:
 
 - if one or more agents are still active, send a short status heartbeat every `60` seconds
+- each heartbeat should restate the current top-level task label before or beside agent detail
 - each heartbeat should name the active agents and the bounded task each one owns
 - keep the heartbeat compact unless there is a blocker or a material result
 
@@ -216,9 +251,11 @@ Default heartbeat content:
 
 Example:
 
+- `task`: `PB-40` playback remediation acceptance path
 - `2 / 0 / 0 / 2 / medium`
 - `James`: `PB-40`, `PB-42` layer-header playback control split
 - `Ampere`: `PB-41` inspector/object-info separation
+- `next`: integrate accepted patch and run appflow proof
 
 If the work is especially noisy or the channel needs less chatter, `lead-dev` may widen the heartbeat interval, but it should stay explicit.
 Default escalated interval ceiling is `120` seconds.

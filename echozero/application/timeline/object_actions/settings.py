@@ -56,9 +56,9 @@ class ObjectActionSettingsPlan:
     rerun_hint: str = ""
     summary: str = ""
     warnings: tuple[str, ...] = ()
-    run_id: str | None = None
+    operation_id: str | None = None
     is_running: bool = False
-    run_status: str = ""
-    run_message: str = ""
-    run_percent: float | None = None
-    run_error: str | None = None
+    operation_status: str = ""
+    operation_message: str = ""
+    operation_fraction: float | None = None
+    operation_error: str | None = None

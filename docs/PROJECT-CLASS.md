@@ -1,5 +1,9 @@
 # EchoZero 2 — Project Class API Reference
 
+Status: reference
+Last reviewed: 2026-04-30
+
+
 `echozero.project.Project`
 
 The `Project` class is the single entry point for all application operations.

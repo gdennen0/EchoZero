@@ -1,7 +1,9 @@
 # MA3 Manual Push/Pull — Structural Plan & Implementation Guide
 
-Status: historical superseded plan
-Last reviewed: 2026-04-23
+Status: historical
+Last reviewed: 2026-04-30
+
+
 
 This doc is kept as structural background only.
 If any workflow detail below disagrees with `docs/STATUS.md` or `MA3/README.md`,

@@ -10,6 +10,7 @@ import threading
 from dataclasses import dataclass
 from pathlib import Path
 
+from .domain.review import ReviewPolarity
 from .review_server import create_review_http_server
 
 
@@ -45,6 +46,7 @@ class ReviewServerController:
         self._runtime_application_session: dict[str, object] | None = None
         self._last_root: Path | None = None
         self._last_session_id: str | None = None
+        self._last_live_scope_key: tuple[str | None, str | None, str | None] | None = None
         self._state_revision = 0
         self._server = None
         self._thread: threading.Thread | None = None
@@ -72,6 +74,7 @@ class ReviewServerController:
         self._server.current_application_session = _copy_application_session(
             self._runtime_application_session
         )
+        self._ensure_live_runtime_session()
 
     def enable(self) -> None:
         """Allow the controller to start phone review sessions."""
@@ -112,6 +115,8 @@ class ReviewServerController:
 
         self._last_root = normalized_root
         self._last_session_id = normalized_session_id or None
+        if normalized_session_id and default_session_id is not None and str(default_session_id).strip():
+            self._last_live_scope_key = _live_scope_key(self._runtime_application_session)
         if not self._is_enabled:
             return None
 
@@ -120,6 +125,7 @@ class ReviewServerController:
         self._server.current_application_session = _copy_application_session(
             self._runtime_application_session
         )
+        self._ensure_live_runtime_session()
         self._server.state_revision = self._state_revision
         return self._current_launch()
 
@@ -138,12 +144,12 @@ class ReviewServerController:
         if clear_active_session:
             self._last_root = normalized_root
             self._last_session_id = None
+            self._last_live_scope_key = None
         if not self._is_enabled:
             return None
-        default_session_id = None
         if not clear_active_session and self._last_root == normalized_root:
-            default_session_id = self._last_session_id
-        return self.bind_root(normalized_root, default_session_id=default_session_id)
+            return self.bind_root(normalized_root)
+        return self.bind_root(normalized_root)
 
     def build_session_launch(self, root: str | Path, session_id: str) -> ReviewServerLaunch:
         """Return browser and phone-facing URLs for the requested root/session pair."""
@@ -191,6 +197,7 @@ class ReviewServerController:
         self._server.server_close()
         self._server = None
         self._root = None
+        self._last_live_scope_key = None
         if self._thread is not None:
             self._thread.join(timeout=2.0)
             self._thread = None
@@ -220,6 +227,37 @@ class ReviewServerController:
         self._root = root
         self._server = server
         self._thread = thread
+
+    def _ensure_live_runtime_session(self) -> None:
+        if self._server is None or self._runtime_root is None:
+            return
+        scope_key = _live_scope_key(self._runtime_application_session)
+        if (
+            self._last_live_scope_key == scope_key
+            and self._last_root == self._runtime_root
+            and isinstance(self._last_session_id, str)
+            and self._last_session_id.strip()
+        ):
+            self._server.default_session_id = self._last_session_id
+            return
+        try:
+            session = self._server.service.create_project_session(
+                self._runtime_root,
+                song_id=scope_key[1],
+                song_version_id=scope_key[2],
+                polarity=ReviewPolarity.POSITIVE,
+                review_mode="all_events",
+                item_limit=None,
+                application_session=self._runtime_application_session,
+            )
+        except ValueError:
+            return
+        self._last_root = self._runtime_root
+        self._last_session_id = session.id
+        self._last_live_scope_key = scope_key
+        self._server.default_session_id = session.id
+        self._state_revision += 1
+        self._server.state_revision = self._state_revision
 
     def _current_launch(self) -> ReviewServerLaunch:
         assert self._server is not None
@@ -304,3 +342,19 @@ def _copy_application_session(
     if application_session is None:
         return None
     return dict(application_session)
+
+
+def _live_scope_key(
+    application_session: dict[str, object] | None,
+) -> tuple[str | None, str | None, str | None]:
+    if application_session is None:
+        return (None, None, None)
+    project_ref = _normalized_optional_text(application_session.get("projectRef"))
+    song_id = _normalized_optional_text(application_session.get("activeSongId"))
+    song_version_id = _normalized_optional_text(application_session.get("activeSongVersionId"))
+    return (project_ref, song_id, song_version_id)
+
+
+def _normalized_optional_text(value: object) -> str | None:
+    text = str(value).strip() if value is not None else ""
+    return text or None

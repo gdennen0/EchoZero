@@ -1,9 +1,10 @@
 # EchoZero App Delivery Plan (App-First)
 
-Status: active canonical delivery and release plan
-Last verified: 2026-04-21
+Status: active
+Last verified: 2026-04-30
 
-_Last updated: 2026-04-12_
+
+
 
 This plan defines how EchoZero moves to a canonical app workflow with deterministic packaging and release validation.
 

@@ -440,7 +440,7 @@ def test_open_pull_defaults_to_selected_marker_layer_and_imports_marker_events()
         id=LayerId("layer_marker"),
         timeline_id=timeline.id,
         name="Marker Layer",
-        kind=LayerKind.MARKER,
+        kind=LayerKind.EVENT,
         order_index=3,
         takes=[Take(id=TakeId("take_marker"), layer_id=LayerId("layer_marker"), name="Main")],
     )
@@ -459,7 +459,7 @@ def test_open_pull_defaults_to_selected_marker_layer_and_imports_marker_events()
     orchestrator.handle(timeline, ApplyPullFromMA3())
 
     imported_take = marker_layer.takes[-1]
-    assert marker_layer.kind is LayerKind.MARKER
+    assert marker_layer.kind is LayerKind.EVENT
     assert imported_take.name == "MA3 Pull - Marker Track"
     assert [event.cue_number for event in imported_take.events] == [11, 12]
     assert [event.label for event in imported_take.events] == ["Verse", "Chorus"]
@@ -669,6 +669,48 @@ def test_apply_pull_create_section_target_preserves_float_cue_numbers():
     ]
 
 
+def test_apply_pull_to_section_layer_requires_source_cue_numbers():
+    orchestrator, timeline, _session, _playback_service = _build_orchestrator(
+        sync_service=_SyncService(
+            tracks=[ManualPullTrackOption(coord="tc1_tg2_tr3", name="Section Track", number=3)],
+            events_by_track={
+                "tc1_tg2_tr3": [
+                    ManualPullEventOption(
+                        event_id="ma3_evt_1",
+                        label="Verse",
+                        start=1.0,
+                        cue_number=11,
+                    ),
+                    ManualPullEventOption(
+                        event_id="ma3_evt_2",
+                        label="Chorus",
+                        start=3.0,
+                        cue_number=None,
+                    ),
+                ]
+            },
+        )
+    )
+    section_layer = Layer(
+        id=LayerId("layer_sections"),
+        timeline_id=timeline.id,
+        name="Sections",
+        kind=LayerKind.SECTION,
+        order_index=3,
+        takes=[Take(id=TakeId("take_sections"), layer_id=LayerId("layer_sections"), name="Main")],
+    )
+    timeline.layers.append(section_layer)
+    timeline.selection.selected_layer_id = section_layer.id
+
+    orchestrator.handle(timeline, OpenPullFromMA3Dialog())
+
+    with pytest.raises(
+        ValueError,
+        match="Section pull import requires cue numbers on source sequence events",
+    ):
+        orchestrator.handle(timeline, ApplyPullFromMA3())
+
+
 def test_apply_pull_import_to_existing_layer_still_creates_new_take():
     orchestrator, timeline, _session, _playback_service = _build_orchestrator(
         sync_service=_SyncService(
@@ -821,8 +863,8 @@ def test_replace_section_cues_creates_section_layer_and_refreshes_timeline_secti
         timeline,
         ReplaceSectionCues(
             cues=[
-                SectionCueEdit(cue_id=None, start=12.0, cue_ref="Q7", name="Verse"),
-                SectionCueEdit(cue_id=None, start=41.0, cue_ref="Q3", name="Chorus"),
+                SectionCueEdit(cue_id=None, start=12.0, cue_ref="Q7", name="Verse", cue_number=17),
+                SectionCueEdit(cue_id=None, start=41.0, cue_ref="Q3", name="Chorus", cue_number=3),
             ]
         ),
     )
@@ -840,3 +882,4 @@ def test_replace_section_cues_creates_section_layer_and_refreshes_timeline_secti
         ("Q7", "Verse"),
         ("Q3", "Chorus"),
     ]
+    assert [event.cue_number for event in main_take.events] == [17, 3]

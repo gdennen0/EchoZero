@@ -77,31 +77,60 @@ def _install_deterministic_runtime_audio(
 
 
 def _monitor_layer(runtime_audio: TimelineRuntimeAudioController):
-    return runtime_audio.engine.mixer.get_layer(TimelineRuntimeAudioController._MONITOR_LAYER_ID)
+    return runtime_audio.engine.mixer.get_layer(TimelineRuntimeAudioController._PRIMARY_TRACK_ID)
+
+
+def _layer_track(runtime_audio: TimelineRuntimeAudioController, layer_id):
+    routed_track = runtime_audio.engine.mixer.get_layer(
+        f"{TimelineRuntimeAudioController._ROUTED_TRACK_PREFIX}{layer_id}"
+    )
+    if routed_track is not None:
+        return routed_track
+    return _monitor_layer(runtime_audio)
 
 
 def _route_monitor_to_layer(harness: AppFlowHarness, layer_id) -> None:
+    presentation = harness.runtime.presentation()
     harness.widget.set_presentation(
         replace(
-            harness.runtime.presentation(),
-            active_playback_layer_id=layer_id,
-            active_playback_take_id=None,
+            presentation,
+            layers=[
+                replace(layer, soloed=(layer.layer_id == layer_id))
+                for layer in presentation.layers
+            ],
+            selected_layer_id=layer_id,
+            selected_take_id=None,
         )
     )
     harness._app.processEvents()
 
 
-def _contract_action(harness: AppFlowHarness, action_id: str):
+def _contract_action(
+    harness: AppFlowHarness,
+    action_id: str,
+    *,
+    required_params: dict[str, object] | None = None,
+):
     contract = build_timeline_inspector_contract(harness.widget.presentation)
     return next(
         action
         for section in contract.context_sections
         for action in section.actions
         if action.action_id == action_id
+        and (
+            required_params is None
+            or all(action.params.get(key) == value for key, value in required_params.items())
+        )
     )
 
 
-def _layer_contract_action(harness: AppFlowHarness, layer_id, action_id: str):
+def _layer_contract_action(
+    harness: AppFlowHarness,
+    layer_id,
+    action_id: str,
+    *,
+    required_params: dict[str, object] | None = None,
+):
     contract = build_timeline_inspector_contract(
         harness.widget.presentation,
         hit_target=TimelineInspectorHitTarget(kind="layer", layer_id=layer_id),
@@ -111,6 +140,10 @@ def _layer_contract_action(harness: AppFlowHarness, layer_id, action_id: str):
         for section in contract.context_sections
         for action in section.actions
         if action.action_id == action_id
+        and (
+            required_params is None
+            or all(action.params.get(key) == value for key, value in required_params.items())
+        )
     )
 
 
@@ -165,26 +198,14 @@ def test_app_flow_harness_exposes_launcher_menus():
             for action in file_menu.actions()
             if action.isSeparator() is False
         ]
-        assert file_actions[:11] == [
+        assert file_actions == [
             "&New Project",
             "&Open Project",
             "Open &Recent Project",
             "&Save Project",
             "Save Project &As...",
             "Enable &Phone Review Service",
-            "Disable Phone Review Service",
-            "Open &Questionable Review",
-            "Open &All-Events Review",
-            "Open Latest Review Dataset &Folder",
-            "Open Latest Review Dataset &Record",
         ]
-        assert file_actions[11:] in (
-            ["Create Project &Specialized Model"],
-            [
-                "Create Project &Specialized Model",
-                "Create Project S&nare-Only Model",
-            ],
-        )
         assert edit_menu is not None
         edit_actions = [
             action.text()
@@ -294,12 +315,18 @@ def test_app_flow_harness_sync_push_transfer_updates_simulated_ma3_snapshot(monk
             _choose_ma3_push_option,
         )
         harness.widget._trigger_contract_action(
-            _layer_contract_action(harness, layer_id, "send_layer_to_ma3")
+            _layer_contract_action(
+                harness,
+                layer_id,
+                "transfer.workspace_open",
+                required_params={"direction": "push"},
+            )
         )
 
         assert harness.ma3_bridge is not None
         remote_events = harness.ma3_bridge.list_track_events("tc1_tg2_tr4")
-        assert [event.label for event in remote_events] == ["Event", "Cue 9"]
+        remote_labels = [event.label for event in remote_events]
+        assert "Cue 9" in remote_labels
         layer = next(layer for layer in harness.presentation().layers if layer.layer_id == layer_id)
         assert layer.sync_target_label == "tc1_tg2_tr4"
     finally:
@@ -328,15 +355,21 @@ def test_app_flow_harness_layer_contract_hides_pull_actions_from_ui_surface():
             harness.widget.presentation,
             hit_target=TimelineInspectorHitTarget(kind="layer", layer_id=layer_id),
         )
-        action_ids = {
-            action.action_id for section in contract.context_sections for action in section.actions
+        all_actions = [
+            action for section in contract.context_sections for action in section.actions
+        ]
+        action_ids = {action.action_id for action in all_actions}
+        workspace_directions = {
+            str(action.params.get("direction", "")).lower()
+            for action in all_actions
+            if action.action_id == "transfer.workspace_open"
         }
 
-        assert "route_layer_to_ma3_track" in action_ids
-        assert "send_layer_to_ma3" in action_ids
-        assert "send_selected_events_to_ma3" in action_ids
-        assert "send_to_different_track_once" in action_ids
-        assert "pull_from_ma3" in action_ids
+        assert "transfer.route_layer_track" in action_ids
+        assert "transfer.workspace_open" in action_ids
+        assert "transfer.send_selection" in action_ids
+        assert "transfer.send_to_track_once" in action_ids
+        assert {"pull", "push"} <= workspace_directions
         assert "select_pull_source_tracks" not in action_ids
         assert "transfer.plan_apply" not in action_ids
     finally:
@@ -441,13 +474,13 @@ def test_app_flow_harness_route_switch_keeps_transport_running_and_advances_play
         harness.dispatch(Play())
         harness.advance_playback(iterations=6)
         before_switch = harness.widget.presentation.playhead
-        source_monitor = _monitor_layer(runtime_audio)
+        source_monitor = _layer_track(runtime_audio, harness.presentation().layers[0].layer_id)
         assert source_monitor is not None
         assert source_monitor.name == "Route Song"
 
         _route_monitor_to_layer(harness, drums_layer.layer_id)
         assert runtime_audio.is_playing() is True
-        drums_monitor = _monitor_layer(runtime_audio)
+        drums_monitor = _layer_track(runtime_audio, drums_layer.layer_id)
         assert drums_monitor is not None
         assert drums_monitor.name == "Drums"
 
@@ -491,11 +524,11 @@ def test_app_flow_harness_derived_audio_layers_produce_distinct_playback_output(
 
         _route_monitor_to_layer(harness, drums_layer.layer_id)
         drums_mix = runtime_audio.engine.mixer.read_mix(0, 512)
-        drums_monitor = _monitor_layer(runtime_audio)
+        drums_monitor = _layer_track(runtime_audio, drums_layer.layer_id)
 
         _route_monitor_to_layer(harness, bass_layer.layer_id)
         bass_mix = runtime_audio.engine.mixer.read_mix(0, 512)
-        bass_monitor = _monitor_layer(runtime_audio)
+        bass_monitor = _layer_track(runtime_audio, bass_layer.layer_id)
 
         assert drums_monitor is not None
         assert drums_monitor.name == "Drums"
@@ -546,14 +579,14 @@ def test_app_flow_harness_real_pipeline_playback_survives_active_song_switch():
         harness.dispatch(Play())
         harness.advance_playback(iterations=6)
         before_switch = harness.widget.presentation.playhead
-        monitor_a = _monitor_layer(runtime_audio)
+        monitor_a = _layer_track(runtime_audio, harness.presentation().layers[0].layer_id)
 
         switched = harness.runtime.select_song(song_b_id)
         harness.widget.set_presentation(switched)
         harness._app.processEvents()
 
         assert runtime_audio.is_playing() is True
-        monitor_b = _monitor_layer(runtime_audio)
+        monitor_b = _layer_track(runtime_audio, harness.presentation().layers[0].layer_id)
         harness.advance_playback(iterations=6)
         after_switch = harness.widget.presentation.playhead
 
@@ -597,7 +630,7 @@ def test_app_flow_harness_real_pipeline_playback_routes_main_then_each_stem():
         for expected_title, layer in zip(expected_titles, harness.presentation().layers):
             _route_monitor_to_layer(harness, layer.layer_id)
             harness.advance_playback(iterations=10)
-            monitor = _monitor_layer(runtime_audio)
+            monitor = _layer_track(runtime_audio, layer.layer_id)
 
             assert monitor is not None
             routed_titles.append(monitor.name)

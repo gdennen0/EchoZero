@@ -1,6 +1,13 @@
 # Playback Backend Bakeoff
 
-Last updated: 2026-04-18
+Status: historical
+Last reviewed: 2026-04-30
+
+
+Originally updated: 2026-04-18
+
+This memo captures a point-in-time backend decision during playback remediation.
+For current playback behavior, use `docs/STATUS.md`.
 
 This is the PB-20 decision memo for near-term playback stabilization.
 
@@ -21,13 +28,13 @@ Do not switch to a temporary `QAudioSink` backend for the current remediation sl
 
 ### Current engine strengths
 
-- The current backend already owns the callback clock, mixer, and stream lifecycle in one place: [echozero/audio/engine.py](/Users/march/Documents/GitHub/EchoZero/echozero/audio/engine.py:1)
+- The current backend already owns the callback clock, mixer, and stream lifecycle in one place: [echozero/audio/engine.py](../../echozero/audio/engine.py)
 - The branch already has working tests for:
   - default device format negotiation
   - reported output latency
   - backend timing snapshots
   - playhead extrapolation from backend timing
-- The existing design direction in [docs/PLAYBACK-CLOCK-CLEAN-SHEET-DESIGN.md](/Users/march/Documents/GitHub/EchoZero/docs/PLAYBACK-CLOCK-CLEAN-SHEET-DESIGN.md:1) already points to "keep the current `AudioEngine`, but only behind an explicit playback boundary"
+- The existing design direction in [docs/PLAYBACK-CLOCK-CLEAN-SHEET-DESIGN.md](PLAYBACK-CLOCK-CLEAN-SHEET-DESIGN.md) already points to "keep the current `AudioEngine`, but only behind an explicit playback boundary"
 
 ### Why not switch to `QAudioSink` now
 
@@ -41,9 +48,9 @@ Do not switch to a temporary `QAudioSink` backend for the current remediation sl
 
 ### Repo evidence
 
-- Device-native output defaults are already implemented and tested in [echozero/audio/engine.py](/Users/march/Documents/GitHub/EchoZero/echozero/audio/engine.py:38) and [tests/test_audio_engine.py](/Users/march/Documents/GitHub/EchoZero/tests/test_audio_engine.py:649)
-- Backend timing snapshot plumbing already exists in [echozero/application/playback/runtime.py](/Users/march/Documents/GitHub/EchoZero/echozero/application/playback/runtime.py:1) and [tests/ui/test_runtime_audio.py](/Users/march/Documents/GitHub/EchoZero/tests/ui/test_runtime_audio.py:257)
-- The clean-sheet plan explicitly prefers current backend + explicit boundary in [docs/PLAYBACK-CLOCK-CLEAN-SHEET-DESIGN.md](/Users/march/Documents/GitHub/EchoZero/docs/PLAYBACK-CLOCK-CLEAN-SHEET-DESIGN.md:52)
+- Device-native output defaults are already implemented and tested in [echozero/audio/engine.py](../../echozero/audio/engine.py) and [tests/test_audio_engine.py](../../tests/test_audio_engine.py)
+- Backend timing snapshot plumbing already exists in [echozero/application/playback/runtime.py](../../echozero/application/playback/runtime.py) and [tests/ui/test_runtime_audio.py](../../tests/ui/test_runtime_audio.py)
+- The clean-sheet plan explicitly prefers current backend + explicit boundary in [docs/PLAYBACK-CLOCK-CLEAN-SHEET-DESIGN.md](PLAYBACK-CLOCK-CLEAN-SHEET-DESIGN.md)
 
 ### Primary-source references
 

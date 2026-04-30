@@ -18,8 +18,10 @@ from echozero.foundry.persistence import (
     DatasetVersionRepository,
     EvalReportRepository,
     ModelArtifactRepository,
+    ReviewSignalRepository,
     ReviewSessionRepository,
 )
+from echozero.foundry.domain.review import ReviewCommitContext
 from echozero.foundry.presentation import FoundryActivityFeed
 from echozero.foundry.services.query_service import (
     FoundryQueryService,
@@ -29,9 +31,11 @@ from echozero.foundry.services import (
     ArtifactService,
     DatasetService,
     EvalService,
+    ReviewExtractionService,
     ReviewSessionService,
     RuntimeBundleInstallService,
     SplitBalanceService,
+    TrainingOrchestrator,
     TrainRunService,
 )
 
@@ -51,6 +55,7 @@ class FoundryApp:
         self._artifact_repo = ModelArtifactRepository(root)
         self._eval_repo = EvalReportRepository(root)
         self._review_repo = ReviewSessionRepository(root)
+        self._review_signal_repo = ReviewSignalRepository(root)
 
         self.datasets = DatasetService(
             root,
@@ -63,6 +68,8 @@ class FoundryApp:
         self.reviews = ReviewSessionService(root, repository=self._review_repo)
         self.runtime_bundles = RuntimeBundleInstallService(root, artifact_repository=self._artifact_repo)
         self.runs = TrainRunService(root, eval_service=self.eval, artifact_service=self.artifacts)
+        self.review_extraction = ReviewExtractionService(root, dataset_service=self.datasets)
+        self.training_orchestrator = TrainingOrchestrator(root, run_service=self.runs)
         self.queries = FoundryQueryService(
             dataset_repo=self._dataset_repo,
             version_repo=self._dataset_version_repo,
@@ -82,7 +89,12 @@ class FoundryApp:
         backend: str = "pytorch",
         device: str = "cpu",
     ) -> TrainRun:
-        run = self.runs.create_run(dataset_version_id, run_spec, backend=backend, device=device)
+        run = self.training_orchestrator.create_run(
+            dataset_version_id,
+            run_spec,
+            backend=backend,
+            device=device,
+        )
         self.event_bus.publish(
             FoundryRunCreatedEvent(
                 event_id=create_event_id(),
@@ -96,7 +108,7 @@ class FoundryApp:
         return run
 
     def start_run(self, run_id: str, *, cancel_event: Event | None = None) -> TrainRun:
-        run = self.runs.start_run(run_id, cancel_event=cancel_event)
+        run = self.training_orchestrator.start_run(run_id, cancel_event=cancel_event)
         self.event_bus.publish(
             FoundryRunStartedEvent(
                 event_id=create_event_id(),
@@ -175,7 +187,7 @@ class FoundryApp:
             "balance_plan": balance_plan,
         }
 
-    def export_project_review_dataset(
+    def extract_project_review_dataset(
         self,
         project_path: str | Path,
         *,
@@ -185,13 +197,36 @@ class FoundryApp:
         layer_id: str | None = None,
         queue_source_kind: str = "ez_project",
     ) -> DatasetVersion:
-        return self.datasets.export_project_review_dataset(
+        return self.review_extraction.extract_project_review_dataset(
             project_path,
             project_ref=project_ref,
             song_id=song_id,
             song_version_id=song_version_id,
             layer_id=layer_id,
             queue_source_kind=queue_source_kind,
+        )
+
+    def extract_review_signal(
+        self,
+        *,
+        session_id: str,
+        signal_id: str,
+    ) -> dict[str, object]:
+        """Materialize one persisted review signal into dataset state on explicit request."""
+        session = self.reviews.get_session(session_id)
+        if session is None:
+            raise ValueError(f"ReviewSession not found: {session_id}")
+        signal = self._review_signal_repo.get(signal_id)
+        if signal is None:
+            raise ValueError(f"ReviewSignal not found: {signal_id}")
+        return self.review_extraction.extract_review_signal(
+            ReviewCommitContext(
+                session_id=session.id,
+                session_name=session.name,
+                source_ref=session.source_ref,
+                metadata=dict(session.metadata),
+            ),
+            signal,
         )
 
     # ------------------------------------------------------------------

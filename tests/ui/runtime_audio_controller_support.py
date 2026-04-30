@@ -21,7 +21,7 @@ def test_runtime_controller_updates_mix_state_while_playing():
     )
     controller.apply_mix_state(updated)
 
-    engine_layer = engine.mixer.get_layer(TimelineRuntimeAudioController._MONITOR_LAYER_ID)
+    engine_layer = engine.mixer.get_layer(TimelineRuntimeAudioController._PRIMARY_TRACK_ID)
     assert engine.transport.is_playing is True
     assert engine_layer is not None
     assert round(engine_layer.volume, 3) == round(10 ** (-6.0 / 20.0), 3)
@@ -87,7 +87,7 @@ def test_runtime_controller_snapshot_state_reports_backend_session_and_target():
     assert state.backend_name == "sounddevice"
     assert state.output_sample_rate == 44100
     assert state.output_channels == 1
-    assert state.active_layer_id == presentation.active_playback_layer_id
+    assert state.active_layer_id == presentation.selected_layer_id
     assert state.active_take_id is None
     assert len(state.active_sources) == 1
     assert state.active_sources[0].source_ref == "demo.wav"
@@ -128,29 +128,6 @@ def test_runtime_controller_snapshot_state_reports_engine_diagnostics():
     controller.shutdown()
 
 
-def test_runtime_controller_legacy_qt_flags_do_not_change_unified_backend():
-    presentation = _audio_presentation()
-    controller = TimelineRuntimeAudioController(
-        audio_loader=lambda _path: (np.ones(4410, dtype=np.float32), 44100),
-        use_qt_player=True,
-        prefer_qt_for_continuous_audio=True,
-        force_qt_for_continuous_audio=True,
-    )
-    try:
-        controller.build_for_presentation(presentation)
-
-        state = controller.snapshot_state(presentation)
-        assert controller._qt_enabled is False
-        assert controller._prefer_qt_for_continuous_audio is False
-        assert state.backend_name == "sounddevice"
-        assert (
-            controller.engine.mixer.get_layer(TimelineRuntimeAudioController._MONITOR_LAYER_ID)
-            is not None
-        )
-    finally:
-        controller.shutdown()
-
-
 def test_runtime_controller_decodes_selected_audio_source_on_build():
     presentation = _audio_presentation()
     load_calls: list[str] = []
@@ -159,10 +136,7 @@ def test_runtime_controller_decodes_selected_audio_source_on_build():
         load_calls.append(path)
         return np.ones(4410, dtype=np.float32), 44100
 
-    controller = TimelineRuntimeAudioController(
-        audio_loader=_loader,
-        use_qt_player=True,
-    )
+    controller = TimelineRuntimeAudioController(audio_loader=_loader)
     try:
         signature = controller.presentation_signature(presentation)
 
@@ -179,7 +153,7 @@ def test_runtime_controller_decodes_selected_audio_source_on_build():
 def test_runtime_controller_state_queries_do_not_decode_or_raise_for_missing_event_assets():
     presentation = replace(
         _event_slice_presentation(),
-        active_playback_layer_id=LayerId("kick_lane"),
+        selected_layer_id=LayerId("kick_lane"),
     )
     load_calls: list[str] = []
 
@@ -193,14 +167,13 @@ def test_runtime_controller_state_queries_do_not_decode_or_raise_for_missing_eve
         state = controller.snapshot_state(presentation)
 
         assert signature == (
-            (
-                "kick_lane",
-                "event:kick.wav:0.500000:0:0,1.000000:0:0|outputs_1_2",
-            ),
+            ("bed", "audio:bed.wav|outputs_1_2"),
+            ("kick_lane", "event:kick.wav:0.500000:0:0,1.000000:0:0|outputs_1_2"),
         )
-        assert len(state.active_sources) == 1
-        assert state.active_sources[0].layer_id == "kick_lane"
-        assert state.active_sources[0].source_ref == "kick.wav"
+        assert {(source.layer_id, source.source_ref) for source in state.active_sources} == {
+            ("bed", "bed.wav"),
+            ("kick_lane", "kick.wav"),
+        }
         assert load_calls == []
     finally:
         controller.shutdown()
@@ -210,8 +183,6 @@ def test_runtime_controller_can_prefer_sounddevice_backend_for_audio_layers():
     presentation = _audio_presentation()
     controller = TimelineRuntimeAudioController(
         audio_loader=lambda _path: (np.ones(4410, dtype=np.float32), 44100),
-        use_qt_player=True,
-        prefer_qt_for_continuous_audio=False,
     )
     try:
         controller.build_for_presentation(presentation)
@@ -219,7 +190,7 @@ def test_runtime_controller_can_prefer_sounddevice_backend_for_audio_layers():
 
         assert state.backend_name == "sounddevice"
         assert (
-            controller.engine.mixer.get_layer(TimelineRuntimeAudioController._MONITOR_LAYER_ID)
+            controller.engine.mixer.get_layer(TimelineRuntimeAudioController._PRIMARY_TRACK_ID)
             is not None
         )
     finally:
@@ -267,7 +238,7 @@ def test_runtime_controller_routes_song_and_timecode_layers_to_separate_output_p
     presentation = replace(
         base,
         layers=[song_layer, timecode_layer],
-        active_playback_layer_id=song_layer.layer_id,
+        selected_layer_id=song_layer.layer_id,
     )
     engine = AudioEngine(sample_rate=44100, channels=4, stream_factory=_fake_stream_factory)
 
@@ -292,7 +263,7 @@ def test_runtime_controller_routes_song_and_timecode_layers_to_separate_output_p
             dtype=np.float32,
         ),
     )
-    assert engine.mixer.get_layer(TimelineRuntimeAudioController._MONITOR_LAYER_ID) is None
+    assert engine.mixer.get_layer(TimelineRuntimeAudioController._PRIMARY_TRACK_ID) is None
     assert engine.mixer.get_layer("__ez_route__song_layer") is not None
     assert engine.mixer.get_layer("__ez_route__timecode_layer") is not None
 
@@ -331,8 +302,8 @@ def test_runtime_controller_routes_active_take_when_multichannel_mode_is_enabled
     presentation = replace(
         base,
         layers=[song_layer, timecode_layer],
-        active_playback_layer_id=song_layer.layer_id,
-        active_playback_take_id=alt_take.take_id,
+        selected_layer_id=song_layer.layer_id,
+        selected_take_id=alt_take.take_id,
     )
     engine = AudioEngine(sample_rate=44100, channels=4, stream_factory=_fake_stream_factory)
 
@@ -370,7 +341,7 @@ def test_runtime_controller_keeps_active_event_lane_when_routed_layers_are_prese
             replace(base.layers[0], output_bus="outputs_1_2"),
             base.layers[1],
         ],
-        active_playback_layer_id=LayerId("kick_lane"),
+        selected_layer_id=LayerId("kick_lane"),
     )
     engine = AudioEngine(sample_rate=44100, channels=4, stream_factory=_fake_stream_factory)
 
@@ -416,7 +387,7 @@ def test_runtime_controller_preview_clip_plays_sliced_audio_on_preview_engine():
 
     assert played is True
     preview_layer = preview_engine.mixer.get_layer(
-        TimelineRuntimeAudioController._PREVIEW_LAYER_ID
+        TimelineRuntimeAudioController._PREVIEW_TRACK_ID
     )
     assert preview_layer is not None
     np.testing.assert_array_equal(
@@ -446,16 +417,16 @@ def test_runtime_controller_preview_clip_tears_down_preview_stream_after_end():
 
     assert preview_engine.is_active is False
     assert (
-        preview_engine.mixer.get_layer(TimelineRuntimeAudioController._PREVIEW_LAYER_ID)
+        preview_engine.mixer.get_layer(TimelineRuntimeAudioController._PREVIEW_TRACK_ID)
         is None
     )
     controller.shutdown()
 
 
-def test_runtime_controller_selected_event_lane_becomes_only_active_playback_source():
+def test_runtime_controller_mixes_all_playable_layers_by_default():
     presentation = replace(
         _event_slice_presentation(),
-        active_playback_layer_id=LayerId("kick_lane"),
+        selected_layer_id=LayerId("kick_lane"),
     )
     engine = AudioEngine(stream_factory=_fake_stream_factory)
 
@@ -471,19 +442,140 @@ def test_runtime_controller_selected_event_lane_becomes_only_active_playback_sou
 
     mixed = engine.mixer.read_mix(int(0.5 * 44100), 2)
 
-    engine_layer = engine.mixer.get_layer(TimelineRuntimeAudioController._MONITOR_LAYER_ID)
-    assert engine_layer is not None
-    np.testing.assert_array_almost_equal(mixed, np.array([1.0, 0.5], dtype=np.float32))
+    assert engine.mixer.get_layer(TimelineRuntimeAudioController._PRIMARY_TRACK_ID) is None
+    assert engine.mixer.get_layer("__ez_route__bed") is not None
+    assert engine.mixer.get_layer("__ez_route__kick_lane") is not None
+    np.testing.assert_array_almost_equal(mixed, np.array([1.0, 0.75], dtype=np.float32))
     controller.shutdown()
 
 
-def test_runtime_controller_requires_explicit_playback_target_when_selection_is_missing():
+def test_runtime_controller_keeps_song_and_stems_sample_aligned_at_shared_anchor():
+    base = build_demo_app().presentation()
+    layer_ids = (
+        "song_layer",
+        "stem_vocals",
+        "stem_drums",
+        "stem_bass",
+        "stem_other",
+    )
+    source_paths = {
+        "song_layer": "song.wav",
+        "stem_vocals": "vocals.wav",
+        "stem_drums": "drums.wav",
+        "stem_bass": "bass.wav",
+        "stem_other": "other.wav",
+    }
+    amplitudes = {
+        "song.wav": 0.10,
+        "vocals.wav": 0.12,
+        "drums.wav": 0.14,
+        "bass.wav": 0.16,
+        "other.wav": 0.18,
+    }
+    layers = [
+        LayerPresentation(
+            layer_id=LayerId(layer_id),
+            title=layer_id,
+            kind=LayerKind.AUDIO,
+            source_audio_path=source_paths[layer_id],
+        )
+        for layer_id in layer_ids
+    ]
+    presentation = replace(
+        base,
+        layers=layers,
+        selected_layer_id=layers[0].layer_id,
+    )
+    engine = AudioEngine(sample_rate=100, stream_factory=_fake_stream_factory)
+    anchor_sample = 400
+    total_samples = 1200
+
+    def _loader(path: str):
+        if path not in amplitudes:
+            raise AssertionError(path)
+        buffer = np.zeros(total_samples, dtype=np.float32)
+        buffer[anchor_sample] = amplitudes[path]
+        return buffer, 100
+
+    controller = TimelineRuntimeAudioController(engine=engine, audio_loader=_loader)
+    controller.build_for_presentation(presentation)
+
+    expected_mix = np.zeros(9, dtype=np.float32)
+    expected_mix[4] = sum(amplitudes.values())
+    mixed = engine.mixer.read_mix(anchor_sample - 4, 9)
+    np.testing.assert_array_almost_equal(mixed, expected_mix)
+
+    for layer_id in layer_ids:
+        routed_layer = engine.mixer.get_layer(f"__ez_route__{layer_id}")
+        assert routed_layer is not None
+        assert int(np.argmax(routed_layer.buffer)) == anchor_sample
+
+    controller.shutdown()
+
+
+def test_runtime_controller_resamples_mixed_sample_rate_layers_before_engine_mix():
+    from echozero.audio.layer import resample_buffer
+
+    base = build_demo_app().presentation()
+    layers = [
+        LayerPresentation(
+            layer_id=LayerId("song_layer"),
+            title="Song",
+            kind=LayerKind.AUDIO,
+            source_audio_path="song.wav",
+        ),
+        LayerPresentation(
+            layer_id=LayerId("stem_layer"),
+            title="Stem",
+            kind=LayerKind.AUDIO,
+            source_audio_path="stem.wav",
+        ),
+    ]
+    presentation = replace(
+        base,
+        layers=layers,
+        selected_layer_id=layers[0].layer_id,
+    )
+    engine = AudioEngine(sample_rate=48000, stream_factory=_fake_stream_factory)
+    duration_seconds = 2.0
+    song_sample_rate = 48000
+    stem_sample_rate = 44100
+    rng = np.random.default_rng(12345)
+    song_buffer = (
+        rng.standard_normal(int(duration_seconds * song_sample_rate)).astype(np.float32) * 0.1
+    )
+    stem_buffer = resample_buffer(song_buffer, song_sample_rate, stem_sample_rate)
+
+    def _loader(path: str):
+        if path == "song.wav":
+            return song_buffer, song_sample_rate
+        if path == "stem.wav":
+            return stem_buffer, stem_sample_rate
+        raise AssertionError(path)
+
+    controller = TimelineRuntimeAudioController(engine=engine, audio_loader=_loader)
+    controller.build_for_presentation(presentation)
+
+    routed_song = engine.mixer.get_layer("__ez_route__song_layer")
+    routed_stem = engine.mixer.get_layer("__ez_route__stem_layer")
+    assert routed_song is not None
+    assert routed_stem is not None
+    assert routed_song.sample_rate == engine.sample_rate
+    assert routed_stem.sample_rate == engine.sample_rate
+    assert routed_song.duration_samples == len(song_buffer)
+    assert routed_stem.duration_samples == len(song_buffer)
+    assert float(np.corrcoef(routed_song.buffer, routed_stem.buffer)[0, 1]) > 0.95
+
+    controller.shutdown()
+
+
+def test_runtime_controller_plays_layers_without_explicit_playback_target():
     presentation = _event_slice_presentation()
     engine = AudioEngine(stream_factory=_fake_stream_factory)
 
     def _loader(path: str):
         if path == "bed.wav":
-            return np.array([0.25, 0.1], dtype=np.float32), 44100
+            return np.full(44100, 0.25, dtype=np.float32), 44100
         if path == "kick.wav":
             return np.array([0.75, -0.25], dtype=np.float32), 44100
         raise AssertionError(path)
@@ -491,15 +583,17 @@ def test_runtime_controller_requires_explicit_playback_target_when_selection_is_
     controller = TimelineRuntimeAudioController(engine=engine, audio_loader=_loader)
     controller.build_for_presentation(presentation)
 
-    engine_layer = engine.mixer.get_layer(TimelineRuntimeAudioController._MONITOR_LAYER_ID)
-    assert engine_layer is None
+    mixed = engine.mixer.read_mix(int(0.5 * 44100), 2)
+    assert engine.mixer.get_layer("__ez_route__bed") is not None
+    assert engine.mixer.get_layer("__ez_route__kick_lane") is not None
+    np.testing.assert_array_almost_equal(mixed, np.array([1.0, 0.0], dtype=np.float32))
     controller.shutdown()
 
 
-def test_runtime_controller_selected_layer_switches_active_source_without_stopping_transport():
+def test_runtime_controller_switches_playback_target_without_stopping_transport():
     base = replace(
         _event_slice_presentation(),
-        active_playback_layer_id=LayerId("bed"),
+        selected_layer_id=LayerId("bed"),
     )
     engine = AudioEngine(stream_factory=_fake_stream_factory)
 
@@ -513,17 +607,62 @@ def test_runtime_controller_selected_layer_switches_active_source_without_stoppi
     controller = TimelineRuntimeAudioController(engine=engine, audio_loader=_loader)
     controller.build_for_presentation(base)
     controller.play()
+    before = engine.mixer.read_mix(int(0.5 * 44100), 2)
     controller.apply_mix_state(
         replace(
             base,
-            active_playback_layer_id=LayerId("kick_lane"),
+            selected_layer_id=LayerId("kick_lane"),
         )
     )
+    after = engine.mixer.read_mix(int(0.5 * 44100), 2)
 
     assert controller.is_playing() is True
-    assert engine.mixer.get_layer(TimelineRuntimeAudioController._MONITOR_LAYER_ID) is not None
-    mixed = engine.mixer.read_mix(int(0.5 * 44100), 2)
-    np.testing.assert_array_almost_equal(mixed, np.array([1.0, 0.5], dtype=np.float32))
+    assert engine.mixer.get_layer("__ez_route__bed") is not None
+    assert engine.mixer.get_layer("__ez_route__kick_lane") is not None
+    np.testing.assert_array_almost_equal(before, np.array([1.0, 0.75], dtype=np.float32))
+    np.testing.assert_array_almost_equal(after, before)
+    controller.shutdown()
+
+
+def test_runtime_controller_mute_and_solo_controls_update_effective_mix_without_rebuild():
+    base = _event_slice_presentation()
+    engine = AudioEngine(stream_factory=_fake_stream_factory)
+
+    def _loader(path: str):
+        if path == "bed.wav":
+            return np.full(44100, 0.25, dtype=np.float32), 44100
+        if path == "kick.wav":
+            return np.array([1.0, 0.5], dtype=np.float32), 44100
+        raise AssertionError(path)
+
+    controller = TimelineRuntimeAudioController(engine=engine, audio_loader=_loader)
+    controller.build_for_presentation(base)
+    mixed_default = engine.mixer.read_mix(int(0.5 * 44100), 2)
+
+    muted_bed = replace(
+        base,
+        layers=[
+            replace(base.layers[0], muted=True),
+            base.layers[1],
+        ],
+    )
+    controller.apply_mix_state(muted_bed)
+    mixed_bed_muted = engine.mixer.read_mix(int(0.5 * 44100), 2)
+
+    soloed_kick = replace(
+        base,
+        layers=[
+            base.layers[0],
+            replace(base.layers[1], soloed=True),
+        ],
+    )
+    controller.apply_mix_state(soloed_kick)
+    mixed_kick_solo = engine.mixer.read_mix(int(0.5 * 44100), 2)
+
+    assert controller._last_track_sync_reason == "mix-state-applied"
+    np.testing.assert_array_almost_equal(mixed_default, np.array([1.0, 0.75], dtype=np.float32))
+    np.testing.assert_array_almost_equal(mixed_bed_muted, np.array([1.0, 0.5], dtype=np.float32))
+    np.testing.assert_array_almost_equal(mixed_kick_solo, np.array([1.0, 0.5], dtype=np.float32))
     controller.shutdown()
 
 
@@ -547,8 +686,8 @@ def test_runtime_controller_uses_selected_take_audio_for_monitored_layer():
     presentation = replace(
         base,
         layers=[monitored_layer],
-        active_playback_layer_id=LayerId("stems"),
-        active_playback_take_id=alt_take.take_id,
+        selected_layer_id=LayerId("stems"),
+        selected_take_id=alt_take.take_id,
     )
     engine = AudioEngine(stream_factory=_fake_stream_factory)
 
@@ -562,7 +701,7 @@ def test_runtime_controller_uses_selected_take_audio_for_monitored_layer():
     controller = TimelineRuntimeAudioController(engine=engine, audio_loader=_loader)
     controller.build_for_presentation(presentation)
 
-    engine_layer = engine.mixer.get_layer(TimelineRuntimeAudioController._MONITOR_LAYER_ID)
+    engine_layer = engine.mixer.get_layer(TimelineRuntimeAudioController._PRIMARY_TRACK_ID)
     assert engine_layer is not None
     np.testing.assert_array_almost_equal(
         engine_layer.buffer[:2], np.array([0.8, -0.4], dtype=np.float32)
@@ -599,13 +738,13 @@ def test_demo_dispatch_selection_does_not_reroute_runtime_audio():
     assert runtime_audio.calls == []
 
 
-def test_demo_dispatch_routes_playback_target_updates_runtime_audio():
+def test_demo_dispatch_routes_mix_update_intents_to_runtime_audio():
     demo = build_demo_app()
     runtime_audio = RecordingRuntimeAudio()
     demo.runtime_audio = runtime_audio
     layer_id = demo.presentation().layers[0].layer_id
 
-    demo.dispatch(SetActivePlaybackTarget(layer_id))
+    demo.dispatch(SetLayerMute(layer_id=layer_id, muted=True))
 
     assert runtime_audio.calls == [("mix", None)]
 

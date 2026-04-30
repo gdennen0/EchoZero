@@ -158,11 +158,7 @@ def build_playback_controller(
     """Build the canonical playback controller for one optional audio output config."""
 
     if audio_output_config is None:
-        return TimelinePlaybackController(
-            use_qt_player=False,
-            prefer_qt_for_continuous_audio=False,
-            force_qt_for_continuous_audio=False,
-        )
+        return TimelinePlaybackController()
 
     def _engine_factory() -> AudioEngine:
         return AudioEngine(
@@ -177,9 +173,6 @@ def build_playback_controller(
         )
 
     return TimelinePlaybackController(
-        use_qt_player=False,
-        prefer_qt_for_continuous_audio=False,
-        force_qt_for_continuous_audio=False,
         engine_factory=_engine_factory,
         preview_engine_factory=_engine_factory,
     )

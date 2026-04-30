@@ -27,10 +27,11 @@ from echozero.application.timeline.intents import (
     SelectEvent,
     SelectLayer,
     SelectTake,
-    SetActivePlaybackTarget,
     SetFollowCursorEnabled,
     SetGain,
+    SetLayerMute,
     SetLayerOutputBus,
+    SetLayerSolo,
     SetSelectedEvents,
     Stop,
     TimelineIntent,
@@ -108,6 +109,26 @@ class DemoTimelineApp:
             self.presentation_state = replace(self.presentation_state, layers=layers)
             if self.runtime_audio is not None:
                 self.runtime_audio.apply_mix_state(self.presentation_state)
+        elif isinstance(intent, SetLayerMute):
+            layers = []
+            for layer in self.presentation_state.layers:
+                if layer.layer_id == intent.layer_id:
+                    layers.append(replace(layer, muted=bool(intent.muted)))
+                else:
+                    layers.append(layer)
+            self.presentation_state = replace(self.presentation_state, layers=layers)
+            if self.runtime_audio is not None:
+                self.runtime_audio.apply_mix_state(self.presentation_state)
+        elif isinstance(intent, SetLayerSolo):
+            layers = []
+            for layer in self.presentation_state.layers:
+                if layer.layer_id == intent.layer_id:
+                    layers.append(replace(layer, soloed=bool(intent.soloed)))
+                else:
+                    layers.append(layer)
+            self.presentation_state = replace(self.presentation_state, layers=layers)
+            if self.runtime_audio is not None:
+                self.runtime_audio.apply_mix_state(self.presentation_state)
         elif isinstance(intent, SetLayerOutputBus):
             layers = []
             for layer in self.presentation_state.layers:
@@ -172,14 +193,6 @@ class DemoTimelineApp:
                 selected_take_id=intent.take_id,
                 selected_event_ids=[],
             )
-        elif isinstance(intent, SetActivePlaybackTarget):
-            self.presentation_state = replace(
-                self.presentation_state,
-                active_playback_layer_id=intent.layer_id,
-                active_playback_take_id=intent.take_id,
-            )
-            if self.runtime_audio is not None:
-                self.runtime_audio.apply_mix_state(self.presentation_state)
         elif isinstance(intent, SelectEvent):
             layers = select_event(
                 self.presentation_state.layers,

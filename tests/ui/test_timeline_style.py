@@ -1,4 +1,5 @@
 from PyQt6.QtCore import Qt
+from PyQt6.QtGui import QFontMetrics
 from PyQt6.QtWidgets import (
     QApplication,
     QDialogButtonBox,
@@ -225,7 +226,8 @@ def test_object_info_panel_renders_pipeline_action_settings_rows():
             "timeline_object_info_action_row"
         )
         assert panel._settings_buttons["timeline.extract_stems"].property("appearance") == "subtle"
-        assert panel._settings_buttons["timeline.extract_stems"].text() == "Open Settings"
+        assert panel._settings_buttons["timeline.extract_stems"].text() == "..."
+        assert panel._settings_buttons["timeline.extract_stems"].toolTip() == "Open Settings"
         assert panel._action_buttons["timeline.extract_stems"].property("appearance") == "primary"
         assert panel._action_buttons["timeline.extract_stems"].text() == "Run"
     finally:
@@ -919,7 +921,6 @@ def test_timeline_editor_mode_bar_groups_tools_and_syncs_state():
             bar._pipeline_settings_button.objectName()
             == "timelineEditorPipelineSettingsButton"
         )
-        assert bar._sections_button.objectName() == "timelineEditorSectionsButton"
         assert bar._regions_button.objectName() == "timelineEditorRegionsButton"
         assert list(bar._mode_buttons.keys()) == [
             "select",
@@ -951,21 +952,6 @@ def test_timeline_editor_mode_bar_emits_regions_requested_signal():
         bar.regions_requested.connect(lambda: emitted.append(True))
 
         bar._regions_button.click()
-
-        assert emitted == [True]
-    finally:
-        bar.close()
-        app.processEvents()
-
-
-def test_timeline_editor_mode_bar_emits_sections_requested_signal():
-    app = QApplication.instance() or QApplication([])
-    bar = TimelineEditorModeBar()
-    emitted: list[bool] = []
-    try:
-        bar.sections_requested.connect(lambda: emitted.append(True))
-
-        bar._sections_button.click()
 
         assert emitted == [True]
     finally:
@@ -1085,6 +1071,21 @@ def test_transport_layout_centers_compact_bar_content():
 
     assert layout.rect.height() == TIMELINE_TRANSPORT_HEIGHT_PX
     assert max(center_lines) - min(center_lines) <= 0.5
+
+
+def test_transport_bar_meta_text_keeps_stopped_state_visible_when_width_is_small():
+    app = QApplication.instance() or QApplication([])
+    presentation = build_demo_app().presentation()
+    block = TransportBarBlock()
+    expected_status = "PLAYING" if presentation.is_playing else "STOPPED"
+
+    text = block._status_meta_text(
+        presentation=presentation,
+        available_width=120.0,
+        font_metrics=QFontMetrics(app.font()),
+    )
+
+    assert expected_status in text
 
 
 def test_timeline_widget_top_chrome_is_compact_and_centered():

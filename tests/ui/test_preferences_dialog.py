@@ -78,17 +78,12 @@ def test_preferences_dialog_restore_defaults_resets_form_values() -> None:
         app.processEvents()
 
 
-def test_preferences_dialog_save_persists_json_settings_and_reports_restart(monkeypatch) -> None:
+def test_preferences_dialog_save_persists_json_settings_and_calls_saved_hook(monkeypatch) -> None:
     app = QApplication.instance() or QApplication([])
     service = AppSettingsService(_MemoryStore(), audio_device_options_provider=_device_options)
-    info_messages: list[str] = []
-    dialog = PreferencesDialog(service)
+    saved = {"called": False}
+    dialog = PreferencesDialog(service, on_saved=lambda _result: saved.__setitem__("called", True))
 
-    monkeypatch.setattr(
-        QMessageBox,
-        "information",
-        lambda *_args: info_messages.append(str(_args[2])) or QMessageBox.StandardButton.Ok,
-    )
     monkeypatch.setattr(
         QMessageBox,
         "warning",
@@ -108,9 +103,7 @@ def test_preferences_dialog_save_persists_json_settings_and_reports_restart(monk
 
         assert service.preferences().audio_output.output_device == "7"
         assert service.preferences().audio_output.sample_rate == 48000
-        assert info_messages == [
-            "Restart EchoZero to apply saved audio output settings."
-        ]
+        assert saved["called"] is True
         assert dialog.result() != 0
     finally:
         dialog.close()

@@ -19,18 +19,26 @@ from echozero.foundry.domain.review import (
     ReviewOutcome,
     ReviewPolarity,
     ReviewSession,
+    ReviewSignal,
     ReviewSurface,
     build_review_provenance,
     build_review_decision,
 )
 from echozero.foundry.persistence import ReviewSessionRepository
+from echozero.foundry.persistence.review_signal_repository import ReviewSignalRepository
 from echozero.foundry.review_import import import_review_items_from_folder
 from echozero.foundry.services.project_review_queue_builder import ProjectReviewQueueBuilder
 from echozero.foundry.services.review_signal_codec import (
     coerce_review_decision,
     serialize_review_decision,
 )
+from echozero.foundry.services.review_commit_mapper import (
+    build_explicit_commit_from_item,
+    build_review_commit_command,
+    build_review_commit_context,
+)
 from echozero.foundry.services.review_signal_service import ReviewSignalService
+from echozero.foundry.services.review_pipeline_controller import ReviewPipelineController
 
 
 @dataclass(slots=True)
@@ -39,7 +47,19 @@ class _ProjectSessionMaterializationCacheEntry:
 
     persisted_updated_at: str
     source_token: str | None
+    signal_token: str | None
     session: ReviewSession
+    item_index_by_id: dict[str, int]
+
+
+@dataclass(slots=True)
+class _NonProjectSessionMaterializationCacheEntry:
+    """Tracks one cached non-project session materialization with item lookup index."""
+
+    persisted_updated_at: str
+    signal_token: str | None
+    session: ReviewSession
+    item_index_by_id: dict[str, int]
 
 
 class ReviewSessionService:
@@ -50,11 +70,19 @@ class ReviewSessionService:
         root: Path,
         repository: ReviewSessionRepository | None = None,
         signal_service: ReviewSignalService | None = None,
+        pipeline_controller: ReviewPipelineController | None = None,
         project_queue_builder: ProjectReviewQueueBuilder | None = None,
     ):
         self._root = root
         self._repo = repository or ReviewSessionRepository(root)
-        self._signal_service = signal_service or ReviewSignalService(root)
+        self._signal_repo = ReviewSignalRepository(root)
+        if pipeline_controller is not None:
+            self._pipeline = pipeline_controller
+        else:
+            self._pipeline = ReviewPipelineController(
+                root,
+                signal_service=signal_service or ReviewSignalService(root),
+            )
         self._project_queue_builder = project_queue_builder or ProjectReviewQueueBuilder(root)
         self._cache_lock = RLock()
         self._persisted_sessions_token: str | None = None
@@ -62,6 +90,8 @@ class ReviewSessionService:
         self._persisted_session_order: tuple[str, ...] = ()
         self._persisted_session_summaries: tuple[dict[str, object], ...] = ()
         self._project_session_cache: dict[str, _ProjectSessionMaterializationCacheEntry] = {}
+        self._non_project_session_cache: dict[str, _NonProjectSessionMaterializationCacheEntry] = {}
+        self._session_item_index_cache: dict[str, tuple[str, dict[str, int]]] = {}
 
     def import_session_file(
         self,
@@ -84,6 +114,7 @@ class ReviewSessionService:
         )
         saved_session = self._repo.save(session)
         self._invalidate_persisted_session_cache()
+        self._invalidate_non_project_session_cache(saved_session.id)
         return saved_session
 
     def import_session_folder(
@@ -130,6 +161,7 @@ class ReviewSessionService:
         )
         saved_session = self._repo.save(session)
         self._invalidate_persisted_session_cache()
+        self._invalidate_non_project_session_cache(saved_session.id)
         return saved_session
 
     def create_project_session(
@@ -177,6 +209,7 @@ class ReviewSessionService:
         )
         saved_session = self._repo.save(session)
         self._invalidate_persisted_session_cache()
+        self._invalidate_non_project_session_cache(saved_session.id)
         self._prime_project_session_cache(saved_session)
         return saved_session
 
@@ -195,16 +228,6 @@ class ReviewSessionService:
             self._materialize_session(sessions_by_id[session_id])
             for session_id in session_order
         ]
-
-    def set_item_outcome(self, session_id: str, item_id: str, outcome: ReviewOutcome) -> ReviewSession:
-        """Persist a human review decision for one item in a session."""
-        return self.set_item_review(
-            session_id,
-            item_id,
-            outcome=outcome,
-            corrected_label=None,
-            review_note=None,
-        )
 
     def set_item_review(
         self,
@@ -225,9 +248,19 @@ class ReviewSessionService:
         operator_action: str | None = None,
     ) -> ReviewSession:
         """Persist a human review decision plus optional relabeling context."""
-        session = self.get_session(session_id)
-        if session is None:
+        sessions_by_id, _session_order, _summary_items = self._load_persisted_sessions()
+        persisted_session = sessions_by_id.get(session_id)
+        if persisted_session is None:
             raise ValueError(f"ReviewSession not found: {session_id}")
+        non_project_session = _is_non_project_session(persisted_session)
+        session = (
+            persisted_session
+            if non_project_session
+            else self._materialize_session(persisted_session)
+        )
+        item_index = self._session_item_index(session).get(item_id)
+        if item_index is None:
+            raise ValueError(f"ReviewItem not found: {item_id}")
         timestamp = datetime.now(UTC)
         normalized_label = _normalize_optional_text(corrected_label)
         normalized_note = _normalize_optional_text(review_note)
@@ -243,67 +276,89 @@ class ReviewSessionService:
                 created_event_ref=created_event_ref,
             )
         )
-        updated_items: list[ReviewItem] = []
-        found = False
-        for item in session.items:
-            if item.item_id != item_id:
-                updated_items.append(item)
-                continue
-            updated_items.append(
-                ReviewItem(
-                    item_id=item.item_id,
-                    audio_path=item.audio_path,
-                    predicted_label=item.predicted_label,
-                    target_class=item.target_class,
-                    polarity=item.polarity,
-                    score=item.score,
-                    source_provenance=item.source_provenance,
-                    review_outcome=outcome,
-                    review_decision=build_review_decision(
-                        outcome,
-                        corrected_label=normalized_label if outcome == ReviewOutcome.INCORRECT else None,
-                        review_note=normalized_note if outcome == ReviewOutcome.INCORRECT else None,
-                        decision_kind=normalized_decision_kind,
-                        original_start_ms=original_start_ms if outcome == ReviewOutcome.INCORRECT else None,
-                        original_end_ms=original_end_ms if outcome == ReviewOutcome.INCORRECT else None,
-                        corrected_start_ms=corrected_start_ms if outcome == ReviewOutcome.INCORRECT else None,
-                        corrected_end_ms=corrected_end_ms if outcome == ReviewOutcome.INCORRECT else None,
-                        created_event_ref=created_event_ref if outcome == ReviewOutcome.INCORRECT else None,
-                        provenance=build_review_provenance(
-                            item.source_provenance,
-                            surface=surface,
-                            workflow=workflow,
-                            operator_action=operator_action,
-                            queue_session_ref=session.id,
-                        ),
-                    ),
-                    corrected_label=normalized_label if outcome == ReviewOutcome.INCORRECT else None,
-                    review_note=normalized_note if outcome == ReviewOutcome.INCORRECT else None,
-                    reviewed_at=timestamp,
+        item = session.items[item_index]
+        reviewed_item = ReviewItem(
+            item_id=item.item_id,
+            audio_path=item.audio_path,
+            predicted_label=item.predicted_label,
+            target_class=item.target_class,
+            polarity=item.polarity,
+            score=item.score,
+            source_provenance=item.source_provenance,
+            review_outcome=outcome,
+            review_decision=build_review_decision(
+                outcome,
+                corrected_label=normalized_label if outcome == ReviewOutcome.INCORRECT else None,
+                review_note=normalized_note if outcome == ReviewOutcome.INCORRECT else None,
+                decision_kind=normalized_decision_kind,
+                original_start_ms=original_start_ms if outcome == ReviewOutcome.INCORRECT else None,
+                original_end_ms=original_end_ms if outcome == ReviewOutcome.INCORRECT else None,
+                corrected_start_ms=corrected_start_ms if outcome == ReviewOutcome.INCORRECT else None,
+                corrected_end_ms=corrected_end_ms if outcome == ReviewOutcome.INCORRECT else None,
+                created_event_ref=created_event_ref if outcome == ReviewOutcome.INCORRECT else None,
+                provenance=build_review_provenance(
+                    item.source_provenance,
+                    surface=surface,
+                    workflow=workflow,
+                    operator_action=operator_action,
+                    queue_session_ref=session.id,
+                ),
+            ),
+            corrected_label=normalized_label if outcome == ReviewOutcome.INCORRECT else None,
+            review_note=normalized_note if outcome == ReviewOutcome.INCORRECT else None,
+            reviewed_at=timestamp,
+        )
+        if reviewed_item.review_outcome != ReviewOutcome.PENDING and reviewed_item.review_decision is not None:
+            signal = self._pipeline.commit(
+                build_review_commit_command(
+                    context=build_review_commit_context(session),
+                    commit=build_explicit_commit_from_item(reviewed_item),
                 )
             )
-            found = True
-        if not found:
-            raise ValueError(f"ReviewItem not found: {item_id}")
-        updated_session = ReviewSession(
-            id=session.id,
-            name=session.name,
-            items=updated_items,
-            source_ref=session.source_ref,
-            metadata=session.metadata,
-            created_at=session.created_at,
-            updated_at=timestamp,
-        )
-        saved_session = self._repo.save(updated_session)
-        reviewed_item = next(item for item in saved_session.items if item.item_id == item_id)
-        if reviewed_item.review_outcome != ReviewOutcome.PENDING and reviewed_item.review_decision is not None:
-            self._signal_service.record_session_item_review(saved_session, reviewed_item)
-        self._invalidate_persisted_session_cache()
-        if _decision_requires_project_rebuild(normalized_decision_kind):
-            self._invalidate_project_session_cache(saved_session.id)
         else:
-            self._prime_project_session_cache(saved_session)
-        return saved_session
+            signal = None
+
+        if signal is not None and non_project_session:
+            saved_session = ReviewSession(
+                id=persisted_session.id,
+                name=persisted_session.name,
+                items=persisted_session.items,
+                source_ref=persisted_session.source_ref,
+                metadata=persisted_session.metadata,
+                created_at=persisted_session.created_at,
+                updated_at=timestamp,
+            )
+            self._refresh_persisted_session_cache(saved_session)
+            return self._update_non_project_cached_session(
+                saved_session,
+                signal=signal,
+            )
+
+        if _decision_requires_project_rebuild(normalized_decision_kind):
+            self._invalidate_project_session_cache(session.id)
+            rematerialized = self.get_session(session.id)
+            if rematerialized is not None:
+                return rematerialized
+            return session
+        if signal is not None:
+            updated = ReviewSession(
+                id=session.id,
+                name=session.name,
+                items=self._merge_signal_items(
+                    session.items,
+                    signal_by_item_id={signal.item_id: signal},
+                ),
+                source_ref=session.source_ref,
+                metadata=session.metadata,
+                created_at=session.created_at,
+                updated_at=max(session.updated_at, signal.updated_at),
+            )
+            self._prime_project_session_cache(
+                updated,
+                persisted_updated_at=persisted_session.updated_at.isoformat(),
+            )
+            return updated
+        return session
 
     def filter_items(
         self,
@@ -353,51 +408,58 @@ class ReviewSessionService:
         session = self.get_session(session_id)
         if session is None:
             raise ValueError(f"ReviewSession not found: {session_id}")
-        scope_items = self.filter_items(
-            session,
-            outcome="all",
-            polarity=polarity,
-            target_class=target_class,
-            song_ref=song_ref,
-            layer_ref=layer_ref,
-        )
-        filtered_items = self.filter_items(
-            session,
-            outcome=outcome,
-            polarity=polarity,
-            target_class=target_class,
-            song_ref=song_ref,
-            layer_ref=layer_ref,
-        )
-        normalized_cursor = _normalize_cursor(cursor, item_count=len(filtered_items))
-        focused_item, focused_item_visible = _resolve_focused_item(
-            session,
-            filtered_items=filtered_items,
-            normalized_cursor=normalized_cursor,
-            item_id=item_id,
-        )
-        if focused_item_visible:
-            normalized_cursor = next(
-                index
-                for index, filtered_item in enumerate(filtered_items)
-                if filtered_item.item_id == focused_item.item_id
-            )
+        scope_items: list[ReviewItem] = []
+        filtered_items: list[ReviewItem] = []
+        session_item_by_id: dict[str, ReviewItem] = {}
+        scope_item_number_by_id: dict[str, int] = {}
+        filtered_cursor_by_id: dict[str, int] = {}
         counts_by_outcome = {
-            review_outcome.value: sum(1 for item in session.items if item.review_outcome == review_outcome)
+            review_outcome.value: 0
             for review_outcome in ReviewOutcome
         }
         counts_by_polarity = {
-            review_polarity.value: sum(1 for item in session.items if item.polarity == review_polarity)
+            review_polarity.value: 0
             for review_polarity in ReviewPolarity
         }
-        reviewed_count = counts_by_outcome[ReviewOutcome.CORRECT.value] + counts_by_outcome[ReviewOutcome.INCORRECT.value]
-        pending_count = counts_by_outcome[ReviewOutcome.PENDING.value]
         scope_counts_by_outcome = {
-            review_outcome.value: sum(
-                1 for item in scope_items if item.review_outcome == review_outcome
-            )
+            review_outcome.value: 0
             for review_outcome in ReviewOutcome
         }
+        for review_item in session.items:
+            session_item_by_id[review_item.item_id] = review_item
+            counts_by_outcome[review_item.review_outcome.value] += 1
+            counts_by_polarity[review_item.polarity.value] += 1
+            if not _matches_scope_filters(
+                review_item,
+                polarity=polarity,
+                target_class=target_class,
+                song_ref=song_ref,
+                layer_ref=layer_ref,
+            ):
+                continue
+            scope_items.append(review_item)
+            scope_item_number_by_id[review_item.item_id] = len(scope_items)
+            scope_counts_by_outcome[review_item.review_outcome.value] += 1
+            if outcome == "all" or review_item.review_outcome.value == outcome:
+                filtered_cursor_by_id[review_item.item_id] = len(filtered_items)
+                filtered_items.append(review_item)
+        normalized_cursor = _normalize_cursor(cursor, item_count=len(filtered_items))
+        if item_id:
+            focused_item = session_item_by_id.get(item_id)
+            if focused_item is None:
+                raise ValueError(f"ReviewItem not found: {item_id}")
+            focused_item_visible = item_id in filtered_cursor_by_id
+        elif filtered_items:
+            focused_item = filtered_items[normalized_cursor]
+            focused_item_visible = True
+        else:
+            focused_item = None
+            focused_item_visible = False
+        if focused_item_visible:
+            assert focused_item is not None
+            normalized_cursor = filtered_cursor_by_id[focused_item.item_id]
+        reviewed_count = counts_by_outcome[ReviewOutcome.CORRECT.value] + counts_by_outcome[ReviewOutcome.INCORRECT.value]
+        pending_count = counts_by_outcome[ReviewOutcome.PENDING.value]
         scope_reviewed_count = (
             scope_counts_by_outcome[ReviewOutcome.CORRECT.value]
             + scope_counts_by_outcome[ReviewOutcome.INCORRECT.value]
@@ -405,14 +467,7 @@ class ReviewSessionService:
         scope_pending_count = scope_counts_by_outcome[ReviewOutcome.PENDING.value]
         current_scope_number = 0
         if focused_item is not None:
-            current_scope_number = next(
-                (
-                    index + 1
-                    for index, item in enumerate(scope_items)
-                    if item.item_id == focused_item.item_id
-                ),
-                0,
-            )
+            current_scope_number = scope_item_number_by_id.get(focused_item.item_id, 0)
         return {
             "session": {
                 "id": session.id,
@@ -506,16 +561,47 @@ class ReviewSessionService:
         }
 
     def _materialize_session(self, session: ReviewSession) -> ReviewSession:
+        signal_by_item_id = self._signal_by_item_id(session.id)
         if session.metadata.get("queue_source_kind") != "ez_project" or session.source_ref is None:
-            return session
+            persisted_updated_at = session.updated_at.isoformat()
+            signal_token = _review_signals_state_token(self._root)
+            with self._cache_lock:
+                cached = self._non_project_session_cache.get(session.id)
+                if (
+                    cached is not None
+                    and cached.persisted_updated_at == persisted_updated_at
+                    and cached.signal_token == signal_token
+                ):
+                    return cached.session
+            queue_items = [_without_session_review_state(item) for item in session.items]
+            materialized_session = ReviewSession(
+                id=session.id,
+                name=session.name,
+                items=self._merge_signal_items(
+                    queue_items,
+                    signal_by_item_id=signal_by_item_id,
+                ),
+                source_ref=session.source_ref,
+                metadata=session.metadata,
+                created_at=session.created_at,
+                updated_at=_session_updated_at(session.updated_at, signal_by_item_id),
+            )
+            self._prime_non_project_session_cache(
+                materialized_session,
+                persisted_updated_at=persisted_updated_at,
+                signal_token=signal_token,
+            )
+            return materialized_session
         persisted_updated_at = session.updated_at.isoformat()
         source_token = _project_source_state_token(session.source_ref)
+        signal_token = _review_signals_state_token(self._root)
         with self._cache_lock:
             cached = self._project_session_cache.get(session.id)
             if (
                 cached is not None
                 and cached.persisted_updated_at == persisted_updated_at
                 and cached.source_token == source_token
+                and cached.signal_token == signal_token
             ):
                 return cached.session
         try:
@@ -536,26 +622,44 @@ class ReviewSessionService:
             )
         except ValueError:
             self._prime_project_session_cache(
-                session,
+                ReviewSession(
+                    id=session.id,
+                    name=session.name,
+                    items=self._merge_signal_items(
+                        session.items,
+                        signal_by_item_id=signal_by_item_id,
+                    ),
+                    source_ref=session.source_ref,
+                    metadata=session.metadata,
+                    created_at=session.created_at,
+                    updated_at=_session_updated_at(session.updated_at, signal_by_item_id),
+                ),
                 persisted_updated_at=persisted_updated_at,
                 source_token=source_token,
+                signal_token=signal_token,
             )
-            return session
+            cached = self._project_session_cache.get(session.id)
+            return cached.session if cached is not None else session
         metadata = dict(session.metadata)
         metadata.update(queue.metadata)
         materialized_session = ReviewSession(
             id=session.id,
             name=session.name,
-            items=self._merge_project_items(queue.items, persisted_items=session.items),
+            items=self._merge_project_items(
+                queue.items,
+                persisted_items=session.items,
+                signal_by_item_id=signal_by_item_id,
+            ),
             source_ref=session.source_ref,
             metadata=metadata,
             created_at=session.created_at,
-            updated_at=session.updated_at,
+            updated_at=_session_updated_at(session.updated_at, signal_by_item_id),
         )
         self._prime_project_session_cache(
             materialized_session,
             persisted_updated_at=persisted_updated_at,
             source_token=source_token,
+            signal_token=signal_token,
         )
         return materialized_session
 
@@ -653,6 +757,7 @@ class ReviewSessionService:
             self._persisted_sessions_by_id = {}
             self._persisted_session_order = ()
             self._persisted_session_summaries = ()
+            self._session_item_index_cache = {}
 
     def _invalidate_project_session_cache(self, session_id: str | None = None) -> None:
         with self._cache_lock:
@@ -660,6 +765,15 @@ class ReviewSessionService:
                 self._project_session_cache.clear()
                 return
             self._project_session_cache.pop(session_id, None)
+            self._session_item_index_cache.pop(session_id, None)
+
+    def _invalidate_non_project_session_cache(self, session_id: str | None = None) -> None:
+        with self._cache_lock:
+            if session_id is None:
+                self._non_project_session_cache.clear()
+                return
+            self._non_project_session_cache.pop(session_id, None)
+            self._session_item_index_cache.pop(session_id, None)
 
     def _prime_project_session_cache(
         self,
@@ -667,43 +781,174 @@ class ReviewSessionService:
         *,
         persisted_updated_at: str | None = None,
         source_token: str | None = None,
+        signal_token: str | None = None,
     ) -> None:
         if session.metadata.get("queue_source_kind") != "ez_project" or session.source_ref is None:
             return
         entry = _ProjectSessionMaterializationCacheEntry(
             persisted_updated_at=persisted_updated_at or session.updated_at.isoformat(),
             source_token=source_token if source_token is not None else _project_source_state_token(session.source_ref),
+            signal_token=signal_token if signal_token is not None else _review_signals_state_token(self._root),
             session=session,
+            item_index_by_id=self._session_item_index(session),
         )
         with self._cache_lock:
             self._project_session_cache[session.id] = entry
+
+    def _prime_non_project_session_cache(
+        self,
+        session: ReviewSession,
+        *,
+        persisted_updated_at: str | None = None,
+        signal_token: str | None = None,
+    ) -> None:
+        if not _is_non_project_session(session):
+            return
+        entry = _NonProjectSessionMaterializationCacheEntry(
+            persisted_updated_at=persisted_updated_at or session.updated_at.isoformat(),
+            signal_token=signal_token if signal_token is not None else _review_signals_state_token(self._root),
+            session=session,
+            item_index_by_id=self._session_item_index(session),
+        )
+        with self._cache_lock:
+            self._non_project_session_cache[session.id] = entry
+
+    def _refresh_persisted_session_cache(self, session: ReviewSession) -> None:
+        state_token = _review_sessions_state_token(self._root)
+        with self._cache_lock:
+            if self._persisted_sessions_token is None:
+                return
+            updated_by_id = dict(self._persisted_sessions_by_id)
+            updated_by_id[session.id] = session
+            ordered = sorted(
+                updated_by_id.values(),
+                key=lambda candidate: candidate.updated_at,
+                reverse=True,
+            )
+            self._persisted_sessions_by_id = {
+                candidate.id: candidate
+                for candidate in ordered
+            }
+            self._persisted_session_order = tuple(candidate.id for candidate in ordered)
+            self._persisted_session_summaries = tuple(
+                self._serialize_session_summary(candidate)
+                for candidate in ordered
+            )
+            self._persisted_sessions_token = state_token
+            self._session_item_index_cache[session.id] = (
+                session.updated_at.isoformat(),
+                {
+                    item.item_id: index
+                    for index, item in enumerate(session.items)
+                },
+            )
+
+    def _update_non_project_cached_session(
+        self,
+        persisted_session: ReviewSession,
+        *,
+        signal: ReviewSignal,
+    ) -> ReviewSession:
+        persisted_updated_at = persisted_session.updated_at.isoformat()
+        signal_token = _review_signals_state_token(self._root)
+        with self._cache_lock:
+            cached = self._non_project_session_cache.get(persisted_session.id)
+            if (
+                cached is not None
+                and signal.item_id in cached.item_index_by_id
+            ):
+                item_index = cached.item_index_by_id[signal.item_id]
+                updated_items = list(cached.session.items)
+                updated_items[item_index] = _merge_item_with_signal(updated_items[item_index], signal)
+                updated_session = ReviewSession(
+                    id=persisted_session.id,
+                    name=persisted_session.name,
+                    items=updated_items,
+                    source_ref=persisted_session.source_ref,
+                    metadata=persisted_session.metadata,
+                    created_at=persisted_session.created_at,
+                    updated_at=_session_updated_at(
+                        persisted_session.updated_at,
+                        {signal.item_id: signal},
+                    ),
+                )
+                self._non_project_session_cache[persisted_session.id] = _NonProjectSessionMaterializationCacheEntry(
+                    persisted_updated_at=persisted_updated_at,
+                    signal_token=signal_token,
+                    session=updated_session,
+                    item_index_by_id=dict(cached.item_index_by_id),
+                )
+                return updated_session
+        materialized = self._materialize_session(persisted_session)
+        self._prime_non_project_session_cache(
+            materialized,
+            persisted_updated_at=persisted_updated_at,
+            signal_token=signal_token,
+        )
+        return materialized
+
+    def _signal_by_item_id(self, session_id: str) -> dict[str, ReviewSignal]:
+        return {
+            signal.item_id: signal
+            for signal in self._signal_repo.list_for_session(session_id)
+            if signal.review_outcome != ReviewOutcome.PENDING and signal.review_decision is not None
+        }
+
+    def _session_item_index(self, session: ReviewSession) -> dict[str, int]:
+        updated_at_token = session.updated_at.isoformat()
+        with self._cache_lock:
+            cached = self._session_item_index_cache.get(session.id)
+            if cached is not None and cached[0] == updated_at_token:
+                return cached[1]
+        item_index_by_id = {
+            item.item_id: index
+            for index, item in enumerate(session.items)
+        }
+        with self._cache_lock:
+            self._session_item_index_cache[session.id] = (
+                updated_at_token,
+                item_index_by_id,
+            )
+        return item_index_by_id
+
+    @staticmethod
+    def _merge_signal_items(
+        items: list[ReviewItem],
+        *,
+        signal_by_item_id: dict[str, ReviewSignal],
+    ) -> list[ReviewItem]:
+        return [
+            _merge_item_with_signal(item, signal_by_item_id[item.item_id])
+            if item.item_id in signal_by_item_id
+            else item
+            for item in items
+        ]
 
     @staticmethod
     def _merge_project_items(
         current_items: list[ReviewItem],
         *,
         persisted_items: list[ReviewItem],
+        signal_by_item_id: dict[str, ReviewSignal] | None = None,
     ) -> list[ReviewItem]:
-        persisted_by_id = {item.item_id: item for item in persisted_items}
+        del persisted_items
+        signal_by_item_id = signal_by_item_id or {}
         merged_items: list[ReviewItem] = []
         for item in current_items:
-            persisted = persisted_by_id.get(item.item_id)
-            if item.review_outcome != ReviewOutcome.PENDING or persisted is None:
-                merged_items.append(item)
-                continue
-            if persisted.review_outcome == ReviewOutcome.PENDING:
-                merged_items.append(item)
-                continue
-            merged_items.append(
-                replace(
-                    item,
-                    review_outcome=persisted.review_outcome,
-                    review_decision=persisted.review_decision,
-                    corrected_label=persisted.corrected_label,
-                    review_note=persisted.review_note,
-                    reviewed_at=persisted.reviewed_at,
+            signal = signal_by_item_id.get(item.item_id)
+            if signal is not None and signal.review_outcome != ReviewOutcome.PENDING and signal.review_decision is not None:
+                merged_items.append(
+                    replace(
+                        item,
+                        review_outcome=signal.review_outcome,
+                        review_decision=signal.review_decision,
+                        corrected_label=signal.corrected_label,
+                        review_note=signal.review_note,
+                        reviewed_at=signal.reviewed_at,
+                    )
                 )
-            )
+                continue
+            merged_items.append(item)
         return merged_items
 
     def _load_rows(self, path: Path) -> list[dict]:
@@ -915,6 +1160,49 @@ def _path_state_token(path: Path) -> str | None:
     return f"{path.resolve()}|{stat.st_mtime_ns}|{stat.st_size}"
 
 
+def _review_signals_state_token(root: Path) -> str | None:
+    signals = _path_state_token(root / "foundry" / "state" / "review_signals.json")
+    journal = _path_state_token(root / "foundry" / "state" / "review_signals.journal.jsonl")
+    return f"{signals}|{journal}"
+
+
+def _session_updated_at(
+    default_updated_at: datetime,
+    signal_by_item_id: dict[str, ReviewSignal],
+) -> datetime:
+    latest = max(
+        (signal.updated_at for signal in signal_by_item_id.values()),
+        default=default_updated_at,
+    )
+    return latest if latest >= default_updated_at else default_updated_at
+
+
+def _merge_item_with_signal(item: ReviewItem, signal: ReviewSignal) -> ReviewItem:
+    return replace(
+        item,
+        review_outcome=signal.review_outcome,
+        review_decision=signal.review_decision,
+        corrected_label=signal.corrected_label,
+        review_note=signal.review_note,
+        reviewed_at=signal.reviewed_at,
+    )
+
+
+def _without_session_review_state(item: ReviewItem) -> ReviewItem:
+    return replace(
+        item,
+        review_outcome=ReviewOutcome.PENDING,
+        review_decision=None,
+        corrected_label=None,
+        review_note=None,
+        reviewed_at=None,
+    )
+
+
+def _is_non_project_session(session: ReviewSession) -> bool:
+    return str(session.metadata.get("queue_source_kind") or "").strip() != "ez_project"
+
+
 def _decision_requires_project_rebuild(
     decision_kind: ReviewDecisionKind | str | None,
 ) -> bool:
@@ -981,6 +1269,25 @@ def _resolve_focused_item(
     if not filtered_items:
         return None, False
     return filtered_items[normalized_cursor], True
+
+
+def _matches_scope_filters(
+    item: ReviewItem,
+    *,
+    polarity: str,
+    target_class: str,
+    song_ref: str,
+    layer_ref: str,
+) -> bool:
+    if polarity != "all" and item.polarity.value != polarity:
+        return False
+    if target_class != "all" and item.target_class != target_class:
+        return False
+    if song_ref != "all" and _source_text(item.source_provenance, "song_ref", "songRef") != song_ref:
+        return False
+    if layer_ref != "all" and _source_text(item.source_provenance, "layer_ref", "layerRef") != layer_ref:
+        return False
+    return True
 
 
 def _build_scope_options(session: ReviewSession, *, song_ref: str) -> dict[str, list[dict[str, object]]]:

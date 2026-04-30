@@ -16,7 +16,7 @@ Widgets and demo helpers must consume this package, not replace it.
 - `assembler.py`: presentation shaping for the UI
 - `object_actions/`: descriptors, sessions, and settings plans for object-owned pipeline actions
 - `object_action_settings_service.py`: orchestration root for scoped config, copy/session, and runtime-binding helpers
-- `pipeline_run_service.py`: background pipeline run lifecycle visible to the app shell
+- `operation_progress_service.py`: background operation-progress lifecycle visible to the app shell
 
 ## Canonical Entry Path
 

@@ -161,6 +161,47 @@ class _MockClassifyExecutor:
         return ok(EventData(layers=tuple(classified_layers)))
 
 
+class _MockSongSectionsExecutor:
+    def execute(self, _block_id: str, _context: ExecutionContext):
+        events = (
+            DomainEvent(
+                id="section_intro",
+                time=0.0,
+                duration=0.0,
+                classifications={"label": "Intro", "confidence": 0.92},
+                metadata={"cue_ref": "intro_01", "cue_number": 1},
+                origin="detect_song_sections",
+            ),
+            DomainEvent(
+                id="section_verse",
+                time=0.8,
+                duration=0.0,
+                classifications={"label": "Verse", "confidence": 0.88},
+                metadata={"cue_ref": "verse_02", "cue_number": 2},
+                origin="detect_song_sections",
+            ),
+            DomainEvent(
+                id="section_chorus",
+                time=1.6,
+                duration=0.0,
+                classifications={"label": "Chorus", "confidence": 0.9},
+                metadata={"cue_ref": "chorus_03", "cue_number": 3},
+                origin="detect_song_sections",
+            ),
+        )
+        return ok(
+            EventData(
+                layers=(
+                    DomainLayer(
+                        id="layer_sections",
+                        name="Sections",
+                        events=events,
+                    ),
+                )
+            )
+        )
+
+
 class _MockBinaryDrumClassifyExecutor:
     def execute(self, block_id: str, context: ExecutionContext):
         block = context.graph.blocks[block_id]
@@ -213,6 +254,7 @@ def build_mock_orchestrator() -> Orchestrator:
             "SeparateAudio": _MockSeparateAudioExecutor(),
             "AudioFilter": _MockAudioFilterExecutor(),
             "DetectOnsets": _MockDetectOnsetsExecutor(),
+            "DetectSongSections": _MockSongSectionsExecutor(),
             "PyTorchAudioClassify": _MockClassifyExecutor(),
             "BinaryDrumClassify": _MockBinaryDrumClassifyExecutor(),
         },

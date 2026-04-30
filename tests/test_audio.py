@@ -10,8 +10,10 @@ from pathlib import Path
 import pytest
 
 from echozero.persistence.audio import (
+    AudioImportOptions,
     compute_audio_hash,
     import_audio,
+    prepare_audio_for_import,
     resolve_audio_path,
     verify_audio,
 )
@@ -169,6 +171,87 @@ class TestImportAudio:
 
         assert rel_wav.endswith(".wav")
         assert rel_mp3.endswith(".mp3")
+
+
+class TestImportPreprocessing:
+    def test_prepare_audio_for_import_uses_requested_detection_mode(
+        self,
+        tmp_path,
+        monkeypatch: pytest.MonkeyPatch,
+    ):
+        source = _write_audio_file(tmp_path / "printed.wav", b"fake stereo data")
+        working_dir = tmp_path / "project"
+        working_dir.mkdir()
+        captured_modes: list[str] = []
+
+        def _fake_detect(source_path: Path, *, mode: str = "strict") -> None:
+            assert source_path == source
+            captured_modes.append(mode)
+            return None
+
+        monkeypatch.setattr(
+            "echozero.persistence.audio.detect_ltc_channel",
+            _fake_detect,
+        )
+
+        prepared = prepare_audio_for_import(
+            source,
+            working_dir,
+            options=AudioImportOptions(
+                strip_ltc_timecode=True,
+                ltc_detection_mode="aggressive",
+            ),
+        )
+
+        assert prepared.source_path == source
+        assert captured_modes == ["aggressive"]
+
+    def test_prepare_audio_for_import_honors_channel_override(
+        self,
+        tmp_path,
+        monkeypatch: pytest.MonkeyPatch,
+    ):
+        source = _write_audio_file(tmp_path / "printed.wav", b"fake stereo data")
+        working_dir = tmp_path / "project"
+        working_dir.mkdir()
+        write_calls: list[int] = []
+
+        monkeypatch.setattr(
+            "echozero.persistence.audio.detect_ltc_channel",
+            lambda _path, *, mode="strict": (_ for _ in ()).throw(
+                AssertionError("detect_ltc_channel should not be called when override is set")
+            ),
+        )
+        monkeypatch.setattr(
+            "echozero.persistence.audio.compute_audio_hash",
+            lambda _path: "c" * 64,
+        )
+
+        def _fake_write(_path: Path, *, working_dir: Path, channel_index: int) -> Path:
+            write_calls.append(channel_index)
+            staged = working_dir / f"stage_{channel_index}.wav"
+            staged.write_bytes(f"RIFF{channel_index}".encode("utf-8"))
+            return staged
+
+        monkeypatch.setattr(
+            "echozero.persistence.audio._write_import_channel_copy",
+            _fake_write,
+        )
+
+        prepared = prepare_audio_for_import(
+            source,
+            working_dir,
+            options=AudioImportOptions(
+                strip_ltc_timecode=True,
+                ltc_channel_override="right",
+            ),
+        )
+
+        assert write_calls == [0, 1]
+        assert prepared.ltc_artifact_path is not None
+        assert prepared.program_artifact_path is not None
+        assert prepared.ltc_artifact_path.name.endswith("_ltc_right.wav")
+        assert prepared.program_artifact_path.name.endswith("_program_left.wav")
 
 
 # ---------------------------------------------------------------------------

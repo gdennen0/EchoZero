@@ -1,5 +1,9 @@
 # Pipeline Run Service Handoff — 2026-04-20
 
+Status: reference
+Last reviewed: 2026-04-30
+
+
 ## Status And Authority
 
 This is a coordination note for implementation work.

@@ -1,5 +1,9 @@
 # EchoZero packaging (PyInstaller)
 
+Status: reference
+Last reviewed: 2026-04-30
+
+
 Production packaging is driven by a single spec and a JSON config so version and identity stay consistent.
 
 ## Layout

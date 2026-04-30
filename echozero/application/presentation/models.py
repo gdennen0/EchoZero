@@ -100,17 +100,34 @@ def default_layer_header_controls(
     *,
     kind: LayerKind,
     main_take_id: TakeId | None,
-    is_playback_active: bool,
+    is_muted: bool = False,
+    is_soloed: bool = False,
     is_selected: bool = False,
 ) -> list[LayerHeaderControlPresentation]:
     controls: list[LayerHeaderControlPresentation] = []
-    if kind is not LayerKind.SECTION:
+    if kind is LayerKind.SECTION:
         controls.append(
             LayerHeaderControlPresentation(
-                control_id="set_active_playback_target",
-                label="ACTIVE",
+                control_id="open_section_layer_manager",
+                label="Cues",
+                kind="action",
+            )
+        )
+    if kind not in {LayerKind.SECTION, LayerKind.EVENT}:
+        controls.append(
+            LayerHeaderControlPresentation(
+                control_id="set_layer_mute",
+                label="M",
                 kind="toggle",
-                active=is_playback_active,
+                active=bool(is_muted),
+            )
+        )
+        controls.append(
+            LayerHeaderControlPresentation(
+                control_id="set_layer_solo",
+                label="S",
+                kind="toggle",
+                active=bool(is_soloed),
             )
         )
     if kind is LayerKind.AUDIO and is_selected:
@@ -205,6 +222,9 @@ class ManualPushFlowPresentation:
     current_song_sequence_range: ManualPushSequenceRangePresentation | None = None
     target_track_coord: str | None = None
     transfer_mode: str = "merge"
+    operation_id: str | None = None
+    operation_status: str = "idle"
+    operation_message: str = ""
     diff_gate_open: bool = False
     diff_preview: ManualPushDiffPreviewPresentation | None = None
 
@@ -328,12 +348,12 @@ class BatchTransferPlanPresentation:
 
 
 @dataclass(slots=True)
-class PipelineRunBannerPresentation:
-    run_id: str
+class OperationProgressBannerPresentation:
+    operation_id: str
     title: str
     status: str
     message: str
-    percent: float | None = None
+    fraction_complete: float | None = None
     is_error: bool = False
 
 
@@ -435,6 +455,8 @@ class LayerPresentation:
     takes: list[TakeLanePresentation] = field(default_factory=list)
     visible: bool = True
     locked: bool = False
+    muted: bool = False
+    soloed: bool = False
     gain_db: float = 0.0
     pan: float = 0.0
     output_bus: str | None = None
@@ -467,7 +489,8 @@ class LayerPresentation:
             self.header_controls = default_layer_header_controls(
                 kind=self.kind,
                 main_take_id=self.main_take_id,
-                is_playback_active=self.is_playback_active,
+                is_muted=self.muted,
+                is_soloed=self.soloed,
                 is_selected=self.is_selected,
             )
 
@@ -495,8 +518,6 @@ class TimelinePresentation:
     selected_layer_ids: list[LayerId] = field(default_factory=list)
     selected_take_id: TakeId | None = None
     selected_event_refs: list[EventRef] = field(default_factory=list)
-    active_playback_layer_id: LayerId | None = None
-    active_playback_take_id: TakeId | None = None
     playback_output_channels: int = 0
     selected_event_ids: list[EventId] = field(default_factory=list)
     selected_region_id: RegionId | None = None
@@ -515,4 +536,4 @@ class TimelinePresentation:
     )
     batch_transfer_plan: BatchTransferPlanPresentation | None = None
     transfer_presets: list[TransferPresetPresentation] = field(default_factory=list)
-    pipeline_run_banner: PipelineRunBannerPresentation | None = None
+    operation_progress_banner: OperationProgressBannerPresentation | None = None

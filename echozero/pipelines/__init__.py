@@ -12,6 +12,7 @@ from echozero.pipelines.block_specs import (
     LoadAudio,
     Separator,
     DetectOnsets,
+    DetectSongSections,
     AudioFilter,
     Classify,
 )

@@ -74,6 +74,8 @@ def test_build_manual_layer_record_tracks_manual_kind_and_ui_state():
         ),
     )
     layer.mixer.output_bus = "outputs_3_4"
+    layer.mixer.mute = True
+    layer.mixer.solo = True
 
     record = build_manual_layer_record(
         layer,
@@ -90,6 +92,8 @@ def test_build_manual_layer_record_tracks_manual_kind_and_ui_state():
     assert record.state_flags["manual_kind"] == "event"
     assert record.state_flags["take_lanes_expanded"] is False
     assert record.state_flags["output_bus"] == "outputs_3_4"
+    assert record.state_flags["mute"] is True
+    assert record.state_flags["solo"] is True
 
 
 def test_runtime_take_data_serializes_event_metadata():
@@ -134,7 +138,7 @@ def test_runtime_take_data_serializes_event_metadata():
 
 def test_runtime_take_data_serializes_marker_layer_events():
     layer = _event_layer()
-    layer.kind = LayerKind.MARKER
+    layer.kind = LayerKind.EVENT
 
     data = runtime_take_data(layer, layer.takes[0])
 
@@ -396,7 +400,7 @@ def test_derive_section_cues_from_layers_uses_section_layer_main_take():
         id=LayerId("layer_marker"),
         timeline_id=TimelineId("timeline_runtime"),
         name="Markers",
-        kind=LayerKind.MARKER,
+        kind=LayerKind.EVENT,
         order_index=2,
         takes=[
             Take(
@@ -437,6 +441,8 @@ def test_runtime_layer_record_updates_state_flags_and_provenance():
     layer = _event_layer()
     layer.status = LayerStatus(stale=True, manually_modified=True, stale_reason="source changed")
     layer.mixer.output_bus = "outputs_1_2"
+    layer.mixer.mute = True
+    layer.mixer.solo = True
     layer.provenance = LayerProvenance(
         source_layer_id=LayerId("source_audio"),
         source_song_version_id=SongVersionId("song_version_source"),
@@ -479,6 +485,8 @@ def test_runtime_layer_record_updates_state_flags_and_provenance():
     assert updated.state_flags["manual_kind"] == "event"
     assert updated.state_flags["take_lanes_expanded"] is True
     assert updated.state_flags["output_bus"] == "outputs_1_2"
+    assert updated.state_flags["mute"] is True
+    assert updated.state_flags["solo"] is True
     assert updated.provenance == {
         "source_layer_id": "source_audio",
         "source_song_version_id": "song_version_source",
@@ -507,13 +515,15 @@ def test_runtime_layer_record_clears_output_bus_state_flag_when_layer_has_no_rou
         parent_layer_id=None,
         source_pipeline=None,
         created_at=datetime.now(timezone.utc),
-        state_flags={"output_bus": "outputs_3_4"},
+        state_flags={"output_bus": "outputs_3_4", "mute": True, "solo": True},
         provenance={},
     )
 
     updated = runtime_layer_record(layer, existing=existing)
 
     assert "output_bus" not in updated.state_flags
+    assert "mute" not in updated.state_flags
+    assert "solo" not in updated.state_flags
 
 
 def test_persisted_take_from_runtime_take_updates_existing_non_event_take_label():

@@ -30,6 +30,16 @@ def _coerce_sample_rate(value: Any, *, default: int = DEFAULT_SAMPLE_RATE) -> in
     return max(1, resolved)
 
 
+def _coerce_channel_count(value: Any, *, default: int = DEFAULT_CHANNELS) -> int:
+    """Convert one channel-count value to a positive integer."""
+
+    try:
+        resolved = int(value)
+    except (TypeError, ValueError):
+        return max(1, int(default))
+    return max(1, resolved)
+
+
 def _is_output_sample_rate_supported(
     sounddevice_module: Any,
     *,
@@ -85,6 +95,7 @@ def _resolve_output_defaults(
     stream_factory: Callable[..., Any] | None,
     *,
     output_device: int | str | None = None,
+    preferred_channels: int | None = None,
     sounddevice_module: Any | None = None,
 ) -> tuple[int, int]:
     """Prefer the real output-device format unless one test stream is injected."""
@@ -98,8 +109,25 @@ def _resolve_output_defaults(
             sounddevice.default.device[1] if output_device is None else output_device
         )
         device_info = sounddevice.query_devices(resolved_output_device)
-        max_output_channels = int(device_info.get("max_output_channels", DEFAULT_CHANNELS))
-        channels = 2 if max_output_channels >= 2 else max(1, max_output_channels)
+        max_output_channels = max(
+            1,
+            _coerce_channel_count(
+                device_info.get("max_output_channels", DEFAULT_CHANNELS),
+                default=DEFAULT_CHANNELS,
+            ),
+        )
+        if preferred_channels is None:
+            if max_output_channels >= 4:
+                channels = 4
+            elif max_output_channels >= 2:
+                channels = 2
+            else:
+                channels = max_output_channels
+        else:
+            channels = min(
+                max_output_channels,
+                _coerce_channel_count(preferred_channels, default=max_output_channels),
+            )
         sample_rate = _select_auto_output_sample_rate(
             sounddevice,
             output_device=resolved_output_device,
@@ -170,8 +198,21 @@ class SounddeviceBackend(AudioOutputBackend):
         resolved_sample_rate, resolved_channels = _resolve_output_defaults(
             self._stream_factory,
             output_device=output_device,
+            preferred_channels=channels,
             sounddevice_module=self._sounddevice(),
         )
+        resolved_config_channels = int(channels or resolved_channels)
+        if self._stream_factory is None:
+            resolved_config_channels = int(resolved_channels)
+        resolved_config_sample_rate = int(sample_rate or resolved_sample_rate)
+        if self._stream_factory is None and sample_rate is not None:
+            if not _is_output_sample_rate_supported(
+                self._sounddevice(),
+                output_device=output_device,
+                channels=resolved_config_channels,
+                sample_rate=resolved_config_sample_rate,
+            ):
+                resolved_config_sample_rate = int(resolved_sample_rate)
         blocksize, latency, prime_output = _resolve_stream_defaults(
             self._stream_factory,
             buffer_size=buffer_size,
@@ -182,8 +223,8 @@ class SounddeviceBackend(AudioOutputBackend):
             ),
         )
         return AudioOutputConfig(
-            sample_rate=int(sample_rate or resolved_sample_rate),
-            channels=int(channels or resolved_channels),
+            sample_rate=resolved_config_sample_rate,
+            channels=resolved_config_channels,
             buffer_size=int(buffer_size),
             blocksize=blocksize,
             latency=latency,

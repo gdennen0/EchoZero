@@ -13,8 +13,13 @@ from typing import Callable
 from PyQt6.QtGui import QAction, QKeySequence
 from PyQt6.QtWidgets import QFileDialog, QMessageBox
 
-from echozero.application.settings import AppSettingsService, AudioOutputRuntimeConfig
+from echozero.application.settings import (
+    AppSettingsService,
+    AppSettingsUpdateResult,
+    AudioOutputRuntimeConfig,
+)
 from echozero.ui.qt.app_shell import AppShellRuntime, build_app_shell
+from echozero.ui.qt.app_shell_project_runtime_state import load_project_runtime_state
 from echozero.ui.qt.launcher_review_actions import build_review_launcher_actions
 from echozero.ui.qt.osc_settings_dialog import OscSettingsDialog
 from echozero.ui.qt.preferences_dialog import PreferencesDialog
@@ -154,6 +159,42 @@ class LauncherController:
         if hasattr(self.widget, "set_presentation"):
             self.widget.set_presentation(presentation)
 
+    def _apply_project_runtime_header_width(self) -> None:
+        set_layer_header_width = getattr(self.widget, "set_layer_header_width", None)
+        if not callable(set_layer_header_width):
+            return
+        project_storage = getattr(self.runtime, "project_storage", None)
+        if project_storage is None:
+            return
+        try:
+            runtime_state = load_project_runtime_state(project_storage)
+        except Exception:
+            return
+        set_layer_header_width(int(runtime_state.layer_header_width_px))
+
+    def _on_app_settings_saved(self, result: AppSettingsUpdateResult) -> None:
+        if result.audio_changed:
+            self._apply_runtime_audio_settings()
+        if result.osc_changed:
+            self._apply_runtime_osc_settings()
+        if result.audio_changed or result.osc_changed:
+            self._refresh_presentation()
+
+    def _apply_runtime_audio_settings(self) -> None:
+        if self._app_settings_service is None:
+            return
+        resolve_config = getattr(self._app_settings_service, "resolve_audio_output_config", None)
+        apply_config = getattr(self.runtime, "apply_audio_output_config", None)
+        if not callable(resolve_config) or not callable(apply_config):
+            return
+        apply_config(resolve_config())
+
+    def _apply_runtime_osc_settings(self) -> None:
+        apply_config = getattr(self.runtime, "apply_ma3_osc_runtime_config", None)
+        if not callable(apply_config):
+            return
+        apply_config()
+
     def _current_project_path(self) -> Path | None:
         path = getattr(self.runtime, "project_path", None)
         return Path(path) if path is not None else None
@@ -163,7 +204,19 @@ class LauncherController:
         if not callable(stage):
             return
         try:
-            stage(getattr(self.widget, "presentation", None))
+            stage(
+                getattr(self.widget, "presentation", None),
+                layer_header_width_px=(
+                    int(self.widget.layer_header_width_px())
+                    if callable(getattr(self.widget, "layer_header_width_px", None))
+                    else None
+                ),
+            )
+        except TypeError:
+            try:
+                stage(getattr(self.widget, "presentation", None))
+            except Exception:
+                return
         except Exception:
             return
 
@@ -346,7 +399,10 @@ class LauncherController:
             "Save changes before creating a new project?"
         ):
             return False
-        return self._run_action("New Project", self.runtime.new_project)
+        if not self._run_action("New Project", self.runtime.new_project):
+            return False
+        self._apply_project_runtime_header_width()
+        return True
 
     def open_project(self) -> bool:
         if not self._has_lifecycle("open_project"):
@@ -360,6 +416,7 @@ class LauncherController:
             return False
         if not self._run_action("Open Project", lambda: self.runtime.open_project(path)):
             return False
+        self._apply_project_runtime_header_width()
         self._remember_recent_project_path(path)
         self._refresh_recent_project_menu()
         return True
@@ -379,6 +436,7 @@ class LauncherController:
             self._forget_recent_project_path(target_path)
             self._refresh_recent_project_menu()
             return False
+        self._apply_project_runtime_header_width()
         self._remember_recent_project_path(target_path)
         self._refresh_recent_project_menu()
         return True
@@ -436,19 +494,37 @@ class LauncherController:
     def preferences(self) -> bool:
         if self._app_settings_service is None:
             return False
-        dialog = PreferencesDialog(
-            self._app_settings_service,
-            parent=self.widget,
-        )
+        try:
+            dialog = PreferencesDialog(
+                self._app_settings_service,
+                on_saved=self._on_app_settings_saved,
+                parent=self.widget,
+            )
+        except TypeError as exc:
+            if "on_saved" not in str(exc):
+                raise
+            dialog = PreferencesDialog(
+                self._app_settings_service,
+                parent=self.widget,
+            )
         return bool(dialog.exec())
 
     def osc_settings(self) -> bool:
         if self._app_settings_service is None:
             return False
-        dialog = OscSettingsDialog(
-            self._app_settings_service,
-            parent=self.widget,
-        )
+        try:
+            dialog = OscSettingsDialog(
+                self._app_settings_service,
+                on_saved=self._on_app_settings_saved,
+                parent=self.widget,
+            )
+        except TypeError as exc:
+            if "on_saved" not in str(exc):
+                raise
+            dialog = OscSettingsDialog(
+                self._app_settings_service,
+                parent=self.widget,
+            )
         return bool(dialog.exec())
 
     def project_settings(self) -> bool:
@@ -529,9 +605,11 @@ def build_launcher_surface(
         app_settings_service
         or getattr(runtime, "app_settings_service", None)
     )
+    runtime_state = load_project_runtime_state(runtime.project_storage)
     widget_kwargs = {
         "on_intent": runtime.dispatch,
         "runtime_audio": runtime.runtime_audio,
+        "initial_header_width": int(runtime_state.layer_header_width_px),
     }
     if resolved_app_settings_service is not None:
         widget_kwargs["app_settings_service"] = resolved_app_settings_service
@@ -541,10 +619,12 @@ def build_launcher_surface(
             **widget_kwargs,
         )
     except TypeError as exc:
-        # Test fakes and legacy widget shims may not accept the settings-service kwarg yet.
-        if "app_settings_service" not in str(exc):
+        # Test fakes and legacy widget shims may not accept newer widget kwargs yet.
+        message = str(exc)
+        if "app_settings_service" not in message and "initial_header_width" not in message:
             raise
         widget_kwargs.pop("app_settings_service", None)
+        widget_kwargs.pop("initial_header_width", None)
         widget = TimelineWidget(
             runtime.presentation(),
             **widget_kwargs,

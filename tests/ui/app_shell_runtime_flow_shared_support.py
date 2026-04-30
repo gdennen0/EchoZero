@@ -19,13 +19,14 @@ from echozero.application.presentation.inspector_contract import (
     TimelineInspectorHitTarget,
     build_timeline_inspector_contract,
 )
+from echozero.application.progress import OperationProgressUpdate
 from echozero.application.shared.enums import LayerKind
 from echozero.application.timeline.app import TimelineApplication
 from echozero.application.timeline.intents import (
     Play,
     Seek,
     SelectEvent,
-    SetActivePlaybackTarget,
+    SelectTake,
     ToggleLayerExpanded,
     TriggerTakeAction,
 )

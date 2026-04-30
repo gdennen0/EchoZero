@@ -105,7 +105,7 @@ def build_app_settings_page(
         ),
         warnings=(
             "Changes are saved to the local config JSON only.",
-            "Restart EchoZero to use updated audio or OSC settings.",
+            "Changes apply live in the active shell when supported, and always apply on next launch.",
         ),
     )
 

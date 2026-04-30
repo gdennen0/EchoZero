@@ -1,14 +1,17 @@
 # UI Automation Implementation Board
 
-_Updated: 2026-04-18_
+Status: reference
+Last reviewed: 2026-04-30
+
+
 
 This board is the concrete execution plan for the clean-sheet testing and
 automation redesign.
 It turns the strategy in
-[UI Automation Plan](/Users/march/Documents/GitHub/EchoZero/docs/UI-AUTOMATION-PLAN.md:1),
-[UI Automation Library Plan](/Users/march/Documents/GitHub/EchoZero/docs/UI-AUTOMATION-LIBRARY-PLAN.md:1),
-[Testing Guide](/Users/march/Documents/GitHub/EchoZero/docs/TESTING.md:1),
-and [App Delivery Plan](/Users/march/Documents/GitHub/EchoZero/docs/APP-DELIVERY-PLAN.md:1)
+[UI Automation Plan](UI-AUTOMATION-PLAN.md),
+[UI Automation Library Plan](UI-AUTOMATION-LIBRARY-PLAN.md),
+[Testing Guide](TESTING.md),
+and [App Delivery Plan](APP-DELIVERY-PLAN.md)
 into one implementation board.
 
 ## Mission

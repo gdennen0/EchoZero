@@ -3,19 +3,33 @@ EZ = EZ or {}
 -- PUBLIC API: SEQUENCE MANAGEMENT
 -- These functions support Editor->MA3 sync by managing sequences
 
--- Get all sequences from the DataPool
-function EZ.GetSequences()
-    EZ.log("GetSequences() called")
+-- Get all sequences from the DataPool (optionally filtered and correlated).
+function EZ.GetSequences(startNo, endNo, request_id)
+    EZ.log(string.format("GetSequences(%s, %s, %s) called", tostring(startNo), tostring(endNo), tostring(request_id)))
     local dp = EZ.getDP()
     if not dp then
         EZ.log("ERROR: GetSequences() - DataPool not accessible")
-        EZ.sendMessage("sequences", "error", {error = "DataPool not accessible"})
+        local errorPayload = {error = "DataPool not accessible"}
+        if request_id ~= nil then
+            errorPayload.request_id = request_id
+        end
+        EZ.sendMessage("sequences", "error", errorPayload)
         return nil
     end
     
     if not dp.Sequences then
         EZ.log("ERROR: GetSequences() - No Sequences in DataPool")
-        EZ.sendMessage("sequences", "list", {count = 0, sequences = {}})
+        local emptyPayload = {
+            count = 0,
+            offset = 1,
+            chunk_index = 1,
+            total_chunks = 1,
+            sequences = {}
+        }
+        if request_id ~= nil then
+            emptyPayload.request_id = request_id
+        end
+        EZ.sendMessage("sequences", "list", emptyPayload)
         return {}
     end
     
@@ -24,10 +38,13 @@ function EZ.GetSequences()
     if ok and children then
         for _, seq in ipairs(children) do
             if seq then
-                table.insert(result, {
-                    no = seq.no,
-                    name = seq.name or "",
-                })
+                local seqNo = tonumber(seq.no)
+                if seqNo ~= nil and (startNo == nil or seqNo >= tonumber(startNo)) and (endNo == nil or seqNo <= tonumber(endNo)) then
+                    table.insert(result, {
+                        no = seqNo,
+                        name = seq.name or "",
+                    })
+                end
             end
         end
         EZ.log(string.format("GetSequences() -> Found %d sequences", #result))
@@ -35,7 +52,28 @@ function EZ.GetSequences()
         EZ.log("ERROR: GetSequences() - Failed to enumerate sequences")
     end
     
-    EZ.sendMessage("sequences", "list", {count = #result, sequences = result})
+    local count = #result
+    local maxPer = 40
+    local totalChunks = math.max(1, math.ceil(count / maxPer))
+    for chunkIdx = 1, totalChunks do
+        local startIdx = (chunkIdx - 1) * maxPer + 1
+        local endIdx = math.min(startIdx + maxPer - 1, count)
+        local chunk = {}
+        for index = startIdx, endIdx do
+            table.insert(chunk, result[index])
+        end
+        local payload = {
+            count = count,
+            offset = startIdx,
+            chunk_index = chunkIdx,
+            total_chunks = totalChunks,
+            sequences = chunk
+        }
+        if request_id ~= nil then
+            payload.request_id = request_id
+        end
+        EZ.sendMessage("sequences", "list", payload)
+    end
     return result
 end
 

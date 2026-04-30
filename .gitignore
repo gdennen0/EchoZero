@@ -153,3 +153,4 @@ USER.md
 
 # Local repo-root runtime state
 /project.ez
+/config/app-settings.json

@@ -7,7 +7,7 @@
   "layer_kind_main_row_height_px": {
     "audio": 64,
     "event": 56,
-    "marker": 52,
+    "section": 56,
     "automation": 52,
     "reference": 56,
     "group": 60,

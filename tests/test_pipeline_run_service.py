@@ -6,9 +6,10 @@ import time
 import pytest
 
 from echozero.application.session.models import Session
-from echozero.application.timeline.pipeline_run_service import (
-    PipelineRunService,
-    PreparedPipelineRun,
+from echozero.application.progress import OperationProgressUpdate
+from echozero.application.timeline.operation_progress_service import (
+    OperationProgressService,
+    PreparedOperation,
 )
 from echozero.application.shared.ids import SongId, SongVersionId
 from echozero.result import err, ok
@@ -33,14 +34,44 @@ class _BlockingOrchestrator:
     def execute(self, _session, config_id, runtime_bindings=None, on_progress=None):
         self.calls.append((config_id, runtime_bindings))
         if on_progress is not None:
-            on_progress("Loading configuration", 0.0)
-            on_progress("Preparing pipeline", 0.1)
-            on_progress("Executing pipeline", 0.2)
+            on_progress(
+                OperationProgressUpdate(
+                    stage="loading_configuration",
+                    message="Loading configuration",
+                    fraction_complete=0.0,
+                )
+            )
+            on_progress(
+                OperationProgressUpdate(
+                    stage="preparing_pipeline",
+                    message="Preparing pipeline",
+                    fraction_complete=0.1,
+                )
+            )
+            on_progress(
+                OperationProgressUpdate(
+                    stage="executing_pipeline",
+                    message="Executing pipeline",
+                    fraction_complete=0.2,
+                )
+            )
         self.started.set()
         self.release.wait(timeout=5.0)
         if on_progress is not None:
-            on_progress("Persisting results", 0.8)
-            on_progress("Complete", 1.0)
+            on_progress(
+                OperationProgressUpdate(
+                    stage="persisting_results",
+                    message="Persisting results",
+                    fraction_complete=0.8,
+                )
+            )
+            on_progress(
+                OperationProgressUpdate(
+                    stage="complete",
+                    message="Complete",
+                    fraction_complete=1.0,
+                )
+            )
         return ok(
             AnalysisResult(
                 song_version_id="version_1",
@@ -55,16 +86,22 @@ class _BlockingOrchestrator:
 class _FailingOrchestrator:
     def execute(self, _session, _config_id, runtime_bindings=None, on_progress=None):
         if on_progress is not None:
-            on_progress("Executing pipeline", 0.2)
+            on_progress(
+                OperationProgressUpdate(
+                    stage="executing_pipeline",
+                    message="Executing pipeline",
+                    fraction_complete=0.2,
+                )
+            )
         return err(RuntimeError(f"boom: {runtime_bindings}"))
 
 
-def _build_service(*, analysis_service, persisted_calls: list[tuple[object, object]]) -> tuple[PipelineRunService, Session]:
+def _build_service(*, analysis_service, persisted_calls: list[tuple[object, object]]) -> tuple[OperationProgressService, Session]:
     session = Session(id="session_1", project_id="project_1")
 
     def _prepare_run(action_id, params, object_id, object_type, persist_scope):
         suffix = str(object_id or "object")
-        return PreparedPipelineRun(
+        return PreparedOperation(
             action_id=action_id,
             workflow_id=f"workflow:{action_id}",
             pipeline_template_id="stem_separation",
@@ -79,11 +116,11 @@ def _build_service(*, analysis_service, persisted_calls: list[tuple[object, obje
     def _persist_generated_source_layer_id(*, analysis_result, source_layer_id):
         persisted_calls.append((analysis_result, source_layer_id))
 
-    service = PipelineRunService(
+    service = OperationProgressService(
         project_storage_getter=lambda: object(),
         session_getter=lambda: session,
         analysis_service=analysis_service,
-        prepare_run=_prepare_run,
+        prepare_operation=_prepare_run,
         persist_generated_source_layer_id=_persist_generated_source_layer_id,
     )
     return service, session
@@ -99,7 +136,7 @@ def test_pipeline_run_service_request_run_returns_immediately_and_completes():
 
     try:
         started_at = time.monotonic()
-        run_id = service.request_run(
+        run_id = service.request_operation(
             "timeline.extract_stems",
             {"audio_file": "/tmp/song.wav"},
             object_id="layer_source",
@@ -109,20 +146,20 @@ def test_pipeline_run_service_request_run_returns_immediately_and_completes():
 
         assert elapsed < 0.2
         assert _wait_until(
-            lambda: service.get_run(run_id) is not None
-            and service.get_run(run_id).status in {"resolving", "running"},
+            lambda: service.get_operation(run_id) is not None
+            and service.get_operation(run_id).status in {"resolving", "running"},
         )
-        visible = service.visible_run_for(
+        visible = service.visible_operation_for(
             action_id="timeline.extract_stems",
             object_id="layer_source",
             object_type="layer",
         )
         assert visible is not None
-        assert visible.run_id == run_id
+        assert visible.operation_id == run_id
         assert visible.message in {"Loading configuration", "Preparing pipeline", "Executing pipeline"}
 
         analysis_service.release.set()
-        final_state = service.wait_for_run(run_id, timeout=5.0)
+        final_state = service.wait_for_operation(run_id, timeout=5.0)
 
         assert final_state.status == "completed"
         assert final_state.output_layer_ids == ("layer_output",)
@@ -143,7 +180,7 @@ def test_pipeline_run_service_blocks_only_conflicting_subjects():
     )
 
     try:
-        first_run_id = service.request_run(
+        first_run_id = service.request_operation(
             "timeline.extract_stems",
             object_id="layer_a",
             object_type="layer",
@@ -151,13 +188,13 @@ def test_pipeline_run_service_blocks_only_conflicting_subjects():
         assert _wait_until(lambda: analysis_service.started.is_set())
 
         with pytest.raises(RuntimeError, match="already running"):
-            service.request_run(
+            service.request_operation(
                 "timeline.extract_stems",
                 object_id="layer_a",
                 object_type="layer",
             )
 
-        second_run_id = service.request_run(
+        second_run_id = service.request_operation(
             "timeline.extract_stems",
             object_id="layer_b",
             object_type="layer",
@@ -165,8 +202,8 @@ def test_pipeline_run_service_blocks_only_conflicting_subjects():
 
         assert first_run_id != second_run_id
         analysis_service.release.set()
-        assert service.wait_for_run(first_run_id, timeout=5.0).status == "completed"
-        assert service.wait_for_run(second_run_id, timeout=5.0).status == "completed"
+        assert service.wait_for_operation(first_run_id, timeout=5.0).status == "completed"
+        assert service.wait_for_operation(second_run_id, timeout=5.0).status == "completed"
     finally:
         service.shutdown()
 
@@ -182,7 +219,7 @@ def test_pipeline_run_service_scopes_subjects_and_visibility_by_song_version():
     session.active_song_version_id = SongVersionId("version_a")
 
     try:
-        first_run_id = service.request_run(
+        first_run_id = service.request_operation(
             "timeline.extract_stems",
             object_id="source_audio",
             object_type="layer",
@@ -191,19 +228,19 @@ def test_pipeline_run_service_scopes_subjects_and_visibility_by_song_version():
 
         session.active_song_id = SongId("song_b")
         session.active_song_version_id = SongVersionId("version_b")
-        second_run_id = service.request_run(
+        second_run_id = service.request_operation(
             "timeline.extract_stems",
             object_id="source_audio",
             object_type="layer",
         )
 
-        first_visible = service.visible_run_for(
+        first_visible = service.visible_operation_for(
             action_id="timeline.extract_stems",
             object_id="source_audio",
             object_type="layer",
             song_version_id="version_a",
         )
-        second_visible = service.visible_run_for(
+        second_visible = service.visible_operation_for(
             action_id="timeline.extract_stems",
             object_id="source_audio",
             object_type="layer",
@@ -212,12 +249,12 @@ def test_pipeline_run_service_scopes_subjects_and_visibility_by_song_version():
 
         assert first_visible is not None
         assert second_visible is not None
-        assert first_visible.run_id == first_run_id
-        assert second_visible.run_id == second_run_id
+        assert first_visible.operation_id == first_run_id
+        assert second_visible.operation_id == second_run_id
 
         analysis_service.release.set()
-        assert service.wait_for_run(first_run_id, timeout=5.0).status == "completed"
-        assert service.wait_for_run(second_run_id, timeout=5.0).status == "completed"
+        assert service.wait_for_operation(first_run_id, timeout=5.0).status == "completed"
+        assert service.wait_for_operation(second_run_id, timeout=5.0).status == "completed"
     finally:
         service.shutdown()
 
@@ -230,18 +267,18 @@ def test_pipeline_run_service_failed_runs_remain_observable():
     )
 
     try:
-        run_id = service.request_run(
+        run_id = service.request_operation(
             "timeline.extract_stems",
             {"audio_file": "/tmp/song.wav"},
             object_id="layer_source",
             object_type="layer",
         )
-        final_state = service.wait_for_run(run_id, timeout=5.0)
+        final_state = service.wait_for_operation(run_id, timeout=5.0)
 
         assert final_state.status == "failed"
         assert "boom" in (final_state.error or "")
         assert not persisted_calls
-        visible = service.visible_run_for(
+        visible = service.visible_operation_for(
             action_id="timeline.extract_stems",
             object_id="layer_source",
             object_type="layer",

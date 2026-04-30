@@ -1,6 +1,9 @@
 # Automation Surface Policy
 
-_Updated: 2026-04-18_
+Status: reference
+Last reviewed: 2026-04-30
+
+
 
 This is the fast policy doc for choosing the correct automation surface in
 EchoZero.

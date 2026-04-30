@@ -77,8 +77,18 @@ def test_review_server_controller_retargets_enabled_server_to_runtime_root(monke
             self.server_address = ("0.0.0.0", 8421)
             self.default_session_id = str(session_id or "").strip()
             self.current_application_session = application_session
+            self.state_revision = 0
             self.shutdown_calls = 0
             self.server_close_calls = 0
+            self.service = type(
+                "_FakeReviewService",
+                (),
+                {
+                    "create_project_session": staticmethod(
+                        lambda *_args, **_kwargs: type("_Session", (), {"id": "live_session"})()
+                    )
+                },
+            )()
             created.append((root, session_id, application_session, self))
 
         def serve_forever(self) -> None:
@@ -123,7 +133,7 @@ def test_review_server_controller_retargets_enabled_server_to_runtime_root(monke
     assert second_root == Path("/tmp/project_b").resolve()
     assert second_session_id is None
     assert second_application_session == {"projectName": "Project B"}
-    assert controller.last_session_id is None
+    assert controller.last_session_id == "live_session"
 
 
 def test_app_shell_runtime_open_project_publishes_phone_review_runtime_context(monkeypatch, tmp_path: Path):
@@ -248,7 +258,7 @@ def test_app_shell_runtime_open_project_review_session_uses_project_working_dir(
         shutil.rmtree(temp_root, ignore_errors=True)
 
 
-def test_app_shell_runtime_project_review_requires_phone_service_enablement(monkeypatch):
+def test_app_shell_runtime_project_review_auto_enables_phone_service(monkeypatch):
     temp_root = _repo_local_temp_root()
     runtime = build_app_shell(working_dir_root=temp_root / "working")
 
@@ -266,14 +276,22 @@ def test_app_shell_runtime_project_review_requires_phone_service_enablement(monk
         _FakeReviewService,
     )
 
+    monkeypatch.setattr(
+        runtime._review_server_controller,
+        "build_session_launch",
+        lambda root, session_id: ReviewServerLaunch(
+            url="http://127.0.0.1:8421/",
+            desktop_url="http://127.0.0.1:8421/",
+            phone_url="http://192.168.1.44:8421/",
+            bind_host="0.0.0.0",
+            port=8421,
+        ),
+    )
+
     try:
         assert runtime.is_phone_review_service_enabled() is False
-        try:
-            runtime.open_project_review_session(song_version_id="ver_active")
-        except ValueError as exc:
-            assert "Phone review service is disabled" in str(exc)
-        else:
-            raise AssertionError("Expected phone review service gating to raise a ValueError.")
+        runtime.open_project_review_session(song_version_id="ver_active")
+        assert runtime.is_phone_review_service_enabled() is True
     finally:
         runtime.shutdown()
         shutil.rmtree(temp_root, ignore_errors=True)
@@ -335,63 +353,6 @@ def test_app_shell_runtime_open_project_rebinds_phone_review_root_when_enabled(m
         assert captured[0] == original_root
         assert captured[-1] == runtime.project_storage.working_dir.resolve()
         assert len(captured) >= 2
-    finally:
-        runtime.shutdown()
-        shutil.rmtree(temp_root, ignore_errors=True)
-
-
-def test_app_shell_runtime_reload_phone_review_status_uses_last_session(monkeypatch):
-    temp_root = _repo_local_temp_root()
-    runtime = build_app_shell(working_dir_root=temp_root / "working")
-
-    assert isinstance(runtime, AppShellRuntime)
-
-    captured: dict[str, object] = {}
-
-    class _FakeReviewService:
-        def __init__(self, root: Path):
-            captured["root"] = root
-
-        def get_session(self, session_id: str) -> ReviewSession | None:
-            captured["session_id"] = session_id
-            return ReviewSession(id=session_id, name="Demo Review", items=[])
-
-    monkeypatch.setattr(
-        "echozero.ui.qt.app_shell_project_review.ReviewSessionService",
-        _FakeReviewService,
-    )
-    monkeypatch.setattr(
-        runtime._review_server_controller,
-        "reload_status",
-        lambda root, session_id: captured.update({"url_root": root, "reload_session_id": session_id})
-        or ReviewServerLaunch(
-            url="http://127.0.0.1:8421/",
-            desktop_url="http://127.0.0.1:8421/",
-            phone_url="http://192.168.1.44:8421/",
-            bind_host="0.0.0.0",
-            port=8421,
-        ),
-    )
-    monkeypatch.setattr(
-        runtime._review_server_controller,
-        "set_runtime_context",
-        lambda root, application_session=None, clear_active_session=False: None,
-    )
-    runtime.enable_phone_review_service()
-    runtime._review_server_controller._last_session_id = "rev_demo"
-
-    try:
-        launch = runtime.reload_phone_review_status()
-
-        assert launch.session_id == "rev_demo"
-        assert launch.session_name == "Demo Review"
-        assert launch.item_count == 0
-        assert launch.url == "http://127.0.0.1:8421/"
-        assert launch.phone_url == "http://192.168.1.44:8421/"
-        assert captured["root"] == runtime.project_storage.working_dir.resolve()
-        assert captured["session_id"] == "rev_demo"
-        assert captured["url_root"] == runtime.project_storage.working_dir.resolve()
-        assert captured["reload_session_id"] == "rev_demo"
     finally:
         runtime.shutdown()
         shutil.rmtree(temp_root, ignore_errors=True)
@@ -535,7 +496,7 @@ def test_app_shell_runtime_phone_review_correct_writes_back_via_runtime_bridge(t
             review_mode="all_events",
             item_limit=2,
         )
-        exported = FoundryApp(runtime.project_storage.working_dir).export_project_review_dataset(
+        exported = FoundryApp(runtime.project_storage.working_dir).extract_project_review_dataset(
             runtime.project_storage.working_dir,
             project_ref=refs["project_ref"],
             song_id=refs["alpha_song_id"],
@@ -550,5 +511,55 @@ def test_app_shell_runtime_phone_review_correct_writes_back_via_runtime_bridge(t
         assert queue.items[0].review_decision.kind.value == "verified"
         assert exported.stats["review_positive_count"] == 1
         assert exported.stats["review_negative_count"] == 0
+    finally:
+        runtime.shutdown()
+
+
+def test_app_shell_runtime_phone_review_auto_rebinds_live_session_on_song_version_switch(tmp_path: Path):
+    ez_path, _working_dir, refs = _build_project_review_fixture(tmp_path)
+    runtime = build_app_shell(working_dir_root=tmp_path / "working")
+
+    assert isinstance(runtime, AppShellRuntime)
+
+    try:
+        runtime.open_project(ez_path)
+        runtime._review_server_controller = ReviewServerController(port=0)
+        runtime.enable_phone_review_service()
+        runtime.open_project_review_session(
+            song_id=refs["alpha_song_id"],
+            review_mode="all_events",
+            item_limit=None,
+        )
+        first_session_id = runtime._review_server_controller.last_session_id
+
+        current_version_id = str(runtime.session.active_song_version_id)
+        alpha_song = runtime.project_storage.songs.get(refs["alpha_song_id"])
+        assert alpha_song is not None
+        assert alpha_song.active_version_id is not None
+        bravo_song = runtime.project_storage.songs.get(refs["bravo_song_id"])
+        assert bravo_song is not None
+        assert bravo_song.active_version_id is not None
+        switch_target = (
+            str(alpha_song.active_version_id)
+            if str(alpha_song.active_version_id) != current_version_id
+            else str(bravo_song.active_version_id)
+        )
+        runtime.switch_song_version(switch_target)
+        second_session_id = runtime._review_server_controller.last_session_id
+
+        assert isinstance(first_session_id, str) and first_session_id.strip()
+        assert isinstance(second_session_id, str) and second_session_id.strip()
+        assert second_session_id != first_session_id
+    finally:
+        runtime.shutdown()
+
+
+def test_app_shell_runtime_exposes_timeline_review_sample_export_folder(tmp_path: Path):
+    runtime = build_app_shell(working_dir_root=tmp_path / "working")
+    assert isinstance(runtime, AppShellRuntime)
+    try:
+        export_folder = runtime.timeline_review_sample_export_folder()
+        assert export_folder.exists()
+        assert export_folder.is_dir()
     finally:
         runtime.shutdown()

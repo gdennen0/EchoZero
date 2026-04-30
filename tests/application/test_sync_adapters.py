@@ -553,6 +553,113 @@ def test_ma3_sync_adapter_apply_push_transfer_raises_when_bridge_cannot_execute(
         )
 
 
+def test_ma3_sync_adapter_apply_push_transfer_overwrite_raises_on_partial_write_verification():
+    class _PartialWriteBridge(_Bridge):
+        def __init__(self) -> None:
+            super().__init__()
+            self._events: list[dict[str, object]] = []
+
+        def list_tracks(self, *, timecode_no=None, track_group_no=None):
+            del timecode_no, track_group_no
+            return [
+                {
+                    "coord": "tc1_tg2_tr3",
+                    "name": "Stress",
+                    "sequence_no": 6,
+                    "event_count": len(self._events),
+                }
+            ]
+
+        def refresh_tracks(self, *, timecode_no=None, track_group_no=None):
+            return self.list_tracks(timecode_no=timecode_no, track_group_no=track_group_no)
+
+        def list_timecodes(self):
+            return [{"number": 1, "name": "Song"}]
+
+        def list_track_groups(self, *, timecode_no):
+            del timecode_no
+            return [{"number": 2, "name": "Group", "track_count": 1}]
+
+        def refresh_track_groups(self, *, timecode_no):
+            return self.list_track_groups(timecode_no=timecode_no)
+
+        def list_track_events(self, track_coord: str):
+            assert track_coord == "tc1_tg2_tr3"
+            return list(self._events)
+
+        def refresh_track_events(self, track_coord: str):
+            return self.list_track_events(track_coord)
+
+        def list_sequences(self, *, start_no=None, end_no=None):
+            del start_no, end_no
+            return [{"number": 6, "name": "Seq 6"}]
+
+        def get_current_song_sequence_range(self):
+            return None
+
+        def assign_track_sequence(self, *, target_track_coord: str, sequence_no: int) -> None:
+            del target_track_coord, sequence_no
+
+        def create_sequence_next_available(self, *, preferred_name=None):
+            del preferred_name
+            return {"number": 7, "name": "Seq 7"}
+
+        def create_sequence_in_current_song_range(self, *, preferred_name=None):
+            del preferred_name
+            return {"number": 8, "name": "Seq 8"}
+
+        def create_timecode_next_available(self, *, preferred_name=None):
+            del preferred_name
+            return {"number": 2, "name": "Song 2"}
+
+        def create_track_group_next_available(self, *, timecode_no: int, preferred_name=None):
+            del timecode_no, preferred_name
+            return {"number": 3, "name": "Group 3", "track_count": 0}
+
+        def create_track(self, *, timecode_no: int, track_group_no: int, preferred_name=None):
+            del timecode_no, track_group_no, preferred_name
+            return {"coord": "tc2_tg3_tr1", "name": "Track"}
+
+        def prepare_track_for_events(self, *, target_track_coord: str) -> None:
+            del target_track_coord
+
+        def send_console_command(self, command: str) -> None:
+            del command
+
+        def reload_plugins(self) -> None:
+            return None
+
+        def apply_push_transfer(
+            self,
+            *,
+            target_track_coord: str,
+            selected_events: list[object],
+            transfer_mode: str = "merge",
+            start_offset_seconds: float = 0.0,
+        ) -> None:
+            del start_offset_seconds
+            assert target_track_coord == "tc1_tg2_tr3"
+            assert transfer_mode == "overwrite"
+            partial = max(0, len(selected_events) - 1)
+            self._events = [
+                {"event_id": f"evt_{index+1}", "label": f"Evt {index+1}", "start": float(index)}
+                for index in range(partial)
+            ]
+
+    bridge = _PartialWriteBridge()
+    service = MA3SyncAdapter(bridge)
+
+    with pytest.raises(RuntimeError, match="overwrite verification failed"):
+        service.apply_push_transfer(
+            target_track_coord="tc1_tg2_tr3",
+            selected_events=[
+                Event(id="evt_a", take_id="take_a", start=0.0, end=0.2, label="A"),
+                Event(id="evt_b", take_id="take_a", start=0.3, end=0.5, label="B"),
+            ],
+            transfer_mode="overwrite",
+        )
+
+
 def test_ma3_sync_adapter_refresh_push_track_options_uses_bridge_refresh_tracks_when_available():
     class _RefreshTracksBridge(_Bridge):
         def __init__(self) -> None:
@@ -560,8 +667,8 @@ def test_ma3_sync_adapter_refresh_push_track_options_uses_bridge_refresh_tracks_
             self.refresh_tracks_calls = 0
 
         def refresh_tracks(self, *, timecode_no=None, track_group_no=None):
-            assert timecode_no is None
-            assert track_group_no is None
+            assert timecode_no == 1
+            assert track_group_no == 2
             self.refresh_tracks_calls += 1
             return []
 

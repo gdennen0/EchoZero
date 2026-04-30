@@ -21,7 +21,9 @@ from echozero.application.sync.service import SyncService
 from echozero.application.timeline.app import TimelineApplication
 from echozero.application.timeline.models import Layer
 from echozero.application.timeline.object_actions import descriptor_for_action
-from echozero.application.timeline.pipeline_run_service import PipelineRunService
+from echozero.application.timeline.operation_progress_service import (
+    OperationProgressService,
+)
 from echozero.foundry.review_server_controller import ReviewServerController
 from echozero.persistence.audio import AudioImportOptions
 from echozero.persistence.entities import SongRecord, SongVersionRecord
@@ -46,7 +48,7 @@ class ProjectLifecycleShell(Protocol):
     _draft_layers: list[Layer]
     _is_dirty: bool
     _last_pipeline_run_revision: int
-    _pipeline_runs: PipelineRunService
+    _pipeline_runs: OperationProgressService
     _review_server_controller: ReviewServerController
     _sync_bridge: MA3SyncBridge | None
     _sync_service_override: SyncService | None
@@ -610,6 +612,15 @@ def _consume_staged_project_runtime_presentation(
     return None
 
 
+def _consume_staged_layer_header_width_px(shell: ProjectLifecycleShell) -> int | None:
+    staged_width = getattr(shell, "_staged_layer_header_width_px", None)
+    if isinstance(staged_width, int) and staged_width > 0:
+        setattr(shell, "_staged_layer_header_width_px", None)
+        return staged_width
+    setattr(shell, "_staged_layer_header_width_px", None)
+    return None
+
+
 def _resolve_persist_playhead_seconds(
     shell: ProjectLifecycleShell,
     *,
@@ -637,6 +648,7 @@ def _persist_project_runtime_state(shell: ProjectLifecycleShell) -> None:
             shell,
             fallback_presentation=presentation,
         ),
+        layer_header_width_px=_consume_staged_layer_header_width_px(shell),
     )
 
 

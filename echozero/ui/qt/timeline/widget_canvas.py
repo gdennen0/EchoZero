@@ -16,6 +16,9 @@ from echozero.application.shared.enums import LayerKind
 from echozero.application.shared.ids import EventId, LayerId, TakeId
 from echozero.ui.FEEL import (
     EVENT_BAR_HEIGHT_PX,
+    LAYER_HEADER_MAX_WIDTH_PX,
+    LAYER_HEADER_MIN_WIDTH_PX,
+    LAYER_HEADER_RESIZE_HANDLE_HALF_WIDTH_PX,
     LAYER_HEADER_TOP_PADDING_PX,
     LAYER_HEADER_WIDTH_PX,
 )
@@ -39,6 +42,8 @@ from echozero.ui.qt.timeline.widget_canvas_types import (
     EventLaneRect as _EventLaneRect,
     EventRect as _EventRect,
     FixEventRect as _FixEventRect,
+    SectionBoundaryRect as _SectionBoundaryRect,
+    SectionLabelRect as _SectionLabelRect,
     LayerDragCandidate as _LayerDragCandidate,
     LayerResizeCandidate as _LayerResizeCandidate,
     SelectionDragCandidate as _SelectionDragCandidate,
@@ -102,10 +107,12 @@ class TimelineCanvas(_TimelineCanvasPaintMixin, _TimelineCanvasInteractionMixin,
     layer_clicked = pyqtSignal(object, str)
     layer_reorder_requested = pyqtSignal(object, object, bool)
     select_adjacent_layer_requested = pyqtSignal(int)
-    active_clicked = pyqtSignal(object)
+    mute_clicked = pyqtSignal(object)
+    solo_clicked = pyqtSignal(object)
     pipeline_actions_clicked = pyqtSignal(object)
     push_clicked = pyqtSignal(object)
     pull_clicked = pyqtSignal(object)
+    section_manager_clicked = pyqtSignal(object)
     take_toggle_clicked = pyqtSignal(object)
     take_selected = pyqtSignal(object, object)
     event_selected = pyqtSignal(object, object, object, str)
@@ -133,10 +140,14 @@ class TimelineCanvas(_TimelineCanvasPaintMixin, _TimelineCanvasInteractionMixin,
     fix_promote_selected_requested = pyqtSignal(object)
     snap_toggle_requested = pyqtSignal()
     grid_mode_cycle_requested = pyqtSignal()
+    add_event_at_playhead_requested = pyqtSignal()
     preview_transfer_plan_requested = pyqtSignal()
     apply_transfer_plan_requested = pyqtSignal()
     cancel_transfer_plan_requested = pyqtSignal()
     preview_selected_event_clip_requested = pyqtSignal()
+    section_label_double_clicked = pyqtSignal(object)
+    section_boundary_double_clicked = pyqtSignal(object)
+    header_width_changed = pyqtSignal(int)
 
     def __init__(
         self,
@@ -148,6 +159,9 @@ class TimelineCanvas(_TimelineCanvasPaintMixin, _TimelineCanvasInteractionMixin,
         self._style = TIMELINE_STYLE
         self._layer_height_config = timeline_layer_height_config()
         self._header_width = LAYER_HEADER_WIDTH_PX
+        self._header_min_width = int(LAYER_HEADER_MIN_WIDTH_PX)
+        self._header_max_width = int(LAYER_HEADER_MAX_WIDTH_PX)
+        self._header_resize_handle_half_width = int(LAYER_HEADER_RESIZE_HANDLE_HALF_WIDTH_PX)
         self._top_padding = LAYER_HEADER_TOP_PADDING_PX
         self._main_row_height = self._layer_height_config.default_main_row_height_px
         self._take_row_height = self._layer_height_config.take_row_height_px
@@ -165,11 +179,15 @@ class TimelineCanvas(_TimelineCanvasPaintMixin, _TimelineCanvasInteractionMixin,
         self._layer_row_resize_hit_rects: list[tuple[object, LayerId]] = []
         self._open_take_options: set[tuple[LayerId, TakeId]] = set()
         self._toggle_rects: list[tuple[object, LayerId]] = []
-        self._active_rects: list[tuple[object, LayerId]] = []
+        self._mute_rects: list[tuple[object, LayerId]] = []
+        self._solo_rects: list[tuple[object, LayerId]] = []
         self._pipeline_action_rects: list[tuple[object, LayerId]] = []
         self._push_rects: list[tuple[object, LayerId]] = []
         self._pull_rects: list[tuple[object, LayerId]] = []
+        self._section_manager_rects: list[tuple[object, LayerId]] = []
         self._event_rects: list[_EventRect] = []
+        self._section_label_rects: list[_SectionLabelRect] = []
+        self._section_boundary_rects: list[_SectionBoundaryRect] = []
         self._fix_event_rects: list[_FixEventRect] = []
         self._focused_fix_overlay_key: tuple[LayerId, TakeId | None, str, float, float] | None = None
         self._event_lane_rects: list[_EventLaneRect] = []
@@ -185,6 +203,7 @@ class TimelineCanvas(_TimelineCanvasPaintMixin, _TimelineCanvasInteractionMixin,
         self._drag_candidate: _EventDragCandidate | None = None
         self._dragging_events = False
         self._layer_row_resize_candidate: _LayerResizeCandidate | None = None
+        self._header_resize_candidate: tuple[float, int] | None = None
         self._selection_drag_candidate: _SelectionDragCandidate | None = None
         self._drawing_candidate: _DrawCandidate | None = None
         self._marquee_rect = None
@@ -257,6 +276,22 @@ class TimelineCanvas(_TimelineCanvasPaintMixin, _TimelineCanvasInteractionMixin,
             self._recompute_height()
         self.update()
 
+    def set_header_width(self, width: int) -> None:
+        clamped = int(max(self._header_min_width, min(self._header_max_width, int(width))))
+        if clamped == self._header_width:
+            return
+        self._header_width = clamped
+        self.setMinimumWidth(max(440, self._header_width + 120))
+        self.update()
+
+    def _set_header_width_from_drag(self, x: float) -> None:
+        if self._header_resize_candidate is None:
+            return
+        anchor_x, anchor_width = self._header_resize_candidate
+        delta = int(round(float(x) - float(anchor_x)))
+        self.set_header_width(anchor_width + delta)
+        self.header_width_changed.emit(int(self._header_width))
+
     def set_editor_state(
         self,
         *,
@@ -280,6 +315,9 @@ class TimelineCanvas(_TimelineCanvasPaintMixin, _TimelineCanvasInteractionMixin,
         self.update()
 
     def _sync_cursor(self) -> None:
+        if self._header_resize_candidate is not None:
+            self.setCursor(Qt.CursorShape.SizeHorCursor)
+            return
         if self._layer_row_resize_candidate is not None:
             self.setCursor(Qt.CursorShape.SizeVerCursor)
             return

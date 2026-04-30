@@ -1,5 +1,9 @@
 # MA3 Sequence Management Design — 2026-04-22
 
+Status: reference
+Last reviewed: 2026-04-30
+
+
 ## Status And Intent
 
 This is the design note for the next MA3 push lane slice after transport and

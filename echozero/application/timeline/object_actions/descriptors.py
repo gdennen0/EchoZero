@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
+
+_LOG = logging.getLogger(__name__)
+_ALIAS_WARNED_IDS: set[str] = set()
 
 
 @dataclass(slots=True, frozen=True)
@@ -20,6 +24,16 @@ class ActionDescriptor:
     static_params: dict[str, object] = field(default_factory=dict)
     binding_resolver_id: str | None = None
     runtime_param_coercer_id: str | None = None
+
+
+@dataclass(slots=True, frozen=True)
+class ActionAlias:
+    """Compatibility alias metadata for transitional primitive migration."""
+
+    alias_id: str
+    canonical_id: str
+    remove_after_release: str = "next_release"
+    deprecation_note: str = "Legacy alias accepted for one release only."
 
 
 SONG_ADD_DESCRIPTOR = ActionDescriptor(
@@ -49,6 +63,16 @@ EXTRACT_SONG_DRUM_EVENTS_DESCRIPTOR = ActionDescriptor(
     workflow_id="layer.audio.extract_song_drum_events",
     pipeline_template_id="extract_song_drum_events",
     binding_resolver_id="extract_song_drum_events",
+)
+EXTRACT_SONG_SECTIONS_DESCRIPTOR = ActionDescriptor(
+    action_id="timeline.extract_song_sections",
+    label="Extract Song Sections",
+    object_types=("layer",),
+    groups=("object_action", "tools"),
+    params_schema={"layer_id": "required"},
+    workflow_id="layer.audio.extract_song_sections",
+    pipeline_template_id="extract_song_sections",
+    binding_resolver_id="extract_song_sections",
 )
 EXTRACT_DRUM_EVENTS_DESCRIPTOR = ActionDescriptor(
     action_id="timeline.extract_drum_events",
@@ -89,6 +113,7 @@ _DESCRIPTORS_BY_ID: dict[str, ActionDescriptor] = {
         SONG_ADD_DESCRIPTOR,
         EXTRACT_STEMS_DESCRIPTOR,
         EXTRACT_SONG_DRUM_EVENTS_DESCRIPTOR,
+        EXTRACT_SONG_SECTIONS_DESCRIPTOR,
         EXTRACT_DRUM_EVENTS_DESCRIPTOR,
         CLASSIFY_DRUM_EVENTS_DESCRIPTOR,
         EXTRACT_CLASSIFIED_DRUMS_DESCRIPTOR,
@@ -99,6 +124,97 @@ _ALIASES_TO_ACTION_ID: dict[str, str] = {
     for descriptor in _DESCRIPTORS_BY_ID.values()
     for alias in descriptor.aliases
 }
+_CANONICAL_NON_OBJECT_ACTION_IDS: set[str] = {
+    "add_event_layer",
+    "add_section_layer",
+    "add_selection_to_main",
+    "add_smpte_layer",
+    "add_smpte_layer_from_import_split",
+    "app.new",
+    "app.open",
+    "app.save",
+    "app.save_as",
+    "capture.screenshot",
+    "delete_layer",
+    "delete_take",
+    "gain_down",
+    "gain_unity",
+    "gain_up",
+    "import_smpte_audio_to_layer",
+    "live_sync_clear_pause_reason",
+    "live_sync_set_armed_write",
+    "live_sync_set_observe",
+    "live_sync_set_off",
+    "live_sync_set_pause_reason",
+    "merge_main",
+    "overwrite_main",
+    "preview_event_clip",
+    "project.settings.set_ma3_push_offset",
+    "seek_here",
+    "set_layer_mute_off",
+    "set_layer_mute_on",
+    "set_layer_solo_off",
+    "set_layer_solo_on",
+    "selection.event",
+    "selection.first_event",
+    "selection.find_similar_sounding",
+    "selection.layer",
+    "selection.renumber_cues_from_one",
+    "selection.select_every_other",
+    "song.delete",
+    "song.select",
+    "song.version.add",
+    "song.version.delete",
+    "song.version.set_ma3_timecode_pool",
+    "song.version.switch",
+    "sync.disable",
+    "sync.enable",
+    "timeline.duplicate_selection",
+    "timeline.nudge_selection",
+    "transfer.plan_apply",
+    "transfer.plan_cancel",
+    "transfer.plan_preview",
+    "transfer.route_layer_track",
+    "transfer.send_selection",
+    "transfer.send_to_track_once",
+    "transfer.workspace_open",
+    "transport.pause",
+    "transport.play",
+    "transport.stop",
+}
+_ALIASES: tuple[ActionAlias, ...] = (
+    ActionAlias(alias_id="add_song_from_path", canonical_id="song.add"),
+    ActionAlias(alias_id="extract_stems", canonical_id="timeline.extract_stems"),
+    ActionAlias(alias_id="extract_drum_events", canonical_id="timeline.extract_drum_events"),
+    ActionAlias(alias_id="classify_drum_events", canonical_id="timeline.classify_drum_events"),
+    ActionAlias(
+        alias_id="extract_classified_drums",
+        canonical_id="timeline.extract_classified_drums",
+    ),
+    ActionAlias(alias_id="select_first_event", canonical_id="selection.first_event"),
+    ActionAlias(alias_id="nudge", canonical_id="timeline.nudge_selection"),
+    ActionAlias(alias_id="nudge_left", canonical_id="timeline.nudge_selection"),
+    ActionAlias(alias_id="nudge_right", canonical_id="timeline.nudge_selection"),
+    ActionAlias(alias_id="nudge_selected_events", canonical_id="timeline.nudge_selection"),
+    ActionAlias(alias_id="duplicate", canonical_id="timeline.duplicate_selection"),
+    ActionAlias(alias_id="duplicate_selected_events", canonical_id="timeline.duplicate_selection"),
+    ActionAlias(alias_id="open_push_surface", canonical_id="transfer.workspace_open"),
+    ActionAlias(alias_id="open_pull_surface", canonical_id="transfer.workspace_open"),
+    ActionAlias(alias_id="pull_from_ma3", canonical_id="transfer.workspace_open"),
+    ActionAlias(alias_id="push_to_ma3", canonical_id="transfer.workspace_open"),
+    ActionAlias(alias_id="send_to_ma3", canonical_id="transfer.workspace_open"),
+    ActionAlias(alias_id="send_layer_to_ma3", canonical_id="transfer.workspace_open"),
+    ActionAlias(alias_id="apply_transfer_plan", canonical_id="transfer.plan_apply"),
+    ActionAlias(alias_id="preview_transfer_plan", canonical_id="transfer.plan_preview"),
+    ActionAlias(alias_id="cancel_transfer_plan", canonical_id="transfer.plan_cancel"),
+    ActionAlias(alias_id="route_layer_to_ma3_track", canonical_id="transfer.route_layer_track"),
+    ActionAlias(alias_id="send_selected_events_to_ma3", canonical_id="transfer.send_selection"),
+    ActionAlias(alias_id="send_to_different_track_once", canonical_id="transfer.send_to_track_once"),
+    ActionAlias(alias_id="enable_sync", canonical_id="sync.enable"),
+    ActionAlias(alias_id="disable_sync", canonical_id="sync.disable"),
+    ActionAlias(alias_id="screenshot", canonical_id="capture.screenshot"),
+)
+_ALIASES_BY_ID: dict[str, ActionAlias] = {alias.alias_id: alias for alias in _ALIASES}
 
 
 def descriptor_for_action(action_id: str) -> ActionDescriptor | None:
@@ -138,7 +254,12 @@ def pipeline_actions_for_audio_layer(
     if is_stem_capable:
         descriptors.append(EXTRACT_STEMS_DESCRIPTOR)
     if is_song_drum_capable:
-        descriptors.append(EXTRACT_SONG_DRUM_EVENTS_DESCRIPTOR)
+        descriptors.extend(
+            (
+                EXTRACT_SONG_DRUM_EVENTS_DESCRIPTOR,
+                EXTRACT_SONG_SECTIONS_DESCRIPTOR,
+            )
+        )
     if is_drum_capable:
         descriptors.extend(
             (
@@ -150,6 +271,57 @@ def pipeline_actions_for_audio_layer(
 
 
 def canonical_action_id(action_id: str) -> str | None:
-    if action_id in _DESCRIPTORS_BY_ID:
+    return resolve_action_id(action_id, warn_on_alias=False)
+
+
+def resolve_action_id(action_id: str, *, warn_on_alias: bool = False) -> str | None:
+    if (
+        action_id in _DESCRIPTORS_BY_ID
+        or action_id in _CANONICAL_NON_OBJECT_ACTION_IDS
+        or action_id.startswith("set_layer_output_bus_")
+    ):
         return action_id
-    return _ALIASES_TO_ACTION_ID.get(action_id)
+    if action_id in _ALIASES_TO_ACTION_ID:
+        if warn_on_alias:
+            _warn_deprecated_alias(action_id, _ALIASES_TO_ACTION_ID[action_id])
+        return _ALIASES_TO_ACTION_ID[action_id]
+    alias = _ALIASES_BY_ID.get(action_id)
+    if alias is None:
+        return None
+    if warn_on_alias:
+        _warn_deprecated_alias(
+            alias.alias_id,
+            alias.canonical_id,
+            remove_after_release=alias.remove_after_release,
+            note=alias.deprecation_note,
+        )
+    return alias.canonical_id
+
+
+def canonical_action_ids() -> tuple[str, ...]:
+    ids = set(_DESCRIPTORS_BY_ID)
+    ids.update(_CANONICAL_NON_OBJECT_ACTION_IDS)
+    return tuple(sorted(ids))
+
+
+def action_aliases() -> tuple[ActionAlias, ...]:
+    return _ALIASES
+
+
+def _warn_deprecated_alias(
+    alias_id: str,
+    canonical_id: str,
+    *,
+    remove_after_release: str = "next_release",
+    note: str = "Legacy alias accepted for one release only.",
+) -> None:
+    if alias_id in _ALIAS_WARNED_IDS:
+        return
+    _ALIAS_WARNED_IDS.add(alias_id)
+    _LOG.warning(
+        "Deprecated action alias '%s' resolved to '%s'. Remove after %s. %s",
+        alias_id,
+        canonical_id,
+        remove_after_release,
+        note,
+    )

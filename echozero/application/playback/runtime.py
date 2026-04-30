@@ -47,10 +47,6 @@ class PlaybackController:
     _ROUTED_TRACK_PREFIX = "__ez_route__"
     _PREVIEW_TRACK_ID = "__ez_preview_track__"
 
-    # Compatibility aliases for older runtime-audio call sites and tests.
-    _MONITOR_LAYER_ID = _PRIMARY_TRACK_ID
-    _PREVIEW_LAYER_ID = _PREVIEW_TRACK_ID
-
     def __init__(
         self,
         engine: AudioEngine | None = None,
@@ -59,10 +55,6 @@ class PlaybackController:
         preview_engine: AudioEngine | None = None,
         preview_engine_factory: Callable[[], AudioEngine] | None = None,
         audio_loader: Callable[[str | Path], tuple[np.ndarray, int]] = _load_runtime_audio,
-        use_qt_player: bool = True,
-        prefer_qt_for_continuous_audio: bool = True,
-        force_qt_for_continuous_audio: bool = False,
-        qt_output_device: int | str | None = None,
     ) -> None:
         self._engine = engine or (
             engine_factory() if engine_factory is not None else AudioEngine()
@@ -77,12 +69,6 @@ class PlaybackController:
         self._preview_active = False
         self._last_transition = ""
         self._last_track_sync_reason = ""
-        # Compatibility-only legacy fields. The unified runtime no longer routes through Qt.
-        self._qt_enabled = False
-        self._prefer_qt_for_continuous_audio = False
-        self._force_qt_for_continuous_audio = False
-        _ = (use_qt_player, prefer_qt_for_continuous_audio, force_qt_for_continuous_audio)
-        _ = qt_output_device
 
     @property
     def engine(self) -> AudioEngine:
@@ -230,8 +216,8 @@ class PlaybackController:
             active_sources=active_sources,
             latency_ms=float(self._engine.reported_output_latency_seconds) * 1000.0,
             backend_name=self._engine.backend_name or _SOUNDDEVICE_BACKEND,
-            active_layer_id=presentation.active_playback_layer_id,
-            active_take_id=presentation.active_playback_take_id,
+            active_layer_id=presentation.selected_layer_id,
+            active_take_id=presentation.selected_take_id,
             output_sample_rate=int(self._engine.sample_rate),
             output_channels=int(self._engine.output_channels),
             diagnostics=PlaybackDiagnostics(
@@ -298,11 +284,12 @@ class PlaybackController:
         engine_tracks = []
         for playback_track in track_plan.tracks:
             self._track_builder.resolve_audio(playback_track)
-            engine_tracks.append(
-                playback_track.to_audio_track(
-                    engine_track_id=self._engine_track_id(track_plan, playback_track),
-                )
+            engine_track = playback_track.to_audio_track(
+                engine_track_id=self._engine_track_id(track_plan, playback_track),
+                engine_sample_rate=self._engine.sample_rate,
             )
+            engine_track.muted = bool(playback_track.muted)
+            engine_tracks.append(engine_track)
         self._engine.replace_tracks(engine_tracks)
         self._loaded_track_signature = track_plan.signature
         self._loaded_uses_track_routing = track_plan.uses_track_routing
@@ -317,7 +304,7 @@ class PlaybackController:
             engine_track = self._engine.get_track(self._engine_track_id(track_plan, playback_track))
             if engine_track is None:
                 return True
-            engine_track.muted = False
+            engine_track.muted = bool(playback_track.muted)
             engine_track.volume = _db_to_linear(playback_track.gain_db)
             engine_track.output_bus = playback_track.output_bus
         return False

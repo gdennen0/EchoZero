@@ -19,9 +19,10 @@ from echozero.application.timeline.intents import (
     Pause,
     Play,
     Seek,
-    SetActivePlaybackTarget,
     SetGain,
+    SetLayerMute,
     SetLayerOutputBus,
+    SetLayerSolo,
     Stop,
     TimelineIntent,
 )
@@ -99,7 +100,15 @@ class TimelineApplication:
         if runtime_audio is None:
             return
 
-        if isinstance(intent, (SetGain, SetActivePlaybackTarget, SetLayerOutputBus)):
+        if isinstance(
+            intent,
+            (
+                SetGain,
+                SetLayerMute,
+                SetLayerSolo,
+                SetLayerOutputBus,
+            ),
+        ):
             sync_mix_state = getattr(runtime_audio, "sync_mix_state", None)
             if callable(sync_mix_state):
                 sync_mix_state(presentation)

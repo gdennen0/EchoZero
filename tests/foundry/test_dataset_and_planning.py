@@ -374,7 +374,7 @@ def test_dataset_service_exports_project_review_dataset_from_canonical_project_t
         review_note=None,
     )
 
-    exported = app.export_project_review_dataset(
+    exported = app.extract_project_review_dataset(
         working_dir,
         project_ref=refs["project_ref"],
     )

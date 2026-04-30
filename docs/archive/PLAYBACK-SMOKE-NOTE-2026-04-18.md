@@ -1,6 +1,16 @@
 # Playback Smoke Note
 
-Last updated: 2026-04-18
+Status: historical
+Last reviewed: 2026-04-30
+
+This document is archived historical context.
+For current implementation truth, use `docs/STATUS.md`.
+
+
+Originally updated: 2026-04-18
+
+This note is preserved as a point-in-time handoff record.
+For current playback proof expectations, use `docs/TESTING.md`.
 
 This is the PB-33 manual smoke handoff note for the current playback remediation slice.
 

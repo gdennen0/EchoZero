@@ -19,6 +19,7 @@ from echozero.foundry.services.review_runtime_bridge import (
 )
 from echozero.foundry.review_server_controller import (
     ReviewServerController,
+    ReviewServerLaunch,
 )
 from echozero.foundry.services.review_session_service import ReviewSessionService
 from echozero.persistence.session import ProjectStorage
@@ -113,6 +114,7 @@ def open_project_review_session(
 ) -> ProjectReviewLaunch:
     """Create one project-backed review session and return a browser URL for it."""
 
+    shell._review_server_controller.enable()
     publish_project_review_runtime_context(shell)
     session = create_project_review_session(
         shell,
@@ -141,33 +143,12 @@ def open_project_review_session(
     )
 
 
-def reload_phone_review_status(shell: ProjectReviewShell) -> ProjectReviewLaunch:
-    """Force the active phone-review session to publish a fresh status revision."""
-
-    root = _project_root(shell)
-    session_id = shell._review_server_controller.last_session_id
-    if session_id is None or not session_id.strip():
-        raise ValueError("Open a phone review session before reloading its status.")
-    session = ReviewSessionService(root).get_session(session_id)
-    if session is None:
-        raise ValueError(f"Review session not found: {session_id}")
-    server_launch = shell._review_server_controller.reload_status(root, session_id)
-    return ProjectReviewLaunch(
-        session_id=session.id,
-        session_name=session.name,
-        item_count=len(session.items),
-        url=server_launch.url,
-        desktop_url=server_launch.desktop_url,
-        phone_url=server_launch.phone_url,
-        bind_host=server_launch.bind_host,
-        port=server_launch.port,
-    )
-
-
-def bind_phone_review_server_to_current_project(shell: ProjectReviewShell) -> None:
+def bind_phone_review_server_to_current_project(
+    shell: ProjectReviewShell,
+) -> ReviewServerLaunch | None:
     """Point the reusable phone-review server at the currently open project root."""
 
-    publish_project_review_runtime_context(shell, clear_active_session=True)
+    return publish_project_review_runtime_context(shell, clear_active_session=True)
 
 
 def list_project_review_dataset_versions(
@@ -242,10 +223,10 @@ def publish_project_review_runtime_context(
     shell: ProjectReviewShell,
     *,
     clear_active_session: bool = False,
-) -> None:
+) -> ReviewServerLaunch | None:
     """Publish the current EZ runtime root and app context to phone review."""
 
-    shell._review_server_controller.set_runtime_context(
+    return shell._review_server_controller.set_runtime_context(
         _project_root(shell),
         application_session=_application_session_payload(shell),
         clear_active_session=clear_active_session,
@@ -340,5 +321,4 @@ __all__ = [
     "latest_project_review_dataset_folder",
     "list_project_review_dataset_versions",
     "open_project_review_session",
-    "reload_phone_review_status",
 ]

@@ -1,6 +1,9 @@
 # GLOSSARY.md — EchoZero Canonical Terminology
 
-**Last verified:** 2026-03-20
+Status: active
+Last verified: 2026-04-30
+
+
 **Authority:** Every concept has ONE name. All agents, documentation, UI text, and website copy use these names.
 
 ---

@@ -1,5 +1,9 @@
 # EchoZero Agent Guide
 
+Status: active
+Last verified: 2026-04-30
+
+
 Use this file as the minimal startup contract for coding agents in this repo.
 Do not preload a long doc chain at session start. Read deeper docs only when the task needs them.
 If this file conflicts with code or a canonical doc, code and the canonical doc win.

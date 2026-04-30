@@ -1,6 +1,9 @@
 # UI Standards
 
-_Updated: 2026-04-18_
+Status: reference
+Last reviewed: 2026-04-30
+
+
 
 This document is the canonical UI standards layer for EchoZero.
 It is optimized for two audiences at once:

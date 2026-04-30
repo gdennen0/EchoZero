@@ -130,17 +130,11 @@ class AppSettingsService:
         audio_changed = current.audio_output != preferences.audio_output
         osc_changed = current.ma3_osc != preferences.ma3_osc
         song_import_changed = current.song_import != preferences.song_import
-        restart_reasons = self._restart_reasons(
-            audio_changed=audio_changed,
-            osc_changed=osc_changed,
-        )
         return AppSettingsUpdateResult(
             preferences=preferences,
             audio_changed=audio_changed,
             osc_changed=osc_changed,
             song_import_changed=song_import_changed,
-            restart_required=bool(restart_reasons),
-            restart_reasons=restart_reasons,
         )
 
     def resolve_audio_output_config(self) -> AudioOutputRuntimeConfig:
@@ -475,15 +469,6 @@ class AppSettingsService:
                 descriptor.action_id in configured_action_ids
             )
         return values
-
-    @staticmethod
-    def _restart_reasons(*, audio_changed: bool, osc_changed: bool) -> tuple[str, ...]:
-        reasons: list[str] = []
-        if audio_changed:
-            reasons.append("Restart EchoZero to apply saved audio output settings.")
-        if osc_changed:
-            reasons.append("Restart EchoZero to apply saved OSC settings.")
-        return tuple(reasons)
 
     @staticmethod
     def _runtime_output_device(value: str | None) -> int | str | None:

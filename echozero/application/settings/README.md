@@ -33,8 +33,8 @@ That lets future settings areas reuse the same pattern without inventing widget-
 - `echozero/ui/qt/app_shell_runtime_services.py` resolves `AudioOutputRuntimeConfig` into runtime audio controllers.
 - `echozero/infrastructure/osc/*` owns reusable OSC UDP send/receive plumbing.
 - `echozero/infrastructure/sync/ma3_osc.py` stays focused on MA3 protocol behavior on top of that generic OSC lane.
-- Preferences only edit the local config JSON; they do not live-apply runtime changes from the shell surface.
-- MA3 OSC and audio output changes are persisted immediately but apply on the next launcher start.
+- Preferences edit the local config JSON and the canonical shell applies audio/OSC updates live.
+- Saved settings remain launch-defaults, so they also apply on next launcher start.
 
 ## Song Import Defaults
 

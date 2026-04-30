@@ -11,6 +11,7 @@ import shutil
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Literal
 
 
 @dataclass(slots=True, frozen=True)
@@ -18,6 +19,8 @@ class AudioImportOptions:
     """Optional import-time audio preprocessing settings."""
 
     strip_ltc_timecode: bool = False
+    ltc_detection_mode: Literal["strict", "aggressive"] = "strict"
+    ltc_channel_override: Literal["left", "right"] | None = None
 
 
 @dataclass(slots=True, frozen=True)
@@ -104,7 +107,12 @@ def prepare_audio_for_import(
     if not resolved_options.strip_ltc_timecode:
         return PreparedAudioSource(source_path=source_path)
 
-    ltc_channel = detect_ltc_channel(source_path)
+    ltc_channel = resolved_options.ltc_channel_override
+    if ltc_channel is None:
+        ltc_channel = detect_ltc_channel(
+            source_path,
+            mode=resolved_options.ltc_detection_mode,
+        )
     if ltc_channel is None:
         return PreparedAudioSource(source_path=source_path)
 
@@ -178,7 +186,11 @@ def cleanup_prepared_audio(prepared: PreparedAudioSource) -> None:
             continue
 
 
-def detect_ltc_channel(source_path: Path) -> str | None:
+def detect_ltc_channel(
+    source_path: Path,
+    *,
+    mode: Literal["strict", "aggressive"] = "strict",
+) -> str | None:
     """Detect whether a stereo file appears to contain LTC on left or right channel.
 
     Returns:
@@ -223,9 +235,18 @@ def detect_ltc_channel(source_path: Path) -> str | None:
     best_score = max(left_score, right_score)
 
     # Require one clearly LTC-like channel and a meaningful left/right separation.
-    if best_score < 0.62 or score_delta < 0.12:
+    min_best_score, min_score_delta = _ltc_detection_thresholds(mode)
+    if best_score < min_best_score or score_delta < min_score_delta:
         return None
     return "left" if left_score > right_score else "right"
+
+
+def _ltc_detection_thresholds(mode: Literal["strict", "aggressive"]) -> tuple[float, float]:
+    """Resolve LTC channel detection thresholds for one import mode."""
+
+    if mode == "aggressive":
+        return (0.50, 0.06)
+    return (0.62, 0.12)
 
 
 def _ltc_score(channel_samples, sample_rate: int) -> float:

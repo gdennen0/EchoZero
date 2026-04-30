@@ -8,7 +8,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import replace
 from pathlib import Path
-from typing import Protocol
+from typing import Literal, Protocol
 
 from echozero.application.presentation.models import TimelinePresentation
 from echozero.application.session.models import Session
@@ -54,6 +54,7 @@ from echozero.domain.types import AudioData
 from echozero.persistence.audio import (
     AudioImportOptions,
     cleanup_prepared_audio,
+    compute_audio_hash,
     import_audio,
     prepare_audio_for_import,
     scan_audio_metadata,
@@ -152,6 +153,24 @@ class AppShellEditingShell(Protocol):
 
 
 class AppShellEditingMixin:
+    def add_smpte_layer_from_import_split(
+        self: AppShellEditingShell,
+    ) -> TimelinePresentation:
+        active_song_version_id = self.session.active_song_version_id
+        if active_song_version_id is None:
+            raise ValueError("Select a song version before creating a SMPTE layer from import split.")
+        ltc_artifact_path = self._resolve_import_split_ltc_artifact_path(str(active_song_version_id))
+        if ltc_artifact_path is None:
+            raise ValueError(
+                "No retained split LTC artifact was found for the active song version."
+            )
+
+        added = self.add_layer(LayerKind.AUDIO, "SMPTE Layer")
+        layer_id = added.selected_layer_id
+        if layer_id is None:
+            raise ValueError("Failed to create SMPTE layer.")
+        return self.import_smpte_audio_to_layer(str(layer_id), str(ltc_artifact_path))
+
     def add_layer(
         self: AppShellEditingShell,
         kind: LayerKind,
@@ -182,8 +201,6 @@ class AppShellEditingMixin:
             timeline.selection.selected_layer_ids = [new_layer.id]
             timeline.selection.selected_take_id = None
             clear_selected_events(timeline)
-            timeline.playback_target.layer_id = new_layer.id
-            timeline.playback_target.take_id = None
             self._sync_runtime_audio_from_presentation(self.presentation())
             self._is_dirty = True
             return self.presentation()
@@ -199,12 +216,24 @@ class AppShellEditingMixin:
         self: AppShellEditingShell,
         layer_id: str,
         audio_path: str | Path,
+        *,
+        strip_ltc_timecode: bool = True,
+        ltc_channel_override: str | None = None,
     ) -> TimelinePresentation:
         target_layer_id = LayerId(str(layer_id).strip())
         source_path = Path(audio_path).expanduser()
         if not source_path.exists():
             raise ValueError(f"Audio file not found: {source_path}")
         resolved_source_path = source_path.resolve()
+        normalized_override: Literal["left", "right"] | None = None
+        if isinstance(ltc_channel_override, str):
+            candidate_override = ltc_channel_override.strip().lower()
+            if candidate_override in {"left", "right"}:
+                normalized_override = candidate_override
+            elif candidate_override:
+                raise ValueError(
+                    f"Unsupported LTC channel override '{ltc_channel_override}'."
+                )
 
         def _perform_import_smpte_audio() -> TimelinePresentation:
             active_song_id = self.session.active_song_id
@@ -230,7 +259,11 @@ class AppShellEditingMixin:
             prepared_source = prepare_audio_for_import(
                 resolved_source_path,
                 self.project_storage.working_dir,
-                options=AudioImportOptions(strip_ltc_timecode=True),
+                options=AudioImportOptions(
+                    strip_ltc_timecode=bool(strip_ltc_timecode),
+                    ltc_detection_mode="aggressive",
+                    ltc_channel_override=normalized_override,
+                ),
             )
             try:
                 import_source = (
@@ -293,6 +326,33 @@ class AppShellEditingMixin:
             operation=_perform_import_smpte_audio,
         )
 
+    def _resolve_import_split_ltc_artifact_path(
+        self: AppShellEditingShell,
+        song_version_id: str,
+    ) -> Path | None:
+        version_record = self.project_storage.song_versions.get(song_version_id)
+        if version_record is None:
+            return None
+
+        split_dir = self.project_storage.working_dir / "audio" / "split_channels"
+        if not split_dir.exists():
+            return None
+
+        for program_path in sorted(split_dir.glob("*_program_*.wav")):
+            if not program_path.is_file():
+                continue
+            try:
+                candidate_hash = compute_audio_hash(program_path)
+            except OSError:
+                continue
+            if candidate_hash != version_record.audio_hash:
+                continue
+            base_prefix, _sep, _rest = program_path.name.partition("_program_")
+            for ltc_path in sorted(split_dir.glob(f"{base_prefix}_ltc_*.wav")):
+                if ltc_path.is_file():
+                    return ltc_path
+        return None
+
     def delete_layer(
         self: AppShellEditingShell,
         layer_id: str,
@@ -335,11 +395,6 @@ class AppShellEditingMixin:
             if previous_selected_layer_id == target_layer_id:
                 timeline.selection.selected_take_id = None
 
-            if timeline.playback_target.layer_id == target_layer_id:
-                timeline.playback_target.layer_id = selected_layer_id or (
-                    timeline.layers[0].id if timeline.layers else None
-                )
-                timeline.playback_target.take_id = None
             clear_selected_events(timeline)
 
             active_version_id = self.session.active_song_version_id

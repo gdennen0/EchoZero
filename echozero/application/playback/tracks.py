@@ -67,6 +67,7 @@ class PlaybackTrack:
     output_bus: str | None
     source_key: str
     cache_keys: tuple[str, ...]
+    muted: bool = False
     buffer: np.ndarray | None = None
     sample_rate: int = 0
     source_ref: str | None = None
@@ -81,7 +82,12 @@ class PlaybackTrack:
     def signature_token(self) -> str:
         return f"{self.source_key}|{self.output_bus or 'outputs_1_2'}"
 
-    def to_audio_track(self, *, engine_track_id: str) -> AudioTrack:
+    def to_audio_track(
+        self,
+        *,
+        engine_track_id: str,
+        engine_sample_rate: int | None = None,
+    ) -> AudioTrack:
         """Build one engine-ready audio track from this playback track."""
 
         if self.buffer is None or self.sample_rate <= 0:
@@ -92,6 +98,7 @@ class PlaybackTrack:
             buffer=self.buffer,
             sample_rate=self.sample_rate,
             volume=_db_to_linear(self.gain_db),
+            engine_sample_rate=engine_sample_rate,
             output_bus=self.output_bus,
         )
 
@@ -201,37 +208,16 @@ class PlaybackTrackBuilder:
         *,
         resolve_audio: bool,
     ) -> tuple[tuple[PlaybackTrack, ...], bool]:
-        routed_tracks = self._select_routed_tracks(
+        tracks = self._select_mix_tracks(
             presentation,
             resolve_audio=resolve_audio,
         )
-        uses_track_routing = bool(routed_tracks)
-        if routed_tracks:
-            return tuple(routed_tracks), True
-        active_track = self._select_active_track(
-            presentation,
-            resolve_audio=resolve_audio,
+        uses_track_routing = len(tracks) > 1 or any(
+            playback_track.output_bus is not None for playback_track in tracks
         )
-        return ((active_track,) if active_track is not None else ()), False
+        return tuple(tracks), uses_track_routing
 
-    def _select_active_track(
-        self,
-        presentation: TimelinePresentation,
-        *,
-        resolve_audio: bool,
-    ) -> PlaybackTrack | None:
-        active_layer_id = presentation.active_playback_layer_id
-        active_take_id = presentation.active_playback_take_id
-        if active_layer_id is None:
-            return None
-        return self._track_for_target(
-            presentation,
-            layer_id=str(active_layer_id),
-            take_id=str(active_take_id) if active_take_id is not None else None,
-            resolve_audio=resolve_audio,
-        )
-
-    def _select_routed_tracks(
+    def _select_mix_tracks(
         self,
         presentation: TimelinePresentation,
         *,
@@ -242,40 +228,38 @@ class PlaybackTrackBuilder:
         ]
         if not layer_candidates:
             return []
-        has_explicit_route = any(
-            _normalize_output_bus(getattr(layer, "output_bus", None)) is not None
+        has_soloed_layers = any(
+            bool(getattr(layer, "soloed", False))
             for layer in layer_candidates
         )
-        if not has_explicit_route:
-            return []
-        active_layer_id = (
-            str(presentation.active_playback_layer_id)
-            if presentation.active_playback_layer_id is not None
+        selected_layer_id = (
+            str(presentation.selected_layer_id)
+            if presentation.selected_layer_id is not None
             else None
         )
-        active_take_id = (
-            str(presentation.active_playback_take_id)
-            if presentation.active_playback_take_id is not None
+        selected_take_id = (
+            str(presentation.selected_take_id)
+            if presentation.selected_take_id is not None
             else None
         )
         tracks: list[PlaybackTrack] = []
         seen_track_ids: set[str] = set()
         for layer in layer_candidates:
             layer_id = str(getattr(layer, "layer_id"))
-            output_bus = _normalize_output_bus(getattr(layer, "output_bus", None))
-            if output_bus is None and layer_id != active_layer_id:
-                continue
-            if layer_id == active_layer_id:
+            if layer_id == selected_layer_id and selected_take_id is not None:
                 playback_track = self._track_for_target(
                     presentation,
                     layer_id=layer_id,
-                    take_id=active_take_id,
+                    take_id=selected_take_id,
                     resolve_audio=resolve_audio,
                 )
             else:
                 playback_track = self._track_from_layer(layer, resolve_audio=resolve_audio)
             if playback_track is None or playback_track.track_id in seen_track_ids:
                 continue
+            layer_muted = bool(getattr(layer, "muted", False))
+            layer_soloed = bool(getattr(layer, "soloed", False))
+            playback_track.muted = layer_muted or (has_soloed_layers and not layer_soloed)
             tracks.append(playback_track)
             seen_track_ids.add(playback_track.track_id)
         return tracks
@@ -319,10 +303,11 @@ class PlaybackTrackBuilder:
                 name=str(getattr(layer, "title")),
                 gain_db=float(getattr(layer, "gain_db", 0.0)),
                 output_bus=_normalize_output_bus(getattr(layer, "output_bus", None)),
+                muted=bool(getattr(layer, "muted", False)),
                 source_key=f"audio:{source_audio_path}",
                 cache_keys=(f"audio:{source_audio_path}",),
-            source_ref=str(source_audio_path),
-        )
+                source_ref=str(source_audio_path),
+            )
         if not self._is_event_track_source(layer):
             return None
         return self._build_event_track(
@@ -332,6 +317,7 @@ class PlaybackTrackBuilder:
             title=str(getattr(layer, "title")),
             gain_db=float(getattr(layer, "gain_db", 0.0)),
             output_bus=_normalize_output_bus(getattr(layer, "output_bus", None)),
+            muted=bool(getattr(layer, "muted", False)),
             playback_source_ref=str(getattr(layer, "playback_source_ref")),
             events=list(getattr(layer, "events")),
             resolve_audio=resolve_audio,
@@ -355,6 +341,7 @@ class PlaybackTrackBuilder:
                 name=f"{getattr(layer, 'title')} · {getattr(take, 'name')}",
                 gain_db=float(getattr(layer, "gain_db", 0.0)),
                 output_bus=_normalize_output_bus(getattr(layer, "output_bus", None)),
+                muted=bool(getattr(layer, "muted", False)),
                 source_key=f"audio:{source_audio_path}",
                 cache_keys=(f"audio:{source_audio_path}",),
                 source_ref=str(source_audio_path),
@@ -368,6 +355,7 @@ class PlaybackTrackBuilder:
             title=f"{getattr(layer, 'title')} · {getattr(take, 'name')}",
             gain_db=float(getattr(layer, "gain_db", 0.0)),
             output_bus=_normalize_output_bus(getattr(layer, "output_bus", None)),
+            muted=bool(getattr(layer, "muted", False)),
             playback_source_ref=str(getattr(take, "playback_source_ref")),
             events=list(getattr(take, "events")),
             resolve_audio=resolve_audio,
@@ -382,6 +370,7 @@ class PlaybackTrackBuilder:
         title: str,
         gain_db: float,
         output_bus: str | None,
+        muted: bool,
         playback_source_ref: str,
         events: list[object],
         resolve_audio: bool,
@@ -396,6 +385,7 @@ class PlaybackTrackBuilder:
                 name=title,
                 gain_db=gain_db,
                 output_bus=output_bus,
+                muted=muted,
                 source_key=rendered_source_key,
                 cache_keys=(sample_source_key, rendered_source_key),
                 source_ref=playback_source_ref,
@@ -420,6 +410,7 @@ class PlaybackTrackBuilder:
             name=title,
             gain_db=gain_db,
             output_bus=output_bus,
+            muted=muted,
             source_key=rendered_source_key,
             cache_keys=(sample_source_key, rendered_source_key),
             buffer=rendered,

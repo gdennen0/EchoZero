@@ -186,77 +186,7 @@ def test_selected_tiny_demoted_event_has_stronger_outer_outline():
     assert selected_sample.blue() > unselected_sample.blue() + 20
 
 
-def test_marker_event_label_includes_q_number_without_duplication():
-    event = EventPresentation(
-        event_id=EventId("marker"),
-        start=1.0,
-        end=1.08,
-        label="Verse",
-        cue_number=7,
-        color="#66a3ff",
-    )
-
-    assert EventLaneBlock.marker_event_label(event) == "Q7 Verse"
-
-    duplicate = EventPresentation(
-        event_id=EventId("marker_dup"),
-        start=1.0,
-        end=1.08,
-        label="Cue 7",
-        cue_number=7,
-        color="#66a3ff",
-    )
-
-    assert EventLaneBlock.marker_event_label(duplicate) == "Q7"
-
-    float_event = EventPresentation(
-        event_id=EventId("marker_float"),
-        start=1.0,
-        end=1.08,
-        label="Verse",
-        cue_number=7.5,
-        color="#66a3ff",
-    )
-
-    assert EventLaneBlock.marker_event_label(float_event) == "Q7.5 Verse"
-
-
-def test_marker_lane_extends_clickable_label_for_zero_width_markers():
-    marker = EventPresentation(
-        event_id=EventId("marker"),
-        start=1.0,
-        end=1.01,
-        label="Verse",
-        cue_number=9,
-        color="#66a3ff",
-    )
-    presentation = EventLanePresentation(
-        layer_id="layer_marker",
-        take_id=None,
-        events=[marker],
-        pixels_per_second=100.0,
-        scroll_x=0.0,
-        header_width=320,
-        layer_kind=LayerKind.MARKER,
-        event_height=22,
-        viewport_width=800,
-    )
-
-    image = QImage(800, 120, QImage.Format.Format_ARGB32)
-    image.fill(0)
-    painter = QPainter(image)
-    try:
-        rects = EventLaneBlock().paint(painter, 20, presentation)
-    finally:
-        painter.end()
-
-    assert len(rects) == 1
-    assert rects[0][0].width() >= 80.0
-    sample = image.pixelColor(450, 28)
-    assert sample.blue() > 0
-
-
-def test_section_lane_extends_clickable_label_for_zero_width_section_cues():
+def test_section_lane_renders_zero_width_section_cues_as_minimum_event_width():
     section = EventPresentation(
         event_id=EventId("section"),
         start=1.0,
@@ -286,6 +216,6 @@ def test_section_lane_extends_clickable_label_for_zero_width_section_cues():
         painter.end()
 
     assert len(rects) == 1
-    assert rects[0][0].width() >= 80.0
-    sample = image.pixelColor(430, 28)
+    assert rects[0][0].width() >= 2.0
+    sample = image.pixelColor(421, 28)
     assert sample.red() > 0

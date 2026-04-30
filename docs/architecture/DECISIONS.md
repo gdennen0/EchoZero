@@ -1,5 +1,9 @@
 # EchoZero - Architecture Decisions Log
 
+Status: reference
+Last reviewed: 2026-04-30
+
+
 **Purpose:** Running record of architectural decisions made during rewrite planning.
 **Started:** 2026-03-01
 
@@ -8,25 +12,21 @@
 ## Decision Log
 
 ### D1: Replace `metadata: Dict[str, Any]` with typed settings
-**Date:** 2026-03-01
 **Status:** Decided
 **Decision:** Block settings stored as individual keyed rows in DB. Block types define hardcoded default keys. Some block types allow users to add rows at runtime (e.g., action items in setlists). Same storage interface for both.
 **Rationale:** Six of seven entities carried an untyped escape hatch. The most important data (block config) lived in an opaque blob with no schema, validation, or migration path.
 
 ### D2: Eliminate denormalized block names
-**Date:** 2026-03-01
 **Status:** Decided
 **Decision:** All relationships use IDs only. Names resolved at the display/query layer.
 **Rationale:** `Connection` and `ActionItem` stored block name copies with no synchronization on rename. Silent data corruption risk. Unanimous panel consensus.
 
 ### D3: MANIPULATOR extracted as own abstraction
-**Date:** 2026-03-01
 **Status:** Superseded by D92
 **Decision:** Bidirectional communication (ShowManager ↔ Editor) modeled as its own concept, separate from the port/connection directed graph.
 **Rationale:** A "bidirectional port" breaks the directed graph contract. It's a channel, not a port.
 
 ### D4: Two block types - Processor and Workspace
-**Date:** 2026-03-01
 **Status:** Decided
 **Decision:**
 - **Processor Block:** Pure transform. Pull inputs (copy) → execute in background → store outputs. Isolated, idempotent.

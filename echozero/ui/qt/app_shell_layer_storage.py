@@ -28,6 +28,8 @@ from echozero.takes import Take as PersistedTake
 
 STATE_FLAG_MA3_TRACK_COORD = "ma3_track_coord"
 STATE_FLAG_OUTPUT_BUS = "output_bus"
+STATE_FLAG_MUTE = "mute"
+STATE_FLAG_SOLO = "solo"
 
 
 def build_manual_layer(
@@ -78,6 +80,10 @@ def build_manual_layer_record(
     output_bus = _normalized_output_bus(layer)
     if output_bus is not None:
         state_flags[STATE_FLAG_OUTPUT_BUS] = output_bus
+    if layer.mixer.mute:
+        state_flags[STATE_FLAG_MUTE] = True
+    if layer.mixer.solo:
+        state_flags[STATE_FLAG_SOLO] = True
     return LayerRecord(
         id=str(layer.id),
         song_version_id=song_version_id,
@@ -152,6 +158,14 @@ def runtime_layer_record(
         state_flags.pop(STATE_FLAG_OUTPUT_BUS, None)
     else:
         state_flags[STATE_FLAG_OUTPUT_BUS] = output_bus
+    if layer.mixer.mute:
+        state_flags[STATE_FLAG_MUTE] = True
+    else:
+        state_flags.pop(STATE_FLAG_MUTE, None)
+    if layer.mixer.solo:
+        state_flags[STATE_FLAG_SOLO] = True
+    else:
+        state_flags.pop(STATE_FLAG_SOLO, None)
 
     provenance = dict(existing.provenance)
     if layer.provenance.source_layer_id is not None:

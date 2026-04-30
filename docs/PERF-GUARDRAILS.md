@@ -1,5 +1,9 @@
 # Performance Guardrails (Phase 3)
 
+Status: reference
+Last reviewed: 2026-04-30
+
+
 This repo includes a deterministic timeline perf guardrail benchmark:
 
 - Script: `tests/benchmarks/benchmark_timeline_phase3.py`

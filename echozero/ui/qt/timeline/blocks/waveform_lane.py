@@ -2,11 +2,18 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from math import ceil, floor
+from typing import Iterator
 
+import numpy as np
 from PyQt6.QtGui import QColor, QPainter, QPen
 
+from echozero.ui.FEEL import WAVEFORM_COLUMN_STEP_MAX_PX, WAVEFORM_COLUMN_STEP_REFERENCE_PPS
 from echozero.ui.qt.timeline.style import TIMELINE_STYLE, WaveformLaneStyle
-from echozero.ui.qt.timeline.waveform_cache import CachedWaveform, get_cached_waveform
+from echozero.ui.qt.timeline.waveform_cache import (
+    CachedWaveform,
+    get_cached_waveform,
+    register_waveform_from_audio_file,
+)
 
 
 @dataclass(slots=True)
@@ -19,6 +26,11 @@ class WaveformLanePresentation:
     width: int
     dimmed: bool = False
     waveform_key: str | None = None
+    source_audio_path: str | None = None
+    unavailable_reason: str | None = None
+
+
+_WAVEFORM_REGISTER_ATTEMPTS: set[str] = set()
 
 
 class WaveformLaneBlock:
@@ -30,21 +42,50 @@ class WaveformLaneBlock:
         if presentation.dimmed:
             base.setAlpha(self.style.dimmed_alpha)
 
-        cached = get_cached_waveform(presentation.waveform_key)
+        cached = self._resolve_cached_waveform(presentation)
         if cached is not None:
             self._paint_cached_waveform(painter, top, presentation, cached, base)
             return
 
-        # Fallback placeholder when no real waveform data is registered.
-        mid_y = top + presentation.row_height / 2
-        pps = max(1.0, presentation.pixels_per_second)
-        step = max(2, int(180 / pps * 10))
-        amp_scale = min(1.0, max(0.35, pps / 220.0))
-        painter.setPen(QPen(base, self.style.fallback_pen_width_px))
-        for x, sample_index in visible_waveform_columns(presentation, step):
-            amp = (((sample_index * 37) % 11) + 1) / 11.0
-            h = amp * (presentation.row_height * self.style.fallback_amp_row_factor) * amp_scale
-            painter.drawLine(int(x), int(mid_y - h), int(x), int(mid_y + h))
+        self._paint_waveform_unavailable_state(painter, top, presentation, base)
+
+    def _resolve_cached_waveform(
+        self,
+        presentation: WaveformLanePresentation,
+    ) -> CachedWaveform | None:
+        cached = get_cached_waveform(presentation.waveform_key)
+        if cached is not None:
+            return cached
+        key = str(presentation.waveform_key or "").strip()
+        source_audio_path = str(presentation.source_audio_path or "").strip()
+        if not key or not source_audio_path:
+            return None
+        attempt_key = f"{key}|{source_audio_path}"
+        if attempt_key in _WAVEFORM_REGISTER_ATTEMPTS:
+            return None
+        _WAVEFORM_REGISTER_ATTEMPTS.add(attempt_key)
+        try:
+            register_waveform_from_audio_file(key, source_audio_path)
+        except Exception:
+            return None
+        return get_cached_waveform(key)
+
+    def _paint_waveform_unavailable_state(
+        self,
+        painter: QPainter,
+        top: int,
+        presentation: WaveformLanePresentation,
+        base: QColor,
+    ) -> None:
+        reason = str(presentation.unavailable_reason or "").strip() or "Waveform unavailable"
+        text_color = QColor(base)
+        text_color.setAlpha(210 if not presentation.dimmed else 170)
+        painter.setPen(QPen(text_color, 1))
+        painter.drawText(
+            int(presentation.header_width + 12),
+            int(top + max(16.0, presentation.row_height * 0.55)),
+            reason,
+        )
 
     def _paint_cached_waveform(
         self,
@@ -72,22 +113,23 @@ class WaveformLaneBlock:
 
         center_y = top + (presentation.row_height / 2.0)
         amp_px = presentation.row_height * self.style.cached_amp_row_factor
+        column_step_px = waveform_column_step_px(presentation.pixels_per_second)
 
         painter.setPen(QPen(color, self.style.cached_pen_width_px))
-        for idx in range(start_idx, end_idx + 1):
-            t = idx * spp
-            x = waveform_x_for_time(
-                t,
-                scroll_x=presentation.scroll_x,
-                pixels_per_second=pps,
-                content_start_x=content_left,
-            )
-            if x < (content_left - 1) or x > (content_right + 1):
+        for x, vmin, vmax in iter_compacted_waveform_columns(
+            cached=cached,
+            start_idx=start_idx,
+            end_idx=end_idx,
+            pixels_per_second=pps,
+            scroll_x=presentation.scroll_x,
+            content_start_x=content_left,
+            pixel_step_px=column_step_px,
+        ):
+            if x < int(content_left - 1) or x > int(content_right + 1):
                 continue
-            vmin, vmax = cached.peaks[idx]
             y1 = center_y - (float(vmax) * amp_px)
             y2 = center_y - (float(vmin) * amp_px)
-            painter.drawLine(int(x), int(y1), int(x), int(y2))
+            painter.drawLine(x, int(y1), x, int(y2))
 
 
 def waveform_x_for_time(
@@ -99,6 +141,87 @@ def waveform_x_for_time(
 ) -> float:
     pps = max(1.0, pixels_per_second)
     return content_start_x + (max(0.0, time_seconds) * pps) - scroll_x
+
+
+def iter_compacted_waveform_columns(
+    *,
+    cached: CachedWaveform,
+    start_idx: int,
+    end_idx: int,
+    pixels_per_second: float,
+    scroll_x: float,
+    content_start_x: float,
+    pixel_step_px: int = 1,
+) -> Iterator[tuple[int, float, float]]:
+    """Yield one min/max envelope per on-screen pixel column."""
+    if cached.peaks.size == 0 or end_idx < start_idx:
+        return
+
+    start = max(0, int(start_idx))
+    end = min(int(end_idx), int(cached.peaks.shape[0] - 1))
+    if end < start:
+        return
+
+    step_px = max(1, int(pixel_step_px))
+    x_buckets, mins, maxs = _compact_peak_span_numpy(
+        peaks=cached.peaks,
+        start=start,
+        end=end,
+        seconds_per_peak=float(cached.seconds_per_peak),
+        pixels_per_second=max(1.0, float(pixels_per_second)),
+        scroll_x=float(scroll_x),
+        content_start_x=float(content_start_x),
+        pixel_step_px=step_px,
+    )
+    for i in range(int(x_buckets.shape[0])):
+        yield int(x_buckets[i]), float(mins[i]), float(maxs[i])
+
+
+def waveform_column_step_px(pixels_per_second: float) -> int:
+    pps = max(1.0, float(pixels_per_second))
+    if pps >= float(WAVEFORM_COLUMN_STEP_REFERENCE_PPS):
+        return 1
+    step = int(round(float(WAVEFORM_COLUMN_STEP_REFERENCE_PPS) / pps))
+    return max(1, min(int(WAVEFORM_COLUMN_STEP_MAX_PX), step))
+
+
+def _compact_peak_span_numpy(
+    *,
+    peaks: np.ndarray,
+    start: int,
+    end: int,
+    seconds_per_peak: float,
+    pixels_per_second: float,
+    scroll_x: float,
+    content_start_x: float,
+    pixel_step_px: int,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Vectorized compaction: collapse many peaks into min/max by screen x bucket."""
+    span = peaks[start : end + 1]
+    if span.size == 0:
+        empty_i = np.empty((0,), dtype=np.int32)
+        empty_f = np.empty((0,), dtype=np.float32)
+        return empty_i, empty_f, empty_f
+
+    idx = np.arange(start, end + 1, dtype=np.float64)
+    x = (content_start_x + (idx * seconds_per_peak * pixels_per_second) - scroll_x).astype(np.int32)
+    if pixel_step_px > 1:
+        x = (x // pixel_step_px) * pixel_step_px
+
+    if x.shape[0] == 1:
+        return (
+            x.astype(np.int32, copy=False),
+            span[:, 0].astype(np.float32, copy=False),
+            span[:, 1].astype(np.float32, copy=False),
+        )
+
+    boundaries = np.flatnonzero(np.diff(x)) + 1
+    starts = np.concatenate((np.array([0], dtype=np.int64), boundaries))
+
+    mins = np.minimum.reduceat(span[:, 0], starts).astype(np.float32, copy=False)
+    maxs = np.maximum.reduceat(span[:, 1], starts).astype(np.float32, copy=False)
+    x_values = x[starts].astype(np.int32, copy=False)
+    return x_values, mins, maxs
 
 
 def visible_waveform_columns(

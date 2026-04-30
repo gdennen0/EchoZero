@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 from echozero.application.presentation.models import TimelinePresentation
@@ -14,6 +15,9 @@ from echozero.application.shared.ids import SongId, SongVersionId
 from echozero.persistence.session import ProjectStorage
 
 _RUNTIME_STATE_META_KEY = "app_shell_runtime_state.v1"
+_RUNTIME_STATE_META_KEY_V2 = "app_shell_runtime_state.v2"
+_RUNTIME_STATE_JSON_FILENAME = "app_shell_runtime_state.json"
+_RUNTIME_STATE_JSON_SCHEMA = "echozero.app_shell_runtime_state.v1"
 
 
 @dataclass(frozen=True, slots=True)
@@ -26,25 +30,42 @@ class ProjectRuntimeState:
     pixels_per_second: float = 100.0
     scroll_x: float = 0.0
     scroll_y: float = 0.0
+    layer_header_width_px: int = 320
 
 
 def load_project_runtime_state(project_storage: ProjectStorage) -> ProjectRuntimeState:
-    """Load one previously saved runtime-state snapshot from project metadata."""
+    """Load one previously saved runtime-state snapshot from JSON or project metadata."""
 
+    payload = _load_runtime_state_payload_from_json(_runtime_state_json_path(project_storage))
+    if payload is None:
+        payload = _load_runtime_state_payload_from_meta(project_storage)
+    if payload is None:
+        return ProjectRuntimeState()
+    return _state_from_payload(payload)
+
+
+def _load_runtime_state_payload_from_meta(
+    project_storage: ProjectStorage,
+) -> dict[str, Any] | None:
     with project_storage.locked():
         row = project_storage.db.execute(
             "SELECT value FROM _meta WHERE key = ?",
-            (_RUNTIME_STATE_META_KEY,),
+            (_RUNTIME_STATE_META_KEY_V2,),
         ).fetchone()
+        if row is None:
+            row = project_storage.db.execute(
+                "SELECT value FROM _meta WHERE key = ?",
+                (_RUNTIME_STATE_META_KEY,),
+            ).fetchone()
     if row is None:
-        return ProjectRuntimeState()
+        return None
     try:
         payload = json.loads(row["value"])
     except (TypeError, ValueError, KeyError):
-        return ProjectRuntimeState()
+        return None
     if not isinstance(payload, dict):
-        return ProjectRuntimeState()
-    return _state_from_payload(payload)
+        return None
+    return payload
 
 
 def persist_project_runtime_state(
@@ -52,22 +73,66 @@ def persist_project_runtime_state(
     *,
     presentation: TimelinePresentation,
     playhead: float | None = None,
+    layer_header_width_px: int | None = None,
 ) -> None:
-    """Persist app-shell runtime context as project metadata."""
+    """Persist app-shell runtime context as editable JSON plus metadata fallback."""
 
-    payload = _payload_from_presentation(presentation, playhead=playhead)
+    payload = _payload_from_presentation(
+        presentation,
+        playhead=playhead,
+        layer_header_width_px=layer_header_width_px,
+    )
+    _persist_runtime_state_json(_runtime_state_json_path(project_storage), payload)
     encoded_payload = json.dumps(payload, separators=(",", ":"))
     with project_storage.locked():
         project_storage.db.execute(
             "INSERT OR REPLACE INTO _meta (key, value) VALUES (?, ?)",
-            (_RUNTIME_STATE_META_KEY, encoded_payload),
+            (_RUNTIME_STATE_META_KEY_V2, encoded_payload),
         )
+
+
+def _runtime_state_json_path(project_storage: ProjectStorage) -> Path:
+    return project_storage.working_dir / _RUNTIME_STATE_JSON_FILENAME
+
+
+def _load_runtime_state_payload_from_json(path: Path) -> dict[str, Any] | None:
+    if not path.exists():
+        return None
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, TypeError, ValueError):
+        return None
+    if not isinstance(payload, dict):
+        return None
+    nested = payload.get("state")
+    if isinstance(nested, dict):
+        return nested
+    if "schema" in payload:
+        return None
+    return payload
+
+
+def _persist_runtime_state_json(path: Path, payload: dict[str, Any]) -> None:
+    encoded = json.dumps(
+        {
+            "schema": _RUNTIME_STATE_JSON_SCHEMA,
+            "state": payload,
+        },
+        indent=2,
+        sort_keys=True,
+    )
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(encoded, encoding="utf-8")
+    except OSError:
+        return
 
 
 def _payload_from_presentation(
     presentation: TimelinePresentation,
     *,
     playhead: float | None,
+    layer_header_width_px: int | None,
 ) -> dict[str, Any]:
     active_song_id = (presentation.active_song_id or "").strip()
     active_song_version_id = (presentation.active_song_version_id or "").strip()
@@ -83,6 +148,10 @@ def _payload_from_presentation(
         "pixels_per_second": _positive_float(presentation.pixels_per_second, fallback=100.0),
         "scroll_x": _non_negative_float(presentation.scroll_x),
         "scroll_y": _non_negative_float(presentation.scroll_y),
+        "layer_header_width_px": _positive_int(
+            layer_header_width_px,
+            fallback=320,
+        ),
     }
 
 
@@ -100,6 +169,7 @@ def _state_from_payload(payload: dict[str, Any]) -> ProjectRuntimeState:
         pixels_per_second=_positive_float(payload.get("pixels_per_second"), fallback=100.0),
         scroll_x=_non_negative_float(payload.get("scroll_x")),
         scroll_y=_non_negative_float(payload.get("scroll_y")),
+        layer_header_width_px=_positive_int(payload.get("layer_header_width_px"), fallback=320),
     )
 
 
@@ -128,6 +198,16 @@ def _positive_float(value: object, *, fallback: float) -> float:
     if resolved <= 0.0:
         return fallback
     return resolved
+
+
+def _positive_int(value: object, *, fallback: int) -> int:
+    try:
+        resolved = int(value)
+    except (TypeError, ValueError):
+        return int(fallback)
+    if resolved <= 0:
+        return int(fallback)
+    return int(resolved)
 
 
 __all__ = [

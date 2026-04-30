@@ -35,14 +35,10 @@ def test_restore_timeline_targets_preserves_layer_and_clears_event_selection():
     prior = _presentation(
         selected_layer_id=LayerId("layer_a"),
         selected_take_id=TakeId("take_alt"),
-        active_playback_layer_id=LayerId("layer_b"),
-        active_playback_take_id=TakeId("take_b_alt"),
     )
     current = _presentation(
         selected_layer_id=LayerId("layer_b"),
         selected_take_id=TakeId("take_b_alt"),
-        active_playback_layer_id=LayerId("layer_b"),
-        active_playback_take_id=TakeId("take_b_alt"),
     )
 
     restore_timeline_targets(
@@ -56,8 +52,6 @@ def test_restore_timeline_targets_preserves_layer_and_clears_event_selection():
     assert timeline.selection.selected_take_id == TakeId("take_alt")
     assert timeline.selection.selected_event_ids == []
     assert timeline.selection.selected_event_refs == []
-    assert timeline.playback_target.layer_id == LayerId("layer_b")
-    assert timeline.playback_target.take_id == TakeId("take_b_alt")
 
 
 def test_surface_new_take_rows_prefers_selected_source_layer_and_clears_event_selection():
@@ -174,8 +168,6 @@ def _presentation(
     *,
     selected_layer_id: LayerId | None = None,
     selected_take_id: TakeId | None = None,
-    active_playback_layer_id: LayerId | None = None,
-    active_playback_take_id: TakeId | None = None,
     extra_layers: list[LayerPresentation] | None = None,
 ) -> TimelinePresentation:
     layers = [
@@ -215,6 +207,4 @@ def _presentation(
         selected_layer_id=selected_layer_id,
         selected_layer_ids=[selected_layer_id] if selected_layer_id is not None else [],
         selected_take_id=selected_take_id,
-        active_playback_layer_id=active_playback_layer_id,
-        active_playback_take_id=active_playback_take_id,
     )

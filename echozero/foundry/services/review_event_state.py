@@ -151,14 +151,12 @@ def updated_review_metadata(
     _assign_optional(review_payload, "workflow", _clean_text(workflow))
     _assign_optional(review_payload, "operator_action", _clean_text(operator_action))
     next_metadata["review"] = review_payload
-    next_metadata["promotion_state"] = review_payload["promotion_state"]
-    next_metadata["review_state"] = review_payload["review_state"]
-    next_metadata["review_outcome"] = normalized_outcome.value
-    _assign_optional(
-        next_metadata,
-        "review_decision_kind",
-        None if normalized_decision is None else normalized_decision.value,
-    )
+    # Review semantics live under metadata["review"]; legacy top-level duplicates are removed
+    # to keep processor outputs and app/foundry mutation lanes cleanly separated.
+    next_metadata.pop("promotion_state", None)
+    next_metadata.pop("review_state", None)
+    next_metadata.pop("review_outcome", None)
+    next_metadata.pop("review_decision_kind", None)
     return next_metadata
 
 
@@ -209,6 +207,14 @@ def _promotion_state(review_payload: Mapping[str, Any], metadata: Mapping[str, A
     legacy_value = _clean_text(metadata.get("promotion_state"))
     if legacy_value in _VALID_PROMOTION_STATES:
         return legacy_value
+    detection_payload = metadata.get("detection")
+    if isinstance(detection_payload, Mapping):
+        detection_value = _clean_text(detection_payload.get("promotion_state"))
+        if detection_value in _VALID_PROMOTION_STATES:
+            return detection_value
+        threshold_passed = _coerce_optional_bool(detection_payload.get("threshold_passed"))
+        if threshold_passed is not None:
+            return "promoted" if threshold_passed else "demoted"
     return "promoted"
 
 
@@ -379,3 +385,17 @@ def _first_datetime(mapping: object, *keys: str) -> datetime | None:
         return datetime.fromisoformat(text)
     except ValueError:
         return None
+
+
+def _coerce_optional_bool(value: object) -> bool | None:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return bool(value)
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in {"true", "1", "yes", "on"}:
+            return True
+        if normalized in {"false", "0", "no", "off"}:
+            return False
+    return None
