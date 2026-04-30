@@ -211,6 +211,7 @@ class Session:
     active_song_id: SongId | None = None
     active_song_version_id: SongVersionId | None = None
     active_song_version_ma3_timecode_pool_no: int | None = None
+    project_ma3_push_offset_seconds: float = -1.0
     active_timeline_id: TimelineId | None = None
     transport_state: TransportState = field(default_factory=TransportState)
     mixer_state: MixerState = field(default_factory=MixerState)

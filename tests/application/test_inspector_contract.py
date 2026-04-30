@@ -38,6 +38,12 @@ def _contract_test_presentation() -> TimelinePresentation:
                         start=1.0,
                         end=1.5,
                         label="Main",
+                        classifications={
+                            "class": "kick",
+                            "confidence": 0.91,
+                            "label": "Kick",
+                        },
+                        detection_metadata={"classifier_score": 0.91},
                     )
                 ],
                 takes=[
@@ -51,6 +57,8 @@ def _contract_test_presentation() -> TimelinePresentation:
                                 start=2.0,
                                 end=2.5,
                                 label="Take",
+                                classifications={"class": "snare"},
+                                detection_metadata={"classifier_score": 0.73},
                             )
                         ],
                     )
@@ -171,6 +179,7 @@ def test_inspector_contract_falls_back_to_current_song_version_without_selection
         "song.version.delete",
         "song.add",
     } <= action_ids
+    assert "project.settings.set_ma3_push_offset" not in action_ids
 
 
 def test_inspector_contract_layer_selection_state():
@@ -454,6 +463,8 @@ def test_inspector_contract_main_event_state():
     assert rows["end"] == "1.50s"
     assert rows["duration"] == "0.50s"
     assert rows["take"] == "Main take (take_main)"
+    assert rows["classification"] == "Kick"
+    assert rows["confidence score"] == "0.91"
     assert rows["playback state"] == "Set Active"
     assert rows["sync mapping"] == "tc1_tg2_tr3"
     assert rows["selected identity"] == "Event Main (main_evt) on Kick / Main take (take_main)"
@@ -493,6 +504,8 @@ def test_inspector_contract_take_event_state():
 
     assert contract.title == "Event Take"
     assert rows["take"] == "Take 2 (take_alt)"
+    assert rows["classification"] == "Snare"
+    assert rows["confidence score"] == "0.73"
     assert rows["playback state"] == "Active"
     assert rows["selected identity"] == "none"
     assert rows["playback target"] == "Active Kick / Take 2 (take_alt)"
@@ -649,6 +662,8 @@ def test_inspector_contract_render_text_tracks_selection_transition_sequence():
             "duration: 0.50s",
             "layer: Kick",
             "take: Main take (take_main)",
+            "classification: Kick",
+            "confidence score: 0.91",
             "playback state: Set Active",
             "sync state: Off",
             "sync mapping: none",

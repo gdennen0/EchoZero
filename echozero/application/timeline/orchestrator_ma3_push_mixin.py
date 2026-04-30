@@ -160,17 +160,17 @@ class TimelineOrchestratorMA3PushMixin:
             sequence_action=intent.sequence_action,
             action_name="PushLayerToMA3",
         )
-        sync_service = cast(_MA3PushHost, self).sync_service
-        apply_push_transfer = getattr(sync_service, "apply_push_transfer", None)
-        if not callable(apply_push_transfer):
-            raise RuntimeError("Sync service does not support push apply")
-        apply_push_transfer(
+        session = cast(_MA3PushHost, self).session_service.get_session()
+        push_offset_seconds = self._resolve_project_ma3_push_offset_seconds(session)
+        self._call_sync_capability(
+            "apply_push_transfer",
+            error_message="Sync service does not support push apply",
             target_track_coord=target_track_coord,
             selected_events=selected_events,
             transfer_mode=intent.apply_mode.value,
+            start_offset_seconds=push_offset_seconds,
         )
 
-        session = cast(_MA3PushHost, self).session_service.get_session()
         session.manual_push_flow.target_track_coord = target_track_coord
         session.manual_push_flow.selected_event_ids = [event.id for event in selected_events]
         session.manual_push_flow.diff_gate_open = False
@@ -525,6 +525,14 @@ class TimelineOrchestratorMA3PushMixin:
         if not promoted_selected_events:
             raise ValueError("PushLayerToMA3 requires selected promoted main events to push")
         return promoted_selected_events
+
+    @staticmethod
+    def _resolve_project_ma3_push_offset_seconds(session: Any) -> float:
+        raw_offset_seconds = getattr(session, "project_ma3_push_offset_seconds", -1.0)
+        try:
+            return float(raw_offset_seconds)
+        except (TypeError, ValueError):
+            return -1.0
 
     @staticmethod
     def _require_ma3_event_layer(layer: Layer, *, action_name: str) -> None:

@@ -45,7 +45,7 @@ _VERSION_SONG_ID_ROLE = Qt.ItemDataRole.UserRole + 4
 _ROW_NUMBER_COLUMN = 0
 _SONG_TITLE_COLUMN = 1
 _ROW_NUMBER_COLUMN_WIDTH = 38
-_PANEL_COLLAPSED_WIDTH = 56
+_PANEL_COLLAPSED_WIDTH = 28
 _PANEL_DEFAULT_EXPANDED_WIDTH = 300
 _PANEL_MIN_EXPANDED_WIDTH = 240
 _PANEL_MAX_EXPANDED_WIDTH = 460
@@ -88,26 +88,26 @@ class SongBrowserPanel(QWidget):
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self.setProperty("collapsed", False)
 
-        root_layout = QVBoxLayout(self)
-        root_layout.setContentsMargins(8, 8, 8, 8)
-        root_layout.setSpacing(8)
+        self._root_layout = QVBoxLayout(self)
+        self._root_layout.setContentsMargins(8, 8, 8, 8)
+        self._root_layout.setSpacing(8)
 
         header = QWidget(self)
         header.setObjectName("songBrowserHeader")
-        header_layout = QHBoxLayout(header)
-        header_layout.setContentsMargins(0, 0, 0, 0)
-        header_layout.setSpacing(6)
+        self._header_layout = QHBoxLayout(header)
+        self._header_layout.setContentsMargins(0, 0, 0, 0)
+        self._header_layout.setSpacing(6)
 
         self._title = QLabel("Setlist", header)
         self._title.setObjectName("songBrowserTitle")
-        header_layout.addWidget(self._title, 1)
+        self._header_layout.addWidget(self._title, 1)
 
         self._add_button = QPushButton("+", header)
         self._add_button.setObjectName("songBrowserQuickAddButton")
         self._add_button.setProperty("appearance", "subtle")
         self._add_button.setToolTip("Add Song")
         self._add_button.clicked.connect(self.add_song_requested.emit)
-        header_layout.addWidget(self._add_button)
+        self._header_layout.addWidget(self._add_button)
 
         self._collapse_button = QToolButton(header)
         self._collapse_button.setObjectName("songBrowserCollapseButton")
@@ -116,12 +116,12 @@ class SongBrowserPanel(QWidget):
         self._collapse_button.setText("<")
         self._collapse_button.setToolTip("Collapse Song Browser")
         self._collapse_button.clicked.connect(self.toggle_collapsed)
-        header_layout.addWidget(self._collapse_button)
-        root_layout.addWidget(header)
+        self._header_layout.addWidget(self._collapse_button)
+        self._root_layout.addWidget(header)
 
         self._content_stack = QStackedWidget(self)
         self._content_stack.setObjectName("songBrowserContent")
-        root_layout.addWidget(self._content_stack, 1)
+        self._root_layout.addWidget(self._content_stack, 1)
 
         self._browser_page = QWidget(self)
         self._browser_page.setObjectName("songBrowserPage")
@@ -453,9 +453,15 @@ class SongBrowserPanel(QWidget):
     def _apply_collapsed_state(self) -> None:
         self._set_collapsed_style_state(self._collapsed)
         if self._collapsed:
+            self._root_layout.setContentsMargins(2, 2, 2, 2)
+            self._root_layout.setSpacing(0)
+            self._header_layout.setSpacing(0)
             self.setMinimumWidth(_PANEL_COLLAPSED_WIDTH)
             self.setMaximumWidth(_PANEL_COLLAPSED_WIDTH)
         else:
+            self._root_layout.setContentsMargins(8, 8, 8, 8)
+            self._root_layout.setSpacing(8)
+            self._header_layout.setSpacing(6)
             self.setMinimumWidth(_PANEL_MIN_EXPANDED_WIDTH)
             self.setMaximumWidth(_PANEL_MAX_EXPANDED_WIDTH)
             self.resize(self._expanded_width, self.height())

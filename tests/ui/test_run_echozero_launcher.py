@@ -998,6 +998,52 @@ def test_launcher_osc_settings_action_opens_dialog(monkeypatch):
     assert dialog_calls == [(runtime.app_settings_service, widget)]
 
 
+def test_launcher_project_settings_action_updates_ma3_push_offset(monkeypatch):
+    runtime_audio = FakeRuntimeAudio()
+    calls: list[float] = []
+    runtime = SimpleNamespace(
+        runtime_audio=runtime_audio,
+        app_settings_service=object(),
+        is_dirty=False,
+        project_path=None,
+        presentation=lambda: "presentation",
+        dispatch=lambda intent: intent,
+        get_project_ma3_push_offset_seconds=lambda: -1.0,
+        set_project_ma3_push_offset_seconds=lambda value: calls.append(float(value)),
+    )
+
+    class FakeProjectSettingsDialog:
+        def __init__(self, *, current_offset_seconds: float, parent=None) -> None:
+            self.current_offset_seconds = current_offset_seconds
+            self.parent = parent
+            self.ma3_push_offset_seconds = -0.25
+
+        def exec(self) -> int:
+            return 1
+
+    monkeypatch.setattr(launcher_surface, "QAction", FakeAction)
+    monkeypatch.setattr(
+        launcher_surface,
+        "ProjectSettingsDialog",
+        FakeProjectSettingsDialog,
+    )
+    monkeypatch.setattr(
+        launcher_surface.QMessageBox,
+        "warning",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("warning dialog not expected")
+        ),
+    )
+
+    widget = FakeWidget(runtime.presentation(), on_intent=runtime.dispatch, runtime_audio=runtime.runtime_audio)
+    launcher = run_echozero.LauncherController(runtime=runtime, widget=widget)
+    launcher.install()
+
+    widget._launcher_actions["project_settings"].trigger()
+
+    assert calls == [-0.25]
+
+
 def test_launcher_close_prompt_cancel_prevents_close(monkeypatch):
     runtime = SimpleNamespace(runtime_audio=FakeRuntimeAudio(), is_dirty=True, project_path=Path("C:/projects/current.ez"))
     runtime.presentation = lambda: "presentation"

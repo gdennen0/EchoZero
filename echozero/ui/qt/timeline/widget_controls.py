@@ -8,7 +8,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import cast
 
-from PyQt6.QtCore import QRectF, Qt, pyqtSignal
+from PyQt6.QtCore import QRectF, QSize, Qt, pyqtSignal
 from PyQt6.QtGui import (
     QColor,
     QMouseEvent,
@@ -77,6 +77,8 @@ class TimelineEditorModeBar(QWidget):
         self.setObjectName("timelineEditorModeBar")
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self._compact_mode = False
+        self._pending_standalone_width: int | None = None
+        self.setProperty("compact", False)
         self._toolbar_labels: list[QLabel] = []
         self._mode_labels_full: dict[str, str] = {
             "select": "↖ Select",
@@ -270,6 +272,8 @@ class TimelineEditorModeBar(QWidget):
         self._set_mode_button_labels(compact=False)
         self._sync_fix_include_demoted_button_label(enabled=False)
         self._apply_button_width_hints(compact=False)
+        if parent is not None:
+            self._set_compact_mode(self._should_compact())
 
     def set_state(
         self,
@@ -335,6 +339,20 @@ class TimelineEditorModeBar(QWidget):
     def showEvent(self, event: QShowEvent | None) -> None:
         super().showEvent(event)
         self._set_compact_mode(self._should_compact())
+        self._pending_standalone_width = None
+
+    def resize(self, *args: object) -> None:
+        if self.parentWidget() is None and not self.isVisible():
+            requested_width = self._extract_requested_width(args)
+            if requested_width is not None and requested_width > 0:
+                self._pending_standalone_width = requested_width
+        if len(args) == 1 and isinstance(args[0], QSize):
+            super().resize(args[0])
+            return
+        if len(args) == 2 and all(isinstance(arg, (int, float)) for arg in args):
+            super().resize(int(args[0]), int(args[1]))
+            return
+        raise TypeError("TimelineEditorModeBar.resize expects QSize or width/height")
 
     def _set_compact_mode(self, enabled: bool) -> None:
         if self._compact_mode == enabled:
@@ -356,12 +374,26 @@ class TimelineEditorModeBar(QWidget):
         self.update()
 
     def _should_compact(self) -> bool:
-        if not self.isVisible():
-            return False
-        host_width = (
-            self.parentWidget().width() if self.parentWidget() is not None else self.width()
-        )
+        host_width = self._host_width()
         return host_width < self._COMPACT_WIDTH_THRESHOLD_PX
+
+    def _host_width(self) -> int:
+        parent = self.parentWidget()
+        if parent is None and self._pending_standalone_width is not None:
+            return self._pending_standalone_width
+        if parent is not None and parent.width() > 0:
+            return parent.width()
+        if self.width() > 0:
+            return self.width()
+        return self.sizeHint().width()
+
+    @staticmethod
+    def _extract_requested_width(args: tuple[object, ...]) -> int | None:
+        if len(args) == 1 and isinstance(args[0], QSize):
+            return args[0].width()
+        if len(args) == 2 and all(isinstance(arg, (int, float)) for arg in args):
+            return int(args[0])
+        return None
 
     def _set_mode_button_labels(self, *, compact: bool) -> None:
         labels = self._mode_labels_compact if compact else self._mode_labels_full

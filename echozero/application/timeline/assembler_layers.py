@@ -194,6 +194,8 @@ def _assemble_events(
             muted=event.muted,
             source_event_id=event.source_event_id,
             payload_ref=event.payload_ref,
+            classifications=dict(event.classifications),
+            detection_metadata=event.detection_metadata,
             is_selected=(
                 (
                     str(layer_id),

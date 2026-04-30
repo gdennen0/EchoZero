@@ -462,6 +462,7 @@ def _build_orchestrator(
     include_alt_take: bool = False,
     saved_route: str | None = None,
     track_options: list[ManualPushTrackOption] | None = None,
+    sync_service_override: _PushSyncService | None = None,
 ):
     session = Session(
         id=SessionId("session_ma3_push_v1"),
@@ -522,7 +523,7 @@ def _build_orchestrator(
         song_version_id=SongVersionId("song_version_ma3_push_v1"),
         layers=[layer],
     )
-    sync_service = _PushSyncService(
+    sync_service = sync_service_override or _PushSyncService(
         track_options=(
             list(track_options)
             if track_options is not None
@@ -807,6 +808,47 @@ def test_push_layer_to_ma3_uses_saved_route_and_layer_main_events():
     ]
     assert session.manual_push_flow.target_track_coord == "tc1_tg2_tr3"
     assert session.manual_push_flow.selected_event_ids == [EventId("evt_1"), EventId("evt_2")]
+
+
+def test_push_layer_to_ma3_passes_project_push_offset_to_sync_service_when_supported():
+    class _OffsetAwarePushSyncService(_PushSyncService):
+        def __init__(self):
+            super().__init__()
+            self.start_offsets: list[float] = []
+
+        def apply_push_transfer(
+            self,
+            *,
+            target_track_coord,
+            selected_events,
+            transfer_mode: str = "merge",
+            start_offset_seconds: float = 0.0,
+        ) -> None:
+            self.start_offsets.append(float(start_offset_seconds))
+            super().apply_push_transfer(
+                target_track_coord=target_track_coord,
+                selected_events=selected_events,
+                transfer_mode=transfer_mode,
+            )
+
+    sync_service = _OffsetAwarePushSyncService()
+    orchestrator, timeline, session, _ = _build_orchestrator(
+        saved_route="tc1_tg2_tr3",
+        sync_service_override=sync_service,
+    )
+    session.project_ma3_push_offset_seconds = -0.75
+
+    orchestrator.handle(
+        timeline,
+        PushLayerToMA3(
+            layer_id="layer_kick",
+            scope=MA3PushScope.LAYER_MAIN,
+            target_mode=MA3PushTargetMode.SAVED_ROUTE,
+            apply_mode=MA3PushApplyMode.MERGE,
+        ),
+    )
+
+    assert sync_service.start_offsets == pytest.approx([-0.75])
 
 
 def test_push_layer_to_ma3_refreshes_manual_push_track_catalog_after_send():

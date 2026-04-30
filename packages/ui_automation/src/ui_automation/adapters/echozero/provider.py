@@ -339,6 +339,18 @@ class EchoZeroAutomationBackend:
             ],
             "latency_ms": float(playback_state.latency_ms),
             "backend_name": playback_state.backend_name,
+            "diagnostics": {
+                "glitch_count": int(playback_state.diagnostics.glitch_count),
+                "last_audio_status": playback_state.diagnostics.last_audio_status,
+                "output_device": playback_state.diagnostics.output_device,
+                "stream_latency": playback_state.diagnostics.stream_latency,
+                "stream_blocksize": int(playback_state.diagnostics.stream_blocksize),
+                "prime_output_buffers_using_stream_callback": bool(
+                    playback_state.diagnostics.prime_output_buffers_using_stream_callback
+                ),
+                "last_transition": playback_state.diagnostics.last_transition,
+                "last_track_sync_reason": playback_state.diagnostics.last_track_sync_reason,
+            },
         }
 
         return AutomationSnapshot(

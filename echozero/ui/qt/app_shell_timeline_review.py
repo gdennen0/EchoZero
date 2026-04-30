@@ -51,6 +51,7 @@ from echozero.foundry.services.review_event_state import (
     normalize_review_label,
     updated_review_metadata,
 )
+from echozero.foundry.services.dataset_service import DatasetService
 from echozero.foundry.services.review_signal_service import ReviewSignalService
 from echozero.persistence.session import ProjectStorage
 from echozero.ui.qt.app_shell_project_timeline_storage import resolve_project_audio_path
@@ -455,6 +456,7 @@ def commit_missed_events_review(
             materialize_dataset=False,
         )
     shell._sync_storage_backed_layers(list(touched_layer_ids))
+    _refresh_project_review_export(shell)
     return shell.presentation()
 
 
@@ -497,6 +499,7 @@ def commit_verified_events_review(
             materialize_dataset=False,
         )
     shell._sync_storage_backed_layers(list(touched_layer_ids))
+    _refresh_project_review_export(shell)
     return shell.presentation()
 
 
@@ -539,6 +542,7 @@ def commit_rejected_events_review(
             materialize_dataset=False,
         )
     shell._sync_storage_backed_layers(list(touched_layer_ids))
+    _refresh_project_review_export(shell)
     return shell.presentation()
 
 
@@ -1178,6 +1182,15 @@ def _require_review_context(
     if song is None:
         raise ValueError(f"Active song not found: {active_song_id}")
     return project, active_song_id, active_song_version_id, version, song
+
+
+def _refresh_project_review_export(shell: TimelineReviewShell) -> None:
+    project_dir = Path(shell.project_storage.working_dir).resolve()
+    service = DatasetService(project_dir)
+    try:
+        service.export_project_review_dataset(project_dir, queue_source_kind="ez_project")
+    except ValueError:
+        return
 
 
 def _review_source_provenance(

@@ -85,6 +85,30 @@ def test_object_info_panel_layout_comes_from_style_module():
         app.processEvents()
 
 
+def test_object_info_panel_collapses_to_compact_rail():
+    app = QApplication.instance() or QApplication([])
+    panel = ObjectInfoPanel()
+    try:
+        assert panel.is_collapsed is False
+        assert panel.target_width() == panel.expanded_width
+        assert panel._title.isHidden() is False
+        assert panel._collapse_button.text() == ">"
+
+        panel.toggle_collapsed()
+        app.processEvents()
+
+        assert panel.is_collapsed is True
+        assert panel.target_width() == 28
+        assert panel.minimumWidth() == 28
+        assert panel.maximumWidth() == 28
+        assert panel._title.isHidden() is True
+        assert panel._content_splitter.isHidden() is True
+        assert panel._collapse_button.text() == "<"
+    finally:
+        panel.close()
+        app.processEvents()
+
+
 def test_object_info_panel_uses_sectioned_summary_and_hidden_playback_surface_by_default():
     app = QApplication.instance() or QApplication([])
     panel = ObjectInfoPanel()
@@ -1386,6 +1410,32 @@ def test_timeline_widget_song_browser_splitter_restores_resized_width():
         widget._song_browser_panel.toggle_collapsed()
         app.processEvents()
         assert widget._shell_splitter.sizes()[0] >= 220
+    finally:
+        widget.close()
+        app.processEvents()
+
+
+def test_timeline_widget_object_info_splitter_restores_resized_width():
+    app = QApplication.instance() or QApplication([])
+    widget = TimelineWidget(_song_switching_presentation())
+    try:
+        widget.resize(1600, 900)
+        widget.show()
+        app.processEvents()
+
+        widget._main_splitter.setSizes([1220, 380])
+        app.processEvents()
+        expected_width = widget._main_splitter.sizes()[1]
+        widget._sync_object_info_splitter_width()
+        assert widget._object_info.expanded_width == expected_width
+
+        widget._object_info.toggle_collapsed()
+        app.processEvents()
+        assert widget._main_splitter.sizes()[1] <= 80
+
+        widget._object_info.toggle_collapsed()
+        app.processEvents()
+        assert widget._main_splitter.sizes()[1] >= 220
     finally:
         widget.close()
         app.processEvents()

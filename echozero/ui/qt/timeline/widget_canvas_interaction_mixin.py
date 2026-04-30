@@ -554,6 +554,23 @@ class _TimelineCanvasInteractionMixin:
             or modifiers & Qt.KeyboardModifier.MetaModifier
         )
         has_shift = bool(modifiers & Qt.KeyboardModifier.ShiftModifier)
+        if (
+            self._edit_mode == "fix"
+            and event.isAutoRepeat()
+            and not has_primary
+            and (
+                (has_shift and event.key() in (Qt.Key.Key_Z, Qt.Key.Key_C))
+                or event.key()
+                in (
+                    Qt.Key.Key_Plus,
+                    Qt.Key.Key_Equal,
+                    Qt.Key.Key_Minus,
+                    Qt.Key.Key_Underscore,
+                )
+            )
+        ):
+            event.accept()
+            return
         steps = 10 if has_shift else 1
         if event.key() == Qt.Key.Key_Escape:
             self.clear_selection_requested.emit()

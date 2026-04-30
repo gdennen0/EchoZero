@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import threading
 from datetime import UTC, datetime
 from pathlib import Path
 from threading import Event
@@ -93,7 +94,7 @@ class TrainRunService:
                 raise ValueError(f"DatasetVersion not found: {run.dataset_version_id}")
 
             run = self._transition(run.id, TrainRunStatus.RUNNING, "RUN_STARTED")
-            trainer = self._trainer_factory.resolve(run.spec, legacy_backend=self._legacy_trainer)
+            trainer = self._trainer_factory.resolve(run.spec, legacy_backend=self._trainer)
             progress_callback = lambda payload: self.save_checkpoint(
                 run.id,
                 epoch=int(payload.get("epoch", 0)),
@@ -311,6 +312,8 @@ class TrainRunService:
         )
 
     def _notify_openclaw(self, text: str) -> None:
+        if threading.current_thread() is not threading.main_thread():
+            return
         self._notifications.notify_openclaw(text)
 
     def _validate_run_spec(self, dataset_version_id: str, run_spec: dict) -> None:

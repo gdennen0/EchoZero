@@ -14,6 +14,8 @@ from echozero.application.session.models import Session
 from echozero.application.sync.models import SyncState
 from echozero.application.sync.service import SyncService
 from echozero.application.timeline.intents import (
+    DisableSync,
+    EnableSync,
     Pause,
     Play,
     Seek,
@@ -57,12 +59,11 @@ class TimelineApplication:
         self.session.active_timeline_id = timeline.id
 
     def enable_sync(self, mode) -> SyncState:
-        self.sync_service.set_mode(mode)
-        self.session.sync_state = self.sync_service.connect()
+        self.dispatch(EnableSync(mode=mode))
         return self.session.sync_state
 
     def disable_sync(self) -> SyncState:
-        self.session.sync_state = self.sync_service.disconnect()
+        self.dispatch(DisableSync())
         return self.session.sync_state
 
     def _enrich_presentation(self, presentation: TimelinePresentation) -> TimelinePresentation:
@@ -76,7 +77,11 @@ class TimelineApplication:
             return
 
         if isinstance(intent, Play):
-            runtime_audio.build_for_presentation(self.presentation())
+            sync_presentation = getattr(runtime_audio, "sync_presentation", None)
+            if callable(sync_presentation):
+                sync_presentation(self.presentation())
+            else:
+                runtime_audio.build_for_presentation(self.presentation())
             runtime_audio.play()
         elif isinstance(intent, Pause):
             runtime_audio.pause()
@@ -95,7 +100,11 @@ class TimelineApplication:
             return
 
         if isinstance(intent, (SetGain, SetActivePlaybackTarget, SetLayerOutputBus)):
-            runtime_audio.apply_mix_state(presentation)
+            sync_mix_state = getattr(runtime_audio, "sync_mix_state", None)
+            if callable(sync_mix_state):
+                sync_mix_state(presentation)
+            else:
+                runtime_audio.apply_mix_state(presentation)
 
     def _sync_runtime_state(self, presentation: TimelinePresentation) -> None:
         runtime_audio = self.runtime_audio

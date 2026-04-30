@@ -167,6 +167,11 @@ def test_project_backed_review_relabel_writes_back_and_exports_local_dataset(tmp
     assert signal.source_provenance["dataset_materialization"]["dataset_id"].startswith("ds_")
     assert signal.source_provenance["dataset_materialization"]["version_id"].startswith("dsv_")
     assert signal.source_provenance["dataset_materialization"]["sample_count"] >= 1
+    canonical_export = signal.source_provenance["dataset_materialization"]["canonical_project_export"]
+    assert canonical_export["status"] == "materialized"
+    assert canonical_export["dataset_id"].startswith("ds_")
+    assert canonical_export["version_id"].startswith("dsv_")
+    assert canonical_export["sample_count"] >= 1
 
     with ProjectStorage.open_db(working_dir) as project:
         take = project.takes.get_main("layer_alpha_kick")

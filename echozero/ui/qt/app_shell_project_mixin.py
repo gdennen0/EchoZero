@@ -16,6 +16,7 @@ from echozero.ui.qt.app_shell_project_lifecycle import (
     add_song_version,
     delete_song,
     delete_song_version,
+    get_project_ma3_push_offset_seconds,
     list_song_version_transfer_layers,
     list_ma3_timecode_pools,
     move_song,
@@ -26,6 +27,7 @@ from echozero.ui.qt.app_shell_project_lifecycle import (
     save_project,
     save_project_as,
     select_song,
+    set_project_ma3_push_offset_seconds,
     set_song_version_ma3_timecode_pool,
     switch_song_version,
 )
@@ -153,6 +155,20 @@ class AppShellProjectMixin:
             self,
             song_version_id,
             timecode_pool_no,
+        )
+
+    def get_project_ma3_push_offset_seconds(
+        self: ProjectLifecycleShell,
+    ) -> float:
+        return get_project_ma3_push_offset_seconds(self)
+
+    def set_project_ma3_push_offset_seconds(
+        self: ProjectLifecycleShell,
+        offset_seconds: float,
+    ) -> TimelinePresentation:
+        return set_project_ma3_push_offset_seconds(
+            self,
+            offset_seconds,
         )
 
     def _refresh_from_storage(

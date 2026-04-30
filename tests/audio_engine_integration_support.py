@@ -282,6 +282,25 @@ class TestAudioEngine:
         engine.remove_layer("drums")
         assert engine.mixer.layer_count == 0
 
+    def test_load_track_exposes_the_simple_track_surface(self) -> None:
+        engine = AudioEngine(stream_factory=fake_stream_factory)
+
+        track = engine.load_track("drums", _sine(1000), 44100, name="Drums")
+
+        assert engine.mixer.track_count == 1
+        assert engine.tracks == (track,)
+        assert engine.get_track("drums") is track
+
+    def test_replace_tracks_swaps_the_active_track_set(self) -> None:
+        engine = AudioEngine(stream_factory=fake_stream_factory)
+        drums = engine.create_track("drums", _sine(1000), 44100, name="Drums")
+        bass = engine.create_track("bass", _sine(1000), 44100, name="Bass")
+
+        engine.replace_tracks([drums, bass])
+        engine.replace_tracks([bass])
+
+        assert [track.id for track in engine.tracks] == ["bass"]
+
     def test_seek(self) -> None:
         engine = AudioEngine(stream_factory=fake_stream_factory)
         engine.seek(1000)

@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
-from PyQt6.QtCore import QObject, QThread, pyqtSignal
+from PyQt6.QtCore import QObject, pyqtSignal
 
 
 class _RunWorker(QObject):
@@ -19,16 +19,12 @@ class _RunWorker(QObject):
         self._action = action
 
     def run(self) -> None:
-        thread = QThread.currentThread()
         try:
             run_id = str(self._action())
         except Exception as exc:
             self.failed.emit(str(exc))
         else:
             self.finished.emit(run_id)
-        finally:
-            if thread is not None:
-                thread.quit()
 
 
 __all__ = ["_RunWorker"]

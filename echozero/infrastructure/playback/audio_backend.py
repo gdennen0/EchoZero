@@ -1,13 +1,9 @@
-"""Minimal playback backend protocol placeholder for infrastructure wiring.
-
-Concrete device/runtime integration comes later.
+"""
+Infrastructure playback backend compatibility import.
+Exists because older wiring points still reference one infrastructure-level backend protocol.
+Connects those callers to the canonical audio output backend contract under `echozero.audio`.
 """
 
-from typing import Protocol
+from echozero.audio.output_backend import AudioOutputBackend as AudioBackend
 
-
-class AudioBackend(Protocol):
-    def prepare(self) -> None: ...
-    def start(self) -> None: ...
-    def stop(self) -> None: ...
-    def seek(self, position: float) -> None: ...
+__all__ = ["AudioBackend"]

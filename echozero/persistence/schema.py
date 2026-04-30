@@ -9,7 +9,7 @@ from __future__ import annotations
 import sqlite3
 from collections.abc import Callable
 
-SCHEMA_VERSION = 7
+SCHEMA_VERSION = 8
 
 _DDL = """\
 CREATE TABLE IF NOT EXISTS _meta (
@@ -24,6 +24,7 @@ CREATE TABLE IF NOT EXISTS projects (
     bpm REAL,
     bpm_confidence REAL,
     timecode_fps REAL,
+    ma3_push_offset_seconds REAL NOT NULL DEFAULT -1.0,
     graph_json TEXT,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
@@ -254,6 +255,20 @@ def _migrate_v6_to_v7(conn: sqlite3.Connection) -> None:
     """)
 
 
+def _migrate_v7_to_v8(conn: sqlite3.Connection) -> None:
+    projects_table = conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='projects'"
+    ).fetchone()
+    if projects_table is None:
+        return
+
+    columns = {row["name"] for row in conn.execute("PRAGMA table_info(projects)").fetchall()}
+    if "ma3_push_offset_seconds" not in columns:
+        conn.execute(
+            "ALTER TABLE projects ADD COLUMN ma3_push_offset_seconds REAL NOT NULL DEFAULT -1.0"
+        )
+
+
 _MIGRATIONS: dict[int, Callable[[sqlite3.Connection], None]] = {
     2: _migrate_v1_to_v2,
     3: _migrate_v2_to_v3,
@@ -276,6 +291,7 @@ _MIGRATIONS: dict[int, Callable[[sqlite3.Connection], None]] = {
     """),
     6: _migrate_v5_to_v6,
     7: _migrate_v6_to_v7,
+    8: _migrate_v7_to_v8,
 }
 
 

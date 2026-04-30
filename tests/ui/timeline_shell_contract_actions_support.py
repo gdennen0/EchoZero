@@ -1067,6 +1067,48 @@ def test_contract_set_song_version_ma3_timecode_pool_allows_manual_entry_without
         app.processEvents()
 
 
+def test_contract_set_project_ma3_push_offset_calls_runtime():
+    app = QApplication.instance() or QApplication([])
+
+    class _Runtime:
+        def __init__(self):
+            self.calls: list[float] = []
+            self._offset_seconds = -1.0
+            self._presentation = _song_switching_presentation()
+            self.runtime_audio = None
+
+        def presentation(self):
+            return self._presentation
+
+        def dispatch(self, intent):
+            return self._presentation
+
+        def get_project_ma3_push_offset_seconds(self) -> float:
+            return self._offset_seconds
+
+        def set_project_ma3_push_offset_seconds(self, offset_seconds: float):
+            self.calls.append(float(offset_seconds))
+            self._offset_seconds = float(offset_seconds)
+            return self._presentation
+
+    runtime = _Runtime()
+    widget = TimelineWidget(runtime.presentation(), on_intent=runtime.dispatch)
+    try:
+        widget._trigger_contract_action(
+            InspectorAction(
+                action_id="project.settings.set_ma3_push_offset",
+                label="Set Global MA3 Push Offset",
+                params={"offset_seconds": -0.25},
+            )
+        )
+
+        assert runtime.calls == [-0.25]
+        assert runtime.get_project_ma3_push_offset_seconds() == -0.25
+    finally:
+        widget.close()
+        app.processEvents()
+
+
 def test_timeline_drop_import_adds_song_when_no_active_song(tmp_path):
     app = QApplication.instance() or QApplication([])
 

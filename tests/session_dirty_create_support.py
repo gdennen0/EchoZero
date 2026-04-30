@@ -238,6 +238,7 @@ class TestSessionOpenDb:
                 bpm REAL,
                 bpm_confidence REAL,
                 timecode_fps REAL,
+                ma3_push_offset_seconds REAL NOT NULL DEFAULT -1.0,
                 graph_json TEXT,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL
@@ -246,9 +247,10 @@ class TestSessionOpenDb:
         )
         conn.execute(
             "INSERT INTO projects "
-            "(id, name, sample_rate, bpm, bpm_confidence, timecode_fps, graph_json, created_at, updated_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            ("project_legacy", "Legacy", 44100, None, None, None, None, now, now),
+            "(id, name, sample_rate, bpm, bpm_confidence, timecode_fps, "
+            "ma3_push_offset_seconds, graph_json, created_at, updated_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            ("project_legacy", "Legacy", 44100, None, None, None, -1.0, None, now, now),
         )
         conn.commit()
         conn.close()

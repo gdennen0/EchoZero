@@ -16,6 +16,12 @@ LANES: dict[str, list[str]] = {
         "-k",
         "sync",
     ],
+    "appflow-playback": [
+        "tests/testing/test_app_flow_harness.py",
+        "tests/ui/test_app_shell_runtime_flow.py",
+        "-k",
+        "playback or runtime_audio or audio",
+    ],
     "appflow-osc": [
         "tests/testing/test_ma3_osc_loopback.py",
         "tests/testing/test_ma3_osc_bridge.py",
@@ -51,6 +57,11 @@ LANES: dict[str, list[str]] = {
         "tests/ui_automation/test_echozero_backend.py",
         "tests/ui_automation/test_bridge_server.py",
     ],
+    "ui-automation-playback": [
+        "tests/ui_automation/test_echozero_backend.py",
+        "-k",
+        "transport",
+    ],
     "humanflow-all": [
         "tests/ui/test_run_echozero_launcher.py",
         "tests/testing/test_app_shell_profiles.py",
@@ -63,6 +74,13 @@ LANES: dict[str, list[str]] = {
         "tests/application/test_manual_transfer_push_flow.py",
         "tests/application/test_sync_adapters.py",
         "tests/application/test_live_sync_guardrail_contracts.py",
+    ],
+    "humanflow-playback": [
+        "tests/testing/test_app_flow_harness.py",
+        "tests/ui/test_app_shell_runtime_flow.py",
+        "tests/ui_automation/test_echozero_backend.py",
+        "-k",
+        "playback or runtime_audio or audio or transport",
     ],
 }
 

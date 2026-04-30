@@ -147,6 +147,7 @@ class MA3Adapter(Protocol):
         target_track_coord: str,
         selected_events: Sequence[Any],
         transfer_mode: str = "merge",
+        start_offset_seconds: float = 0.0,
     ) -> None: ...
 
 

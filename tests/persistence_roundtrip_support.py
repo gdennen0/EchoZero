@@ -136,6 +136,7 @@ class TestEdgeCases:
         assert got.settings.bpm is None
         assert got.settings.bpm_confidence is None
         assert got.settings.timecode_fps is None
+        assert got.settings.ma3_push_offset_seconds == pytest.approx(-1.0)
 
     def test_layer_with_all_optional_fields_null(self, conn):
         pr = ProjectRepository(conn)

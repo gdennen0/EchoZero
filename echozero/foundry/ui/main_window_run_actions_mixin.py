@@ -11,7 +11,7 @@ from pathlib import Path
 from threading import Event
 from typing import cast
 
-from PyQt6.QtCore import QObject, QThread, QTimer, QUrl
+from PyQt6.QtCore import QObject, QThread, QTimer, QUrl, Qt
 from PyQt6.QtWidgets import (
     QDoubleSpinBox,
     QLabel,
@@ -348,12 +348,15 @@ class _FoundryWindowRunActionsMixin:
         self._run_thread = QThread(cast(QObject, self))
         self._run_worker = _RunWorker(action)
         self._run_worker.moveToThread(self._run_thread)
-        self._run_thread.started.connect(self._run_worker.run)
+        # Queue the work after the thread event loop is running so quit() is processed reliably.
+        self._run_thread.started.connect(
+            self._run_worker.run,
+            Qt.ConnectionType.QueuedConnection,
+        )
         self._run_worker.finished.connect(self._on_background_run_finished)
         self._run_worker.failed.connect(self._on_background_run_failed)
         self._run_worker.finished.connect(self._run_thread.quit)
         self._run_worker.failed.connect(self._run_thread.quit)
-        self._run_thread.finished.connect(self._cleanup_run_worker)
         self._run_thread.start()
         self._run_poll_timer.start()
 
@@ -367,6 +370,16 @@ class _FoundryWindowRunActionsMixin:
             self.status_line.setText(
                 f"{self._running_action_label or 'Run'}: {run.id} [{run.status.value}]"
             )
+            if (
+                self._run_thread is not None
+                and str(run.status.value).lower() not in self._ACTIVE_RUN_STATUSES
+            ):
+                self._append_new_run_events(run.id)
+                self._refresh_workspace_state(
+                    select_run_id=run.id,
+                    select_artifact_id=self._artifact_id,
+                )
+                self._finalize_background_run_thread()
         self._populate_run_overview(runs, select_run_id=self._run_id)
         self._populate_past_runs_overview(runs, select_run_id=self._run_id)
         self._append_new_run_events(self._run_id)
@@ -426,10 +439,29 @@ class _FoundryWindowRunActionsMixin:
             select_artifact_id=self._artifact_id,
         )
         self._run_poll_timer.stop()
+        self._finalize_background_run_thread()
 
     def _on_background_run_failed(self, message: str) -> None:
         self._run_poll_timer.stop()
+        if self._run_id is not None:
+            self._append_new_run_events(self._run_id)
+        self._refresh_workspace_state(
+            select_run_id=self._run_id,
+            select_artifact_id=self._artifact_id,
+        )
         self._error(RuntimeError(message))
+        self._finalize_background_run_thread()
+
+    def _finalize_background_run_thread(self) -> None:
+        thread = self._run_thread
+        if thread is None:
+            return
+        if thread.isRunning():
+            thread.quit()
+            thread.wait(1000)
+        if thread.isRunning():
+            return
+        self._cleanup_run_worker()
 
     def _cleanup_run_worker(self) -> None:
         self._set_run_controls_enabled(True)

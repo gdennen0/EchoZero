@@ -20,6 +20,7 @@ from echozero.application.timeline.intents import (
     CommitVerifiedEventReview,
 )
 from echozero.application.timeline.models import EventRef
+from echozero.foundry.app import FoundryApp
 from echozero.foundry.domain.review import ReviewDecisionKind
 from echozero.foundry.persistence import ReviewSignalRepository
 from echozero.testing.analysis_mocks import build_mock_analysis_service, write_test_wav
@@ -169,6 +170,16 @@ def test_app_shell_runtime_commit_verified_events_review_batches_signals(tmp_pat
             dataset_materialization = signal.source_provenance.get("dataset_materialization", {})
             assert isinstance(dataset_materialization, dict)
             assert dataset_materialization.get("status") == "deferred"
+        foundry = FoundryApp(Path(runtime.project_storage.working_dir).resolve())
+        project_datasets = [
+            dataset
+            for dataset in foundry.list_datasets()
+            if dataset.source_kind == "project_review_export"
+        ]
+        assert len(project_datasets) == 1
+        versions = foundry.datasets.list_versions(project_datasets[0].id)
+        assert versions[-1].stats["sample_count"] >= len(verified_signals)
+        assert versions[-1].stats["review_positive_count"] >= len(verified_signals)
         for target_id in target_ids:
             runtime_event = _runtime_event(runtime, layer_id=layer_id, event_id=target_id)
             assert runtime_event.metadata["review"]["promotion_state"] == "promoted"

@@ -75,6 +75,7 @@ class ProjectReviewQueueBuilder:
         review_mode: str | None = None,
         questionable_score_threshold: float | None = None,
         item_limit: int | None = None,
+        materialize_pending_clips: bool = True,
     ) -> ProjectReviewQueue:
         """Build a persisted-review queue from one EZ project archive or working dir."""
         source_path = Path(project_path).expanduser().resolve()
@@ -145,6 +146,7 @@ class ProjectReviewQueueBuilder:
                         source_audio_path=audio_path,
                         clip_cache_dir=cache_dir / "clips",
                         polarity=polarity,
+                        materialize_pending_clips=materialize_pending_clips,
                     )
                     items.extend(layer_items)
                     skipped_unmaterialized_clip_refs.extend(layer_skipped_clip_refs)
@@ -281,6 +283,7 @@ class ProjectReviewQueueBuilder:
         source_audio_path: Path,
         clip_cache_dir: Path,
         polarity: ReviewPolarity,
+        materialize_pending_clips: bool,
     ) -> tuple[list[ReviewItem], list[str]]:
         domain_layers = tuple(take.data.layers)
         projected_events: list[tuple[str, int, DomainEvent]] = []
@@ -304,12 +307,17 @@ class ProjectReviewQueueBuilder:
                 event_id=str(event.id),
             )
             clip_start_seconds, clip_end_seconds = self._clip_window_seconds(event)
-            clip_path = self._clip_service.materialize_event_clip(
-                source_audio_path=source_audio_path,
-                clip_cache_dir=clip_cache_dir,
-                clip_stem=item_id,
-                start_seconds=clip_start_seconds,
-                end_seconds=clip_end_seconds,
+            clip_path = (
+                source_audio_path
+                if review_state.review_outcome == ReviewOutcome.PENDING
+                and not materialize_pending_clips
+                else self._clip_service.materialize_event_clip(
+                    source_audio_path=source_audio_path,
+                    clip_cache_dir=clip_cache_dir,
+                    clip_stem=item_id,
+                    start_seconds=clip_start_seconds,
+                    end_seconds=clip_end_seconds,
+                )
             )
             if clip_path is None:
                 skipped_clip_refs.append(self._build_ref("event", event.id))

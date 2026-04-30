@@ -30,6 +30,7 @@ class ProjectRepository(BaseRepository[ProjectRecord]):
                 bpm=row['bpm'],
                 bpm_confidence=row['bpm_confidence'],
                 timecode_fps=row['timecode_fps'],
+                ma3_push_offset_seconds=row['ma3_push_offset_seconds'],
             ),
             created_at=datetime.fromisoformat(row['created_at']),
             updated_at=datetime.fromisoformat(row['updated_at']),
@@ -39,8 +40,9 @@ class ProjectRepository(BaseRepository[ProjectRecord]):
         """Insert a new project row."""
         self._execute(
             "INSERT INTO projects "
-            "(id, name, sample_rate, bpm, bpm_confidence, timecode_fps, created_at, updated_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            "(id, name, sample_rate, bpm, bpm_confidence, timecode_fps, "
+            "ma3_push_offset_seconds, created_at, updated_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 project.id,
                 project.name,
@@ -48,6 +50,7 @@ class ProjectRepository(BaseRepository[ProjectRecord]):
                 project.settings.bpm,
                 project.settings.bpm_confidence,
                 project.settings.timecode_fps,
+                project.settings.ma3_push_offset_seconds,
                 project.created_at.isoformat(),
                 project.updated_at.isoformat(),
             ),
@@ -57,6 +60,7 @@ class ProjectRepository(BaseRepository[ProjectRecord]):
         """Return a project by ID, or None if not found."""
         row = self._fetchone(
             "SELECT id, name, sample_rate, bpm, bpm_confidence, timecode_fps, "
+            "ma3_push_offset_seconds, "
             "created_at, updated_at FROM projects WHERE id = ?",
             (project_id,),
         )
@@ -68,6 +72,7 @@ class ProjectRepository(BaseRepository[ProjectRecord]):
         """Return all projects ordered by name."""
         rows = self._fetchall(
             "SELECT id, name, sample_rate, bpm, bpm_confidence, timecode_fps, "
+            "ma3_push_offset_seconds, "
             "created_at, updated_at FROM projects ORDER BY name"
         )
         return [self._from_row(r) for r in rows]
@@ -76,13 +81,15 @@ class ProjectRepository(BaseRepository[ProjectRecord]):
         """Overwrite a project row with updated values."""
         self._execute(
             "UPDATE projects SET name = ?, sample_rate = ?, bpm = ?, "
-            "bpm_confidence = ?, timecode_fps = ?, updated_at = ? WHERE id = ?",
+            "bpm_confidence = ?, timecode_fps = ?, ma3_push_offset_seconds = ?, "
+            "updated_at = ? WHERE id = ?",
             (
                 project.name,
                 project.settings.sample_rate,
                 project.settings.bpm,
                 project.settings.bpm_confidence,
                 project.settings.timecode_fps,
+                project.settings.ma3_push_offset_seconds,
                 project.updated_at.isoformat(),
                 project.id,
             ),

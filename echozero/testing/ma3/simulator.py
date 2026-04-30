@@ -1218,11 +1218,13 @@ class SimulatedMA3Bridge:
         target_track_coord: str,
         selected_events,
         transfer_mode: str = "merge",
+        start_offset_seconds: float = 0.0,
     ) -> None:
         self._require_bridge().apply_push_transfer(
             target_track_coord=target_track_coord,
             selected_events=selected_events,
             transfer_mode=transfer_mode,
+            start_offset_seconds=start_offset_seconds,
         )
         self.emit(
             "transfer.push_applied",

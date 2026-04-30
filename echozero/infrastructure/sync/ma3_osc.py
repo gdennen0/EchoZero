@@ -799,6 +799,7 @@ class MA3OSCBridge:
         target_track_coord: str,
         selected_events,
         transfer_mode: str = "merge",
+        start_offset_seconds: float = 0.0,
     ) -> None:
         coord = str(target_track_coord or "").strip()
         if not coord:
@@ -810,6 +811,8 @@ class MA3OSCBridge:
         mode = str(transfer_mode or "merge").strip().lower() or "merge"
         if mode not in {"merge", "overwrite"}:
             raise ValueError(f"Unsupported transfer mode: {transfer_mode}")
+        start_offset = _optional_float(start_offset_seconds)
+        resolved_start_offset = 0.0 if start_offset is None else float(start_offset)
 
         existing_events = self.list_track_events(coord)
         existing_fingerprints = (
@@ -844,7 +847,7 @@ class MA3OSCBridge:
                     continue
                 existing_fingerprints.add(fingerprint)
 
-            start = float(snapshot.start or 0.0)
+            start = max(0.0, float(snapshot.start or 0.0) + resolved_start_offset)
             send_start_index = self._message_count()
             self._send_add_event_command(
                 tc_no=tc_no,

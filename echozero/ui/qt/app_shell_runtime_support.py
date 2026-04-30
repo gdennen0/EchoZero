@@ -18,11 +18,15 @@ from echozero.application.timeline.pipeline_run_service import PipelineRunServic
 from echozero.infrastructure.osc import OscUdpSendTransport
 from echozero.persistence.session import ProjectStorage
 from echozero.services.orchestrator import Orchestrator
-from echozero.ui.qt.app_shell_runtime_services import build_runtime_audio_controller
+from echozero.ui.qt.app_shell_runtime_services import build_playback_controller
 from echozero.ui.qt.app_shell_timeline_state import clear_selected_events, resolve_event_clip_preview
 
 
 class RuntimeAudioController(Protocol):
+    def sync_presentation(self, presentation: TimelinePresentation) -> None: ...
+
+    def sync_mix_state(self, presentation: TimelinePresentation) -> None: ...
+
     def build_for_presentation(self, presentation: TimelinePresentation) -> None: ...
 
     def apply_mix_state(self, presentation: TimelinePresentation) -> None: ...
@@ -124,7 +128,11 @@ def sync_runtime_audio_from_presentation(
     if runtime_audio is None:
         return
     if runtime_audio.is_playing():
-        runtime_audio.build_for_presentation(presentation)
+        sync_presentation = getattr(runtime_audio, "sync_presentation", None)
+        if callable(sync_presentation):
+            sync_presentation(presentation)
+        else:
+            runtime_audio.build_for_presentation(presentation)
     snapshot_state = getattr(runtime_audio, "snapshot_state", None)
     if callable(snapshot_state):
         shell.session.playback_state = snapshot_state(presentation)
@@ -172,9 +180,13 @@ def apply_audio_output_config(
         if was_playing:
             previous_runtime_audio.pause()
 
-    next_runtime_audio = build_runtime_audio_controller(config)
+    next_runtime_audio = build_playback_controller(config)
     try:
-        next_runtime_audio.build_for_presentation(presentation)
+        sync_presentation = getattr(next_runtime_audio, "sync_presentation", None)
+        if callable(sync_presentation):
+            sync_presentation(presentation)
+        else:
+            next_runtime_audio.build_for_presentation(presentation)
         if current_time_seconds > 0.0:
             next_runtime_audio.seek(current_time_seconds)
         if was_playing:

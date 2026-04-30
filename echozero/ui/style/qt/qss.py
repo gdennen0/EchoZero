@@ -67,6 +67,18 @@ def build_object_info_panel_qss(tokens: ShellTokens = SHELL_TOKENS) -> str:
             font-weight: 700;
             padding: 0 0 2px 0;
         }}
+        {root} QToolButton#objectInfoCollapseButton {{
+            background: {tokens.control_bg};
+            border: {scales.border_width}px solid {tokens.control_border};
+            border-radius: {scales.button_radius}px;
+            color: {tokens.control_text};
+            min-width: 24px;
+            max-width: 24px;
+            min-height: 24px;
+            font-size: 12px;
+            font-weight: 700;
+            padding: 0;
+        }}
         {root} QLabel#timeline_object_info_section {{
             color: {tokens.text_secondary};
             font-size: 11px;
@@ -439,9 +451,8 @@ def build_song_browser_panel_qss(tokens: ShellTokens = SHELL_TOKENS) -> str:
             border-right: {scales.border_width}px solid {tokens.panel_border};
         }}
         {root}[collapsed=true] {{
-            background: {tokens.control_bg};
-            border: {scales.border_width}px solid {tokens.control_border};
-            border-radius: {scales.panel_radius}px;
+            background: transparent;
+            border: none;
         }}
         {root} QLabel#songBrowserTitle {{
             color: {tokens.text_primary};
@@ -481,8 +492,9 @@ def build_song_browser_panel_qss(tokens: ShellTokens = SHELL_TOKENS) -> str:
             padding: 0;
         }}
         {root}[collapsed=true] QToolButton#songBrowserCollapseButton {{
-            background: {tokens.panel_bg};
-            border-color: {tokens.control_border};
+            background: transparent;
+            border: none;
+            border-radius: 0;
             color: {tokens.text_primary};
         }}
         {root} QWidget#songBrowserActiveCard,

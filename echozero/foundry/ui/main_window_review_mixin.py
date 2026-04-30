@@ -8,7 +8,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from PyQt6.QtCore import Qt, QUrl
+from PyQt6.QtCore import Qt, QUrl, QUrlQuery
 from PyQt6.QtGui import QDesktopServices
 from PyQt6.QtWidgets import (
     QCheckBox,
@@ -191,8 +191,12 @@ class FoundryWindowReviewMixin:
             session_id = self._selected_review_session_id()
             if session_id is None:
                 raise ValueError("Select a review session before opening the review page.")
-            url = self._review_server_controller.build_session_url(self._root, session_id)
-            if not QDesktopServices.openUrl(QUrl(url)):
+            base_url = QUrl(self._review_server_controller.build_session_url(self._root, session_id))
+            query = QUrlQuery(base_url)
+            query.addQueryItem("sessionId", session_id)
+            base_url.setQuery(query)
+            url = base_url.toString()
+            if not QDesktopServices.openUrl(base_url):
                 raise RuntimeError(f"Could not open review URL: {url}")
             self._set_status(f"Opened review session: {session_id}")
         except Exception as exc:

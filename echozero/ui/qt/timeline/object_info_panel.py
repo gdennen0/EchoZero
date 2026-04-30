@@ -19,6 +19,7 @@ from PyQt6.QtWidgets import (
     QScrollArea,
     QSplitter,
     QSizePolicy,
+    QToolButton,
     QVBoxLayout,
     QWidget,
 )
@@ -47,6 +48,8 @@ from echozero.ui.qt.timeline.object_info_panel_text import (
 from echozero.ui.qt.timeline.style import TIMELINE_STYLE
 
 _SECTION_CONTENT_MARGIN_PX = 8
+_PANEL_COLLAPSED_WIDTH = 28
+_PANEL_DEFAULT_EXPANDED_WIDTH = 320
 
 
 class ObjectInfoPanel(_ObjectInfoPanelActionsMixin, QFrame):
@@ -54,32 +57,53 @@ class ObjectInfoPanel(_ObjectInfoPanelActionsMixin, QFrame):
 
     action_requested = pyqtSignal(object)
     settings_requested = pyqtSignal(object)
+    collapsed_changed = pyqtSignal(bool)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         style = TIMELINE_STYLE.object_palette
+        self._style = style
+        self._collapsed = False
+        self._expanded_width = max(
+            style.min_width_px,
+            min(style.max_width_px, _PANEL_DEFAULT_EXPANDED_WIDTH),
+        )
         self.setObjectName(style.frame_object_name)
         self.setMinimumWidth(style.min_width_px)
         self.setMaximumWidth(style.max_width_px)
 
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(
+        self._root_layout = QVBoxLayout(self)
+        self._root_layout.setContentsMargins(
             style.content_padding.left,
             style.content_padding.top,
             style.content_padding.right,
             style.content_padding.bottom,
         )
-        layout.setSpacing(style.section_spacing_px)
+        self._root_layout.setSpacing(style.section_spacing_px)
 
-        title = QLabel("Inspector", self)
-        title.setObjectName(style.title_object_name)
-        layout.addWidget(title)
+        header = QWidget(self)
+        header.setObjectName("timelineObjectInfoHeader")
+        self._header_layout = QHBoxLayout(header)
+        self._header_layout.setContentsMargins(0, 0, 0, 0)
+        self._header_layout.setSpacing(6)
+        self._title = QLabel("Inspector", header)
+        self._title.setObjectName(style.title_object_name)
+        self._header_layout.addWidget(self._title, 1)
+        self._collapse_button = QToolButton(header)
+        self._collapse_button.setObjectName("objectInfoCollapseButton")
+        self._collapse_button.setProperty("appearance", "subtle")
+        self._collapse_button.setAutoRaise(True)
+        self._collapse_button.setText(">")
+        self._collapse_button.setToolTip("Collapse Object Info")
+        self._collapse_button.clicked.connect(self.toggle_collapsed)
+        self._header_layout.addWidget(self._collapse_button)
+        self._root_layout.addWidget(header)
 
         self._content_splitter = QSplitter(Qt.Orientation.Vertical, self)
         self._content_splitter.setObjectName("timeline_object_info_splitter")
         self._content_splitter.setChildrenCollapsible(False)
         self._content_splitter.setHandleWidth(TIMELINE_OBJECT_INFO_SPLITTER_HANDLE_PX)
-        layout.addWidget(self._content_splitter, 1)
+        self._root_layout.addWidget(self._content_splitter, 1)
 
         self._selection_card = QFrame(self)
         self._selection_card.setObjectName("timeline_object_info_summary")
@@ -232,6 +256,60 @@ class ObjectInfoPanel(_ObjectInfoPanelActionsMixin, QFrame):
         self._content_splitter.setStretchFactor(1, 1)
         self._content_splitter.setSizes(
             [TIMELINE_OBJECT_INFO_METADATA_DEFAULT_HEIGHT_PX, 320]
+        )
+        self._apply_collapsed_state()
+
+    @property
+    def is_collapsed(self) -> bool:
+        return self._collapsed
+
+    @property
+    def expanded_width(self) -> int:
+        return self._expanded_width
+
+    def target_width(self) -> int:
+        return _PANEL_COLLAPSED_WIDTH if self._collapsed else self._expanded_width
+
+    def toggle_collapsed(self) -> None:
+        self._collapsed = not self._collapsed
+        self._apply_collapsed_state()
+        self.collapsed_changed.emit(self._collapsed)
+
+    def remember_expanded_width(self, width: int) -> None:
+        clamped_width = max(
+            self._style.min_width_px,
+            min(self._style.max_width_px, int(width)),
+        )
+        self._expanded_width = clamped_width
+        if not self._collapsed:
+            self.resize(self._expanded_width, self.height())
+            self.updateGeometry()
+
+    def _apply_collapsed_state(self) -> None:
+        if self._collapsed:
+            self._root_layout.setContentsMargins(2, 2, 2, 2)
+            self._root_layout.setSpacing(0)
+            self._header_layout.setSpacing(0)
+            self.setMinimumWidth(_PANEL_COLLAPSED_WIDTH)
+            self.setMaximumWidth(_PANEL_COLLAPSED_WIDTH)
+        else:
+            self._root_layout.setContentsMargins(
+                self._style.content_padding.left,
+                self._style.content_padding.top,
+                self._style.content_padding.right,
+                self._style.content_padding.bottom,
+            )
+            self._root_layout.setSpacing(self._style.section_spacing_px)
+            self._header_layout.setSpacing(6)
+            self.setMinimumWidth(self._style.min_width_px)
+            self.setMaximumWidth(self._style.max_width_px)
+            self.resize(self._expanded_width, self.height())
+        self.updateGeometry()
+        self._title.setVisible(not self._collapsed)
+        self._content_splitter.setVisible(not self._collapsed)
+        self._collapse_button.setText("<" if self._collapsed else ">")
+        self._collapse_button.setToolTip(
+            "Expand Object Info" if self._collapsed else "Collapse Object Info"
         )
 
     def _set_controls_enabled(self, *, has_layer: bool) -> None:

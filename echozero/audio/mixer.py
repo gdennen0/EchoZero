@@ -1,14 +1,14 @@
 """
 Mixer: Multi-track summing with mute/solo logic.
-Exists because the audio callback needs one place to sum active mono or stereo layers.
-Connects `AudioLayer` reads to engine-ready mixed buffers without UI semantics.
+Exists because the audio callback needs one place to sum active mono or stereo tracks.
+Connects `AudioTrack` reads to engine-ready mixed buffers without UI semantics.
 """
 
 from __future__ import annotations
 
 import numpy as np
 
-from echozero.audio.layer import AudioLayer
+from echozero.audio.layer import AudioLayer, AudioTrack
 
 
 # Leave headroom for host-chosen callback sizes when sounddevice runs with
@@ -78,9 +78,14 @@ class Mixer:
         self._solo_count: int = 0
 
     @property
-    def layers(self) -> tuple[AudioLayer, ...]:
-        """Snapshot of current layers. Safe to iterate."""
+    def tracks(self) -> tuple[AudioTrack, ...]:
+        """Snapshot of current tracks. Safe to iterate."""
         return tuple(self._layers)
+
+    @property
+    def layers(self) -> tuple[AudioTrack, ...]:
+        """Compatibility alias for callers that still say `layers`."""
+        return self.tracks
 
     @property
     def master_volume(self) -> float:
@@ -90,33 +95,55 @@ class Mixer:
     def master_volume(self, value: float) -> None:
         self._master_volume = max(0.0, min(2.0, value))
 
-    def add_layer(self, layer: AudioLayer) -> None:
-        """Add a layer to the mix. Call from main thread only."""
+    def add_track(self, track: AudioTrack) -> None:
+        """Add one track to the mix. Call from the main thread only."""
         new_layers = list(self._layers)
-        new_layers.append(layer)
+        new_layers.append(track)
         self._layers = new_layers
 
-    def remove_layer(self, layer_id: str) -> AudioLayer | None:
-        """Remove a layer by ID. Returns the removed layer or None."""
-        new_layers = [l for l in self._layers if l.id != layer_id]
-        removed = [l for l in self._layers if l.id == layer_id]
+    def add_layer(self, layer: AudioTrack) -> None:
+        """Compatibility alias for callers that still say `add_layer`."""
+        self.add_track(layer)
+
+    def replace_tracks(self, tracks: list[AudioTrack]) -> None:
+        """Atomically replace the current track set."""
+
+        self._layers = list(tracks)
+        self._solo_count = sum(1 for track in self._layers if track.solo)
+
+    def remove_track(self, track_id: str) -> AudioTrack | None:
+        """Remove one track by ID. Returns the removed track or None."""
+        new_layers = [track for track in self._layers if track.id != track_id]
+        removed = [track for track in self._layers if track.id == track_id]
         # A15: update solo count if removing a soloed layer
         if removed and removed[0].solo:
             self._solo_count = max(0, self._solo_count - 1)
         self._layers = new_layers
         return removed[0] if removed else None
 
-    def get_layer(self, layer_id: str) -> AudioLayer | None:
-        """Find a layer by ID."""
+    def remove_layer(self, layer_id: str) -> AudioTrack | None:
+        """Compatibility alias for callers that still say `remove_layer`."""
+        return self.remove_track(layer_id)
+
+    def get_track(self, track_id: str) -> AudioTrack | None:
+        """Find one track by ID."""
         for layer in self._layers:
-            if layer.id == layer_id:
+            if layer.id == track_id:
                 return layer
         return None
 
-    def clear(self) -> None:
-        """Remove all layers."""
+    def get_layer(self, layer_id: str) -> AudioTrack | None:
+        """Compatibility alias for callers that still say `get_layer`."""
+        return self.get_track(layer_id)
+
+    def clear_tracks(self) -> None:
+        """Remove all tracks."""
         self._layers = []
         self._solo_count = 0
+
+    def clear(self) -> None:
+        """Compatibility alias for callers that still say `clear`."""
+        self.clear_tracks()
 
     def set_solo(self, layer_id: str, solo: bool) -> None:
         """Set solo state for a single layer (canonical solo setter).
@@ -261,11 +288,15 @@ class Mixer:
 
     @property
     def duration_samples(self) -> int:
-        """Longest layer end position. Used for transport bounds."""
+        """Longest track end position. Used for transport bounds."""
         if not self._layers:
             return 0
         return max(l.end_sample for l in self._layers)
 
     @property
-    def layer_count(self) -> int:
+    def track_count(self) -> int:
         return len(self._layers)
+
+    @property
+    def layer_count(self) -> int:
+        return self.track_count

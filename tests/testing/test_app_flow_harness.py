@@ -13,8 +13,15 @@ from echozero.application.presentation.inspector_contract import (
     build_timeline_inspector_contract,
 )
 from echozero.application.shared.enums import LayerKind
+from echozero.application.sync.models import LiveSyncState
 from echozero.application.shared.ranges import TimeRange
-from echozero.application.timeline.intents import CreateEvent, Play, ToggleLayerExpanded
+from echozero.application.timeline.intents import (
+    CreateEvent,
+    EnableExperimentalLiveSync,
+    Play,
+    SetLayerLiveSyncState,
+    ToggleLayerExpanded,
+)
 from echozero.application.timeline.ma3_push_intents import (
     CreateMA3Sequence,
     MA3PushApplyMode,
@@ -153,11 +160,12 @@ def test_app_flow_harness_exposes_launcher_menus():
         edit_menu = menu_bar.actions()[1].menu()
 
         assert file_menu is not None
-        assert [
+        file_actions = [
             action.text()
             for action in file_menu.actions()
             if action.isSeparator() is False
-        ] == [
+        ]
+        assert file_actions[:11] == [
             "&New Project",
             "&Open Project",
             "Open &Recent Project",
@@ -169,14 +177,22 @@ def test_app_flow_harness_exposes_launcher_menus():
             "Open &All-Events Review",
             "Open Latest Review Dataset &Folder",
             "Open Latest Review Dataset &Record",
-            "Create Project &Specialized Model",
         ]
+        assert file_actions[11:] in (
+            ["Create Project &Specialized Model"],
+            [
+                "Create Project &Specialized Model",
+                "Create Project S&nare-Only Model",
+            ],
+        )
         assert edit_menu is not None
-        assert [
+        edit_actions = [
             action.text()
             for action in edit_menu.actions()
             if action.isSeparator() is False
-        ] == ["&Undo", "&Redo"]
+        ]
+        assert edit_actions[:2] == ["&Undo", "&Redo"]
+        assert edit_actions[2:] in ([], ["Project &Settings..."])
     finally:
         harness.shutdown()
         shutil.rmtree(temp_root, ignore_errors=True)
@@ -199,6 +215,39 @@ def test_app_flow_harness_sync_with_simulated_ma3_connects_bridge():
         assert disabled.mode.value == "none"
         assert harness.ma3_bridge.connected is False
         assert harness.ma3_bridge.disconnect_calls == 1
+    finally:
+        harness.shutdown()
+        shutil.rmtree(temp_root, ignore_errors=True)
+
+
+def test_app_flow_harness_sync_reconnect_applies_live_sync_guardrails():
+    temp_root = _repo_local_temp_root()
+    harness = AppFlowHarness(
+        simulate_ma3=True,
+        working_dir_root=temp_root / "working-sync-guardrails",
+    )
+
+    try:
+        presentation = harness.runtime.add_layer(LayerKind.EVENT, "Live Sync Layer")
+        harness.widget.set_presentation(presentation)
+        harness._app.processEvents()
+
+        layer_id = harness.presentation().layers[0].layer_id
+
+        harness.dispatch(EnableExperimentalLiveSync())
+        harness.dispatch(
+            SetLayerLiveSyncState(
+                layer_id=layer_id,
+                live_sync_state=LiveSyncState.ARMED_WRITE,
+            )
+        )
+
+        state = harness.enable_sync()
+        layer = next(layer for layer in harness.presentation().layers if layer.layer_id == layer_id)
+
+        assert state.connected is True
+        assert layer.live_sync_state is LiveSyncState.PAUSED
+        assert layer.live_sync_pause_reason == "Live sync reconnected; explicit re-arm required"
     finally:
         harness.shutdown()
         shutil.rmtree(temp_root, ignore_errors=True)

@@ -6,7 +6,13 @@ from pathlib import Path
 import pytest
 
 from echozero.foundry.app import FoundryApp
-from echozero.foundry.domain import CurationState, DatasetSample, DatasetVersion, ReviewOutcome
+from echozero.foundry.domain import (
+    CurationState,
+    DatasetSample,
+    DatasetVersion,
+    ReviewDecisionKind,
+    ReviewOutcome,
+)
 from echozero.foundry.persistence import DatasetVersionRepository
 from echozero.foundry.services.dataset_service import DatasetService
 from tests.foundry.audio_fixtures import (
@@ -15,6 +21,7 @@ from tests.foundry.audio_fixtures import (
     write_zero_byte_audio_file,
 )
 from tests.foundry.test_review_project_queue_builder import _build_project_review_fixture
+from tests.foundry.test_review_sessions import _mark_project_event_review_state
 
 
 def test_dataset_ingest_plan_and_curation(tmp_path: Path):
@@ -341,24 +348,28 @@ def test_dataset_service_derives_binary_version_using_review_polarity(tmp_path: 
 def test_dataset_service_exports_project_review_dataset_from_canonical_project_truth(tmp_path: Path):
     _ez_path, working_dir, refs = _build_project_review_fixture(tmp_path)
     app = FoundryApp(tmp_path)
-    review_service = app.reviews
 
-    session = review_service.create_project_session(
+    _mark_project_event_review_state(
         working_dir,
-        song_id=refs["alpha_song_id"],
         layer_id="layer_alpha_kick",
+        event_id="evt_alpha_kick_01",
+        promotion_state="demoted",
+        review_state="corrected",
+        review_outcome=ReviewOutcome.INCORRECT,
+        decision_kind=ReviewDecisionKind.REJECTED,
+        original_label="kick",
+        corrected_label=None,
+        review_note="operator removed a false kick",
     )
-    review_service.set_item_review(
-        session.id,
-        session.items[0].item_id,
-        outcome=ReviewOutcome.INCORRECT,
-        corrected_label="tom",
-        review_note="operator confirmed a tom relabel",
-    )
-    review_service.set_item_review(
-        session.id,
-        session.items[1].item_id,
-        outcome=ReviewOutcome.CORRECT,
+    _mark_project_event_review_state(
+        working_dir,
+        layer_id="layer_alpha_kick",
+        event_id="evt_alpha_kick_02",
+        promotion_state="promoted",
+        review_state="signed_off",
+        review_outcome=ReviewOutcome.CORRECT,
+        decision_kind=ReviewDecisionKind.VERIFIED,
+        original_label="kick",
         corrected_label=None,
         review_note=None,
     )
@@ -369,10 +380,11 @@ def test_dataset_service_exports_project_review_dataset_from_canonical_project_t
     )
 
     assert exported.dataset_id
-    assert exported.stats["sample_count"] == 3
-    assert exported.stats["review_positive_count"] == 2
+    assert exported.stats["sample_count"] == 2
+    assert exported.stats["review_positive_count"] == 1
     assert exported.stats["review_negative_count"] == 1
-    assert sorted(sample.label for sample in exported.samples) == ["kick", "kick", "tom"]
+    assert exported.stats["reviewed_item_count"] == 2
+    assert sorted(sample.label for sample in exported.samples) == ["kick", "kick"]
     assert {sample.source_provenance["review_polarity"] for sample in exported.samples} == {
         "negative",
         "positive",

@@ -23,6 +23,7 @@ from echozero.application.presentation.models import (
     TimelinePresentation,
 )
 from echozero.application.presentation.inspector_contract_support import (
+    event_classification_rows as _event_classification_rows,
     layer_transfer_rows as _layer_transfer_rows,
     playback_state_label as _playback_state_label,
     selection_playback_context_rows as _selection_playback_context_rows,
@@ -415,6 +416,7 @@ def _event_contract(
                 InspectorFactRow("duration", _format_seconds(event.duration)),
                 InspectorFactRow("layer", layer.title),
                 InspectorFactRow("take", f"{take_name} ({take_id or 'none'})"),
+                *_event_classification_rows(event),
                 InspectorFactRow(
                     "playback state", _playback_state_label(presentation, layer=layer, take=take)
                 ),

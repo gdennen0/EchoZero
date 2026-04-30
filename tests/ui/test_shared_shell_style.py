@@ -24,6 +24,7 @@ def test_object_info_panel_qss_builder_uses_shared_shell_tokens():
     assert SHELL_TOKENS.panel_bg in qss
     assert SHELL_TOKENS.text_primary in qss
     assert f"border-radius: {SHELL_TOKENS.scales.panel_radius}px;" in qss
+    assert "QToolButton#objectInfoCollapseButton" in qss
 
 
 def test_timeline_widget_object_palette_stylesheet_uses_shared_builder():

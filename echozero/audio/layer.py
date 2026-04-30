@@ -1,6 +1,6 @@
 """
-AudioLayer: A single audio track in the mixer.
-Exists because multi-track playback requires individual control over each stem/source.
+AudioTrack: One DAW-style playback track for the mixer.
+Exists because EZ needs one simple, reusable way to play audio from any layer shape.
 Connects loaded mono or stereo buffers to the mixer's callback read contract.
 """
 
@@ -69,8 +69,8 @@ def resample_buffer(buffer: np.ndarray, source_sr: int, target_sr: int) -> np.nd
     return np.asarray(resampled, dtype=np.float32)
 
 
-class AudioLayer:
-    """One audio track. Holds samples, provides chunk reads for the mixer.
+class AudioTrack:
+    """One playback track. Holds samples and serves chunk reads for the mixer.
 
     The buffer may be mono `(frames,)` or multi-channel `(frames, channels)`,
     resampled to the engine's sample rate on construction. All read operations
@@ -237,3 +237,8 @@ class AudioLayer:
             out = np.zeros((frames, self.channel_count), dtype=np.float32)
         self.read_into(out, position, frames)
         return out
+
+
+AudioLayer = AudioTrack
+
+__all__ = ["AudioTrack", "AudioLayer", "resample_buffer"]

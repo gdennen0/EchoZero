@@ -96,6 +96,7 @@ class MA3SyncBridge(Protocol):
         target_track_coord: str,
         selected_events: list[object],
         transfer_mode: str = "merge",
+        start_offset_seconds: float = 0.0,
     ) -> None: ...
 
 
@@ -373,11 +374,13 @@ class MA3SyncAdapter(SyncService):
         target_track_coord,
         selected_events,
         transfer_mode: str = "merge",
+        start_offset_seconds: float = 0.0,
     ) -> None:
         callback = self._bridge_method("apply_push_transfer", "execute_push_transfer")
         if callback is None:
             raise RuntimeError("MA3 bridge does not support push apply")
 
+        resolved_start_offset_seconds = _coerce_start_offset_seconds(start_offset_seconds)
         kwargs: dict[str, Any] = {
             "target_track_coord": target_track_coord,
             "selected_events": selected_events,
@@ -386,10 +389,25 @@ class MA3SyncAdapter(SyncService):
             parameters = inspect.signature(callback).parameters
         except (TypeError, ValueError):
             parameters = {}
+
+        if (
+            resolved_start_offset_seconds != 0.0
+            and "start_offset_seconds" not in parameters
+            and "push_offset_seconds" not in parameters
+        ):
+            kwargs["selected_events"] = _shift_event_starts(
+                selected_events,
+                resolved_start_offset_seconds,
+            )
+
         if "transfer_mode" in parameters:
             kwargs["transfer_mode"] = transfer_mode
         elif "mode" in parameters:
             kwargs["mode"] = transfer_mode
+        if "start_offset_seconds" in parameters:
+            kwargs["start_offset_seconds"] = resolved_start_offset_seconds
+        elif "push_offset_seconds" in parameters:
+            kwargs["push_offset_seconds"] = resolved_start_offset_seconds
         callback(**kwargs)
 
     def refresh_push_track_options(
@@ -485,3 +503,56 @@ def _track_coord_track_group_no(raw_coord: object) -> int | None:
     except ValueError:
         return None
     return resolved if resolved > 0 else None
+
+
+def _coerce_start_offset_seconds(value: object) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _shift_event_starts(
+    selected_events: list[object] | tuple[object, ...] | None,
+    offset_seconds: float,
+) -> list[object]:
+    shifted_events: list[object] = []
+    for raw_event in selected_events or []:
+        shifted_events.append(_shift_event_start(raw_event, offset_seconds))
+    return shifted_events
+
+
+def _shift_event_start(raw_event: object, offset_seconds: float) -> object:
+    if isinstance(raw_event, dict):
+        return _shift_dict_event_start(raw_event, offset_seconds)
+
+    start = _event_start_seconds(raw_event)
+    if start is None:
+        return raw_event
+    shifted_start = max(0.0, start + offset_seconds)
+    try:
+        return replace(raw_event, start=shifted_start)
+    except TypeError:
+        return raw_event
+
+
+def _shift_dict_event_start(raw_event: dict[str, object], offset_seconds: float) -> dict[str, object]:
+    copied = dict(raw_event)
+    start_value = copied.get("start", copied.get("time"))
+    try:
+        start = float(start_value)
+    except (TypeError, ValueError):
+        return copied
+    shifted_start = max(0.0, start + offset_seconds)
+    copied["start"] = shifted_start
+    if "time" in copied:
+        copied["time"] = shifted_start
+    return copied
+
+
+def _event_start_seconds(raw_event: object) -> float | None:
+    start_value = getattr(raw_event, "start", None)
+    try:
+        return None if start_value is None else float(start_value)
+    except (TypeError, ValueError):
+        return None

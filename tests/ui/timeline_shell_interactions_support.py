@@ -1958,7 +1958,33 @@ def test_settings_button_triggers_launcher_preferences_action() -> None:
             self.trigger_calls += 1
 
     action = _FakeAction()
-    widget._launcher_actions = {"preferences": action}
+    fallback_action = _FakeAction()
+    widget._launcher_actions = {"preferences": action, "project_settings": fallback_action}
+
+    try:
+        widget._editor_bar._settings_button.click()
+
+        assert action.trigger_calls == 1
+        assert fallback_action.trigger_calls == 0
+    finally:
+        widget.close()
+        app.processEvents()
+
+
+def test_settings_button_falls_back_to_launcher_project_settings_action() -> None:
+    app = QApplication.instance() or QApplication([])
+    presentation = _selection_test_presentation()
+    widget = TimelineWidget(presentation, on_intent=lambda intent: presentation)
+
+    class _FakeAction:
+        def __init__(self) -> None:
+            self.trigger_calls = 0
+
+        def trigger(self) -> None:
+            self.trigger_calls += 1
+
+    action = _FakeAction()
+    widget._launcher_actions = {"project_settings": action}
 
     try:
         widget._editor_bar._settings_button.click()

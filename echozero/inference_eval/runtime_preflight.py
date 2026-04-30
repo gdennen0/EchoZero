@@ -11,16 +11,8 @@ from echozero.errors import ValidationError
 from .constants import REQUIRED_PREPROCESSING_KEYS
 from .core import EvalContract, InferenceContract, contract_fingerprint
 from .diagnostics import ValidationReport, attach_validation_report
+from .preprocessing import canonicalize_preprocessing_keys
 from .validation import validate_manifest_inference_section, validate_runtime_consumer
-
-_PREPROCESSING_ALIASES = {
-    "sample_rate": "sampleRate",
-    "max_length": "maxLength",
-    "n_fft": "nFft",
-    "hop_length": "hopLength",
-    "n_mels": "nMels",
-    "f_max": "fmax",
-}
 
 
 @dataclass(frozen=True, slots=True)
@@ -150,11 +142,7 @@ def _resolve_manifest_for_model(model_path: Path, report: ValidationReport) -> M
 
 
 def _canonicalize_preprocessing_keys(payload: Mapping[str, Any]) -> dict[str, Any]:
-    normalized: dict[str, Any] = {}
-    for raw_key, value in payload.items():
-        key = str(raw_key)
-        normalized[_PREPROCESSING_ALIASES.get(key, key)] = value
-    return normalized
+    return canonicalize_preprocessing_keys(payload)
 
 
 def _checkpoint_preprocessing(checkpoint: Mapping[str, Any]) -> dict[str, Any]:

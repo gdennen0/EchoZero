@@ -18,6 +18,7 @@ from echozero.ui.qt.app_shell import AppShellRuntime, build_app_shell
 from echozero.ui.qt.launcher_review_actions import build_review_launcher_actions
 from echozero.ui.qt.osc_settings_dialog import OscSettingsDialog
 from echozero.ui.qt.preferences_dialog import PreferencesDialog
+from echozero.ui.qt.project_settings_dialog import ProjectSettingsDialog
 from echozero.ui.qt.timeline.widget import TimelineWidget
 from echozero.ui.qt.window_geometry import resolve_initial_window_size
 
@@ -80,6 +81,11 @@ class LauncherController:
                 QKeySequence.StandardKey.SaveAs,
                 self.save_project_as,
             ),
+            "project_settings": self._create_action(
+                "Project &Settings...",
+                None,
+                self.project_settings,
+            ),
         }
         if self._app_settings_service is not None:
             self.actions["preferences"] = self._create_action(
@@ -116,6 +122,15 @@ class LauncherController:
         if not callable(configure_launcher_actions):
             return
         configure_launcher_actions({**self.actions, **self._recent_menu_actions})
+
+    def _supports_project_ma3_push_offset_settings(self) -> bool:
+        return all(
+            callable(getattr(self.runtime, method_name, None))
+            for method_name in (
+                "get_project_ma3_push_offset_seconds",
+                "set_project_ma3_push_offset_seconds",
+            )
+        )
 
     def _has_lifecycle(self, method_name: str) -> bool:
         return callable(getattr(self.runtime, method_name, None))
@@ -435,6 +450,36 @@ class LauncherController:
             parent=self.widget,
         )
         return bool(dialog.exec())
+
+    def project_settings(self) -> bool:
+        if not self._supports_project_ma3_push_offset_settings():
+            QMessageBox.warning(
+                self.widget,
+                "Project Settings",
+                "This runtime does not support project MA3 push offset settings.",
+            )
+            return False
+        get_offset = getattr(self.runtime, "get_project_ma3_push_offset_seconds")
+        set_offset = getattr(self.runtime, "set_project_ma3_push_offset_seconds")
+        try:
+            current_offset = float(get_offset())
+        except Exception:
+            current_offset = -1.0
+
+        dialog = ProjectSettingsDialog(
+            current_offset_seconds=current_offset,
+            parent=self.widget,
+        )
+        if not bool(dialog.exec()):
+            return False
+        resolved_offset = dialog.ma3_push_offset_seconds
+        try:
+            set_offset(resolved_offset)
+        except Exception as exc:
+            QMessageBox.warning(self.widget, "Project Settings", str(exc))
+            return False
+        self._refresh_presentation()
+        return True
 
     def confirm_close(self) -> bool:
         return self._confirm_unsaved_changes("Save changes before closing?")

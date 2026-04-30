@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import replace
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Protocol
 
@@ -439,6 +440,42 @@ def set_song_version_ma3_timecode_pool(
     return shell.presentation()
 
 
+def get_project_ma3_push_offset_seconds(
+    shell: ProjectLifecycleShell,
+) -> float:
+    return _coerce_project_ma3_push_offset_seconds(
+        shell.project_storage.project.settings.ma3_push_offset_seconds
+    )
+
+
+def set_project_ma3_push_offset_seconds(
+    shell: ProjectLifecycleShell,
+    offset_seconds: float,
+) -> TimelinePresentation:
+    normalized_offset_seconds = _coerce_project_ma3_push_offset_seconds(offset_seconds)
+    project = shell.project_storage.project
+    updated_project = replace(
+        project,
+        settings=replace(
+            project.settings,
+            ma3_push_offset_seconds=normalized_offset_seconds,
+        ),
+        updated_at=datetime.now(timezone.utc),
+    )
+    shell.project_storage.projects.update(updated_project)
+    shell.project_storage.commit()
+    shell.project_storage.project = updated_project
+    shell.project_storage.dirty_tracker.mark_dirty(updated_project.id)
+    refresh_from_storage(
+        shell,
+        active_song_id=shell.session.active_song_id,
+        active_song_version_id=shell.session.active_song_version_id,
+    )
+    shell._is_dirty = True
+    shell._clear_history()
+    return shell.presentation()
+
+
 def refresh_from_storage(
     shell: ProjectLifecycleShell,
     *,
@@ -475,6 +512,9 @@ def refresh_from_storage(
     shell.session.active_song_version_id = resolved_active_song_version_id
     shell.session.active_song_version_ma3_timecode_pool_no = (
         active_version_record.ma3_timecode_pool_no if active_version_record is not None else None
+    )
+    shell.session.project_ma3_push_offset_seconds = _coerce_project_ma3_push_offset_seconds(
+        shell.project_storage.project.settings.ma3_push_offset_seconds
     )
     shell.session.active_timeline_id = shell._app.timeline.id
     publish_project_review_runtime_context(shell)
@@ -538,6 +578,13 @@ def _optional_positive_int(value: object) -> int | None:
     except (TypeError, ValueError):
         return None
     return resolved if resolved > 0 else None
+
+
+def _coerce_project_ma3_push_offset_seconds(value: object) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return -1.0
 
 
 def _resolve_audio_import_options(shell: ProjectLifecycleShell) -> AudioImportOptions:

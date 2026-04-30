@@ -3,10 +3,21 @@ Exists to isolate runtime-audio rebuild and canonical build assertions from proj
 Connects the compatibility wrapper to the bounded audio support slice.
 """
 
-from PyQt6.QtWidgets import QApplication
+import shutil
 
 from echozero.application.settings import AudioOutputRuntimeConfig
-from tests.ui.app_shell_runtime_flow_shared_support import *  # noqa: F401,F403
+from echozero.application.shared.enums import LayerKind
+from echozero.application.timeline.intents import Play, SelectEvent
+from echozero.audio.engine import AudioEngine
+from echozero.testing.analysis_mocks import build_mock_analysis_service, write_test_wav
+from echozero.ui.qt.app_shell import AppShellRuntime, build_app_shell
+from echozero.ui.qt.app_shell_runtime_services import build_runtime_audio_controller
+from echozero.ui.qt.timeline.runtime_audio import TimelineRuntimeAudioController
+from tests.ui.app_shell_runtime_flow_shared_support import (
+    _CountedRuntimeAudio,
+    _repo_local_temp_root,
+)
+from tests.ui.runtime_audio_shared_support import _fake_stream_factory
 
 
 def test_app_shell_runtime_add_song_from_path_defers_runtime_audio_build_until_playback():
@@ -62,10 +73,21 @@ def test_app_shell_runtime_apply_audio_output_config_rebuilds_runtime_audio_cont
         assert rebuilt_runtime_audio.engine._stream_latency == "low"
         assert rebuilt_runtime_audio.engine._stream_blocksize == 512
         assert rebuilt_runtime_audio.engine._prime_output_buffers_using_stream_callback is False
+        assert rebuilt_runtime_audio._qt_enabled is False
         assert rebuilt_runtime_audio._prefer_qt_for_continuous_audio is False
     finally:
         runtime.shutdown()
         shutil.rmtree(temp_root, ignore_errors=True)
+
+
+def test_build_runtime_audio_controller_defaults_to_engine_continuous_audio():
+    controller = build_runtime_audio_controller()
+
+    try:
+        assert controller._qt_enabled is False
+        assert controller._prefer_qt_for_continuous_audio is False
+    finally:
+        controller.shutdown()
 
 
 def test_app_shell_runtime_add_layer_after_song_defers_runtime_audio_build_while_stopped():
@@ -251,19 +273,22 @@ def test_app_shell_runtime_play_dispatch_rebuilds_runtime_audio():
 
 
 def test_app_shell_runtime_add_song_syncs_backend_playback_state_metadata():
-    app = QApplication.instance() or QApplication([])
     temp_root = _repo_local_temp_root()
     runtime = build_app_shell(working_dir_root=temp_root / "working")
 
     assert isinstance(runtime, AppShellRuntime)
 
     try:
+        runtime.runtime_audio = TimelineRuntimeAudioController(
+            engine=AudioEngine(stream_factory=_fake_stream_factory),
+            use_qt_player=False,
+        )
         runtime.add_song_from_path(
             "Imported Song", write_test_wav(temp_root / "fixtures" / "import.wav")
         )
         runtime.dispatch(Play())
 
-        assert runtime.session.playback_state.backend_name == "qt_multimedia"
+        assert runtime.session.playback_state.backend_name == "sounddevice"
         assert (
             runtime.session.playback_state.active_layer_id
             == runtime.presentation().active_playback_layer_id
@@ -271,9 +296,11 @@ def test_app_shell_runtime_add_song_syncs_backend_playback_state_metadata():
         assert runtime.session.playback_state.active_sources
         assert runtime.session.playback_state.output_sample_rate > 0
         assert runtime.session.playback_state.output_channels > 0
+        assert runtime.session.playback_state.diagnostics.output_device == "default"
+        assert runtime.session.playback_state.diagnostics.last_transition == "play"
+        assert runtime.session.playback_state.diagnostics.last_track_sync_reason != ""
     finally:
         runtime.shutdown()
-        app.processEvents()
         shutil.rmtree(temp_root, ignore_errors=True)
 
 

@@ -114,6 +114,15 @@ class _MA3TimecodeRuntimeShell(_TimelineRuntimeShell, Protocol):
     ) -> TimelinePresentation | None: ...
 
 
+class _ProjectMA3PushOffsetRuntimeShell(_TimelineRuntimeShell, Protocol):
+    def get_project_ma3_push_offset_seconds(self) -> float: ...
+
+    def set_project_ma3_push_offset_seconds(
+        self,
+        offset_seconds: float,
+    ) -> TimelinePresentation | None: ...
+
+
 class _AddLayerRuntimeShell(_TimelineRuntimeShell, Protocol):
     def add_layer(
         self,
@@ -408,6 +417,9 @@ class TimelineWidgetContractActionMixin:
             return
         if action_id == "song.version.set_ma3_timecode_pool":
             self._run_set_song_version_ma3_timecode_pool_action(params)
+            return
+        if action_id == "project.settings.set_ma3_push_offset":
+            self._run_set_project_ma3_push_offset_action(params)
             return
         if action_id == "add_event_layer":
             self._run_add_layer_action(LayerKind.EVENT)
@@ -1119,6 +1131,72 @@ class TimelineWidgetContractActionMixin:
             return
         host._set_presentation(updated if updated is not None else runtime.presentation())
 
+    def _run_set_project_ma3_push_offset_action(
+        self,
+        params: dict[str, object],
+    ) -> None:
+        host = cast(_ContractActionHost, self)
+        runtime = cast(
+            _ProjectMA3PushOffsetRuntimeShell | None,
+            host._resolve_runtime_shell(),
+        )
+        if runtime is None or not all(
+            callable(getattr(runtime, method_name, None))
+            for method_name in (
+                "get_project_ma3_push_offset_seconds",
+                "set_project_ma3_push_offset_seconds",
+            )
+        ):
+            host._message_box.warning(
+                host._widget,
+                "Set Global MA3 Push Offset",
+                "This runtime does not support project MA3 push offset settings.",
+            )
+            return
+
+        current_offset = float(runtime.get_project_ma3_push_offset_seconds())
+        if "offset_seconds" in params:
+            try:
+                resolved_offset = self._parse_project_ma3_push_offset_input(
+                    params.get("offset_seconds")
+                )
+            except ValueError:
+                host._message_box.warning(
+                    host._widget,
+                    "Set Global MA3 Push Offset",
+                    "Enter a numeric offset in seconds (for example: -1, -0.35, 0.5).",
+                )
+                return
+        else:
+            entered_value, accepted = host._input_dialog.getText(
+                host._widget,
+                "Set Global MA3 Push Offset",
+                (
+                    "MA3 push offset in seconds.\n"
+                    "Negative values move events earlier on the clock.\n"
+                    "Positive values move events later."
+                ),
+                text=f"{current_offset:.3f}",
+            )
+            if not accepted:
+                return
+            try:
+                resolved_offset = self._parse_project_ma3_push_offset_input(entered_value)
+            except ValueError:
+                host._message_box.warning(
+                    host._widget,
+                    "Set Global MA3 Push Offset",
+                    "Enter a numeric offset in seconds (for example: -1, -0.35, 0.5).",
+                )
+                return
+
+        try:
+            updated = runtime.set_project_ma3_push_offset_seconds(resolved_offset)
+        except Exception as exc:
+            host._message_box.warning(host._widget, "Set Global MA3 Push Offset", str(exc))
+            return
+        host._set_presentation(updated if updated is not None else runtime.presentation())
+
     def _resolve_add_song_version_transfer_options(
         self,
         *,
@@ -1406,3 +1484,21 @@ class TimelineWidgetContractActionMixin:
                 raise ValueError("MA3 timecode pool must be numeric.") from exc
             return parsed_text if parsed_text > 0 else None
         raise ValueError("MA3 timecode pool must be numeric.")
+
+    @staticmethod
+    def _parse_project_ma3_push_offset_input(value: object) -> float:
+        if value is None:
+            raise ValueError("MA3 push offset is required.")
+        if isinstance(value, bool):
+            raise ValueError("MA3 push offset must be numeric.")
+        if isinstance(value, (int, float)):
+            return float(value)
+        text = str(value).strip().lower()
+        if not text:
+            raise ValueError("MA3 push offset is required.")
+        if text.endswith("s"):
+            text = text[:-1].strip()
+        try:
+            return float(text)
+        except ValueError as exc:
+            raise ValueError("MA3 push offset must be numeric.") from exc

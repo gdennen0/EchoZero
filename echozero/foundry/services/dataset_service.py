@@ -20,6 +20,7 @@ from echozero.foundry.domain.review import (
 from echozero.foundry.persistence import DatasetRepository, DatasetVersionRepository
 from echozero.foundry.services.project_review_queue_builder import ProjectReviewQueueBuilder
 from echozero.foundry.services.audio_source_validation import (
+    AudioSourceMetadata,
     InvalidAudioSourceError,
     inspect_audio_source,
 )
@@ -40,6 +41,8 @@ class DatasetService:
         self._datasets = dataset_repo or DatasetRepository(root)
         self._versions = version_repo or DatasetVersionRepository(root)
         self._clip_service = clip_service or ReviewAudioClipService()
+        self._audio_metadata_cache: dict[tuple[str, int, int], AudioSourceMetadata] = {}
+        self._audio_hash_cache: dict[tuple[str, int, int], str] = {}
 
     def create_dataset(
         self,
@@ -90,8 +93,8 @@ class DatasetService:
                 rel_path = file.relative_to(base).as_posix()
                 rel = file.resolve().as_posix()
                 try:
-                    audio_metadata = inspect_audio_source(file)
-                    content_hash = hashlib.sha256(file.read_bytes()).hexdigest()
+                    audio_metadata = self._inspect_audio_source_cached(file)
+                    content_hash = self._content_hash_for_audio(file)
                 except InvalidAudioSourceError as exc:
                     skipped_reason_counts[exc.code] += 1
                     skipped_sources.append(
@@ -242,6 +245,7 @@ class DatasetService:
             layer_id=layer_id,
             polarity=ReviewPolarity.POSITIVE,
             review_mode="all_events",
+            materialize_pending_clips=False,
         )
         sample_result = self._build_project_review_export_samples(queue.items)
         samples = sample_result["samples"]
@@ -348,6 +352,7 @@ class DatasetService:
                 "queue_source_kind": source_queue_kind,
                 "signal_id": signal.id,
             }
+        canonical_project_export = self._refresh_project_review_export(project_dir)
 
         sample_result = self._build_review_materialization_samples(
             session=session,
@@ -361,6 +366,7 @@ class DatasetService:
                 "details": self._serialize_materialization_details(
                     list(sample_result.get("details", []))
                 ),
+                "canonical_project_export": canonical_project_export,
                 "queue_source_kind": source_queue_kind,
                 "signal_id": signal.id,
             }
@@ -381,6 +387,7 @@ class DatasetService:
                 "details": self._serialize_materialization_details(
                     list(sample_result.get("details", []))
                 ),
+                "canonical_project_export": canonical_project_export,
                 "queue_source_kind": source_queue_kind,
                 "signal_id": signal.id,
             }
@@ -458,6 +465,7 @@ class DatasetService:
             "sample_count": len(version.samples),
             "signal_id": signal.id,
             "materialized_signal_samples": [sample.sample_id for sample in samples],
+            "canonical_project_export": canonical_project_export,
             "details": self._serialize_materialization_details(
                 list(sample_result.get("details", []))
             ),
@@ -743,14 +751,16 @@ class DatasetService:
                 continue
             reviewed_item_count += 1
             decision_counts[item.review_decision.kind.value] += 1
-            for lane in self._project_review_training_lanes(item):
-                sample = self._build_project_review_export_sample(
-                    item=item,
-                    decision=item.review_decision,
-                    lane=lane,
-                )
-                if sample is not None:
-                    samples.append(sample)
+            lane = self._project_review_export_lane(item)
+            if lane is None:
+                continue
+            sample = self._build_project_review_export_sample(
+                item=item,
+                decision=item.review_decision,
+                lane=lane,
+            )
+            if sample is not None:
+                samples.append(sample)
         return {
             "samples": samples,
             "reviewed_item_count": reviewed_item_count,
@@ -775,8 +785,8 @@ class DatasetService:
         if label is None:
             return None
         try:
-            metadata = inspect_audio_source(audio_path)
-            content_hash = hashlib.sha256(audio_path.read_bytes()).hexdigest()
+            metadata = self._inspect_audio_source_cached(audio_path)
+            content_hash = self._content_hash_for_audio(audio_path)
         except (InvalidAudioSourceError, OSError):
             return None
         return DatasetSample(
@@ -807,19 +817,7 @@ class DatasetService:
         decision: ReviewDecision,
         lane: str,
     ) -> Path | None:
-        if lane == "negative" and decision.kind == ReviewDecisionKind.BOUNDARY_CORRECTED:
-            source_audio_ref = item.source_provenance.get("source_audio_ref")
-            if not isinstance(source_audio_ref, str) or not source_audio_ref.strip():
-                return None
-            if decision.original_start_ms is None or decision.original_end_ms is None:
-                return None
-            return self._clip_service.materialize_event_clip(
-                source_audio_path=Path(source_audio_ref),
-                clip_cache_dir=self._root / "foundry" / "cache" / "review_training_samples",
-                clip_stem=f"{item.item_id}_{lane}",
-                start_seconds=float(decision.original_start_ms) / 1000.0,
-                end_seconds=float(decision.original_end_ms) / 1000.0,
-            )
+        del decision, lane
         candidate = Path(item.audio_path).expanduser()
         if candidate.exists():
             return candidate.resolve()
@@ -834,29 +832,34 @@ class DatasetService:
     ) -> str | None:
         if lane == "negative":
             candidate = (
-                item.predicted_label
-                or item.source_provenance.get("original_label")
+                item.source_provenance.get("original_label")
+                or item.predicted_label
                 or item.target_class
             )
         else:
-            candidate = decision.corrected_label or item.target_class or item.predicted_label
+            candidate = (
+                item.source_provenance.get("current_target_class")
+                or item.target_class
+                or decision.corrected_label
+                or item.predicted_label
+            )
         if candidate is None:
             return None
         return normalize_review_label(candidate)
 
     @staticmethod
-    def _project_review_training_lanes(item: ReviewItem) -> list[str]:
+    def _project_review_export_lane(item: ReviewItem) -> str | None:
         decision = item.review_decision
-        if decision is None:
-            return []
-        lanes: list[str] = []
-        if decision.training_eligibility.allows_negative_signal:
-            lanes.append("negative")
-        if decision.training_eligibility.allows_positive_signal:
-            lanes.append("positive")
-        if not lanes and item.review_outcome == ReviewOutcome.CORRECT:
-            lanes.append("positive")
-        return lanes
+        if decision is None or item.review_outcome == ReviewOutcome.PENDING:
+            return None
+        promotion_state = str(item.source_provenance.get("promotion_state", "")).strip().lower()
+        if promotion_state == "demoted" or decision.kind == ReviewDecisionKind.REJECTED:
+            return "negative"
+        if promotion_state == "promoted":
+            return "positive"
+        if item.review_outcome == ReviewOutcome.CORRECT:
+            return "positive"
+        return "negative"
 
     @staticmethod
     def _project_review_sample_id(*, item_id: str, lane: str) -> str:
@@ -970,8 +973,8 @@ class DatasetService:
                 "reason": "missing_label",
             }
         try:
-            metadata = inspect_audio_source(audio_path)
-            content_hash = hashlib.sha256(audio_path.read_bytes()).hexdigest()
+            metadata = self._inspect_audio_source_cached(audio_path)
+            content_hash = self._content_hash_for_audio(audio_path)
         except InvalidAudioSourceError as exc:
             return {
                 "lane": lane,
@@ -1139,6 +1142,68 @@ class DatasetService:
         if path.is_file() and path.name == "project.db":
             return path.parent
         return None
+
+    def _inspect_audio_source_cached(self, audio_path: Path) -> AudioSourceMetadata:
+        key = self._audio_cache_key(audio_path)
+        if key is not None:
+            cached = self._audio_metadata_cache.get(key)
+            if cached is not None:
+                return cached
+        metadata = inspect_audio_source(audio_path)
+        if key is not None:
+            self._audio_metadata_cache[key] = metadata
+        return metadata
+
+    def _content_hash_for_audio(self, audio_path: Path) -> str:
+        key = self._audio_cache_key(audio_path)
+        if key is not None:
+            cached = self._audio_hash_cache.get(key)
+            if cached is not None:
+                return cached
+
+        digest = hashlib.sha256()
+        with audio_path.open("rb") as stream:
+            while True:
+                chunk = stream.read(1024 * 1024)
+                if not chunk:
+                    break
+                digest.update(chunk)
+        content_hash = digest.hexdigest()
+        if key is not None:
+            self._audio_hash_cache[key] = content_hash
+        return content_hash
+
+    @staticmethod
+    def _audio_cache_key(audio_path: Path) -> tuple[str, int, int] | None:
+        try:
+            resolved = audio_path.expanduser().resolve()
+            stat = resolved.stat()
+        except OSError:
+            return None
+        return (resolved.as_posix(), int(stat.st_size), int(stat.st_mtime_ns))
+
+    def _refresh_project_review_export(self, project_dir: Path) -> dict[str, object]:
+        try:
+            version = self.export_project_review_dataset(project_dir, queue_source_kind="ez_project")
+        except ValueError:
+            return {
+                "status": "deferred",
+                "reason": "no_reviewed_project_events",
+                "source_ref": str(project_dir.resolve()),
+            }
+        dataset = self.get_dataset(version.dataset_id)
+        return {
+            "status": "materialized",
+            "dataset_id": version.dataset_id,
+            "dataset_name": dataset.name if dataset is not None else None,
+            "version_id": version.id,
+            "version": version.version,
+            "sample_count": int(version.stats.get("sample_count", len(version.samples))),
+            "review_positive_count": int(version.stats.get("review_positive_count", 0)),
+            "review_negative_count": int(version.stats.get("review_negative_count", 0)),
+            "reviewed_item_count": int(version.stats.get("reviewed_item_count", len(version.samples))),
+            "source_ref": str(project_dir.resolve()),
+        }
 
     @staticmethod
     def _content_groups(samples: list[DatasetSample]) -> dict[str, list[str]]:

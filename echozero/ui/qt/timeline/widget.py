@@ -156,7 +156,7 @@ class TimelineWidget(TimelineWidgetRuntimeMixin, TimelineWidgetContractMixin, QW
         self._editor_bar.fix_nav_include_demoted_toggled.connect(self._set_fix_nav_include_demoted)
         self._editor_bar.snap_toggled.connect(self._set_snap_enabled)
         self._editor_bar.grid_mode_changed.connect(self._set_grid_mode)
-        self._editor_bar.settings_requested.connect(self._open_preferences_dialog)
+        self._editor_bar.settings_requested.connect(self._open_settings_dialog)
         self._editor_bar.osc_settings_requested.connect(self._open_osc_settings_dialog)
         self._editor_bar.pipeline_settings_requested.connect(
             self._open_pipeline_settings_browser
@@ -260,7 +260,8 @@ class TimelineWidget(TimelineWidgetRuntimeMixin, TimelineWidgetContractMixin, QW
         self._main_splitter.addWidget(self._object_info)
         self._main_splitter.setStretchFactor(0, 1)
         self._main_splitter.setStretchFactor(1, 0)
-        self._main_splitter.setSizes([1080, 320])
+        self._main_splitter.setSizes([1080, self._object_info.target_width()])
+        self._main_splitter.splitterMoved.connect(self._sync_object_info_splitter_width)
         self._shell_splitter = QSplitter(Qt.Orientation.Horizontal, content)
         self._shell_splitter.setObjectName("timelineShellSplitter")
         self._shell_splitter.setChildrenCollapsible(False)
@@ -329,6 +330,7 @@ class TimelineWidget(TimelineWidgetRuntimeMixin, TimelineWidgetContractMixin, QW
         self._song_browser_panel.collapsed_changed.connect(
             self._sync_song_browser_collapsed_state
         )
+        self._object_info.collapsed_changed.connect(self._sync_object_info_collapsed_state)
         self._install_song_drop_targets(
             left_pane,
             self._transport,
@@ -345,9 +347,11 @@ class TimelineWidget(TimelineWidgetRuntimeMixin, TimelineWidgetContractMixin, QW
             return
         self._dispatch(Pause())
 
-    def _open_preferences_dialog(self) -> None:
+    def _open_settings_dialog(self) -> None:
         actions = getattr(self, "_launcher_actions", {})
         action = actions.get("preferences") if isinstance(actions, dict) else None
+        if action is None and isinstance(actions, dict):
+            action = actions.get("project_settings")
         if action is not None:
             action.trigger()
 
@@ -607,8 +611,12 @@ class TimelineWidget(TimelineWidgetRuntimeMixin, TimelineWidgetContractMixin, QW
             return
         self._add_menu_action(edit_menu, actions, "undo")
         self._add_menu_action(edit_menu, actions, "redo")
-        if "preferences" in actions or "osc_settings" in actions:
+        if any(
+            action_id in actions
+            for action_id in ("project_settings", "preferences", "osc_settings")
+        ):
             edit_menu.addSeparator()
+            self._add_menu_action(edit_menu, actions, "project_settings")
             self._add_menu_action(edit_menu, actions, "preferences")
             self._add_menu_action(edit_menu, actions, "osc_settings")
 
@@ -718,6 +726,15 @@ class TimelineWidget(TimelineWidgetRuntimeMixin, TimelineWidgetContractMixin, QW
         if sizes:
             song_browser.remember_expanded_width(sizes[0])
 
+    def _sync_object_info_splitter_width(self, *_args: object) -> None:
+        object_info = getattr(self, "_object_info", None)
+        main_splitter = getattr(self, "_main_splitter", None)
+        if object_info is None or main_splitter is None or object_info.is_collapsed:
+            return
+        sizes = main_splitter.sizes()
+        if len(sizes) > 1:
+            object_info.remember_expanded_width(sizes[1])
+
     def _sync_song_browser_collapsed_state(self, collapsed: bool) -> None:
         shell_splitter = getattr(self, "_shell_splitter", None)
         song_browser = getattr(self, "_song_browser_panel", None)
@@ -727,6 +744,17 @@ class TimelineWidget(TimelineWidgetRuntimeMixin, TimelineWidgetContractMixin, QW
         trailing_width = sizes[1] if len(sizes) > 1 else 1400
         browser_width = song_browser.target_width()
         shell_splitter.setSizes([browser_width, max(1, trailing_width)])
+
+    def _sync_object_info_collapsed_state(self, collapsed: bool) -> None:
+        del collapsed
+        main_splitter = getattr(self, "_main_splitter", None)
+        object_info = getattr(self, "_object_info", None)
+        if main_splitter is None or object_info is None:
+            return
+        sizes = main_splitter.sizes()
+        leading_width = sizes[0] if sizes else 1080
+        object_info_width = object_info.target_width()
+        main_splitter.setSizes([max(1, leading_width), object_info_width])
 
     def _handle_song_browser_drop(self, audio_paths: object) -> None:
         target_song_id: str | None = None

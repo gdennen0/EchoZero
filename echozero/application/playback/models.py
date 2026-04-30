@@ -25,6 +25,18 @@ class LayerPlaybackState:
 
 
 @dataclass(slots=True)
+class PlaybackDiagnostics:
+    glitch_count: int = 0
+    last_audio_status: str | None = None
+    output_device: str | None = None
+    stream_latency: str | float | None = None
+    stream_blocksize: int = 0
+    prime_output_buffers_using_stream_callback: bool = True
+    last_transition: str = ""
+    last_track_sync_reason: str = ""
+
+
+@dataclass(slots=True)
 class PlaybackState:
     status: PlaybackStatus = PlaybackStatus.STOPPED
     active_sources: list[PlaybackSource] = field(default_factory=list)
@@ -34,6 +46,7 @@ class PlaybackState:
     active_take_id: TakeId | None = None
     output_sample_rate: int = 0
     output_channels: int = 0
+    diagnostics: PlaybackDiagnostics = field(default_factory=PlaybackDiagnostics)
 
 
 @dataclass(slots=True, frozen=True)

@@ -33,7 +33,10 @@ from echozero.ui.qt.app_shell_project_timeline import (
 from echozero.ui.qt.app_shell_project_runtime_state import (
     load_project_runtime_state,
 )
-from echozero.ui.qt.timeline.runtime_audio import TimelineRuntimeAudioController
+from echozero.ui.qt.timeline.runtime_audio import (
+    TimelinePlaybackController,
+    TimelineRuntimeAudioController,
+)
 
 
 class RuntimeSessionService(SessionService):
@@ -149,36 +152,16 @@ class RuntimePlaybackService(PlaybackService):
         return self._session.playback_state
 
 
-def _prefer_qt_for_continuous_audio(
-    audio_output_config: AudioOutputRuntimeConfig | None,
-) -> bool:
-    """Keep simple file playback on Qt unless the user requested engine-only knobs."""
-
-    if audio_output_config is None:
-        return True
-    if audio_output_config.sample_rate is not None:
-        return False
-    if audio_output_config.channels is not None:
-        return False
-    if audio_output_config.stream_latency is not None:
-        return False
-    if audio_output_config.stream_blocksize is not None:
-        return False
-    if audio_output_config.prime_output_buffers_using_stream_callback is not True:
-        return False
-    return True
-
-
-def build_runtime_audio_controller(
+def build_playback_controller(
     audio_output_config: AudioOutputRuntimeConfig | None = None,
-) -> TimelineRuntimeAudioController:
-    """Build the canonical runtime-audio controller for one optional audio output config."""
+) -> TimelinePlaybackController:
+    """Build the canonical playback controller for one optional audio output config."""
 
     if audio_output_config is None:
-        return TimelineRuntimeAudioController(
-            use_qt_player=True,
-            prefer_qt_for_continuous_audio=True,
-            force_qt_for_continuous_audio=True,
+        return TimelinePlaybackController(
+            use_qt_player=False,
+            prefer_qt_for_continuous_audio=False,
+            force_qt_for_continuous_audio=False,
         )
 
     def _engine_factory() -> AudioEngine:
@@ -193,14 +176,28 @@ def build_runtime_audio_controller(
             output_device=audio_output_config.output_device,
         )
 
-    return TimelineRuntimeAudioController(
-        use_qt_player=True,
-        prefer_qt_for_continuous_audio=_prefer_qt_for_continuous_audio(audio_output_config),
-        force_qt_for_continuous_audio=True,
-        qt_output_device=audio_output_config.output_device,
+    return TimelinePlaybackController(
+        use_qt_player=False,
+        prefer_qt_for_continuous_audio=False,
+        force_qt_for_continuous_audio=False,
         engine_factory=_engine_factory,
         preview_engine_factory=_engine_factory,
     )
+
+
+def build_runtime_audio_controller(
+    audio_output_config: AudioOutputRuntimeConfig | None = None,
+) -> TimelineRuntimeAudioController:
+    """Compatibility alias for callers that still say `build_runtime_audio_controller`."""
+
+    return build_playback_controller(audio_output_config)
+
+
+def _coerce_project_ma3_push_offset_seconds(value: object) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return -1.0
 
 
 def build_runtime_timeline_application(
@@ -213,7 +210,7 @@ def build_runtime_timeline_application(
 ) -> TimelineApplication:
     """Build the in-memory timeline application for the app shell runtime."""
     if runtime_audio is None:
-        runtime_audio = build_runtime_audio_controller(audio_output_config)
+        runtime_audio = build_playback_controller(audio_output_config)
     runtime_state = load_project_runtime_state(project_storage)
     timeline, overlay, active_song_id, active_song_version_id = build_project_native_baseline_timeline(
         project_storage,
@@ -241,6 +238,9 @@ def build_runtime_timeline_application(
         active_song_version_id=active_song_version_id,
         active_song_version_ma3_timecode_pool_no=(
             active_version.ma3_timecode_pool_no if active_version is not None else None
+        ),
+        project_ma3_push_offset_seconds=_coerce_project_ma3_push_offset_seconds(
+            project_storage.project.settings.ma3_push_offset_seconds
         ),
         active_timeline_id=timeline.id,
         transport_state=TransportState(

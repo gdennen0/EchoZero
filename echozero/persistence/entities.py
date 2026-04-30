@@ -29,6 +29,7 @@ class ProjectSettingsRecord:
     bpm: float | None = None
     bpm_confidence: float | None = None
     timecode_fps: float | None = None
+    ma3_push_offset_seconds: float = -1.0
 
 
 # ---------------------------------------------------------------------------

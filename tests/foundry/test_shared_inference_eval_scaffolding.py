@@ -62,4 +62,4 @@ def test_echozero_adapter_builds_inference_contract_from_checkpoint_metadata() -
 
     assert contract.model_signature == "crnn"
     assert contract.class_map == ("kick", "snare", "hat")
-    assert contract.preprocessing["sample_rate"] == 22050
+    assert contract.preprocessing["sampleRate"] == 22050

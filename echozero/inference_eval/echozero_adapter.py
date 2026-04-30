@@ -3,19 +3,13 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Mapping, Sequence
 
-from .constants import REQUIRED_PREPROCESSING_KEYS
 from .core import EvalCore, InferenceContract, InferenceCore, contract_fingerprint
+from .preprocessing import runtime_preprocessing_from_payload
 
 
 def _runtime_preprocessing_from_checkpoint(checkpoint: Mapping[str, Any]) -> dict[str, Any]:
     preprocessing = checkpoint.get("inference_preprocessing")
-    if not isinstance(preprocessing, Mapping):
-        preprocessing = {}
-    return {
-        key: preprocessing[key]
-        for key in sorted(REQUIRED_PREPROCESSING_KEYS)
-        if key in preprocessing
-    }
+    return runtime_preprocessing_from_payload(preprocessing)
 
 
 def _classification_mode_from_checkpoint(checkpoint: Mapping[str, Any]) -> str:

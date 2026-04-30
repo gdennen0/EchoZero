@@ -292,7 +292,7 @@ def test_audio_engine_keeps_injected_streams_on_low_latency_with_unspecified_cal
     engine.shutdown()
 
 
-def test_runtime_controller_prefers_qt_multimedia_backend_for_audio_layers():
+def test_runtime_controller_uses_unified_sounddevice_backend_for_audio_layers():
     app = QApplication.instance() or QApplication([])
     presentation = _audio_presentation()
     controller = TimelineRuntimeAudioController(
@@ -302,9 +302,11 @@ def test_runtime_controller_prefers_qt_multimedia_backend_for_audio_layers():
         controller.build_for_presentation(presentation)
         state = controller.snapshot_state(presentation)
 
-        assert state.backend_name == "qt_multimedia"
-        assert state.output_sample_rate > 0
-        assert state.output_channels > 0
+        assert state.backend_name == "sounddevice"
+        assert (
+            controller.engine.mixer.get_layer(TimelineRuntimeAudioController._MONITOR_LAYER_ID)
+            is not None
+        )
     finally:
         controller.shutdown()
         app.processEvents()

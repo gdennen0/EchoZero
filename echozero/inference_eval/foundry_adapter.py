@@ -3,7 +3,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Mapping, Sequence
 
-from .constants import REQUIRED_PREPROCESSING_KEYS
 from .core import (
     EvalContract,
     EvalCore,
@@ -14,16 +13,11 @@ from .core import (
     InferenceRequest,
     contract_fingerprint,
 )
+from .preprocessing import runtime_preprocessing_from_payload
 
 
 def _runtime_preprocessing_from_run_spec(data: Mapping[str, Any] | None) -> dict[str, Any]:
-    if not isinstance(data, Mapping):
-        return {}
-    return {
-        key: data[key]
-        for key in sorted(REQUIRED_PREPROCESSING_KEYS)
-        if key in data
-    }
+    return runtime_preprocessing_from_payload(data)
 
 
 @dataclass(slots=True)

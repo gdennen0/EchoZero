@@ -455,6 +455,38 @@ def test_ma3_sync_adapter_apply_push_transfer_updates_bridge_snapshot():
     }
 
 
+def test_ma3_sync_adapter_apply_push_transfer_applies_start_offset_seconds():
+    bridge = SimulatedMA3Bridge()
+    service = MA3SyncAdapter(bridge)
+
+    service.apply_push_transfer(
+        target_track_coord="tc1_tg2_tr4",
+        selected_events=[
+            Event(
+                id="evt_a",
+                take_id="take_a",
+                start=1.5,
+                end=1.75,
+                cue_number=7,
+                label="A",
+            ),
+            Event(
+                id="evt_b",
+                take_id="take_a",
+                start=2.0,
+                end=2.25,
+                cue_number=8,
+                label="B",
+            ),
+        ],
+        transfer_mode="overwrite",
+        start_offset_seconds=-1.0,
+    )
+
+    events = bridge.list_track_events("tc1_tg2_tr4")
+    assert [event.start for event in events] == pytest.approx([0.5, 1.0])
+
+
 def test_ma3_sync_adapter_apply_push_transfer_round_trips_preserved_cue_ref():
     bridge = SimulatedMA3Bridge()
     service = MA3SyncAdapter(bridge)

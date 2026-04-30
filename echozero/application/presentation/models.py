@@ -371,6 +371,8 @@ class EventPresentation:
     badges: list[str] = field(default_factory=list)
     source_event_id: str | None = None
     payload_ref: str | None = None
+    classifications: dict[str, object] = field(default_factory=dict)
+    detection_metadata: dict[str, object] = field(default_factory=dict)
 
     @property
     def duration(self) -> float:

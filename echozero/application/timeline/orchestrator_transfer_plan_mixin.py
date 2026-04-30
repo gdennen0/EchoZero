@@ -341,7 +341,9 @@ class TimelineOrchestratorTransferPlanMixin:
             "target_track_coord": target_track_coord,
             "selected_events": selected_events,
         }
-        transfer_mode = host.session_service.get_session().manual_push_flow.transfer_mode
+        session = host.session_service.get_session()
+        transfer_mode = session.manual_push_flow.transfer_mode
+        start_offset_seconds = self._project_ma3_push_offset_seconds(session)
         try:
             parameters: Mapping[str, inspect.Parameter] | None = inspect.signature(callback).parameters
         except (TypeError, ValueError):
@@ -350,7 +352,19 @@ class TimelineOrchestratorTransferPlanMixin:
             kwargs["transfer_mode"] = transfer_mode
         elif parameters is not None and "mode" in parameters:
             kwargs["mode"] = transfer_mode
+        if parameters is not None and "start_offset_seconds" in parameters:
+            kwargs["start_offset_seconds"] = start_offset_seconds
+        elif parameters is not None and "push_offset_seconds" in parameters:
+            kwargs["push_offset_seconds"] = start_offset_seconds
         callback(**kwargs)
+
+    @staticmethod
+    def _project_ma3_push_offset_seconds(session: object) -> float:
+        raw_value = getattr(session, "project_ma3_push_offset_seconds", -1.0)
+        try:
+            return float(raw_value)
+        except (TypeError, ValueError):
+            return -1.0
 
     @staticmethod
     def _copy_plan_row(

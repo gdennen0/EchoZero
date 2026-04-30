@@ -91,33 +91,67 @@ def test_runtime_controller_snapshot_state_reports_backend_session_and_target():
     assert state.active_take_id is None
     assert len(state.active_sources) == 1
     assert state.active_sources[0].source_ref == "demo.wav"
+    assert state.diagnostics.output_device == "default"
+    assert state.diagnostics.last_transition == ""
     controller.shutdown()
 
 
-def test_runtime_controller_force_qt_for_audio_blocks_sounddevice_fallback(monkeypatch):
+def test_runtime_controller_snapshot_state_reports_engine_diagnostics():
+    presentation = _audio_presentation()
+    engine = AudioEngine(
+        stream_factory=lambda **kwargs: FakeStream(**kwargs | {"latency": 0.2}),
+        stream_latency="low",
+        stream_blocksize=512,
+        prime_output_buffers_using_stream_callback=False,
+        output_device="Built-in Output",
+    )
+    controller = TimelineRuntimeAudioController(
+        engine=engine,
+        audio_loader=lambda path: (np.ones(4410, dtype=np.float32), 44100),
+    )
+
+    controller.build_for_presentation(presentation)
+    controller.play()
+
+    outdata = np.zeros((256, 1), dtype=np.float32)
+    engine._audio_callback(outdata, 256, None, "underflow")
+    state = controller.snapshot_state(presentation)
+
+    assert state.diagnostics.glitch_count == 1
+    assert state.diagnostics.last_audio_status == "underflow"
+    assert state.diagnostics.output_device == "Built-in Output"
+    assert state.diagnostics.stream_latency == "low"
+    assert state.diagnostics.stream_blocksize == 512
+    assert state.diagnostics.prime_output_buffers_using_stream_callback is False
+    assert state.diagnostics.last_transition == "play"
+    assert state.diagnostics.last_track_sync_reason == "track-signature-changed"
+    controller.shutdown()
+
+
+def test_runtime_controller_legacy_qt_flags_do_not_change_unified_backend():
     presentation = _audio_presentation()
     controller = TimelineRuntimeAudioController(
         audio_loader=lambda _path: (np.ones(4410, dtype=np.float32), 44100),
         use_qt_player=True,
+        prefer_qt_for_continuous_audio=True,
         force_qt_for_continuous_audio=True,
     )
-    monkeypatch.setattr(controller, "_ensure_qt_player", lambda: False)
     try:
         controller.build_for_presentation(presentation)
-        controller.play()
 
         state = controller.snapshot_state(presentation)
-        assert state.backend_name == "qt_multimedia"
-        assert controller.engine.transport.is_playing is False
+        assert controller._qt_enabled is False
+        assert controller._prefer_qt_for_continuous_audio is False
+        assert state.backend_name == "sounddevice"
         assert (
             controller.engine.mixer.get_layer(TimelineRuntimeAudioController._MONITOR_LAYER_ID)
-            is None
+            is not None
         )
     finally:
         controller.shutdown()
 
 
-def test_runtime_controller_qt_audio_routes_do_not_eager_decode_source(monkeypatch):
+def test_runtime_controller_decodes_selected_audio_source_on_build():
     presentation = _audio_presentation()
     load_calls: list[str] = []
 
@@ -129,41 +163,44 @@ def test_runtime_controller_qt_audio_routes_do_not_eager_decode_source(monkeypat
         audio_loader=_loader,
         use_qt_player=True,
     )
-
-    class _FakeQtPlayer:
-        def setSource(self, _source):
-            return None
-
-        def play(self):
-            return None
-
-        def stop(self):
-            return None
-
-        def setPosition(self, _position_ms: int):
-            return None
-
-        def position(self) -> int:
-            return 0
-
-        def playbackState(self):
-            return 0
-
-    class _FakeQtAudioOutput:
-        def setVolume(self, _volume: float):
-            return None
-
-        def device(self):
-            return None
-
-    controller._qt_player = _FakeQtPlayer()
-    controller._qt_audio_output = _FakeQtAudioOutput()
-    monkeypatch.setattr(controller, "_ensure_qt_player", lambda: True)
     try:
         signature = controller.presentation_signature(presentation)
+
+        assert load_calls == []
+
         controller.build_for_presentation(presentation)
 
-        assert signature == (("runtime_audio", "audio:demo.wav"),)
+        assert signature == (("runtime_audio", "audio:demo.wav|outputs_1_2"),)
+        assert load_calls == ["demo.wav"]
+    finally:
+        controller.shutdown()
+
+
+def test_runtime_controller_state_queries_do_not_decode_or_raise_for_missing_event_assets():
+    presentation = replace(
+        _event_slice_presentation(),
+        active_playback_layer_id=LayerId("kick_lane"),
+    )
+    load_calls: list[str] = []
+
+    def _loader(path: str):
+        load_calls.append(path)
+        raise FileNotFoundError(path)
+
+    controller = TimelineRuntimeAudioController(audio_loader=_loader)
+    try:
+        signature = controller.presentation_signature(presentation)
+        state = controller.snapshot_state(presentation)
+
+        assert signature == (
+            (
+                "kick_lane",
+                "event:kick.wav:0.500000:0:0,1.000000:0:0|outputs_1_2",
+            ),
+        )
+        assert len(state.active_sources) == 1
+        assert state.active_sources[0].layer_id == "kick_lane"
+        assert state.active_sources[0].source_ref == "kick.wav"
         assert load_calls == []
     finally:
         controller.shutdown()
@@ -187,107 +224,6 @@ def test_runtime_controller_can_prefer_sounddevice_backend_for_audio_layers():
         )
     finally:
         controller.shutdown()
-
-
-def test_runtime_controller_qt_route_switch_fades_before_rebinding_source(monkeypatch):
-    app = QApplication.instance() or QApplication([])
-    from PyQt6.QtMultimedia import QMediaPlayer
-
-    base = _audio_presentation()
-    alt_layer = LayerPresentation(
-        layer_id=LayerId("alt_audio"),
-        title="Alt Audio",
-        kind=LayerKind.AUDIO,
-        source_audio_path="alt.wav",
-    )
-    switched = replace(
-        base,
-        layers=[base.layers[0], alt_layer],
-        active_playback_layer_id=alt_layer.layer_id,
-    )
-    events: list[tuple[str, object]] = []
-
-    class _FakeQtPlayer:
-        def __init__(self):
-            self._position = 0
-            self._state = QMediaPlayer.PlaybackState.StoppedState
-
-        def setSource(self, source):
-            events.append(("source", source.toLocalFile()))
-
-        def play(self):
-            self._state = QMediaPlayer.PlaybackState.PlayingState
-            events.append(("play", None))
-
-        def stop(self):
-            self._state = QMediaPlayer.PlaybackState.StoppedState
-            events.append(("stop", None))
-
-        def setPosition(self, position_ms: int):
-            self._position = position_ms
-            events.append(("seek", position_ms))
-
-        def position(self) -> int:
-            return self._position
-
-        def playbackState(self):
-            return self._state
-
-    class _FakeQtAudioOutput:
-        def __init__(self):
-            self._volume = 1.0
-
-        def setVolume(self, volume: float):
-            self._volume = float(volume)
-            events.append(("volume", round(self._volume, 3)))
-
-        def volume(self) -> float:
-            return self._volume
-
-        def device(self):
-            return None
-
-    controller = TimelineRuntimeAudioController(
-        audio_loader=lambda _path: (np.ones(4410, dtype=np.float32), 44100),
-        use_qt_player=True,
-    )
-    controller._qt_player = _FakeQtPlayer()
-    controller._qt_audio_output = _FakeQtAudioOutput()
-    controller._qt_transition_interval_ms = 0
-    controller._qt_transition_steps = 2
-    monkeypatch.setattr(controller, "_ensure_qt_player", lambda: True)
-    try:
-        controller.build_for_presentation(base)
-        controller.play()
-        events.clear()
-
-        controller.apply_mix_state(switched)
-
-        assert ("source", "alt.wav") not in events
-
-        deadline = time.monotonic() + 0.25
-        while time.monotonic() < deadline:
-            app.processEvents()
-            time.sleep(0.01)
-            if ("source", "alt.wav") in events:
-                source_index = events.index(("source", "alt.wav"))
-                if any(
-                    event[0] == "volume" and isinstance(event[1], float) and event[1] > 0.0
-                    for event in events[source_index + 1 :]
-                ):
-                    break
-
-        assert ("source", "alt.wav") in events
-        source_index = events.index(("source", "alt.wav"))
-        assert any(event == ("volume", 0.0) for event in events[: source_index + 1])
-        assert any(event == ("play", None) for event in events[source_index:])
-        assert any(
-            event[0] == "volume" and isinstance(event[1], float) and event[1] > 0.0
-            for event in events[source_index + 1 :]
-        )
-    finally:
-        controller.shutdown()
-        app.processEvents()
 
 
 def test_runtime_controller_preserves_stereo_audio_layer_channels():
@@ -423,6 +359,47 @@ def test_runtime_controller_routes_active_take_when_multichannel_mode_is_enabled
             dtype=np.float32,
         ),
     )
+    controller.shutdown()
+
+
+def test_runtime_controller_keeps_active_event_lane_when_routed_layers_are_present():
+    base = _event_slice_presentation()
+    presentation = replace(
+        base,
+        layers=[
+            replace(base.layers[0], output_bus="outputs_1_2"),
+            base.layers[1],
+        ],
+        active_playback_layer_id=LayerId("kick_lane"),
+    )
+    engine = AudioEngine(sample_rate=44100, channels=4, stream_factory=_fake_stream_factory)
+
+    def _loader(path: str):
+        if path == "bed.wav":
+            return np.full(44100, 0.25, dtype=np.float32), 44100
+        if path == "kick.wav":
+            return np.array([1.0, 0.5], dtype=np.float32), 44100
+        raise AssertionError(path)
+
+    controller = TimelineRuntimeAudioController(engine=engine, audio_loader=_loader)
+    controller.build_for_presentation(presentation)
+
+    mixed = engine.mixer.read_mix(int(0.5 * 44100), 2, channels=4)
+    np.testing.assert_array_equal(
+        mixed,
+        np.array(
+            [
+                [1.0, 1.0, 0.0, 0.0],
+                [0.75, 0.75, 0.0, 0.0],
+            ],
+            dtype=np.float32,
+        ),
+    )
+    assert engine.mixer.get_layer("__ez_route__bed") is not None
+    assert engine.mixer.get_layer("__ez_route__kick_lane") is not None
+
+    state = controller.snapshot_state(presentation)
+    assert {source.layer_id for source in state.active_sources} == {"bed", "kick_lane"}
     controller.shutdown()
 
 

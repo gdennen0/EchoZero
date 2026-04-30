@@ -46,7 +46,7 @@ def test_song_browser_panel_collapses_to_compact_rail():
         app.processEvents()
 
         assert panel.is_collapsed is True
-        assert panel.width() == 56
+        assert panel.width() == 28
         assert panel.property("collapsed") is True
         assert panel._add_button.isHidden() is True
         assert panel._title.isHidden() is True
