@@ -51,6 +51,8 @@ class TimelineWidgetTransferActionMixin(
             return self._handle_route_layer_to_ma3_track(params)
         if resolved_action_id == "transfer.send_selection":
             return self._handle_send_selected_events_to_ma3(params)
+        if resolved_action_id == "transfer.match_ma3_cues":
+            return self._handle_match_events_to_ma3_cues(params)
         if resolved_action_id == "transfer.send_to_track_once":
             return self._handle_send_to_different_track_once(params)
         if resolved_action_id == "push_legacy_mode":

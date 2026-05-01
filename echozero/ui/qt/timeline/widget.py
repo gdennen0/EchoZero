@@ -42,15 +42,11 @@ from echozero.application.timeline.intents import (
     CommitMissedEventsReview,
     CommitMissedEventReview,
     CreateEvent,
-    CreateRegion,
-    DeleteRegion,
     Play,
     ReplaceSectionCues,
     SectionCueEdit,
-    SelectRegion,
     Stop,
     TimelineIntent,
-    UpdateRegion,
 )
 from echozero.application.settings import AppSettingsService
 from echozero.models.paths import ensure_installed_models_dir
@@ -67,11 +63,6 @@ from echozero.ui.qt.song_browser_panel import SongBrowserPanel
 from echozero.ui.qt.timeline.manual_pull import (
     ManualPullTimelineDialog,
     ManualPullTimelineSelectionResult,
-)
-from echozero.ui.qt.timeline.region_manager import (
-    RegionDraft,
-    RegionManagerDialog,
-    RegionPropertiesDialog,
 )
 from echozero.ui.qt.timeline.section_manager import SectionCueDraft, SectionManagerDialog
 from echozero.ui.qt.timeline.object_info_panel import ObjectInfoPanel
@@ -182,15 +173,14 @@ class TimelineWidget(TimelineWidgetRuntimeMixin, TimelineWidgetContractMixin, QW
         self._editor_bar.pipeline_settings_requested.connect(
             self._open_pipeline_settings_browser
         )
-        self._editor_bar.regions_requested.connect(self._open_region_manager_dialog)
         left_layout.addWidget(self._editor_bar)
 
         self._pipeline_status = QFrame(self)
         self._pipeline_status.setObjectName("timelinePipelineStatus")
         self._pipeline_status.setVisible(False)
         pipeline_status_layout = QHBoxLayout(self._pipeline_status)
-        pipeline_status_layout.setContentsMargins(12, 8, 12, 8)
-        pipeline_status_layout.setSpacing(8)
+        pipeline_status_layout.setContentsMargins(8, 4, 8, 4)
+        pipeline_status_layout.setSpacing(6)
         self._pipeline_status_label = QLabel(self._pipeline_status)
         self._pipeline_status_label.setObjectName("timelinePipelineStatusLabel")
         self._pipeline_status_label.setWordWrap(True)
@@ -203,7 +193,7 @@ class TimelineWidget(TimelineWidgetRuntimeMixin, TimelineWidgetContractMixin, QW
         self._pipeline_status_close_button.setObjectName("timelinePipelineStatusCloseButton")
         self._pipeline_status_close_button.setToolTip("Dismiss")
         self._pipeline_status_close_button.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._pipeline_status_close_button.setFixedSize(22, 22)
+        self._pipeline_status_close_button.setFixedSize(18, 18)
         self._pipeline_status_close_button.clicked.connect(self._dismiss_pipeline_status_banner)
         pipeline_status_layout.addWidget(self._pipeline_status_close_button, 0)
         left_layout.addWidget(self._pipeline_status)
@@ -274,9 +264,6 @@ class TimelineWidget(TimelineWidgetRuntimeMixin, TimelineWidgetContractMixin, QW
         self._canvas.preview_selected_event_clip_requested.connect(self._preview_selected_event_clip)
         self._canvas.header_width_changed.connect(self._on_canvas_header_width_changed)
         self._ruler.seek_requested.connect(self._seek)
-        self._ruler.region_span_requested.connect(self._create_region_from_ruler_span)
-        self._ruler.region_selected.connect(self._select_region_from_ruler)
-        self._ruler.region_edit_requested.connect(self._edit_region_from_ruler)
         self._scroll.setWidget(self._canvas)
         self.setFocusProxy(self._canvas)
         left_layout.addWidget(self._scroll)
@@ -319,6 +306,10 @@ class TimelineWidget(TimelineWidgetRuntimeMixin, TimelineWidgetContractMixin, QW
         self._runtime_timer.setInterval(TIMELINE_RUNTIME_TICK_ACTIVE_MS)
         self._runtime_timer.timeout.connect(self._on_runtime_tick)
         self._runtime_timer.start()
+        self._runtime_structural_sync_pending_presentation: TimelinePresentation | None = None
+        self._runtime_structural_sync_timer = QTimer(self)
+        self._runtime_structural_sync_timer.setSingleShot(True)
+        self._runtime_structural_sync_timer.timeout.connect(self._on_runtime_structural_sync_timeout)
         self._action_router = TimelineWidgetActionRouter(
             widget=self,
             dispatch=cast(Callable[[object], None], self._dispatch),
@@ -417,12 +408,6 @@ class TimelineWidget(TimelineWidgetRuntimeMixin, TimelineWidgetContractMixin, QW
 
     def _open_pipeline_settings_browser(self) -> None:
         self._action_router.open_pipeline_settings_browser()
-
-    def _open_region_manager_dialog(self) -> None:
-        dialog = RegionManagerDialog(self.presentation, parent=self)
-        if dialog.exec() != RegionManagerDialog.DialogCode.Accepted:
-            return
-        self._apply_region_manager_changes(dialog.region_drafts())
 
     def _section_manager_target_layer(
         self,
@@ -643,117 +628,6 @@ class TimelineWidget(TimelineWidgetRuntimeMixin, TimelineWidgetContractMixin, QW
                 label = label[: -len(suffix)].strip()
                 break
         return label or "Event"
-
-    def _create_region_from_ruler_span(self, start_seconds: float, end_seconds: float) -> None:
-        start = max(0.0, min(float(start_seconds), float(end_seconds)))
-        end = max(start + 0.01, max(float(start_seconds), float(end_seconds)))
-        label = f"Region {len(self.presentation.regions) + 1}"
-        self._dispatch(
-            CreateRegion(
-                time_range=TimeRange(start=start, end=end),
-                label=label,
-            )
-        )
-
-    def _select_region_from_ruler(self, region_id: object) -> None:
-        target_region_id = next(
-            (
-                region.region_id
-                for region in self.presentation.regions
-                if region.region_id == region_id
-            ),
-            None,
-        )
-        if target_region_id is None:
-            return
-        self._dispatch(SelectRegion(region_id=target_region_id))
-
-    def _edit_region_from_ruler(self, region_id: object) -> None:
-        target = next(
-            (
-                region
-                for region in self.presentation.regions
-                if region.region_id == region_id
-            ),
-            None,
-        )
-        if target is None:
-            return
-        dialog = RegionPropertiesDialog(
-            RegionDraft(
-                region_id=target.region_id,
-                start=float(target.start),
-                end=float(target.end),
-                label=target.label,
-                color=target.color,
-                kind=target.kind,
-            ),
-            parent=self,
-        )
-        if dialog.exec() != RegionPropertiesDialog.DialogCode.Accepted:
-            return
-        values = dialog.values()
-        self._dispatch(
-            UpdateRegion(
-                region_id=target.region_id,
-                time_range=TimeRange(start=float(values.start), end=float(values.end)),
-                label=values.label,
-                color=values.color,
-                kind=target.kind,
-            )
-        )
-
-    def _apply_region_manager_changes(self, drafts: list[RegionDraft]) -> None:
-        existing_regions = list(self.presentation.regions)
-        keep_ids = {draft.region_id for draft in drafts if draft.region_id is not None}
-
-        for region in existing_regions:
-            if region.region_id not in keep_ids:
-                self._dispatch(DeleteRegion(region_id=region.region_id))
-
-        existing_by_id = {region.region_id: region for region in self.presentation.regions}
-        for draft in drafts:
-            if draft.region_id is None:
-                self._dispatch(
-                    CreateRegion(
-                        time_range=TimeRange(start=float(draft.start), end=float(draft.end)),
-                        label=draft.label,
-                        color=draft.color,
-                        kind=draft.kind,
-                    )
-                )
-                continue
-
-            current = existing_by_id.get(draft.region_id)
-            if current is None:
-                self._dispatch(
-                    CreateRegion(
-                        time_range=TimeRange(start=float(draft.start), end=float(draft.end)),
-                        label=draft.label,
-                        color=draft.color,
-                        kind=draft.kind,
-                    )
-                )
-                continue
-
-            if (
-                abs(float(current.start) - float(draft.start)) <= 1e-6
-                and abs(float(current.end) - float(draft.end)) <= 1e-6
-                and current.label == draft.label
-                and current.color == draft.color
-                and current.kind == draft.kind
-            ):
-                continue
-
-            self._dispatch(
-                UpdateRegion(
-                    region_id=draft.region_id,
-                    time_range=TimeRange(start=float(draft.start), end=float(draft.end)),
-                    label=draft.label,
-                    color=draft.color,
-                    kind=draft.kind,
-                )
-            )
 
     def _apply_section_manager_changes(
         self,

@@ -7,11 +7,12 @@ from __future__ import annotations
 
 from typing import cast
 
-from PyQt6.QtCore import QEvent, QObject, QPoint, QTimer, Qt, pyqtSignal
+from PyQt6.QtCore import QEvent, QObject, QPoint, QItemSelectionModel, QTimer, Qt, pyqtSignal
 from PyQt6.QtGui import QDragEnterEvent, QDragMoveEvent, QDropEvent, QFont
 from PyQt6.QtWidgets import (
     QAbstractItemView,
     QApplication,
+    QHeaderView,
     QHBoxLayout,
     QLabel,
     QListWidget,
@@ -44,7 +45,7 @@ _VERSION_ID_ROLE = Qt.ItemDataRole.UserRole + 3
 _VERSION_SONG_ID_ROLE = Qt.ItemDataRole.UserRole + 4
 _ROW_NUMBER_COLUMN = 0
 _SONG_TITLE_COLUMN = 1
-_ROW_NUMBER_COLUMN_WIDTH = 38
+_ROW_NUMBER_COLUMN_WIDTH = 68
 _PANEL_COLLAPSED_WIDTH = 28
 _PANEL_DEFAULT_EXPANDED_WIDTH = 300
 _PANEL_MIN_EXPANDED_WIDTH = 240
@@ -171,6 +172,12 @@ class SongBrowserPanel(QWidget):
         self._songs_tree.setItemsExpandable(False)
         self._songs_tree.setIndentation(0)
         self._songs_tree.header().setMinimumSectionSize(0)
+        self._songs_tree.header().setSectionResizeMode(
+            _ROW_NUMBER_COLUMN, QHeaderView.ResizeMode.Fixed
+        )
+        self._songs_tree.header().setSectionResizeMode(
+            _SONG_TITLE_COLUMN, QHeaderView.ResizeMode.Stretch
+        )
         self._songs_tree.header().setStretchLastSection(True)
         self._songs_tree.setColumnWidth(_ROW_NUMBER_COLUMN, _ROW_NUMBER_COLUMN_WIDTH)
         self._songs_tree.setUniformRowHeights(True)
@@ -345,10 +352,12 @@ class SongBrowserPanel(QWidget):
 
     def _populate_song_list(self, presentation: TimelinePresentation) -> None:
         self._is_populating_song_list = True
+        scroll_bar = self._songs_tree.verticalScrollBar()
+        prior_scroll_value = scroll_bar.value() if scroll_bar is not None else 0
         try:
             self._songs_tree.blockSignals(True)
             self._songs_tree.clear()
-            current_item: QTreeWidgetItem | None = None
+            selected_song_items: list[QTreeWidgetItem] = []
             for index, song in enumerate(presentation.available_songs, start=1):
                 song_item = QTreeWidgetItem([str(index), song.title])
                 song_item.setTextAlignment(
@@ -369,17 +378,39 @@ class SongBrowserPanel(QWidget):
                     song_font = QFont(song_item.font(_SONG_TITLE_COLUMN))
                     song_font.setBold(True)
                     song_item.setFont(_SONG_TITLE_COLUMN, song_font)
-                    current_item = song_item
                 self._songs_tree.addTopLevelItem(song_item)
                 if song.song_id in self._selected_song_ids:
-                    song_item.setSelected(True)
-
-            if current_item is not None:
-                self._songs_tree.setCurrentItem(current_item, _SONG_TITLE_COLUMN)
+                    selected_song_items.append(song_item)
+            self._update_row_number_column_width()
+            # Defensive refresh: some drop/import repaint paths can leave row text stale.
+            self._refresh_song_row_numbers()
+            selection_model = self._songs_tree.selectionModel()
+            if selection_model is not None:
+                selection_model.clearSelection()
+                for song_item in selected_song_items:
+                    index = self._songs_tree.indexFromItem(song_item)
+                    if index.isValid():
+                        selection_model.select(
+                            index,
+                            QItemSelectionModel.SelectionFlag.Select
+                            | QItemSelectionModel.SelectionFlag.Rows,
+                        )
             self._songs_tree.blockSignals(False)
+            if scroll_bar is not None:
+                scroll_bar.setValue(prior_scroll_value)
         finally:
             self._is_populating_song_list = False
         self._sync_selection_from_tree()
+
+    def _update_row_number_column_width(self) -> None:
+        song_count = max(1, self._songs_tree.topLevelItemCount())
+        digits = len(str(song_count))
+        digit_width = self._songs_tree.fontMetrics().horizontalAdvance("9")
+        dynamic_width = 40 + (digit_width * max(3, digits))
+        self._songs_tree.setColumnWidth(
+            _ROW_NUMBER_COLUMN,
+            max(_ROW_NUMBER_COLUMN_WIDTH, dynamic_width),
+        )
 
     def _populate_version_list(self, presentation: TimelinePresentation) -> None:
         self._version_list.blockSignals(True)

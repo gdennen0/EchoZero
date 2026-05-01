@@ -37,7 +37,6 @@ from echozero.application.presentation.models import (
     ManualPushSequenceRangePresentation,
     ManualPushTrackOptionPresentation,
     OperationProgressBannerPresentation,
-    RegionPresentation,
     SongOptionPresentation,
     SongVersionOptionPresentation,
     TakeLanePresentation,
@@ -45,7 +44,7 @@ from echozero.application.presentation.models import (
     TransferPresetPresentation,
 )
 from echozero.application.shared.enums import FollowMode, LayerKind
-from echozero.application.shared.ids import EventId, LayerId, RegionId, TakeId, TimelineId
+from echozero.application.shared.ids import EventId, LayerId, TakeId, TimelineId
 from echozero.application.sync.models import LiveSyncState
 from echozero.application.timeline.event_batch_scope import EventBatchScope
 from echozero.application.timeline.intents import (
@@ -62,7 +61,6 @@ from echozero.application.timeline.intents import (
     CommitVerifiedEventsReview,
     ConfirmPullFromMA3,
     ConfirmPushToMA3,
-    CreateRegion,
     CreateEvent,
     DeleteEvents,
     DeleteTransferPreset,
@@ -87,7 +85,6 @@ from echozero.application.timeline.intents import (
     SelectSimilarSoundingEvents,
     SelectEvent,
     SelectLayer,
-    SelectRegion,
     SelectPullSourceEvents,
     SelectPullSourceTrack,
     SelectPullSourceTracks,
@@ -105,7 +102,6 @@ from echozero.application.timeline.intents import (
     SetSelectedEvents,
     Stop,
     ToggleLayerExpanded,
-    UpdateRegion,
 )
 from echozero.application.timeline.ma3_push_intents import (
     AssignMA3TrackSequence,

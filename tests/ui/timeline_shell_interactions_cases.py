@@ -37,6 +37,7 @@ from tests.ui.timeline_shell_support import (
     test_fix_mode_shift_space_and_enter_preview_selected_event_clip,
     test_layer_header_click_dispatches_layer_selection_not_seek,
     test_layer_header_click_dispatches_toggle_and_range_selection_modes,
+    test_layer_drag_target_allows_inserting_above_source_audio_row,
     test_layer_header_no_longer_exposes_pull_control,
     test_layer_header_pipeline_control_opens_workspace_pipeline_menu,
     test_layer_header_renders_selection_background_and_mute_button_independently,

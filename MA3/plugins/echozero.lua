@@ -12,6 +12,7 @@ EZ.config = EZ.config or {
 EZ._hooks = EZ._hooks or {}
 EZ._trackgroup_hooks = EZ._trackgroup_hooks or {}
 EZ._version = "2.0"
+EZ._build = EZ._build or "2026-05-01.transport-send-debug-1"
 EZ._oscInitialized = false
 
 -- PLUGIN HANDLE CAPTURE (luaComponentHandle at load time, :Parent() for HookObjectChange)
@@ -115,6 +116,109 @@ function EZ.getCmdSubTrack(tcNo, tgNo, trackNo, timeRangeIdx, subTrackIdx)
     end
     return nil
 end
+
+local function eventReadProperty(eventHandle, propertyName)
+    if not eventHandle or not propertyName then
+        return nil
+    end
+    local okField, fieldValue = pcall(function() return eventHandle[propertyName] end)
+    if
+        okField
+        and fieldValue ~= nil
+        and fieldValue ~= ""
+        and type(fieldValue) ~= "userdata"
+    then
+        return fieldValue
+    end
+    if eventHandle.Get then
+        local okGet, getValue = pcall(function() return eventHandle:Get(propertyName) end)
+        if okGet and getValue ~= nil and getValue ~= "" then
+            if type(getValue) == "userdata" then
+                return tostring(getValue)
+            end
+            return getValue
+        end
+    end
+    return nil
+end
+
+local function eventReadFirst(eventHandle, propertyNames)
+    if not propertyNames then
+        return nil
+    end
+    for _, propertyName in ipairs(propertyNames) do
+        local value = eventReadProperty(eventHandle, propertyName)
+        if value ~= nil and value ~= "" then
+            return value
+        end
+    end
+    return nil
+end
+
+local function parseCueNoFromDestinationText(cueDestination)
+    if cueDestination == nil then
+        return nil
+    end
+    local direct = tonumber(cueDestination)
+    if direct and direct > 0 then
+        return direct
+    end
+
+    local text = tostring(cueDestination)
+    local fromPath = text:match("/%s*([%d%.]+)")
+    if fromPath then
+        local parsed = tonumber(fromPath)
+        if parsed and parsed > 0 then
+            return parsed
+        end
+    end
+
+    local trailing = text:match("([%d%.]+)%s*$")
+    if trailing then
+        local parsed = tonumber(trailing)
+        if parsed and parsed > 0 then
+            return parsed
+        end
+    end
+    return nil
+end
+
+local function normalizeEventCueNo(cueNoValue, track, commandText)
+    local parsedCueNo = tonumber(cueNoValue)
+    if not parsedCueNo or parsedCueNo <= 0 then
+        return cueNoValue
+    end
+
+    local seqNo = nil
+    if track and track.target then
+        local okNo, seqNoValue = pcall(function() return track.target.no end)
+        if okNo then
+            seqNo = tonumber(seqNoValue)
+        end
+    end
+    local cueNoText = tostring(cueNoValue)
+    if seqNo then
+        local seqPrefix = tostring(math.floor(seqNo + 0.0000001)) .. "."
+        if cueNoText:sub(1, #seqPrefix) == seqPrefix then
+            local cueToken = cueNoText:sub(#seqPrefix + 1)
+            local cueTokenNumber = tonumber(cueToken)
+            if cueTokenNumber and cueTokenNumber > 0 then
+                return cueTokenNumber * 1000
+            end
+        end
+    end
+
+    local cmdText = tostring(commandText or "")
+    local seqToken, cueToken = cmdText:match("Sequence%s+(%d+)%.([%d%.]+)")
+    if seqToken and cueToken then
+        local parsedSeq = tonumber(seqToken)
+        local parsedCue = tonumber(cueToken)
+        if parsedCue and parsedCue > 0 and (not seqNo or parsedSeq == seqNo) then
+            return parsedCue * 1000
+        end
+    end
+    return cueNoValue
+end
 -- Get all events from a track
 -- Hierarchy: Track -> TimeRange -> SubTrack (CmdSubTrack/FaderSubTrack) -> Event
 -- All levels use :Children() for traversal!
@@ -193,22 +297,43 @@ function EZ.getTrackEvents(track)
                                                 end
                                             end
                                         end
+                                        local tokenValue = eventReadFirst(evt, {"token", "TOKEN", "Token"})
+                                        local cueDestinationValue = eventReadFirst(
+                                            evt,
+                                            {"CueDestination", "cuedestination", "CUEDESTINATION"}
+                                        )
+                                        local cueNoValue = eventReadFirst(evt, {"cueNo", "cueno", "CueNo", "CUENO"})
+                                        local cueNameValue = eventReadFirst(evt, {"cueName", "cuename", "CueName", "CUENAME"})
+                                        local cmdValue = eventReadFirst(evt, {"cmd", "Cmd", "CMD"})
+                                        if cmdValue == nil and tokenValue ~= nil then
+                                            if cueDestinationValue ~= nil and tostring(cueDestinationValue) ~= "" then
+                                                cmdValue = tostring(tokenValue) .. " " .. tostring(cueDestinationValue)
+                                            else
+                                                cmdValue = tostring(tokenValue)
+                                            end
+                                        end
+                                        if cueNoValue == nil then
+                                            cueNoValue = parseCueNoFromDestinationText(cueDestinationValue)
+                                        end
+                                        cueNoValue = normalizeEventCueNo(cueNoValue, track, cmdValue)
+
                                         -- Capture all available event properties
-                                        -- Core properties for sync
+                                        -- Core properties for sync/readback
                                         local eventData = {
                                             no = evt.no or evIdx,
                                             time = timeVal,
                                             duration = evt.duration or 0,
-                                            cmd = evt.cmd or "",
+                                            cmd = cmdValue or "",
                                             name = evt.name or "",
+                                            token = tokenValue,
+                                            cue_destination = cueDestinationValue,
                                             subtrack_type = subTrackClass
                                         }
                                         -- Extended properties for cue/trigger info
                                         -- These may not always be present
                                         if evt.cue then eventData.cue = evt.cue end
-                                        if evt.cueNo then eventData.cue_no = evt.cueNo end
-                                        if evt.cueno then eventData.cue_no = evt.cueno end
-                                        if evt.cueName then eventData.cue_name = evt.cueName end
+                                        if cueNoValue then eventData.cue_no = cueNoValue end
+                                        if cueNameValue then eventData.cue_name = cueNameValue end
                                         if evt.trigger then eventData.trigger = evt.trigger end
                                         if evt.type then eventData.event_type = evt.type end
                                         if evt.fade then eventData.fade = evt.fade end
@@ -350,6 +475,14 @@ function EZ.Status()
         version = EZ._version,
         cmd_mode = cmdMode
     })
+end
+
+function EZ.Version()
+    local version = tostring(EZ._version or "?")
+    local build = tostring(EZ._build or "?")
+    local text = string.format("[EZ] Version: %s (build %s)", version, build)
+    Printf("%s", text)
+    return text
 end
 -- EZ.DiagnoseTime and EZ.TestSocket moved to echozero_debug.lua
 -- =============================================================================

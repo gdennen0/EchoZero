@@ -109,14 +109,14 @@ class TimelineOrchestratorManualPullImportMixin:
         missing_cue_numbers = [
             str(event.event_id)
             for event in selected_events
-            if event.cue_number is None
+            if event.cue_number is None and (event.cue_ref is None or str(event.cue_ref).strip() == "")
         ]
         if not missing_cue_numbers:
             return
         missing_text = ", ".join(missing_cue_numbers)
         raise ValueError(
-            "Section pull import requires cue numbers on source sequence events. "
-            f"Track '{source_track.name}' is missing cue_number for: {missing_text}"
+            "Section pull import requires cue numbers or cue refs on source sequence events. "
+            f"Track '{source_track.name}' is missing cue info for: {missing_text}"
         )
 
     def _resolve_or_create_manual_pull_main_take(self, layer: Layer) -> Take:

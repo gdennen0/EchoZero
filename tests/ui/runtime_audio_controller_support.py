@@ -3,6 +3,8 @@ Exists to isolate controller and demo-dispatch coverage from widget timing suppo
 Connects the compatibility wrapper to the bounded runtime-audio controller slice.
 """
 
+import threading
+
 from tests.ui.runtime_audio_shared_support import *  # noqa: F401,F403
 
 def test_runtime_controller_updates_mix_state_while_playing():
@@ -125,7 +127,58 @@ def test_runtime_controller_snapshot_state_reports_engine_diagnostics():
     assert state.diagnostics.prime_output_buffers_using_stream_callback is False
     assert state.diagnostics.last_transition == "play"
     assert state.diagnostics.last_track_sync_reason == "track-signature-changed"
+    assert state.diagnostics.structural_rebuild_count >= 1
+    assert state.diagnostics.max_structural_rebuild_ms >= 0.0
     controller.shutdown()
+
+
+def test_runtime_controller_mix_sync_never_triggers_structural_decode_reload():
+    presentation = _event_slice_presentation()
+    load_calls: list[str] = []
+
+    def _loader(path: str):
+        load_calls.append(path)
+        if path == "bed.wav":
+            return np.full(44100, 0.25, dtype=np.float32), 44100
+        if path == "kick.wav":
+            return np.array([1.0, 0.5], dtype=np.float32), 44100
+        raise AssertionError(path)
+
+    controller = TimelineRuntimeAudioController(audio_loader=_loader)
+    try:
+        controller.build_for_presentation(presentation)
+        assert load_calls == ["bed.wav", "kick.wav"]
+
+        changed = replace(
+            presentation,
+            layers=[
+                presentation.layers[0],
+                replace(
+                    presentation.layers[1],
+                    events=[
+                        *presentation.layers[1].events,
+                        EventPresentation(
+                            event_id=EventId("kick_3"),
+                            start=1.4,
+                            end=1.5,
+                            label="Kick",
+                        ),
+                    ],
+                ),
+            ],
+        )
+        controller.apply_mix_state(changed)
+
+        assert load_calls == ["bed.wav", "kick.wav"]
+        assert controller._last_track_sync_reason == "mix-state-pending-structure-sync"
+
+        controller.sync_structure_state(changed)
+        state = controller.snapshot_state(changed)
+        assert state.diagnostics.structural_rebuild_count >= 2
+        assert state.diagnostics.last_structural_rebuild_ms >= 0.0
+        assert state.diagnostics.max_structural_rebuild_ms >= state.diagnostics.last_structural_rebuild_ms
+    finally:
+        controller.shutdown()
 
 
 def test_runtime_controller_decodes_selected_audio_source_on_build():
@@ -326,6 +379,88 @@ def test_runtime_controller_routes_active_take_when_multichannel_mode_is_enabled
             [
                 [0.5, 0.5, 0.75, 0.75],
                 [-0.5, -0.5, -0.75, -0.75],
+            ],
+            dtype=np.float32,
+        ),
+    )
+    controller.shutdown()
+
+
+def test_runtime_controller_routes_layer_to_wide_output_span():
+    base = build_demo_app().presentation()
+    song_layer = LayerPresentation(
+        layer_id=LayerId("song_layer"),
+        title="Song",
+        kind=LayerKind.AUDIO,
+        source_audio_path="song.wav",
+        output_bus="outputs_1_4",
+    )
+    presentation = replace(
+        base,
+        layers=[song_layer],
+        selected_layer_id=song_layer.layer_id,
+        playback_output_channels=4,
+    )
+    engine = AudioEngine(sample_rate=44100, channels=4, stream_factory=_fake_stream_factory)
+
+    controller = TimelineRuntimeAudioController(
+        engine=engine,
+        audio_loader=lambda _path: (np.array([0.25, -0.25], dtype=np.float32), 44100),
+    )
+    controller.build_for_presentation(presentation)
+
+    mixed = engine.mixer.read_mix(0, 2, channels=4)
+    np.testing.assert_array_equal(
+        mixed,
+        np.array(
+            [
+                [0.25, 0.25, 0.25, 0.25],
+                [-0.25, -0.25, -0.25, -0.25],
+            ],
+            dtype=np.float32,
+        ),
+    )
+    routed = engine.mixer.get_layer("__ez_route__song_layer")
+    assert routed is not None
+    assert routed.output_bus == "outputs_1_4"
+    controller.shutdown()
+
+
+def test_runtime_controller_clears_invalid_route_when_output_channel_count_shrinks():
+    base = build_demo_app().presentation()
+    song_layer = LayerPresentation(
+        layer_id=LayerId("song_layer"),
+        title="Song",
+        kind=LayerKind.AUDIO,
+        source_audio_path="song.wav",
+        output_bus="outputs_7_8",
+    )
+    presentation = replace(
+        base,
+        layers=[song_layer],
+        selected_layer_id=song_layer.layer_id,
+        playback_output_channels=4,
+    )
+    engine = AudioEngine(sample_rate=44100, channels=4, stream_factory=_fake_stream_factory)
+
+    controller = TimelineRuntimeAudioController(
+        engine=engine,
+        audio_loader=lambda _path: (np.array([0.25, -0.25], dtype=np.float32), 44100),
+    )
+    controller.build_for_presentation(presentation)
+
+    primary = engine.mixer.get_layer(TimelineRuntimeAudioController._PRIMARY_TRACK_ID)
+    assert primary is not None
+    assert primary.output_bus is None
+    assert engine.mixer.get_layer("__ez_route__song_layer") is None
+
+    mixed = engine.mixer.read_mix(0, 2, channels=4)
+    np.testing.assert_array_equal(
+        mixed,
+        np.array(
+            [
+                [0.25, 0.25, 0.0, 0.0],
+                [-0.25, -0.25, 0.0, 0.0],
             ],
             dtype=np.float32,
         ),
@@ -747,6 +882,416 @@ def test_demo_dispatch_routes_mix_update_intents_to_runtime_audio():
     demo.dispatch(SetLayerMute(layer_id=layer_id, muted=True))
 
     assert runtime_audio.calls == [("mix", None)]
+
+
+def test_runtime_controller_structural_sync_queues_async_while_playing(monkeypatch):
+    base = _event_slice_presentation()
+    changed = replace(
+        base,
+        layers=[
+            base.layers[0],
+            replace(
+                base.layers[1],
+                events=[
+                    *base.layers[1].events,
+                    EventPresentation(
+                        event_id=EventId("kick_3"),
+                        start=2.0,
+                        end=2.1,
+                        label="Kick",
+                    ),
+                ],
+            ),
+        ],
+    )
+    engine = AudioEngine(stream_factory=_fake_stream_factory)
+
+    def _loader(path: str):
+        if path == "bed.wav":
+            return np.full(44100, 0.25, dtype=np.float32), 44100
+        if path == "kick.wav":
+            return np.array([1.0, 0.5], dtype=np.float32), 44100
+        raise AssertionError(path)
+
+    controller = TimelineRuntimeAudioController(engine=engine, audio_loader=_loader)
+    controller.build_for_presentation(base)
+    controller.play()
+
+    started = threading.Event()
+    release = threading.Event()
+    original_prepare = controller._prepare_structure_track_plan_async
+
+    def _blocking_prepare(presentation):
+        started.set()
+        assert release.wait(timeout=2.0)
+        return original_prepare(presentation)
+
+    monkeypatch.setattr(controller, "_prepare_structure_track_plan_async", _blocking_prepare)
+    before_track = engine.mixer.get_layer("__ez_route__kick_lane")
+    assert before_track is not None
+    before_duration = before_track.duration_samples
+
+    controller.sync_structure_state(changed)
+    assert started.wait(timeout=1.0) is True
+    assert controller._last_track_sync_reason == "structure-async-queued"
+    mid_track = engine.mixer.get_layer("__ez_route__kick_lane")
+    assert mid_track is not None
+    assert mid_track.duration_samples == before_duration
+
+    release.set()
+    deadline = time.monotonic() + 2.0
+    while controller._pending_structure_futures and time.monotonic() < deadline:
+        controller.drain_pending_structure_sync()
+        time.sleep(0.01)
+
+    after_track = engine.mixer.get_layer("__ez_route__kick_lane")
+    assert after_track is not None
+    assert after_track.duration_samples > before_duration
+    assert controller._last_track_sync_reason == "structure-async-applied"
+    controller.shutdown()
+
+
+def test_runtime_controller_structural_sync_latest_wins_and_drops_stale(monkeypatch):
+    base = _event_slice_presentation()
+    changed_v1 = replace(
+        base,
+        layers=[
+            base.layers[0],
+            replace(
+                base.layers[1],
+                events=[
+                    *base.layers[1].events,
+                    EventPresentation(
+                        event_id=EventId("kick_3"),
+                        start=2.0,
+                        end=2.1,
+                        label="Kick",
+                    ),
+                ],
+            ),
+        ],
+    )
+    changed_v2 = replace(
+        changed_v1,
+        layers=[
+            changed_v1.layers[0],
+            replace(
+                changed_v1.layers[1],
+                events=[
+                    *changed_v1.layers[1].events,
+                    EventPresentation(
+                        event_id=EventId("kick_4"),
+                        start=3.0,
+                        end=3.1,
+                        label="Kick",
+                    ),
+                ],
+            ),
+        ],
+    )
+    engine = AudioEngine(stream_factory=_fake_stream_factory)
+
+    def _loader(path: str):
+        if path == "bed.wav":
+            return np.full(44100, 0.25, dtype=np.float32), 44100
+        if path == "kick.wav":
+            return np.array([1.0, 0.5], dtype=np.float32), 44100
+        raise AssertionError(path)
+
+    controller = TimelineRuntimeAudioController(engine=engine, audio_loader=_loader)
+    controller.build_for_presentation(base)
+    controller.play()
+
+    first_started = threading.Event()
+    release_first = threading.Event()
+    original_prepare = controller._prepare_structure_track_plan_async
+
+    def _prepare_with_first_block(presentation):
+        event_count = len(presentation.layers[1].events)
+        if event_count == 3:
+            first_started.set()
+            assert release_first.wait(timeout=2.0)
+        return original_prepare(presentation)
+
+    monkeypatch.setattr(controller, "_prepare_structure_track_plan_async", _prepare_with_first_block)
+
+    controller.sync_structure_state(changed_v1)
+    assert first_started.wait(timeout=1.0) is True
+    controller.sync_structure_state(changed_v2)
+    release_first.set()
+
+    deadline = time.monotonic() + 2.0
+    while controller._pending_structure_futures and time.monotonic() < deadline:
+        controller.drain_pending_structure_sync()
+        time.sleep(0.01)
+
+    assert controller._latest_ready_generation == controller._latest_requested_generation
+    assert controller._coalesced_edit_count >= 1
+
+    expected_engine = AudioEngine(stream_factory=_fake_stream_factory)
+    expected = TimelineRuntimeAudioController(engine=expected_engine, audio_loader=_loader)
+    expected.build_for_presentation(changed_v2)
+    expected_track = expected_engine.mixer.get_layer("__ez_route__kick_lane")
+    applied_track = engine.mixer.get_layer("__ez_route__kick_lane")
+    assert expected_track is not None
+    assert applied_track is not None
+    assert applied_track.duration_samples == expected_track.duration_samples
+
+    expected.shutdown()
+    controller.shutdown()
+
+
+def test_runtime_controller_structural_sync_is_immediate_when_not_playing():
+    base = _event_slice_presentation()
+    changed = replace(
+        base,
+        layers=[
+            base.layers[0],
+            replace(
+                base.layers[1],
+                events=[
+                    *base.layers[1].events,
+                    EventPresentation(
+                        event_id=EventId("kick_3"),
+                        start=2.0,
+                        end=2.1,
+                        label="Kick",
+                    ),
+                ],
+            ),
+        ],
+    )
+    engine = AudioEngine(stream_factory=_fake_stream_factory)
+
+    def _loader(path: str):
+        if path == "bed.wav":
+            return np.full(44100, 0.25, dtype=np.float32), 44100
+        if path == "kick.wav":
+            return np.array([1.0, 0.5], dtype=np.float32), 44100
+        raise AssertionError(path)
+
+    controller = TimelineRuntimeAudioController(engine=engine, audio_loader=_loader)
+    controller.build_for_presentation(base)
+    before_track = engine.mixer.get_layer("__ez_route__kick_lane")
+    assert before_track is not None
+    before_duration = before_track.duration_samples
+
+    controller.sync_structure_state(changed)
+
+    after_track = engine.mixer.get_layer("__ez_route__kick_lane")
+    assert after_track is not None
+    assert after_track.duration_samples > before_duration
+    assert controller._pending_structure_futures == {}
+    controller.shutdown()
+
+
+def test_runtime_controller_shutdown_cancels_async_render_jobs(monkeypatch):
+    base = _event_slice_presentation()
+    changed = replace(
+        base,
+        layers=[
+            base.layers[0],
+            replace(
+                base.layers[1],
+                events=[
+                    *base.layers[1].events,
+                    EventPresentation(
+                        event_id=EventId("kick_3"),
+                        start=2.0,
+                        end=2.1,
+                        label="Kick",
+                    ),
+                ],
+            ),
+        ],
+    )
+    engine = AudioEngine(stream_factory=_fake_stream_factory)
+
+    def _loader(path: str):
+        if path == "bed.wav":
+            return np.full(44100, 0.25, dtype=np.float32), 44100
+        if path == "kick.wav":
+            return np.array([1.0, 0.5], dtype=np.float32), 44100
+        raise AssertionError(path)
+
+    controller = TimelineRuntimeAudioController(engine=engine, audio_loader=_loader)
+    controller.build_for_presentation(base)
+    controller.play()
+
+    started = threading.Event()
+    release = threading.Event()
+    original_prepare = controller._prepare_structure_track_plan_async
+
+    def _blocking_prepare(presentation):
+        started.set()
+        assert release.wait(timeout=2.0)
+        return original_prepare(presentation)
+
+    monkeypatch.setattr(controller, "_prepare_structure_track_plan_async", _blocking_prepare)
+    controller.sync_structure_state(changed)
+    assert started.wait(timeout=1.0) is True
+
+    controller.shutdown()
+    release.set()
+    assert controller._pending_structure_futures == {}
+
+
+def test_runtime_controller_structural_storm_queues_without_blocking_and_keeps_glitch_count_flat(
+    monkeypatch,
+):
+    base = _event_slice_presentation()
+    engine = AudioEngine(stream_factory=_fake_stream_factory)
+
+    def _loader(path: str):
+        if path == "bed.wav":
+            return np.full(44100, 0.25, dtype=np.float32), 44100
+        if path == "kick.wav":
+            return np.array([1.0, 0.5], dtype=np.float32), 44100
+        raise AssertionError(path)
+
+    controller = TimelineRuntimeAudioController(engine=engine, audio_loader=_loader)
+    controller.build_for_presentation(base)
+    controller.play()
+
+    original_prepare = controller._prepare_structure_track_plan_async
+
+    def _slow_prepare(presentation):
+        time.sleep(0.12)
+        return original_prepare(presentation)
+
+    monkeypatch.setattr(controller, "_prepare_structure_track_plan_async", _slow_prepare)
+    max_call_ms = 0.0
+    for index in range(4):
+        changed = replace(
+            base,
+            layers=[
+                base.layers[0],
+                replace(
+                    base.layers[1],
+                    events=[
+                        *base.layers[1].events,
+                        EventPresentation(
+                            event_id=EventId(f"storm_{index}"),
+                            start=2.0 + (index * 0.25),
+                            end=2.1 + (index * 0.25),
+                            label="Kick",
+                        ),
+                    ],
+                ),
+            ],
+        )
+        started = time.perf_counter()
+        controller.sync_structure_state(changed)
+        max_call_ms = max(max_call_ms, (time.perf_counter() - started) * 1000.0)
+
+    deadline = time.monotonic() + 3.0
+    while controller._pending_structure_futures and time.monotonic() < deadline:
+        controller.drain_pending_structure_sync()
+        time.sleep(0.01)
+
+    assert max_call_ms < 50.0
+    assert engine.glitch_count == 0
+    controller.shutdown()
+
+
+def test_runtime_controller_shutdown_is_idempotent():
+    controller = TimelineRuntimeAudioController(
+        engine=AudioEngine(stream_factory=_fake_stream_factory),
+        audio_loader=lambda _path: (np.ones(512, dtype=np.float32), 44100),
+    )
+    presentation = _audio_presentation()
+    controller.build_for_presentation(presentation)
+
+    controller.shutdown()
+    controller.shutdown()
+
+    assert controller._pending_structure_futures == {}
+    assert controller._shutdown_state == "shutdown"
+
+
+def test_runtime_controller_ignores_structure_queue_after_shutdown():
+    base = _event_slice_presentation()
+    changed = replace(
+        base,
+        layers=[
+            base.layers[0],
+            replace(
+                base.layers[1],
+                events=[
+                    *base.layers[1].events,
+                    EventPresentation(
+                        event_id=EventId("kick_3"),
+                        start=2.0,
+                        end=2.1,
+                        label="Kick",
+                    ),
+                ],
+            ),
+        ],
+    )
+    controller = TimelineRuntimeAudioController(
+        engine=AudioEngine(stream_factory=_fake_stream_factory),
+        audio_loader=lambda _path: (np.ones(512, dtype=np.float32), 44100),
+    )
+    controller.build_for_presentation(base)
+    controller.shutdown()
+
+    controller.sync_structure_state(changed)
+    controller.drain_pending_structure_sync()
+
+    assert controller._pending_structure_futures == {}
+    assert controller._last_track_sync_reason == "structure-async-shutdown-ignored"
+
+
+def test_runtime_controller_drain_after_shutdown_never_applies_completed_results(monkeypatch):
+    base = _event_slice_presentation()
+    changed = replace(
+        base,
+        layers=[
+            base.layers[0],
+            replace(
+                base.layers[1],
+                events=[
+                    *base.layers[1].events,
+                    EventPresentation(
+                        event_id=EventId("kick_3"),
+                        start=2.0,
+                        end=2.1,
+                        label="Kick",
+                    ),
+                ],
+            ),
+        ],
+    )
+    controller = TimelineRuntimeAudioController(
+        engine=AudioEngine(stream_factory=_fake_stream_factory),
+        audio_loader=lambda _path: (np.ones(512, dtype=np.float32), 44100),
+    )
+    controller.build_for_presentation(base)
+    controller.play()
+
+    started = threading.Event()
+    release = threading.Event()
+    original_prepare = controller._prepare_structure_track_plan_async
+
+    def _blocking_prepare(presentation):
+        started.set()
+        assert release.wait(timeout=2.0)
+        return original_prepare(presentation)
+
+    monkeypatch.setattr(controller, "_prepare_structure_track_plan_async", _blocking_prepare)
+    controller.sync_structure_state(changed)
+    assert started.wait(timeout=1.0) is True
+
+    controller.shutdown()
+    release.set()
+    controller.drain_pending_structure_sync()
+
+    assert controller._pending_structure_futures == {}
+    assert all(
+        outcome in {"cancelled", "failed", "stale-dropped", "applied"}
+        for outcome in controller._generation_terminal_outcomes.values()
+    )
 
 
 

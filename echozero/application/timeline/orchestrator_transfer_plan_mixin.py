@@ -312,8 +312,10 @@ class TimelineOrchestratorTransferPlanMixin:
         get_operation = getattr(host.sync_service, "get_operation", None)
         if callable(start_push) and callable(get_operation):
             session = host.session_service.get_session()
+            ma3_channel_no = self._push_row_ma3_channel_no(timeline, row)
             operation_id = start_push(
                 target_track_coord=row.target_track_coord,
+                ma3_channel_no=ma3_channel_no,
                 selected_events=selected_events,
                 transfer_mode=session.manual_push_flow.transfer_mode,
                 start_offset_seconds=self._project_ma3_push_offset_seconds(session),
@@ -332,6 +334,7 @@ class TimelineOrchestratorTransferPlanMixin:
             self._invoke_push_apply(
                 apply_push,
                 target_track_coord=row.target_track_coord,
+                ma3_channel_no=self._push_row_ma3_channel_no(timeline, row),
                 selected_events=selected_events,
             )
             return self._copy_plan_row(row, status="applied", issue=None)
@@ -365,6 +368,7 @@ class TimelineOrchestratorTransferPlanMixin:
         callback: Callable[..., object],
         *,
         target_track_coord: str | None,
+        ma3_channel_no: int | None,
         selected_events: list[Event],
     ) -> None:
         host = cast(_TransferPlanHost, self)
@@ -387,7 +391,22 @@ class TimelineOrchestratorTransferPlanMixin:
             kwargs["start_offset_seconds"] = start_offset_seconds
         elif parameters is not None and "push_offset_seconds" in parameters:
             kwargs["push_offset_seconds"] = start_offset_seconds
+        if parameters is not None and "ma3_channel_no" in parameters:
+            kwargs["ma3_channel_no"] = ma3_channel_no
         callback(**kwargs)
+
+    @staticmethod
+    def _push_row_ma3_channel_no(
+        timeline: Timeline,
+        row: BatchTransferPlanRowState,
+    ) -> int | None:
+        layer_id = row.source_layer_id
+        if layer_id is None:
+            return None
+        for layer in timeline.layers:
+            if layer.id == layer_id:
+                return layer.sync.ma3_channel_no
+        return None
 
     @staticmethod
     def _project_ma3_push_offset_seconds(session: object) -> float:

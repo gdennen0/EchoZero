@@ -353,5 +353,40 @@ def test_pipeline_context_actions_include_phase1_ids():
     assert "timeline.extract_song_sections" in section_action_ids
 
 
+def test_pipeline_context_actions_expose_onset_extraction_for_non_drum_stems():
+    base_presentation = _audio_pipeline_presentation()
+    presentation = replace(
+        base_presentation,
+        layers=[
+            *base_presentation.layers,
+            LayerPresentation(
+                layer_id=LayerId("layer_bass"),
+                title="Bass",
+                main_take_id=TakeId("take_bass"),
+                kind=LayerKind.AUDIO,
+                status=LayerStatusPresentation(
+                    source_label="stem_separation · bass",
+                    pipeline_id="stem_separation",
+                    output_name="bass",
+                    source_layer_id="layer_song",
+                ),
+            ),
+        ],
+    )
+    bass_contract = build_timeline_inspector_contract(
+        presentation,
+        hit_target=TimelineInspectorHitTarget(kind="layer", layer_id=LayerId("layer_bass")),
+    )
+    bass_action_ids = {
+        action.action_id
+        for section in bass_contract.context_sections
+        for action in section.actions
+    }
+
+    assert "timeline.extract_drum_events" in bass_action_ids
+    assert "timeline.extract_classified_drums" not in bass_action_ids
+    assert "timeline.classify_drum_events" not in bass_action_ids
+
+
 
 __all__ = [name for name in globals() if name.startswith("test_")]

@@ -220,7 +220,7 @@ class TestSessionOpenDb:
         finally:
             session2.close()
 
-    def test_open_db_repairs_missing_timeline_regions_table(self, tmp_root):
+    def test_open_db_handles_legacy_db_without_timeline_regions_table(self, tmp_root):
         wd = tmp_root / "legacy_missing_regions"
         wd.mkdir(parents=True)
         conn = sqlite3.connect(str(wd / "project.db"))
@@ -257,14 +257,14 @@ class TestSessionOpenDb:
 
         session = ProjectStorage.open_db(wd)
         try:
-            assert session.timeline_regions.list_by_version("version_missing") == []
             tables = {
                 row[0]
                 for row in session.db.execute(
                     "SELECT name FROM sqlite_master WHERE type='table'"
                 ).fetchall()
             }
-            assert "timeline_regions" in tables
+            assert "projects" in tables
+            assert "song_versions" in tables
         finally:
             session.close()
 

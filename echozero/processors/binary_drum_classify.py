@@ -146,6 +146,7 @@ def _default_binary_classify(
                 hop_length=runtime_model.hop_length,
                 n_mels=runtime_model.n_mels,
                 fmax=runtime_model.fmax,
+                feature_mode=runtime_model.feature_mode,
             )
             score = _predict_positive_probability(runtime_model, feature, label_input.label)
             classified_event = _build_classified_event(

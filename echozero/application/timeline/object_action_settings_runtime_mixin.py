@@ -186,7 +186,7 @@ def build_object_action_setting_fields(
         value = resolved_params.get(key, persisted_value)
         widget_name = _knob_widget_name(knob.widget)
         options = tuple(
-            ObjectActionSettingOption(value=option, label=option.replace("_", " ").title())
+            ObjectActionSettingOption(value=option, label=_option_label_for_setting(key=key, option=option))
             for option in (knob.options or ())
         )
         model_options = build_runtime_model_picker_options(knob=knob, value=value)
@@ -236,6 +236,15 @@ def has_prior_outputs_for_action(
 def format_locked_binding_value(value: object) -> str:
     text = str(value)
     return text if len(text) <= 72 else f"{text[:69]}..."
+
+
+def _option_label_for_setting(*, key: str, option: str) -> str:
+    if key == "detect_method":
+        if option == "mfcc_sequence_pooling":
+            return "Balanced (Recommended)"
+        if option == "determine_sections_style":
+            return "Experimental (determine_sections-style)"
+    return option.replace("_", " ").title()
 
 
 def extract_classified_drums_model_defaults() -> dict[str, object]:
@@ -524,7 +533,7 @@ def _resolve_source_song_audio_layer(
 
 
 def _bindings_for_extract_drum_events(layer: LayerPresentation) -> dict[str, object]:
-    _validate_drum_derived_audio_layer(layer, action_name="timeline.extract_drum_events")
+    _validate_stem_derived_audio_layer(layer, action_name="timeline.extract_drum_events")
     return {"audio_file": str(layer.source_audio_path)}
 
 
@@ -569,4 +578,28 @@ def _validate_drum_derived_audio_layer(layer: LayerPresentation, *, action_name:
         raise NotImplementedError(
             f"{action_name} currently runs only from drum-derived audio layers. "
             "Select a drums layer produced by stem separation."
+        )
+
+
+def _validate_stem_derived_audio_layer(layer: LayerPresentation, *, action_name: str) -> None:
+    if layer.kind is not LayerKind.AUDIO:
+        raise ValueError(
+            f"{action_name} requires an audio layer, got {layer.kind.name.lower()}."
+        )
+    if not layer.source_audio_path:
+        raise RuntimeError(f"{action_name} requires a source audio path on the selected layer.")
+    title_lower = layer.title.lower()
+    source_label = (layer.status.source_label if layer.status is not None else "")
+    source_label_lower = source_label.lower()
+    badges = {str(badge).strip().lower() for badge in layer.badges}
+    output_name = (layer.status.output_name if layer.status is not None else "").strip().lower()
+    if (
+        output_name not in {"drums", "bass", "vocals", "other"}
+        and "drum" not in title_lower
+        and "drums" not in badges
+        and "drum" not in source_label_lower
+    ):
+        raise NotImplementedError(
+            f"{action_name} currently runs only from stem-derived audio layers. "
+            "Select a drums, bass, vocals, or other stem layer produced by stem separation."
         )

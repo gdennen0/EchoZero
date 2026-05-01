@@ -37,7 +37,6 @@ from echozero.persistence.repositories import (
     SongRepository,
     SongVersionRepository,
     TakeRepository,
-    TimelineRegionRepository,
 )
 from echozero.persistence.schema import init_db
 from echozero.persistence.session_runtime_mixin import ProjectStorageRuntimeMixin
@@ -105,6 +104,30 @@ def _release_project_lock(lock_path: Path | None) -> None:
             lock_path.unlink()
         except OSError:
             pass
+
+
+def _assert_working_dir_not_locked_by_live_process(working_dir: Path) -> None:
+    """Raise when a live process holds the working-dir lock.
+
+    This guard prevents archive-open flows from deleting/replacing an in-use
+    working directory while another app instance is actively using it.
+    """
+    lock_path = working_dir / "project.lock"
+    if not lock_path.exists():
+        return
+    try:
+        old_pid = int(lock_path.read_text().strip())
+    except (ValueError, OSError):
+        # Corrupt lock file — ignore and allow unpack to rebuild.
+        return
+    if _is_pid_alive(old_pid):
+        raise RuntimeError(
+            f"ProjectRecord is already open by process {old_pid}. "
+            f"Close it first, or delete {lock_path} if the process crashed."
+        )
+    # Stale lock from a dead process; clean it up.
+    logger.warning("Removing stale lock from process %d", old_pid)
+    _release_project_lock(lock_path)
 
 
 def _setup_connection(conn: sqlite3.Connection) -> None:
@@ -226,17 +249,15 @@ class ProjectStorage(ProjectStorageVersioningMixin, ProjectStorageRuntimeMixin):
     ) -> ProjectStorage:
         """Open an existing project from an .ez file path.
 
-        If the working directory already exists with a project.db (recovery scenario),
-        opens it directly. Otherwise, unpacks the .ez archive first.
+        Always unpacks archive truth into the derived working directory.
+        Crash recovery from an existing working DB is explicit via recover().
         """
         root = working_dir_root or WORKING_DIR_ROOT
         working_dir = _working_dir_for_path(ez_path, root)
+        _assert_working_dir_not_locked_by_live_process(working_dir)
+        from echozero.persistence.archive import unpack_ez
 
-        if not (working_dir / "project.db").exists():
-            # Fresh open — unpack the archive
-            from echozero.persistence.archive import unpack_ez
-
-            unpack_ez(ez_path, working_dir)
+        unpack_ez(ez_path, working_dir)
 
         return cls.open_db(working_dir, event_bus)
 
@@ -372,12 +393,6 @@ class ProjectStorage(ProjectStorageVersioningMixin, ProjectStorageRuntimeMixin):
         """Access the pipeline config repository."""
         self._check_closed()
         return PipelineConfigRepository(self.db)
-
-    @property
-    def timeline_regions(self) -> TimelineRegionRepository:
-        """Access the timeline region repository."""
-        self._check_closed()
-        return TimelineRegionRepository(self.db)
 
     @property
     def song_default_pipeline_configs(self) -> SongDefaultPipelineConfigRepository:

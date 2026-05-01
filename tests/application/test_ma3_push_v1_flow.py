@@ -167,6 +167,7 @@ class _PushSyncService(SyncService):
         self.push_calls: list[dict[str, object]] = []
         self.assign_calls: list[dict[str, object]] = []
         self.create_calls: list[dict[str, object]] = []
+        self.hitmaker_create_calls: list[dict[str, object]] = []
         self.create_timecode_calls: list[dict[str, object]] = []
         self.create_track_group_calls: list[dict[str, object]] = []
         self.create_track_calls: list[dict[str, object]] = []
@@ -324,6 +325,38 @@ class _PushSyncService(SyncService):
         )
         return created
 
+    def create_sequence_for_event_type(
+        self,
+        *,
+        event_type: str,
+        sequence_type: str = "go_hit",
+        preferred_name: str | None = None,
+    ) -> ManualPushSequenceOption:
+        current_numbers = {
+            sequence.number
+            for sequence in self._sequences
+            if self._current_song_range.start <= sequence.number <= self._current_song_range.end
+        }
+        created_number = next(
+            number
+            for number in range(self._current_song_range.start, self._current_song_range.end + 1)
+            if number not in current_numbers
+        )
+        created = ManualPushSequenceOption(
+            number=created_number,
+            name=preferred_name or str(event_type or "Hit").title(),
+        )
+        self._sequences.append(created)
+        self.hitmaker_create_calls.append(
+            {
+                "event_type": event_type,
+                "sequence_type": sequence_type,
+                "preferred_name": preferred_name,
+                "number": created.number,
+            }
+        )
+        return created
+
     def create_timecode_next_available(
         self,
         *,
@@ -413,16 +446,18 @@ class _PushSyncService(SyncService):
         self,
         *,
         target_track_coord,
+        ma3_channel_no: int | None = None,
         selected_events,
         transfer_mode: str = "merge",
     ) -> None:
-        self.push_calls.append(
-            {
-                "target_track_coord": target_track_coord,
-                "selected_event_ids": [event.id for event in selected_events],
-                "transfer_mode": transfer_mode,
-            }
-        )
+        payload = {
+            "target_track_coord": target_track_coord,
+            "selected_event_ids": [event.id for event in selected_events],
+            "transfer_mode": transfer_mode,
+        }
+        if ma3_channel_no is not None:
+            payload["ma3_channel_no"] = ma3_channel_no
+        self.push_calls.append(payload)
 
     def refresh_push_track_options(
         self,
@@ -464,6 +499,7 @@ class _AsyncPushSyncService(_PushSyncService):
         self,
         *,
         target_track_coord: str,
+        ma3_channel_no: int | None = None,
         selected_events: list[Event],
         transfer_mode: str = "merge",
         start_offset_seconds: float = 0.0,
@@ -474,6 +510,7 @@ class _AsyncPushSyncService(_PushSyncService):
             "status": "running",
             "message": "Running",
             "target_track_coord": target_track_coord,
+            "ma3_channel_no": ma3_channel_no,
             "selected_events": list(selected_events),
             "transfer_mode": transfer_mode,
             "start_offset_seconds": float(start_offset_seconds),
@@ -494,6 +531,7 @@ class _AsyncPushSyncService(_PushSyncService):
                 return dict(operation)
             self.apply_push_transfer(
                 target_track_coord=str(operation["target_track_coord"]),
+                ma3_channel_no=operation.get("ma3_channel_no"),
                 selected_events=list(operation["selected_events"]),
                 transfer_mode=str(operation["transfer_mode"]),
             )
@@ -520,6 +558,7 @@ def _build_orchestrator(
     *,
     include_alt_take: bool = False,
     saved_route: str | None = None,
+    saved_channel: int | None = None,
     track_options: list[ManualPushTrackOption] | None = None,
     sync_service_override: _PushSyncService | None = None,
 ):
@@ -575,8 +614,9 @@ def _build_orchestrator(
                     )
                 ],
             )
-        )
+    )
     layer.sync.ma3_track_coord = saved_route
+    layer.sync.ma3_channel_no = saved_channel
     timeline = Timeline(
         id=TimelineId("timeline_ma3_push_v1"),
         song_version_id=SongVersionId("song_version_ma3_push_v1"),
@@ -787,10 +827,15 @@ def test_set_layer_ma3_route_persists_saved_route_on_layer():
 
     orchestrator.handle(
         timeline,
-        SetLayerMA3Route(layer_id="layer_kick", target_track_coord="tc1_tg2_tr3"),
+        SetLayerMA3Route(
+            layer_id="layer_kick",
+            target_track_coord="tc1_tg2_tr3",
+            ma3_channel_no=2,
+        ),
     )
 
     assert timeline.layers[0].sync.ma3_track_coord == "tc1_tg2_tr3"
+    assert timeline.layers[0].sync.ma3_channel_no == 2
 
 
 def test_set_layer_ma3_route_prepares_unassigned_track_before_saving_route():
@@ -809,17 +854,19 @@ def test_set_layer_ma3_route_prepares_unassigned_track_before_saving_route():
     )
 
     assert timeline.layers[0].sync.ma3_track_coord == "tc1_tg2_tr9"
-    assert sync_service.create_calls == [
+    assert sync_service.hitmaker_create_calls == [
         {
-            "creation_mode": "next_available",
+            "event_type": "kick",
+            "sequence_type": "go_hit",
             "preferred_name": "Kick - Route",
-            "number": 302,
+            "number": 217,
         }
     ]
+    assert sync_service.create_calls == []
     assert sync_service.assign_calls == [
         {
             "target_track_coord": "tc1_tg2_tr9",
-            "sequence_no": 302,
+            "sequence_no": 217,
         }
     ]
     assert sync_service.prepare_calls == ["tc1_tg2_tr9"]
@@ -840,7 +887,7 @@ def test_set_layer_ma3_route_prepares_unassigned_track_before_saving_route():
             coord="tc1_tg2_tr9",
             name="Track 9",
             event_count=2,
-            sequence_no=302,
+            sequence_no=217,
         ),
     ]
 
@@ -879,10 +926,12 @@ def test_push_layer_to_ma3_passes_project_push_offset_to_sync_service_when_suppo
             self,
             *,
             target_track_coord,
+            ma3_channel_no: int | None = None,
             selected_events,
             transfer_mode: str = "merge",
             start_offset_seconds: float = 0.0,
         ) -> None:
+            del ma3_channel_no
             self.start_offsets.append(float(start_offset_seconds))
             super().apply_push_transfer(
                 target_track_coord=target_track_coord,
@@ -908,6 +957,32 @@ def test_push_layer_to_ma3_passes_project_push_offset_to_sync_service_when_suppo
     )
 
     assert sync_service.start_offsets == pytest.approx([-0.75])
+
+
+def test_push_layer_to_ma3_uses_saved_route_channel_when_configured():
+    orchestrator, timeline, _session, sync_service = _build_orchestrator(
+        saved_route="tc1_tg2_tr3",
+        saved_channel=4,
+    )
+
+    orchestrator.handle(
+        timeline,
+        PushLayerToMA3(
+            layer_id="layer_kick",
+            scope=MA3PushScope.LAYER_MAIN,
+            target_mode=MA3PushTargetMode.SAVED_ROUTE,
+            apply_mode=MA3PushApplyMode.MERGE,
+        ),
+    )
+
+    assert sync_service.push_calls == [
+        {
+            "target_track_coord": "tc1_tg2_tr3",
+            "selected_event_ids": [EventId("evt_1"), EventId("evt_2")],
+            "transfer_mode": "merge",
+            "ma3_channel_no": 4,
+        }
+    ]
 
 
 def test_push_layer_to_ma3_refreshes_manual_push_track_catalog_after_send():
@@ -1154,25 +1229,146 @@ def test_push_layer_to_ma3_prepares_one_shot_target_before_push_without_mutating
     assert timeline.layers[0].sync.ma3_track_coord == "tc1_tg2_tr3"
 
 
-def test_push_layer_to_ma3_rejects_known_unassigned_target_without_sequence_action():
+def test_push_layer_to_ma3_auto_creates_hit_sequence_for_known_unassigned_target():
     orchestrator, timeline, _session, sync_service = _build_orchestrator(saved_route="tc1_tg2_tr9")
 
-    with pytest.raises(
-        ValueError,
-        match="PushLayerToMA3 target track tc1_tg2_tr9 has no assigned MA3 sequence",
-    ):
-        orchestrator.handle(
-            timeline,
-            PushLayerToMA3(
-                layer_id="layer_kick",
-                scope=MA3PushScope.LAYER_MAIN,
-                target_mode=MA3PushTargetMode.SAVED_ROUTE,
-            ),
-        )
+    orchestrator.handle(
+        timeline,
+        PushLayerToMA3(
+            layer_id="layer_kick",
+            scope=MA3PushScope.LAYER_MAIN,
+            target_mode=MA3PushTargetMode.SAVED_ROUTE,
+        ),
+    )
 
-    assert sync_service.assign_calls == []
-    assert sync_service.prepare_calls == []
-    assert sync_service.push_calls == []
+    assert sync_service.hitmaker_create_calls == [
+        {
+            "event_type": "kick",
+            "sequence_type": "go_hit",
+            "preferred_name": "Track 9",
+            "number": 217,
+        }
+    ]
+    assert sync_service.assign_calls == [
+        {
+            "target_track_coord": "tc1_tg2_tr9",
+            "sequence_no": 217,
+        }
+    ]
+    assert sync_service.prepare_calls == ["tc1_tg2_tr9"]
+    assert sync_service.push_calls == [
+        {
+            "target_track_coord": "tc1_tg2_tr9",
+            "selected_event_ids": [EventId("evt_1"), EventId("evt_2")],
+            "transfer_mode": "merge",
+        }
+    ]
+
+
+def test_push_layer_to_ma3_create_sequence_action_uses_hitmaker_not_legacy_sequence_create():
+    orchestrator, timeline, _session, sync_service = _build_orchestrator(saved_route="tc1_tg2_tr9")
+
+    orchestrator.handle(
+        timeline,
+        PushLayerToMA3(
+            layer_id="layer_kick",
+            scope=MA3PushScope.LAYER_MAIN,
+            target_mode=MA3PushTargetMode.SAVED_ROUTE,
+            sequence_action=CreateMA3Sequence(
+                creation_mode=MA3SequenceCreationMode.CURRENT_SONG_RANGE,
+                preferred_name="Kick HM",
+            ),
+        ),
+    )
+
+    assert sync_service.hitmaker_create_calls == [
+        {
+            "event_type": "kick",
+            "sequence_type": "go_hit",
+            "preferred_name": "Kick HM",
+            "number": 217,
+        }
+    ]
+    assert sync_service.create_calls == []
+    assert sync_service.assign_calls == [
+        {
+            "target_track_coord": "tc1_tg2_tr9",
+            "sequence_no": 217,
+        }
+    ]
+    assert sync_service.prepare_calls == ["tc1_tg2_tr9"]
+
+
+def test_push_layer_to_ma3_recovers_from_stale_assigned_sequence_using_hitmaker():
+    class _StaleAssignedPushSyncService(_PushSyncService):
+        def __init__(self, *, track_options):
+            super().__init__(track_options=track_options)
+            self._failed_once = False
+
+        def prepare_track_for_events(self, *, target_track_coord: str) -> None:
+            self.prepare_calls.append(target_track_coord)
+            if target_track_coord == "tc1_tg2_tr9" and not self._failed_once:
+                self._failed_once = True
+                raise RuntimeError("no_sequence_assigned")
+
+    sync_service = _StaleAssignedPushSyncService(
+        track_options=[
+            ManualPushTrackOption(
+                coord="tc1_tg2_tr3",
+                name="Track 3",
+                event_count=8,
+                sequence_no=215,
+            ),
+            ManualPushTrackOption(
+                coord="tc1_tg2_tr5",
+                name="Track 5",
+                event_count=4,
+                sequence_no=216,
+            ),
+            ManualPushTrackOption(
+                coord="tc1_tg2_tr9",
+                name="Track 9",
+                event_count=2,
+                sequence_no=215,
+            ),
+        ]
+    )
+    orchestrator, timeline, _session, sync_service = _build_orchestrator(
+        saved_route="tc1_tg2_tr9",
+        sync_service_override=sync_service,
+    )
+
+    orchestrator.handle(
+        timeline,
+        PushLayerToMA3(
+            layer_id="layer_kick",
+            scope=MA3PushScope.LAYER_MAIN,
+            target_mode=MA3PushTargetMode.SAVED_ROUTE,
+        ),
+    )
+
+    assert sync_service.hitmaker_create_calls == [
+        {
+            "event_type": "kick",
+            "sequence_type": "go_hit",
+            "preferred_name": "Track 9",
+            "number": 217,
+        }
+    ]
+    assert sync_service.assign_calls == [
+        {
+            "target_track_coord": "tc1_tg2_tr9",
+            "sequence_no": 217,
+        }
+    ]
+    assert sync_service.prepare_calls == ["tc1_tg2_tr9", "tc1_tg2_tr9"]
+    assert sync_service.push_calls == [
+        {
+            "target_track_coord": "tc1_tg2_tr9",
+            "selected_event_ids": [EventId("evt_1"), EventId("evt_2")],
+            "transfer_mode": "merge",
+        }
+    ]
 
 
 def test_push_layer_to_ma3_rejects_non_main_take_selected_events():

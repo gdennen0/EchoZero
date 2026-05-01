@@ -10,7 +10,7 @@ def build_object_info_panel_qss(tokens: ShellTokens = SHELL_TOKENS) -> str:
     compact_field_padding_h = max(6, scales.field_padding_h - 2)
     compact_field_padding_v = max(4, scales.field_padding_v - 1)
     compact_action_padding_h = max(5, compact_field_padding_h - 1)
-    compact_action_padding_v = max(2, compact_field_padding_v - 2)
+    compact_action_padding_v = max(1, compact_field_padding_v - 3)
     splitter_handle_margin_h = max(56, scales.panel_padding * 4)
     return f"""
         {root} {{
@@ -109,7 +109,7 @@ def build_object_info_panel_qss(tokens: ShellTokens = SHELL_TOKENS) -> str:
             font-size: 10px;
             font-weight: 600;
             text-align: left;
-            padding: 2px 0;
+            padding: 1px 0;
         }}
         {root} QToolButton#timeline_object_info_section_toggle:hover {{
             color: {tokens.text_primary};
@@ -162,7 +162,21 @@ def build_object_info_panel_qss(tokens: ShellTokens = SHELL_TOKENS) -> str:
         }}
         {root} QPushButton[compact='true'] {{
             padding: {compact_action_padding_v}px {compact_action_padding_h}px;
+            min-height: 20px;
+        }}
+        {root} QComboBox {{
             min-height: 24px;
+            padding-right: {max(10, compact_field_padding_h + 4)}px;
+        }}
+        {root} QComboBox::drop-down {{
+            subcontrol-origin: padding;
+            subcontrol-position: top right;
+            width: 10px;
+            border: none;
+        }}
+        {root} QComboBox::down-arrow {{
+            width: 3px;
+            height: 3px;
         }}
         {root} QPushButton:disabled {{
             color: {tokens.control_text_disabled};
@@ -251,14 +265,14 @@ def build_timeline_editor_bar_qss(tokens: ShellTokens = SHELL_TOKENS) -> str:
             font-size: 10px;
         }}
         {root} QPushButton[timelineModeButton='true'] {{
-            min-width: 72px;
+            min-width: 64px;
         }}
         {root} QPushButton#timelineEditorGridButton {{
-            min-width: 96px;
+            min-width: 86px;
         }}
         {root} QPushButton#timelineEditorSettingsButton,
         {root} QPushButton#timelineEditorRegionsButton {{
-            min-width: 98px;
+            min-width: 84px;
         }}
         {root} QPushButton#timelineEditorFixRemoveButton,
         {root} QPushButton#timelineEditorFixPromoteButton {{
@@ -730,6 +744,42 @@ def build_echozero_shell_qss(tokens: ShellTokens = SHELL_TOKENS) -> str:
         }}
         QTabBar::tab:selected {{
             background: {tokens.control_bg};
+            color: {tokens.text_primary};
+        }}
+        QMenuBar#timelineLauncherMenuBar {{
+            background: {tokens.panel_bg};
+            border-bottom: {scales.border_width}px solid {tokens.panel_border};
+            color: {tokens.text_primary};
+            padding: 0 4px;
+            margin: 0;
+            min-height: 22px;
+        }}
+        QMenuBar#timelineLauncherMenuBar::item {{
+            background: transparent;
+            color: {tokens.text_secondary};
+            padding: 2px 8px;
+            margin: 0 1px;
+            border-radius: {max(3, scales.button_radius - 2)}px;
+        }}
+        QMenuBar#timelineLauncherMenuBar::item:selected {{
+            background: {tokens.control_bg_active};
+            color: {tokens.text_primary};
+        }}
+        QMenuBar#timelineLauncherMenuBar::item:pressed {{
+            background: {tokens.control_bg_active};
+            color: {tokens.text_primary};
+        }}
+        QMenu {{
+            background: {tokens.panel_bg};
+            border: {scales.border_width}px solid {tokens.panel_border};
+            color: {tokens.text_primary};
+        }}
+        QMenu::item {{
+            padding: 4px 14px 4px 10px;
+            border-radius: {max(3, scales.button_radius - 2)}px;
+        }}
+        QMenu::item:selected {{
+            background: {tokens.control_bg_active};
             color: {tokens.text_primary};
         }}
     """

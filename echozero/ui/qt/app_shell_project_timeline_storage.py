@@ -35,6 +35,7 @@ from echozero.domain.types import Event as DomainEvent
 from echozero.domain.types import EventData
 from echozero.persistence.session import ProjectStorage
 from echozero.ui.qt.app_shell_layer_storage import (
+    STATE_FLAG_MA3_CHANNEL_NO,
     STATE_FLAG_MA3_TRACK_COORD,
     STATE_FLAG_OUTPUT_BUS,
 )
@@ -67,22 +68,31 @@ def ensure_registered_waveform(key: str, audio_path: Path) -> str | None:
 def audio_presentation_fields(project_storage: ProjectStorage, take) -> AudioPresentationFields:
     """Build audio presentation fields for one take when it carries audio data."""
 
-    audio_file_path = _take_source_audio_file_path(take)
-    if audio_file_path is None:
+    audio_file_path = _take_audio_file_path(take)
+    if audio_file_path is not None:
+        audio_path = resolve_project_audio_path(project_storage, audio_file_path)
+        waveform_key = ensure_registered_waveform(f"take-{take.id}", audio_path)
+        source_audio_path = str(audio_path)
+        return AudioPresentationFields(
+            waveform_key=waveform_key,
+            source_audio_path=source_audio_path,
+            playback_source_ref=source_audio_path,
+        )
+
+    playback_source_path = _take_playback_source_audio_file_path(take)
+    if playback_source_path is None:
         return AudioPresentationFields()
-    audio_path = resolve_project_audio_path(project_storage, audio_file_path)
-    waveform_key = ensure_registered_waveform(f"take-{take.id}", audio_path)
-    source_audio_path = str(audio_path)
-    return AudioPresentationFields(
-        waveform_key=waveform_key,
-        source_audio_path=source_audio_path,
-        playback_source_ref=source_audio_path,
-    )
+    playback_source_ref = str(resolve_project_audio_path(project_storage, playback_source_path))
+    return AudioPresentationFields(playback_source_ref=playback_source_ref)
 
 
-def _take_source_audio_file_path(take) -> str | None:
+def _take_audio_file_path(take) -> str | None:
     if isinstance(take.data, AudioData):
         return str(take.data.file_path)
+    return None
+
+
+def _take_playback_source_audio_file_path(take) -> str | None:
     source = getattr(take, "source", None)
     if source is None:
         return None
@@ -153,7 +163,10 @@ def build_storage_layer(
             solo=bool(state_flags.get("solo", False)),
             output_bus=_state_flag_output_bus(state_flags),
         ),
-        sync=LayerSyncState(ma3_track_coord=_state_flag_ma3_track_coord(state_flags)),
+        sync=LayerSyncState(
+            ma3_track_coord=_state_flag_ma3_track_coord(state_flags),
+            ma3_channel_no=_state_flag_ma3_channel_no(state_flags),
+        ),
         provenance=LayerProvenance(
             source_layer_id=(
                 LayerId(str(provenance["source_layer_id"]))
@@ -208,6 +221,19 @@ def _state_flag_output_bus(state_flags: dict[str, object]) -> str | None:
         return None
     output_bus = str(raw_value).strip()
     return output_bus or None
+
+
+def _state_flag_ma3_channel_no(state_flags: dict[str, object]) -> int | None:
+    raw_value = state_flags.get(STATE_FLAG_MA3_CHANNEL_NO)
+    if raw_value in {None, ""}:
+        return None
+    try:
+        channel_no = int(raw_value)
+    except (TypeError, ValueError):
+        return None
+    if channel_no < 1:
+        return None
+    return channel_no
 
 
 def take_kind(take) -> LayerKind:

@@ -285,3 +285,30 @@ def test_runtime_timer_cadence_slows_when_idle_and_speeds_when_playing():
         assert widget._runtime_timer.interval() == TIMELINE_RUNTIME_TICK_ACTIVE_MS
     finally:
         widget.close()
+
+
+def test_runtime_timer_uses_active_cadence_when_sync_transport_prefers_low_latency():
+    app = QApplication.instance() or QApplication([])
+    presentation = build_demo_app().presentation()
+    widget = TimelineWidget(presentation)
+
+    class _RuntimeOwner:
+        def __init__(self, host: TimelineWidget) -> None:
+            self._host = host
+
+        def presentation(self):
+            return self._host.presentation
+
+        def prefers_low_latency_transport_poll(self) -> bool:
+            return True
+
+        def dispatch(self, _intent):
+            return self._host.presentation
+
+    try:
+        owner = _RuntimeOwner(widget)
+        widget._on_intent = owner.dispatch
+        widget.set_presentation(replace(widget.presentation, is_playing=False))
+        assert widget._runtime_timer.interval() == TIMELINE_RUNTIME_TICK_ACTIVE_MS
+    finally:
+        widget.close()

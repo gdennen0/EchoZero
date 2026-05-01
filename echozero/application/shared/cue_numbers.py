@@ -33,7 +33,7 @@ def parse_positive_cue_number(value: object) -> CueNumber | None:
             parsed = int(text) if _INTEGER_TEXT_PATTERN.fullmatch(text) else float(text)
         except (TypeError, ValueError):
             return None
-    if float(parsed) < 1.0:
+    if float(parsed) <= 0.0:
         return None
     if isinstance(parsed, float) and parsed.is_integer():
         return int(parsed)

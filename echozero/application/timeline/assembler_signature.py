@@ -71,6 +71,7 @@ def build_layer_signature(
                 layer.sync.target_ref,
                 layer.sync.show_manager_block_id,
                 layer.sync.ma3_track_coord,
+                layer.sync.ma3_channel_no,
                 str(layer.sync.live_sync_state.value),
                 layer.sync.live_sync_pause_reason,
                 bool(layer.sync.live_sync_divergent),

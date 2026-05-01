@@ -542,6 +542,30 @@ def test_launcher_actions_invoke_canonical_runtime_methods(monkeypatch):
     assert widget.presentation_updates[2:4] == ["after-new", "after-open"]
 
 
+def test_launcher_sets_window_title_from_project_name(monkeypatch):
+    runtime = SimpleNamespace(
+        runtime_audio=FakeRuntimeAudio(),
+        project_storage=SimpleNamespace(project=SimpleNamespace(name="Night Set")),
+        is_dirty=False,
+        presentation=lambda: "presentation",
+        dispatch=lambda intent: intent,
+    )
+    runtime.new_project = lambda: None
+    runtime.open_project = lambda _path: None
+    runtime.save_project = lambda: None
+    runtime.save_project_as = lambda _path: None
+    runtime.undo = lambda: None
+    runtime.redo = lambda: None
+
+    monkeypatch.setattr(launcher_surface, "QAction", FakeAction)
+
+    widget = FakeWidget(runtime.presentation(), on_intent=runtime.dispatch, runtime_audio=runtime.runtime_audio)
+    launcher = run_echozero.LauncherController(runtime=runtime, widget=widget)
+    launcher.install()
+
+    assert widget.window_titles[-1] == "EchoZero - Night Set"
+
+
 def test_launcher_exposes_enable_phone_review_service_when_runtime_supports_it(monkeypatch):
     info_messages: list[tuple[str, str]] = []
     phone_review_events: list[str] = []
@@ -776,6 +800,107 @@ def test_launcher_open_project_tracks_recent_projects(monkeypatch):
     assert settings.remember_calls[-1] == Path("C:/projects/opened.ez")
     assert not settings.forget_calls
     assert "open_recent_project::0" in launcher._recent_menu_actions
+
+
+def test_launcher_open_project_recovery_prompt_uses_recover_path(monkeypatch):
+    calls: list[tuple[str, Path]] = []
+    runtime = SimpleNamespace(
+        runtime_audio=FakeRuntimeAudio(),
+        is_dirty=False,
+        project_path=Path("C:/projects/current.ez"),
+        project_storage=SimpleNamespace(working_dir=Path("C:/working/live")),
+        presentation=lambda: "presentation",
+        dispatch=lambda intent: intent,
+    )
+    runtime.open_project = lambda path: calls.append(("open_project", Path(path)))
+    runtime.recover_project = lambda path: calls.append(("recover_project", Path(path)))
+
+    monkeypatch.setattr(launcher_surface, "QAction", FakeAction)
+    monkeypatch.setattr(
+        launcher_surface.QFileDialog,
+        "getOpenFileName",
+        lambda *args, **kwargs: ("C:/projects/opened.ez", run_echozero.PROJECT_FILE_FILTER),
+    )
+    monkeypatch.setattr(
+        launcher_surface.ProjectStorage,
+        "has_ungraceful_recovery",
+        lambda *_args, **_kwargs: True,
+    )
+    monkeypatch.setattr(
+        launcher_surface.QMessageBox,
+        "question",
+        lambda *args, **kwargs: QMessageBox.StandardButton.Yes,
+    )
+
+    widget = FakeWidget(runtime.presentation(), on_intent=runtime.dispatch, runtime_audio=runtime.runtime_audio)
+    launcher = run_echozero.LauncherController(runtime=runtime, widget=widget)
+    launcher.install()
+
+    widget._launcher_actions["open_project"].trigger()
+
+    assert calls == [("recover_project", Path("C:/projects/opened.ez"))]
+
+
+def test_launcher_open_recent_project_recovery_cancel_keeps_recent_entry(monkeypatch):
+    class _RecentSettings:
+        def __init__(self) -> None:
+            self._recent: list[Path] = [Path("C:/projects/recent.ez")]
+            self.remember_calls: list[Path] = []
+            self.forget_calls: list[Path] = []
+
+        def recent_project_paths(self):
+            return tuple(self._recent)
+
+        def remember_recent_project_path(self, path, *, limit=10):
+            candidate = Path(path)
+            self.remember_calls.append(candidate)
+            self._recent = [entry for entry in self._recent if entry != candidate]
+            self._recent.insert(0, candidate)
+            self._recent = self._recent[:limit]
+            return tuple(self._recent)
+
+        def forget_recent_project_path(self, path):
+            candidate = Path(path)
+            self.forget_calls.append(candidate)
+            self._recent = [entry for entry in self._recent if entry != candidate]
+            return tuple(self._recent)
+
+    settings = _RecentSettings()
+    calls: list[tuple[str, Path]] = []
+    runtime = SimpleNamespace(
+        runtime_audio=FakeRuntimeAudio(),
+        app_settings_service=settings,
+        is_dirty=False,
+        project_path=Path("C:/projects/current.ez"),
+        project_storage=SimpleNamespace(working_dir=Path("C:/working/live")),
+        presentation=lambda: "presentation",
+        dispatch=lambda intent: intent,
+    )
+    runtime.open_project = lambda path: calls.append(("open_project", Path(path)))
+    runtime.recover_project = lambda path: calls.append(("recover_project", Path(path)))
+
+    monkeypatch.setattr(launcher_surface, "QAction", FakeAction)
+    monkeypatch.setattr(
+        launcher_surface.ProjectStorage,
+        "has_ungraceful_recovery",
+        lambda *_args, **_kwargs: True,
+    )
+    monkeypatch.setattr(
+        launcher_surface.QMessageBox,
+        "question",
+        lambda *args, **kwargs: QMessageBox.StandardButton.Cancel,
+    )
+
+    widget = FakeWidget(runtime.presentation(), on_intent=runtime.dispatch, runtime_audio=runtime.runtime_audio)
+    launcher = run_echozero.LauncherController(runtime=runtime, widget=widget, app_settings_service=settings)
+    launcher.install()
+
+    result = launcher.open_recent_project_path(Path("C:/projects/recent.ez"))
+
+    assert result is False
+    assert calls == []
+    assert settings.forget_calls == []
+    assert settings.remember_calls == []
 
 
 def test_launcher_open_recent_project_path_forgets_failed_entry(monkeypatch):

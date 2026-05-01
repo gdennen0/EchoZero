@@ -8,7 +8,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass
 
-from echozero.application.shared.ids import LayerId, RegionId, TakeId
+from echozero.application.shared.ids import LayerId, TakeId
 from echozero.application.timeline.models import EventRef
 
 _SCOPE_MODES = frozenset(
@@ -17,7 +17,6 @@ _SCOPE_MODES = frozenset(
         "take",
         "layer_main",
         "selected_layers_main",
-        "region",
     }
 )
 
@@ -29,7 +28,6 @@ class EventBatchScope:
     mode: str
     layer_id: LayerId | None = None
     take_id: TakeId | None = None
-    region_id: RegionId | None = None
 
     def __post_init__(self) -> None:
         mode = (self.mode or "").strip().lower()
@@ -44,16 +42,8 @@ class EventBatchScope:
             if self.layer_id is None:
                 raise ValueError("EventBatchScope(mode='layer_main') requires layer_id")
             return
-        if mode == "region":
-            if self.region_id is None:
-                raise ValueError("EventBatchScope(mode='region') requires region_id")
-            if self.layer_id is not None or self.take_id is not None:
-                raise ValueError("EventBatchScope(mode='region') does not accept layer_id or take_id")
-            return
         if self.take_id is not None:
             raise ValueError(f"EventBatchScope(mode={mode!r}) does not accept take_id")
-        if self.region_id is not None:
-            raise ValueError(f"EventBatchScope(mode={mode!r}) does not accept region_id")
 
 
 @dataclass(frozen=True, slots=True)
@@ -81,8 +71,6 @@ def event_batch_scope_params(scope: EventBatchScope) -> dict[str, object]:
         params["scope_layer_id"] = str(scope.layer_id)
     if scope.take_id is not None:
         params["scope_take_id"] = str(scope.take_id)
-    if scope.region_id is not None:
-        params["scope_region_id"] = str(scope.region_id)
     return params
 
 
@@ -94,7 +82,6 @@ def event_batch_scope_from_params(params: Mapping[str, object]) -> EventBatchSco
         return None
     raw_layer_id = params.get("scope_layer_id")
     raw_take_id = params.get("scope_take_id")
-    raw_region_id = params.get("scope_region_id")
     layer_id = (
         LayerId(raw_layer_id.strip())
         if isinstance(raw_layer_id, str) and raw_layer_id.strip()
@@ -105,14 +92,8 @@ def event_batch_scope_from_params(params: Mapping[str, object]) -> EventBatchSco
         if isinstance(raw_take_id, str) and raw_take_id.strip()
         else None
     )
-    region_id = (
-        RegionId(raw_region_id.strip())
-        if isinstance(raw_region_id, str) and raw_region_id.strip()
-        else None
-    )
     return EventBatchScope(
         mode=raw_mode,
         layer_id=layer_id,
         take_id=take_id,
-        region_id=region_id,
     )

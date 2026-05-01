@@ -87,6 +87,7 @@ def assemble_layer(
         live_sync_state=layer.sync.live_sync_state,
         live_sync_pause_reason=layer.sync.live_sync_pause_reason,
         live_sync_divergent=layer.sync.live_sync_divergent,
+        sync_target_channel_no=layer.sync.ma3_channel_no,
         sync_target_label=_sync_target_label(layer),
         push_target_label=_push_target_label(session, layer),
         push_selection_count=_push_selection_count(session, layer),
@@ -274,6 +275,7 @@ def _layer_pipeline_action_count(layer: Layer) -> int:
     count = len(
         pipeline_actions_for_audio_layer(
             is_stem_capable=_is_stem_capable_layer(layer),
+            is_onset_capable=_is_onset_capable_layer(layer),
             is_drum_capable=_is_drum_capable_layer(layer),
             is_song_drum_capable=_is_song_drum_capable_layer(layer),
         )
@@ -297,6 +299,15 @@ def _is_drum_capable_layer(layer: Layer) -> bool:
     pipeline_id = (layer.provenance.pipeline_id or "").strip().lower()
     output_name = (layer.provenance.output_name or "").strip().lower()
     return "drum" in title or "drum" in pipeline_id or "drum" in output_name
+
+
+def _is_onset_capable_layer(layer: Layer) -> bool:
+    if not _is_stem_capable_layer(layer):
+        return False
+    if _is_drum_capable_layer(layer):
+        return True
+    output_name = (layer.provenance.output_name or "").strip().lower()
+    return output_name in {"drums", "bass", "vocals", "other"}
 
 
 def _is_song_drum_capable_layer(layer: Layer) -> bool:

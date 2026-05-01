@@ -29,8 +29,6 @@ from echozero.application.timeline.intents import (
     ConfirmPullFromMA3,
     ConfirmPushToMA3,
     CreateEvent,
-    CreateRegion,
-    DeleteRegion,
     DeleteEvents,
     DuplicateSelectedEvents,
     MoveEvent,
@@ -46,7 +44,6 @@ from echozero.application.timeline.intents import (
     TriggerTakeAction,
     TrimEvent,
     UpdateEventLabel,
-    UpdateRegion,
 )
 from echozero.application.timeline.ma3_push_intents import SetLayerMA3Route
 from echozero.application.timeline.models import Layer, derive_section_cues_from_layers
@@ -94,8 +91,6 @@ _DIRTYING_INTENT_TYPES = (
     ConfirmPullFromMA3,
     ConfirmPushToMA3,
     CreateEvent,
-    CreateRegion,
-    DeleteRegion,
     DeleteEvents,
     DuplicateSelectedEvents,
     MoveEvent,
@@ -111,7 +106,6 @@ _DIRTYING_INTENT_TYPES = (
     TriggerTakeAction,
     TrimEvent,
     UpdateEventLabel,
-    UpdateRegion,
 )
 
 
@@ -427,9 +421,12 @@ class AppShellEditingMixin:
                 operation=lambda: commit_missed_event_review(self, intent),
             )
         if isinstance(intent, CommitMissedEventsReview):
-            presentation = commit_missed_events_review(self, intent)
-            self._is_dirty = True
-            return presentation
+            return self._run_undoable_operation(
+                label=history_label_for_intent(intent) or "Add Missed Events",
+                storage_backed=True,
+                mark_dirty=True,
+                operation=lambda: commit_missed_events_review(self, intent),
+            )
         if isinstance(intent, CommitVerifiedEventReview):
             return self._run_undoable_operation(
                 label=history_label_for_intent(intent) or "Verify Event",
@@ -438,9 +435,12 @@ class AppShellEditingMixin:
                 operation=lambda: commit_verified_review(self, intent),
             )
         if isinstance(intent, CommitVerifiedEventsReview):
-            presentation = commit_verified_events_review(self, intent)
-            self._is_dirty = True
-            return presentation
+            return self._run_undoable_operation(
+                label=history_label_for_intent(intent) or "Verify Events",
+                storage_backed=True,
+                mark_dirty=True,
+                operation=lambda: commit_verified_events_review(self, intent),
+            )
         if isinstance(intent, CommitRejectedEventReview):
             return self._run_undoable_operation(
                 label=history_label_for_intent(intent) or "Reject Event",
@@ -449,9 +449,12 @@ class AppShellEditingMixin:
                 operation=lambda: commit_rejected_review(self, intent),
             )
         if isinstance(intent, CommitRejectedEventsReview):
-            presentation = commit_rejected_events_review(self, intent)
-            self._is_dirty = True
-            return presentation
+            return self._run_undoable_operation(
+                label=history_label_for_intent(intent) or "Reject Events",
+                storage_backed=True,
+                mark_dirty=True,
+                operation=lambda: commit_rejected_events_review(self, intent),
+            )
         if isinstance(intent, CommitRelabeledEventReview):
             return self._run_undoable_operation(
                 label=history_label_for_intent(intent) or "Relabel Event",

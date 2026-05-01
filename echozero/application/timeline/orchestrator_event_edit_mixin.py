@@ -23,7 +23,13 @@ from echozero.application.timeline.models import (
 from echozero.application.timeline.orchestrator_selection_state_mixin import (
     TimelineOrchestratorSelectionStateMixin,
 )
-from echozero.application.timeline.intents import ReplaceSectionCues, SectionCueEdit, TrimEvent, UpdateEventLabel
+from echozero.application.timeline.intents import (
+    EventCueMappingEdit,
+    ReplaceSectionCues,
+    SectionCueEdit,
+    TrimEvent,
+    UpdateEventLabel,
+)
 
 
 class TimelineOrchestratorEventEditMixin(TimelineOrchestratorSelectionStateMixin):
@@ -255,6 +261,46 @@ class TimelineOrchestratorEventEditMixin(TimelineOrchestratorSelectionStateMixin
                 [self._event_ref(record.layer.id, record.take.id, record.event.id)],
             )
             return
+
+    def _handle_update_event_cue_mappings(
+        self,
+        timeline: Timeline,
+        *,
+        edits: list[EventCueMappingEdit],
+        layer_id: LayerId | None = None,
+        take_id: TakeId | None = None,
+    ) -> None:
+        if not edits:
+            return
+
+        preferred_layer_ids = [layer_id] if layer_id is not None else list(
+            timeline.selection.selected_layer_ids
+        )
+        preferred_take_id = take_id if take_id is not None else timeline.selection.selected_take_id
+        event_ids = [edit.event_id for edit in edits]
+        records = self._selected_event_records(
+            timeline,
+            self._resolve_event_refs_by_ids(
+                timeline,
+                event_ids,
+                preferred_layer_ids=preferred_layer_ids,
+                preferred_take_id=preferred_take_id,
+            ),
+        )
+        if not records:
+            return
+
+        edits_by_id = {edit.event_id: edit for edit in edits}
+        for record in records:
+            edit = edits_by_id.get(record.event.id)
+            if edit is None:
+                continue
+            if edit.cue_number is not None:
+                record.event.cue_number = edit.cue_number
+            if edit.cue_ref is not None:
+                record.event.cue_ref = edit.cue_ref
+            if edit.label is not None:
+                record.event.label = edit.label
 
     def _handle_replace_section_cues(
         self,
@@ -642,21 +688,6 @@ class TimelineOrchestratorEventEditMixin(TimelineOrchestratorSelectionStateMixin
                 return
             next_layers = list(remaining_layers)
             next_layers.insert(target_index + 1, source_layer)
-
-        source_audio_layer = next(
-            (layer for layer in next_layers if str(layer.id) == "source_audio"),
-            None,
-        )
-        if source_audio_layer is not None and next_layers:
-            if next_layers[0].id != source_audio_layer.id:
-                next_layers = [
-                    source_audio_layer,
-                    *(
-                        layer
-                        for layer in next_layers
-                        if layer.id != source_audio_layer.id
-                    ),
-                ]
 
         if tuple(layer.id for layer in ordered_layers) == tuple(layer.id for layer in next_layers):
             return

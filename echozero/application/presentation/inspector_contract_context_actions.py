@@ -138,8 +138,6 @@ def resolve_batch_scope_for_contract(
     if layer is None:
         if has_selected_events:
             return EventBatchScope(mode="selected_events")
-        if presentation.selected_region_id is not None:
-            return EventBatchScope(mode="region", region_id=presentation.selected_region_id)
         return None
 
     selected_layer_ids = list(dict.fromkeys(presentation.selected_layer_ids))
@@ -155,8 +153,6 @@ def batch_scope_label_suffix(scope: EventBatchScope) -> str:
         return ""
     if scope.mode == "take":
         return " in Take"
-    if scope.mode == "region":
-        return " in Region"
     if scope.mode == "selected_layers_main":
         return " in Selected Layers"
     return " in Layer"
@@ -168,22 +164,6 @@ def scope_has_events(
 ) -> bool:
     if scope.mode == "selected_events":
         return bool(presentation.selected_event_ids)
-    if scope.mode == "region":
-        region = next(
-            (candidate for candidate in presentation.regions if candidate.region_id == scope.region_id),
-            None,
-        )
-        if region is None:
-            return False
-        return any(
-            layer.visible
-            and not layer.locked
-            and any(
-                float(event.start) < float(region.end) and float(event.end) > float(region.start)
-                for event in layer.events
-            )
-            for layer in presentation.layers
-        )
     if scope.mode == "selected_layers_main":
         selected_layer_ids = list(dict.fromkeys(presentation.selected_layer_ids))
         if not selected_layer_ids and presentation.selected_layer_id is not None:
@@ -223,6 +203,7 @@ def shared_context_sections(
             )
         )
     if layer is None and take is None and not has_selected_events:
+        layer_expand_actions = timeline_layer_expand_actions(presentation)
         sections.append(
             InspectorContextSection(
                 section_id="tools",
@@ -259,6 +240,7 @@ def shared_context_sections(
                         group="tools",
                         params={"direction": "pull"},
                     ),
+                    *layer_expand_actions,
                 ),
             )
         )
@@ -328,6 +310,7 @@ def shared_context_sections(
             layer=layer,
             hit_target=hit_target,
             has_selected_events=has_selected_events,
+            include_route_action=take is not None,
         )
         if transfer_actions:
             sections.append(
@@ -349,6 +332,18 @@ def shared_context_sections(
                 enabled=layer.layer_id != "source_audio",
             ),
         ]
+        layer_expand_action = layer_expand_toggle_action(layer)
+        if layer_expand_action is not None:
+            layer_actions.insert(0, layer_expand_action)
+        if layer_supports_ma3_transfer(layer) and take is None:
+            layer_actions.append(
+                InspectorAction(
+                    action_id="transfer.route_layer_track",
+                    label=_layer_route_label(layer),
+                    group="routing",
+                    params={"layer_id": layer.layer_id},
+                )
+            )
         if layer.kind is not LayerKind.EVENT:
             layer_actions = [
                 InspectorAction(
@@ -369,11 +364,8 @@ def shared_context_sections(
             ]
         if layer.kind is LayerKind.AUDIO:
             layer_actions.extend(_layer_smpte_import_actions(layer))
-            layer_actions.extend(
-                _layer_output_bus_actions(
-                    layer,
-                    playback_output_channels=presentation.playback_output_channels,
-                )
+            layer_actions.append(
+                _layer_routing_settings_action(layer)
             )
         layer_actions.extend(
             (
@@ -531,6 +523,46 @@ def song_context_actions(
     return tuple(actions)
 
 
+def layer_expand_toggle_action(layer: LayerPresentation) -> InspectorAction | None:
+    if not layer.takes:
+        return None
+    expanded = bool(layer.is_expanded)
+    return InspectorAction(
+        action_id="layer.set_expanded",
+        label="Collapse Layer" if expanded else "Expand Layer",
+        group="layer",
+        params={"layer_id": layer.layer_id, "expanded": (not expanded)},
+    )
+
+
+def timeline_layer_expand_actions(
+    presentation: TimelinePresentation,
+) -> tuple[InspectorAction, ...]:
+    expandable_layers = [layer for layer in presentation.layers if layer.takes]
+    if not expandable_layers:
+        return ()
+    any_expanded = any(bool(layer.is_expanded) for layer in expandable_layers)
+    any_collapsed = any(not bool(layer.is_expanded) for layer in expandable_layers)
+    actions: list[InspectorAction] = []
+    if any_expanded:
+        actions.append(
+            InspectorAction(
+                action_id="timeline.collapse_all_layers",
+                label="Collapse All Layers",
+                group="tools",
+            )
+        )
+    if any_collapsed:
+        actions.append(
+            InspectorAction(
+                action_id="timeline.expand_all_layers",
+                label="Expand All Layers",
+                group="tools",
+            )
+        )
+    return tuple(actions)
+
+
 def map_take_action(
     layer: LayerPresentation,
     take: TakeLanePresentation,
@@ -560,9 +592,10 @@ def format_seconds(value: float) -> str:
 def pipeline_actions_for_layer(layer: LayerPresentation) -> tuple[InspectorAction, ...]:
     descriptors = list(
         pipeline_actions_for_audio_layer(
-        is_stem_capable=is_stem_capable_layer(layer),
-        is_drum_capable=is_drum_capable_layer(layer),
-        is_song_drum_capable=is_song_drum_capable_layer(layer),
+            is_stem_capable=is_stem_capable_layer(layer),
+            is_onset_capable=is_onset_capable_layer(layer),
+            is_drum_capable=is_drum_capable_layer(layer),
+            is_song_drum_capable=is_song_drum_capable_layer(layer),
         )
     )
     if layer.kind is LayerKind.SECTION:
@@ -593,6 +626,15 @@ def is_drum_capable_layer(layer: LayerPresentation) -> bool:
     return "drum" in title or "drums" in badges or "drum" in source_label
 
 
+def is_onset_capable_layer(layer: LayerPresentation) -> bool:
+    if not is_stem_capable_layer(layer):
+        return False
+    if is_drum_capable_layer(layer):
+        return True
+    output_name = (layer.status.output_name if layer.status is not None else "").strip().lower()
+    return output_name in {"drums", "bass", "vocals", "other"}
+
+
 def is_song_drum_capable_layer(layer: LayerPresentation) -> bool:
     if not is_stem_capable_layer(layer) or is_drum_capable_layer(layer):
         return False
@@ -612,15 +654,10 @@ def transfer_context_actions(
     layer: LayerPresentation,
     hit_target: TimelineInspectorHitTarget | None,
     has_selected_events: bool,
+    include_route_action: bool,
 ) -> tuple[InspectorAction, ...]:
     if not layer_supports_ma3_transfer(layer):
         return ()
-
-    route_label = (
-        "Change MA3 Route"
-        if layer.sync_target_label
-        else "Route Layer to MA3 Track"
-    )
     explicit_event_ids: list[str] = []
     if (
         hit_target is not None
@@ -641,11 +678,17 @@ def transfer_context_actions(
             group="transfer",
             params={"layer_id": layer.layer_id, "direction": "pull"},
         ),
-        InspectorAction(
-            action_id="transfer.route_layer_track",
-            label=route_label,
-            group="transfer",
-            params={"layer_id": layer.layer_id},
+        *(
+            (
+                InspectorAction(
+                    action_id="transfer.route_layer_track",
+                    label=_layer_route_label(layer),
+                    group="transfer",
+                    params={"layer_id": layer.layer_id},
+                ),
+            )
+            if include_route_action
+            else ()
         ),
         InspectorAction(
             action_id="transfer.workspace_open",
@@ -660,6 +703,13 @@ def transfer_context_actions(
             group="transfer",
             params=send_selected_params,
             enabled=bool(explicit_event_ids) or (layer.is_selected and has_selected_events),
+        ),
+        InspectorAction(
+            action_id="transfer.match_ma3_cues",
+            label="Match EZ Events to MA3 Cues",
+            group="transfer",
+            params=send_selected_params,
+            enabled=layer.main_take_id is not None,
         ),
         InspectorAction(
             action_id="transfer.send_to_track_once",
@@ -682,6 +732,10 @@ def apply_transfer_plan_label(plan: BatchTransferPlanPresentation) -> str:
 def ready_count_label(count: int) -> str:
     noun = "ready row" if count == 1 else "ready rows"
     return f"{count} {noun}"
+
+
+def _layer_route_label(layer: LayerPresentation) -> str:
+    return "Change MA3 Route" if layer.sync_target_label else "Route Layer to MA3 Track"
 
 
 def _layer_mute_action_id(layer: LayerPresentation) -> str:
@@ -732,13 +786,6 @@ def _layer_output_bus_actions(
         )
     ]
     output_bus_tokens = list(_available_output_bus_tokens(playback_output_channels))
-    current_output_bus = (
-        layer.output_bus.strip().lower()
-        if isinstance(layer.output_bus, str) and layer.output_bus.strip()
-        else None
-    )
-    if current_output_bus is not None and current_output_bus not in output_bus_tokens:
-        output_bus_tokens.append(current_output_bus)
     for output_bus in output_bus_tokens:
         actions.append(
             InspectorAction(
@@ -749,6 +796,16 @@ def _layer_output_bus_actions(
             )
         )
     return tuple(actions)
+
+
+def _layer_routing_settings_action(layer: LayerPresentation) -> InspectorAction:
+    return InspectorAction(
+        action_id="layer.routing_settings",
+        label="Layer Routing Settings",
+        group="routing",
+        params={"layer_id": layer.layer_id},
+        enabled=True,
+    )
 
 
 def _layer_smpte_import_actions(layer: LayerPresentation) -> tuple[InspectorAction, ...]:
@@ -776,11 +833,13 @@ def _is_smpte_layer(layer: LayerPresentation) -> bool:
 def _available_output_bus_tokens(playback_output_channels: int) -> tuple[str, ...]:
     channel_count = max(2, min(16, int(playback_output_channels)))
     tokens: list[str] = []
-    start_channel = 1
-    while start_channel <= channel_count:
-        end_channel = min(start_channel + 1, channel_count)
-        tokens.append(f"outputs_{start_channel}_{end_channel}")
-        start_channel += 2
+    for start_channel in range(1, channel_count + 1, 2):
+        end_channel = start_channel + 1
+        if end_channel <= channel_count:
+            tokens.append(f"outputs_{start_channel}_{end_channel}")
+    for start_channel in range(1, channel_count + 1, 2):
+        for end_channel in range(start_channel + 3, channel_count + 1, 2):
+            tokens.append(f"outputs_{start_channel}_{end_channel}")
     return tuple(tokens)
 
 
@@ -791,5 +850,7 @@ def _output_bus_name(output_bus: str) -> str:
         end_channel = int(parts[2])
         if start_channel == end_channel:
             return f"Output {start_channel}"
+        if end_channel > start_channel + 1:
+            return f"Outputs {start_channel}-{end_channel}"
         return f"Outputs {start_channel}/{end_channel}"
     return output_bus

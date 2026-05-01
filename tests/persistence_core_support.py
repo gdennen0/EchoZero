@@ -19,7 +19,6 @@ class TestSchema:
         assert "song_versions" in tables
         assert "layers" in tables
         assert "takes" in tables
-        assert "timeline_regions" in tables
         assert "pipeline_configs" in tables
 
     def test_schema_version_is_set(self, conn):
@@ -98,7 +97,6 @@ class TestBaseRepository:
         assert issubclass(LayerRepository, BaseRepository)
         assert issubclass(TakeRepository, BaseRepository)
         assert issubclass(PipelineConfigRepository, BaseRepository)
-        assert issubclass(TimelineRegionRepository, BaseRepository)
 
 
 # ---------------------------------------------------------------------------
@@ -240,81 +238,6 @@ class TestSongRepository:
         conn.commit()
         songs = sr.list_by_project(p.id)
         assert [s.title for s in songs] == ["Third", "First", "Second"]
-
-
-# ---------------------------------------------------------------------------
-# TimelineRegionRecord CRUD
-# ---------------------------------------------------------------------------
-
-
-class TestTimelineRegionRepository:
-    def _setup(self, conn) -> tuple[TimelineRegionRepository, str]:
-        project_repo = ProjectRepository(conn)
-        song_repo = SongRepository(conn)
-        version_repo = SongVersionRepository(conn)
-        project = _make_project()
-        project_repo.create(project)
-        song = _make_song(project.id)
-        song_repo.create(song)
-        version = _make_version(song.id)
-        version_repo.create(version)
-        conn.commit()
-        return TimelineRegionRepository(conn), version.id
-
-    def test_create_list_update_delete_and_reorder(self, conn):
-        region_repo, version_id = self._setup(conn)
-        region_a = _make_timeline_region(
-            version_id,
-            id="region_a",
-            label="Intro",
-            start_seconds=0.0,
-            end_seconds=1.0,
-            order_index=1,
-        )
-        region_b = _make_timeline_region(
-            version_id,
-            id="region_b",
-            label="Verse",
-            start_seconds=1.0,
-            end_seconds=2.0,
-            color="#ddeeff",
-            order_index=0,
-            kind="song",
-        )
-
-        region_repo.create(region_a)
-        region_repo.create(region_b)
-        conn.commit()
-
-        listed = region_repo.list_by_version(version_id)
-        assert [region.id for region in listed] == ["region_b", "region_a"]
-        assert listed[0].color == "#ddeeff"
-        assert listed[0].kind == "song"
-
-        updated = replace(
-            region_a,
-            label="Intro Updated",
-            end_seconds=1.5,
-            order_index=2,
-        )
-        region_repo.update(updated)
-        conn.commit()
-
-        got = region_repo.get("region_a")
-        assert got is not None
-        assert got.label == "Intro Updated"
-        assert got.end_seconds == 1.5
-        assert got.order_index == 2
-
-        region_repo.reorder(version_id, ["region_a", "region_b"])
-        conn.commit()
-        reordered = region_repo.list_by_version(version_id)
-        assert [region.id for region in reordered] == ["region_a", "region_b"]
-
-        region_repo.delete("region_b")
-        conn.commit()
-        remaining = region_repo.list_by_version(version_id)
-        assert [region.id for region in remaining] == ["region_a"]
 
 
 # ---------------------------------------------------------------------------

@@ -9,7 +9,7 @@ from tests.ui.app_shell_runtime_flow_support import (
     test_app_shell_runtime_delete_take_persists_numbered_take_labels_on_reload,
     test_app_shell_runtime_extract_classified_drums_persists_kick_and_snare_layers,
     test_app_shell_runtime_extract_drum_events_persists_event_layers_from_drums_stem,
-    test_app_shell_runtime_extract_drum_events_rejects_non_drum_audio_layers,
+    test_app_shell_runtime_extract_drum_events_supports_all_stem_layer_types,
     test_app_shell_runtime_extract_drum_events_rerun_clears_stale_selected_event_refs,
     test_app_shell_runtime_extract_drum_events_rerun_surfaces_new_take_with_saved_threshold,
     test_app_shell_runtime_extract_song_drum_events_adds_selected_stem_layers,

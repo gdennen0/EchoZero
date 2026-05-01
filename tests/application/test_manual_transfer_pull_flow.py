@@ -669,7 +669,50 @@ def test_apply_pull_create_section_target_preserves_float_cue_numbers():
     ]
 
 
-def test_apply_pull_to_section_layer_requires_source_cue_numbers():
+def test_apply_pull_to_section_layer_accepts_source_cue_refs_without_numbers():
+    orchestrator, timeline, _session, _playback_service = _build_orchestrator(
+        sync_service=_SyncService(
+            tracks=[ManualPullTrackOption(coord="tc1_tg2_tr3", name="Section Track", number=3)],
+            events_by_track={
+                "tc1_tg2_tr3": [
+                    ManualPullEventOption(
+                        event_id="ma3_evt_1",
+                        label="Verse",
+                        start=1.0,
+                        cue_ref="Q11",
+                    ),
+                    ManualPullEventOption(
+                        event_id="ma3_evt_2",
+                        label="Chorus",
+                        start=3.0,
+                        cue_ref="Q3",
+                    ),
+                ]
+            },
+        )
+    )
+    section_layer = Layer(
+        id=LayerId("layer_sections"),
+        timeline_id=timeline.id,
+        name="Sections",
+        kind=LayerKind.SECTION,
+        order_index=3,
+        takes=[Take(id=TakeId("take_sections"), layer_id=LayerId("layer_sections"), name="Main")],
+    )
+    timeline.layers.append(section_layer)
+    timeline.selection.selected_layer_id = section_layer.id
+
+    orchestrator.handle(timeline, OpenPullFromMA3Dialog())
+    orchestrator.handle(timeline, SelectPullTargetLayer(target_layer_id=section_layer.id))
+    orchestrator.handle(timeline, ApplyPullFromMA3())
+
+    assert [(cue.cue_ref, cue.start, cue.name) for cue in timeline.section_cues] == [
+        ("Q11", 1.0, "Verse"),
+        ("Q3", 3.0, "Chorus"),
+    ]
+
+
+def test_apply_pull_to_section_layer_requires_source_cue_numbers_or_refs():
     orchestrator, timeline, _session, _playback_service = _build_orchestrator(
         sync_service=_SyncService(
             tracks=[ManualPullTrackOption(coord="tc1_tg2_tr3", name="Section Track", number=3)],
@@ -686,6 +729,7 @@ def test_apply_pull_to_section_layer_requires_source_cue_numbers():
                         label="Chorus",
                         start=3.0,
                         cue_number=None,
+                        cue_ref=None,
                     ),
                 ]
             },
@@ -706,7 +750,7 @@ def test_apply_pull_to_section_layer_requires_source_cue_numbers():
 
     with pytest.raises(
         ValueError,
-        match="Section pull import requires cue numbers on source sequence events",
+        match="Section pull import requires cue numbers or cue refs on source sequence events",
     ):
         orchestrator.handle(timeline, ApplyPullFromMA3())
 

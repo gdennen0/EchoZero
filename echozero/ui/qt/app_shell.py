@@ -204,6 +204,67 @@ class AppShellRuntime(
     def presentation(self) -> TimelinePresentation:
         return self._app.presentation()
 
+    def consume_sync_transport_update(self) -> dict[str, object] | None:
+        bridge = self._sync_bridge
+        if bridge is None:
+            return None
+
+        consume_latest = getattr(bridge, "consume_latest_transport_update", None)
+        if callable(consume_latest):
+            payload = consume_latest()
+            if isinstance(payload, dict):
+                return payload
+            return None
+
+        consume_next = getattr(bridge, "consume_transport_update", None)
+        if callable(consume_next):
+            payload = consume_next()
+            if isinstance(payload, dict):
+                return payload
+        return None
+
+    def prefers_low_latency_transport_poll(self) -> bool:
+        """Hint UI runtime cadence when live MA3 transport sync is active."""
+
+        bridge = self._sync_bridge
+        if bridge is None:
+            return False
+        sync_state = getattr(self.session, "sync_state", None)
+        mode_raw = getattr(sync_state, "mode", "")
+        mode_value = getattr(mode_raw, "value", mode_raw)
+        mode = str(mode_value or "").strip().lower()
+        connected = bool(getattr(sync_state, "connected", False))
+        return connected and mode == "ma3"
+
+    def recent_ma3_osc_messages(self, *, limit: int = 12) -> list[dict[str, object]]:
+        """Return one capped list of normalized inbound MA3 OSC messages."""
+
+        bridge = self._sync_bridge
+        if bridge is None:
+            return []
+        messages = getattr(bridge, "messages", None)
+        if not isinstance(messages, list):
+            return []
+
+        max_items = max(1, int(limit))
+        normalized: list[dict[str, object]] = []
+        for message in messages[-max_items:]:
+            message_type = str(getattr(message, "message_type", "") or "").strip()
+            change = str(getattr(message, "change", "") or "").strip()
+            raw_payload = str(getattr(message, "raw_payload", "") or "")
+            timestamp = getattr(message, "timestamp", None)
+            fields = getattr(message, "fields", {})
+            normalized.append(
+                {
+                    "timestamp": timestamp,
+                    "message_type": message_type,
+                    "change": change,
+                    "fields": fields if isinstance(fields, dict) else {},
+                    "raw_payload": raw_payload,
+                }
+            )
+        return normalized
+
     def stage_project_runtime_presentation(
         self,
         presentation: TimelinePresentation | None,

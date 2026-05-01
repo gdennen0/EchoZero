@@ -5,12 +5,15 @@ Connects canonical timeline intents to shared selected-events, take, and layer-m
 
 from __future__ import annotations
 
+import math
+from dataclasses import dataclass
+
 from echozero.application.shared.ids import EventId, LayerId, TakeId
 from echozero.application.timeline.event_batch_scope import (
     EventBatchScope,
     ResolvedEventBatchScope,
 )
-from echozero.application.timeline.models import EventRef, Layer, Take, Timeline
+from echozero.application.timeline.models import Event, EventRef, Layer, Take, Timeline
 from echozero.application.timeline.orchestrator_event_edit_mixin import (
     TimelineOrchestratorEventEditMixin,
 )
@@ -46,6 +49,7 @@ class TimelineOrchestratorEventBatchMixin(TimelineOrchestratorEventEditMixin):
         event_id: EventId,
         scope_mode: str,
         match_strength: str,
+        similarity_threshold_override: float | None,
     ) -> None:
         layer = self._find_layer(timeline, layer_id)
         take = self._find_take(layer, take_id)
@@ -83,20 +87,41 @@ class TimelineOrchestratorEventBatchMixin(TimelineOrchestratorEventEditMixin):
             selected_layer_ids = selected_scope_layer_ids
             anchor_take_id = self._anchor_take_id_for_selected_layers(timeline, layer.id)
 
-        anchor_profile = _event_sound_profile(anchor_event)
+        candidate_records = [
+            record
+            for candidate_ref_group in candidate_ref_groups
+            for record in self._selected_event_records(timeline, list(candidate_ref_group))
+        ]
+        anchor_features = _event_similarity_features(anchor_event)
+        if anchor_features is None or not anchor_features.has_signal:
+            similar_event_refs = [self._event_ref(layer.id, take.id, anchor_event.id)]
+            timeline.selection.selected_layer_id = layer.id
+            timeline.selection.selected_layer_ids = list(selected_layer_ids)
+            timeline.selection.selected_take_id = anchor_take_id
+            self._set_selected_event_refs(timeline, similar_event_refs)
+            return
+
+        scope_context = _build_similarity_scope_context(
+            anchor_features=anchor_features,
+            candidate_events=[record.event for record in candidate_records],
+        )
+        score_threshold = _similarity_threshold(
+            match_strength,
+            similarity_threshold_override=similarity_threshold_override,
+        )
         similar_event_refs: list[EventRef] = []
-        for candidate_ref_group in candidate_ref_groups:
-            records = self._selected_event_records(timeline, list(candidate_ref_group))
-            for record in records:
-                if _events_sound_similar(
-                    anchor=anchor_event,
-                    candidate=record.event,
-                    anchor_profile=anchor_profile,
-                    match_strength=match_strength,
-                ):
-                    similar_event_refs.append(
-                        self._event_ref(record.layer.id, record.take.id, record.event.id)
-                    )
+        for record in candidate_records:
+            candidate_features = _event_similarity_features(record.event)
+            score = _event_similarity_score(
+                anchor_features=anchor_features,
+                candidate_features=candidate_features,
+                scope_context=scope_context,
+            )
+            if score is None or score < score_threshold:
+                continue
+            similar_event_refs.append(
+                self._event_ref(record.layer.id, record.take.id, record.event.id)
+            )
         if not similar_event_refs:
             similar_event_refs = [self._event_ref(layer.id, take.id, anchor_event.id)]
 
@@ -199,43 +224,6 @@ class TimelineOrchestratorEventBatchMixin(TimelineOrchestratorEventEditMixin):
                 label="layer",
             )
 
-        if scope.mode == "region":
-            assert scope.region_id is not None
-            region = next(
-                (candidate for candidate in timeline.regions if candidate.id == scope.region_id),
-                None,
-            )
-            if region is None:
-                return ResolvedEventBatchScope(
-                    scope=scope,
-                    event_refs=(),
-                    event_ref_groups=(),
-                    anchor_layer_id=None,
-                    anchor_take_id=None,
-                    selected_layer_ids=(),
-                    label="region",
-                )
-            event_ref_groups = self._region_main_groups(
-                timeline,
-                start_seconds=float(region.start),
-                end_seconds=float(region.end),
-            )
-            event_refs = self._flatten_event_ref_groups(event_ref_groups)
-            anchor_layer_id = event_refs[-1].layer_id if event_refs else None
-            anchor_take_id = event_refs[-1].take_id if event_refs else None
-            selected_layer_ids = tuple(
-                dict.fromkeys(event_ref.layer_id for event_ref in event_refs)
-            )
-            return ResolvedEventBatchScope(
-                scope=scope,
-                event_refs=event_refs,
-                event_ref_groups=event_ref_groups,
-                anchor_layer_id=anchor_layer_id,
-                anchor_take_id=anchor_take_id,
-                selected_layer_ids=selected_layer_ids,
-                label="region",
-            )
-
         selected_layer_ids = tuple(self._selected_layer_scope(timeline))
         anchor_layer_id = self._navigation_layer_id(timeline)
         if anchor_layer_id is None and selected_layer_ids:
@@ -304,29 +292,6 @@ class TimelineOrchestratorEventBatchMixin(TimelineOrchestratorEventEditMixin):
             self._event_ref(layer.id, take.id, event.id) for event in self._ordered_events(take)
         )
 
-    def _region_main_groups(
-        self,
-        timeline: Timeline,
-        *,
-        start_seconds: float,
-        end_seconds: float,
-    ) -> tuple[tuple[EventRef, ...], ...]:
-        groups: list[tuple[EventRef, ...]] = []
-        for layer in self._ordered_visible_layers(timeline):
-            if layer.presentation_hints.locked:
-                continue
-            main_take = self._main_take(layer)
-            if main_take is None:
-                continue
-            refs = tuple(
-                self._event_ref(layer.id, main_take.id, event.id)
-                for event in self._ordered_events(main_take)
-                if float(event.start) < end_seconds and float(event.end) > start_seconds
-            )
-            if refs:
-                groups.append(refs)
-        return tuple(groups)
-
     @staticmethod
     def _flatten_event_ref_groups(
         event_ref_groups: tuple[tuple[EventRef, ...], ...],
@@ -338,64 +303,171 @@ class TimelineOrchestratorEventBatchMixin(TimelineOrchestratorEventEditMixin):
         )
 
 
-def _events_sound_similar(
-    *,
-    anchor: Event,
-    candidate: Event,
-    anchor_profile: tuple[str | None, float | None],
-    match_strength: str,
-) -> bool:
-    anchor_token, anchor_confidence = anchor_profile
-    candidate_token = _event_similarity_token(candidate)
-    if anchor_token is not None:
-        if candidate_token != anchor_token:
-            return False
-        return _duration_is_similar(
-            anchor=anchor,
-            candidate=candidate,
-            match_strength=match_strength,
-        )
+@dataclass(slots=True)
+class _EventSimilarityFeatures:
+    label_weights: dict[str, float]
+    confidence: float | None
+    duration_log: float
 
-    candidate_confidence = _event_confidence(candidate)
-    confidence_tolerance = _confidence_tolerance(match_strength)
-    if (
-        anchor_confidence is not None
-        and candidate_confidence is not None
-        and abs(candidate_confidence - anchor_confidence) > confidence_tolerance
-    ):
-        return False
-    return _duration_is_similar(
-        anchor=anchor,
-        candidate=candidate,
-        match_strength=match_strength,
+    @property
+    def has_signal(self) -> bool:
+        return bool(self.label_weights) or self.confidence is not None
+
+
+@dataclass(slots=True)
+class _SimilarityScopeContext:
+    label_vocabulary: tuple[str, ...]
+    duration_mean: float
+    duration_std: float
+
+
+def _similarity_threshold(
+    match_strength: str,
+    *,
+    similarity_threshold_override: float | None = None,
+) -> float:
+    if similarity_threshold_override is not None:
+        return max(0.0, min(1.0, float(similarity_threshold_override)))
+    return {
+        "very_strict": 0.95,
+        "strict": 0.90,
+        "balanced": 0.78,
+        "loose": 0.65,
+    }.get(match_strength, 0.78)
+
+
+def _build_similarity_scope_context(
+    *,
+    anchor_features: _EventSimilarityFeatures,
+    candidate_events: list[Event],
+) -> _SimilarityScopeContext:
+    label_tokens = set(anchor_features.label_weights)
+    duration_values = [anchor_features.duration_log]
+    for candidate_event in candidate_events:
+        candidate_features = _event_similarity_features(candidate_event)
+        if candidate_features is None:
+            continue
+        label_tokens.update(candidate_features.label_weights)
+        duration_values.append(candidate_features.duration_log)
+    duration_mean = sum(duration_values) / len(duration_values)
+    duration_variance = sum(
+        (duration_value - duration_mean) ** 2 for duration_value in duration_values
+    ) / len(duration_values)
+    duration_std = math.sqrt(duration_variance)
+    if duration_std < 1e-6:
+        duration_std = 1.0
+    return _SimilarityScopeContext(
+        label_vocabulary=tuple(sorted(label_tokens)),
+        duration_mean=duration_mean,
+        duration_std=duration_std,
     )
 
 
-def _event_sound_profile(event: Event) -> tuple[str | None, float | None]:
-    return (_event_similarity_token(event), _event_confidence(event))
+def _event_similarity_score(
+    *,
+    anchor_features: _EventSimilarityFeatures,
+    candidate_features: _EventSimilarityFeatures | None,
+    scope_context: _SimilarityScopeContext,
+) -> float | None:
+    if not anchor_features.has_signal:
+        return None
+    if candidate_features is None or not candidate_features.has_signal:
+        return None
+    anchor_vector = _feature_vector(anchor_features, scope_context)
+    candidate_vector = _feature_vector(candidate_features, scope_context)
+    return _cosine_similarity(anchor_vector, candidate_vector)
 
 
-def _event_similarity_token(event: Event) -> str | None:
-    for key in ("class", "label", "type", "note", "instrument"):
-        normalized = _normalize_similarity_token(event.classifications.get(key))
-        if normalized is not None:
-            return normalized
-    for value in event.classifications.values():
-        normalized = _normalize_similarity_token(value)
-        if normalized is not None:
-            return normalized
+def _feature_vector(
+    features: _EventSimilarityFeatures,
+    scope_context: _SimilarityScopeContext,
+) -> tuple[float, ...]:
+    has_label_axis = bool(scope_context.label_vocabulary)
+    vector = [features.label_weights.get(label, 0.0) for label in scope_context.label_vocabulary]
+    confidence = features.confidence if features.confidence is not None else 0.0
+    vector.append(confidence)
+    vector.append(1.0 - confidence)
+    duration_z_score = 0.0
+    if has_label_axis:
+        duration_z_score = (
+            features.duration_log - scope_context.duration_mean
+        ) / scope_context.duration_std
+    vector.append(duration_z_score)
+    return tuple(vector)
+
+
+def _cosine_similarity(anchor_vector: tuple[float, ...], candidate_vector: tuple[float, ...]) -> float | None:
+    if len(anchor_vector) != len(candidate_vector):
+        return None
+    dot_product = sum(
+        anchor_value * candidate_value
+        for anchor_value, candidate_value in zip(anchor_vector, candidate_vector)
+    )
+    anchor_norm = math.sqrt(sum(value * value for value in anchor_vector))
+    candidate_norm = math.sqrt(sum(value * value for value in candidate_vector))
+    if anchor_norm <= 0.0 or candidate_norm <= 0.0:
+        return None
+    return dot_product / (anchor_norm * candidate_norm)
+
+
+def _event_similarity_features(event: Event) -> _EventSimilarityFeatures | None:
+    label_weights = _event_label_weights(event)
+    confidence = _normalized_confidence(_event_confidence(event))
+    duration_log = math.log1p(max(0.0, float(event.duration)))
+    features = _EventSimilarityFeatures(
+        label_weights=label_weights,
+        confidence=confidence,
+        duration_log=duration_log,
+    )
+    if not features.has_signal:
+        return None
+    return features
+
+
+def _event_label_weights(event: Event) -> dict[str, float]:
+    label_weights: dict[str, float] = {}
+    _merge_label_weights(label_weights, event.classifications)
     detection = event.detection_metadata
     if isinstance(detection, dict):
-        for key in ("class", "label", "type"):
-            normalized = _normalize_similarity_token(detection.get(key))
-            if normalized is not None:
-                return normalized
-    origin = event.origin
-    if ":" in origin:
-        normalized = _normalize_similarity_token(origin.rsplit(":", maxsplit=1)[-1])
-        if normalized is not None:
-            return normalized
-    return _normalize_similarity_token(event.label)
+        _merge_label_weights(label_weights, detection)
+    if not label_weights:
+        fallback_token = _normalize_similarity_token(event.label)
+        if fallback_token is not None:
+            _add_label_weight(label_weights, fallback_token, 1.0)
+    return label_weights
+
+
+def _merge_label_weights(label_weights: dict[str, float], mapping: dict[str, object]) -> None:
+    default_weight = _normalized_confidence(_confidence_from_mapping(mapping)) or 1.0
+    for key in ("class", "label", "type", "note", "instrument"):
+        token = _normalize_similarity_token(mapping.get(key))
+        if token is not None:
+            _add_label_weight(label_weights, token, default_weight)
+
+    for key, value in mapping.items():
+        if key in {"confidence", "classifier_score", "score", "probability"}:
+            continue
+        if isinstance(value, dict):
+            nested_token = _token_from_nested_classification(value)
+            nested_weight = _normalized_confidence(_confidence_from_mapping(value)) or default_weight
+            if nested_token is not None:
+                _add_label_weight(label_weights, nested_token, nested_weight)
+                continue
+            if _mapping_looks_like_classifier_signal(value):
+                key_token = _normalize_classifier_label_key(key)
+                if key_token is not None:
+                    _add_label_weight(label_weights, key_token, nested_weight)
+                    continue
+        token = _normalize_similarity_token(value)
+        if token is not None:
+            _add_label_weight(label_weights, token, default_weight)
+
+
+def _add_label_weight(label_weights: dict[str, float], token: str, raw_weight: float) -> None:
+    normalized_weight = _normalized_confidence(raw_weight) or 0.0
+    current_weight = label_weights.get(token)
+    if current_weight is None or normalized_weight > current_weight:
+        label_weights[token] = normalized_weight
 
 
 def _normalize_similarity_token(value: object) -> str | None:
@@ -416,6 +488,15 @@ def _event_confidence(event: Event) -> float | None:
         parsed = _coerce_numeric(value)
         if parsed is not None:
             return parsed
+    nested_confidences = [
+        confidence
+        for value in event.classifications.values()
+        if isinstance(value, dict)
+        for confidence in [_confidence_from_mapping(value)]
+        if confidence is not None
+    ]
+    if nested_confidences:
+        return max(nested_confidences)
     detection = event.detection_metadata
     if isinstance(detection, dict):
         for key in ("confidence", "classifier_score", "score", "probability"):
@@ -423,6 +504,12 @@ def _event_confidence(event: Event) -> float | None:
             if parsed is not None:
                 return parsed
     return None
+
+
+def _normalized_confidence(value: float | None) -> float | None:
+    if value is None or not math.isfinite(value):
+        return None
+    return max(0.0, min(1.0, float(value)))
 
 
 def _coerce_numeric(value: object) -> float | None:
@@ -441,26 +528,48 @@ def _coerce_numeric(value: object) -> float | None:
     return None
 
 
-def _confidence_tolerance(match_strength: str) -> float:
-    return {
-        "strict": 0.15,
-        "balanced": 0.25,
-        "loose": 0.45,
-    }.get(match_strength, 0.25)
+def _token_from_nested_classification(value: dict[str, object]) -> str | None:
+    for key in ("class", "label", "type", "note", "instrument"):
+        normalized = _normalize_similarity_token(value.get(key))
+        if normalized is not None:
+            return normalized
+    return None
 
 
-def _duration_is_similar(
-    *,
-    anchor: Event,
-    candidate: Event,
-    match_strength: str,
-) -> bool:
-    anchor_duration = max(0.0, float(anchor.duration))
-    candidate_duration = max(0.0, float(candidate.duration))
-    if match_strength == "strict":
-        tolerance = max(0.02, min(0.12, anchor_duration * 0.25))
-    elif match_strength == "loose":
-        tolerance = max(0.05, min(0.35, anchor_duration * 0.8))
-    else:
-        tolerance = max(0.03, min(0.2, anchor_duration * 0.5))
-    return abs(candidate_duration - anchor_duration) <= tolerance
+def _mapping_looks_like_classifier_signal(value: dict[str, object]) -> bool:
+    if _token_from_nested_classification(value) is not None:
+        return True
+    return _confidence_from_mapping(value) is not None
+
+
+def _normalize_classifier_label_key(key: str) -> str | None:
+    normalized = _normalize_similarity_token(key)
+    if normalized is None:
+        return None
+    if normalized in {
+        "classifier",
+        "classifiers",
+        "classification",
+        "classifications",
+        "model",
+        "models",
+        "prediction",
+        "predictions",
+        "result",
+        "results",
+        "score",
+        "scores",
+        "probability",
+        "probabilities",
+        "confidence",
+    }:
+        return None
+    return normalized
+
+
+def _confidence_from_mapping(value: dict[str, object]) -> float | None:
+    for key in ("confidence", "classifier_score", "score", "probability"):
+        parsed = _coerce_numeric(value.get(key))
+        if parsed is not None:
+            return parsed
+    return None

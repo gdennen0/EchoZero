@@ -41,6 +41,7 @@ class SelectionDragCandidate(TypedDict):
     anchor_pos: QPointF
     origin_layer_id: LayerId
     origin_take_id: TakeId | None
+    origin_event_id: EventId | None
     modifiers: Qt.KeyboardModifier
     edit_mode: str
     fix_action: str

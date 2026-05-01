@@ -393,6 +393,77 @@ def test_default_classify_runs_preflight_once_per_model_load(
     )
 
 
+def test_default_classify_supports_legacy_baseline_runtime_bundle(local_tmp_path: Path) -> None:
+    try:
+        import torch
+    except ImportError:
+        pytest.skip("torch not installed")
+
+    model_path = local_tmp_path / "model.pth"
+    checkpoint = {
+        "schema": "foundry.baseline_model.v1",
+        "trainer": "baseline_sgd_melspec_v1_5",
+        "model_type": "baseline_sgd",
+        "classes": ["snare", "other"],
+        "classification_mode": "binary",
+        "coef": np.zeros((1, 384), dtype=np.float32),
+        "intercept": np.array([6.0], dtype=np.float32),
+        "scaler_mean": np.zeros((384,), dtype=np.float32),
+        "scaler_scale": np.ones((384,), dtype=np.float32),
+        "inference_preprocessing": {
+            "sampleRate": 22050,
+            "maxLength": 22050,
+            "nFft": 2048,
+            "hopLength": 512,
+            "nMels": 128,
+            "fmax": 8000,
+        },
+        "preprocessing": {
+            "sampleRate": 22050,
+            "maxLength": 22050,
+            "nFft": 2048,
+            "hopLength": 512,
+            "nMels": 128,
+            "fmax": 8000,
+            "featurePooling": ["mean", "std", "max"],
+        },
+    }
+    torch.save(checkpoint, model_path)
+    _write_manifest(
+        local_tmp_path,
+        {
+            "schema": "foundry.artifact_manifest.v1",
+            "weightsPath": model_path.name,
+            "sharedContractFingerprint": checkpoint_contract_fingerprint(checkpoint),
+            "classes": ["snare", "other"],
+            "classificationMode": "binary",
+            "runtime": {"consumer": "PyTorchAudioClassify"},
+            "inferencePreprocessing": {
+                "sampleRate": 22050,
+                "maxLength": 22050,
+                "nFft": 2048,
+                "hopLength": 512,
+                "nMels": 128,
+                "fmax": 8000,
+            },
+        },
+    )
+    audio_path = _write_wav(local_tmp_path / "audio.wav")
+
+    classified = _default_classify(
+        list(_events().layers[0].events),
+        audio_file=str(audio_path),
+        model_path=str(model_path),
+        device="cpu",
+        batch_size=2,
+    )
+
+    assert len(classified) == 3
+    assert all(event.classifications["class"] == "other" for event in classified)
+    assert all(event.classifications["confidence"] > 0.99 for event in classified)
+    assert all(event.metadata["source_model"] == "model.pth" for event in classified)
+
+
 def test_processor_returns_validation_error_when_preflight_fails(
     local_tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

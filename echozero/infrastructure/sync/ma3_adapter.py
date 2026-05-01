@@ -1,12 +1,13 @@
 """MA3 transfer adapter seam and snapshot coercion helpers."""
 
 from __future__ import annotations
-
+import re
 from dataclasses import dataclass
 from typing import Any, Protocol, Sequence
 
 from echozero.application.shared.cue_numbers import (
     CueNumber,
+    cue_number_text,
     cue_number_from_ref_text as shared_cue_number_from_ref_text,
     parse_positive_cue_number,
 )
@@ -48,6 +49,15 @@ class MA3SequenceSnapshot:
     number: int
     name: str
     cue_count: int | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class MA3SequenceCueSnapshot:
+    """Normalized snapshot of one MA3 sequence cue exposed to the sync layer."""
+
+    sequence_no: int
+    cue_number: CueNumber
+    name: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -97,6 +107,8 @@ class MA3Adapter(Protocol):
         end_no: int | None = None,
     ) -> Sequence[MA3SequenceSnapshot]: ...
 
+    def list_sequence_cues(self, *, sequence_no: int) -> Sequence[MA3SequenceCueSnapshot]: ...
+
     def get_current_song_sequence_range(self) -> MA3SequenceRangeSnapshot | None: ...
 
     def assign_track_sequence(
@@ -115,6 +127,14 @@ class MA3Adapter(Protocol):
     def create_sequence_in_current_song_range(
         self,
         *,
+        preferred_name: str | None = None,
+    ) -> MA3SequenceSnapshot: ...
+
+    def create_sequence_for_event_type(
+        self,
+        *,
+        event_type: str,
+        sequence_type: str = "go_hit",
         preferred_name: str | None = None,
     ) -> MA3SequenceSnapshot: ...
 
@@ -145,6 +165,7 @@ class MA3Adapter(Protocol):
         self,
         *,
         target_track_coord: str,
+        ma3_channel_no: int | None = None,
         selected_events: Sequence[Any],
         transfer_mode: str = "merge",
         start_offset_seconds: float = 0.0,
@@ -236,6 +257,43 @@ def coerce_sequence_snapshot(raw_sequence: Any) -> MA3SequenceSnapshot:
     )
 
 
+def coerce_sequence_cue_snapshot(raw_cue: Any) -> MA3SequenceCueSnapshot | None:
+    """Coerce bridge payloads into the canonical MA3 sequence-cue snapshot shape."""
+
+    if isinstance(raw_cue, MA3SequenceCueSnapshot):
+        return raw_cue
+
+    sequence_no = _value(raw_cue, "sequence_no")
+    if sequence_no in {None, ""}:
+        sequence_no = _value(raw_cue, "seq")
+    cue_number = _value(raw_cue, "cue_number")
+    if cue_number in {None, ""}:
+        cue_number = _value(raw_cue, "cue_no")
+    if cue_number in {None, ""}:
+        cue_number = _value(raw_cue, "no")
+    parsed_cue_number = parse_positive_cue_number(cue_number)
+    if parsed_cue_number is None:
+        cue_ref = _value(raw_cue, "cue_ref")
+        if cue_ref in {None, ""}:
+            cue_ref = _value(raw_cue, "cueRef")
+        parsed_cue_number = _cue_number_from_ref_text(cue_ref)
+    if parsed_cue_number is None:
+        return None
+    seq_no_int = _optional_positive_int(sequence_no)
+    if seq_no_int is None:
+        return None
+    name = _value(raw_cue, "name")
+    if name in {None, ""}:
+        name = _value(raw_cue, "cue_name")
+    if name in {None, ""}:
+        name = _value(raw_cue, "cueName")
+    return MA3SequenceCueSnapshot(
+        sequence_no=seq_no_int,
+        cue_number=parsed_cue_number,
+        name=None if name in {None, ""} else str(name),
+    )
+
+
 def coerce_sequence_range_snapshot(raw_range: Any) -> MA3SequenceRangeSnapshot | None:
     """Coerce bridge payloads into the canonical MA3 sequence range shape."""
 
@@ -284,6 +342,12 @@ def coerce_event_snapshot(raw_event: Any) -> MA3EventSnapshot:
         cue_ref = _value(raw_event, "cue_label")
     if cue_ref in {None, ""}:
         cue_ref = _value(raw_event, "cueLabel")
+    cue_destination = _value(raw_event, "cue_destination")
+    if cue_destination in {None, ""}:
+        cue_destination = _value(raw_event, "cueDestination")
+    if cue_destination in {None, ""}:
+        cue_destination = _value(raw_event, "cuedestination")
+    resolved_cue_ref = None if cue_ref in {None, ""} else str(cue_ref).strip() or None
     start = _optional_float(_value(raw_event, "start"))
     if start is None:
         start = _optional_float(_value(raw_event, "time"))
@@ -298,8 +362,9 @@ def coerce_event_snapshot(raw_event: Any) -> MA3EventSnapshot:
     if start is not None and end is not None and end <= start:
         end = None
     resolved_cue_number = parse_positive_cue_number(cue_number)
+    if resolved_cue_number is None:
+        resolved_cue_number = _cue_number_from_destination_text(cue_destination)
     label_text = str(label or "Event").strip() or "Event"
-    resolved_cue_ref = None if cue_ref in {None, ""} else str(cue_ref).strip() or None
     if resolved_cue_ref is None:
         inferred_cue_ref, inferred_label = _split_transport_cue_prefix(
             label_text,
@@ -307,10 +372,28 @@ def coerce_event_snapshot(raw_event: Any) -> MA3EventSnapshot:
         )
         resolved_cue_ref = inferred_cue_ref
         label_text = inferred_label
+        if resolved_cue_ref is None:
+            inferred_cue_ref, inferred_label = _infer_prefixed_cue_ref_and_label(label_text)
+            resolved_cue_ref = inferred_cue_ref
+            label_text = inferred_label
     else:
         label_text = _strip_transport_cue_prefix(label_text, resolved_cue_ref)
+    if resolved_cue_ref is None:
+        command_text = _value(raw_event, "cmd")
+        inferred_cue_ref, _ = _infer_prefixed_cue_ref_and_label(command_text)
+        resolved_cue_ref = inferred_cue_ref
+    if (
+        resolved_cue_ref is not None
+        and resolved_cue_number is not None
+        and _cue_number_from_ref_text(resolved_cue_ref) != resolved_cue_number
+    ):
+        resolved_cue_ref = None
+    if resolved_cue_ref is not None and resolved_cue_number is None:
+        resolved_cue_number = _cue_number_from_ref_text(resolved_cue_ref)
     if resolved_cue_ref is None and resolved_cue_number is not None:
         resolved_cue_ref = str(resolved_cue_number)
+    if resolved_cue_ref is not None:
+        resolved_cue_ref = str(resolved_cue_ref)
     return MA3EventSnapshot(
         event_id=str(event_id or ""),
         label=label_text or resolved_cue_ref or "Event",
@@ -379,6 +462,21 @@ def sequence_snapshot_payload(raw_sequence: Any) -> dict[str, object]:
         "number": snapshot.number,
         "name": snapshot.name,
         "cue_count": snapshot.cue_count,
+    }
+
+
+def sequence_cue_snapshot_payload(raw_cue: Any) -> dict[str, object] | None:
+    """Serialize one MA3 sequence-cue snapshot into a plain adapter payload."""
+
+    snapshot = coerce_sequence_cue_snapshot(raw_cue)
+    if snapshot is None:
+        return None
+    cue_ref = cue_number_text(snapshot.cue_number)
+    return {
+        "sequence_no": snapshot.sequence_no,
+        "cue_number": snapshot.cue_number,
+        "cue_ref": cue_ref or str(snapshot.cue_number),
+        "name": snapshot.name,
     }
 
 
@@ -455,6 +553,28 @@ def _cue_number_from_ref_text(cue_ref: str | None) -> CueNumber | None:
     return shared_cue_number_from_ref_text(cue_ref)
 
 
+def _cue_number_from_destination_text(cue_destination: object) -> CueNumber | None:
+    if cue_destination in {None, ""}:
+        return None
+    parsed = parse_positive_cue_number(cue_destination)
+    if parsed is not None:
+        return parsed
+    text = str(cue_destination).strip()
+    if not text:
+        return None
+
+    slash_match = re.search(r"/\s*([0-9]+(?:\.[0-9]+)?)", text)
+    if slash_match is not None:
+        parsed = parse_positive_cue_number(slash_match.group(1))
+        if parsed is not None:
+            return parsed
+
+    trailing_match = re.search(r"([0-9]+(?:\.[0-9]+)?)\s*$", text)
+    if trailing_match is not None:
+        return parse_positive_cue_number(trailing_match.group(1))
+    return None
+
+
 def _split_transport_cue_prefix(
     label: str,
     *,
@@ -486,6 +606,37 @@ def _strip_transport_cue_prefix(label: str, cue_ref: str) -> str:
         remainder = text[len(normalized_cue_ref) :].strip()
         return remainder or normalized_cue_ref
     return text
+
+
+def _infer_prefixed_cue_ref_and_label(text: str | None) -> tuple[str | None, str]:
+    normalized = str(text or "").strip()
+    if not normalized:
+        return None, "Event"
+    tokens = normalized.split()
+    if not tokens:
+        return None, "Event"
+
+    if (
+        len(tokens) >= 3
+        and tokens[0].casefold() in {"go+", "goto"}
+        and tokens[1].casefold() == "cue"
+    ):
+        cue_ref = tokens[2].rstrip(":,;")
+        if _cue_number_from_ref_text(cue_ref) is not None:
+            remainder = " ".join(tokens[3:]).strip()
+            return cue_ref, remainder or cue_ref
+
+    candidate = tokens[0].rstrip(":,;")
+    if _cue_number_from_ref_text(candidate) is not None:
+        label = " ".join(tokens[1:]).strip()
+        return candidate, label or candidate
+
+    if len(tokens) >= 2 and tokens[0].casefold() == "cue":
+        candidate = f"{tokens[0].rstrip(':,;')} {tokens[1].rstrip(':,;')}"
+        if _cue_number_from_ref_text(candidate) is not None:
+            label = " ".join(tokens[2:]).strip()
+            return candidate, label or candidate
+    return None, normalized
 
 
 def _optional_int(value: Any) -> int | None:

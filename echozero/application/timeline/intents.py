@@ -9,7 +9,7 @@ from echozero.application.session.models import (
 )
 from echozero.application.shared.cue_numbers import CueNumber, coerce_positive_cue_number
 from echozero.application.shared.enums import SyncMode
-from echozero.application.shared.ids import EventId, LayerId, RegionId, SectionCueId, TakeId
+from echozero.application.shared.ids import EventId, LayerId, SectionCueId, TakeId
 from echozero.application.shared.ranges import TimeRange
 from echozero.application.sync.models import LiveSyncState, coerce_live_sync_state
 from echozero.application.timeline.event_batch_scope import EventBatchScope
@@ -96,55 +96,6 @@ class SetSelectedEvents(TimelineIntent):
 
 
 @dataclass(slots=True)
-class SelectRegion(TimelineIntent):
-    region_id: RegionId | None
-
-
-@dataclass(slots=True)
-class CreateRegion(TimelineIntent):
-    time_range: TimeRange
-    label: str = "Region"
-    color: str | None = None
-    kind: str = "custom"
-
-    def __post_init__(self) -> None:
-        self.label = (self.label or "").strip() or "Region"
-        if self.color is not None:
-            color = self.color.strip()
-            self.color = color or None
-        kind = (self.kind or "").strip().lower()
-        self.kind = kind or "custom"
-
-
-@dataclass(slots=True)
-class UpdateRegion(TimelineIntent):
-    region_id: RegionId
-    time_range: TimeRange
-    label: str
-    color: str | None = None
-    kind: str = "custom"
-
-    def __post_init__(self) -> None:
-        if self.region_id is None or not str(self.region_id).strip():
-            raise ValueError("UpdateRegion requires a non-empty region_id")
-        self.label = (self.label or "").strip() or "Region"
-        if self.color is not None:
-            color = self.color.strip()
-            self.color = color or None
-        kind = (self.kind or "").strip().lower()
-        self.kind = kind or "custom"
-
-
-@dataclass(slots=True)
-class DeleteRegion(TimelineIntent):
-    region_id: RegionId
-
-    def __post_init__(self) -> None:
-        if self.region_id is None or not str(self.region_id).strip():
-            raise ValueError("DeleteRegion requires a non-empty region_id")
-
-
-@dataclass(slots=True)
 class SelectEveryOtherEvents(TimelineIntent):
     """Replace the current selection with every other event inside one resolved scope."""
 
@@ -160,6 +111,7 @@ class SelectSimilarSoundingEvents(TimelineIntent):
     event_id: EventId
     scope_mode: str = "take"
     match_strength: str = "balanced"
+    similarity_threshold_override: float | None = None
 
     def __post_init__(self) -> None:
         if self.layer_id is None or not str(self.layer_id).strip():
@@ -175,11 +127,24 @@ class SelectSimilarSoundingEvents(TimelineIntent):
             )
         self.scope_mode = scope_mode
         match_strength = (self.match_strength or "").strip().lower()
-        if match_strength not in {"strict", "balanced", "loose"}:
+        if match_strength not in {"very_strict", "strict", "balanced", "loose"}:
             raise ValueError(
-                "SelectSimilarSoundingEvents requires match_strength 'strict', 'balanced', or 'loose'"
+                "SelectSimilarSoundingEvents requires match_strength 'very_strict', 'strict', 'balanced', or 'loose'"
             )
         self.match_strength = match_strength
+        if self.similarity_threshold_override is None:
+            return
+        try:
+            threshold = float(self.similarity_threshold_override)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(
+                "SelectSimilarSoundingEvents similarity_threshold_override must be numeric when provided"
+            ) from exc
+        if threshold < 0.0 or threshold > 1.0:
+            raise ValueError(
+                "SelectSimilarSoundingEvents similarity_threshold_override must be between 0.0 and 1.0"
+            )
+        self.similarity_threshold_override = threshold
 
 
 @dataclass(slots=True)
@@ -562,6 +527,57 @@ class UpdateEventLabel(TimelineIntent):
         if not label:
             raise ValueError("UpdateEventLabel requires a non-empty label")
         self.label = label
+        if self.layer_id is not None and not str(self.layer_id).strip():
+            self.layer_id = None
+        if self.take_id is not None:
+            take_id = str(self.take_id).strip()
+            self.take_id = TakeId(take_id) if take_id else None
+
+
+@dataclass(slots=True)
+class EventCueMappingEdit:
+    event_id: EventId
+    cue_number: CueNumber | None = None
+    cue_ref: str | None = None
+    label: str | None = None
+
+    def __post_init__(self) -> None:
+        if self.event_id is None or not str(self.event_id).strip():
+            raise ValueError("EventCueMappingEdit requires a non-empty event_id")
+        if self.cue_number is not None:
+            self.cue_number = coerce_positive_cue_number(self.cue_number)
+        if self.cue_ref is not None:
+            cue_ref = str(self.cue_ref).strip()
+            self.cue_ref = cue_ref or None
+        if self.label is not None:
+            label = str(self.label).strip()
+            self.label = label or None
+        if self.cue_number is None and self.cue_ref is None and self.label is None:
+            raise ValueError(
+                "EventCueMappingEdit requires cue_number, cue_ref, or label"
+            )
+
+
+@dataclass(slots=True)
+class UpdateEventCueMappings(TimelineIntent):
+    edits: list[EventCueMappingEdit]
+    layer_id: LayerId | None = None
+    take_id: TakeId | None = None
+
+    def __post_init__(self) -> None:
+        normalized: list[EventCueMappingEdit] = []
+        seen_ids: set[str] = set()
+        for edit in list(self.edits or []):
+            if not isinstance(edit, EventCueMappingEdit):
+                raise ValueError("UpdateEventCueMappings edits must be EventCueMappingEdit entries")
+            event_key = str(edit.event_id).strip()
+            if not event_key or event_key in seen_ids:
+                continue
+            seen_ids.add(event_key)
+            normalized.append(edit)
+        if not normalized:
+            raise ValueError("UpdateEventCueMappings requires at least one edit")
+        self.edits = normalized
         if self.layer_id is not None and not str(self.layer_id).strip():
             self.layer_id = None
         if self.take_id is not None:

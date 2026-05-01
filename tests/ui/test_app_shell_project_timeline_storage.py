@@ -91,7 +91,7 @@ def test_build_storage_layer_restores_layer_mute_and_solo_state_flags():
     assert layer.mixer.solo is True
 
 
-def test_build_storage_layer_resolves_event_take_source_audio_path_from_snapshot():
+def test_build_storage_layer_resolves_event_take_playback_source_ref_from_snapshot():
     take = PersistedTake.create(
         data=EventData(layers=()),
         label="Take 1",
@@ -117,11 +117,13 @@ def test_build_storage_layer_resolves_event_take_source_audio_path_from_snapshot
     )
 
     assert layer is not None
-    assert layer_audio.source_audio_path is not None
-    assert Path(layer_audio.source_audio_path).as_posix().endswith("stems/drums.wav")
+    assert layer_audio.source_audio_path is None
+    assert layer_audio.playback_source_ref is not None
+    assert Path(layer_audio.playback_source_ref).as_posix().endswith("stems/drums.wav")
     take_audio_fields = next(iter(take_audio.values()))
-    assert take_audio_fields.source_audio_path is not None
-    assert Path(take_audio_fields.source_audio_path).as_posix().endswith("stems/drums.wav")
+    assert take_audio_fields.source_audio_path is None
+    assert take_audio_fields.playback_source_ref is not None
+    assert Path(take_audio_fields.playback_source_ref).as_posix().endswith("stems/drums.wav")
 
 
 def _layer_record(*, layer_id: str, state_flags: dict[str, Any]) -> LayerRecord:

@@ -5,6 +5,8 @@ Connects the compatibility wrapper to the bounded runtime-audio widget slice.
 
 from tests.ui.runtime_audio_shared_support import *  # noqa: F401,F403
 from echozero.ui.FEEL import TIMELINE_RUNTIME_TICK_IDLE_MS
+from echozero.application.shared.ranges import TimeRange
+from echozero.application.timeline.intents import CreateEvent
 
 def test_widget_runtime_tick_tracks_provider_smoothly_without_seek_dispatch():
     app = QApplication.instance() or QApplication([])
@@ -260,6 +262,181 @@ def test_widget_set_presentation_rebuilds_runtime_layers_when_event_slice_source
 
         assert runtime_audio.build_calls == 2
         assert runtime_audio.mix_calls == 1
+    finally:
+        widget.close()
+        app.processEvents()
+
+
+def test_widget_dispatch_coalesces_structural_runtime_sync_while_playing():
+    app = QApplication.instance() or QApplication([])
+    base = replace(
+        _event_slice_presentation(),
+        is_playing=True,
+        playhead=1.0,
+        current_time_label="00:01.00",
+    )
+    runtime_audio = CountingRuntimeAudio()
+    runtime_audio.playing = True
+    runtime_audio.current_time = 1.0
+
+    state = {"presentation": base}
+
+    def _on_intent(intent):
+        current = state["presentation"]
+        if isinstance(intent, CreateEvent):
+            target = current.layers[1]
+            next_event = EventPresentation(
+                event_id=EventId(f"new_{len(target.events)}"),
+                start=float(intent.time_range.start),
+                end=float(intent.time_range.end),
+                label=intent.label,
+            )
+            updated = replace(
+                current,
+                layers=[
+                    current.layers[0],
+                    replace(target, events=[*target.events, next_event]),
+                ],
+            )
+            state["presentation"] = updated
+            return updated
+        return current
+
+    widget = TimelineWidget(base, on_intent=_on_intent, runtime_audio=runtime_audio)
+    widget._runtime_timer.stop()
+    try:
+        widget.resize(1200, 320)
+        widget.show()
+        app.processEvents()
+
+        assert runtime_audio.build_calls == 1
+        widget._dispatch(
+            CreateEvent(
+                layer_id=LayerId("kick_lane"),
+                time_range=TimeRange(start=1.5, end=1.6),
+            )
+        )
+        widget._dispatch(
+            CreateEvent(
+                layer_id=LayerId("kick_lane"),
+                time_range=TimeRange(start=1.8, end=1.9),
+            )
+        )
+
+        assert runtime_audio.build_calls == 1
+        assert runtime_audio.coalesced_edits == 1
+        widget._on_runtime_structural_sync_timeout()
+        assert runtime_audio.build_calls == 2
+    finally:
+        widget.close()
+        app.processEvents()
+
+
+def test_widget_dispatch_flushes_pending_structural_sync_on_pause():
+    app = QApplication.instance() or QApplication([])
+    base = replace(
+        _event_slice_presentation(),
+        is_playing=True,
+        playhead=2.0,
+        current_time_label="00:02.00",
+    )
+    runtime_audio = CountingRuntimeAudio()
+    runtime_audio.playing = True
+    runtime_audio.current_time = 2.0
+
+    state = {"presentation": base}
+
+    def _on_intent(intent):
+        current = state["presentation"]
+        if isinstance(intent, CreateEvent):
+            target = current.layers[1]
+            next_event = EventPresentation(
+                event_id=EventId(f"new_{len(target.events)}"),
+                start=float(intent.time_range.start),
+                end=float(intent.time_range.end),
+                label=intent.label,
+            )
+            updated = replace(
+                current,
+                layers=[
+                    current.layers[0],
+                    replace(target, events=[*target.events, next_event]),
+                ],
+            )
+            state["presentation"] = updated
+            return updated
+        if isinstance(intent, Pause):
+            runtime_audio.pause()
+            updated = replace(current, is_playing=False, current_time_label="00:02.00")
+            state["presentation"] = updated
+            return updated
+        return current
+
+    widget = TimelineWidget(base, on_intent=_on_intent, runtime_audio=runtime_audio)
+    widget._runtime_timer.stop()
+    try:
+        widget.resize(1200, 320)
+        widget.show()
+        app.processEvents()
+
+        assert runtime_audio.build_calls == 1
+        widget._dispatch(
+            CreateEvent(
+                layer_id=LayerId("kick_lane"),
+                time_range=TimeRange(start=2.3, end=2.4),
+            )
+        )
+        assert runtime_audio.build_calls == 1
+
+        widget._dispatch(Pause())
+        assert runtime_audio.build_calls == 2
+    finally:
+        widget.close()
+        app.processEvents()
+
+
+def test_widget_dispatch_applies_mix_only_intents_immediately_while_playing():
+    app = QApplication.instance() or QApplication([])
+    base = replace(
+        _event_slice_presentation(),
+        is_playing=True,
+        playhead=1.2,
+        current_time_label="00:01.20",
+    )
+    runtime_audio = CountingRuntimeAudio()
+    runtime_audio.playing = True
+    runtime_audio.current_time = 1.2
+
+    state = {"presentation": base}
+
+    def _on_intent(intent):
+        current = state["presentation"]
+        if isinstance(intent, SetLayerMute):
+            updated = replace(
+                current,
+                layers=[
+                    replace(current.layers[0], muted=bool(intent.muted)),
+                    current.layers[1],
+                ],
+            )
+            state["presentation"] = updated
+            return updated
+        return current
+
+    widget = TimelineWidget(base, on_intent=_on_intent, runtime_audio=runtime_audio)
+    widget._runtime_timer.stop()
+    try:
+        widget.resize(1200, 320)
+        widget.show()
+        app.processEvents()
+
+        assert runtime_audio.build_calls == 1
+        assert runtime_audio.mix_calls == 0
+
+        widget._dispatch(SetLayerMute(layer_id=LayerId("bed"), muted=True))
+
+        assert runtime_audio.mix_calls == 1
+        assert widget._runtime_structural_sync_pending_presentation is None
     finally:
         widget.close()
         app.processEvents()

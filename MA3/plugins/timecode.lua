@@ -689,13 +689,17 @@ function EZ.CreateTrack(tcNo, tgNo, trackName)
         return false
     end
 
-    local ok_name = pcall(function() track.name = desired end)
+    local ok_name = pcall(function() track:Set("Name", desired) end)
     if not ok_name then
-        pcall(function() track:Set("name", desired) end)
+        ok_name = pcall(function() track:Set("name", desired) end)
+    end
+    if not ok_name then
+        pcall(function() track.name = desired end)
     end
 
-    EZ.sendMessage("track", "created", {tc = tcNo, tg = tgNo, name = track.name})
-    EZ.log(string.format("Created track: %s", track.name or desired))
+    local created_name = track.name or desired
+    EZ.sendMessage("track", "created", {tc = tcNo, tg = tgNo, name = created_name})
+    EZ.log(string.format("Created track: %s", created_name))
     return true
 end
 
@@ -762,6 +766,238 @@ end
 local function getTrackHandle(tcNo, tgNo, trackNo)
     local ma3TrackNo = (trackNo or 0) + 1
     return EZ.getTrack(tcNo, tgNo, ma3TrackNo), ma3TrackNo
+end
+
+local function parseTimecodeFrameRate(tc)
+    local readout = safeStringProperty(tc, "framereadout")
+    local fps = tonumber((readout or ""):match("(%d+)"))
+    if fps and fps > 0 then
+        return fps
+    end
+    return 30
+end
+
+local function parseTimecodeCursorSeconds(rawCursor, frameRate)
+    if rawCursor == nil then
+        return nil
+    end
+    if type(rawCursor) == "number" then
+        local numeric = tonumber(rawCursor)
+        if not numeric then
+            return nil
+        end
+        if numeric > 86400 then
+            return numeric / 16777216
+        end
+        return numeric
+    end
+
+    local text = trimString(rawCursor)
+    if text == "" then
+        return nil
+    end
+
+    local direct = tonumber(text)
+    if direct then
+        return direct
+    end
+
+    local dayDot, hourDot, minuteDot, secondDot = text:match("^(%d+)%.(%d+):(%d+):(%d+)$")
+    if dayDot then
+        return (tonumber(dayDot) or 0) * 86400
+            + (tonumber(hourDot) or 0) * 3600
+            + (tonumber(minuteDot) or 0) * 60
+            + (tonumber(secondDot) or 0)
+    end
+
+    local hourColon, minuteColon, secondColon = text:match("^(%d+):(%d+):(%d+)$")
+    if hourColon then
+        return (tonumber(hourColon) or 0) * 3600
+            + (tonumber(minuteColon) or 0) * 60
+            + (tonumber(secondColon) or 0)
+    end
+
+    local days = tonumber(text:match("(%d+)d")) or 0
+    local hours = tonumber(text:match("(%d+)h")) or 0
+    local minutes = tonumber(text:match("(%d+)m")) or 0
+    local tail = text:gsub("%d+d", ""):gsub("%d+h", ""):gsub("%d+m", "")
+    tail = trimString(tail)
+
+    local seconds = 0
+    local secToken, frameToken = tail:match("^(%d+):(%d+)$")
+    if secToken then
+        seconds = tonumber(secToken) or 0
+        local frames = tonumber(frameToken) or 0
+        local fps = tonumber(frameRate) or 30
+        if fps <= 0 then
+            fps = 30
+        end
+        seconds = seconds + (frames / fps)
+    elseif tail ~= "" then
+        local tailNumber = tonumber(tail)
+        if tailNumber then
+            seconds = tailNumber
+        end
+    end
+
+    return days * 86400 + hours * 3600 + minutes * 60 + seconds
+end
+
+local function resolveTimecodeForTransport(tcNo)
+    local explicitNo = tonumber(tcNo)
+    if explicitNo and explicitNo > 0 then
+        local explicitTc = EZ.getTC(explicitNo)
+        if not explicitTc then
+            return nil, nil, "timecode_not_found"
+        end
+        return explicitTc, explicitNo, nil
+    end
+
+    local okSelected, selected = pcall(SelectedTimecode)
+    if not okSelected or not selected then
+        return nil, nil, "timecode_not_selected"
+    end
+
+    local selectedNo = tonumber(selected.no)
+    if not selectedNo or selectedNo < 1 then
+        return nil, nil, "selected_timecode_no_unavailable"
+    end
+
+    return selected, selectedNo, nil
+end
+
+local function readTimecodeCursorSeconds(tc)
+    if not tc then
+        return nil
+    end
+
+    local fps = parseTimecodeFrameRate(tc)
+    local okRead, cursorRaw = pcall(function() return tc.cursor end)
+    if okRead then
+        local parsed = parseTimecodeCursorSeconds(cursorRaw, fps)
+        if parsed ~= nil then
+            return math.max(0, parsed)
+        end
+    end
+
+    local okGet, cursorGet = pcall(function() return tc:Get("CURSOR") end)
+    if okGet then
+        local parsed = parseTimecodeCursorSeconds(cursorGet, fps)
+        if parsed ~= nil then
+            return math.max(0, parsed)
+        end
+    end
+
+    return nil
+end
+
+local function writeTimecodeCursorSeconds(tc, seconds)
+    if not tc then
+        return false
+    end
+    local target = tonumber(seconds) or 0
+    if target < 0 then
+        target = 0
+    end
+
+    local okSet = pcall(function() tc.cursor = target end)
+    if okSet then
+        return true
+    end
+
+    local okSetByName = pcall(function() tc:Set("Cursor", tostring(target)) end)
+    if okSetByName then
+        return true
+    end
+
+    return false
+end
+
+local function findAutoSectionTrack(tcNo)
+    local tc = EZ.getTC(tcNo)
+    if not tc then
+        return nil, nil, nil
+    end
+
+    local fallbackTrack = nil
+    local fallbackTgNo = nil
+    local fallbackTrackNo = nil
+
+    local trackGroups = getChildrenSafe(tc)
+    for tgIdx = 1, #trackGroups do
+        local tg = trackGroups[tgIdx]
+        local tracks = getChildrenSafe(tg)
+        local userTrackNo = 0
+        for trackIdx = 1, #tracks do
+            local track = tracks[trackIdx]
+            local trackName = safeStringProperty(track, "name")
+            if track and trackName ~= "Marker" then
+                userTrackNo = userTrackNo + 1
+                local hasEvents = countTrackEventsForBrowse(track) > 0
+                if hasEvents and fallbackTrack == nil then
+                    fallbackTrack = track
+                    fallbackTgNo = tgIdx
+                    fallbackTrackNo = userTrackNo
+                end
+                if hasEvents and trackName:lower():find("section", 1, true) then
+                    return track, tgIdx, userTrackNo
+                end
+            end
+        end
+    end
+
+    return fallbackTrack, fallbackTgNo, fallbackTrackNo
+end
+
+local function resolveSectionTrack(tcNo, tgNo, trackNo)
+    local numericTg = tonumber(tgNo)
+    local numericTrack = tonumber(trackNo)
+    if numericTg and numericTrack then
+        local track = getTrackHandle(tcNo, numericTg, numericTrack)
+        if not track then
+            return nil, nil, nil, "section_track_not_found"
+        end
+        return track, numericTg, numericTrack, nil
+    end
+    if numericTg or numericTrack then
+        return nil, nil, nil, "section_track_requires_tg_and_track"
+    end
+
+    local autoTrack, autoTgNo, autoTrackNo = findAutoSectionTrack(tcNo)
+    if not autoTrack then
+        return nil, nil, nil, "section_track_not_found"
+    end
+    return autoTrack, autoTgNo, autoTrackNo, nil
+end
+
+local function findPreviousEventTime(events, currentSeconds)
+    local target = nil
+    local current = tonumber(currentSeconds) or 0
+    for idx = 1, #(events or {}) do
+        local evt = events[idx]
+        local t = tonumber(evt and evt.time)
+        if t and t >= 0 and (t + 0.000001) < current then
+            if not target or t > target then
+                target = t
+            end
+        end
+    end
+    return target
+end
+
+local function findNextEventTime(events, currentSeconds)
+    local target = nil
+    local current = tonumber(currentSeconds) or 0
+    for idx = 1, #(events or {}) do
+        local evt = events[idx]
+        local t = tonumber(evt and evt.time)
+        if t and t >= 0 and (t - 0.000001) > current then
+            if not target or t < target then
+                target = t
+            end
+        end
+    end
+    return target
 end
 
 local function getAssignedSequenceNo(track)
@@ -1091,6 +1327,70 @@ function EZ.GetSequences(startNo, endNo, request_id)
     return result
 end
 
+function EZ.GetSequenceCues(sequenceNo, request_id)
+    EZ.log(string.format("GetSequenceCues(%s, %s) called", tostring(sequenceNo), tostring(request_id)))
+
+    local seqNo = tonumber(sequenceNo)
+    if not seqNo or seqNo < 1 then
+        local payload = {error = "sequence_no_required", sequence_no = sequenceNo}
+        if request_id ~= nil then
+            payload.request_id = request_id
+        end
+        EZ.sendMessage("sequence_cues", "error", payload)
+        return nil
+    end
+
+    local sequence = getSequenceHandle(seqNo)
+    if not sequence then
+        local payload = {error = "sequence_not_found", sequence_no = seqNo}
+        if request_id ~= nil then
+            payload.request_id = request_id
+        end
+        EZ.sendMessage("sequence_cues", "error", payload)
+        return nil
+    end
+
+    local cues = {}
+    local children = safeChildren(sequence)
+    for _, child in ipairs(children) do
+        if getClassSafe(child) == "Cue" then
+            local cueNo = tonumber(child.no)
+            if cueNo and cueNo > 0 then
+                table.insert(cues, {
+                    no = cueNo,
+                    name = trimString(child.name)
+                })
+            end
+        end
+    end
+    table.sort(cues, function(a, b) return (a.no or 0) < (b.no or 0) end)
+
+    local count = #cues
+    local maxPer = 40
+    local totalChunks = math.max(1, math.ceil(count / maxPer))
+    for chunkIdx = 1, totalChunks do
+        local startIdx = (chunkIdx - 1) * maxPer + 1
+        local endIdx = math.min(startIdx + maxPer - 1, count)
+        local chunk = {}
+        for index = startIdx, endIdx do
+            table.insert(chunk, cues[index])
+        end
+        local payload = {
+            sequence_no = seqNo,
+            count = count,
+            offset = startIdx,
+            chunk_index = chunkIdx,
+            total_chunks = totalChunks,
+            cues = chunk
+        }
+        if request_id ~= nil then
+            payload.request_id = request_id
+        end
+        EZ.sendMessage("sequence_cues", "list", payload)
+    end
+    return cues
+end
+
 function EZ.GetCurrentSongSequenceRange()
     EZ.log("GetCurrentSongSequenceRange() called")
 
@@ -1101,6 +1401,302 @@ function EZ.GetCurrentSongSequenceRange()
 
     EZ.sendMessage("sequence_range", "current_song", payload)
     return payload
+end
+
+function EZ.GetPluginHealth()
+    EZ.log("GetPluginHealth() called")
+
+    local hitMaker = rawget(_G, "HitMaker")
+    local hitMakerLoaded = type(hitMaker) == "table"
+    local hitMakerVersion = nil
+    local hitMakerBuild = nil
+    local hitMakerSupportsEventTypeCreate = false
+    local hitMakerSupportsGoHit = false
+    local hitMakerSupportsXHitRelease = false
+    local hitMakerSupportsVersionInfo = false
+
+    if hitMakerLoaded then
+        hitMakerVersion = tostring(hitMaker._version or "")
+        hitMakerBuild = tostring(hitMaker._build or "")
+        hitMakerSupportsEventTypeCreate = type(hitMaker.create_sequence_for_event_type) == "function"
+        hitMakerSupportsGoHit = type(hitMaker.go_hit) == "function"
+        hitMakerSupportsXHitRelease = type(hitMaker.x_hit_release) == "function"
+        hitMakerSupportsVersionInfo = type(hitMaker.get_version_info) == "function"
+    end
+
+    local payload = {
+        ez_version = tostring(EZ._version or ""),
+        ez_build = tostring(EZ._build or ""),
+        hitmaker_loaded = hitMakerLoaded,
+        hitmaker_version = hitMakerVersion,
+        hitmaker_build = hitMakerBuild,
+        hitmaker_supports_event_type_create = hitMakerSupportsEventTypeCreate,
+        hitmaker_supports_go_hit = hitMakerSupportsGoHit,
+        hitmaker_supports_x_hit_release = hitMakerSupportsXHitRelease,
+        hitmaker_supports_version_info = hitMakerSupportsVersionInfo,
+    }
+    EZ.sendMessage("plugin", "health", payload)
+    return payload
+end
+
+-- =============================================================================
+-- PUBLIC API: TRANSPORT / PLAYHEAD
+-- =============================================================================
+
+local function sendTransportMessage(change, payload)
+    local changeText = tostring(change or "unknown")
+    local actionText = ""
+    local tcText = ""
+    local toSecondsText = ""
+    local errorText = ""
+    if type(payload) == "table" then
+        actionText = tostring(payload.action or "")
+        tcText = tostring(payload.tc or "")
+        toSecondsText = tostring(payload.to_seconds or payload.playhead or "")
+        errorText = tostring(payload.error or "")
+    end
+    EZ.log(
+        string.format(
+            "transport.%s dispatch action=%s tc=%s to=%s err=%s",
+            changeText,
+            actionText,
+            tcText,
+            toSecondsText,
+            errorText
+        )
+    )
+    local sendOk = EZ.sendMessage("transport", changeText, payload)
+    if sendOk then
+        EZ.log(string.format("transport.%s send ok", changeText))
+        return true
+    end
+
+    EZ.log(string.format("WARNING: transport.%s send failed; retrying after OSC re-init", changeText))
+    if EZ and EZ.InitOSC then
+        pcall(function() EZ.InitOSC() end)
+    end
+
+    local retryOk = EZ.sendMessage("transport", changeText, payload)
+    if not retryOk then
+        EZ.log(string.format("ERROR: transport.%s send failed after retry", changeText))
+        return false
+    end
+    EZ.log(string.format("transport.%s send succeeded on retry", changeText))
+    return true
+end
+
+local function emitTransportState(change, action, tcNo, isPlaying)
+    local tc, resolvedTcNo, tcErr = resolveTimecodeForTransport(tcNo)
+    if not tc then
+        sendTransportMessage("error", {
+            action = action,
+            error = tcErr
+        })
+        return false
+    end
+
+    local playhead = readTimecodeCursorSeconds(tc) or 0
+    local sent = sendTransportMessage(change, {
+        action = action,
+        state = action,
+        is_playing = isPlaying,
+        tc = resolvedTcNo,
+        playhead = playhead,
+        to_seconds = playhead
+    })
+    return sent
+end
+
+-- Send transport play command to EchoZero sync lane.
+function EZ.Play(tcNo)
+    return emitTransportState("play", "play", tcNo, true)
+end
+
+-- Send transport pause command to EchoZero sync lane.
+function EZ.Pause(tcNo)
+    return emitTransportState("pause", "pause", tcNo, false)
+end
+
+-- Send transport stop command to EchoZero sync lane.
+function EZ.Stop(tcNo)
+    return emitTransportState("stop", "stop", tcNo, false)
+end
+
+-- Jump playhead to the previous section marker/event.
+-- If tgNo+trackNo are omitted, auto-resolve a likely section track
+-- (first track whose name contains "section", otherwise first non-empty track).
+function EZ.JumpToPreviousSection(tcNo, tgNo, trackNo)
+    local tc, resolvedTcNo, tcErr = resolveTimecodeForTransport(tcNo)
+    if not tc then
+        sendTransportMessage("error", {
+            action = "jump_previous_section",
+            error = tcErr
+        })
+        return false
+    end
+
+    local cursorSeconds = readTimecodeCursorSeconds(tc) or 0
+    local sectionTrack, resolvedTgNo, resolvedTrackNo, sectionErr = resolveSectionTrack(
+        resolvedTcNo,
+        tgNo,
+        trackNo
+    )
+    if not sectionTrack then
+        sendTransportMessage("error", {
+            action = "jump_previous_section",
+            tc = resolvedTcNo,
+            error = sectionErr
+        })
+        return false
+    end
+
+    local events = EZ.getTrackEvents(sectionTrack) or {}
+    local previousTime = findPreviousEventTime(events, cursorSeconds)
+    local targetSeconds = previousTime or 0
+    local wrote = writeTimecodeCursorSeconds(tc, targetSeconds)
+    if not wrote then
+        sendTransportMessage("error", {
+            action = "jump_previous_section",
+            tc = resolvedTcNo,
+            tg = resolvedTgNo,
+            track = resolvedTrackNo,
+            error = "cursor_write_failed"
+        })
+        return false
+    end
+
+    local sent = sendTransportMessage("jumped_previous_section", {
+        tc = resolvedTcNo,
+        tg = resolvedTgNo,
+        track = resolvedTrackNo,
+        from_seconds = cursorSeconds,
+        to_seconds = targetSeconds
+    })
+    return sent
+end
+
+-- Jump playhead to the next section marker/event.
+-- If tgNo+trackNo are omitted, auto-resolve a likely section track
+-- (first track whose name contains "section", otherwise first non-empty track).
+function EZ.JumpToNextSection(tcNo, tgNo, trackNo)
+    local tc, resolvedTcNo, tcErr = resolveTimecodeForTransport(tcNo)
+    if not tc then
+        sendTransportMessage("error", {
+            action = "jump_next_section",
+            error = tcErr
+        })
+        return false
+    end
+
+    local cursorSeconds = readTimecodeCursorSeconds(tc) or 0
+    local sectionTrack, resolvedTgNo, resolvedTrackNo, sectionErr = resolveSectionTrack(
+        resolvedTcNo,
+        tgNo,
+        trackNo
+    )
+    if not sectionTrack then
+        sendTransportMessage("error", {
+            action = "jump_next_section",
+            tc = resolvedTcNo,
+            error = sectionErr
+        })
+        return false
+    end
+
+    local events = EZ.getTrackEvents(sectionTrack) or {}
+    local nextTime = findNextEventTime(events, cursorSeconds)
+    if nextTime == nil then
+        sendTransportMessage("error", {
+            action = "jump_next_section",
+            tc = resolvedTcNo,
+            tg = resolvedTgNo,
+            track = resolvedTrackNo,
+            error = "next_section_not_found"
+        })
+        return false
+    end
+
+    local wrote = writeTimecodeCursorSeconds(tc, nextTime)
+    if not wrote then
+        sendTransportMessage("error", {
+            action = "jump_next_section",
+            tc = resolvedTcNo,
+            tg = resolvedTgNo,
+            track = resolvedTrackNo,
+            error = "cursor_write_failed"
+        })
+        return false
+    end
+
+    local sent = sendTransportMessage("jumped_next_section", {
+        tc = resolvedTcNo,
+        tg = resolvedTgNo,
+        track = resolvedTrackNo,
+        from_seconds = cursorSeconds,
+        to_seconds = nextTime
+    })
+    return sent
+end
+
+-- Move timecode cursor by delta seconds (+/-).
+-- tcNo is optional; defaults to SelectedTimecode().
+function EZ.ScrubTimecodeBy(deltaSeconds, tcNo)
+    local tc, resolvedTcNo, tcErr = resolveTimecodeForTransport(tcNo)
+    if not tc then
+        sendTransportMessage("error", {
+            action = "scrub",
+            error = tcErr
+        })
+        return false
+    end
+
+    local delta = tonumber(deltaSeconds)
+    if not delta then
+        sendTransportMessage("error", {
+            action = "scrub",
+            tc = resolvedTcNo,
+            error = "delta_seconds_required"
+        })
+        return false
+    end
+
+    local fromSeconds = readTimecodeCursorSeconds(tc) or 0
+    local toSeconds = math.max(0, fromSeconds + delta)
+    local wrote = writeTimecodeCursorSeconds(tc, toSeconds)
+    if not wrote then
+        sendTransportMessage("error", {
+            action = "scrub",
+            tc = resolvedTcNo,
+            error = "cursor_write_failed"
+        })
+        return false
+    end
+
+    local sent = sendTransportMessage("scrubbed", {
+        tc = resolvedTcNo,
+        from_seconds = fromSeconds,
+        delta_seconds = delta,
+        to_seconds = toSeconds
+    })
+    return sent
+end
+
+-- Scrub forward by N seconds (default 1s).
+function EZ.ScrubTimecodeForward(stepSeconds, tcNo)
+    local step = tonumber(stepSeconds) or 1
+    if step < 0 then
+        step = -step
+    end
+    return EZ.ScrubTimecodeBy(step, tcNo)
+end
+
+-- Scrub backward by N seconds (default 1s).
+function EZ.ScrubTimecodeBackward(stepSeconds, tcNo)
+    local step = tonumber(stepSeconds) or 1
+    if step < 0 then
+        step = -step
+    end
+    return EZ.ScrubTimecodeBy(-step, tcNo)
 end
 
 function EZ.CreateSequenceNextAvailable(name)
@@ -1135,9 +1731,212 @@ function EZ.CreateSequenceInCurrentSongRange(name)
     return createSequenceAtNumber(seqNo, name, "current_song_range")
 end
 
+local function normalizeOptionalText(value)
+    if value == nil then
+        return nil
+    end
+    local text = tostring(value):gsub("^%s+", ""):gsub("%s+$", "")
+    if text == "" then
+        return nil
+    end
+    return text
+end
+
+local function setEventNameProperty(event, eventName)
+    local resolved = normalizeOptionalText(eventName)
+    if not resolved then
+        return nil
+    end
+    local ok_name = pcall(function() event.name = resolved end)
+    if not ok_name then
+        pcall(function() event:Set("Name", resolved) end)
+    end
+    return resolved
+end
+
+local function setEventCueNoProperty(event, cueNo)
+    local numericCueNo = tonumber(cueNo)
+    if not numericCueNo or numericCueNo <= 0 then
+        return nil, nil
+    end
+    local cueDestination = math.floor(numericCueNo + 0.0000001)
+    local ok_set_cue_no = pcall(function() event:Set("CueNo", numericCueNo) end)
+    if not ok_set_cue_no then
+        pcall(function() event.cueNo = numericCueNo end)
+        pcall(function() event.cueno = numericCueNo end)
+    end
+
+    local ok_set_destination = pcall(function() event:Set("CueDestination", cueDestination) end)
+    if not ok_set_destination then
+        ok_set_destination = pcall(function() event:Set("cuedestination", cueDestination) end)
+    end
+    if not ok_set_destination then
+        pcall(function() event.CueDestination = cueDestination end)
+        pcall(function() event.cuedestination = cueDestination end)
+    end
+    return numericCueNo, cueDestination
+end
+
+local function setEventCueNameProperty(event, cueName)
+    local resolved = normalizeOptionalText(cueName)
+    if not resolved then
+        return nil
+    end
+    local ok_set_cue_name = pcall(function() event:Set("CueName", resolved) end)
+    if not ok_set_cue_name then
+        pcall(function() event.cueName = resolved end)
+        pcall(function() event.cuename = resolved end)
+    end
+    return resolved
+end
+
+local function findSequenceCueByNo(sequence, cueNo)
+    local targetCueNo = tonumber(cueNo)
+    if not sequence or not targetCueNo then
+        return nil
+    end
+    local children = safeChildren(sequence)
+    for i = 1, #children do
+        local child = children[i]
+        if getClassSafe(child) == "Cue" then
+            local okNo, cueNoValue = pcall(function() return child.no end)
+            if okNo and cueNoValue ~= nil then
+                local childCueNo = tonumber(cueNoValue)
+                if childCueNo and math.abs(childCueNo - targetCueNo) < 0.0001 then
+                    return child
+                end
+            end
+        end
+    end
+    return nil
+end
+
+local function resolveTrackSequenceCue(track, cueNo)
+    local targetCueNo = tonumber(cueNo)
+    if not track or not targetCueNo or targetCueNo <= 0 then
+        return nil, nil, nil, "invalid_cue_number"
+    end
+
+    local seqNo = getAssignedSequenceNo(track)
+    if not seqNo then
+        return nil, nil, nil, "no_sequence_assigned"
+    end
+    local sequence = getSequenceHandle(seqNo)
+    if not sequence then
+        return nil, nil, seqNo, "sequence_not_found"
+    end
+
+    local cue = findSequenceCueByNo(sequence, targetCueNo)
+    local resolvedCueNo = targetCueNo
+
+    -- MA3 cue number entry can differ by factor-1000 depending on show data.
+    if not cue and math.floor(targetCueNo + 0.0000001) == targetCueNo then
+        local upscaled = targetCueNo * 1000
+        cue = findSequenceCueByNo(sequence, upscaled)
+        if cue then
+            resolvedCueNo = upscaled
+        end
+    end
+    if
+        not cue
+        and targetCueNo >= 1000
+        and math.floor(targetCueNo + 0.0000001) == targetCueNo
+        and math.floor((targetCueNo / 1000) + 0.0000001) == (targetCueNo / 1000)
+    then
+        local downscaled = targetCueNo / 1000
+        cue = findSequenceCueByNo(sequence, downscaled)
+        if cue then
+            resolvedCueNo = downscaled
+        end
+    end
+
+    if not cue then
+        return nil, nil, seqNo, "cue_not_found"
+    end
+    return cue, resolvedCueNo, seqNo, nil
+end
+
+local function setEventCueDestinationFromTrack(event, track, cueNo)
+    local cueHandle, resolvedCueNo, seqNo, err = resolveTrackSequenceCue(track, cueNo)
+    if not cueHandle then
+        return false, resolvedCueNo, nil, seqNo, err
+    end
+
+    local okSet = pcall(function() event.CueDestination = cueHandle end)
+    if not okSet then
+        okSet = pcall(function() event:Set("CueDestination", cueHandle) end)
+    end
+    if not okSet then
+        return false, resolvedCueNo, nil, seqNo, "set_cue_destination_failed"
+    end
+
+    local resolvedDestinationText = nil
+    local okRead, readValue = pcall(function() return event:Get("CUEDESTINATION") end)
+    if okRead and readValue ~= nil and tostring(readValue) ~= "" then
+        resolvedDestinationText = tostring(readValue)
+    end
+    return true, resolvedCueNo, resolvedDestinationText, seqNo, nil
+end
+
+local function setSequenceCueNameFromTrack(track, cueNo, cueName)
+    local resolvedCueName = normalizeOptionalText(cueName)
+    local targetCueNo = tonumber(cueNo)
+    if not track or not resolvedCueName or not targetCueNo then
+        return false, "missing_track_cue_or_name", nil
+    end
+
+    local seqNo = getAssignedSequenceNo(track)
+    if not seqNo then
+        return false, "no_sequence_assigned", nil
+    end
+    local sequence = getSequenceHandle(seqNo)
+    if not sequence then
+        return false, "sequence_not_found", seqNo
+    end
+
+    local cue = findSequenceCueByNo(sequence, targetCueNo)
+    if not cue then
+        return false, "cue_not_found", seqNo
+    end
+
+    local okSet = pcall(function() cue.name = resolvedCueName end)
+    if not okSet then
+        pcall(function() cue:Set("Name", resolvedCueName) end)
+    end
+    return true, nil, seqNo
+end
+
+local function getEventByIndex(tcNo, tgNo, trackNo, eventIdx)
+    local subTrack = getCmdSubTrack(tcNo, tgNo, trackNo)
+    if not subTrack then
+        return nil, "CmdSubTrack not found"
+    end
+    local events = subTrack:Children() or {}
+    if eventIdx < 1 or eventIdx > #events then
+        return nil, "Event index out of range"
+    end
+    return events[eventIdx], nil
+end
+
 -- Add event to a track
 -- eventName/cueNo/cueLabel are optional metadata fields.
-function EZ.AddEvent(tcNo, tgNo, trackNo, time, cmd, eventName, cueNo, cueLabel)
+-- channelNo is accepted for transport compatibility but is currently unused.
+-- explicitEventName/explicitCueName override the default naming resolution when provided.
+function EZ.AddEvent(
+    tcNo,
+    tgNo,
+    trackNo,
+    time,
+    cmd,
+    eventName,
+    cueNo,
+    cueLabel,
+    channelNo,
+    explicitEventName,
+    explicitCueName
+)
+    local _channelNo = channelNo
+    _channelNo = _channelNo
     local one_second_internally = 16777216
     local track, ma3TrackNo = getTrackHandle(tcNo, tgNo, trackNo)
     
@@ -1212,30 +2011,50 @@ function EZ.AddEvent(tcNo, tgNo, trackNo, time, cmd, eventName, cueNo, cueLabel)
         return false
     end
 
-    local resolvedName = tostring(eventName or cueLabel or ""):gsub("^%s+", ""):gsub("%s+$", "")
-    if resolvedName ~= "" then
-        local ok_name = pcall(function() event.name = resolvedName end)
-        if not ok_name then
-            pcall(function() event:Set("Name", resolvedName) end)
-        end
-    end
+    local resolvedEventName =
+        normalizeOptionalText(explicitEventName)
+        or normalizeOptionalText(cueLabel)
+        or normalizeOptionalText(eventName)
+    local resolvedCueName =
+        normalizeOptionalText(explicitCueName)
+        or normalizeOptionalText(cueLabel)
+        or resolvedEventName
+        or normalizeOptionalText(eventName)
 
-    local numericCueNo = tonumber(cueNo)
-    if numericCueNo and numericCueNo > 0 then
-        local ok_set_cue_no = pcall(function() event:Set("CueNo", numericCueNo) end)
-        if not ok_set_cue_no then
-            pcall(function() event.cueNo = numericCueNo end)
-            pcall(function() event.cueno = numericCueNo end)
-        end
+    setEventNameProperty(event, resolvedEventName)
+    local resolvedCueNo, resolvedCueDestination = setEventCueNoProperty(event, cueNo)
+    local destinationApplied, destinationCueNo, destinationText, destinationSeqNo, destinationErr =
+        setEventCueDestinationFromTrack(event, track, cueNo)
+    if destinationCueNo ~= nil then
+        resolvedCueNo = destinationCueNo
     end
+    if destinationText ~= nil then
+        resolvedCueDestination = destinationText
+    end
+    setEventCueNameProperty(event, resolvedCueName)
+    local sequenceCueNameApplied, sequenceCueNameError, sequenceNo = setSequenceCueNameFromTrack(
+        track,
+        resolvedCueNo or cueNo,
+        resolvedCueName
+    )
 
-    local resolvedCueLabel = tostring(cueLabel or eventName or ""):gsub("^%s+", ""):gsub("%s+$", "")
-    if resolvedCueLabel ~= "" then
-        local ok_set_cue_name = pcall(function() event:Set("CueName", resolvedCueLabel) end)
-        if not ok_set_cue_name then
-            pcall(function() event.cueName = resolvedCueLabel end)
-        end
-    end
+    EZ.sendMessage("event", "added", {
+        tc = tcNo,
+        tg = tgNo,
+        track = trackNo,
+        time = tonumber(time) or 0,
+        cmd = cmd or "",
+        event_name = resolvedEventName,
+        cue_no = resolvedCueNo,
+        cue_destination = resolvedCueDestination,
+        cue_name = resolvedCueName,
+        channel_no = tonumber(channelNo),
+        sequence_no = sequenceNo or destinationSeqNo,
+        cue_destination_applied = destinationApplied,
+        cue_destination_error = destinationErr,
+        sequence_cue_name_applied = sequenceCueNameApplied,
+        sequence_cue_name_error = sequenceCueNameError,
+    })
 
     return true
 end
@@ -1515,10 +2334,60 @@ function EZ.TrackNameExistsInTimecode(tcNo, trackName)
     return false, nil, nil
 end
 
+function EZ.UpdateEventMeta(tcNo, tgNo, trackNo, eventIdx, eventName, cueNo, cueLabel)
+    local event, eventErr = getEventByIndex(tcNo, tgNo, trackNo, eventIdx)
+    if not event then
+        EZ.log(string.format("UpdateEventMeta: %s for %d.%d.%d idx=%d", tostring(eventErr), tcNo, tgNo, trackNo, eventIdx))
+        return false
+    end
+
+    local resolvedEventName =
+        normalizeOptionalText(cueLabel)
+        or normalizeOptionalText(eventName)
+    local resolvedCueName =
+        normalizeOptionalText(cueLabel)
+        or resolvedEventName
+        or normalizeOptionalText(eventName)
+
+    local track = getTrackHandle(tcNo, tgNo, trackNo)
+    setEventNameProperty(event, resolvedEventName)
+    local resolvedCueNo, resolvedCueDestination = setEventCueNoProperty(event, cueNo)
+    local destinationApplied, destinationCueNo, destinationText, destinationSeqNo, destinationErr =
+        setEventCueDestinationFromTrack(event, track, cueNo)
+    if destinationCueNo ~= nil then
+        resolvedCueNo = destinationCueNo
+    end
+    if destinationText ~= nil then
+        resolvedCueDestination = destinationText
+    end
+    setEventCueNameProperty(event, resolvedCueName)
+    local sequenceCueNameApplied, sequenceCueNameError, sequenceNo = setSequenceCueNameFromTrack(
+        track,
+        resolvedCueNo or cueNo,
+        resolvedCueName
+    )
+    EZ.sendMessage("event", "updated_meta", {
+        tc = tcNo,
+        tg = tgNo,
+        track = trackNo,
+        idx = eventIdx,
+        name = resolvedEventName,
+        cue_no = resolvedCueNo,
+        cue_destination = resolvedCueDestination,
+        cue_name = resolvedCueName,
+        sequence_no = sequenceNo or destinationSeqNo,
+        cue_destination_applied = destinationApplied,
+        cue_destination_error = destinationErr,
+        sequence_cue_name_applied = sequenceCueNameApplied,
+        sequence_cue_name_error = sequenceCueNameError,
+    })
+    return true
+end
+
 -- Update event in a track
 -- NOTE: trackNo is user-visible track number (1-based, excluding Marker).
 -- MA3 command automatically handles the +1 offset for Marker track.
-function EZ.UpdateEvent(tcNo, tgNo, trackNo, eventIdx, time, cmd)
+function EZ.UpdateEvent(tcNo, tgNo, trackNo, eventIdx, time, cmd, eventName, cueNo, cueLabel)
     -- Update event properties using CmdIndirect (silent) to keep MA3 console clean
     -- These are frequent sync operations that would flood the console with Cmd()
     local cmdStr
@@ -1541,6 +2410,9 @@ function EZ.UpdateEvent(tcNo, tgNo, trackNo, eventIdx, time, cmd)
     EZ.sendMessage("event", "updated", {
         tc = tcNo, tg = tgNo, track = trackNo, idx = eventIdx, time = time, cmd = cmd
     })
+    if eventName ~= nil or cueNo ~= nil or cueLabel ~= nil then
+        EZ.UpdateEventMeta(tcNo, tgNo, trackNo, eventIdx, eventName, cueNo, cueLabel)
+    end
     EZ.log(string.format("Updated event %d in %d.%d.%d", eventIdx, tcNo, tgNo, trackNo))
     return true
 end

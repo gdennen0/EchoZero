@@ -396,6 +396,7 @@ def test_app_shell_runtime_object_action_session_reset_defaults_restores_templat
 
 def test_app_shell_runtime_object_action_session_save_to_defaults_persists_song_defaults():
     temp_root = _repo_local_temp_root()
+    save_path = temp_root / "session-save-defaults.ez"
     runtime = build_app_shell(
         working_dir_root=temp_root / "working",
         analysis_service=build_mock_analysis_service(),
@@ -404,6 +405,8 @@ def test_app_shell_runtime_object_action_session_save_to_defaults_persists_song_
     try:
         audio_path = write_test_wav(temp_root / "fixtures" / "session-save-defaults.wav")
         runtime.add_song_from_path("Session Save Defaults", audio_path)
+        runtime.save_project_as(save_path)
+        assert runtime.project_storage.is_dirty() is False
 
         session = runtime.open_object_action_session(
             "timeline.extract_stems",
@@ -422,6 +425,7 @@ def test_app_shell_runtime_object_action_session_save_to_defaults_persists_song_
         )
         assert session.scope == "version"
         assert session.values["model"] == "mdx_extra"
+        assert runtime.project_storage.is_dirty() is True
 
         default_plan = runtime.describe_object_action(
             "timeline.extract_stems",
@@ -437,6 +441,24 @@ def test_app_shell_runtime_object_action_session_save_to_defaults_persists_song_
         assert any(
             field.key == "device" and field.value == "cpu"
             for field in default_plan.editable_fields
+        )
+
+        runtime.save_project()
+        runtime.open_project(save_path)
+        reloaded_default_plan = runtime.describe_object_action(
+            "timeline.extract_stems",
+            {"layer_id": "source_audio"},
+            object_id="source_audio",
+            object_type="layer",
+            scope="song_default",
+        )
+        assert any(
+            field.key == "model" and field.value == "mdx_extra"
+            for field in reloaded_default_plan.editable_fields
+        )
+        assert any(
+            field.key == "device" and field.value == "cpu"
+            for field in reloaded_default_plan.editable_fields
         )
     finally:
         runtime.shutdown()

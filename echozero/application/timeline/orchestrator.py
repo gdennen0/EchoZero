@@ -10,7 +10,10 @@ from echozero.application.mixer.models import LayerMixerState
 from echozero.application.mixer.service import MixerService
 from echozero.application.playback.service import PlaybackService
 from echozero.application.presentation.models import TimelinePresentation
-from echozero.application.shared.cue_numbers import cue_number_text
+from echozero.application.shared.cue_numbers import (
+    cue_number_from_ref_text,
+    cue_number_text,
+)
 from echozero.application.session.models import (
     ManualPullDiffPreview,
     ManualPullEventOption,
@@ -24,7 +27,7 @@ from echozero.application.session.models import (
 from echozero.application.session.service import SessionService
 from echozero.application.shared.enums import FollowMode, LayerKind
 from echozero.application.shared.layer_kinds import is_event_like_layer_kind
-from echozero.application.shared.ids import EventId, LayerId, RegionId, TakeId
+from echozero.application.shared.ids import EventId, LayerId, TakeId
 from echozero.application.shared.ranges import TimeRange
 from echozero.application.sync.diff_service import SyncDiffService
 from echozero.application.sync.models import LiveSyncState, coerce_live_sync_state
@@ -74,11 +77,9 @@ from echozero.application.timeline.intents import (
     CancelTransferPlan,
     ClearLayerLiveSyncPauseReason,
     ClearSelection,
-    CreateRegion,
     ConfirmPullFromMA3,
     ConfirmPushToMA3,
     CreateEvent,
-    DeleteRegion,
     DeleteEvents,
     DeleteTransferPreset,
     DisableExperimentalLiveSync,
@@ -129,14 +130,13 @@ from echozero.application.timeline.intents import (
     SetPushTrackOptions,
     SetPushTransferMode,
     SetSelectedEvents,
-    SelectRegion,
     Stop,
     TimelineIntent,
     ToggleLayerExpanded,
     TriggerTakeAction,
     TrimEvent,
+    UpdateEventCueMappings,
     UpdateEventLabel,
-    UpdateRegion,
 )
 from echozero.application.timeline.models import (
     Event,
@@ -144,7 +144,6 @@ from echozero.application.timeline.models import (
     Layer,
     Take,
     Timeline,
-    TimelineRegion,
     derive_section_cues_from_layers,
 )
 from echozero.application.transport.service import TransportService
@@ -201,7 +200,6 @@ class TimelineOrchestrator(
             timeline.selection.selected_take_id = None
             timeline.selection.selected_event_refs = []
             timeline.selection.selected_event_ids = []
-            timeline.selection.selected_region_id = None
 
         elif isinstance(intent, SelectAllEvents):
             self._handle_select_all_events(timeline)
@@ -214,38 +212,6 @@ class TimelineOrchestrator(
                 anchor_layer_id=intent.anchor_layer_id,
                 anchor_take_id=intent.anchor_take_id,
                 selected_layer_ids=list(intent.selected_layer_ids or []),
-            )
-
-        elif isinstance(intent, SelectRegion):
-            if intent.region_id is None:
-                timeline.selection.selected_region_id = None
-            else:
-                self._require_region(timeline, intent.region_id)
-                timeline.selection.selected_region_id = intent.region_id
-
-        elif isinstance(intent, CreateRegion):
-            self._handle_create_region(
-                timeline,
-                time_range=intent.time_range,
-                label=intent.label,
-                color=intent.color,
-                kind=intent.kind,
-            )
-
-        elif isinstance(intent, UpdateRegion):
-            self._handle_update_region(
-                timeline,
-                region_id=intent.region_id,
-                time_range=intent.time_range,
-                label=intent.label,
-                color=intent.color,
-                kind=intent.kind,
-            )
-
-        elif isinstance(intent, DeleteRegion):
-            self._handle_delete_region(
-                timeline,
-                region_id=intent.region_id,
             )
 
         elif isinstance(intent, SelectEveryOtherEvents):
@@ -262,6 +228,7 @@ class TimelineOrchestrator(
                 event_id=intent.event_id,
                 scope_mode=intent.scope_mode,
                 match_strength=intent.match_strength,
+                similarity_threshold_override=intent.similarity_threshold_override,
             )
 
         elif isinstance(intent, RenumberEventCueNumbers):
@@ -297,6 +264,14 @@ class TimelineOrchestrator(
                 timeline,
                 event_id=intent.event_id,
                 label=intent.label,
+                layer_id=intent.layer_id,
+                take_id=intent.take_id,
+            )
+
+        elif isinstance(intent, UpdateEventCueMappings):
+            self._handle_update_event_cue_mappings(
+                timeline,
+                edits=list(intent.edits),
                 layer_id=intent.layer_id,
                 take_id=intent.take_id,
             )
@@ -489,6 +464,7 @@ class TimelineOrchestrator(
                 timeline,
                 layer_id=intent.layer_id,
                 target_track_coord=intent.target_track_coord,
+                ma3_channel_no=intent.ma3_channel_no,
                 sequence_action=intent.sequence_action,
             )
 
@@ -1453,6 +1429,8 @@ class TimelineOrchestrator(
             order_index=order_index,
             existing_event_ids=existing_event_ids,
         )
+        cue_ref = source_event.cue_ref or cue_number_text(source_event.cue_number)
+        cue_number = source_event.cue_number or cue_number_from_ref_text(cue_ref)
         return Event(
             id=event_id,
             take_id=take_id,
@@ -1461,10 +1439,9 @@ class TimelineOrchestrator(
             origin="ma3_pull",
             classifications={"label": source_event.label} if source_event.label else {},
             metadata={},
-            cue_number=source_event.cue_number or 1,
+            cue_number=cue_number or 1,
             label=source_event.label,
-            cue_ref=source_event.cue_ref
-            or cue_number_text(source_event.cue_number),
+            cue_ref=cue_ref,
             color=source_event.color,
             notes=source_event.notes,
             payload_ref=source_event.payload_ref or source_event.event_id,
@@ -1491,109 +1468,3 @@ class TimelineOrchestrator(
                 reserved.add(candidate)
                 return EventId(candidate)
             suffix += 1
-
-    def _handle_create_region(
-        self,
-        timeline: Timeline,
-        *,
-        time_range: TimeRange,
-        label: str,
-        color: str | None,
-        kind: str,
-    ) -> None:
-        region = TimelineRegion(
-            id=self._next_region_id(timeline),
-            start=float(time_range.start),
-            end=float(time_range.end),
-            label=label,
-            color=color,
-            kind=kind,
-            order_index=len(timeline.regions),
-        )
-        timeline.regions = self._sorted_regions([*timeline.regions, region])
-        timeline.selection.selected_region_id = region.id
-        timeline.end = max(float(timeline.end), float(region.end))
-
-    def _handle_update_region(
-        self,
-        timeline: Timeline,
-        *,
-        region_id: RegionId,
-        time_range: TimeRange,
-        label: str,
-        color: str | None,
-        kind: str,
-    ) -> None:
-        existing = self._require_region(timeline, region_id)
-        updated = TimelineRegion(
-            id=existing.id,
-            start=float(time_range.start),
-            end=float(time_range.end),
-            label=label,
-            color=color,
-            kind=kind,
-            order_index=existing.order_index,
-        )
-        timeline.regions = self._sorted_regions(
-            [
-                updated if region.id == existing.id else region
-                for region in timeline.regions
-            ]
-        )
-        timeline.selection.selected_region_id = updated.id
-        timeline.end = max(float(timeline.end), float(updated.end))
-
-    def _handle_delete_region(
-        self,
-        timeline: Timeline,
-        *,
-        region_id: RegionId,
-    ) -> None:
-        self._require_region(timeline, region_id)
-        timeline.regions = [
-            region for region in timeline.regions if region.id != region_id
-        ]
-        if timeline.selection.selected_region_id == region_id:
-            timeline.selection.selected_region_id = None
-        timeline.regions = self._sorted_regions(list(timeline.regions))
-
-    @staticmethod
-    def _sorted_regions(regions: list[TimelineRegion]) -> list[TimelineRegion]:
-        sorted_regions = sorted(
-            regions,
-            key=lambda region: (
-                float(region.start),
-                float(region.end),
-                int(region.order_index),
-                str(region.id),
-            ),
-        )
-        return [
-            TimelineRegion(
-                id=region.id,
-                start=float(region.start),
-                end=float(region.end),
-                label=region.label,
-                color=region.color,
-                kind=region.kind,
-                order_index=index,
-            )
-            for index, region in enumerate(sorted_regions)
-        ]
-
-    @staticmethod
-    def _next_region_id(timeline: Timeline) -> RegionId:
-        existing_ids = {str(region.id) for region in timeline.regions}
-        counter = 1
-        while True:
-            candidate = f"region_{counter}"
-            if candidate not in existing_ids:
-                return RegionId(candidate)
-            counter += 1
-
-    @staticmethod
-    def _require_region(timeline: Timeline, region_id: RegionId) -> TimelineRegion:
-        for region in timeline.regions:
-            if region.id == region_id:
-                return region
-        raise ValueError(f"Region not found: {region_id}")

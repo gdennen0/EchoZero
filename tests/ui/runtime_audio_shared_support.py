@@ -71,12 +71,22 @@ class FakeRuntimeAudio:
         self.current_time = 0.0
         self.mix_states: list[TimelinePresentation] = []
         self.snapshot: RuntimeAudioTimingSnapshot | None = None
+        self.coalesced_edits = 0
 
     def build_for_presentation(self, presentation: TimelinePresentation) -> None:
         return None
 
+    def sync_structure_state(self, presentation: TimelinePresentation) -> None:
+        self.build_for_presentation(presentation)
+
     def apply_mix_state(self, presentation: TimelinePresentation) -> None:
         self.mix_states.append(presentation)
+
+    def sync_mix_state(self, presentation: TimelinePresentation) -> None:
+        self.apply_mix_state(presentation)
+
+    def record_coalesced_structural_edits(self, count: int = 1) -> None:
+        self.coalesced_edits += max(0, int(count))
 
     def play(self) -> None:
         self.playing = True
@@ -150,8 +160,14 @@ class RecordingRuntimeAudio:
     def build_for_presentation(self, presentation: TimelinePresentation) -> None:
         return None
 
+    def sync_structure_state(self, presentation: TimelinePresentation) -> None:
+        self.build_for_presentation(presentation)
+
     def apply_mix_state(self, presentation: TimelinePresentation) -> None:
         self.calls.append(("mix", None))
+
+    def sync_mix_state(self, presentation: TimelinePresentation) -> None:
+        self.apply_mix_state(presentation)
 
     def presentation_signature(self, presentation: TimelinePresentation):
         return tuple(

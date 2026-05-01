@@ -145,6 +145,7 @@ class _SimulatedMA3OSCServer:
         self._events_by_coord: dict[str, list[MA3EventSnapshot]] = {}
         self._sequence_by_coord: dict[str, int | None] = {}
         self._sequences_by_number: dict[int, MA3SequenceSnapshot] = {}
+        self._sequence_cues_by_sequence_no: dict[int, list[dict[str, object]]] = {}
         self._current_song_label: str | None = "Song A"
         self._timecode_name_by_no: dict[int, str] = {1: "Song A"}
         self._track_group_name_by_key: dict[tuple[int, int], str] = {(1, 2): "Group 2"}
@@ -153,6 +154,14 @@ class _SimulatedMA3OSCServer:
         self._cmd_subtrack_create_blocked: set[str] = set()
         self._clear_delay_seconds_by_coord: dict[str, float] = {}
         self._hooked_tracks: set[str] = set()
+        self._ez_version = "2.0"
+        self._ez_build = "2026-04-30.hitmaker-health-1"
+        self._hitmaker_loaded = True
+        self._hitmaker_version = "1.1.0"
+        self._hitmaker_build = "2026-04-30.hitmaker-health-1"
+        self._hitmaker_supports_event_type_create = True
+        self._hitmaker_supports_go_hit = True
+        self._hitmaker_supports_version_info = True
 
         self.set_tracks(_default_tracks())
         self.set_track_events(_default_events_by_track())
@@ -263,6 +272,9 @@ class _SimulatedMA3OSCServer:
             sequences = [sequence for sequence in sequences if sequence.number <= int(end_no)]
         return sequences
 
+    def list_sequence_cues(self, *, sequence_no: int) -> list[dict[str, object]]:
+        return list(self._sequence_cues_by_sequence_no.get(int(sequence_no), []))
+
     def get_current_song_sequence_range(self) -> MA3SequenceRangeSnapshot | None:
         return self._resolve_current_song_range()
 
@@ -322,6 +334,7 @@ class _SimulatedMA3OSCServer:
 
     def set_sequences(self, sequences) -> None:
         self._sequences_by_number = {}
+        self._sequence_cues_by_sequence_no = {}
         for raw_sequence in sequences or []:
             if isinstance(raw_sequence, MA3SequenceSnapshot):
                 sequence = raw_sequence
@@ -342,11 +355,45 @@ class _SimulatedMA3OSCServer:
                 )
             if sequence.number > 0:
                 self._sequences_by_number[sequence.number] = sequence
+                cue_count = int(sequence.cue_count or 0)
+                self._sequence_cues_by_sequence_no[sequence.number] = [
+                    {"no": index, "name": f"Cue {index}"}
+                    for index in range(1, cue_count + 1)
+                ]
 
     def set_current_song_label(self, song_label: str | None) -> None:
         self._current_song_label = None if song_label in {None, ""} else str(song_label)
         if self._current_song_label:
             self._timecode_name_by_no[1] = self._current_song_label
+
+    def set_plugin_health(
+        self,
+        *,
+        ez_version: str | None = None,
+        ez_build: str | None = None,
+        hitmaker_loaded: bool | None = None,
+        hitmaker_version: str | None = None,
+        hitmaker_build: str | None = None,
+        hitmaker_supports_event_type_create: bool | None = None,
+        hitmaker_supports_go_hit: bool | None = None,
+        hitmaker_supports_version_info: bool | None = None,
+    ) -> None:
+        if ez_version is not None:
+            self._ez_version = str(ez_version)
+        if ez_build is not None:
+            self._ez_build = str(ez_build)
+        if hitmaker_loaded is not None:
+            self._hitmaker_loaded = bool(hitmaker_loaded)
+        if hitmaker_version is not None:
+            self._hitmaker_version = str(hitmaker_version)
+        if hitmaker_build is not None:
+            self._hitmaker_build = str(hitmaker_build)
+        if hitmaker_supports_event_type_create is not None:
+            self._hitmaker_supports_event_type_create = bool(hitmaker_supports_event_type_create)
+        if hitmaker_supports_go_hit is not None:
+            self._hitmaker_supports_go_hit = bool(hitmaker_supports_go_hit)
+        if hitmaker_supports_version_info is not None:
+            self._hitmaker_supports_version_info = bool(hitmaker_supports_version_info)
 
     def set_track_write_ready(self, track_coord: str, *, ready: bool) -> None:
         coord = str(track_coord or "").strip()
@@ -396,6 +443,22 @@ class _SimulatedMA3OSCServer:
 
     def _handle_Ping(self) -> None:
         self._send_message("connection", "ping", {"status": "ok"})
+
+    def _handle_GetPluginHealth(self) -> None:
+        self._send_message(
+            "plugin",
+            "health",
+            {
+                "ez_version": self._ez_version,
+                "ez_build": self._ez_build,
+                "hitmaker_loaded": self._hitmaker_loaded,
+                "hitmaker_version": self._hitmaker_version,
+                "hitmaker_build": self._hitmaker_build,
+                "hitmaker_supports_event_type_create": self._hitmaker_supports_event_type_create,
+                "hitmaker_supports_go_hit": self._hitmaker_supports_go_hit,
+                "hitmaker_supports_version_info": self._hitmaker_supports_version_info,
+            },
+        )
 
     def _handle_GetTimecodes(self) -> None:
         timecodes = [
@@ -639,6 +702,27 @@ class _SimulatedMA3OSCServer:
             payload["request_id"] = int(request_id)
         self._send_message("sequences", "list", payload)
 
+    def _handle_GetSequenceCues(self, sequence_no: int, request_id: int | None = None) -> None:
+        requested_sequence_no = int(sequence_no)
+        sequence = self._sequences_by_number.get(requested_sequence_no)
+        if sequence is None:
+            payload = {"sequence_no": requested_sequence_no, "error": "sequence_not_found"}
+            if request_id is not None:
+                payload["request_id"] = int(request_id)
+            self._send_message("sequence_cues", "error", payload)
+            return
+        cues = list(self._sequence_cues_by_sequence_no.get(requested_sequence_no, []))
+        payload = {
+            "sequence_no": requested_sequence_no,
+            "count": len(cues),
+            "chunk_index": 1,
+            "total_chunks": 1,
+            "cues": cues,
+        }
+        if request_id is not None:
+            payload["request_id"] = int(request_id)
+        self._send_message("sequence_cues", "list", payload)
+
     def _handle_GetCurrentSongSequenceRange(self) -> None:
         sequence_range = self._resolve_current_song_range()
         if sequence_range is None:
@@ -708,7 +792,9 @@ class _SimulatedMA3OSCServer:
         event_name: str | None = None,
         cue_no: CueNumber | None = None,
         cue_label: str | None = None,
+        channel_no: int | None = None,
     ) -> None:
+        del channel_no
         coord = format_track_coord(int(tc_no), int(tg_no), int(track_no))
         if not self._cmd_subtrack_ready_by_coord.get(coord, True):
             self._send_message(
@@ -1133,8 +1219,14 @@ class SimulatedMA3Bridge:
     ) -> list[MA3SequenceSnapshot]:
         return self._require_bridge().list_sequences(start_no=start_no, end_no=end_no)
 
+    def list_sequence_cues(self, *, sequence_no: int) -> list[dict[str, object]]:
+        return self._require_bridge().list_sequence_cues(sequence_no=sequence_no)
+
     def get_current_song_sequence_range(self) -> MA3SequenceRangeSnapshot | None:
         return self._require_bridge().get_current_song_sequence_range()
+
+    def get_plugin_health(self) -> dict[str, object]:
+        return self._require_bridge().get_plugin_health()
 
     def set_tracks(self, tracks) -> None:
         self._require_server().set_tracks(tracks)
@@ -1150,6 +1242,30 @@ class SimulatedMA3Bridge:
 
     def set_current_song_label(self, song_label: str | None) -> None:
         self._require_server().set_current_song_label(song_label)
+        self._require_bridge().invalidate()
+
+    def set_plugin_health(
+        self,
+        *,
+        ez_version: str | None = None,
+        ez_build: str | None = None,
+        hitmaker_loaded: bool | None = None,
+        hitmaker_version: str | None = None,
+        hitmaker_build: str | None = None,
+        hitmaker_supports_event_type_create: bool | None = None,
+        hitmaker_supports_go_hit: bool | None = None,
+        hitmaker_supports_version_info: bool | None = None,
+    ) -> None:
+        self._require_server().set_plugin_health(
+            ez_version=ez_version,
+            ez_build=ez_build,
+            hitmaker_loaded=hitmaker_loaded,
+            hitmaker_version=hitmaker_version,
+            hitmaker_build=hitmaker_build,
+            hitmaker_supports_event_type_create=hitmaker_supports_event_type_create,
+            hitmaker_supports_go_hit=hitmaker_supports_go_hit,
+            hitmaker_supports_version_info=hitmaker_supports_version_info,
+        )
         self._require_bridge().invalidate()
 
     def set_track_write_ready(self, track_coord: str, *, ready: bool) -> None:
@@ -1191,6 +1307,19 @@ class SimulatedMA3Bridge:
     ) -> MA3SequenceSnapshot:
         return self._require_bridge().create_sequence_in_current_song_range(
             preferred_name=preferred_name
+        )
+
+    def create_sequence_for_event_type(
+        self,
+        *,
+        event_type: str,
+        sequence_type: str = "go_hit",
+        preferred_name: str | None = None,
+    ) -> MA3SequenceSnapshot:
+        del sequence_type
+        resolved_name = preferred_name or str(event_type or "Hit").strip().title()
+        return self._require_bridge().create_sequence_in_current_song_range(
+            preferred_name=resolved_name,
         )
 
     def create_timecode_next_available(
@@ -1239,12 +1368,14 @@ class SimulatedMA3Bridge:
         self,
         *,
         target_track_coord: str,
+        ma3_channel_no: int | None = None,
         selected_events,
         transfer_mode: str = "merge",
         start_offset_seconds: float = 0.0,
     ) -> None:
         self._require_bridge().apply_push_transfer(
             target_track_coord=target_track_coord,
+            ma3_channel_no=ma3_channel_no,
             selected_events=selected_events,
             transfer_mode=transfer_mode,
             start_offset_seconds=start_offset_seconds,
@@ -1253,6 +1384,7 @@ class SimulatedMA3Bridge:
             "transfer.push_applied",
             {
                 "target_track_coord": str(target_track_coord),
+                "ma3_channel_no": ma3_channel_no,
                 "transfer_mode": str(transfer_mode or "merge"),
                 "selected_count": len(list(selected_events or [])),
             },

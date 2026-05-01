@@ -17,6 +17,10 @@ def test_build_review_page_renders_packaged_assets_without_placeholders() -> Non
     assert "Promote" in html
     assert "Demote" in html
     assert "fetchJson('/api/session?'" in html
+    assert ".sheet.is-open" in html
+    assert ".sheet-backdrop.is-open" in html
+    assert "classList.add('is-open')" in html
+    assert "classList.remove('is-open')" in html
     assert "--accent: #43ffa9;" in html
     assert "__REVIEW_PAGE_STYLES__" not in html
     assert "__REVIEW_PAGE_SCRIPT__" not in html

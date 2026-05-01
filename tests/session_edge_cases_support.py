@@ -72,33 +72,56 @@ class TestEdgeCases:
 class TestSessionOpen:
     def test_open_via_ez_path(self, tmp_path):
         """Open a project via the ez_path-based factory."""
-        import hashlib
         tmp_root = tmp_path / "working"
         ez_path = tmp_path / "test.ez"
-        ez_path.touch()
-
-        # Create working dir manually matching the hash
-        digest = hashlib.sha256(str(ez_path.resolve()).encode()).hexdigest()[:16]
-        wd = tmp_root / digest
-        wd.mkdir(parents=True, exist_ok=True)
-        conn = sqlite3.connect(str(wd / "project.db"))
-        conn.row_factory = sqlite3.Row
-        from echozero.persistence.schema import init_db
-        from echozero.persistence.repositories import ProjectRepository
-        init_db(conn)
-        ProjectRepository(conn).create(ProjectRecord(
-            id="open_test_id", name="OpenTest",
-            settings=ProjectSettingsRecord(), created_at=_now(), updated_at=_now(),
-        ))
-        conn.commit()
-        conn.close()
+        session1 = ProjectStorage.create_new(
+            "OpenTest",
+            settings=ProjectSettingsRecord(),
+            working_dir_root=tmp_root,
+        )
+        try:
+            session1.save_as(ez_path)
+            expected_project_id = session1.project.id
+        finally:
+            session1.close()
 
         session = ProjectStorage.open(ez_path, working_dir_root=tmp_root)
         try:
-            assert session.project.id == "open_test_id"
+            assert session.project.id == expected_project_id
             assert session.project.name == "OpenTest"
         finally:
             session.close()
+
+    def test_open_prefers_archive_truth_over_existing_working_db(self, tmp_path):
+        """Open should reload from archive, not implicit crash-recovery state."""
+        tmp_root = tmp_path / "working"
+        ez_path = tmp_path / "truth.ez"
+
+        original = ProjectStorage.create_new("Archive Truth", working_dir_root=tmp_root)
+        try:
+            original.save_as(ez_path)
+            working_dir = original.working_dir
+            project_id = original.project.id
+        finally:
+            original.close()
+
+        # Simulate unsaved recovery state left in working_dir from a prior run.
+        conn = sqlite3.connect(str(working_dir / "project.db"))
+        try:
+            conn.execute(
+                "UPDATE projects SET name = ? WHERE id = ?",
+                ("Unsaved Working Copy", project_id),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+        reopened = ProjectStorage.open(ez_path, working_dir_root=tmp_root)
+        try:
+            assert reopened.project.id == project_id
+            assert reopened.project.name == "Archive Truth"
+        finally:
+            reopened.close()
 
     def test_open_nonexistent_ez_path_raises(self, tmp_path):
         """Open with ez_path that doesn't exist should raise."""

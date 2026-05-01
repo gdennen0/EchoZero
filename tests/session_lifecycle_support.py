@@ -171,6 +171,52 @@ class TestCrashRecovery:
         finally:
             session.close()
 
+    def test_has_ungraceful_recovery_false_after_graceful_close(self, tmp_path):
+        tmp_root = tmp_path / "working"
+        ez_path = tmp_path / "graceful.ez"
+
+        session = ProjectStorage.create_new("Graceful", working_dir_root=tmp_root)
+        try:
+            session.save_as(ez_path)
+        finally:
+            session.close()
+
+        assert (
+            ProjectStorage.has_ungraceful_recovery(
+                ez_path,
+                working_dir_root=tmp_root,
+            )
+            is False
+        )
+
+    def test_has_ungraceful_recovery_true_for_stale_lock(self, tmp_path):
+        tmp_root = tmp_path / "working"
+        ez_path = tmp_path / "stale-lock.ez"
+
+        session = ProjectStorage.create_new("StaleLock", working_dir_root=tmp_root)
+        try:
+            session.save_as(ez_path)
+        finally:
+            session.close()
+
+        unpacked = ProjectStorage.open(ez_path, working_dir_root=tmp_root)
+        unpacked.close()
+
+        import hashlib
+
+        digest = hashlib.sha256(str(ez_path.resolve()).encode()).hexdigest()[:16]
+        working_dir = tmp_root / digest
+        lock_path = working_dir / "project.lock"
+        lock_path.write_text("999999", encoding="utf-8")
+
+        assert (
+            ProjectStorage.has_ungraceful_recovery(
+                ez_path,
+                working_dir_root=tmp_root,
+            )
+            is True
+        )
+
     def test_discard_recovery_deletes_working_dir(self, tmp_path):
         tmp_root = tmp_path / "working"
         ez_path = tmp_path / "discard.ez"

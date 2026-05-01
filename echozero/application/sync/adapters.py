@@ -19,6 +19,7 @@ from echozero.application.sync.service import SyncService
 from echozero.application.transport.models import TransportState
 from echozero.infrastructure.sync.ma3_adapter import (
     event_snapshot_payload,
+    sequence_cue_snapshot_payload,
     sequence_range_snapshot_payload,
     sequence_snapshot_payload,
     timecode_snapshot_payload,
@@ -65,6 +66,8 @@ class MA3SyncBridge(Protocol):
         end_no: int | None = None,
     ) -> list[object]: ...
 
+    def list_sequence_cues(self, *, sequence_no: int) -> list[object]: ...
+
     def get_current_song_sequence_range(self) -> object | None: ...
 
     def assign_track_sequence(
@@ -83,6 +86,14 @@ class MA3SyncBridge(Protocol):
     def create_sequence_in_current_song_range(
         self,
         *,
+        preferred_name: str | None = None,
+    ) -> object: ...
+
+    def create_sequence_for_event_type(
+        self,
+        *,
+        event_type: str,
+        sequence_type: str = "go_hit",
         preferred_name: str | None = None,
     ) -> object: ...
 
@@ -117,6 +128,7 @@ class MA3SyncBridge(Protocol):
         self,
         *,
         target_track_coord: str,
+        ma3_channel_no: int | None = None,
         selected_events: list[object],
         transfer_mode: str = "merge",
         start_offset_seconds: float = 0.0,
@@ -168,6 +180,9 @@ class _BridgeProtocolClient(MA3ProtocolClient):
     ) -> list[object]:
         return self._bridge.list_sequences(start_no=start_no, end_no=end_no)
 
+    def list_sequence_cues(self, *, sequence_no: int) -> list[object]:
+        return self._bridge.list_sequence_cues(sequence_no=sequence_no)
+
     def get_current_song_sequence_range(self) -> object | None:
         return self._bridge.get_current_song_sequence_range()
 
@@ -186,6 +201,19 @@ class _BridgeProtocolClient(MA3ProtocolClient):
         preferred_name: str | None = None,
     ) -> object:
         return self._bridge.create_sequence_in_current_song_range(preferred_name=preferred_name)
+
+    def create_sequence_for_event_type(
+        self,
+        *,
+        event_type: str,
+        sequence_type: str = "go_hit",
+        preferred_name: str | None = None,
+    ) -> object:
+        return self._bridge.create_sequence_for_event_type(
+            event_type=event_type,
+            sequence_type=sequence_type,
+            preferred_name=preferred_name,
+        )
 
     def create_timecode_next_available(self, *, preferred_name: str | None = None) -> object:
         return self._bridge.create_timecode_next_available(preferred_name=preferred_name)
@@ -230,11 +258,20 @@ class _BridgeProtocolClient(MA3ProtocolClient):
         self,
         *,
         target_track_coord: str,
+        ma3_channel_no: int | None,
         selected_events: list[object],
         transfer_mode: str,
         start_offset_seconds: float,
     ) -> None:
         try:
+            self._bridge.apply_push_transfer(
+                target_track_coord=target_track_coord,
+                ma3_channel_no=ma3_channel_no,
+                selected_events=selected_events,
+                transfer_mode=transfer_mode,
+                start_offset_seconds=start_offset_seconds,
+            )
+        except TypeError:
             self._bridge.apply_push_transfer(
                 target_track_coord=target_track_coord,
                 selected_events=selected_events,
@@ -390,6 +427,17 @@ class MA3SyncAdapter(SyncService):
             for item in self._catalog.list_sequences(start_no=start_no, end_no=end_no)
         ]
 
+    def list_sequence_cues(self, *, sequence_no: int) -> list[dict[str, object]]:
+        capability = getattr(self._bridge, "list_sequence_cues", None)
+        if not callable(capability):
+            return []
+        rows: list[dict[str, object]] = []
+        for item in capability(sequence_no=int(sequence_no)):
+            payload = sequence_cue_snapshot_payload(item)
+            if payload is not None:
+                rows.append(payload)
+        return rows
+
     def get_current_song_sequence_range(self) -> dict[str, object] | None:
         snapshot = self._catalog.get_current_song_sequence_range(refresh=True)
         if snapshot is None:
@@ -421,6 +469,22 @@ class MA3SyncAdapter(SyncService):
     ) -> dict[str, object]:
         raw = self._call(
             self._client.create_sequence_in_current_song_range,
+            preferred_name=preferred_name,
+        )
+        self._catalog.list_sequences(refresh=True)
+        return sequence_snapshot_payload(raw)
+
+    def create_sequence_for_event_type(
+        self,
+        *,
+        event_type: str,
+        sequence_type: str = "go_hit",
+        preferred_name: str | None = None,
+    ) -> dict[str, object]:
+        raw = self._call(
+            self._client.create_sequence_for_event_type,
+            event_type=event_type,
+            sequence_type=sequence_type,
             preferred_name=preferred_name,
         )
         self._catalog.list_sequences(refresh=True)
@@ -484,6 +548,7 @@ class MA3SyncAdapter(SyncService):
         self,
         *,
         target_track_coord: str,
+        ma3_channel_no: int | None = None,
         selected_events: list[object],
         transfer_mode: str = "merge",
         start_offset_seconds: float = 0.0,
@@ -493,6 +558,7 @@ class MA3SyncAdapter(SyncService):
             message=f"Sending {len(list(selected_events or []))} event(s) to MA3",
             callback=lambda: self._push_service.push(
                 target_track_coord=target_track_coord,
+                ma3_channel_no=ma3_channel_no,
                 selected_events=list(selected_events or []),
                 transfer_mode=transfer_mode,
                 start_offset_seconds=start_offset_seconds,
@@ -512,12 +578,14 @@ class MA3SyncAdapter(SyncService):
         self,
         *,
         target_track_coord,
+        ma3_channel_no: int | None = None,
         selected_events,
         transfer_mode: str = "merge",
         start_offset_seconds: float = 0.0,
     ) -> None:
         operation_id = self.start_push(
             target_track_coord=str(target_track_coord),
+            ma3_channel_no=ma3_channel_no,
             selected_events=list(selected_events or []),
             transfer_mode=transfer_mode,
             start_offset_seconds=float(start_offset_seconds),

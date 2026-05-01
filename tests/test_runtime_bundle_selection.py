@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 
 import pytest
+import numpy as np
 
 from echozero.models.runtime_bundle_index import (
     IndexedBinaryDrumBundle,
@@ -192,6 +193,74 @@ def test_sync_manifest_fingerprint_repairs_mismatched_value(tmp_path: Path) -> N
             "schema": "foundry.crnn_model.v1",
             "trainer": "crnn_melspec_v1",
             "model_state_dict": {},
+        },
+        weights_path,
+    )
+    manifest_path.write_text(
+        json.dumps(
+            {
+                "weightsPath": "model.pth",
+                "classes": ["snare", "other"],
+                "classificationMode": "binary",
+                "sharedContractFingerprint": "bad-fingerprint",
+                "inferencePreprocessing": {
+                    "sampleRate": 22050,
+                    "maxLength": 22050,
+                    "nFft": 2048,
+                    "hopLength": 512,
+                    "nMels": 128,
+                    "fmax": 8000,
+                },
+                "runtime": {"consumer": "PyTorchAudioClassify"},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    assert sync_manifest_fingerprint(manifest_path, weights_path) is True
+    payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+    assert payload["sharedContractFingerprint"] != "bad-fingerprint"
+
+
+def test_sync_manifest_fingerprint_supports_legacy_baseline_checkpoint(tmp_path: Path) -> None:
+    bundle_dir = tmp_path / "legacy_snare_bundle"
+    bundle_dir.mkdir(parents=True, exist_ok=True)
+    weights_path = bundle_dir / "model.pth"
+    manifest_path = bundle_dir / "legacy_snare_bundle.manifest.json"
+
+    try:
+        import torch
+    except ImportError:
+        pytest.skip("torch not installed")
+
+    torch.save(
+        {
+            "schema": "foundry.baseline_model.v1",
+            "trainer": "baseline_sgd_melspec_v1_5",
+            "model_type": "baseline_sgd",
+            "classes": ["snare", "other"],
+            "classification_mode": "binary",
+            "coef": np.zeros((1, 384), dtype=np.float32),
+            "intercept": np.array([3.0], dtype=np.float32),
+            "scaler_mean": np.zeros((384,), dtype=np.float32),
+            "scaler_scale": np.ones((384,), dtype=np.float32),
+            "inference_preprocessing": {
+                "sampleRate": 22050,
+                "maxLength": 22050,
+                "nFft": 2048,
+                "hopLength": 512,
+                "nMels": 128,
+                "fmax": 8000,
+            },
+            "preprocessing": {
+                "sampleRate": 22050,
+                "maxLength": 22050,
+                "nFft": 2048,
+                "hopLength": 512,
+                "nMels": 128,
+                "fmax": 8000,
+                "featurePooling": ["mean", "std", "max"],
+            },
         },
         weights_path,
     )

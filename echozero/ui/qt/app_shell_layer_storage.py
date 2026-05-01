@@ -27,6 +27,7 @@ from echozero.persistence.entities import LayerRecord
 from echozero.takes import Take as PersistedTake
 
 STATE_FLAG_MA3_TRACK_COORD = "ma3_track_coord"
+STATE_FLAG_MA3_CHANNEL_NO = "ma3_channel_no"
 STATE_FLAG_OUTPUT_BUS = "output_bus"
 STATE_FLAG_MUTE = "mute"
 STATE_FLAG_SOLO = "solo"
@@ -77,6 +78,9 @@ def build_manual_layer_record(
     ma3_track_coord = _normalized_ma3_track_coord(layer)
     if ma3_track_coord is not None:
         state_flags[STATE_FLAG_MA3_TRACK_COORD] = ma3_track_coord
+    ma3_channel_no = _normalized_ma3_channel_no(layer)
+    if ma3_channel_no is not None:
+        state_flags[STATE_FLAG_MA3_CHANNEL_NO] = ma3_channel_no
     output_bus = _normalized_output_bus(layer)
     if output_bus is not None:
         state_flags[STATE_FLAG_OUTPUT_BUS] = output_bus
@@ -153,6 +157,11 @@ def runtime_layer_record(
         state_flags.pop(STATE_FLAG_MA3_TRACK_COORD, None)
     else:
         state_flags[STATE_FLAG_MA3_TRACK_COORD] = ma3_track_coord
+    ma3_channel_no = _normalized_ma3_channel_no(layer)
+    if ma3_channel_no is None:
+        state_flags.pop(STATE_FLAG_MA3_CHANNEL_NO, None)
+    else:
+        state_flags[STATE_FLAG_MA3_CHANNEL_NO] = ma3_channel_no
     output_bus = _normalized_output_bus(layer)
     if output_bus is None:
         state_flags.pop(STATE_FLAG_OUTPUT_BUS, None)
@@ -270,6 +279,19 @@ def _assign_optional_metadata(
 def _normalized_ma3_track_coord(layer: Layer) -> str | None:
     raw_coord = str(layer.sync.ma3_track_coord or "").strip()
     return raw_coord or None
+
+
+def _normalized_ma3_channel_no(layer: Layer) -> int | None:
+    raw_value = layer.sync.ma3_channel_no
+    if raw_value in {None, ""}:
+        return None
+    try:
+        channel_no = int(raw_value)
+    except (TypeError, ValueError):
+        return None
+    if channel_no < 1:
+        return None
+    return channel_no
 
 
 def _normalized_output_bus(layer: Layer) -> str | None:

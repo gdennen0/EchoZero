@@ -42,6 +42,7 @@ the older `echozero_*` split. Keep behavior aligned when editing.
 -- Connection
 EZ.Ping()                           -- Test connection
 EZ.SetTarget(ip, port)              -- Set EchoZero address
+EZ.Version()                        -- Print EZ version/build in MA3 feedback
 
 -- Queries
 EZ.GetTimecodes()                   -- List all timecodes
@@ -53,12 +54,23 @@ EZ.GetCurrentSongSequenceRange()    -- Resolve SpeedOfLight current-song range
 
 -- Manipulation
 EZ.CreateTrack(tcNo, tgNo, name)    -- Create new track
-EZ.AddEvent(tcNo, tgNo, trackNo, time, cmd[, eventName[, cueNo[, cueLabel]]])  -- Add event
+EZ.AddEvent(tcNo, tgNo, trackNo, time, cmd[, eventName[, cueNo[, cueLabel[, channelNo[, explicitEventName[, explicitCueName]]]]]])  -- Add event
+EZ.UpdateEventMeta(tcNo, tgNo, trackNo, idx, eventName, cueNo, cueLabel)       -- Update event name/cue metadata
 EZ.DeleteEvent(tcNo, tgNo, trackNo, idx)     -- Delete event
 EZ.CreateSequenceNextAvailable(name)         -- Create next free MA3 sequence
 EZ.CreateSequenceInCurrentSongRange(name)    -- Create sequence in current-song range
 EZ.AssignTrackSequence(tcNo, tgNo, trackNo, seqNo) -- Assign sequence to track
 EZ.PrepareTrackForEvents(tcNo, tgNo, trackNo)      -- Ensure TimeRange/CmdSubTrack
+
+-- Transport / Playhead
+EZ.Play([tcNo])                                    -- Trigger EZ transport play state
+EZ.Pause([tcNo])                                   -- Trigger EZ transport pause state
+EZ.Stop([tcNo])                                    -- Trigger EZ transport stop state
+EZ.JumpToPreviousSection([tcNo[, tgNo, trackNo]])  -- Jump to previous section marker/event
+EZ.JumpToNextSection([tcNo[, tgNo, trackNo]])      -- Jump to next section marker/event
+EZ.ScrubTimecodeBy(deltaSeconds[, tcNo])           -- Scrub by signed seconds (+/-)
+EZ.ScrubTimecodeForward([stepSeconds[, tcNo]])     -- Scrub forward (default 1s)
+EZ.ScrubTimecodeBackward([stepSeconds[, tcNo]])    -- Scrub backward (default 1s)
 
 -- Real-time Sync
 EZ.HookTrack(tcNo, tgNo, trackNo)   -- Start monitoring

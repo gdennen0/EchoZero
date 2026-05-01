@@ -6,6 +6,7 @@ Connects presentation rows and FEEL-backed geometry to the canvas render path.
 from __future__ import annotations
 
 from dataclasses import dataclass
+import logging
 from typing import Any, cast
 
 from PyQt6.QtCore import QRectF, Qt
@@ -27,6 +28,9 @@ from echozero.ui.FEEL import (
     GRID_BEAT_LINE_ALPHA,
     GRID_LINE_ALPHA,
     GRID_LINE_COLOR,
+    MOVE_DRAG_PREVIEW_LINE_ALPHA,
+    MOVE_DRAG_PREVIEW_LINE_WIDTH_PX,
+    SECTION_MOVE_EVENT_HIT_MIN_WIDTH_PX,
 )
 from echozero.ui.qt.timeline.blocks.event_lane import EventLanePresentation
 from echozero.ui.qt.timeline.blocks.layouts import MainRowLayout, TakeRowLayout
@@ -34,6 +38,8 @@ from echozero.ui.qt.timeline.blocks.ruler import playhead_head_polygon, timeline
 from echozero.ui.qt.timeline.blocks.waveform_lane import WaveformLanePresentation
 from echozero.ui.qt.timeline.time_grid import GridLine, visible_grid_lines
 from echozero.ui.qt.timeline.widget_canvas_types import EventRect, TakeActionRect, TakeRect
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True, slots=True)
@@ -67,44 +73,50 @@ class _TimelineCanvasPaintMixin:
         if event is None:
             return
         painter = QPainter(self)
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing, False)
-        painter.setRenderHint(QPainter.RenderHint.TextAntialiasing, True)
-        painter.fillRect(self.rect(), QColor(self._style.canvas.background_hex))
-        content_left = float(self._header_width)
-        content_width = max(1.0, float(self.width()) - content_left)
-        self._frame_visible_grid_lines: list[GridLine] = visible_grid_lines(
-            scroll_x=self.presentation.scroll_x,
-            pixels_per_second=self.presentation.pixels_per_second,
-            content_width=content_width,
-            mode=self._grid_mode,
-            bpm=self.presentation.bpm,
-        )
-        self._take_rects.clear()
-        self._take_option_rects.clear()
-        self._take_action_rects.clear()
-        self._toggle_rects.clear()
-        self._mute_rects.clear()
-        self._solo_rects.clear()
-        self._pipeline_action_rects.clear()
-        self._push_rects.clear()
-        self._pull_rects.clear()
-        self._section_manager_rects.clear()
-        self._event_rects.clear()
-        self._section_label_rects.clear()
-        self._section_boundary_rects.clear()
-        self._fix_event_rects.clear()
-        self._event_lane_rects.clear()
-        self._header_select_rects.clear()
-        self._row_body_select_rects.clear()
-        self._header_hover_rects.clear()
-        self._event_drop_rects.clear()
-        self._layer_row_resize_hit_rects.clear()
-        with timed("timeline.paint.layers"):
-            self._draw_layers(painter)
-        with timed("timeline.paint.playhead"):
-            self._draw_playhead(painter)
-        self._draw_interaction_overlays(painter)
-        self._frame_visible_grid_lines = []
+        try:
+            painter.setRenderHint(QPainter.RenderHint.Antialiasing, False)
+            painter.setRenderHint(QPainter.RenderHint.TextAntialiasing, True)
+            painter.fillRect(self.rect(), QColor(self._style.canvas.background_hex))
+            content_left = float(self._header_width)
+            content_width = max(1.0, float(self.width()) - content_left)
+            self._frame_visible_grid_lines: list[GridLine] = visible_grid_lines(
+                scroll_x=self.presentation.scroll_x,
+                pixels_per_second=self.presentation.pixels_per_second,
+                content_width=content_width,
+                mode=self._grid_mode,
+                bpm=self.presentation.bpm,
+            )
+            self._take_rects.clear()
+            self._take_option_rects.clear()
+            self._take_action_rects.clear()
+            self._toggle_rects.clear()
+            self._mute_rects.clear()
+            self._solo_rects.clear()
+            self._pipeline_action_rects.clear()
+            self._push_rects.clear()
+            self._pull_rects.clear()
+            self._section_manager_rects.clear()
+            self._event_rects.clear()
+            self._section_label_rects.clear()
+            self._section_boundary_rects.clear()
+            self._fix_event_rects.clear()
+            self._event_lane_rects.clear()
+            self._header_select_rects.clear()
+            self._row_body_select_rects.clear()
+            self._header_hover_rects.clear()
+            self._event_drop_rects.clear()
+            self._layer_row_resize_hit_rects.clear()
+            with timed("timeline.paint.layers"):
+                self._draw_layers(painter)
+            with timed("timeline.paint.playhead"):
+                self._draw_playhead(painter)
+            self._draw_interaction_overlays(painter)
+            self._frame_visible_grid_lines = []
+        except Exception:
+            logger.exception("Timeline canvas paint failed")
+        finally:
+            if painter.isActive():
+                painter.end()
 
     def _draw_time_grid_band(self: Any, painter: QPainter, *, top: int, row_height: int) -> None:
         content_left = float(self._header_width)
@@ -133,14 +145,14 @@ class _TimelineCanvasPaintMixin:
             painter.setPen(QPen(grid_color, 1))
             painter.drawLine(int(x), band_top, int(x), band_bottom)
 
-    def _draw_region_overlay_band(self: Any, painter: QPainter, *, top: int, row_height: int) -> None:
-        if not self.presentation.regions:
+    def _draw_section_backdrop_band(self: Any, painter: QPainter, *, top: int, row_height: int) -> None:
+        if not self.presentation.section_regions:
             return
         content_left = float(self._header_width)
         content_right = float(self.width())
         if content_right <= content_left:
             return
-        for index, region in enumerate(self.presentation.regions):
+        for index, region in enumerate(self.presentation.section_regions):
             start_x = timeline_x_for_time(
                 region.start,
                 scroll_x=self.presentation.scroll_x,
@@ -161,21 +173,15 @@ class _TimelineCanvasPaintMixin:
             fill_hex = (
                 region.color
                 or (
-                    self._style.canvas.region_even_hex
+                    self._style.canvas.section_even_hex
                     if index % 2 == 0
-                    else self._style.canvas.region_odd_hex
+                    else self._style.canvas.section_odd_hex
                 )
             )
             fill_color = QColor(fill_hex)
-            fill_color.setAlpha(max(0, min(255, int(self._style.canvas.region_alpha))))
+            fill_color.setAlpha(max(0, min(255, int(self._style.canvas.section_alpha))))
             rect = QRectF(left, float(top), width, float(max(1, row_height) - 1))
             painter.fillRect(rect, fill_color)
-            if region.is_selected:
-                painter.save()
-                painter.setPen(QPen(QColor(self._style.canvas.region_selected_outline_hex), 1))
-                painter.setBrush(Qt.BrushStyle.NoBrush)
-                painter.drawRect(rect.adjusted(1.0, 1.0, -1.0, -1.0))
-                painter.restore()
 
     def _draw_section_overlay_band(self: Any, painter: QPainter, *, top: int, row_height: int) -> None:
         if not self.presentation.section_regions:
@@ -360,7 +366,7 @@ class _TimelineCanvasPaintMixin:
         if self._shows_section_overlay_for_layer(layer):
             self._draw_section_overlay_band(painter, top=top, row_height=row_height)
         if layer.kind is not LayerKind.SECTION:
-            self._draw_region_overlay_band(painter, top=top, row_height=row_height)
+            self._draw_section_backdrop_band(painter, top=top, row_height=row_height)
         self._draw_time_grid_band(painter, top=top, row_height=row_height)
         painter.fillRect(
             0,
@@ -427,9 +433,11 @@ class _TimelineCanvasPaintMixin:
                     ),
                 )
             else:
-                if layer.kind is not LayerKind.SECTION:
+                if self._edit_mode == "move" or layer.kind is not LayerKind.SECTION:
                     visible_events = self._visible_lane_events(layer.events)
-                    event_lane_top = float(top + max(0.0, (row_height - self._event_height) * 0.5))
+                    event_lane_top = float(
+                        top + max(0.0, (row_height - self._event_height) * 0.5)
+                    )
                     self._draw_fix_overlay_events(
                         painter,
                         layer=layer,
@@ -448,6 +456,12 @@ class _TimelineCanvasPaintMixin:
                                     take_id=layer.main_take_id,
                                     events=visible_events,
                                     layer_kind=layer.kind,
+                                    event_hit_min_width_px=(
+                                        float(SECTION_MOVE_EVENT_HIT_MIN_WIDTH_PX)
+                                        if self._edit_mode == "move"
+                                        and layer.kind is LayerKind.SECTION
+                                        else None
+                                    ),
                                     default_fill_hex=layer.color,
                                     pixels_per_second=self.presentation.pixels_per_second,
                                     scroll_x=self.presentation.scroll_x,
@@ -492,7 +506,9 @@ class _TimelineCanvasPaintMixin:
         if self._shows_section_overlay_for_layer(layer):
             self._draw_section_overlay_band(painter, top=top, row_height=self._take_row_height)
         if layer.kind is not LayerKind.SECTION:
-            self._draw_region_overlay_band(painter, top=top, row_height=self._take_row_height)
+            self._draw_section_backdrop_band(
+                painter, top=top, row_height=self._take_row_height
+            )
         self._draw_time_grid_band(painter, top=top, row_height=self._take_row_height)
         self._take_rects.append(cast(TakeRect, hit_targets.take_rect))
         self._row_body_select_rects.append((layout.content_rect, layer.layer_id, take.take_id))
@@ -524,10 +540,13 @@ class _TimelineCanvasPaintMixin:
                     ),
                 )
             else:
-                if take.kind is not LayerKind.SECTION:
+                if self._edit_mode == "move" or take.kind is not LayerKind.SECTION:
                     visible_events = self._visible_lane_events(take.events)
                     event_lane_top = float(
-                        top + max(0.0, (self._take_row_height - self._event_height) * 0.5)
+                        top + max(
+                            0.0,
+                            (self._take_row_height - self._event_height) * 0.5,
+                        )
                     )
                     self._draw_fix_overlay_events(
                         painter,
@@ -547,6 +566,12 @@ class _TimelineCanvasPaintMixin:
                                     take_id=take.take_id,
                                     events=visible_events,
                                     layer_kind=take.kind,
+                                    event_hit_min_width_px=(
+                                        float(SECTION_MOVE_EVENT_HIT_MIN_WIDTH_PX)
+                                        if self._edit_mode == "move"
+                                        and take.kind is LayerKind.SECTION
+                                        else None
+                                    ),
                                     default_fill_hex=layer.color,
                                     pixels_per_second=self.presentation.pixels_per_second,
                                     scroll_x=self.presentation.scroll_x,
@@ -837,9 +862,24 @@ class _TimelineCanvasPaintMixin:
             )
             if self._header_width <= x <= self.width():
                 snap_color = QColor(EVENT_SELECTION_COLOR)
-                snap_color.setAlpha(110)
+                drag_preview_active = bool(
+                    self._drag_candidate is not None and self._dragging_events
+                )
+                if drag_preview_active:
+                    snap_color.setAlpha(int(MOVE_DRAG_PREVIEW_LINE_ALPHA))
+                else:
+                    snap_color.setAlpha(110)
                 painter.save()
-                painter.setPen(QPen(snap_color, 1, Qt.PenStyle.DashLine))
+                if drag_preview_active:
+                    painter.setPen(
+                        QPen(
+                            snap_color,
+                            int(MOVE_DRAG_PREVIEW_LINE_WIDTH_PX),
+                            Qt.PenStyle.SolidLine,
+                        )
+                    )
+                else:
+                    painter.setPen(QPen(snap_color, 1, Qt.PenStyle.DashLine))
                 painter.drawLine(int(x), int(self._top_padding), int(x), self.height())
                 painter.restore()
 

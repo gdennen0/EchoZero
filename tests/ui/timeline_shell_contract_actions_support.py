@@ -1465,6 +1465,7 @@ def test_timeline_drop_import_multiple_files_prompts_and_imports_in_natural_orde
                 end_time_label="00:00.00",
             )
             self.runtime_audio = None
+            self._song_ids_in_order: list[str] = []
 
         def presentation(self):
             return self._presentation
@@ -1474,11 +1475,35 @@ def test_timeline_drop_import_multiple_files_prompts_and_imports_in_natural_orde
 
         def add_song_from_path(self, title: str, audio_path: str):
             self.add_song_calls.append((title, audio_path))
+            song_id = f"song_{len(self.add_song_calls)}"
+            self._song_ids_in_order.append(song_id)
             self._presentation = replace(
                 self._presentation,
                 title=title,
-                active_song_id=f"song_{len(self.add_song_calls)}",
+                active_song_id=song_id,
                 active_song_title=title,
+                available_songs=[
+                    SongOptionPresentation(
+                        song_id=ordered_song_id,
+                        title=ordered_title,
+                        is_active=ordered_song_id == song_id,
+                        active_version_id=f"{ordered_song_id}_version",
+                        active_version_label="Original",
+                        version_count=1,
+                        versions=[
+                            SongVersionOptionPresentation(
+                                song_version_id=f"{ordered_song_id}_version",
+                                label="Original",
+                                is_active=True,
+                            )
+                        ],
+                    )
+                    for ordered_song_id, (ordered_title, _ordered_path) in zip(
+                        self._song_ids_in_order,
+                        self.add_song_calls,
+                        strict=False,
+                    )
+                ],
             )
             return self._presentation
 
@@ -1503,6 +1528,11 @@ def test_timeline_drop_import_multiple_files_prompts_and_imports_in_natural_orde
             ("Song 2", str(path_2)),
             ("Song 10", str(path_10)),
         ]
+        assert widget._song_browser_panel._songs_tree.topLevelItemCount() == 3
+        assert widget._song_browser_panel._songs_tree.topLevelItem(0).text(0) == "1"
+        assert widget._song_browser_panel._songs_tree.topLevelItem(1).text(0) == "2"
+        assert widget._song_browser_panel._songs_tree.topLevelItem(2).text(0) == "3"
+        assert widget._song_browser_panel._songs_tree.topLevelItem(2).text(1) == "Song 10"
     finally:
         widget.close()
         app.processEvents()

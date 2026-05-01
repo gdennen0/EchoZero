@@ -34,6 +34,12 @@ Run the canonical EZ2 app shell:
 .venv/bin/python run_echozero.py
 ```
 
+Launch EZ2 in a fresh macOS Terminal window (keeps your current shell free):
+
+```bash
+./scripts/launch_echozero_terminal.sh
+```
+
 Run Foundry:
 
 ```bash

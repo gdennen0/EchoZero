@@ -118,7 +118,14 @@ class ObjectActionSettingsService(
             workflow, pipeline_template_id = self._require_workflow(action_id)
             resolved_params = self._resolve_params(action_id, params, object_id=object_id, object_type=object_type)
             config = self._require_object_action_config(pipeline_template_id, scope=scope)
-            self._persist_object_action_params(config, action_id=action_id, params=resolved_params, scope=scope)
+            updated_config = self._persist_object_action_params(
+                config,
+                action_id=action_id,
+                params=resolved_params,
+                scope=scope,
+            )
+            if updated_config is not config:
+                self._mark_scope_persist_dirty(scope=scope, config=updated_config)
             return self.describe(
                 action_id,
                 resolved_params,
@@ -270,12 +277,15 @@ class ObjectActionSettingsService(
                 scope=persist_scope or "version",
             )
             if persist_scope is not None:
+                prior = config
                 config = self._persist_object_action_params(
                     config,
                     action_id=action_id,
                     params=resolved_params,
                     scope=persist_scope,
                 )
+                if config is not prior:
+                    self._mark_scope_persist_dirty(scope=persist_scope, config=config)
             workflow_id = workflow.workflow_id
             if workflow_id is None:
                 raise ValueError(f"Unsupported object action '{action_id}'.")
@@ -304,6 +314,21 @@ class ObjectActionSettingsService(
                     params=resolved_params,
                 ),
             )
+
+    def _mark_scope_persist_dirty(
+        self,
+        *,
+        scope: str,
+        config: ObjectActionConfigRecord,
+    ) -> None:
+        if scope == "song_default":
+            song_id = getattr(config, "song_id", None)
+            if song_id:
+                self.project_storage.dirty_tracker.mark_dirty(str(song_id))
+            return
+        song_version_id = getattr(config, "song_version_id", None)
+        if song_version_id:
+            self.project_storage.dirty_tracker.mark_dirty(str(song_version_id))
 
     def _execute_object_action(
         self,

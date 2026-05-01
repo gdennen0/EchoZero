@@ -27,29 +27,48 @@ class TransportLayout:
         def centered_rect(x: float, item_width: float, item_height: float) -> QRectF:
             return QRectF(x, center_y - (item_height / 2.0), item_width, item_height)
 
-        horizontal_padding = 12.0
-        section_gap = 12.0
-        title_width = max(130.0, min(220.0, width * 0.2))
-        controls_width = 256.0
-        meta_width = max(190.0, min(360.0, width * 0.26))
-        min_clock_width = 170.0
+        horizontal_padding = 24.0
+        section_gap = 8.0
+        inner_left = horizontal_padding
+        inner_right = max(inner_left, width - horizontal_padding)
+        inner_width = max(0.0, inner_right - inner_left)
 
-        title_x = horizontal_padding
-        controls_x = title_x + title_width + section_gap
+        # The transport title is intentionally hidden; keep a zero-width slot for compatibility.
+        title_x = inner_left
+        title_width = 0.0
+
+        controls_width = min(400.0, max(210.0, inner_width * 0.50))
+        controls_width = min(controls_width, inner_width)
+        controls_x = inner_left
         controls_right = controls_x + controls_width
 
-        meta_right = max(horizontal_padding, width - horizontal_padding)
-        meta_left = max(
-            controls_right + section_gap + min_clock_width + section_gap,
-            meta_right - meta_width,
-        )
-        resolved_meta_width = max(120.0, meta_right - meta_left)
+        cursor = controls_right
+        time_x = cursor
+        time_width = 0.0
+        meta_x = inner_right
+        meta_width = 0.0
 
-        clock_left = controls_right + section_gap
-        clock_right = meta_left - section_gap
-        resolved_clock_width = max(0.0, clock_right - clock_left)
-        clock_width = max(0.0, min(280.0, resolved_clock_width))
-        clock_x = clock_left + max(0.0, (resolved_clock_width - clock_width) / 2.0)
+        remaining_after_controls = inner_right - cursor
+        if remaining_after_controls > section_gap:
+            cursor += section_gap
+            available = max(0.0, inner_right - cursor)
+
+            clock_pref_width = 280.0
+            clock_min_width = 90.0
+            meta_min_width = 84.0
+
+            tentative_clock = min(clock_pref_width, available * 0.58)
+            tentative_meta = available - tentative_clock
+            if tentative_meta >= section_gap + meta_min_width and tentative_clock >= clock_min_width:
+                time_x = cursor
+                time_width = tentative_clock
+                meta_x = time_x + time_width + section_gap
+                meta_width = max(0.0, inner_right - meta_x)
+            else:
+                time_width = min(clock_pref_width, available)
+                time_x = cursor + max(0.0, (available - time_width) / 2.0)
+                meta_x = inner_right
+                meta_width = 0.0
 
         return TransportLayout(
             rect=rect,
@@ -59,6 +78,6 @@ class TransportLayout:
                 controls_width,
                 float(TIMELINE_TRANSPORT_BUTTON_HEIGHT_PX),
             ),
-            time_rect=centered_rect(clock_x, clock_width, 34.0),
-            meta_rect=centered_rect(meta_left, resolved_meta_width, 30.0),
+            time_rect=centered_rect(time_x, time_width, 34.0),
+            meta_rect=centered_rect(meta_x, meta_width, 30.0),
         )

@@ -22,6 +22,7 @@ from echozero.ui.qt.app_shell_project_lifecycle import (
     move_song,
     new_project,
     open_project,
+    recover_project,
     refresh_from_storage,
     reorder_songs,
     save_project,
@@ -56,6 +57,9 @@ class AppShellProjectMixin:
 
     def open_project(self: ProjectLifecycleShell, path: str | Path) -> None:
         open_project(self, path)
+
+    def recover_project(self: ProjectLifecycleShell, path: str | Path) -> None:
+        recover_project(self, path)
 
     def add_song_from_path(
         self: ProjectLifecycleShell,

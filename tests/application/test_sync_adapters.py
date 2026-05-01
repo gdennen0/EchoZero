@@ -129,6 +129,18 @@ def test_ma3_sync_adapter_exposes_bridge_track_and_event_snapshots():
     assert timecodes == [{"number": 1, "name": "Song A"}]
 
 
+def test_ma3_sync_adapter_exposes_sequence_cues_when_bridge_supports_them():
+    bridge = SimulatedMA3Bridge()
+    service = MA3SyncAdapter(bridge)
+
+    cues = service.list_sequence_cues(sequence_no=12)
+
+    assert cues == [
+        {"sequence_no": 12, "cue_number": 1, "cue_ref": "1", "name": "Cue 1"},
+        {"sequence_no": 12, "cue_number": 2, "cue_ref": "2", "name": "Cue 2"},
+    ]
+
+
 def test_ma3_sync_adapter_preserves_shared_cue_metadata_fields_when_present():
     class _MetadataBridge(_Bridge):
         def list_tracks(self, *, timecode_no=None):
@@ -200,10 +212,11 @@ def test_ma3_sync_adapter_preserves_shared_cue_metadata_fields_when_present():
             self,
             *,
             target_track_coord: str,
+            ma3_channel_no: int | None = None,
             selected_events: list[object],
             transfer_mode: str = "merge",
         ) -> None:
-            del target_track_coord, selected_events, transfer_mode
+            del target_track_coord, ma3_channel_no, selected_events, transfer_mode
 
     service = MA3SyncAdapter(_MetadataBridge())
 
@@ -413,6 +426,39 @@ def test_ma3_sync_adapter_preserves_float_cue_numbers_and_infers_float_cue_refs(
     ]
 
 
+class _CommandOnlyCueBridge(_Bridge):
+    def list_track_events(self, source_track_coord: str):
+        assert source_track_coord == "tc1_tg2_tr3"
+        return [
+            {
+                "id": "ma3_evt_1",
+                "name": "Verse",
+                "time": 1.25,
+                "cmd": "Go+ Cue 11",
+            }
+        ]
+
+
+def test_ma3_sync_adapter_infers_cue_ref_when_fields_are_missing():
+    service = MA3SyncAdapter(_CommandOnlyCueBridge())
+
+    pull_events = service.list_pull_source_events("tc1_tg2_tr3")
+
+    assert pull_events == [
+        {
+            "event_id": "ma3_evt_1",
+            "label": "Verse",
+            "start": 1.25,
+            "end": None,
+            "cue_number": 11,
+            "cue_ref": "11",
+            "color": None,
+            "notes": None,
+            "payload_ref": None,
+        }
+    ]
+
+
 def test_ma3_sync_adapter_apply_push_transfer_updates_bridge_snapshot():
     bridge = SimulatedMA3Bridge()
     service = MA3SyncAdapter(bridge)
@@ -451,6 +497,7 @@ def test_ma3_sync_adapter_apply_push_transfer_updates_bridge_snapshot():
             "target_track_coord": "tc1_tg2_tr4",
             "transfer_mode": "overwrite",
             "selected_count": 2,
+            "ma3_channel_no": None,
         },
     }
 
@@ -633,11 +680,12 @@ def test_ma3_sync_adapter_apply_push_transfer_overwrite_raises_on_partial_write_
             self,
             *,
             target_track_coord: str,
+            ma3_channel_no: int | None = None,
             selected_events: list[object],
             transfer_mode: str = "merge",
             start_offset_seconds: float = 0.0,
         ) -> None:
-            del start_offset_seconds
+            del start_offset_seconds, ma3_channel_no
             assert target_track_coord == "tc1_tg2_tr3"
             assert transfer_mode == "overwrite"
             partial = max(0, len(selected_events) - 1)
@@ -664,12 +712,25 @@ def test_ma3_sync_adapter_refresh_push_track_options_uses_bridge_refresh_tracks_
     class _RefreshTracksBridge(_Bridge):
         def __init__(self) -> None:
             super().__init__()
-            self.refresh_tracks_calls = 0
+            self.refresh_tracks_calls: list[dict[str, int | None]] = []
+            self.refresh_track_groups_calls: list[int] = []
+            self.list_timecodes_calls = 0
+
+        def list_timecodes(self):
+            self.list_timecodes_calls += 1
+            return [{"number": 1, "name": "Song 1"}]
+
+        def refresh_track_groups(self, *, timecode_no: int):
+            self.refresh_track_groups_calls.append(int(timecode_no))
+            return [{"number": 2, "name": "Group 2", "track_count": 1}]
 
         def refresh_tracks(self, *, timecode_no=None, track_group_no=None):
-            assert timecode_no == 1
-            assert track_group_no == 2
-            self.refresh_tracks_calls += 1
+            self.refresh_tracks_calls.append(
+                {
+                    "timecode_no": timecode_no,
+                    "track_group_no": track_group_no,
+                }
+            )
             return []
 
     bridge = _RefreshTracksBridge()
@@ -677,7 +738,12 @@ def test_ma3_sync_adapter_refresh_push_track_options_uses_bridge_refresh_tracks_
 
     service.refresh_push_track_options(target_track_coord="tc1_tg2_tr3")
 
-    assert bridge.refresh_tracks_calls == 1
+    assert bridge.list_timecodes_calls == 1
+    assert bridge.refresh_track_groups_calls == [1]
+    assert bridge.refresh_tracks_calls == [
+        {"timecode_no": 1, "track_group_no": 2},
+        {"timecode_no": 1, "track_group_no": None},
+    ]
 
 
 def test_ma3_sync_adapter_refresh_push_track_options_forwards_timecode_and_track_group():
@@ -685,6 +751,16 @@ def test_ma3_sync_adapter_refresh_push_track_options_forwards_timecode_and_track
         def __init__(self) -> None:
             super().__init__()
             self.calls: list[dict[str, int | None]] = []
+            self.refresh_track_groups_calls: list[int] = []
+            self.list_timecodes_calls = 0
+
+        def list_timecodes(self):
+            self.list_timecodes_calls += 1
+            return [{"number": 2, "name": "Song 2"}]
+
+        def refresh_track_groups(self, *, timecode_no: int):
+            self.refresh_track_groups_calls.append(int(timecode_no))
+            return [{"number": 4, "name": "Group 4", "track_count": 1}]
 
         def refresh_tracks(self, *, timecode_no=None, track_group_no=None):
             self.calls.append(
@@ -704,4 +780,9 @@ def test_ma3_sync_adapter_refresh_push_track_options_forwards_timecode_and_track
         track_group_no=4,
     )
 
-    assert bridge.calls == [{"timecode_no": 2, "track_group_no": 4}]
+    assert bridge.list_timecodes_calls == 1
+    assert bridge.refresh_track_groups_calls == [2]
+    assert bridge.calls == [
+        {"timecode_no": 2, "track_group_no": 4},
+        {"timecode_no": 2, "track_group_no": None},
+    ]

@@ -11,7 +11,6 @@ from echozero.application.shared.cue_numbers import (
 from echozero.application.shared.ids import (
     EventId,
     LayerId,
-    RegionId,
     SectionCueId,
     SongVersionId,
     TakeId,
@@ -32,6 +31,7 @@ class LayerSyncState:
     target_ref: str | None = None
     show_manager_block_id: str | None = None
     ma3_track_coord: str | None = None
+    ma3_channel_no: int | None = None
     derived_from_source: bool = False
     live_sync_state: LiveSyncState = LiveSyncState.OFF
     live_sync_pause_reason: str | None = None
@@ -364,31 +364,6 @@ class SectionRegion:
 
 
 @dataclass(slots=True)
-class TimelineRegion:
-    id: RegionId
-    start: float
-    end: float
-    label: str = "Region"
-    color: str | None = None
-    order_index: int = 0
-    kind: str = "custom"
-
-    def __post_init__(self) -> None:
-        if self.start < 0:
-            raise ValueError(f"TimelineRegion.start must be >= 0, got {self.start}")
-        if self.end < self.start:
-            raise ValueError(
-                f"TimelineRegion.end must be >= start, got start={self.start}, end={self.end}"
-            )
-        self.label = (self.label or "").strip() or "Region"
-        self.kind = (self.kind or "").strip().lower() or "custom"
-
-    @property
-    def duration(self) -> float:
-        return self.end - self.start
-
-
-@dataclass(slots=True)
 class Take:
     id: TakeId
     layer_id: LayerId
@@ -423,7 +398,6 @@ class TimelineSelection:
     selected_take_id: TakeId | None = None
     selected_event_refs: list[EventRef] = field(default_factory=list)
     selected_event_ids: list[EventId] = field(default_factory=list)
-    selected_region_id: RegionId | None = None
 
 
 @dataclass(slots=True)
@@ -441,7 +415,6 @@ class Timeline:
     end: float = 0.0
     layers: list[Layer] = field(default_factory=list)
     section_cues: list[SectionCue] = field(default_factory=list)
-    regions: list[TimelineRegion] = field(default_factory=list)
     loop_region: TimeRange | None = None
     selection: TimelineSelection = field(default_factory=TimelineSelection)
     viewport: TimelineViewport = field(default_factory=TimelineViewport)

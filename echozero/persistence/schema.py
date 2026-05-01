@@ -9,7 +9,7 @@ from __future__ import annotations
 import sqlite3
 from collections.abc import Callable
 
-SCHEMA_VERSION = 8
+SCHEMA_VERSION = 9
 
 _DDL = """\
 CREATE TABLE IF NOT EXISTS _meta (
@@ -82,18 +82,6 @@ CREATE TABLE IF NOT EXISTS takes (
     notes TEXT DEFAULT ''
 );
 
-CREATE TABLE IF NOT EXISTS timeline_regions (
-    id TEXT PRIMARY KEY,
-    song_version_id TEXT NOT NULL REFERENCES song_versions(id) ON DELETE CASCADE,
-    label TEXT NOT NULL,
-    start_seconds REAL NOT NULL,
-    end_seconds REAL NOT NULL,
-    color TEXT,
-    order_index INTEGER NOT NULL DEFAULT 0,
-    kind TEXT NOT NULL DEFAULT 'custom',
-    created_at TEXT NOT NULL
-);
-
 CREATE TABLE IF NOT EXISTS pipeline_configs (
     id TEXT PRIMARY KEY,
     song_version_id TEXT NOT NULL REFERENCES song_versions(id) ON DELETE CASCADE,
@@ -111,7 +99,6 @@ CREATE INDEX IF NOT EXISTS idx_songs_project ON songs(project_id);
 CREATE INDEX IF NOT EXISTS idx_versions_song ON song_versions(song_id);
 CREATE INDEX IF NOT EXISTS idx_layers_version ON layers(song_version_id);
 CREATE INDEX IF NOT EXISTS idx_takes_layer ON takes(layer_id);
-CREATE INDEX IF NOT EXISTS idx_timeline_regions_version ON timeline_regions(song_version_id);
 CREATE INDEX IF NOT EXISTS idx_configs_version ON pipeline_configs(song_version_id);
 CREATE INDEX IF NOT EXISTS idx_configs_template ON pipeline_configs(template_id);
 
@@ -269,6 +256,11 @@ def _migrate_v7_to_v8(conn: sqlite3.Connection) -> None:
         )
 
 
+def _migrate_v8_to_v9(conn: sqlite3.Connection) -> None:
+    conn.execute("DROP INDEX IF EXISTS idx_timeline_regions_version")
+    conn.execute("DROP TABLE IF EXISTS timeline_regions")
+
+
 _MIGRATIONS: dict[int, Callable[[sqlite3.Connection], None]] = {
     2: _migrate_v1_to_v2,
     3: _migrate_v2_to_v3,
@@ -292,6 +284,7 @@ _MIGRATIONS: dict[int, Callable[[sqlite3.Connection], None]] = {
     6: _migrate_v5_to_v6,
     7: _migrate_v6_to_v7,
     8: _migrate_v7_to_v8,
+    9: _migrate_v8_to_v9,
 }
 
 

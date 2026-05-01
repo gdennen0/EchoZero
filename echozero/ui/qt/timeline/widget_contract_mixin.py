@@ -94,6 +94,7 @@ class _TimelineWidgetContractHost(Protocol):
     _object_info: ObjectInfoPanel
 
     def _dispatch(self, intent: TimelineIntent) -> None: ...
+    def _preview_selected_event_clip(self) -> None: ...
     def _focus_layer_for_header_action(self, layer_id: LayerId) -> None: ...
     def _selected_event_ids_for_selected_layers(self) -> list[EventId]: ...
     def _handle_contract_action(self, action: InspectorAction) -> None: ...
@@ -153,12 +154,19 @@ class TimelineWidgetContractMixin:
     ) -> None:
         if direction == 0:
             return
+        prior_selected_event_refs = tuple(self.presentation.selected_event_refs)
+        prior_selected_event_ids = tuple(self.presentation.selected_event_ids)
         self._dispatch(
             SelectAdjacentEventInSelectedLayer(
                 direction=direction,
                 include_demoted=bool(include_demoted),
             )
         )
+        if self._edit_mode == "fix" and (
+            prior_selected_event_refs != tuple(self.presentation.selected_event_refs)
+            or prior_selected_event_ids != tuple(self.presentation.selected_event_ids)
+        ):
+            self._preview_selected_event_clip()
 
     def _set_selected_events(
         self: _TimelineWidgetContractHost,

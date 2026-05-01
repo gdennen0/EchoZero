@@ -6,7 +6,6 @@ Connects app-shell timeline edits to ProjectStorage layer and take records.
 from __future__ import annotations
 
 from dataclasses import replace
-from datetime import datetime, timezone
 from typing import Any, Protocol
 
 from echozero.application.session.models import Session
@@ -15,7 +14,6 @@ from echozero.application.shared.ids import LayerId
 from echozero.application.timeline.app import TimelineApplication
 from echozero.application.timeline.models import Layer
 from echozero.domain.types import EventData
-from echozero.persistence.entities import TimelineRegionRecord
 from echozero.persistence.session import ProjectStorage
 from echozero.takes import Take as PersistedTake
 from echozero.ui.qt.app_shell_layer_storage import (
@@ -142,7 +140,6 @@ def sync_storage_backed_timeline(shell: StorageSyncShell) -> None:
             runtime_layers=runtime_layers,
             runtime_layer_ids=runtime_layer_ids,
         )
-        _sync_runtime_region_records(shell, song_version_id=persisted_song_version_id)
 
     shell.project_storage.dirty_tracker.mark_dirty(persisted_song_version_id)
 
@@ -223,50 +220,6 @@ def _sync_runtime_layers(
         else:
             shell.project_storage.layers.update(runtime_layer_record(layer, existing=existing))
         sync_runtime_take_records(shell, layer)
-
-
-def _sync_runtime_region_records(
-    shell: StorageSyncShell,
-    *,
-    song_version_id: str,
-) -> None:
-    existing_regions = {
-        record.id: record
-        for record in shell.project_storage.timeline_regions.list_by_version(song_version_id)
-    }
-    runtime_regions = sorted(
-        shell._app.timeline.regions,
-        key=lambda region: (
-            float(region.start),
-            float(region.end),
-            int(region.order_index),
-            str(region.id),
-        ),
-    )
-    runtime_region_ids = {str(region.id) for region in runtime_regions}
-    for region_id in existing_regions:
-        if region_id not in runtime_region_ids:
-            shell.project_storage.timeline_regions.delete(region_id)
-
-    for index, region in enumerate(runtime_regions):
-        existing = existing_regions.get(str(region.id))
-        record = TimelineRegionRecord(
-            id=str(region.id),
-            song_version_id=song_version_id,
-            label=region.label,
-            start_seconds=float(region.start),
-            end_seconds=float(region.end),
-            color=region.color,
-            order_index=index,
-            kind=region.kind,
-            created_at=(
-                existing.created_at if existing is not None else datetime.now(timezone.utc)
-            ),
-        )
-        if existing is None:
-            shell.project_storage.timeline_regions.create(record)
-        else:
-            shell.project_storage.timeline_regions.update(record)
 
 
 def _sync_empty_main_take(

@@ -5,6 +5,7 @@ import shutil
 import uuid
 from pathlib import Path
 
+from echozero.application.shared.enums import SyncMode
 import echozero.ui.qt.launcher_surface as launcher_surface
 from echozero.ui.qt.app_shell import AppShellRuntime, build_app_shell
 from echozero.ui.qt.launcher_surface import LauncherSurface, build_launcher_surface
@@ -72,3 +73,60 @@ def test_app_shell_module_does_not_route_through_demo_app():
         encoding="utf-8"
     )
     assert "timeline.demo_app" not in source
+
+
+def test_runtime_surfaces_recent_ma3_osc_messages() -> None:
+    temp_root = _repo_local_temp_root()
+
+    class _FakeMessage:
+        def __init__(self, message_type: str, change: str, *, timestamp: float, fields: dict[str, object]) -> None:
+            self.message_type = message_type
+            self.change = change
+            self.timestamp = timestamp
+            self.fields = fields
+            self.raw_payload = "raw"
+
+    class _FakeBridge:
+        def __init__(self) -> None:
+            self.messages = [
+                _FakeMessage("connection", "ping", timestamp=1.0, fields={"status": "ok"}),
+                _FakeMessage("transport", "scrubbed", timestamp=2.0, fields={"tc": 112, "to_seconds": 9.5}),
+            ]
+
+    runtime = build_app_shell(
+        working_dir_root=temp_root / "runtime-messages",
+        sync_bridge=_FakeBridge(),
+    )
+
+    try:
+        rows = runtime.recent_ma3_osc_messages(limit=1)
+        assert len(rows) == 1
+        assert rows[0]["message_type"] == "transport"
+        assert rows[0]["change"] == "scrubbed"
+        assert rows[0]["fields"] == {"tc": 112, "to_seconds": 9.5}
+    finally:
+        runtime.shutdown()
+        shutil.rmtree(temp_root, ignore_errors=True)
+
+
+def test_runtime_prefers_low_latency_transport_poll_only_when_ma3_connected() -> None:
+    temp_root = _repo_local_temp_root()
+
+    class _FakeBridge:
+        pass
+
+    runtime = build_app_shell(
+        working_dir_root=temp_root / "runtime-sync-cadence",
+        sync_bridge=_FakeBridge(),
+    )
+
+    try:
+        runtime.session.sync_state.mode = SyncMode.NONE
+        runtime.session.sync_state.connected = False
+        assert runtime.prefers_low_latency_transport_poll() is False
+        runtime.session.sync_state.mode = SyncMode.MA3
+        runtime.session.sync_state.connected = True
+        assert runtime.prefers_low_latency_transport_poll() is True
+    finally:
+        runtime.shutdown()
+        shutil.rmtree(temp_root, ignore_errors=True)

@@ -25,6 +25,8 @@ from echozero.ui.qt.app_shell_timeline_state import clear_selected_events, resol
 
 
 class RuntimeAudioController(Protocol):
+    def sync_structure_state(self, presentation: TimelinePresentation) -> None: ...
+
     def sync_presentation(self, presentation: TimelinePresentation) -> None: ...
 
     def sync_mix_state(self, presentation: TimelinePresentation) -> None: ...
@@ -128,11 +130,15 @@ def sync_runtime_audio_from_presentation(
     if runtime_audio is None:
         return
     if runtime_audio.is_playing():
-        sync_presentation = getattr(runtime_audio, "sync_presentation", None)
-        if callable(sync_presentation):
-            sync_presentation(presentation)
+        sync_structure_state = getattr(runtime_audio, "sync_structure_state", None)
+        if callable(sync_structure_state):
+            sync_structure_state(presentation)
         else:
-            runtime_audio.build_for_presentation(presentation)
+            sync_presentation = getattr(runtime_audio, "sync_presentation", None)
+            if callable(sync_presentation):
+                sync_presentation(presentation)
+            else:
+                runtime_audio.build_for_presentation(presentation)
     snapshot_state = getattr(runtime_audio, "snapshot_state", None)
     if callable(snapshot_state):
         shell.session.playback_state = snapshot_state(presentation)
@@ -182,11 +188,15 @@ def apply_audio_output_config(
 
     next_runtime_audio = build_playback_controller(config)
     try:
-        sync_presentation = getattr(next_runtime_audio, "sync_presentation", None)
-        if callable(sync_presentation):
-            sync_presentation(presentation)
+        sync_structure_state = getattr(next_runtime_audio, "sync_structure_state", None)
+        if callable(sync_structure_state):
+            sync_structure_state(presentation)
         else:
-            next_runtime_audio.build_for_presentation(presentation)
+            sync_presentation = getattr(next_runtime_audio, "sync_presentation", None)
+            if callable(sync_presentation):
+                sync_presentation(presentation)
+            else:
+                next_runtime_audio.build_for_presentation(presentation)
         if current_time_seconds > 0.0:
             next_runtime_audio.seek(current_time_seconds)
         if was_playing:

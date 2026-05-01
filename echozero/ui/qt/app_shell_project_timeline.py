@@ -10,7 +10,6 @@ from dataclasses import replace
 from echozero.application.shared.enums import LayerKind
 from echozero.application.shared.ids import (
     LayerId,
-    RegionId,
     SongId,
     SongVersionId,
     TakeId,
@@ -21,7 +20,6 @@ from echozero.application.timeline.models import (
     LayerPresentationHints,
     Take,
     Timeline,
-    TimelineRegion,
     derive_section_cues_from_layers,
 )
 from echozero.persistence.session import ProjectStorage
@@ -154,26 +152,12 @@ def build_project_native_baseline_timeline(
             layers.append(layer)
             layer_audio[layer.id] = layer_fields
             take_audio.update(take_fields)
-    regions = [
-        TimelineRegion(
-            id=RegionId(region.id),
-            start=float(region.start_seconds),
-            end=float(region.end_seconds),
-            label=region.label,
-            color=region.color,
-            order_index=int(region.order_index),
-            kind=region.kind,
-        )
-        for region in project_storage.timeline_regions.list_by_version(version.id)
-    ]
-
     timeline = Timeline(
         id=timeline_id,
         song_version_id=SongVersionId(version.id),
         end=version.duration_seconds,
         layers=layers,
         section_cues=derive_section_cues_from_layers(layers),
-        regions=regions,
     )
     timeline.selection.selected_layer_id = source_layer_id
     timeline.selection.selected_layer_ids = [source_layer_id]

@@ -147,6 +147,26 @@ def test_section_manager_add_before_selected_auto_numbers_before_first() -> None
         app.processEvents()
 
 
+def test_section_manager_add_before_cue_one_uses_fractional_cue_number() -> None:
+    app = QApplication.instance() or QApplication([])
+    dialog = SectionManagerDialog(
+        _empty_presentation(),
+        cues=[
+            SectionCueDraft(cue_id="cue_a", start=10.0, cue_ref="Cue 1", name="Verse", cue_number=1),
+        ],
+    )
+    try:
+        dialog._refresh_table(select_row=0)
+        dialog._insert_section_relative(before=True)
+        inserted = dialog._rows[0]
+        assert inserted.cue_number == 0.5
+        assert inserted.cue_ref == "Cue 0.5"
+        assert inserted.start == 2.0
+    finally:
+        dialog.close()
+        app.processEvents()
+
+
 def test_section_manager_table_edit_updates_selected_row_values() -> None:
     app = QApplication.instance() or QApplication([])
     dialog = SectionManagerDialog(

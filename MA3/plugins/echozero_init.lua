@@ -61,6 +61,11 @@ local function init()
         {"EZ.CreateTrack",   EZ.CreateTrack},
         {"EZ.GetEvents",     EZ.GetEvents},
         {"EZ.GetSequences",  EZ.GetSequences},
+        {"EZ.Version", EZ.Version},
+        {"EZ.JumpToPreviousSection", EZ.JumpToPreviousSection},
+        {"EZ.ScrubTimecodeBy", EZ.ScrubTimecodeBy},
+        {"EZ.ScrubTimecodeForward", EZ.ScrubTimecodeForward},
+        {"EZ.ScrubTimecodeBackward", EZ.ScrubTimecodeBackward},
         {"EZ.HookTrack",     EZ.HookTrack},
         {"EZ.Ping",          EZ.Ping},
     }

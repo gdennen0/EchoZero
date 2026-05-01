@@ -1,0 +1,114 @@
+"""Playback-track planner coverage for output-bus normalization."""
+
+from __future__ import annotations
+
+from types import SimpleNamespace
+
+import numpy as np
+
+from echozero.application.playback.tracks import PlaybackTrackBuilder
+from echozero.application.shared.enums import PlaybackMode
+
+
+def _presentation(*, output_bus: str | None, playback_output_channels: int) -> object:
+    layer = SimpleNamespace(
+        layer_id="layer_song",
+        title="Song",
+        source_audio_path="song.wav",
+        output_bus=output_bus,
+        muted=False,
+        soloed=False,
+    )
+    return SimpleNamespace(
+        layers=[layer],
+        selected_layer_id="layer_song",
+        selected_take_id=None,
+        playback_output_channels=playback_output_channels,
+    )
+
+
+def test_playback_track_builder_preserves_wide_output_bus_when_device_supports_it() -> None:
+    builder = PlaybackTrackBuilder(
+        lambda _path: (np.array([0.25, -0.25], dtype=np.float32), 44100)
+    )
+    presentation = _presentation(output_bus="outputs_1_4", playback_output_channels=4)
+
+    plan = builder.build_track_plan(presentation)
+
+    assert len(plan.tracks) == 1
+    assert plan.tracks[0].output_bus == "outputs_1_4"
+
+
+def test_playback_track_builder_clears_output_bus_that_exceeds_device_channels() -> None:
+    builder = PlaybackTrackBuilder(
+        lambda _path: (np.array([0.25, -0.25], dtype=np.float32), 44100)
+    )
+    presentation = _presentation(output_bus="outputs_7_8", playback_output_channels=4)
+
+    plan = builder.build_track_plan(presentation)
+
+    assert len(plan.tracks) == 1
+    assert plan.tracks[0].output_bus is None
+
+
+def test_playback_track_builder_ignores_event_layer_source_audio_when_event_playback_disabled() -> None:
+    builder = PlaybackTrackBuilder(
+        lambda _path: (np.array([0.25, -0.25], dtype=np.float32), 44100)
+    )
+    presentation = SimpleNamespace(
+        layers=[
+            SimpleNamespace(
+                layer_id="layer_event",
+                title="Kick",
+                kind="event",
+                source_audio_path="drums.wav",
+                playback_enabled=False,
+                playback_mode=PlaybackMode.NONE,
+                playback_source_ref="drums.wav",
+                events=[],
+                output_bus=None,
+                muted=False,
+                soloed=False,
+                takes=[],
+            )
+        ],
+        selected_layer_id="layer_event",
+        selected_take_id=None,
+        playback_output_channels=2,
+    )
+
+    plan = builder.build_track_plan(presentation)
+
+    assert len(plan.tracks) == 0
+
+
+def test_playback_track_builder_uses_event_slice_mode_for_event_layers() -> None:
+    builder = PlaybackTrackBuilder(
+        lambda _path: (np.array([0.25, -0.25], dtype=np.float32), 44100)
+    )
+    presentation = SimpleNamespace(
+        layers=[
+            SimpleNamespace(
+                layer_id="layer_event",
+                title="Kick",
+                kind="event",
+                source_audio_path="drums.wav",
+                playback_enabled=True,
+                playback_mode=PlaybackMode.EVENT_SLICE,
+                playback_source_ref="drums.wav",
+                events=[SimpleNamespace(start=0.0, muted=False, badges=())],
+                output_bus=None,
+                muted=False,
+                soloed=False,
+                takes=[],
+            )
+        ],
+        selected_layer_id="layer_event",
+        selected_take_id=None,
+        playback_output_channels=2,
+    )
+
+    plan = builder.build_track_plan(presentation)
+
+    assert len(plan.tracks) == 1
+    assert plan.tracks[0].source_key.startswith("event:")

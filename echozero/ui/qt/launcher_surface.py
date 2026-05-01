@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
 
+from PyQt6.QtCore import QObject
 from PyQt6.QtGui import QAction, QKeySequence
 from PyQt6.QtWidgets import QFileDialog, QMessageBox
 
@@ -18,6 +19,7 @@ from echozero.application.settings import (
     AppSettingsUpdateResult,
     AudioOutputRuntimeConfig,
 )
+from echozero.persistence.session import ProjectStorage
 from echozero.ui.qt.app_shell import AppShellRuntime, build_app_shell
 from echozero.ui.qt.app_shell_project_runtime_state import load_project_runtime_state
 from echozero.ui.qt.launcher_review_actions import build_review_launcher_actions
@@ -107,6 +109,7 @@ class LauncherController:
         setattr(self.widget, "_launcher_actions", self.actions)
         self._refresh_recent_project_menu()
         self.widget.closeEvent = self.close_event
+        self._sync_window_title()
 
     def _create_action(
         self,
@@ -114,7 +117,8 @@ class LauncherController:
         shortcut=None,
         handler: Callable[..., object] | None = None,
     ) -> QAction:
-        action = QAction(text, self.widget)
+        parent = self.widget if isinstance(self.widget, QObject) else None
+        action = QAction(text, parent)
         if shortcut is not None:
             action.setShortcut(shortcut)
         if handler is not None:
@@ -155,9 +159,39 @@ class LauncherController:
         )
         if callable(apply_external_update):
             apply_external_update(presentation)
+            self._sync_window_title()
             return
         if hasattr(self.widget, "set_presentation"):
             self.widget.set_presentation(presentation)
+        self._sync_window_title()
+
+    def _resolved_project_name(self) -> str:
+        project_storage = getattr(self.runtime, "project_storage", None)
+        project = getattr(project_storage, "project", None)
+        name = str(getattr(project, "name", "") or "").strip()
+        if name:
+            return name
+        presentation_provider = getattr(self.runtime, "presentation", None)
+        if callable(presentation_provider):
+            try:
+                presentation = presentation_provider()
+            except Exception:
+                presentation = None
+            title = str(getattr(presentation, "title", "") or "").strip()
+            if title:
+                return title
+        return ""
+
+    def _sync_window_title(self) -> None:
+        setter = getattr(self.widget, "setWindowTitle", None)
+        if not callable(setter):
+            return
+        project_name = self._resolved_project_name()
+        dirty_suffix = " *" if bool(getattr(self.runtime, "is_dirty", False)) else ""
+        if project_name:
+            setter(f"EchoZero - {project_name}{dirty_suffix}")
+            return
+        setter(f"EchoZero{dirty_suffix}")
 
     def _apply_project_runtime_header_width(self) -> None:
         set_layer_header_width = getattr(self.widget, "set_layer_header_width", None)
@@ -198,6 +232,71 @@ class LauncherController:
     def _current_project_path(self) -> Path | None:
         path = getattr(self.runtime, "project_path", None)
         return Path(path) if path is not None else None
+
+    def _project_working_dir_root(self) -> Path | None:
+        project_storage = getattr(self.runtime, "project_storage", None)
+        working_dir = getattr(project_storage, "working_dir", None)
+        if working_dir is None:
+            return None
+        return Path(working_dir).parent
+
+    def _resolve_recovery_open_mode(self, target_path: Path) -> str | None:
+        """Return open mode: 'saved', 'recovery', or None if user canceled."""
+        working_dir_root = self._project_working_dir_root()
+        if working_dir_root is None:
+            return "saved"
+        try:
+            has_recovery = ProjectStorage.has_ungraceful_recovery(
+                target_path,
+                working_dir_root=working_dir_root,
+            )
+        except Exception:
+            return "saved"
+        if not has_recovery:
+            return "saved"
+        reply = QMessageBox.question(
+            self.widget,
+            "Recover Unsaved Project?",
+            (
+                "EchoZero found an unsaved working copy from a previous "
+                "unexpected exit.\n\n"
+                "Recover unsaved working copy?"
+            ),
+            QMessageBox.StandardButton.Yes
+            | QMessageBox.StandardButton.No
+            | QMessageBox.StandardButton.Cancel,
+            QMessageBox.StandardButton.Yes,
+        )
+        if reply == QMessageBox.StandardButton.Cancel:
+            return None
+        if reply == QMessageBox.StandardButton.Yes:
+            return "recovery"
+        return "saved"
+
+    def _open_project_path(self, target_path: Path) -> str:
+        """Open a project path.
+
+        Returns:
+            "opened"   -> project opened successfully
+            "canceled" -> user canceled recovery decision
+            "failed"   -> open action raised/failed
+        """
+        open_mode = self._resolve_recovery_open_mode(target_path)
+        if open_mode is None:
+            return "canceled"
+        if open_mode == "recovery":
+            recover = getattr(self.runtime, "recover_project", None)
+            if callable(recover):
+                return (
+                    "opened"
+                    if self._run_action("Open Project", lambda: recover(target_path))
+                    else "failed"
+                )
+        return (
+            "opened"
+            if self._run_action("Open Project", lambda: self.runtime.open_project(target_path))
+            else "failed"
+        )
 
     def _stage_runtime_presentation_for_save(self) -> None:
         stage = getattr(self.runtime, "stage_project_runtime_presentation", None)
@@ -414,7 +513,8 @@ class LauncherController:
             "Save changes before opening another project?"
         ):
             return False
-        if not self._run_action("Open Project", lambda: self.runtime.open_project(path)):
+        open_result = self._open_project_path(path)
+        if open_result != "opened":
             return False
         self._apply_project_runtime_header_width()
         self._remember_recent_project_path(path)
@@ -429,12 +529,12 @@ class LauncherController:
             "Save changes before opening another project?"
         ):
             return False
-        if not self._run_action(
-            "Open Project",
-            lambda: self.runtime.open_project(target_path),
-        ):
+        open_result = self._open_project_path(target_path)
+        if open_result == "failed":
             self._forget_recent_project_path(target_path)
             self._refresh_recent_project_menu()
+            return False
+        if open_result == "canceled":
             return False
         self._apply_project_runtime_header_width()
         self._remember_recent_project_path(target_path)
@@ -512,19 +612,31 @@ class LauncherController:
     def osc_settings(self) -> bool:
         if self._app_settings_service is None:
             return False
+        monitor_provider = getattr(self.runtime, "recent_ma3_osc_messages", None)
+        monitor_callback = monitor_provider if callable(monitor_provider) else None
         try:
             dialog = OscSettingsDialog(
                 self._app_settings_service,
                 on_saved=self._on_app_settings_saved,
+                monitor_provider=monitor_callback,
                 parent=self.widget,
             )
         except TypeError as exc:
-            if "on_saved" not in str(exc):
+            if "on_saved" not in str(exc) and "monitor_provider" not in str(exc):
                 raise
-            dialog = OscSettingsDialog(
-                self._app_settings_service,
-                parent=self.widget,
-            )
+            try:
+                dialog = OscSettingsDialog(
+                    self._app_settings_service,
+                    on_saved=self._on_app_settings_saved,
+                    parent=self.widget,
+                )
+            except TypeError as inner_exc:
+                if "on_saved" not in str(inner_exc):
+                    raise
+                dialog = OscSettingsDialog(
+                    self._app_settings_service,
+                    parent=self.widget,
+                )
         return bool(dialog.exec())
 
     def project_settings(self) -> bool:

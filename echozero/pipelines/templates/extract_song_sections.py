@@ -18,6 +18,15 @@ from echozero.pipelines.registry import pipeline_template
         "sequence-style temporal pooling inspired by MusicSegmentationML."
     ),
     knobs={
+        "detect_method": knob(
+            "mfcc_sequence_pooling",
+            label="Section Detection",
+            options=("mfcc_sequence_pooling", "determine_sections_style"),
+            description=(
+                "Balanced (recommended) is the default detector. Experimental follows a "
+                "determine_sections-style sliding-window change/timestamp/label flow."
+            ),
+        ),
         "sample_rate": knob(
             22050,
             label="Sample Rate",
@@ -112,6 +121,7 @@ from echozero.pipelines.registry import pipeline_template
     },
 )
 def build_extract_song_sections(
+    detect_method="mfcc_sequence_pooling",
     sample_rate=22050,
     n_mfcc=20,
     n_fft=8192,
@@ -131,6 +141,7 @@ def build_extract_song_sections(
     load = pipeline.add(LoadAudio(), id="load_audio")
     detect_sections = pipeline.add(
         DetectSongSections(
+            detect_method=detect_method,
             sample_rate=sample_rate,
             n_mfcc=n_mfcc,
             n_fft=n_fft,

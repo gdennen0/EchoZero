@@ -122,26 +122,6 @@ class LayerRecord:
 
 
 # ---------------------------------------------------------------------------
-# Timeline region record
-# ---------------------------------------------------------------------------
-
-
-@dataclass(frozen=True)
-class TimelineRegionRecord:
-    """Persistence-layer entity for one timeline region span."""
-
-    id: str
-    song_version_id: str
-    label: str
-    start_seconds: float
-    end_seconds: float
-    color: str | None
-    order_index: int
-    kind: str
-    created_at: datetime
-
-
-# ---------------------------------------------------------------------------
 # Pipeline config (persistent pipeline configuration per song)
 # ---------------------------------------------------------------------------
 

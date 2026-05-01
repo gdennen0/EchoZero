@@ -219,3 +219,38 @@ def test_section_lane_renders_zero_width_section_cues_as_minimum_event_width():
     assert rects[0][0].width() >= 2.0
     sample = image.pixelColor(421, 28)
     assert sample.red() > 0
+
+
+def test_section_lane_can_expand_hit_width_without_changing_rendered_minimum_width():
+    section = EventPresentation(
+        event_id=EventId("section_hit"),
+        start=1.0,
+        end=1.01,
+        label="Verse",
+        cue_ref="Q7B",
+        color="#f0b74f",
+    )
+    presentation = EventLanePresentation(
+        layer_id="layer_section",
+        take_id=None,
+        events=[section],
+        pixels_per_second=100.0,
+        scroll_x=0.0,
+        header_width=320,
+        layer_kind=LayerKind.SECTION,
+        event_height=22,
+        viewport_width=800,
+        event_hit_min_width_px=12.0,
+    )
+
+    image = QImage(800, 120, QImage.Format.Format_ARGB32)
+    image.fill(0)
+    painter = QPainter(image)
+    try:
+        rects = EventLaneBlock().paint(painter, 20, presentation)
+    finally:
+        painter.end()
+
+    assert len(rects) == 1
+    assert rects[0][0].width() >= 12.0
+    assert rects[0][0].left() >= 320.0

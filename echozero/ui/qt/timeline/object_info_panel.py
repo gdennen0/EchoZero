@@ -7,7 +7,6 @@ from __future__ import annotations
 
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (
-    QComboBox,
     QDoubleSpinBox,
     QFrame,
     QGridLayout,
@@ -226,14 +225,12 @@ class ObjectInfoPanel(_ObjectInfoPanelActionsMixin, QFrame):
         route_row.setContentsMargins(0, 0, 0, 0)
         route_row.setHorizontalSpacing(6)
         route_row.setVerticalSpacing(6)
-        route_label = QLabel("Output Route", self._layer_controls)
+        route_label = QLabel("Routing", self._layer_controls)
         route_label.setObjectName("selectionMetaLabel")
-        self._output_bus_combo = QComboBox(self._layer_controls)
-        self._output_bus_apply_btn = QPushButton("Apply Route", self._layer_controls)
-        self._set_button_appearance(self._output_bus_apply_btn, "primary")
+        self._routing_settings_btn = QPushButton("Routing Settings", self._layer_controls)
+        self._set_button_appearance(self._routing_settings_btn, "primary")
         route_row.addWidget(route_label, 0, 0)
-        route_row.addWidget(self._output_bus_combo, 1, 0)
-        route_row.addWidget(self._output_bus_apply_btn, 1, 1)
+        route_row.addWidget(self._routing_settings_btn, 1, 0, 1, 2)
         layer_controls_layout.addLayout(route_row)
 
         mix_row = QHBoxLayout()
@@ -279,7 +276,7 @@ class ObjectInfoPanel(_ObjectInfoPanelActionsMixin, QFrame):
         layer_controls_layout.addLayout(gain_custom_row)
         details_layout.addWidget(self._layer_controls)
 
-        self._output_bus_apply_btn.clicked.connect(self._emit_apply_output_bus)
+        self._routing_settings_btn.clicked.connect(self._emit_open_routing_settings)
         self._panel_mute_btn.clicked.connect(self._emit_toggle_mute_from_panel)
         self._panel_solo_btn.clicked.connect(self._emit_toggle_solo_from_panel)
         self._gain_down_btn.clicked.connect(
@@ -298,7 +295,6 @@ class ObjectInfoPanel(_ObjectInfoPanelActionsMixin, QFrame):
         self._pipeline_action_plans: dict[str, ObjectActionSettingsPlan] = {}
         self._pipeline_action_rows: dict[str, QWidget] = {}
         self._action_section_expanded: dict[str, bool] = {}
-        self._output_bus_actions: tuple[InspectorAction, ...] = ()
         self._set_controls_enabled(has_layer=False)
         self._event_preview_card.setVisible(False)
         self._layer_controls.setVisible(False)
@@ -377,8 +373,7 @@ class ObjectInfoPanel(_ObjectInfoPanelActionsMixin, QFrame):
             widget.update()
 
     def _set_controls_enabled(self, *, has_layer: bool) -> None:
-        self._output_bus_combo.setEnabled(has_layer)
-        self._output_bus_apply_btn.setEnabled(has_layer)
+        self._routing_settings_btn.setEnabled(has_layer)
         self._panel_mute_btn.setEnabled(has_layer)
         self._panel_solo_btn.setEnabled(has_layer)
         self._gain_down_btn.setEnabled(has_layer)
@@ -404,7 +399,6 @@ class ObjectInfoPanel(_ObjectInfoPanelActionsMixin, QFrame):
         self._set_body_text(text)
         self._clear_action_sections()
         self._pipeline_action_plans = {}
-        self._output_bus_actions = ()
         self._sync_event_preview(None)
         self._layer_controls.setVisible(False)
         self._layer_controls_title.setText("No layer selected.")
@@ -415,9 +409,7 @@ class ObjectInfoPanel(_ObjectInfoPanelActionsMixin, QFrame):
         self._set_button_active(self._gain_down_btn, False)
         self._set_button_active(self._gain_unity_btn, False)
         self._set_button_active(self._gain_up_btn, False)
-        self._output_bus_combo.clear()
-        self._output_bus_combo.setVisible(False)
-        self._output_bus_apply_btn.setVisible(False)
+        self._routing_settings_btn.setVisible(False)
 
     def set_contract(
         self, presentation: TimelinePresentation, contract: InspectorContract

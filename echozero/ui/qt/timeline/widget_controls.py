@@ -10,11 +10,11 @@ from typing import cast
 
 from PyQt6.QtCore import QRectF, QSize, Qt, pyqtSignal
 from PyQt6.QtGui import (
-    QColor,
+    QIcon,
     QMouseEvent,
     QPaintEvent,
     QPainter,
-    QPen,
+    QPixmap,
     QResizeEvent,
     QShowEvent,
 )
@@ -27,7 +27,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from echozero.application.presentation.models import RegionPresentation, TimelinePresentation
+from echozero.application.presentation.models import TimelinePresentation
 from echozero.application.shared.enums import FollowMode
 from echozero.application.timeline.intents import (
     Pause,
@@ -50,7 +50,6 @@ from echozero.ui.qt.timeline.blocks.ruler import (
     RulerBlock,
     RulerLayout,
     seek_time_for_x,
-    timeline_x_for_time,
 )
 from echozero.ui.qt.timeline.blocks.transport_bar import TransportLayout
 from echozero.ui.qt.timeline.blocks.transport_bar_block import TransportBarBlock
@@ -70,7 +69,6 @@ class TimelineEditorModeBar(QWidget):
     settings_requested = pyqtSignal()
     osc_settings_requested = pyqtSignal()
     pipeline_settings_requested = pyqtSignal()
-    regions_requested = pyqtSignal()
     _COMPACT_WIDTH_THRESHOLD_PX = 1400
 
     def __init__(self, parent: QWidget | None = None) -> None:
@@ -86,7 +84,6 @@ class TimelineEditorModeBar(QWidget):
             "move": "↔ Move",
             "draw": "+ Draw",
             "fix": "🩹 Fix",
-            "region": "R Region",
             "erase": "- Erase",
         }
         self._mode_labels_compact: dict[str, str] = {
@@ -94,7 +91,6 @@ class TimelineEditorModeBar(QWidget):
             "move": "↔",
             "draw": "+",
             "fix": "🩹",
-            "region": "R",
             "erase": "-",
         }
         layout = QHBoxLayout(self)
@@ -127,10 +123,9 @@ class TimelineEditorModeBar(QWidget):
             "move": "Move selected events",
             "draw": "Draw new events",
             "fix": "Fix assistant mode",
-            "region": "Edit timeline regions",
             "erase": "Erase selected events",
         }
-        for mode in ("select", "move", "draw", "erase", "fix", "region"):
+        for mode in ("select", "move", "draw", "erase", "fix"):
             button = QPushButton(self._mode_labels_full[mode], mode_group)
             button.setProperty("timelineModeButton", True)
             button.setCheckable(True)
@@ -254,10 +249,11 @@ class TimelineEditorModeBar(QWidget):
         shell_label.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
         self._toolbar_labels.append(shell_label)
         shell_layout.addWidget(shell_label, 0, Qt.AlignmentFlag.AlignVCenter)
-        self._settings_button = QPushButton("⚙ Settings", shell_group)
+        self._settings_button = QPushButton("Settings", shell_group)
         self._settings_button.setObjectName("timelineEditorSettingsButton")
         self._settings_button.setToolTip("Open application preferences")
         self._settings_button.clicked.connect(self.settings_requested.emit)
+        self._refresh_settings_button_icon()
         shell_layout.addWidget(self._settings_button, 0, Qt.AlignmentFlag.AlignVCenter)
         self._osc_settings_button = QPushButton("OSC", shell_group)
         self._osc_settings_button.setObjectName("timelineEditorOscSettingsButton")
@@ -273,11 +269,6 @@ class TimelineEditorModeBar(QWidget):
             0,
             Qt.AlignmentFlag.AlignVCenter,
         )
-        self._regions_button = QPushButton("▤ Regions", shell_group)
-        self._regions_button.setObjectName("timelineEditorRegionsButton")
-        self._regions_button.setToolTip("Open timeline regions manager")
-        self._regions_button.clicked.connect(self.regions_requested.emit)
-        shell_layout.addWidget(self._regions_button, 0, Qt.AlignmentFlag.AlignVCenter)
         layout.addWidget(shell_group, 0, Qt.AlignmentFlag.AlignVCenter)
 
         self._grid_modes: tuple[TimelineGridMode, ...] = (TimelineGridMode.AUTO,)
@@ -419,16 +410,40 @@ class TimelineEditorModeBar(QWidget):
             button.setText(labels.get(mode, self._mode_labels_full.get(mode, mode.title())))
 
     def _set_shell_button_labels(self, *, compact: bool) -> None:
+        self._refresh_settings_button_icon()
         if compact:
-            self._settings_button.setText("⚙")
+            self._settings_button.setText("")
             self._osc_settings_button.setText("O")
             self._pipeline_settings_button.setText("P")
-            self._regions_button.setText("▤")
             return
-        self._settings_button.setText("⚙ Settings")
+        self._settings_button.setText("Settings")
         self._osc_settings_button.setText("OSC")
         self._pipeline_settings_button.setText("Pipeline")
-        self._regions_button.setText("▤ Regions")
+
+    def _refresh_settings_button_icon(self) -> None:
+        icon_size = max(14, int(round(self._settings_button.fontMetrics().height() * 1.5)))
+        self._settings_button.setIcon(self._build_gear_icon(icon_size))
+        self._settings_button.setIconSize(QSize(icon_size, icon_size))
+
+    def _build_gear_icon(self, icon_size: int) -> QIcon:
+        pixmap = QPixmap(icon_size, icon_size)
+        pixmap.fill(Qt.GlobalColor.transparent)
+        painter = QPainter(pixmap)
+        try:
+            painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+            painter.setRenderHint(QPainter.RenderHint.TextAntialiasing, True)
+            font = self._settings_button.font()
+            font.setPixelSize(max(1, int(round(icon_size * 0.86))))
+            painter.setFont(font)
+            painter.setPen(self._settings_button.palette().buttonText().color())
+            painter.drawText(
+                QRectF(0.0, 0.0, float(icon_size), float(icon_size)),
+                int(Qt.AlignmentFlag.AlignCenter),
+                "⚙",
+            )
+        finally:
+            painter.end()
+        return QIcon(pixmap)
 
     def _sync_fix_include_demoted_button_label(self, *, enabled: bool) -> None:
         if self._compact_mode:
@@ -458,7 +473,6 @@ class TimelineEditorModeBar(QWidget):
         self._settings_button.setMinimumWidth(shell_width)
         self._osc_settings_button.setMinimumWidth(shell_width)
         self._pipeline_settings_button.setMinimumWidth(shell_width)
-        self._regions_button.setMinimumWidth(shell_width)
         self._fix_remove_button.setMinimumWidth(fix_small_width)
         self._fix_promote_button.setMinimumWidth(fix_small_width)
         self._fix_select_button.setMinimumWidth(fix_select_width)
@@ -473,7 +487,6 @@ class TimelineEditorModeBar(QWidget):
             self._settings_button,
             self._osc_settings_button,
             self._pipeline_settings_button,
-            self._regions_button,
             self._fix_remove_button,
             self._fix_select_button,
             self._fix_promote_button,
@@ -587,9 +600,6 @@ class TransportBar(QWidget):
 
 class TimelineRuler(QWidget):
     seek_requested = pyqtSignal(float)
-    region_span_requested = pyqtSignal(float, float)
-    region_selected = pyqtSignal(object)
-    region_edit_requested = pyqtSignal(object)
 
     def __init__(
         self,
@@ -603,9 +613,6 @@ class TimelineRuler(QWidget):
         self._header_width = header_width
         self._block = RulerBlock()
         self._dragging = False
-        self._edit_mode = "select"
-        self._drag_anchor_time: float | None = None
-        self._drag_current_time: float | None = None
         self.setMinimumHeight(RULER_HEIGHT_PX)
         self.setMaximumHeight(RULER_HEIGHT_PX)
 
@@ -621,16 +628,7 @@ class TimelineRuler(QWidget):
         self.update()
 
     def set_editor_mode(self, mode: str) -> None:
-        previous_mode = self._edit_mode
-        normalized = (mode or "select").strip().lower()
-        self._edit_mode = normalized
-        if previous_mode != normalized and (
-            previous_mode == "region" or normalized == "region"
-        ):
-            self._dragging = False
-            self._drag_anchor_time = None
-            self._drag_current_time = None
-        self.update()
+        _ = mode
 
     def paintEvent(self, event: QPaintEvent | None) -> None:
         if event is None:
@@ -642,7 +640,6 @@ class TimelineRuler(QWidget):
             RulerLayout(QRectF(0, 0, self.width(), self.height()), self._header_width),
             self.presentation,
         )
-        self._paint_region_drag_preview(painter)
 
     def mousePressEvent(self, event: QMouseEvent | None) -> None:
         if event is None:
@@ -651,54 +648,19 @@ class TimelineRuler(QWidget):
             event.button() == Qt.MouseButton.LeftButton
             and event.position().x() >= self._header_width
         ):
-            if self._edit_mode == "region":
-                hit_region = self._region_at_x(event.position().x())
-                if hit_region is not None:
-                    self._dragging = False
-                    self._drag_anchor_time = None
-                    self._drag_current_time = None
-                    self.region_selected.emit(hit_region.region_id)
-                    self.update()
-                    event.accept()
-                    return
-                self._dragging = True
-                current_time = self._seek_time_at_x(event.position().x())
-                self._drag_anchor_time = current_time
-                self._drag_current_time = current_time
-                self.update()
-            else:
-                self._dragging = True
-                current_time = self._seek_time_at_x(event.position().x())
-                self.seek_requested.emit(current_time)
+            self._dragging = True
+            current_time = self._seek_time_at_x(event.position().x())
+            self.seek_requested.emit(current_time)
             event.accept()
             return
         super().mousePressEvent(event)
-
-    def mouseDoubleClickEvent(self, event: QMouseEvent | None) -> None:
-        if (
-            event is not None
-            and event.button() == Qt.MouseButton.LeftButton
-            and self._edit_mode == "region"
-            and event.position().x() >= self._header_width
-        ):
-            hit_region = self._region_at_x(event.position().x())
-            if hit_region is not None:
-                self.region_selected.emit(hit_region.region_id)
-                self.region_edit_requested.emit(hit_region.region_id)
-                event.accept()
-                return
-        super().mouseDoubleClickEvent(event)
 
     def mouseMoveEvent(self, event: QMouseEvent | None) -> None:
         if event is None:
             return
         if self._dragging and event.buttons() & Qt.MouseButton.LeftButton:
             current_time = self._seek_time_at_x(event.position().x())
-            if self._edit_mode == "region":
-                self._drag_current_time = current_time
-                self.update()
-            else:
-                self.seek_requested.emit(current_time)
+            self.seek_requested.emit(current_time)
             event.accept()
             return
         super().mouseMoveEvent(event)
@@ -707,19 +669,7 @@ class TimelineRuler(QWidget):
         if event is None:
             return
         if event.button() == Qt.MouseButton.LeftButton:
-            if self._dragging and self._edit_mode == "region":
-                anchor = self._drag_anchor_time
-                if anchor is not None:
-                    current_time = self._seek_time_at_x(event.position().x())
-                    self._drag_current_time = current_time
-                    start_seconds = min(anchor, current_time)
-                    end_seconds = max(anchor, current_time)
-                    if (end_seconds - start_seconds) >= 0.02:
-                        self.region_span_requested.emit(start_seconds, end_seconds)
             self._dragging = False
-            self._drag_anchor_time = None
-            self._drag_current_time = None
-            self.update()
         super().mouseReleaseEvent(event)
 
     def _seek_time_at_x(self, x: float) -> float:
@@ -729,72 +679,5 @@ class TimelineRuler(QWidget):
             pixels_per_second=self.presentation.pixels_per_second,
             content_start_x=self._header_width,
         )
-
-    def _paint_region_drag_preview(self, painter: QPainter) -> None:
-        if (
-            self._edit_mode != "region"
-            or not self._dragging
-            or self._drag_anchor_time is None
-            or self._drag_current_time is None
-        ):
-            return
-
-        start_seconds = min(self._drag_anchor_time, self._drag_current_time)
-        end_seconds = max(self._drag_anchor_time, self._drag_current_time)
-        if (end_seconds - start_seconds) < 1e-6:
-            return
-
-        start_x = timeline_x_for_time(
-            start_seconds,
-            scroll_x=self.presentation.scroll_x,
-            pixels_per_second=self.presentation.pixels_per_second,
-            content_start_x=self._header_width,
-        )
-        end_x = timeline_x_for_time(
-            end_seconds,
-            scroll_x=self.presentation.scroll_x,
-            pixels_per_second=self.presentation.pixels_per_second,
-            content_start_x=self._header_width,
-        )
-        left = max(float(self._header_width), min(start_x, end_x))
-        right = min(float(self.width()), max(start_x, end_x))
-        width = max(0.0, right - left)
-        if width <= 0.0:
-            return
-
-        preview_rect = QRectF(left, 1.0, width, max(1.0, float(self.height()) - 2.0))
-        fill = QColor(self._block.playhead_color_hex)
-        fill.setAlpha(46)
-        border = QColor(self._block.playhead_color_hex)
-        border.setAlpha(140)
-        painter.fillRect(preview_rect, fill)
-        painter.setPen(QPen(border, 1))
-        painter.setBrush(Qt.BrushStyle.NoBrush)
-        painter.drawRect(preview_rect.adjusted(0.5, 0.5, -0.5, -0.5))
-
-    def _region_at_x(self, x: float) -> RegionPresentation | None:
-        if x < float(self._header_width):
-            return None
-        for region in reversed(self.presentation.regions):
-            start_x = timeline_x_for_time(
-                float(region.start),
-                scroll_x=self.presentation.scroll_x,
-                pixels_per_second=self.presentation.pixels_per_second,
-                content_start_x=self._header_width,
-            )
-            end_x = timeline_x_for_time(
-                float(region.end),
-                scroll_x=self.presentation.scroll_x,
-                pixels_per_second=self.presentation.pixels_per_second,
-                content_start_x=self._header_width,
-            )
-            left = min(start_x, end_x)
-            right = max(start_x, end_x)
-            if right - left <= 0.0:
-                continue
-            if left <= x <= right:
-                return region
-        return None
-
 
 __all__ = ["TimelineEditorModeBar", "TimelineRuler", "TransportBar"]

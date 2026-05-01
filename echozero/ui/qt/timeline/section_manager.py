@@ -664,11 +664,9 @@ class SectionManagerDialog(QDialog):
             candidate = float(previous) + 1.0
         elif next_value is not None:
             next_float = float(next_value)
-            candidate = next_float - 1.0 if next_float > 1.0 else 1.0
+            candidate = next_float - 1.0 if next_float > 1.0 else (next_float * 0.5)
         else:
             candidate = float(len(self._rows) + 1)
-        if float(candidate) < 1.0:
-            candidate = 1.0
         normalized = parse_positive_cue_number(candidate)
         if normalized is None:
             return 1

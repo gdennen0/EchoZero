@@ -30,8 +30,6 @@ from echozero.application.timeline.intents import (
     ConfirmPullFromMA3,
     ConfirmPushToMA3,
     CreateEvent,
-    CreateRegion,
-    DeleteRegion,
     DeleteEvents,
     DuplicateSelectedEvents,
     MoveEvent,
@@ -44,7 +42,6 @@ from echozero.application.timeline.intents import (
     TriggerTakeAction,
     TrimEvent,
     UpdateEventLabel,
-    UpdateRegion,
 )
 from echozero.application.timeline.ma3_push_intents import SetLayerMA3Route
 from echozero.application.timeline.models import Layer, Timeline
@@ -116,8 +113,6 @@ def is_undoable_intent(intent: object) -> bool:
             CommitRelabeledEventReview,
             CommitBoundaryCorrectedEventReview,
             CreateEvent,
-            CreateRegion,
-            DeleteRegion,
             DeleteEvents,
             DuplicateSelectedEvents,
             MoveEvent,
@@ -128,7 +123,6 @@ def is_undoable_intent(intent: object) -> bool:
             SetGain,
             TrimEvent,
             UpdateEventLabel,
-            UpdateRegion,
         ),
     ):
         return True
@@ -156,8 +150,6 @@ def is_storage_backed_undoable_intent(intent: object) -> bool:
             CommitRelabeledEventReview,
             CommitBoundaryCorrectedEventReview,
             CreateEvent,
-            CreateRegion,
-            DeleteRegion,
             DeleteEvents,
             DuplicateSelectedEvents,
             MoveEvent,
@@ -167,7 +159,6 @@ def is_storage_backed_undoable_intent(intent: object) -> bool:
             ReplaceSectionCues,
             TrimEvent,
             UpdateEventLabel,
-            UpdateRegion,
         ),
     )
 
@@ -199,12 +190,6 @@ def history_label_for_intent(intent: object) -> str | None:
         return "Correct Boundary"
     if isinstance(intent, CreateEvent):
         return "Create Event"
-    if isinstance(intent, CreateRegion):
-        return "Create Region"
-    if isinstance(intent, UpdateRegion):
-        return "Update Region"
-    if isinstance(intent, DeleteRegion):
-        return "Delete Region"
     if isinstance(intent, DeleteEvents):
         return "Delete Events"
     if isinstance(intent, DuplicateSelectedEvents):

@@ -921,39 +921,21 @@ def test_timeline_editor_mode_bar_groups_tools_and_syncs_state():
             bar._pipeline_settings_button.objectName()
             == "timelineEditorPipelineSettingsButton"
         )
-        assert bar._regions_button.objectName() == "timelineEditorRegionsButton"
         assert list(bar._mode_buttons.keys()) == [
             "select",
             "move",
             "draw",
             "erase",
             "fix",
-            "region",
         ]
         assert bar._mode_buttons["move"].text() == "↔ Move"
         assert bar._mode_buttons["draw"].text() == "+ Draw"
         assert bar._mode_buttons["erase"].text() == "- Erase"
         assert bar._mode_buttons["fix"].text() == "🩹 Fix"
-        assert bar._mode_buttons["region"].text() == "R Region"
         assert bar._fix_action_buttons["select"].objectName() == "timelineEditorFixSelectButton"
         assert bar._mode_buttons["draw"].isChecked()
         assert bar._snap_button.isChecked()
         assert bar._grid_button.text() == "▦ Grid: Beat"
-    finally:
-        bar.close()
-        app.processEvents()
-
-
-def test_timeline_editor_mode_bar_emits_regions_requested_signal():
-    app = QApplication.instance() or QApplication([])
-    bar = TimelineEditorModeBar()
-    emitted: list[bool] = []
-    try:
-        bar.regions_requested.connect(lambda: emitted.append(True))
-
-        bar._regions_button.click()
-
-        assert emitted == [True]
     finally:
         bar.close()
         app.processEvents()
@@ -1006,7 +988,7 @@ def test_timeline_editor_mode_bar_switches_to_compact_density_when_narrow():
         assert bar.property("compact") is True
         assert bar._mode_buttons["select"].text() == "↖"
         assert bar._mode_buttons["move"].text() == "↔"
-        assert bar._settings_button.text() == "⚙"
+        assert bar._settings_button.text() == ""
         assert bar._osc_settings_button.text() == "O"
         assert bar._pipeline_settings_button.text() == "P"
         assert bar._grid_button.text().startswith("▦")
@@ -1071,6 +1053,24 @@ def test_transport_layout_centers_compact_bar_content():
 
     assert layout.rect.height() == TIMELINE_TRANSPORT_HEIGHT_PX
     assert max(center_lines) - min(center_lines) <= 0.5
+
+
+def test_transport_layout_keeps_time_and_meta_within_bounds_when_width_is_narrow():
+    horizontal_padding = 24.0
+    for width in (1280, 900, 720, 640, 560, 500):
+        layout = TransportLayout.create(width=width)
+        inner_right = width - horizontal_padding
+
+        assert layout.controls_rect.left() >= horizontal_padding
+        assert layout.controls_rect.right() <= inner_right + 0.5
+
+        if layout.time_rect.width() > 0.0:
+            assert layout.time_rect.left() >= layout.controls_rect.right()
+            assert layout.time_rect.right() <= inner_right + 0.5
+
+        if layout.meta_rect.width() > 0.0:
+            assert layout.meta_rect.left() >= layout.time_rect.right()
+            assert layout.meta_rect.right() <= inner_right + 0.5
 
 
 def test_transport_bar_meta_text_keeps_stopped_state_visible_when_width_is_small():

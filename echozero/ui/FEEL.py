@@ -28,6 +28,7 @@ TIMELINE_ZOOM_MIN_PPS = 5.0  # Minimum timeline zoom clamp in pixels/second
 TIMELINE_ZOOM_MAX_PPS = 720.0  # Maximum timeline zoom clamp in pixels/second
 TIMELINE_RUNTIME_TICK_ACTIVE_MS = 16  # Runtime timer cadence while transport is actively moving
 TIMELINE_RUNTIME_TICK_IDLE_MS = 64  # Runtime timer cadence while idle (reduced overhead)
+TIMELINE_STRUCTURAL_SYNC_DEBOUNCE_MS = 120  # Coalesce structural playback rebuilds while editing during playback
 
 # =============================================================================
 # PLAYHEAD
@@ -75,24 +76,28 @@ RESIZE_HANDLE_WIDTH_PX = 6  # Hit zone for edge resize cursor
 DRAG_THRESHOLD_PX = 4  # Minimum drag distance before drag starts
 DOUBLE_CLICK_MS = 400  # Double-click time window
 HOVER_DELAY_MS = 150  # Delay before hover effects appear
+SECTION_MOVE_EVENT_HIT_MIN_WIDTH_PX = 12  # Minimum section cue hit width while moving cues
+MOVE_DRAG_PREVIEW_LINE_WIDTH_PX = 2  # Width for the move-mode vertical drag preview bar
+MOVE_DRAG_PREVIEW_LINE_ALPHA = 180  # Opacity for the move-mode vertical drag preview bar
+MOVE_DRAG_SNAP_LOCK_MULTIPLIER = 1.75  # Sticky-radius multiplier to avoid snap jitter while dragging
 
 # =============================================================================
 # TIME RULER
 # =============================================================================
 
-TIMELINE_TRANSPORT_HEIGHT_PX = 56  # Playback strip height below the timeline viewport
-TIMELINE_TRANSPORT_BUTTON_HEIGHT_PX = 30  # Painted play/stop button height in transport
-TIMELINE_TRANSPORT_TOP_GAP_PX = 6  # Vertical gap between timeline scroller and transport strip
-TIMELINE_EDITOR_BAR_PADDING_X_PX = 8  # Horizontal padding around the editor toolbar strip
-TIMELINE_EDITOR_BAR_PADDING_Y_PX = 4  # Vertical padding around the editor toolbar strip
-TIMELINE_EDITOR_GROUP_PADDING_X_PX = 6  # Horizontal padding inside each toolbar group
-TIMELINE_EDITOR_GROUP_PADDING_Y_PX = 3  # Vertical padding inside each toolbar group
-TIMELINE_EDITOR_GROUP_SPACING_PX = 4  # Gap between toolbar labels and controls
-TIMELINE_EDITOR_BUTTON_MIN_HEIGHT_PX = 22  # Dense minimum button height in the editor toolbar
+TIMELINE_TRANSPORT_HEIGHT_PX = 74  # Playback strip height below the timeline viewport
+TIMELINE_TRANSPORT_BUTTON_HEIGHT_PX = 42  # Painted play/stop button height in transport
+TIMELINE_TRANSPORT_TOP_GAP_PX = 3  # Vertical gap between timeline scroller and transport strip
+TIMELINE_EDITOR_BAR_PADDING_X_PX = 6  # Horizontal padding around the editor toolbar strip
+TIMELINE_EDITOR_BAR_PADDING_Y_PX = 2  # Vertical padding around the editor toolbar strip
+TIMELINE_EDITOR_GROUP_PADDING_X_PX = 4  # Horizontal padding inside each toolbar group
+TIMELINE_EDITOR_GROUP_PADDING_Y_PX = 2  # Vertical padding inside each toolbar group
+TIMELINE_EDITOR_GROUP_SPACING_PX = 3  # Gap between toolbar labels and controls
+TIMELINE_EDITOR_BUTTON_MIN_HEIGHT_PX = 20  # Dense minimum button height in the editor toolbar
 TIMELINE_OBJECT_INFO_METADATA_MIN_HEIGHT_PX = 28  # Compact starting body height for inspector facts
-TIMELINE_OBJECT_INFO_METADATA_DEFAULT_HEIGHT_PX = 84  # Initial inspector metadata pane height
+TIMELINE_OBJECT_INFO_METADATA_DEFAULT_HEIGHT_PX = 106  # Initial inspector metadata pane height
 TIMELINE_OBJECT_INFO_SPLITTER_HANDLE_PX = 6  # Grab area for resizing inspector metadata vs actions
-RULER_HEIGHT_PX = 28  # Ruler bar height
+RULER_HEIGHT_PX = 24  # Ruler bar height
 RULER_MIN_TICK_SPACING_PX = 60  # Minimum pixels between major ticks
 RULER_MINOR_TICKS_PER_MAJOR = 4  # Subdivision density
 RULER_FONT_SIZE = 10  # Tick label font size

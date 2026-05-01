@@ -63,6 +63,7 @@ def test_selection_contract_exposes_push_first_ma3_actions():
         "transfer.route_layer_track",
         "transfer.workspace_open",
         "transfer.send_selection",
+        "transfer.match_ma3_cues",
         "transfer.send_to_track_once",
     } <= action_ids
     assert {"pull", "push"} <= workspace_directions
@@ -130,6 +131,7 @@ def test_layer_contract_exposes_send_actions_without_batch_or_pull_actions():
         "transfer.route_layer_track",
         "transfer.workspace_open",
         "transfer.send_selection",
+        "transfer.match_ma3_cues",
         "transfer.send_to_track_once",
     } <= action_ids
     assert {"pull", "push"} <= workspace_directions
@@ -167,6 +169,68 @@ def test_transfer_workspace_open_action_prompts_once_and_imports_all_events():
             SelectPullSourceTrack(source_track_coord="tc1_tg2_tr3"),
             SelectPullSourceEvents(selected_ma3_event_ids=["ma3_evt_1", "ma3_evt_2"]),
             ApplyPullFromMA3(),
+        ]
+    finally:
+        widget.close()
+        app.processEvents()
+
+
+def test_transfer_workspace_open_pull_from_section_layer_focuses_layer_without_router_crash():
+    app = QApplication.instance() or QApplication([])
+    base = _selection_test_presentation()
+    section_layer = replace(
+        base.layers[0],
+        layer_id=LayerId("layer_sections"),
+        title="Sections",
+        kind=LayerKind.SECTION,
+    )
+    presentation = replace(
+        base,
+        layers=[section_layer],
+        selected_layer_id=None,
+        selected_layer_ids=[],
+    )
+    intents: list[object] = []
+
+    def _dispatch(intent):
+        nonlocal presentation
+        intents.append(intent)
+        if isinstance(intent, SelectLayer):
+            presentation = replace(
+                presentation,
+                selected_layer_id=intent.layer_id,
+                selected_layer_ids=[intent.layer_id],
+            )
+        elif isinstance(intent, OpenPullFromMA3Dialog):
+            presentation = replace(
+                presentation,
+                manual_pull_flow=ManualPullFlowPresentation(workspace_active=False),
+            )
+        return presentation
+
+    widget = TimelineWidget(presentation, on_intent=_dispatch)
+    try:
+        _render_for_hit_testing(widget)
+        pull_action = next(
+            action
+            for section in build_timeline_inspector_contract(
+                widget.presentation,
+                hit_target=TimelineInspectorHitTarget(
+                    kind="layer",
+                    layer_id=LayerId("layer_sections"),
+                    time_seconds=1.0,
+                ),
+            ).context_sections
+            for action in section.actions
+            if action.action_id == "transfer.workspace_open"
+            and str(action.params.get("direction", "")).strip().lower() == "pull"
+        )
+
+        widget._trigger_contract_action(pull_action)
+
+        assert intents == [
+            SelectLayer(LayerId("layer_sections")),
+            OpenPullFromMA3Dialog(),
         ]
     finally:
         widget.close()
@@ -1410,6 +1474,65 @@ def test_manual_push_route_dialog_disables_write_mode_for_new_or_empty_track():
         assert dialog.selected_apply_mode() == "overwrite"
     finally:
         dialog.close()
+        app.processEvents()
+
+
+def test_manual_push_route_sequence_creation_prefers_selected_track_name_for_hitmaker():
+    app = QApplication.instance() or QApplication([])
+    base = replace(
+        _ma3_push_selection_presentation(),
+        selected_layer_id=LayerId("layer_kick"),
+        layers=[
+            replace(
+                _ma3_push_selection_presentation().layers[0],
+                is_selected=True,
+            )
+        ],
+    )
+    harness = _ManualPushHarness(base)
+    widget = TimelineWidget(harness.presentation(), on_intent=harness.dispatch)
+    dialog = ManualPushRouteDialog(title="Route Layer to MA3 Track", prompt="MA3 track")
+    dialog.configure_sheet(
+        show_sequence_controls=True,
+        show_apply_mode_controls=False,
+    )
+    flow = ManualPushFlowPresentation(
+        available_timecodes=[ManualPushTimecodeOptionPresentation(number=1, name="Song A")],
+        selected_timecode_no=1,
+        available_track_groups=[
+            ManualPushTrackGroupOptionPresentation(number=2, name="Group 2", track_count=1)
+        ],
+        selected_track_group_no=2,
+        available_tracks=[
+            ManualPushTrackOptionPresentation(
+                coord="tc1_tg2_tr9",
+                name="Laser Hits",
+                number=9,
+                sequence_no=None,
+                event_count=0,
+            )
+        ],
+        available_sequences=[],
+        target_track_coord="tc1_tg2_tr9",
+    )
+    dialog.set_flow(flow, preferred_track_coord="tc1_tg2_tr9")
+
+    try:
+        target_track = flow.available_tracks[0]
+        layer = widget.presentation.layers[0]
+        sequence_action = widget._action_router._sequence_action_from_route_popup(
+            dialog=dialog,
+            target_track=target_track,
+            flow=flow,
+            layer=layer,
+            title="Route Layer to MA3 Track",
+        )
+
+        assert isinstance(sequence_action, CreateMA3Sequence)
+        assert sequence_action.preferred_name == "Laser Hits"
+    finally:
+        dialog.close()
+        widget.close()
         app.processEvents()
 
 

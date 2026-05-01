@@ -7,9 +7,26 @@ Used by app-level model management flows, not by pure resolution helpers.
 from __future__ import annotations
 
 import json
+from collections.abc import Mapping
 from pathlib import Path
+from typing import Any
 
 from echozero.inference_eval.runtime_preflight import checkpoint_contract_fingerprint
+
+
+def load_runtime_checkpoint(weights_path: Path, *, map_location: str = "cpu") -> Mapping[str, Any]:
+    """Load one local runtime checkpoint, retrying trusted legacy exports when needed."""
+    import torch
+
+    try:
+        checkpoint = torch.load(weights_path, map_location=map_location, weights_only=True)
+    except Exception as exc:
+        if not _should_retry_without_weights_only(exc):
+            raise
+        checkpoint = torch.load(weights_path, map_location=map_location, weights_only=False)
+    if not isinstance(checkpoint, Mapping):
+        raise TypeError(f"Unexpected checkpoint format from {weights_path}")
+    return checkpoint
 
 
 def upgrade_installed_runtime_bundles(models_dir: Path) -> int:
@@ -41,11 +58,8 @@ def sync_manifest_fingerprint(manifest_path: Path, weights_path: Path) -> bool:
     if manifest is None:
         return False
     try:
-        import torch
-        checkpoint = torch.load(weights_path, map_location="cpu", weights_only=True)
+        checkpoint = load_runtime_checkpoint(weights_path, map_location="cpu")
     except Exception:
-        return False
-    if not isinstance(checkpoint, dict):
         return False
     expected_fingerprint = checkpoint_contract_fingerprint(checkpoint)
     fingerprint = manifest.get("sharedContractFingerprint")
@@ -78,3 +92,8 @@ def _resolve_weights_path(manifest_path: Path) -> Path | None:
     if weights_path.is_absolute():
         return weights_path
     return manifest_path.parent / weights_path
+
+
+def _should_retry_without_weights_only(exc: Exception) -> bool:
+    message = str(exc)
+    return "Weights only load failed" in message or "Unsupported global" in message

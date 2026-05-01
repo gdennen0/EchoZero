@@ -17,7 +17,6 @@ from echozero.errors import PersistenceError
 from echozero.persistence.base import BaseRepository
 from echozero.persistence.entities import (
     LayerRecord,
-    TimelineRegionRecord,
     ProjectRecord,
     ProjectSettingsRecord,
     SongRecord,
@@ -31,7 +30,6 @@ from echozero.persistence.repositories import (
     SongRepository,
     SongVersionRepository,
     TakeRepository,
-    TimelineRegionRepository,
 )
 from echozero.persistence.schema import (
     SCHEMA_VERSION,
@@ -134,22 +132,6 @@ def _make_pipeline_config(song_version_id: str, **kw) -> PipelineConfigRecord:
     )
     defaults.update(kw)
     return PipelineConfigRecord(**defaults)
-
-
-def _make_timeline_region(song_version_id: str, **kw) -> TimelineRegionRecord:
-    defaults = dict(
-        id=_uid(),
-        song_version_id=song_version_id,
-        label="Region 1",
-        start_seconds=0.0,
-        end_seconds=1.0,
-        color=None,
-        order_index=0,
-        kind="custom",
-        created_at=_now(),
-    )
-    defaults.update(kw)
-    return TimelineRegionRecord(**defaults)
 
 
 # ---------------------------------------------------------------------------

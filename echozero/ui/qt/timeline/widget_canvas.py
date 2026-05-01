@@ -209,6 +209,8 @@ class TimelineCanvas(_TimelineCanvasPaintMixin, _TimelineCanvasInteractionMixin,
         self._marquee_rect = None
         self._preview_event_rect = None
         self._snap_indicator_time: float | None = None
+        self._move_drag_preview_time: float | None = None
+        self._move_drag_snap_time: float | None = None
         self._edit_mode = "select"
         self._fix_action = "select"
         self._fix_nav_include_demoted = False
@@ -321,7 +323,7 @@ class TimelineCanvas(_TimelineCanvasPaintMixin, _TimelineCanvasInteractionMixin,
         if self._layer_row_resize_candidate is not None:
             self.setCursor(Qt.CursorShape.SizeVerCursor)
             return
-        if self._edit_mode in {"draw", "region"}:
+        if self._edit_mode == "draw":
             self.setCursor(Qt.CursorShape.CrossCursor)
         elif self._edit_mode == "fix":
             self.setCursor(_build_fix_cursor(self._fix_action))

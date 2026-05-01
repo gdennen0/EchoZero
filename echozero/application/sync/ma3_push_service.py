@@ -96,6 +96,14 @@ class MA3ProtocolClient(Protocol):
         preferred_name: str | None = None,
     ) -> MA3SequenceSnapshot: ...
 
+    def create_sequence_for_event_type(
+        self,
+        *,
+        event_type: str,
+        sequence_type: str = "go_hit",
+        preferred_name: str | None = None,
+    ) -> MA3SequenceSnapshot: ...
+
     def create_timecode_next_available(
         self,
         *,
@@ -127,6 +135,7 @@ class MA3ProtocolClient(Protocol):
         self,
         *,
         target_track_coord: str,
+        ma3_channel_no: int | None,
         selected_events: list[object],
         transfer_mode: str,
         start_offset_seconds: float,
@@ -427,8 +436,26 @@ class MA3CatalogService:
             resolved_track_group_no = parsed[1]
         with self._lock:
             self._tracks_by_scope.pop((resolved_timecode_no, resolved_track_group_no), None)
-            if resolved_track_group_no is None:
+            if resolved_timecode_no is not None:
                 self._tracks_by_scope.pop((resolved_timecode_no, None), None)
+
+        # Keep scope caches in sync for dialog flows that render timecode/group dropdowns.
+        self.list_timecodes(refresh=True)
+        if resolved_timecode_no is not None:
+            self.list_track_groups(timecode_no=resolved_timecode_no, refresh=True)
+
+        if resolved_timecode_no is not None and resolved_track_group_no is not None:
+            self.list_tracks(
+                timecode_no=resolved_timecode_no,
+                track_group_no=resolved_track_group_no,
+                refresh=True,
+            )
+            return self.list_tracks(
+                timecode_no=resolved_timecode_no,
+                track_group_no=None,
+                refresh=True,
+            )
+
         return self.list_tracks(
             timecode_no=resolved_timecode_no,
             track_group_no=resolved_track_group_no,
@@ -459,6 +486,7 @@ class MA3PushService:
         self,
         *,
         target_track_coord: str,
+        ma3_channel_no: int | None,
         selected_events: list[object],
         transfer_mode: str,
         start_offset_seconds: float,
@@ -474,6 +502,7 @@ class MA3PushService:
 
         self._client.apply_push_transfer(
             target_track_coord=coord,
+            ma3_channel_no=ma3_channel_no,
             selected_events=submitted_events,
             transfer_mode=mode,
             start_offset_seconds=float(start_offset_seconds),
@@ -498,6 +527,7 @@ class MA3PushService:
         return {
             "message": f"Sent {submitted_count} event(s) to {coord}",
             "target_track_coord": coord,
+            "ma3_channel_no": ma3_channel_no,
             "transfer_mode": mode,
             "target_event_count": target_event_count,
             "target_sequence_no": None if refreshed_track is None else refreshed_track.sequence_no,

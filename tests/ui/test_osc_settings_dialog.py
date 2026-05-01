@@ -201,3 +201,36 @@ def test_osc_settings_panel_ping_uses_routable_target_for_wildcard_receive_host(
         assert "0.0.0.0" not in target_command
     finally:
         server.stop()
+
+
+def test_osc_settings_panel_monitor_refresh_renders_recent_messages() -> None:
+    app = QApplication.instance() or QApplication([])
+    rows = [
+        {
+            "timestamp": 1_717_590_000,
+            "message_type": "transport",
+            "change": "scrubbed",
+            "fields": {"tc": 112, "to_seconds": 29.1, "delta_seconds": 1.25},
+        },
+        {
+            "timestamp": 1_717_590_001,
+            "message_type": "transport",
+            "change": "jumped_previous_section",
+            "fields": {"tc": 112, "tg": 1, "track": 4, "to_seconds": 26.8},
+        },
+    ]
+    panel = OscSettingsPanel(
+        values_provider=lambda: {},
+        monitor_provider=lambda: rows,
+    )
+
+    try:
+        panel._refresh_monitor()
+        body = panel._monitor_output.toPlainText()
+        assert "transport.scrubbed" in body
+        assert "to_seconds=29.1" in body
+        assert "transport.jumped_previous_section" in body
+        assert "track=4" in body
+    finally:
+        panel.close()
+        app.processEvents()

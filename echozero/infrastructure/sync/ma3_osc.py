@@ -9,7 +9,7 @@ from threading import Condition, Lock
 from time import monotonic, sleep
 from typing import Any, Protocol
 
-from echozero.application.shared.cue_numbers import CueNumber, cue_number_text
+from echozero.application.shared.cue_numbers import CueNumber, cue_number_text, parse_positive_cue_number
 from echozero.infrastructure.osc import (
     OscInboundMessage,
     OscReceiveServer,
@@ -24,7 +24,6 @@ from echozero.infrastructure.sync.ma3_adapter import (
     MA3TrackGroupSnapshot,
     MA3TrackSnapshot,
     coerce_event_snapshot,
-    transport_event_cue_ref,
     transport_event_label,
 )
 from echozero.infrastructure.sync.ma3_protocol import (
@@ -100,9 +99,14 @@ class MA3OSCBridge:
         self._event_chunks: dict[int, list[dict[str, object]]] = {}
         self._pending_sequence_requests: dict[int, tuple[int | None, int | None]] = {}
         self._sequence_chunks: dict[int, list[list[MA3SequenceSnapshot]]] = {}
+        self._sequence_cues_by_sequence_no: dict[int, list[dict[str, object]]] = {}
+        self._pending_sequence_cue_requests: dict[int, int] = {}
+        self._sequence_cue_chunks: dict[int, list[list[dict[str, object]]]] = {}
         self._hooked_tracks: set[str] = set()
         self._sequences_by_number: dict[int, MA3SequenceSnapshot] = {}
         self._current_song_sequence_range: MA3SequenceRangeSnapshot | None = None
+        self._plugin_health: dict[str, object] | None = None
+        self._transport_updates: list[dict[str, object]] = []
 
     @property
     def is_running(self) -> bool:
@@ -305,6 +309,29 @@ class MA3OSCBridge:
             sequences = [sequence for sequence in sequences if sequence.number <= int(end_no)]
         return sequences
 
+    def list_sequence_cues(self, *, sequence_no: int) -> list[dict[str, object]]:
+        requested_sequence_no = _optional_int(sequence_no)
+        if requested_sequence_no is None or requested_sequence_no <= 0:
+            return []
+        if self._command_transport is None:
+            with self._lock:
+                return list(self._sequence_cues_by_sequence_no.get(int(requested_sequence_no), []))
+
+        request_id = self._next_request_token()
+        with self._condition:
+            self._pending_sequence_cue_requests[request_id] = int(requested_sequence_no)
+            self._sequence_cue_chunks.pop(request_id, None)
+            self._sequence_cues_by_sequence_no.pop(int(requested_sequence_no), None)
+        self._ensure_command_ready()
+        self._send_command(f"EZ.GetSequenceCues({int(requested_sequence_no)}, {request_id})")
+        self._wait_for(
+            lambda request_id=request_id: request_id not in self._pending_sequence_cue_requests,
+            timeout=self._response_timeout,
+            missing=f"Timed out waiting for MA3 sequence cues for sequence {requested_sequence_no}",
+        )
+        with self._lock:
+            return list(self._sequence_cues_by_sequence_no.get(int(requested_sequence_no), []))
+
     def get_current_song_sequence_range(self) -> MA3SequenceRangeSnapshot | None:
         if self._command_transport is None:
             with self._lock:
@@ -321,6 +348,42 @@ class MA3OSCBridge:
         )
         with self._lock:
             return self._current_song_sequence_range
+
+    def get_plugin_health(self) -> dict[str, object]:
+        if self._command_transport is None:
+            with self._lock:
+                return dict(self._plugin_health or {})
+
+        self._ensure_command_ready()
+        after_index = self._message_count()
+        self._send_command("EZ.GetPluginHealth()")
+        message = self._wait_for_message(
+            after_index=after_index,
+            predicate=lambda message: message.key == "plugin.health",
+            timeout=self._response_timeout,
+            missing="Timed out waiting for MA3 plugin health snapshot",
+        )
+        with self._lock:
+            self._plugin_health = dict(message.fields)
+            return dict(self._plugin_health)
+
+    def consume_transport_update(self) -> dict[str, object] | None:
+        """Consume one queued MA3 transport update from inbound OSC state."""
+
+        with self._lock:
+            if not self._transport_updates:
+                return None
+            return dict(self._transport_updates.pop(0))
+
+    def consume_latest_transport_update(self) -> dict[str, object] | None:
+        """Consume the newest queued MA3 transport update and clear older ones."""
+
+        with self._lock:
+            if not self._transport_updates:
+                return None
+            latest = dict(self._transport_updates[-1])
+            self._transport_updates.clear()
+            return latest
 
     def assign_track_sequence(
         self,
@@ -366,6 +429,84 @@ class MA3OSCBridge:
         return self._create_sequence(
             command_name="CreateSequenceInCurrentSongRange",
             preferred_name=preferred_name,
+        )
+
+    def create_sequence_for_event_type(
+        self,
+        *,
+        event_type: str,
+        sequence_type: str = "go_hit",
+        preferred_name: str | None = None,
+    ) -> MA3SequenceSnapshot:
+        normalized_event_type = str(event_type or "").strip()
+        if not normalized_event_type:
+            raise ValueError("event_type is required")
+        normalized_sequence_type = str(sequence_type or "").strip().lower() or "go_hit"
+        normalized_preferred_name = (
+            None
+            if preferred_name is None
+            else str(preferred_name).strip() or None
+        )
+        if self._command_transport is None:
+            raise RuntimeError("MA3 OSC bridge does not have an outbound command transport")
+
+        current_song_range = self.get_current_song_sequence_range()
+        start_no = None if current_song_range is None else int(current_song_range.start)
+        end_no = None if current_song_range is None else int(current_song_range.end)
+        known_sequences = self.list_sequences(start_no=start_no, end_no=end_no)
+        known_by_number = {sequence.number: sequence for sequence in known_sequences}
+
+        sequence_name_arg = "nil"
+        if normalized_preferred_name is not None:
+            sequence_name_arg = _format_lua_string(normalized_preferred_name)
+        command = (
+            "HitMaker.create_sequence_for_event_type({"
+            f"event_type={_format_lua_string(normalized_event_type)}, "
+            f"sequence_type={_format_lua_string(normalized_sequence_type)}, "
+            f"sequence_name={sequence_name_arg}, "
+            f"name={sequence_name_arg}, "
+            "skip_dialog=true, "
+            "assign_to_timecode=false, "
+            "clearFirst=false, "
+            "doNotAssign=false, "
+            "autoAssign=true, "
+            "tapOnExec=false"
+            "})"
+        )
+        self._ensure_command_ready()
+        self._send_command(command)
+        sleep(0.05)
+
+        refreshed_sequences = self.list_sequences(start_no=start_no, end_no=end_no)
+        created_sequences = [
+            sequence
+            for sequence in refreshed_sequences
+            if sequence.number not in known_by_number
+        ]
+        if created_sequences:
+            return sorted(created_sequences, key=lambda sequence: sequence.number)[-1]
+
+        if normalized_preferred_name is not None:
+            named_matches = [
+                sequence
+                for sequence in refreshed_sequences
+                if sequence.name.strip().lower() == normalized_preferred_name.lower()
+            ]
+            if named_matches:
+                return sorted(named_matches, key=lambda sequence: sequence.number)[-1]
+
+        if start_no is not None and end_no is not None:
+            refreshed_by_number = {sequence.number: sequence for sequence in refreshed_sequences}
+            for sequence_no in range(start_no, end_no + 1):
+                if sequence_no in known_by_number:
+                    continue
+                created_sequence = refreshed_by_number.get(sequence_no)
+                if created_sequence is not None:
+                    return created_sequence
+
+        raise RuntimeError(
+            "HitMaker sequence creation did not produce a discoverable sequence for "
+            f"event type '{normalized_event_type}'"
         )
 
     def create_timecode_next_available(
@@ -799,6 +940,7 @@ class MA3OSCBridge:
         self,
         *,
         target_track_coord: str,
+        ma3_channel_no: int | None = None,
         selected_events,
         transfer_mode: str = "merge",
         start_offset_seconds: float = 0.0,
@@ -813,6 +955,12 @@ class MA3OSCBridge:
         mode = str(transfer_mode or "merge").strip().lower() or "merge"
         if mode not in {"merge", "overwrite"}:
             raise ValueError(f"Unsupported transfer mode: {transfer_mode}")
+        resolved_channel_no = 1
+        if ma3_channel_no is not None:
+            try:
+                resolved_channel_no = max(1, int(ma3_channel_no))
+            except (TypeError, ValueError):
+                resolved_channel_no = 1
         start_offset = _optional_float(start_offset_seconds)
         resolved_start_offset = 0.0 if start_offset is None else float(start_offset)
 
@@ -843,7 +991,7 @@ class MA3OSCBridge:
             event_name = transport_event_label(raw_event)
             event_name = str(event_name or "").strip() or None
             cue_number = snapshot.cue_number
-            cue_label = transport_event_cue_ref(raw_event) or event_name
+            cue_label = self._event_cue_name(snapshot, event_name=event_name)
             if mode == "merge":
                 fingerprint = self._event_fingerprint(snapshot)
                 if fingerprint in existing_fingerprints:
@@ -857,6 +1005,7 @@ class MA3OSCBridge:
                 tg_no=tg_no,
                 track_no=track_no,
                 start=start,
+                channel_no=resolved_channel_no,
                 command=command,
                 event_name=event_name,
                 cue_number=cue_number,
@@ -869,6 +1018,7 @@ class MA3OSCBridge:
                     tg_no=tg_no,
                     track_no=track_no,
                     start=start,
+                    channel_no=resolved_channel_no,
                     command=command,
                     event_name=event_name,
                     cue_number=cue_number,
@@ -893,6 +1043,7 @@ class MA3OSCBridge:
         track_no: int,
         start: float,
         command: str,
+        channel_no: int = 1,
         event_name: str | None = None,
         cue_number: CueNumber | None = None,
         cue_label: str | None = None,
@@ -908,8 +1059,9 @@ class MA3OSCBridge:
             if cue_label is None
             else _format_lua_string(cue_label)
         )
+        channel_no_arg = str(max(1, int(channel_no)))
         self._send_command(
-            "EZ.AddEvent({tc}, {tg}, {track}, {start}, {command}, {event_name}, {cue_number}, {cue_label})".format(
+            "EZ.AddEvent({tc}, {tg}, {track}, {start}, {command}, {event_name}, {cue_number}, {cue_label}, {channel_no})".format(
                 tc=tc_no,
                 tg=tg_no,
                 track=track_no,
@@ -918,6 +1070,7 @@ class MA3OSCBridge:
                 event_name=event_name_arg,
                 cue_number=cue_number_arg,
                 cue_label=cue_label_arg,
+                channel_no=channel_no_arg,
             )
         )
 
@@ -929,6 +1082,7 @@ class MA3OSCBridge:
         tg_no: int,
         track_no: int,
         start: float,
+        channel_no: int,
         command: str,
         event_name: str | None,
         cue_number: CueNumber | None,
@@ -956,6 +1110,7 @@ class MA3OSCBridge:
             tg_no=tg_no,
             track_no=track_no,
             start=start,
+            channel_no=channel_no,
             command=command,
             event_name=event_name,
             cue_number=cue_number,
@@ -1033,6 +1188,9 @@ class MA3OSCBridge:
             self._event_chunks.clear()
             self._pending_sequence_requests.clear()
             self._sequence_chunks.clear()
+            self._sequence_cues_by_sequence_no.clear()
+            self._pending_sequence_cue_requests.clear()
+            self._sequence_cue_chunks.clear()
             self._sequences_by_number.clear()
             self._current_song_sequence_range = None
             self._condition.notify_all()
@@ -1188,14 +1346,41 @@ class MA3OSCBridge:
             self._ingest_sequences_list_locked(fields)
             return
 
+        if message_type == "sequence_cues" and change == "list":
+            self._ingest_sequence_cues_list_locked(fields)
+            return
+
+        if message_type == "sequence_cues" and change == "error":
+            request_id = _optional_int(fields.get("request_id"))
+            sequence_no = _optional_int(fields.get("sequence_no"))
+            if request_id is not None:
+                pending_sequence_no = self._pending_sequence_cue_requests.pop(request_id, None)
+                self._sequence_cue_chunks.pop(request_id, None)
+                if sequence_no is None:
+                    sequence_no = pending_sequence_no
+            if sequence_no is not None:
+                self._sequence_cues_by_sequence_no.setdefault(int(sequence_no), [])
+            return
+
         if message_type == "sequence_range" and change == "current_song":
             self._current_song_sequence_range = self._sequence_range_snapshot_from_fields(fields)
+            return
+
+        if message_type == "plugin" and change == "health":
+            self._plugin_health = dict(fields)
+            return
+
+        if message_type == "transport":
+            update = _coerce_transport_update_payload(message)
+            if update is not None:
+                self._transport_updates.append(update)
             return
 
         if message_type == "sequence" and change == "created":
             sequence = self._sequence_snapshot_from_fields(fields)
             if sequence.number > 0:
                 self._sequences_by_number[sequence.number] = sequence
+                self._sequence_cues_by_sequence_no.pop(sequence.number, None)
             return
 
         if message_type == "events" and change == "list":
@@ -1378,6 +1563,68 @@ class MA3OSCBridge:
         if request_id is not None:
             self._pending_sequence_requests.pop(request_id, None)
 
+    def _ingest_sequence_cues_list_locked(self, fields: dict[str, object]) -> None:
+        request_id = _optional_int(fields.get("request_id"))
+        sequence_no = _optional_int(fields.get("sequence_no"))
+        if sequence_no is None:
+            sequence_no = _optional_int(fields.get("seq"))
+        if sequence_no is None and request_id is not None:
+            sequence_no = self._pending_sequence_cue_requests.get(request_id)
+        if sequence_no is None:
+            return
+
+        raw_cues = fields.get("cues") or []
+        normalized: list[dict[str, object]] = []
+        for raw_cue in (raw_cues if isinstance(raw_cues, list) else []):
+            if not isinstance(raw_cue, dict):
+                continue
+            cue_number = parse_positive_cue_number(
+                raw_cue.get("cue_number")
+                or raw_cue.get("cue_no")
+                or raw_cue.get("no")
+                or raw_cue.get("cueNo")
+                or raw_cue.get("cue_ref")
+                or raw_cue.get("cueRef")
+            )
+            if cue_number is None:
+                continue
+            cue_ref = cue_number_text(cue_number) or str(cue_number)
+            normalized.append(
+                {
+                    "sequence_no": int(sequence_no),
+                    "cue_number": cue_number,
+                    "cue_ref": cue_ref,
+                    "name": str(
+                        raw_cue.get("name")
+                        or raw_cue.get("cue_name")
+                        or raw_cue.get("cueName")
+                        or ""
+                    ).strip(),
+                }
+            )
+
+        total_chunks = _optional_int(fields.get("total_chunks")) or 1
+        chunk_index = _optional_int(fields.get("chunk_index")) or 1
+        if request_id is not None and total_chunks > 1:
+            chunk_store = self._sequence_cue_chunks.setdefault(request_id, [])
+            if chunk_index <= len(chunk_store):
+                chunk_store[chunk_index - 1] = normalized
+            else:
+                while len(chunk_store) < chunk_index - 1:
+                    chunk_store.append([])
+                chunk_store.append(normalized)
+            if len(chunk_store) < total_chunks or any(chunk is None for chunk in chunk_store):
+                return
+            combined: list[dict[str, object]] = []
+            for chunk in chunk_store:
+                combined.extend(chunk)
+            normalized = combined
+            self._sequence_cue_chunks.pop(request_id, None)
+
+        self._sequence_cues_by_sequence_no[int(sequence_no)] = normalized
+        if request_id is not None:
+            self._pending_sequence_cue_requests.pop(request_id, None)
+
     def _rebuild_track_index_locked(self) -> None:
         self._tracks_by_coord = {}
         for tracks in self._tracks_by_group.values():
@@ -1494,6 +1741,19 @@ class MA3OSCBridge:
             return f"Go+ Cue {cue_number}"
         label = str(event.label or "").strip()
         return label or "Event"
+
+    @staticmethod
+    def _event_cue_name(
+        event: MA3EventSnapshot,
+        *,
+        event_name: str | None,
+    ) -> str | None:
+        """Choose the MA3 cue name payload while preserving readable operator labels."""
+
+        label = str(event.label or "").strip()
+        if label:
+            return label
+        return event_name
 
     @classmethod
     def _event_fingerprint(cls, event: MA3EventSnapshot) -> tuple[float | None, str]:
@@ -1682,3 +1942,69 @@ def _value(raw: Any, key: str) -> Any:
     if isinstance(raw, dict):
         return raw.get(key)
     return getattr(raw, key, None)
+
+
+def _coerce_transport_update_payload(message: MA3OSCMessage) -> dict[str, object] | None:
+    fields = dict(message.fields)
+    playhead_seconds = _first_transport_float(
+        fields,
+        keys=("to_seconds", "position", "playhead", "seconds"),
+    )
+    is_playing = _first_transport_bool(
+        fields,
+        keys=("is_playing", "playing"),
+    )
+    if is_playing is None:
+        is_playing = _transport_state_to_bool(fields.get("state"))
+
+    if playhead_seconds is None and is_playing is None:
+        return None
+
+    payload: dict[str, object] = {
+        "change": str(message.change or ""),
+        "fields": fields,
+    }
+    if playhead_seconds is not None:
+        payload["playhead_seconds"] = playhead_seconds
+    if is_playing is not None:
+        payload["is_playing"] = bool(is_playing)
+    return payload
+
+
+def _first_transport_float(fields: dict[str, object], *, keys: tuple[str, ...]) -> float | None:
+    for key in keys:
+        value = _optional_float(fields.get(key))
+        if value is not None:
+            return max(0.0, float(value))
+    return None
+
+
+def _first_transport_bool(fields: dict[str, object], *, keys: tuple[str, ...]) -> bool | None:
+    for key in keys:
+        if key in fields:
+            parsed = _coerce_bool(fields.get(key))
+            if parsed is not None:
+                return parsed
+    return None
+
+
+def _coerce_bool(value: object) -> bool | None:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return bool(value)
+    text = str(value or "").strip().lower()
+    if text in {"true", "1", "yes", "on"}:
+        return True
+    if text in {"false", "0", "no", "off"}:
+        return False
+    return None
+
+
+def _transport_state_to_bool(value: object) -> bool | None:
+    state = str(value or "").strip().lower()
+    if state in {"play", "playing", "run", "running", "go"}:
+        return True
+    if state in {"pause", "paused", "stop", "stopped"}:
+        return False
+    return None

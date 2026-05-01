@@ -223,4 +223,5 @@ class TestMigrationInfrastructure:
             _MIGRATIONS.update(original_migrations)
             conn.close()
 
+
 __all__ = [name for name in globals() if name.startswith("Test")]

@@ -290,6 +290,32 @@ class TestMixer:
             ),
         )
 
+    def test_output_bus_routes_layer_to_wide_channel_span(self) -> None:
+        buf = np.array([1.0, -1.0], dtype=np.float32)
+        mixer = Mixer()
+        mixer.add_layer(
+            AudioLayer(
+                "l1",
+                "song",
+                buf,
+                44100,
+                output_bus="outputs_1_4",
+            )
+        )
+
+        out = mixer.read_mix(0, 2, channels=4)
+
+        np.testing.assert_array_equal(
+            out,
+            np.array(
+                [
+                    [1.0, 1.0, 1.0, 1.0],
+                    [-1.0, -1.0, -1.0, -1.0],
+                ],
+                dtype=np.float32,
+            ),
+        )
+
     def test_muted_layer_excluded(self) -> None:
         buf = _sine(1000)
         mixer = Mixer()

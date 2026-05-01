@@ -151,6 +151,37 @@ def open_project(shell: ProjectLifecycleShell, path: str | Path) -> None:
     shell._clear_history()
 
 
+def recover_project(shell: ProjectLifecycleShell, path: str | Path) -> None:
+    """Open a project from recoverable working-dir state after ungraceful exit."""
+    target_path = Path(path)
+    working_dir_root = shell.project_storage.working_dir.parent
+    prior_presentation = shell.presentation()
+    clear_project_review_runtime_bridge(shell)
+    if _paths_match(shell.project_path, target_path):
+        shell._pipeline_runs.shutdown()
+        shell.project_storage.close()
+    project_storage = ProjectStorage.recover(
+        target_path,
+        working_dir_root=working_dir_root,
+    )
+    _install_project_runtime(
+        shell,
+        project_storage=project_storage,
+        project_path=target_path,
+        runtime_audio=shell.runtime_audio,
+    )
+    publish_project_review_runtime_context(shell, clear_active_session=True)
+    restore_timeline_targets(
+        timeline=shell._app.timeline,
+        prior_presentation=prior_presentation,
+        current_presentation=shell.presentation(),
+    )
+    # Recovery reopens unsaved working-copy state; require explicit save to archive.
+    shell.project_storage.dirty_tracker.mark_dirty(shell.project_storage.project.id)
+    shell._is_dirty = True
+    shell._clear_history()
+
+
 def add_song_from_path(
     shell: ProjectLifecycleShell,
     title: str,

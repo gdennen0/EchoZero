@@ -29,6 +29,7 @@ from echozero.application.presentation.models import (
 from echozero.application.shared.enums import LayerKind
 from echozero.application.shared.ids import EventId, LayerId
 from echozero.application.timeline.intents import (
+    SelectLayer,
     SetGain,
 )
 from echozero.application.timeline.object_actions import (
@@ -145,6 +146,16 @@ class TimelineWidgetActionRouter(
         self._file_dialog = file_dialog
         self._message_box = message_box
         self._resolve_models_dir = resolve_models_dir
+
+    def _focus_layer_for_header_action(self, layer_id: object) -> None:
+        """Compatibility shim for transfer mixins that expect widget-level focus helpers."""
+
+        resolved_layer_id = _coerce_layer_id(layer_id)
+        if resolved_layer_id is None:
+            return
+        presentation = self._get_presentation()
+        if presentation.selected_layer_id != resolved_layer_id:
+            self._dispatch(SelectLayer(resolved_layer_id))
 
     def import_dropped_audio_path(
         self,

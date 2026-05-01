@@ -78,11 +78,15 @@ class TimelineApplication:
             return
 
         if isinstance(intent, Play):
-            sync_presentation = getattr(runtime_audio, "sync_presentation", None)
-            if callable(sync_presentation):
-                sync_presentation(self.presentation())
+            sync_structure_state = getattr(runtime_audio, "sync_structure_state", None)
+            if callable(sync_structure_state):
+                sync_structure_state(self.presentation())
             else:
-                runtime_audio.build_for_presentation(self.presentation())
+                sync_presentation = getattr(runtime_audio, "sync_presentation", None)
+                if callable(sync_presentation):
+                    sync_presentation(self.presentation())
+                else:
+                    runtime_audio.build_for_presentation(self.presentation())
             runtime_audio.play()
         elif isinstance(intent, Pause):
             runtime_audio.pause()

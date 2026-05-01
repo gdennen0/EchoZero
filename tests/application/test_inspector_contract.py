@@ -10,14 +10,13 @@ from echozero.application.presentation.models import (
     LayerPresentation,
     LayerStatusPresentation,
     ManualPullEventOptionPresentation,
-    RegionPresentation,
     SongOptionPresentation,
     SongVersionOptionPresentation,
     TakeLanePresentation,
     TimelinePresentation,
 )
 from echozero.application.shared.enums import LayerKind
-from echozero.application.shared.ids import EventId, LayerId, RegionId, TakeId, TimelineId
+from echozero.application.shared.ids import EventId, LayerId, TakeId, TimelineId
 from echozero.application.sync.models import LiveSyncState
 from echozero.application.timeline.object_actions import descriptor_for_action, is_object_action
 
@@ -156,6 +155,9 @@ def test_inspector_contract_no_selection_state():
     assert "add_section_layer" in action_ids
     assert "add_smpte_layer" in action_ids
     assert "add_smpte_layer_from_import_split" in action_ids
+    assert "timeline.expand_all_layers" in action_ids
+    assert "Expand All Layers" in [action.label for action in all_actions]
+    assert "Collapse All Layers" not in [action.label for action in all_actions]
     assert "add_automation_layer" not in action_ids
     assert "add_reference_layer" not in action_ids
 
@@ -223,15 +225,38 @@ def test_inspector_contract_layer_selection_state():
         "selection.select_every_other",
         "selection.renumber_cues_from_one",
     } <= set(action_ids)
+    assert "layer.set_expanded" in action_ids
     assert {
         "transfer.route_layer_track",
         "transfer.workspace_open",
         "transfer.send_selection",
+        "transfer.match_ma3_cues",
         "transfer.send_to_track_once",
     } <= set(action_ids)
     assert "event-batch" in section_ids
     assert "sync-transfer" in section_ids
     assert "live-sync" not in [section.section_id for section in contract.context_sections]
+
+
+def test_inspector_contract_layer_expand_action_reflects_current_state():
+    presentation = _contract_test_presentation()
+    presentation.selected_layer_id = LayerId("layer_kick")
+    presentation.layers[0].is_expanded = True
+
+    contract = build_timeline_inspector_contract(presentation)
+    expand_action = next(
+        (
+            action
+            for section in contract.context_sections
+            for action in section.actions
+            if action.action_id == "layer.set_expanded"
+        ),
+        None,
+    )
+
+    assert expand_action is not None
+    assert expand_action.label == "Collapse Layer"
+    assert expand_action.params["expanded"] is False
 
 
 def test_inspector_contract_event_layer_hides_mix_actions_and_disables_gain_actions():
@@ -331,7 +356,7 @@ def test_inspector_contract_non_smpte_audio_layer_hides_smpte_import_action():
     assert "import_smpte_audio_to_layer" not in action_ids
 
 
-def test_inspector_contract_audio_layer_builds_output_routes_from_playback_channels():
+def test_inspector_contract_audio_layer_exposes_single_routing_settings_action():
     presentation = _contract_test_presentation()
     presentation.selected_layer_id = LayerId("layer_kick")
     presentation.playback_output_channels = 6
@@ -346,16 +371,11 @@ def test_inspector_contract_audio_layer_builds_output_routes_from_playback_chann
     ]
     action_ids = {action.action_id for action in routing_actions}
 
-    assert {
-        "set_layer_output_bus_auto",
-        "set_layer_output_bus_outputs_1_2",
-        "set_layer_output_bus_outputs_3_4",
-        "set_layer_output_bus_outputs_5_6",
-    } <= action_ids
-    assert "set_layer_output_bus_outputs_7_8" not in action_ids
+    assert "layer.routing_settings" in action_ids
+    assert not any(action_id.startswith("set_layer_output_bus_") for action_id in action_ids)
 
 
-def test_inspector_contract_audio_layer_keeps_selected_output_bus_label():
+def test_inspector_contract_audio_layer_keeps_single_routing_action_when_route_is_out_of_range():
     presentation = _contract_test_presentation()
     presentation.selected_layer_id = LayerId("layer_kick")
     presentation.playback_output_channels = 2
@@ -363,14 +383,14 @@ def test_inspector_contract_audio_layer_keeps_selected_output_bus_label():
     presentation.layers[0].output_bus = "outputs_3_4"
 
     contract = build_timeline_inspector_contract(presentation)
-    routed_action = next(
-        action
+    action_ids = {
+        action.action_id
         for section in contract.context_sections
         for action in section.actions
-        if action.action_id == "set_layer_output_bus_outputs_3_4"
-    )
+        if action.group == "routing"
+    }
 
-    assert routed_action.label == "Routed to Outputs 3/4"
+    assert action_ids == {"layer.routing_settings"}
 
 
 def test_inspector_contract_layer_mix_actions_reflect_current_mute_and_solo_state():
@@ -528,6 +548,7 @@ def test_inspector_contract_main_event_state():
         "transfer.route_layer_track",
         "transfer.workspace_open",
         "transfer.send_selection",
+        "transfer.match_ma3_cues",
         "transfer.send_to_track_once",
     } <= set(action_ids)
 
@@ -574,6 +595,7 @@ def test_inspector_contract_take_event_state():
         "transfer.route_layer_track",
         "transfer.workspace_open",
         "transfer.send_selection",
+        "transfer.match_ma3_cues",
         "transfer.send_to_track_once",
     } <= set(action_ids)
 
@@ -600,35 +622,6 @@ def test_inspector_contract_layer_hit_uses_selected_layers_batch_scope_when_mult
 
     assert select_every_other.label == "Select Every Other in Selected Layers"
     assert select_every_other.params["scope_mode"] == "selected_layers_main"
-
-
-def test_inspector_contract_uses_region_batch_scope_when_region_selected():
-    presentation = _contract_test_presentation()
-    presentation.selected_region_id = RegionId("region_1")
-    presentation.regions = [
-        RegionPresentation(
-            region_id=RegionId("region_1"),
-            start=0.9,
-            end=1.6,
-            label="Verse",
-        )
-    ]
-
-    contract = build_timeline_inspector_contract(presentation)
-    batch_actions = next(
-        section for section in contract.context_sections if section.section_id == "event-batch"
-    ).actions
-    select_every_other = next(
-        action for action in batch_actions if action.action_id == "selection.select_every_other"
-    )
-    renumber = next(
-        action for action in batch_actions if action.action_id == "selection.renumber_cues_from_one"
-    )
-
-    assert select_every_other.label == "Select Every Other in Region"
-    assert select_every_other.params["scope_mode"] == "region"
-    assert select_every_other.params["scope_region_id"] == "region_1"
-    assert renumber.label == "Renumber Cues from 1 in Region"
 
 
 def test_inspector_contract_no_takes_layer_state():
@@ -667,6 +660,7 @@ def test_inspector_contract_empty_main_take_layer_keeps_ma3_transfer_actions_vis
         "transfer.route_layer_track",
         "transfer.workspace_open",
         "transfer.send_selection",
+        "transfer.match_ma3_cues",
         "transfer.send_to_track_once",
     } <= action_ids
 

@@ -7,7 +7,6 @@ from echozero.application.shared.enums import FollowMode, LayerKind, PlaybackMod
 from echozero.application.shared.ids import (
     EventId,
     LayerId,
-    RegionId,
     SectionCueId,
     TakeId,
     TimelineId,
@@ -400,21 +399,6 @@ class EventPresentation:
 
 
 @dataclass(slots=True)
-class RegionPresentation:
-    region_id: RegionId
-    start: float
-    end: float
-    label: str
-    color: str | None = None
-    kind: str = "custom"
-    is_selected: bool = False
-
-    @property
-    def duration(self) -> float:
-        return self.end - self.start
-
-
-@dataclass(slots=True)
 class SectionCuePresentation:
     cue_id: SectionCueId
     start: float
@@ -483,6 +467,7 @@ class LayerPresentation:
     source_audio_path: str | None = None
     playback_source_ref: str | None = None
     status: LayerStatusPresentation = field(default_factory=LayerStatusPresentation)
+    sync_target_channel_no: int | None = None
 
     def __post_init__(self) -> None:
         if not self.header_controls:
@@ -520,8 +505,6 @@ class TimelinePresentation:
     selected_event_refs: list[EventRef] = field(default_factory=list)
     playback_output_channels: int = 0
     selected_event_ids: list[EventId] = field(default_factory=list)
-    selected_region_id: RegionId | None = None
-    regions: list[RegionPresentation] = field(default_factory=list)
     pixels_per_second: float = 100.0
     scroll_x: float = 0.0
     scroll_y: float = 0.0

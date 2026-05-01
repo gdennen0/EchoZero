@@ -562,11 +562,14 @@
       z-index: 10;
     }
     .sheet.open,
-    .sheet-backdrop.open {
+    .sheet.is-open,
+    .sheet-backdrop.open,
+    .sheet-backdrop.is-open {
       opacity: 1;
       pointer-events: auto;
     }
-    .sheet.open {
+    .sheet.open,
+    .sheet.is-open {
       transform: translateY(0%);
     }
     .sheet-head {

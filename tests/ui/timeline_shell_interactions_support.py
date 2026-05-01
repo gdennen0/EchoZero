@@ -83,6 +83,16 @@ def _section_overlay_scope_presentation() -> TimelinePresentation:
                 title="Sections",
                 main_take_id=TakeId("take_sections"),
                 kind=LayerKind.SECTION,
+                events=[
+                    EventPresentation(
+                        event_id=EventId("cue_intro"),
+                        start=0.0,
+                        end=4.0,
+                        cue_ref="Q1",
+                        label="Intro",
+                        color="#f0b74f",
+                    )
+                ],
                 status=LayerStatusPresentation(),
             ),
         ],
@@ -330,7 +340,13 @@ def test_row_empty_space_click_dispatches_layer_selection_not_seek():
         assert layer_id == LayerId("layer_kick")
         assert take_id is None
 
-        _click_rect(widget, rect)
+        QTest.mouseClick(
+            widget._canvas,
+            Qt.MouseButton.LeftButton,
+            Qt.KeyboardModifier.NoModifier,
+            QPoint(int(rect.right() - 8), int(rect.center().y())),
+        )
+        QApplication.processEvents()
 
         assert intents == [SelectLayer(LayerId("layer_kick"))]
     finally:
@@ -872,6 +888,55 @@ def test_layer_header_click_dispatches_toggle_and_range_selection_modes():
         app.processEvents()
 
 
+def test_layer_drag_target_allows_inserting_above_source_audio_row():
+    app = QApplication.instance() or QApplication([])
+    presentation = TimelinePresentation(
+        timeline_id=TimelineId("timeline_layer_reorder"),
+        title="Layer Reorder",
+        layers=[
+            LayerPresentation(
+                layer_id=LayerId("source_audio"),
+                title="Song",
+                main_take_id=TakeId("take_song"),
+                kind=LayerKind.AUDIO,
+                status=LayerStatusPresentation(),
+            ),
+            LayerPresentation(
+                layer_id=LayerId("layer_drums"),
+                title="Drums",
+                main_take_id=TakeId("take_drums"),
+                kind=LayerKind.AUDIO,
+                status=LayerStatusPresentation(),
+            ),
+            LayerPresentation(
+                layer_id=LayerId("layer_bass"),
+                title="Bass",
+                main_take_id=TakeId("take_bass"),
+                kind=LayerKind.AUDIO,
+                status=LayerStatusPresentation(),
+            ),
+        ],
+        end_time_label="00:05.00",
+    )
+    widget = TimelineWidget(presentation)
+    try:
+        _render_for_hit_testing(widget)
+        header_rects_by_layer = {
+            layer_id: rect for rect, layer_id in widget._canvas._header_select_rects
+        }
+        source_header_rect = header_rects_by_layer[LayerId("source_audio")]
+        target_after_layer_id, insert_at_start = widget._canvas._resolve_layer_drag_target(
+            pointer_y=float(source_header_rect.top()) - 8.0,
+            source_layer_id=LayerId("layer_drums"),
+        )
+
+        assert target_after_layer_id is None
+        assert insert_at_start is True
+    finally:
+        widget.close()
+        app.processEvents()
+
+
 def test_ruler_drag_scrubs_playhead_continuously():
     app = QApplication.instance() or QApplication([])
     presentation = _selection_test_presentation()
@@ -885,172 +950,6 @@ def test_ruler_drag_scrubs_playhead_continuously():
         )
 
         assert intents == [Seek(1.0), Seek(2.0), Seek(3.0)]
-    finally:
-        widget.close()
-        app.processEvents()
-
-
-def test_ruler_drag_in_region_mode_dispatches_create_region_intent():
-    app = QApplication.instance() or QApplication([])
-    intents: list[object] = []
-    presentation = _selection_test_presentation()
-    widget = TimelineWidget(
-        presentation, on_intent=lambda intent: intents.append(intent) or presentation
-    )
-    try:
-        _render_for_hit_testing(widget)
-        widget._editor_bar._mode_buttons["region"].click()
-        QApplication.processEvents()
-
-        _mouse_drag(
-            widget._ruler,
-            [QPoint(420, 12), QPoint(620, 12)],
-        )
-
-        assert len(intents) == 1
-        assert isinstance(intents[0], CreateRegion)
-        assert intents[0].time_range.start == 1.0
-        assert intents[0].time_range.end == 3.0
-    finally:
-        widget.close()
-        app.processEvents()
-
-
-def test_ruler_click_existing_region_in_region_mode_dispatches_select_region_intent():
-    app = QApplication.instance() or QApplication([])
-    intents: list[object] = []
-    presentation = replace(
-        _selection_test_presentation(),
-        regions=[
-            RegionPresentation(
-                region_id=RegionId("region_1"),
-                start=1.0,
-                end=2.0,
-                label="Verse",
-                color="#99aabb",
-            )
-        ],
-    )
-    widget = TimelineWidget(
-        presentation, on_intent=lambda intent: intents.append(intent) or presentation
-    )
-    try:
-        _render_for_hit_testing(widget)
-        widget._editor_bar._mode_buttons["region"].click()
-        QApplication.processEvents()
-
-        QTest.mouseClick(
-            widget._ruler,
-            Qt.MouseButton.LeftButton,
-            Qt.KeyboardModifier.NoModifier,
-            QPoint(470, 12),
-        )
-        QApplication.processEvents()
-
-        assert intents == [SelectRegion(region_id=RegionId("region_1"))]
-    finally:
-        widget.close()
-        app.processEvents()
-
-
-def test_ruler_double_click_existing_region_in_region_mode_dispatches_update_region_intent(
-    monkeypatch,
-):
-    app = QApplication.instance() or QApplication([])
-    intents: list[object] = []
-    presentation = replace(
-        _selection_test_presentation(),
-        regions=[
-            RegionPresentation(
-                region_id=RegionId("region_1"),
-                start=1.0,
-                end=2.0,
-                label="Verse",
-                color="#99aabb",
-                kind="song",
-            )
-        ],
-    )
-    widget = TimelineWidget(
-        presentation, on_intent=lambda intent: intents.append(intent) or presentation
-    )
-
-    class _FakeRegionPropertiesDialog:
-        class DialogCode:
-            Accepted = 1
-
-        def __init__(self, _draft, parent=None):
-            del parent
-
-        def exec(self):
-            return self.DialogCode.Accepted
-
-        def values(self):
-            class _Values:
-                start = 1.25
-                end = 2.75
-                label = "Verse A"
-                color = "#112233"
-
-            return _Values()
-
-    try:
-        monkeypatch.setattr(
-            "echozero.ui.qt.timeline.widget.RegionPropertiesDialog",
-            _FakeRegionPropertiesDialog,
-        )
-        _render_for_hit_testing(widget)
-        widget._editor_bar._mode_buttons["region"].click()
-        QApplication.processEvents()
-
-        QTest.mouseDClick(
-            widget._ruler,
-            Qt.MouseButton.LeftButton,
-            Qt.KeyboardModifier.NoModifier,
-            QPoint(470, 12),
-        )
-        QApplication.processEvents()
-
-        assert any(
-            isinstance(intent, SelectRegion) and intent.region_id == RegionId("region_1")
-            for intent in intents
-        )
-        update_intents = [
-            intent for intent in intents if isinstance(intent, UpdateRegion)
-        ]
-        assert len(update_intents) == 1
-        update_intent = update_intents[0]
-        assert update_intent.region_id == RegionId("region_1")
-        assert update_intent.time_range.start == 1.25
-        assert update_intent.time_range.end == 2.75
-        assert update_intent.label == "Verse A"
-        assert update_intent.color == "#112233"
-    finally:
-        widget.close()
-        app.processEvents()
-
-
-def test_ruler_click_in_region_mode_does_not_dispatch_create_region():
-    app = QApplication.instance() or QApplication([])
-    intents: list[object] = []
-    presentation = _selection_test_presentation()
-    widget = TimelineWidget(
-        presentation, on_intent=lambda intent: intents.append(intent) or presentation
-    )
-    try:
-        _render_for_hit_testing(widget)
-        widget._editor_bar._mode_buttons["region"].click()
-        QApplication.processEvents()
-
-        QTest.mouseClick(
-            widget._ruler,
-            Qt.MouseButton.LeftButton,
-            Qt.KeyboardModifier.NoModifier,
-            QPoint(520, 12),
-        )
-        QApplication.processEvents()
-
-        assert intents == []
     finally:
         widget.close()
         app.processEvents()
@@ -1173,24 +1072,6 @@ def test_ctrl_a_dispatches_select_all_events():
         QApplication.processEvents()
 
         assert intents == [SelectAllEvents()]
-    finally:
-        widget.close()
-        app.processEvents()
-
-
-def test_r_key_switches_canvas_to_region_mode():
-    app = QApplication.instance() or QApplication([])
-    presentation = _selection_test_presentation()
-    widget = TimelineWidget(
-        presentation, on_intent=lambda intent: presentation
-    )
-    try:
-        _render_for_hit_testing(widget)
-        QTest.keyClick(widget._canvas, Qt.Key.Key_R, Qt.KeyboardModifier.NoModifier)
-        QApplication.processEvents()
-
-        assert widget._canvas._edit_mode == "region"
-        assert widget._editor_bar._mode_buttons["region"].isChecked() is True
     finally:
         widget.close()
         app.processEvents()
@@ -2142,6 +2023,76 @@ def test_dragging_selected_event_dispatches_move_intent():
         app.processEvents()
 
 
+def test_move_drag_sets_continuous_preview_bar_time_during_drag() -> None:
+    app = QApplication.instance() or QApplication([])
+    intents: list[object] = []
+    presentation = _drag_test_presentation()
+    widget = TimelineWidget(
+        presentation, on_intent=lambda intent: intents.append(intent) or presentation
+    )
+    try:
+        _render_for_hit_testing(widget)
+        widget._editor_bar._mode_buttons["move"].click()
+
+        for rect, _, _, candidate_event_id in widget._canvas._event_rects:
+            if str(candidate_event_id) == "main_evt":
+                start = rect.center().toPoint()
+                break
+        else:
+            raise AssertionError("Missing event rect for main_evt")
+
+        target = QPoint(start.x() + 80, start.y())
+        modifiers = Qt.KeyboardModifier.AltModifier
+        QApplication.sendEvent(
+            widget._canvas,
+            QMouseEvent(
+                QEvent.Type.MouseButtonPress,
+                QPointF(start),
+                QPointF(start),
+                QPointF(start),
+                Qt.MouseButton.LeftButton,
+                Qt.MouseButton.LeftButton,
+                modifiers,
+            ),
+        )
+        QApplication.sendEvent(
+            widget._canvas,
+            QMouseEvent(
+                QEvent.Type.MouseMove,
+                QPointF(target),
+                QPointF(target),
+                QPointF(target),
+                Qt.MouseButton.NoButton,
+                Qt.MouseButton.LeftButton,
+                modifiers,
+            ),
+        )
+        QApplication.processEvents()
+
+        assert widget._canvas._dragging_events is True
+        assert widget._canvas._snap_indicator_time is not None
+        assert widget._canvas._move_drag_preview_time is not None
+        assert abs(float(widget._canvas._move_drag_preview_time) - 1.8) < 0.02
+        assert abs(float(widget._canvas._snap_indicator_time) - 1.8) < 0.02
+
+        QApplication.sendEvent(
+            widget._canvas,
+            QMouseEvent(
+                QEvent.Type.MouseButtonRelease,
+                QPointF(target),
+                QPointF(target),
+                QPointF(target),
+                Qt.MouseButton.LeftButton,
+                Qt.MouseButton.NoButton,
+                modifiers,
+            ),
+        )
+        QApplication.processEvents()
+    finally:
+        widget.close()
+        app.processEvents()
+
+
 def test_option_dragging_selected_event_dispatches_copy_move_intent():
     app = QApplication.instance() or QApplication([])
     intents: list[object] = []
@@ -2325,39 +2276,6 @@ def test_osc_settings_button_triggers_launcher_osc_settings_action() -> None:
         widget._editor_bar._osc_settings_button.click()
 
         assert action.trigger_calls == 1
-    finally:
-        widget.close()
-        app.processEvents()
-
-
-def test_draw_mode_drag_dispatches_create_event_intent():
-    app = QApplication.instance() or QApplication([])
-    intents: list[object] = []
-    presentation = _selection_test_presentation()
-    widget = TimelineWidget(
-        presentation, on_intent=lambda intent: intents.append(intent) or presentation
-    )
-    try:
-        _render_for_hit_testing(widget)
-
-        widget._editor_bar._mode_buttons["draw"].click()
-        QApplication.processEvents()
-
-        lane_rect, _, _ = widget._canvas._event_lane_rects[0]
-        y = int(lane_rect.center().y())
-        _mouse_drag(
-            widget._canvas,
-            [
-                QPoint(int(lane_rect.left() + 260), y),
-                QPoint(int(lane_rect.left() + 330), y),
-            ],
-        )
-
-        assert len(intents) == 1
-        assert isinstance(intents[0], CreateEvent)
-        assert intents[0].layer_id == LayerId("layer_kick")
-        assert intents[0].take_id == TakeId("take_main")
-        assert intents[0].time_range.start < intents[0].time_range.end
     finally:
         widget.close()
         app.processEvents()
@@ -2895,6 +2813,62 @@ def test_fix_mode_select_drag_dispatches_batch_event_selection_intent() -> None:
             widget._canvas,
             [
                 QPoint(int(main_rect.left() - 6), int(main_rect.top() - 4)),
+                QPoint(int(take_rect.right() + 6), int(take_rect.bottom() + 4)),
+            ],
+        )
+
+        assert intents == [
+            SetSelectedEvents(
+                event_ids=[EventId("main_evt"), EventId("take_evt")],
+                event_refs=[
+                    EventRef(
+                        layer_id=LayerId("layer_kick"),
+                        take_id=TakeId("take_main"),
+                        event_id=EventId("main_evt"),
+                    ),
+                    EventRef(
+                        layer_id=LayerId("layer_kick"),
+                        take_id=TakeId("take_alt"),
+                        event_id=EventId("take_evt"),
+                    ),
+                ],
+                anchor_layer_id=LayerId("layer_kick"),
+                anchor_take_id=TakeId("take_alt"),
+                selected_layer_ids=[LayerId("layer_kick")],
+            )
+        ]
+    finally:
+        widget.close()
+        app.processEvents()
+
+
+def test_fix_mode_select_drag_from_event_dispatches_batch_event_selection_intent() -> None:
+    app = QApplication.instance() or QApplication([])
+    intents: list[object] = []
+    presentation = _selection_test_presentation()
+    widget = TimelineWidget(
+        presentation, on_intent=lambda intent: intents.append(intent) or presentation
+    )
+    try:
+        _render_for_hit_testing(widget)
+        widget._editor_bar._mode_buttons["fix"].click()
+        QTest.keyClick(widget._canvas, Qt.Key.Key_X, Qt.KeyboardModifier.NoModifier)
+        QApplication.processEvents()
+
+        main_rect = next(
+            rect
+            for rect, _, _, event_id in widget._canvas._event_rects
+            if str(event_id) == "main_evt"
+        )
+        take_rect = next(
+            rect
+            for rect, _, _, event_id in widget._canvas._event_rects
+            if str(event_id) == "take_evt"
+        )
+        _mouse_drag(
+            widget._canvas,
+            [
+                QPoint(int(main_rect.center().x()), int(main_rect.center().y())),
                 QPoint(int(take_rect.right() + 6), int(take_rect.bottom() + 4)),
             ],
         )

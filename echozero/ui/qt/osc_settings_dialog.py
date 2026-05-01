@@ -5,7 +5,7 @@ Connects app-settings persistence to reusable OSC status + ping probes in one mo
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 
 from PyQt6.QtWidgets import (
     QDialog,
@@ -37,6 +37,7 @@ class OscSettingsDialog(QDialog):
         settings_service: AppSettingsService,
         *,
         on_saved: Callable[[AppSettingsUpdateResult], None] | None = None,
+        monitor_provider: Callable[[], list[Mapping[str, object]]] | None = None,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
@@ -81,7 +82,11 @@ class OscSettingsDialog(QDialog):
         self._form.field_value_changed.connect(self._on_field_value_changed)
         layout.addWidget(self._form, 1)
 
-        self._panel = OscSettingsPanel(values_provider=self._form.values, parent=self)
+        self._panel = OscSettingsPanel(
+            values_provider=self._form.values,
+            monitor_provider=monitor_provider,
+            parent=self,
+        )
         layout.addWidget(self._panel)
 
         self._buttons = QDialogButtonBox(

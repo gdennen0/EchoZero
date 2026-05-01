@@ -446,6 +446,32 @@ def test_app_shell_runtime_extract_song_drum_events_adds_selected_stem_layers(mo
         shutil.rmtree(temp_root, ignore_errors=True)
 
 
+def test_app_shell_runtime_extract_song_drum_events_source_audio_survives_save_and_reopen():
+    temp_root = _repo_local_temp_root()
+    save_path = temp_root / "extract-song-drum-events.ez"
+    runtime = build_app_shell(
+        working_dir_root=temp_root / "working",
+        analysis_service=build_mock_analysis_service(),
+    )
+
+    assert isinstance(runtime, AppShellRuntime)
+
+    try:
+        audio_path = write_test_wav(temp_root / "fixtures" / "extract-song-drum-events.wav")
+        runtime.add_song_from_path("Extract Song Drum Events", audio_path)
+        runtime.extract_song_drum_events("source_audio")
+        runtime.save_project_as(save_path)
+        runtime.open_project(save_path)
+
+        event_layers = [layer for layer in runtime.presentation().layers if layer.kind.name == "EVENT"]
+        assert event_layers
+        assert all(layer.source_audio_path for layer in event_layers)
+        assert all(Path(str(layer.source_audio_path)).exists() for layer in event_layers)
+    finally:
+        runtime.shutdown()
+        shutil.rmtree(temp_root, ignore_errors=True)
+
+
 def test_app_shell_runtime_extract_drum_events_persists_event_layers_from_drums_stem():
     temp_root = _repo_local_temp_root()
     analysis_service = build_mock_analysis_service()
@@ -623,11 +649,14 @@ def test_app_shell_runtime_generated_event_layer_preview_resolves_source_audio()
         shutil.rmtree(temp_root, ignore_errors=True)
 
 
-def test_app_shell_runtime_extract_drum_events_rejects_non_drum_audio_layers():
+def test_app_shell_runtime_extract_drum_events_supports_all_stem_layer_types():
     temp_root = _repo_local_temp_root()
+    analysis_service = build_mock_analysis_service()
+    detect_executor = _CaptureDetectOnsetsAudioExecutor()
+    analysis_service._executors["DetectOnsets"] = detect_executor
     runtime = build_app_shell(
         working_dir_root=temp_root / "working",
-        analysis_service=build_mock_analysis_service(),
+        analysis_service=analysis_service,
     )
 
     assert isinstance(runtime, AppShellRuntime)
@@ -636,14 +665,19 @@ def test_app_shell_runtime_extract_drum_events_rejects_non_drum_audio_layers():
         audio_path = write_test_wav(temp_root / "fixtures" / "import.wav")
         runtime.add_song_from_path("Imported Song", audio_path)
         after_stems = runtime.extract_stems("source_audio")
-        bass_layer = next(layer for layer in after_stems.layers if layer.title == "Bass")
+        stem_layers = [
+            layer
+            for layer in after_stems.layers
+            if layer.title in {"Drums", "Bass", "Vocals", "Other"}
+        ]
+        assert len(stem_layers) == 4
 
-        try:
-            runtime.extract_drum_events(bass_layer.layer_id)
-        except NotImplementedError as exc:
-            assert "drum-derived audio layers" in str(exc)
-        else:
-            raise AssertionError("Expected extract_drum_events to reject non-drum audio layers")
+        for stem_layer in stem_layers:
+            presentation = runtime.extract_drum_events(stem_layer.layer_id)
+            event_layers = [layer for layer in presentation.layers if layer.kind.name == "EVENT"]
+            assert event_layers
+            assert any(layer.events for layer in event_layers)
+            assert detect_executor.audio_paths[-1] == str(stem_layer.source_audio_path)
     finally:
         runtime.shutdown()
         shutil.rmtree(temp_root, ignore_errors=True)

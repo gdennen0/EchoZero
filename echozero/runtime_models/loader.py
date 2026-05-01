@@ -18,6 +18,7 @@ from echozero.errors import ExecutionError, ValidationError
 from echozero.inference_eval.runtime_preflight import resolve_runtime_model_path, run_runtime_preflight
 
 from .architectures import CrnnRuntimeModel, SimpleCnnRuntimeModel
+from .bundle_compat import load_runtime_checkpoint
 
 
 @dataclass(frozen=True, slots=True)
@@ -36,6 +37,36 @@ class LoadedRuntimeModel:
     source_path: Path
     manifest_path: Path | None = None
     artifact_manifest: dict[str, Any] | None = None
+    feature_mode: str = "spectrogram"
+
+
+@dataclass(frozen=True, slots=True)
+class _BaselineSgdRuntimePredictor:
+    """Linear runtime predictor reconstructed from legacy baseline SGD exports."""
+
+    coef: np.ndarray
+    intercept: np.ndarray
+    scaler_mean: np.ndarray
+    scaler_scale: np.ndarray
+
+    def predict_probabilities(self, features: np.ndarray, *, class_count: int) -> np.ndarray:
+        batch = np.asarray(features, dtype=np.float32)
+        if batch.ndim != 2:
+            raise ValidationError("Legacy baseline runtime features must be a 2D batch.")
+        safe_scale = np.where(self.scaler_scale == 0.0, 1.0, self.scaler_scale).astype(np.float32)
+        scaled = (batch - self.scaler_mean) / safe_scale
+        logits = scaled @ self.coef.T + self.intercept
+        if class_count == 2 and logits.shape[1] == 1:
+            positive = 1.0 / (1.0 + np.exp(-np.clip(logits[:, 0], -80.0, 80.0)))
+            negative = 1.0 - positive
+            return np.stack((negative, positive), axis=1).astype(np.float32)
+        if logits.shape[1] != class_count:
+            raise ValidationError(
+                "Legacy baseline runtime checkpoint shape does not match the exported class map."
+            )
+        shifted = logits - np.max(logits, axis=1, keepdims=True)
+        exp_scores = np.exp(shifted)
+        return (exp_scores / np.sum(exp_scores, axis=1, keepdims=True)).astype(np.float32)
 
 
 def resolve_device(device: str) -> str:
@@ -58,9 +89,7 @@ def load_runtime_model(model_path: str | Path, *, device: str = "auto") -> Loade
 
     resolved_device = resolve_device(device)
     resolved_model_path = resolve_runtime_model_path(model_path)
-    checkpoint = torch.load(resolved_model_path, map_location=resolved_device, weights_only=True)
-    if not isinstance(checkpoint, dict):
-        raise ExecutionError(f"Unexpected checkpoint format from {resolved_model_path}")
+    checkpoint = dict(load_runtime_checkpoint(resolved_model_path, map_location=resolved_device))
     run_runtime_preflight(resolved_model_path, checkpoint)
     manifest_path, artifact_manifest = _resolve_runtime_artifact_manifest(resolved_model_path)
 
@@ -75,13 +104,13 @@ def load_runtime_model(model_path: str | Path, *, device: str = "auto") -> Loade
     n_mels = int(preprocessing["nMels"])
     fmax = int(preprocessing["fmax"])
 
-    state_dict = checkpoint.get("model_state_dict")
-    if not isinstance(state_dict, dict):
-        raise ExecutionError(f"Checkpoint {resolved_model_path} is missing model_state_dict.")
-    model = instantiate_runtime_model(state_dict=state_dict, n_mels=n_mels, num_classes=len(classes))
-    model.load_state_dict(state_dict)
-    model.to(resolved_device)
-    model.eval()
+    model, feature_mode = _build_runtime_predictor(
+        checkpoint=checkpoint,
+        resolved_device=resolved_device,
+        resolved_model_path=resolved_model_path,
+        n_mels=n_mels,
+        class_count=len(classes),
+    )
 
     return LoadedRuntimeModel(
         model=model,
@@ -96,6 +125,7 @@ def load_runtime_model(model_path: str | Path, *, device: str = "auto") -> Loade
         source_path=resolved_model_path,
         manifest_path=manifest_path,
         artifact_manifest=artifact_manifest,
+        feature_mode=feature_mode,
     )
 
 
@@ -128,6 +158,80 @@ def instantiate_runtime_model(*, state_dict: dict[str, Any], n_mels: int, num_cl
     raise ValidationError("Unsupported runtime checkpoint architecture.")
 
 
+def _build_runtime_predictor(
+    *,
+    checkpoint: Mapping[str, Any],
+    resolved_device: str,
+    resolved_model_path: Path,
+    n_mels: int,
+    class_count: int,
+) -> tuple[Any, str]:
+    state_dict = checkpoint.get("model_state_dict")
+    if isinstance(state_dict, dict):
+        model = instantiate_runtime_model(state_dict=state_dict, n_mels=n_mels, num_classes=class_count)
+        model.load_state_dict(state_dict)
+        model.to(resolved_device)
+        model.eval()
+        return model, "spectrogram"
+    if _is_legacy_baseline_sgd_checkpoint(checkpoint):
+        return _build_legacy_baseline_predictor(checkpoint, n_mels=n_mels, class_count=class_count), "pooled_melspec"
+    raise ExecutionError(f"Checkpoint {resolved_model_path} is missing model_state_dict.")
+
+
+def _is_legacy_baseline_sgd_checkpoint(checkpoint: Mapping[str, Any]) -> bool:
+    trainer = str(checkpoint.get("trainer") or "").lower()
+    model_type = str(checkpoint.get("model_type") or "").lower()
+    return (
+        model_type == "baseline_sgd"
+        or trainer.startswith("baseline_sgd_")
+    ) and all(key in checkpoint for key in ("coef", "intercept", "scaler_mean", "scaler_scale"))
+
+
+def _build_legacy_baseline_predictor(
+    checkpoint: Mapping[str, Any],
+    *,
+    n_mels: int,
+    class_count: int,
+) -> _BaselineSgdRuntimePredictor:
+    feature_size = n_mels * 3
+    coef = _checkpoint_array(checkpoint, "coef", expected_ndim=2)
+    intercept = _checkpoint_array(checkpoint, "intercept", expected_ndim=1)
+    scaler_mean = _checkpoint_array(checkpoint, "scaler_mean", expected_ndim=1)
+    scaler_scale = _checkpoint_array(checkpoint, "scaler_scale", expected_ndim=1)
+    if coef.shape[1] != feature_size:
+        raise ExecutionError("Legacy baseline runtime checkpoint has an unexpected pooled feature width.")
+    if scaler_mean.shape[0] != feature_size or scaler_scale.shape[0] != feature_size:
+        raise ExecutionError("Legacy baseline runtime checkpoint scaler shape does not match pooled features.")
+    if class_count == 2:
+        if coef.shape[0] not in {1, 2}:
+            raise ExecutionError("Legacy baseline runtime checkpoint has an unexpected binary coefficient shape.")
+        if intercept.shape[0] != coef.shape[0]:
+            raise ExecutionError("Legacy baseline runtime checkpoint intercept shape does not match coefficients.")
+        if coef.shape[0] == 2:
+            coef = coef[1:, :]
+            intercept = intercept[1:]
+    elif coef.shape[0] != class_count or intercept.shape[0] != class_count:
+        raise ExecutionError("Legacy baseline runtime checkpoint shape does not match the exported classes.")
+    return _BaselineSgdRuntimePredictor(
+        coef=coef.astype(np.float32),
+        intercept=intercept.astype(np.float32),
+        scaler_mean=scaler_mean.astype(np.float32),
+        scaler_scale=scaler_scale.astype(np.float32),
+    )
+
+
+def _checkpoint_array(
+    checkpoint: Mapping[str, Any],
+    key: str,
+    *,
+    expected_ndim: int,
+) -> np.ndarray:
+    value = np.asarray(checkpoint.get(key), dtype=np.float32)
+    if value.ndim != expected_ndim:
+        raise ExecutionError(f"Legacy baseline runtime checkpoint is missing usable {key}.")
+    return value
+
+
 def build_feature_tensor(
     *,
     audio: np.ndarray,
@@ -138,6 +242,7 @@ def build_feature_tensor(
     hop_length: int,
     n_mels: int,
     fmax: int,
+    feature_mode: str = "spectrogram",
 ) -> np.ndarray:
     """Build a normalized mel-spectrogram window for one onset event."""
     try:
@@ -163,6 +268,11 @@ def build_feature_tensor(
         power=2.0,
     )
     mel_db = librosa.power_to_db(mel + 1e-10, ref=np.max).astype(np.float32)
+    if feature_mode == "pooled_melspec":
+        pooled = np.concatenate(
+            [mel_db.mean(axis=1), mel_db.std(axis=1), mel_db.max(axis=1)]
+        ).astype(np.float32)
+        return pooled[np.newaxis, :]
     mel_mean = float(np.mean(mel_db))
     mel_std = float(np.std(mel_db))
     if mel_std > 0:
@@ -172,6 +282,8 @@ def build_feature_tensor(
 
 def predict_probabilities(runtime_model: LoadedRuntimeModel, feature: np.ndarray) -> np.ndarray:
     """Return class probabilities for one preprocessed runtime feature tensor."""
+    if isinstance(runtime_model.model, _BaselineSgdRuntimePredictor):
+        return runtime_model.model.predict_probabilities(feature, class_count=len(runtime_model.classes))[0]
     try:
         import torch
     except ImportError as exc:
@@ -188,6 +300,8 @@ def predict_probabilities_batch(
     features: np.ndarray,
 ) -> np.ndarray:
     """Return class probabilities for a batch of runtime feature tensors."""
+    if isinstance(runtime_model.model, _BaselineSgdRuntimePredictor):
+        return runtime_model.model.predict_probabilities(features, class_count=len(runtime_model.classes))
     try:
         import torch
     except ImportError as exc:

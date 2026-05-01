@@ -36,10 +36,12 @@ from echozero.application.timeline.intents import (
     SetLayerLiveSyncPauseReason,
     SetLayerLiveSyncState,
     SetLayerSolo,
+    ToggleLayerExpanded,
     TriggerTakeAction,
 )
 from echozero.application.timeline.object_actions import resolve_action_id
 from echozero.persistence.audio import detect_ltc_channel, scan_audio_metadata
+from echozero.ui.qt.timeline.layer_routing_dialog import LayerRoutingSettingsDialog
 
 _AUDIO_FILE_DIALOG_FILTER = "Audio Files (*.wav *.mp3 *.flac *.aiff *.aif *.ogg);;All Files (*)"
 _FIND_SIMILAR_SCOPE_LABELS: tuple[tuple[str, str], ...] = (
@@ -48,9 +50,17 @@ _FIND_SIMILAR_SCOPE_LABELS: tuple[tuple[str, str], ...] = (
     ("Selected Layers (Main Takes)", "selected_layers_main"),
 )
 _FIND_SIMILAR_STRENGTH_LABELS: tuple[tuple[str, str], ...] = (
+    ("Very Strict", "very_strict"),
     ("Strict", "strict"),
     ("Balanced", "balanced"),
     ("Loose", "loose"),
+)
+_FIND_SIMILAR_THRESHOLD_LABELS: tuple[tuple[str, float | None], ...] = (
+    ("Use Strength Default", None),
+    ("0.98 (Extreme)", 0.98),
+    ("0.95 (Very High)", 0.95),
+    ("0.90 (High)", 0.90),
+    ("0.85 (Moderate)", 0.85),
 )
 _IMPORT_SMPTE_AS_IS_LABEL = "Import As-Is (No LTC Extraction)"
 
@@ -422,7 +432,7 @@ class TimelineWidgetContractActionMixin:
             )
             if options is None:
                 return
-            scope_mode, match_strength = options
+            scope_mode, match_strength, similarity_threshold_override = options
             host._dispatch(
                 SelectSimilarSoundingEvents(
                     layer_id=layer_id,
@@ -430,6 +440,7 @@ class TimelineWidgetContractActionMixin:
                     event_id=event_id,
                     scope_mode=scope_mode,
                     match_strength=match_strength,
+                    similarity_threshold_override=similarity_threshold_override,
                 )
             )
             return
@@ -437,6 +448,18 @@ class TimelineWidgetContractActionMixin:
             scope = event_batch_scope_from_params(params)
             if scope is not None:
                 host._dispatch(RenumberEventCueNumbers(scope=scope, start_at=1, step=1))
+            return
+        if action_id == "layer.set_expanded":
+            layer_id = _coerce_layer_id(params.get("layer_id"))
+            expanded = params.get("expanded")
+            if layer_id is not None and isinstance(expanded, bool):
+                self._set_layer_expanded_state(layer_id=layer_id, expanded=expanded)
+            return
+        if action_id == "timeline.expand_all_layers":
+            self._set_all_layers_expanded_state(expanded=True)
+            return
+        if action_id == "timeline.collapse_all_layers":
+            self._set_all_layers_expanded_state(expanded=False)
             return
         if action_id == "song.add":
             self._run_add_song_from_path_action(params)
@@ -482,6 +505,9 @@ class TimelineWidgetContractActionMixin:
             return
         if action_id == "preview_event_clip":
             self._handle_preview_event_clip(params)
+            return
+        if action_id == "layer.routing_settings":
+            self._open_layer_routing_settings(params)
             return
         if action_id in {"gain_down", "gain_unity", "gain_up", "set_gain_custom"}:
             layer_id = _coerce_layer_id(params.get("layer_id"))
@@ -547,6 +573,59 @@ class TimelineWidgetContractActionMixin:
             take_id = _coerce_take_id(params.get("take_id"))
             if layer_id is not None and take_id is not None:
                 host._dispatch(TriggerTakeAction(layer_id, take_id, action_id))
+
+    def _set_layer_expanded_state(self, *, layer_id: LayerId, expanded: bool) -> None:
+        host = cast(_ContractActionHost, self)
+        presentation = host._get_presentation()
+        layer = next((item for item in presentation.layers if item.layer_id == layer_id), None)
+        if layer is None or not layer.takes:
+            return
+        if bool(layer.is_expanded) == bool(expanded):
+            return
+        host._dispatch(ToggleLayerExpanded(layer_id=layer_id))
+
+    def _set_all_layers_expanded_state(self, *, expanded: bool) -> None:
+        host = cast(_ContractActionHost, self)
+        presentation = host._get_presentation()
+        for layer in presentation.layers:
+            if not layer.takes:
+                continue
+            if bool(layer.is_expanded) == bool(expanded):
+                continue
+            host._dispatch(ToggleLayerExpanded(layer_id=layer.layer_id))
+
+    def _open_layer_routing_settings(self, params: dict[str, object]) -> None:
+        host = cast(_ContractActionHost, self)
+        layer_id = _coerce_layer_id(params.get("layer_id"))
+        if layer_id is None:
+            return
+        presentation = host._get_presentation()
+        layer = next((item for item in presentation.layers if item.layer_id == layer_id), None)
+        if layer is None:
+            return
+        if layer.kind is not LayerKind.AUDIO:
+            host._message_box.information(
+                host._widget,
+                "Layer Routing Settings",
+                "Audio output routing is available for audio layers only.",
+            )
+            return
+
+        output_channels = max(1, min(16, int(presentation.playback_output_channels or 2)))
+        dialog = LayerRoutingSettingsDialog(
+            layer_title=str(layer.title),
+            playback_output_channels=output_channels,
+            current_output_bus=layer.output_bus,
+            parent=host._widget,
+        )
+        if not bool(dialog.exec()):
+            return
+        host._dispatch(
+            SetLayerOutputBus(
+                layer_id=layer_id,
+                output_bus=dialog.selected_output_bus(),
+            )
+        )
 
     def _handle_live_sync_action(self, action_id: str, params: dict[str, object]) -> None:
         host = cast(_ContractActionHost, self)
@@ -1596,7 +1675,7 @@ class TimelineWidgetContractActionMixin:
         *,
         default_scope_mode: str,
         default_match_strength: str,
-    ) -> tuple[str, str] | None:
+    ) -> tuple[str, str, float | None] | None:
         host = cast(_ContractActionHost, self)
         scope_labels = [label for label, _value in _FIND_SIMILAR_SCOPE_LABELS]
         scope_lookup = {label: value for label, value in _FIND_SIMILAR_SCOPE_LABELS}
@@ -1645,7 +1724,24 @@ class TimelineWidgetContractActionMixin:
         match_strength = strength_lookup.get(selected_strength_label)
         if match_strength is None:
             return None
-        return (scope_mode, match_strength)
+
+        threshold_labels = [label for label, _value in _FIND_SIMILAR_THRESHOLD_LABELS]
+        threshold_lookup = {
+            label: value for label, value in _FIND_SIMILAR_THRESHOLD_LABELS
+        }
+        selected_threshold_label, accepted = host._input_dialog.getItem(
+            host._widget,
+            "Find Similar Sounds",
+            "Similarity Threshold",
+            threshold_labels,
+            0,
+            False,
+        )
+        if not accepted:
+            return None
+        if selected_threshold_label not in threshold_lookup:
+            return None
+        return (scope_mode, match_strength, threshold_lookup[selected_threshold_label])
 
     def _resolve_song_title(self, song_id: str) -> str:
         host = cast(_ContractActionHost, self)

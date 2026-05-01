@@ -13,6 +13,7 @@ from PyQt6.QtWidgets import (
     QLabel,
     QMessageBox,
     QPushButton,
+    QSpinBox,
     QVBoxLayout,
 )
 
@@ -41,6 +42,7 @@ class ManualPushRouteDialog(QDialog):
         self._syncing = False
         self._show_sequence_controls = False
         self._show_apply_mode_controls = False
+        self._show_channel_controls = True
         self._track_by_coord: dict[str, object] = {}
         self._available_sequence_items: list[tuple[int, str]] = []
         self._sequence_range_available = False
@@ -78,6 +80,20 @@ class ManualPushRouteDialog(QDialog):
         self._track_combo.setObjectName("manualPushRouteTrackCombo")
         layout.addWidget(QLabel("Track", self))
         layout.addWidget(self._track_combo)
+
+        self._channel_label = QLabel("Channel", self)
+        self._channel_spin = QSpinBox(self)
+        self._channel_spin.setObjectName("manualPushRouteChannelSpin")
+        self._channel_spin.setRange(1, 512)
+        self._channel_spin.setValue(1)
+        self._channel_hint = QLabel(
+            "Route events from this layer into this MA3 channel on push.",
+            self,
+        )
+        self._channel_hint.setWordWrap(True)
+        layout.addWidget(self._channel_label)
+        layout.addWidget(self._channel_spin)
+        layout.addWidget(self._channel_hint)
 
         self._sequence_mode_label = QLabel("Sequence", self)
         self._sequence_mode_combo = QComboBox(self)
@@ -122,6 +138,7 @@ class ManualPushRouteDialog(QDialog):
         self._timecode_combo.currentIndexChanged.connect(self._handle_timecode_changed)
         self._track_group_combo.currentIndexChanged.connect(self._handle_track_group_changed)
         self._track_combo.currentIndexChanged.connect(self._handle_track_changed)
+        self._channel_spin.valueChanged.connect(lambda _value: self._refresh_summary())
         self._sequence_mode_combo.currentIndexChanged.connect(self._sync_sequence_controls)
         self._refresh_button.clicked.connect(self._handle_refresh_requested)
 
@@ -136,10 +153,13 @@ class ManualPushRouteDialog(QDialog):
         *,
         show_sequence_controls: bool,
         show_apply_mode_controls: bool,
+        show_channel_controls: bool = True,
+        default_channel_no: int | None = None,
         default_apply_mode: str = "merge",
     ) -> None:
         self._show_sequence_controls = bool(show_sequence_controls)
         self._show_apply_mode_controls = bool(show_apply_mode_controls)
+        self._show_channel_controls = bool(show_channel_controls)
 
         self._set_section_visible(
             self._sequence_mode_label,
@@ -175,13 +195,40 @@ class ManualPushRouteDialog(QDialog):
             self._show_apply_mode_controls,
         )
 
+        self._set_section_visible(
+            self._channel_label,
+            self._show_channel_controls,
+        )
+        self._set_section_visible(
+            self._channel_spin,
+            self._show_channel_controls,
+        )
+        self._set_section_visible(
+            self._channel_hint,
+            self._show_channel_controls,
+        )
+
+        if default_channel_no not in {None, ""}:
+            try:
+                self._channel_spin.setValue(max(1, int(default_channel_no)))
+            except (TypeError, ValueError):
+                self._channel_spin.setValue(1)
+        else:
+            self._channel_spin.setValue(1)
+
         self._set_combo_value(
             self._apply_mode_combo,
             str(default_apply_mode or "merge").strip().lower() or "merge",
             default_index=0,
         )
 
-    def set_flow(self, flow, *, preferred_track_coord: str | None = None) -> None:
+    def set_flow(
+        self,
+        flow,
+        *,
+        preferred_track_coord: str | None = None,
+        preferred_channel_no: int | None = None,
+    ) -> None:
         self._syncing = True
         try:
             self._track_by_coord = {
@@ -269,6 +316,11 @@ class ManualPushRouteDialog(QDialog):
                     selected_coord,
                     default_index=1 if self._track_combo.count() > 1 else 0,
                 )
+            if preferred_channel_no not in {None, ""}:
+                try:
+                    self._channel_spin.setValue(max(1, int(preferred_channel_no)))
+                except (TypeError, ValueError):
+                    self._channel_spin.setValue(1)
         finally:
             self._syncing = False
 
@@ -296,6 +348,11 @@ class ManualPushRouteDialog(QDialog):
             return None
         text = str(value).strip()
         return text or None
+
+    def selected_channel_no(self) -> int | None:
+        if not self._show_channel_controls:
+            return None
+        return int(self._channel_spin.value())
 
     def selected_sequence_mode(self) -> str | None:
         if not self._show_sequence_controls:
@@ -513,9 +570,17 @@ class ManualPushRouteDialog(QDialog):
         if self._show_apply_mode_controls:
             selected_mode = self.selected_apply_mode()
             if selected_mode == "overwrite" and self._apply_mode_combo.isEnabled():
-                self._summary.setText(f"Target: {track_label} · Overwrite")
+                self._summary.setText(
+                    f"Target: {track_label} · Ch {self._channel_spin.value()} · Overwrite"
+                )
                 return
-            self._summary.setText(f"Target: {track_label} · Merge")
+            self._summary.setText(
+                f"Target: {track_label} · Ch {self._channel_spin.value()} · Merge"
+            )
+            return
+
+        if self._show_channel_controls:
+            self._summary.setText(f"Target: {track_label} · Ch {self._channel_spin.value()}")
             return
 
         self._summary.setText(f"Target: {track_label}")

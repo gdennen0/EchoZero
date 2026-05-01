@@ -38,6 +38,37 @@ def test_parse_ma3_osc_payload_keeps_json_fields_and_pipe_containing_raw_values(
     assert message.fields["added"] == "[{fingerprint:0.409233|Kick|Go+|Cue 5}]"
 
 
+def test_ma3_osc_bridge_consumes_latest_transport_update_playhead():
+    bridge = MA3OSCBridge()
+    first = parse_ma3_osc_payload("type=transport|change=scrubbed|to_seconds=12.5")
+    second = parse_ma3_osc_payload("type=transport|change=scrubbed|to_seconds=14.0")
+
+    with bridge._condition:
+        bridge._ingest_message_locked(first)
+        bridge._ingest_message_locked(second)
+
+    update = bridge.consume_latest_transport_update()
+
+    assert update is not None
+    assert update.get("change") == "scrubbed"
+    assert update.get("playhead_seconds") == pytest.approx(14.0)
+    assert bridge.consume_transport_update() is None
+
+
+def test_ma3_osc_bridge_queues_transport_state_updates_without_playhead():
+    bridge = MA3OSCBridge()
+    message = parse_ma3_osc_payload("type=transport|change=state|state=playing")
+
+    with bridge._condition:
+        bridge._ingest_message_locked(message)
+
+    update = bridge.consume_transport_update()
+
+    assert update is not None
+    assert update.get("change") == "state"
+    assert update.get("is_playing") is True
+
+
 def test_simulated_ma3_bridge_fetches_tracks_and_events_via_osc_commands():
     bridge = SimulatedMA3Bridge()
 
@@ -83,6 +114,29 @@ def test_simulated_ma3_bridge_fetches_sequences_and_current_song_range_via_osc_c
     assert current_song_range.end == 111
     assert any(command.startswith("EZ.GetSequences(") for command in bridge.commands)
     assert "EZ.GetCurrentSongSequenceRange()" in bridge.commands
+
+
+def test_simulated_ma3_bridge_fetches_plugin_health_snapshot():
+    bridge = SimulatedMA3Bridge()
+
+    plugin_health = bridge.get_plugin_health()
+
+    assert str(plugin_health["ez_version"]) == "2.0"
+    assert plugin_health["ez_build"] == "2026-04-30.hitmaker-health-1"
+    assert plugin_health["hitmaker_loaded"] is True
+    assert str(plugin_health["hitmaker_version"]) == "1.1.0"
+    assert plugin_health["hitmaker_supports_event_type_create"] is True
+    assert "EZ.GetPluginHealth()" in bridge.commands
+
+
+def test_simulated_ma3_bridge_fetches_sequence_cues_via_osc_commands():
+    bridge = SimulatedMA3Bridge()
+
+    cues = bridge.list_sequence_cues(sequence_no=12)
+
+    assert [cue.get("cue_ref") for cue in cues] == ["1", "2"]
+    assert [cue.get("name") for cue in cues] == ["Cue 1", "Cue 2"]
+    assert any(command.startswith("EZ.GetSequenceCues(12, ") for command in bridge.commands)
 
 
 def test_simulated_ma3_bridge_aggregates_chunked_sequence_responses():
@@ -329,7 +383,7 @@ def test_ma3_osc_bridge_preserves_float_cue_numbers_in_commands_and_snapshots():
 
     assert events[0].cmd == "Go+ Cue 5.5"
     assert events[0].cue_number == 5.5
-    assert "EZ.AddEvent(1, 2, 5, 1, 'Go+ Cue 5.5', 'Kick', 5.5, 'Kick')" in bridge.commands
+    assert "EZ.AddEvent(1, 2, 5, 1, 'Go+ Cue 5.5', 'Kick', 5.5, 'Kick', 1)" in bridge.commands
 
 
 def test_ma3_osc_bridge_surfaces_sequence_assignment_prerequisite_when_cmd_subtrack_retry_fails():
@@ -402,8 +456,67 @@ def test_ma3_osc_bridge_creates_assigns_and_prepares_track_for_push_without_cmd_
     assert "EZ.CreateSequenceInCurrentSongRange('Song A - Lead')" in bridge.commands
     assert "EZ.AssignTrackSequence(1, 2, 4, 13)" in bridge.commands
     assert "EZ.PrepareTrackForEvents(1, 2, 4)" in bridge.commands
-    assert "EZ.AddEvent(1, 2, 4, 0.5, 'Go+ Cue 27', 'Lead', 27, 'Lead')" in bridge.commands
+    assert "EZ.AddEvent(1, 2, 4, 0.5, 'Go+ Cue 27', 'Lead', 27, 'Lead', 1)" in bridge.commands
     assert "EZ.CreateCmdSubTrack(1, 2, 4, 1)" not in bridge.commands
+
+
+def test_ma3_osc_bridge_writes_add_event_with_explicit_channel_number():
+    bridge = SimulatedMA3Bridge()
+    bridge.set_tracks(
+        [
+            MA3TrackSnapshot(coord="tc1_tg2_tr5", name="Track 5", note="Empty", event_count=0),
+        ]
+    )
+    bridge.set_track_events({"tc1_tg2_tr5": []})
+
+    bridge.apply_push_transfer(
+        target_track_coord="tc1_tg2_tr5",
+        ma3_channel_no=3,
+        selected_events=[
+            Event(
+                id="evt_1",
+                take_id="take_1",
+                start=1.0,
+                end=1.1,
+                cue_number=5,
+                label="Kick",
+            )
+        ],
+        transfer_mode="overwrite",
+    )
+
+    assert "EZ.AddEvent(1, 2, 5, 1, 'Go+ Cue 5', 'Kick', 5, 'Kick', 3)" in bridge.commands
+
+
+def test_ma3_osc_bridge_uses_event_label_for_cue_name_when_cue_ref_exists():
+    bridge = SimulatedMA3Bridge()
+    bridge.set_tracks(
+        [
+            MA3TrackSnapshot(coord="tc1_tg2_tr5", name="Track 5", note="Empty", event_count=0),
+        ]
+    )
+    bridge.set_track_events({"tc1_tg2_tr5": []})
+
+    bridge.apply_push_transfer(
+        target_track_coord="tc1_tg2_tr5",
+        selected_events=[
+            Event(
+                id="evt_section",
+                take_id="take_1",
+                start=1.0,
+                end=1.1,
+                cue_number=11,
+                cue_ref="Q11A",
+                label="Verse",
+            )
+        ],
+        transfer_mode="overwrite",
+    )
+
+    assert (
+        "EZ.AddEvent(1, 2, 5, 1, 'Go+ Cue 11', 'Q11A Verse', 11, 'Verse', 1)"
+        in bridge.commands
+    )
 
 
 def test_ma3_osc_bridge_creates_next_available_sequence_via_lua_method():
@@ -416,6 +529,19 @@ def test_ma3_osc_bridge_creates_next_available_sequence_via_lua_method():
     assert created.number not in existing_numbers
     assert created.name == "Lead Next"
     assert "EZ.CreateSequenceNextAvailable('Lead Next')" in bridge.commands
+
+
+def test_ma3_osc_bridge_create_sequence_for_event_type_preserves_preferred_name():
+    bridge = SimulatedMA3Bridge()
+
+    created = bridge.create_sequence_for_event_type(
+        event_type="kick",
+        sequence_type="go_hit",
+        preferred_name="Kick Track",
+    )
+
+    assert created.name == "Kick Track"
+    assert "EZ.CreateSequenceInCurrentSongRange('Kick Track')" in bridge.commands
 
 
 def test_ma3_osc_bridge_creates_timecode_track_group_and_track():

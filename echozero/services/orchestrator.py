@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import logging
 import re
+import shutil
 import time
 import uuid
 from collections.abc import Callable
@@ -217,15 +218,22 @@ class Orchestrator:
             new_settings = {**dict(block.settings), "file_path": resolved_audio_path}
             updated = _replace(block, settings=BlockSettings(new_settings))
             pipeline.graph.replace_block(updated)
+        session_working_dir = str(session.working_dir)
         if runtime_bindings:
             for block_id, block in tuple(pipeline.graph.blocks.items()):
+                current_settings = dict(block.settings)
+                if block.block_type == "SeparateAudio":
+                    current_settings.setdefault("working_dir", session_working_dir)
                 changed = {
-                    key: value for key, value in runtime_bindings.items() if key in block.settings
+                    key: value for key, value in runtime_bindings.items() if key in current_settings
                 }
-                if not changed:
+                if not changed and block.block_type != "SeparateAudio":
                     continue
+                if changed:
+                    current_settings.update(changed)
                 updated = _replace(
-                    block, settings=BlockSettings({**dict(block.settings), **changed})
+                    block,
+                    settings=BlockSettings(current_settings),
                 )
                 pipeline.graph.replace_block(updated)
 
@@ -263,6 +271,10 @@ class Orchestrator:
             )
 
         with session.locked():
+            raw_outputs = self._persist_audio_outputs_for_project(
+                session=session,
+                raw_outputs=raw_outputs,
+            )
             generated_at = datetime.now(timezone.utc)
             analysis_build_id = self._analysis_build_id(config.id, plan.execution_id)
             layer_ids, take_ids = self._persist_outputs(
@@ -451,6 +463,90 @@ class Orchestrator:
         if raw.is_absolute():
             return str(raw)
         return str((session.working_dir / raw).resolve())
+
+    @classmethod
+    def _persist_audio_outputs_for_project(
+        cls,
+        *,
+        session: ProjectStorage,
+        raw_outputs: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Copy transient audio outputs into project-managed durable storage paths."""
+
+        persisted: dict[str, Any] = {}
+        for block_id, output in raw_outputs.items():
+            if isinstance(output, AudioData):
+                persisted[block_id] = cls._persist_audio_data_for_project(
+                    session=session,
+                    audio_data=output,
+                )
+                continue
+            if isinstance(output, dict):
+                updated_output: dict[str, Any] = {}
+                for port_name, value in output.items():
+                    if isinstance(value, AudioData):
+                        updated_output[port_name] = cls._persist_audio_data_for_project(
+                            session=session,
+                            audio_data=value,
+                        )
+                    else:
+                        updated_output[port_name] = value
+                persisted[block_id] = updated_output
+                continue
+            persisted[block_id] = output
+        return persisted
+
+    @classmethod
+    def _persist_audio_data_for_project(
+        cls,
+        *,
+        session: ProjectStorage,
+        audio_data: AudioData,
+    ) -> AudioData:
+        persisted_path = cls._persist_audio_path_for_project(
+            session=session,
+            raw_audio_path=str(audio_data.file_path),
+        )
+        if persisted_path is None:
+            return audio_data
+        if str(audio_data.file_path) == persisted_path:
+            return audio_data
+        return replace(audio_data, file_path=persisted_path)
+
+    @staticmethod
+    def _persist_audio_path_for_project(
+        *,
+        session: ProjectStorage,
+        raw_audio_path: str,
+    ) -> str | None:
+        candidate = str(raw_audio_path or "").strip()
+        if not candidate:
+            return None
+
+        source = Path(candidate)
+        if not source.is_absolute():
+            source = (session.working_dir / source).resolve()
+        if not source.exists():
+            logger.warning("Audio output path does not exist; keeping original reference: %s", candidate)
+            return candidate
+
+        working_dir = session.working_dir.resolve()
+        try:
+            relative = source.resolve().relative_to(working_dir).as_posix()
+            if relative.startswith("audio/"):
+                return relative
+        except ValueError:
+            pass
+
+        from echozero.persistence.audio import compute_audio_hash
+
+        audio_hash = compute_audio_hash(source)
+        destination_dir = working_dir / "audio" / "generated" / audio_hash[:16]
+        destination_dir.mkdir(parents=True, exist_ok=True)
+        destination = destination_dir / source.name
+        if not destination.exists():
+            shutil.copy2(source, destination)
+        return destination.relative_to(working_dir).as_posix()
 
     @staticmethod
     def _resolve_output(port_ref: Any, raw_outputs: dict[str, Any]) -> Any:

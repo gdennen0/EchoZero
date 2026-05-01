@@ -2,10 +2,50 @@ from PyQt6.QtCore import QMimeData, QPointF, Qt, QUrl
 from PyQt6.QtGui import QDropEvent
 from PyQt6.QtWidgets import QApplication, QAbstractItemView
 
-from echozero.application.presentation.models import TimelinePresentation
+from echozero.application.presentation.models import (
+    SongOptionPresentation,
+    SongVersionOptionPresentation,
+    TimelinePresentation,
+)
 from echozero.ui.qt.song_browser_drop import SongBrowserAudioDrop
 from echozero.ui.qt.song_browser_panel import SongBrowserPanel
 from tests.ui.timeline_shell_shared_support import _song_switching_presentation
+
+
+def _many_songs_presentation(song_count: int) -> TimelinePresentation:
+    songs: list[SongOptionPresentation] = []
+    for index in range(1, song_count + 1):
+        song_id = f"song_{index}"
+        version_id = f"{song_id}_version"
+        songs.append(
+            SongOptionPresentation(
+                song_id=song_id,
+                title=f"Song {index}",
+                is_active=index == song_count,
+                active_version_id=version_id,
+                active_version_label="Original",
+                version_count=1,
+                versions=[
+                    SongVersionOptionPresentation(
+                        song_version_id=version_id,
+                        label="Original",
+                        is_active=True,
+                    )
+                ],
+            )
+        )
+    active_song = songs[-1] if songs else None
+    return TimelinePresentation(
+        timeline_id=_song_switching_presentation().timeline_id,
+        title="Many Songs",
+        active_song_id=active_song.song_id if active_song is not None else "",
+        active_song_title=active_song.title if active_song is not None else "",
+        active_song_version_id=active_song.active_version_id if active_song is not None else "",
+        active_song_version_label=(
+            active_song.active_version_label if active_song is not None else ""
+        ),
+        available_songs=songs,
+    )
 
 
 def test_song_browser_panel_renders_song_and_version_lists():
@@ -27,6 +67,40 @@ def test_song_browser_panel_renders_song_and_version_lists():
         assert panel._version_list.item(1).text() == "V2: Festival Edit [Active]"
         assert panel._active_song_title.text() == "Alpha Song"
         assert "Festival Edit" in panel._active_song_version.text()
+    finally:
+        panel.close()
+        app.processEvents()
+
+
+def test_song_browser_panel_keeps_double_digit_row_numbers_visible():
+    app = QApplication.instance() or QApplication([])
+    panel = SongBrowserPanel(_many_songs_presentation(12))
+    try:
+        assert panel._songs_tree.topLevelItemCount() == 12
+        assert panel._songs_tree.topLevelItem(9).text(0) == "10"
+        assert panel._songs_tree.topLevelItem(10).text(0) == "11"
+        assert panel._songs_tree.topLevelItem(11).text(0) == "12"
+        assert panel._songs_tree.columnWidth(0) >= 40
+    finally:
+        panel.close()
+        app.processEvents()
+
+
+def test_song_browser_panel_preserves_scroll_position_on_refresh():
+    app = QApplication.instance() or QApplication([])
+    panel = SongBrowserPanel(_many_songs_presentation(30))
+    try:
+        panel.show()
+        app.processEvents()
+        scroll_bar = panel._songs_tree.verticalScrollBar()
+        scroll_bar.setValue(scroll_bar.maximum())
+        app.processEvents()
+        prior_scroll = scroll_bar.value()
+
+        panel.set_presentation(_many_songs_presentation(30))
+        app.processEvents()
+
+        assert scroll_bar.value() == prior_scroll
     finally:
         panel.close()
         app.processEvents()

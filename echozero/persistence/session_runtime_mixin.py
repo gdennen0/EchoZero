@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import os
 import shutil
 import sqlite3
 import threading
@@ -99,6 +100,42 @@ class ProjectStorageRuntimeMixin:
         root = working_dir_root or WORKING_DIR_ROOT
         working_dir = root / hashlib.sha256(str(ez_path.resolve()).encode()).hexdigest()[:16]
         return ProjectStorage.open_db(working_dir, event_bus)
+
+    @staticmethod
+    def has_ungraceful_recovery(
+        ez_path: Path,
+        working_dir_root: Path | None = None,
+    ) -> bool:
+        """Return True when a stale lock marks a recoverable unsaved working copy.
+
+        This intentionally targets crash/non-graceful exits only:
+        - working DB must exist
+        - lock file must exist
+        - lock owner process must no longer be alive
+        """
+        from echozero.persistence.session import WORKING_DIR_ROOT
+
+        root = working_dir_root or WORKING_DIR_ROOT
+        working_dir = root / hashlib.sha256(str(ez_path.resolve()).encode()).hexdigest()[:16]
+        if not (working_dir / "project.db").exists():
+            return False
+        lock_path = working_dir / "project.lock"
+        if not lock_path.exists():
+            return False
+        try:
+            pid = int(lock_path.read_text().strip())
+        except (ValueError, OSError):
+            # Corrupt lock still indicates an unclean shutdown surface.
+            return True
+        try:
+            if os.name == "nt":
+                from echozero.persistence.session import _is_pid_alive
+
+                return not _is_pid_alive(pid)
+            os.kill(pid, 0)
+            return False
+        except OSError:
+            return True
 
     @staticmethod
     def discard_recovery(

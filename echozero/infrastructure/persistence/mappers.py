@@ -196,6 +196,7 @@ def _to_layer(record: LayerRecord) -> Layer:
             target_ref=sync_data.get("target_ref"),
             show_manager_block_id=sync_data.get("show_manager_block_id"),
             ma3_track_coord=sync_data.get("ma3_track_coord"),
+            ma3_channel_no=sync_data.get("ma3_channel_no"),
             derived_from_source=sync_data.get("derived_from_source", False),
         ),
         presentation_hints=LayerPresentationHints(
@@ -247,6 +248,7 @@ def _to_layer_record(layer: Layer) -> LayerRecord:
             "target_ref": layer.sync.target_ref,
             "show_manager_block_id": layer.sync.show_manager_block_id,
             "ma3_track_coord": layer.sync.ma3_track_coord,
+            "ma3_channel_no": layer.sync.ma3_channel_no,
             "derived_from_source": layer.sync.derived_from_source,
         },
         presentation_hints={

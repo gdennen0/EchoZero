@@ -167,10 +167,16 @@ function OSC.sendOSC(addr, types, ...)
         udp = OSC._socket.udp()
         if not udp then error("udp() returned nil") end
         step = "setpeername"
-        udp:setpeername(OSC.config.ip, OSC.config.port)
+        local peer_ok, peer_err = udp:setpeername(OSC.config.ip, OSC.config.port)
+        if not peer_ok then
+            error("setpeername failed: " .. tostring(peer_err))
+        end
         step = "send"
-        udp:send(data)
-        OSC._last_send_bytes = #data
+        local sent_ok, sent_err = udp:send(data)
+        if not sent_ok then
+            error("send failed: " .. tostring(sent_err))
+        end
+        OSC._last_send_bytes = tonumber(sent_ok) or #data
         step = "close"
         udp:close()
     end)

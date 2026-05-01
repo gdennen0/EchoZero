@@ -97,7 +97,10 @@ def test_object_info_panel_exposes_ma3_routing_button_outside_context_menu():
 
         action_ids = set(widget._object_info._action_buttons)
 
-        assert "route_layer_to_ma3_track" in action_ids
+        assert (
+            "transfer.route_layer_track" in action_ids
+            or "route_layer_to_ma3_track" in action_ids
+        )
         assert "send_layer_to_ma3" not in action_ids
         assert "send_selected_events_to_ma3" not in action_ids
         assert "send_to_different_track_once" not in action_ids
@@ -106,7 +109,7 @@ def test_object_info_panel_exposes_ma3_routing_button_outside_context_menu():
         app.processEvents()
 
 
-def test_object_info_panel_audio_output_route_selector_dispatches_set_layer_output_bus():
+def test_object_info_panel_audio_routing_settings_button_dispatches_set_layer_output_bus():
     app = QApplication.instance() or QApplication([])
     intents: list[object] = []
     base = _selection_test_presentation()
@@ -126,26 +129,37 @@ def test_object_info_panel_audio_output_route_selector_dispatches_set_layer_outp
     widget = TimelineWidget(
         presentation, on_intent=lambda intent: intents.append(intent) or presentation
     )
+    dialog_results = iter(["outputs_3_3", "outputs_4_4"])
     try:
         _render_for_hit_testing(widget)
+        from echozero.ui.qt.timeline import widget_action_contract_mixin as _contract_mixin
 
-        output_route_combo = widget._object_info._output_bus_combo
-        assert output_route_combo.isVisible() is True
-        option_labels = [
-            output_route_combo.itemText(index) for index in range(output_route_combo.count())
-        ]
-        assert option_labels == [
-            "Default Output (1/2)",
-            "Outputs 1/2",
-            "Outputs 3/4",
-        ]
+        class _DialogStub:
+            def __init__(self, **kwargs):
+                del kwargs
+                self._selected = next(dialog_results)
 
-        output_route_combo.setCurrentIndex(2)
-        widget._object_info._output_bus_apply_btn.click()
+            def exec(self):
+                return True
 
-        assert intents[-1] == SetLayerOutputBus(
+            def selected_output_bus(self):
+                return self._selected
+
+        original_dialog = _contract_mixin.LayerRoutingSettingsDialog
+        _contract_mixin.LayerRoutingSettingsDialog = _DialogStub
+        try:
+            widget._object_info._routing_settings_btn.click()
+            widget._object_info._routing_settings_btn.click()
+        finally:
+            _contract_mixin.LayerRoutingSettingsDialog = original_dialog
+
+        assert intents[0] == SetLayerOutputBus(
             layer_id=LayerId("layer_kick"),
-            output_bus="outputs_3_4",
+            output_bus="outputs_3_3",
+        )
+        assert intents[1] == SetLayerOutputBus(
+            layer_id=LayerId("layer_kick"),
+            output_bus="outputs_4_4",
         )
     finally:
         widget.close()
@@ -183,7 +197,10 @@ def test_object_info_panel_audio_settings_panel_reflects_and_dispatches_layer_mi
         assert widget._object_info._layer_controls_title.text().startswith("Layer: Kick")
         assert widget._object_info._panel_mute_btn.text() == "Unmute"
         assert widget._object_info._panel_solo_btn.text() == "Unsolo"
-        assert widget._object_info._output_bus_combo.currentText() == "Outputs 3/4"
+        assert (
+            widget._object_info._routing_settings_btn.text()
+            == "Routing Settings (Outputs 3/4)"
+        )
         assert widget._object_info._gain_spin.value() == -6.0
 
         widget._object_info._panel_mute_btn.click()
@@ -250,6 +267,87 @@ def test_object_info_panel_event_layer_hides_mix_buttons():
         app.processEvents()
 
 
+def test_object_info_panel_expand_button_dispatches_toggle_layer_expanded():
+    app = QApplication.instance() or QApplication([])
+    intents: list[object] = []
+    base = _selection_test_presentation()
+    presentation = replace(
+        base,
+        selected_layer_id=LayerId("layer_kick"),
+        selected_layer_ids=[LayerId("layer_kick")],
+    )
+    widget = TimelineWidget(
+        presentation, on_intent=lambda intent: intents.append(intent) or presentation
+    )
+    try:
+        _render_for_hit_testing(widget)
+
+        assert "layer.set_expanded" in widget._object_info._action_buttons
+        widget._object_info._action_buttons["layer.set_expanded"].click()
+
+        assert intents == [ToggleLayerExpanded(layer_id=LayerId("layer_kick"))]
+    finally:
+        widget.close()
+        app.processEvents()
+
+
+def test_contract_expand_all_layers_dispatches_only_for_collapsed_layers():
+    app = QApplication.instance() or QApplication([])
+    intents: list[object] = []
+    presentation = replace(
+        _selection_test_presentation(),
+        layers=[
+            replace(
+                _selection_test_presentation().layers[0],
+                layer_id=LayerId("layer_a"),
+                is_expanded=True,
+            ),
+            LayerPresentation(
+                layer_id=LayerId("layer_b"),
+                title="Snare",
+                main_take_id=TakeId("take_b"),
+                kind=LayerKind.EVENT,
+                is_expanded=False,
+                takes=[
+                    TakeLanePresentation(
+                        take_id=TakeId("take_b_alt"),
+                        name="Take B",
+                        kind=LayerKind.EVENT,
+                        events=[],
+                    )
+                ],
+                status=LayerStatusPresentation(),
+            ),
+            LayerPresentation(
+                layer_id=LayerId("layer_c"),
+                title="No Takes",
+                main_take_id=None,
+                kind=LayerKind.EVENT,
+                is_expanded=False,
+                takes=[],
+                status=LayerStatusPresentation(),
+            ),
+        ],
+    )
+    widget = TimelineWidget(
+        presentation, on_intent=lambda intent: intents.append(intent) or presentation
+    )
+    try:
+        _render_for_hit_testing(widget)
+
+        widget._trigger_contract_action(
+            InspectorAction(
+                action_id="timeline.expand_all_layers",
+                label="Expand All Layers",
+            )
+        )
+
+        assert intents == [ToggleLayerExpanded(layer_id=LayerId("layer_b"))]
+    finally:
+        widget.close()
+        app.processEvents()
+
+
 def test_object_info_panel_updates_for_main_lane_event_selection():
     app = QApplication.instance() or QApplication([])
     harness = _SelectionInspectorHarness(_selection_test_presentation())
@@ -292,13 +390,14 @@ def test_object_info_panel_batch_buttons_dispatch_scoped_event_intents():
         _responses = [
             ("This Take", True),
             ("Balanced", True),
+            ("Use Strength Default", True),
         ]
 
         @classmethod
         def getItem(cls, *_args, **_kwargs):
             if cls._responses:
                 return cls._responses.pop(0)
-            return ("Balanced", True)
+            return ("Use Strength Default", True)
 
     widget._action_router._input_dialog = _FindSimilarDialog
     try:
@@ -319,6 +418,7 @@ def test_object_info_panel_batch_buttons_dispatch_scoped_event_intents():
                 event_id=EventId("main_evt"),
                 scope_mode="take",
                 match_strength="balanced",
+                similarity_threshold_override=None,
             ),
             SelectEveryOtherEvents(scope=EventBatchScope(mode="selected_events")),
             RenumberEventCueNumbers(
@@ -721,6 +821,40 @@ def test_context_menu_layer_hit_is_scoped_to_layer_actions():
         app.processEvents()
 
 
+def test_context_menu_section_layer_hit_shows_send_layer_to_ma3():
+    app = QApplication.instance() or QApplication([])
+    base = _selection_test_presentation()
+    section_layer = replace(
+        base.layers[0],
+        kind=LayerKind.SECTION,
+        title="Sections",
+    )
+    presentation = replace(
+        base,
+        layers=[section_layer],
+        selected_layer_id=LayerId("layer_kick"),
+        selected_layer_ids=[LayerId("layer_kick")],
+    )
+    widget = TimelineWidget(presentation)
+    try:
+        _render_for_hit_testing(widget)
+
+        contract = build_timeline_inspector_contract(
+            widget.presentation,
+            hit_target=TimelineInspectorHitTarget(
+                kind="layer", layer_id=LayerId("layer_kick"), time_seconds=1.0
+            ),
+        )
+        menu = widget._canvas._build_context_menu(contract, hit_kind="layer")
+        labels = [action.text() for action in menu.actions() if not action.isSeparator()]
+
+        assert "Import Event Layer from MA3" in labels
+        assert "Send Layer to MA3" in labels
+    finally:
+        widget.close()
+        app.processEvents()
+
+
 def test_context_menu_smpte_layer_shows_import_smpte_audio_action():
     app = QApplication.instance() or QApplication([])
     base = _selection_test_presentation()
@@ -814,12 +948,10 @@ def test_context_menu_event_hit_is_scoped_to_event_selection_actions():
         labels = [action.text() for action in menu.actions() if not action.isSeparator()]
 
         assert "Nudge Left" in labels
-        assert "Nudge Right" in labels
         assert "Duplicate" in labels
         assert "Select Every Other" in labels
         assert "Renumber Cues from 1" in labels
         assert "Import Event Layer from MA3" in labels
-        assert "Route Layer to MA3 Track" in labels
         assert "Send Layer to MA3" in labels
         assert "Send Selected Events to MA3" in labels
         assert "Send to Different Track Once" in labels
@@ -852,7 +984,6 @@ def test_context_menu_unselected_main_event_can_send_single_event_to_ma3():
         assert "Send Event to MA3" in labels
         assert "Send Selected Events to MA3" not in labels
         assert "Import Event Layer from MA3" in labels
-        assert "Route Layer to MA3 Track" in labels
         assert "Send Layer to MA3" in labels
         assert "Send to Different Track Once" in labels
     finally:
@@ -888,13 +1019,14 @@ def test_fix_mode_demoted_event_context_menu_exposes_and_dispatches_find_similar
         _responses = [
             ("This Take", True),
             ("Balanced", True),
+            ("Use Strength Default", True),
         ]
 
         @classmethod
         def getItem(cls, *_args, **_kwargs):
             if cls._responses:
                 return cls._responses.pop(0)
-            return ("Balanced", True)
+            return ("Use Strength Default", True)
 
     widget._action_router._input_dialog = _FindSimilarDialog
     try:
@@ -942,6 +1074,7 @@ def test_fix_mode_demoted_event_context_menu_exposes_and_dispatches_find_similar
             event_id=event_id,
             scope_mode="take",
             match_strength="balanced",
+            similarity_threshold_override=None,
         )
     finally:
         widget.close()

@@ -10,7 +10,6 @@ from echozero.application.shared.ids import (
     EventId,
     LayerId,
     ProjectId,
-    RegionId,
     SectionCueId,
     SessionId,
     SongId,
@@ -28,7 +27,6 @@ from echozero.application.timeline.models import (
     LayerStatus,
     Take,
     Timeline,
-    TimelineRegion,
     derive_section_regions,
 )
 from echozero.application.timeline.operation_progress_service import OperationProgressState
@@ -544,68 +542,6 @@ def test_assembler_adds_pipeline_header_control_for_selected_section_layer():
 
     assert "open_section_layer_manager" in controls
     assert "layer_pipeline_actions" in controls
-
-
-def test_assembler_projects_regions_in_sorted_order_with_selection_state():
-    main_take = Take(
-        id=TakeId("take_main"),
-        layer_id=LayerId("layer_1"),
-        name="Main",
-        events=[_event("main_a", "take_main", 1.0)],
-    )
-    layer = Layer(
-        id=LayerId("layer_1"),
-        timeline_id=TimelineId("timeline_1"),
-        name="Kick",
-        kind=LayerKind.EVENT,
-        order_index=0,
-        takes=[main_take],
-    )
-    timeline = Timeline(
-        id=TimelineId("timeline_1"),
-        song_version_id=SongVersionId("version_1"),
-        layers=[layer],
-        regions=[
-            TimelineRegion(
-                id=RegionId("region_b"),
-                start=4.0,
-                end=5.0,
-                label="Chorus",
-                color="#aaccee",
-                order_index=1,
-                kind="song",
-            ),
-            TimelineRegion(
-                id=RegionId("region_a"),
-                start=1.0,
-                end=2.0,
-                label="Verse",
-                order_index=0,
-                kind="structure",
-            ),
-        ],
-    )
-    timeline.selection.selected_region_id = RegionId("region_b")
-
-    session = Session(
-        id=SessionId("session_1"),
-        project_id=ProjectId("project_1"),
-        active_song_id=SongId("song_1"),
-        active_song_version_id=SongVersionId("version_1"),
-        active_timeline_id=timeline.id,
-    )
-
-    assembled = TimelineAssembler().assemble(timeline, session)
-
-    assert [region.region_id for region in assembled.regions] == [
-        RegionId("region_a"),
-        RegionId("region_b"),
-    ]
-    assert assembled.selected_region_id == RegionId("region_b")
-    assert assembled.regions[0].is_selected is False
-    assert assembled.regions[1].is_selected is True
-    assert assembled.regions[1].color == "#aaccee"
-    assert assembled.regions[0].kind == "structure"
 
 
 def test_assembler_marks_take_lane_selection_without_playback_target_state():

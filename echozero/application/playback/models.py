@@ -34,6 +34,10 @@ class PlaybackDiagnostics:
     prime_output_buffers_using_stream_callback: bool = True
     last_transition: str = ""
     last_track_sync_reason: str = ""
+    structural_rebuild_count: int = 0
+    coalesced_edit_count: int = 0
+    last_structural_rebuild_ms: float = 0.0
+    max_structural_rebuild_ms: float = 0.0
 
 
 @dataclass(slots=True)

@@ -12,6 +12,13 @@ from typing import Any, Callable
 from echozero.domain.types import AudioData, Event, EventData, Layer
 from echozero.errors import ExecutionError
 from echozero.execution import ExecutionContext
+from echozero.processors.song_sections_determine_style import (
+    DETERMINE_SECTIONS_STYLE_METHOD,
+    MFCC_SEQUENCE_POOLING_METHOD,
+    determine_sections_style_segments,
+    label_segments_from_embeddings,
+    resolve_detect_method,
+)
 from echozero.progress import ProgressReport
 from echozero.result import Result, err, ok
 
@@ -119,7 +126,7 @@ def _default_segment_song_sections(
         sample_rate=effective_sample_rate,
         hop_length=max(64, int(hop_length)),
     )
-    labels = _label_segments(
+    labels = label_segments_from_embeddings(
         embeddings=segment_embeddings,
         rms_values=segment_rms,
         boundaries_seconds=boundaries_seconds,
@@ -146,6 +153,44 @@ def _default_segment_song_sections(
         )
 
     return tuple(section_labels)
+
+
+def _determine_sections_style_segment_song_sections(
+    file_path: str,
+    sample_rate: int,
+    n_mfcc: int,
+    n_fft: int,
+    hop_length: int,
+    history_pool_frames: int,
+    boundary_sensitivity: float,
+    min_section_seconds: float,
+    max_sections: int,
+    similarity_threshold: float,
+    intro_tail_seconds: float,
+    end_tail_seconds: float,
+) -> tuple[_SectionLabel, ...]:
+    return tuple(
+        _SectionLabel(
+            start_seconds=float(segment.start_seconds),
+            cue_ref=str(segment.cue_ref),
+            label=str(segment.label),
+            confidence=float(segment.confidence),
+        )
+        for segment in determine_sections_style_segments(
+            file_path=file_path,
+            sample_rate=sample_rate,
+            n_mfcc=n_mfcc,
+            n_fft=n_fft,
+            hop_length=hop_length,
+            history_pool_frames=history_pool_frames,
+            boundary_sensitivity=boundary_sensitivity,
+            min_section_seconds=min_section_seconds,
+            max_sections=max_sections,
+            similarity_threshold=similarity_threshold,
+            intro_tail_seconds=intro_tail_seconds,
+            end_tail_seconds=end_tail_seconds,
+        )
+    )
 
 
 def _pool_feature_history(frame_features: Any, *, pool_size: int):
@@ -269,78 +314,6 @@ def _segment_descriptors(
     return np.asarray(segment_embeddings, dtype=np.float32), segment_rms
 
 
-def _label_segments(
-    *,
-    embeddings: Any,
-    rms_values: list[float],
-    boundaries_seconds: list[float],
-    duration_seconds: float,
-    similarity_threshold: float,
-    intro_tail_seconds: float,
-    end_tail_seconds: float,
-) -> list[str]:
-    import numpy as np
-
-    segment_count = len(boundaries_seconds)
-    if segment_count <= 0:
-        return ["Intro"]
-    if segment_count == 1:
-        return ["Intro"]
-
-    labels = ["Verse" for _ in range(segment_count)]
-    labels[0] = "Intro"
-
-    normalized_similarity_threshold = max(0.0, min(0.99, similarity_threshold))
-    similarity = np.matmul(embeddings, embeddings.T)
-
-    repeat_scores: list[float] = []
-    for segment_index in range(segment_count):
-        score = 0.0
-        for other_index in range(segment_count):
-            if segment_index == other_index:
-                continue
-            if abs(segment_index - other_index) <= 1:
-                continue
-            if float(similarity[segment_index, other_index]) >= normalized_similarity_threshold:
-                score += float(similarity[segment_index, other_index])
-        repeat_scores.append(score)
-
-    if segment_count > 2:
-        chorus_index = max(range(1, segment_count - 1), key=lambda index: repeat_scores[index])
-        if repeat_scores[chorus_index] > 0.0:
-            for segment_index in range(1, segment_count - 1):
-                if float(similarity[segment_index, chorus_index]) >= normalized_similarity_threshold:
-                    labels[segment_index] = "Chorus"
-
-    median_rms = float(np.median(rms_values)) if rms_values else 0.0
-    for segment_index in range(1, max(1, segment_count - 1)):
-        if labels[segment_index] == "Chorus":
-            continue
-        if median_rms > 0.0 and rms_values[segment_index] <= median_rms * 0.55:
-            labels[segment_index] = "Instrumental"
-
-    if segment_count > 3:
-        late_candidates = range(max(1, segment_count // 2), max(1, segment_count - 1))
-        bridge_index = max(
-            late_candidates,
-            key=lambda index: float(1.0 - max(similarity[index, max(0, index - 1)], similarity[index, min(segment_count - 1, index + 1)])),
-        )
-        if labels[bridge_index] not in {"Chorus", "Instrumental"}:
-            labels[bridge_index] = "Bridge"
-
-    tail_start = boundaries_seconds[-1]
-    tail_duration = max(0.0, duration_seconds - tail_start)
-    if tail_duration <= max(4.0, end_tail_seconds) or tail_start >= duration_seconds - end_tail_seconds:
-        labels[-1] = "End"
-
-    if duration_seconds > 0.0 and labels[0] != "Intro":
-        labels[0] = "Intro"
-    if boundaries_seconds[0] > max(0.05, intro_tail_seconds):
-        labels[0] = "Intro"
-
-    return labels
-
-
 def _section_confidence(*, novelty: Any, seconds_per_frame: float, start_seconds: float) -> float:
     import numpy as np
 
@@ -359,8 +332,12 @@ class SongSectionsProcessor:
     def __init__(
         self,
         segment_song_sections_fn: SegmentSongSectionsFn | None = None,
+        determine_sections_segment_fn: SegmentSongSectionsFn | None = None,
     ) -> None:
         self._segment_song_sections_fn = segment_song_sections_fn or _default_segment_song_sections
+        self._determine_sections_segment_fn = (
+            determine_sections_segment_fn or _determine_sections_style_segment_song_sections
+        )
 
     def execute(self, block_id: str, context: ExecutionContext) -> Result[EventData]:
         """Read song audio, infer section starts/labels, and emit one section cue layer."""
@@ -398,18 +375,29 @@ class SongSectionsProcessor:
         similarity_threshold = float(settings.get("similarity_threshold", 0.84))
         intro_tail_seconds = float(settings.get("intro_tail_seconds", 14.0))
         end_tail_seconds = float(settings.get("end_tail_seconds", 16.0))
+        detect_method = resolve_detect_method(settings.get("detect_method", MFCC_SEQUENCE_POOLING_METHOD))
+        segment_song_sections_fn = (
+            self._determine_sections_segment_fn
+            if detect_method == DETERMINE_SECTIONS_STYLE_METHOD
+            else self._segment_song_sections_fn
+        )
+        generator = (
+            "determine_sections_style_v1"
+            if detect_method == DETERMINE_SECTIONS_STYLE_METHOD
+            else "mfcc_sequence_pooling_v1"
+        )
 
         context.progress_bus.publish(
             ProgressReport(
                 block_id=block_id,
                 phase="song_sections",
                 percent=0.35,
-                message="Computing MFCC features and section boundaries",
+                message=f"Computing section boundaries ({detect_method})",
             )
         )
 
         try:
-            section_labels = self._segment_song_sections_fn(
+            section_labels = segment_song_sections_fn(
                 audio.file_path,
                 sample_rate,
                 n_mfcc,
@@ -455,7 +443,7 @@ class SongSectionsProcessor:
                         "cue_ref": section.cue_ref,
                         "section_label": section.label,
                         "confidence": float(section.confidence),
-                        "generator": "mfcc_sequence_pooling_v1",
+                        "generator": generator,
                     },
                     origin=block_id,
                 )

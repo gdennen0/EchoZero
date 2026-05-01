@@ -229,6 +229,33 @@ def test_app_shell_runtime_persists_layer_ma3_route_across_save_and_open():
         shutil.rmtree(temp_root, ignore_errors=True)
 
 
+def test_app_shell_runtime_recover_project_marks_runtime_dirty():
+    temp_root = _repo_local_temp_root()
+    working_root = temp_root / "working"
+    save_path = temp_root / "recovery-dirty.ez"
+
+    runtime = build_app_shell(
+        working_dir_root=working_root,
+        initial_project_name="Recovery Dirty",
+    )
+
+    assert isinstance(runtime, AppShellRuntime)
+
+    try:
+        audio = write_test_wav(temp_root / "fixtures" / "recovery-dirty.wav")
+        runtime.add_song_from_path("Recovery Song", audio)
+        runtime.save_project_as(save_path)
+        runtime.open_project(save_path)
+        runtime.add_layer(LayerKind.EVENT, "Unsaved Recovery Layer")
+
+        runtime.recover_project(save_path)
+
+        assert runtime.is_dirty is True
+    finally:
+        runtime.shutdown()
+        shutil.rmtree(temp_root, ignore_errors=True)
+
+
 def test_app_shell_runtime_import_smpte_audio_to_layer_uses_extracted_ltc_when_available(
     monkeypatch,
 ):

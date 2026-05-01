@@ -8,7 +8,7 @@ from __future__ import annotations
 from dataclasses import replace
 from typing import Any
 
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import QSize, Qt
 from PyQt6.QtWidgets import (
     QFrame,
     QHBoxLayout,
@@ -23,16 +23,18 @@ from PyQt6.QtWidgets import (
 from echozero.application.presentation.inspector_contract import InspectorAction
 from echozero.ui.qt.timeline.object_info_panel_text import plan_detail_text
 
-_ACTION_ROW_CONTENT_MARGIN_PX = 6
-_ACTION_ROW_SPACING_PX = 4
+_ACTION_ROW_CONTENT_MARGIN_PX = 4
+_ACTION_ROW_SPACING_PX = 3
 _ACTION_ROW_BUTTON_SPACING_PX = 4
 _ACTION_SETTINGS_BUTTON_WIDTH_PX = 24
 _ACTION_RUN_BUTTON_MIN_WIDTH_PX = 48
-_OUTPUT_BUS_ACTION_PREFIX = "set_layer_output_bus_"
+_SECTION_TOGGLE_ARROW_SIZE_PX = 4
 
 
 class _ObjectInfoPanelActionsMixin:
-    _OBJECT_INFO_MA3_ACTION_IDS = frozenset({"route_layer_to_ma3_track"})
+    _OBJECT_INFO_MA3_ACTION_IDS = frozenset(
+        {"route_layer_to_ma3_track", "transfer.match_ma3_cues"}
+    )
 
     def _iter_contract_actions(self: Any):
         for section in self._contract.context_sections:
@@ -64,14 +66,9 @@ class _ObjectInfoPanelActionsMixin:
             )
         )
 
-    def _emit_apply_output_bus(self: Any) -> None:
-        if not self._output_bus_actions:
-            return
-        index = int(self._output_bus_combo.currentIndex())
-        if index < 0 or index >= len(self._output_bus_actions):
-            return
-        action = self._output_bus_actions[index]
-        if not action.enabled:
+    def _emit_open_routing_settings(self: Any) -> None:
+        action = self._find_contract_action("layer.routing_settings")
+        if action is None or not action.enabled:
             return
         self.action_requested.emit(action)
 
@@ -130,10 +127,14 @@ class _ObjectInfoPanelActionsMixin:
                 action
                 for action in section.actions
                 if action.action_id != "preview_event_clip"
-                and not action.action_id.startswith(_OUTPUT_BUS_ACTION_PREFIX)
+                and action.action_id != "layer.routing_settings"
                 and (
                     (action.group or "").strip().lower() != "transfer"
                     or action.action_id in self._OBJECT_INFO_MA3_ACTION_IDS
+                    or (
+                        action.action_id == "transfer.workspace_open"
+                        and str(action.params.get("direction", "")).strip().lower() == "push"
+                    )
                 )
             )
             if not actions:
@@ -146,6 +147,9 @@ class _ObjectInfoPanelActionsMixin:
             section_toggle.setCheckable(True)
             section_toggle.setChecked(expanded)
             section_toggle.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+            section_toggle.setIconSize(
+                QSize(_SECTION_TOGGLE_ARROW_SIZE_PX, _SECTION_TOGGLE_ARROW_SIZE_PX)
+            )
             section_toggle.setArrowType(
                 Qt.ArrowType.DownArrow if expanded else Qt.ArrowType.RightArrow
             )
@@ -372,35 +376,18 @@ class _ObjectInfoPanelActionsMixin:
         layer_action: InspectorAction | None,
         selected_output_bus: str | None,
     ) -> None:
-        output_bus_actions = tuple(
-            action
-            for action in self._iter_contract_actions()
-            if action.action_id.startswith(_OUTPUT_BUS_ACTION_PREFIX)
-        )
-        self._output_bus_actions = output_bus_actions
-        self._output_bus_combo.blockSignals(True)
-        self._output_bus_combo.clear()
-        selected_bus = self._normalize_output_bus(selected_output_bus)
-        selected_index = 0
-        for index, action in enumerate(output_bus_actions):
-            output_bus = self._normalize_output_bus(action.params.get("output_bus"))
-            self._output_bus_combo.addItem(self._output_bus_option_label(output_bus))
-            if output_bus == selected_bus:
-                selected_index = index
-        if self._output_bus_combo.count() > 0:
-            self._output_bus_combo.setCurrentIndex(selected_index)
-        self._output_bus_combo.blockSignals(False)
-        has_controls = bool(output_bus_actions)
+        routing_action = self._find_contract_action("layer.routing_settings")
+        has_controls = routing_action is not None
         enabled = (
             has_controls
             and layer_action is not None
             and layer_action.enabled
-            and any(action.enabled for action in output_bus_actions)
+            and bool(routing_action.enabled)
         )
-        self._output_bus_combo.setVisible(has_controls)
-        self._output_bus_apply_btn.setVisible(has_controls)
-        self._output_bus_combo.setEnabled(enabled)
-        self._output_bus_apply_btn.setEnabled(enabled)
+        route_label = self._output_bus_option_label(self._normalize_output_bus(selected_output_bus))
+        self._routing_settings_btn.setText(f"Routing Settings ({route_label})")
+        self._routing_settings_btn.setVisible(has_controls)
+        self._routing_settings_btn.setEnabled(enabled)
 
     @staticmethod
     def _normalize_output_bus(value: object) -> str | None:
@@ -412,13 +399,15 @@ class _ObjectInfoPanelActionsMixin:
     @staticmethod
     def _output_bus_option_label(output_bus: str | None) -> str:
         if output_bus is None:
-            return "Default Output (1/2)"
+            return "Default Output"
         parts = output_bus.strip().lower().split("_")
         if len(parts) == 3 and parts[0] == "outputs" and parts[1].isdigit() and parts[2].isdigit():
             start_channel = int(parts[1])
             end_channel = int(parts[2])
             if start_channel == end_channel:
                 return f"Output {start_channel}"
+            if end_channel > start_channel + 1:
+                return f"Outputs {start_channel}-{end_channel}"
             return f"Outputs {start_channel}/{end_channel}"
         return output_bus
 

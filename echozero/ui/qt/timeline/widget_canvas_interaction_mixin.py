@@ -20,7 +20,11 @@ from echozero.application.presentation.inspector_contract import (
 from echozero.application.presentation.models import EventPresentation, LayerPresentation
 from echozero.application.shared.ids import EventId, LayerId, TakeId
 from echozero.application.timeline.models import EventRef
-from echozero.ui.FEEL import DRAG_THRESHOLD_PX, SNAP_MAGNETISM_RADIUS_PX
+from echozero.ui.FEEL import (
+    DRAG_THRESHOLD_PX,
+    MOVE_DRAG_SNAP_LOCK_MULTIPLIER,
+    SNAP_MAGNETISM_RADIUS_PX,
+)
 from echozero.ui.qt.timeline.blocks.ruler import (
     playhead_head_polygon,
     seek_time_for_x,
@@ -90,17 +94,10 @@ class _TimelineCanvasInteractionMixin:
             dy = abs(event.position().y() - float(self._drag_candidate["anchor_y"]))
             if max(dx, dy) >= DRAG_THRESHOLD_PX:
                 self._dragging_events = True
-                raw_delta = (event.position().x() - float(self._drag_candidate["anchor_x"])) / max(
-                    1.0,
-                    self.presentation.pixels_per_second,
-                )
-                anchor_time = float(self._drag_candidate["anchor_event_start"]) + raw_delta
-                snapped = self._resolve_snap_target_time(
-                    anchor_time,
+                self._update_event_drag_preview(
+                    event.position(),
                     modifiers=event.modifiers(),
-                    exclude_event_ids=tuple(self.presentation.selected_event_ids),
                 )
-                self._snap_indicator_time = snapped
                 self.update()
                 event.accept()
                 return
@@ -145,6 +142,8 @@ class _TimelineCanvasInteractionMixin:
         self._marquee_rect = None
         self._preview_event_rect = None
         self._snap_indicator_time = None
+        self._move_drag_preview_time = None
+        self._move_drag_snap_time = None
         self._sync_cursor()
         QToolTip.hideText()
         self.update()
@@ -280,12 +279,18 @@ class _TimelineCanvasInteractionMixin:
                             ]
                         )
                         return
-                    self.event_selected.emit(
-                        layer_id,
-                        event_take_id,
-                        event_id,
-                        self._selection_mode_for_modifiers(event.modifiers()),
+                    self._selection_drag_candidate = SelectionDragCandidate(
+                        anchor_pos=pos,
+                        origin_layer_id=layer_id,
+                        origin_take_id=event_take_id,
+                        origin_event_id=event_id,
+                        modifiers=event.modifiers(),
+                        edit_mode=self._edit_mode,
+                        fix_action=self._fix_action,
                     )
+                    self._marquee_rect = None
+                    self._snap_indicator_time = None
+                    event.accept()
                     return
                 if self._edit_mode == "erase":
                     if event_take_id is not None:
@@ -325,6 +330,9 @@ class _TimelineCanvasInteractionMixin:
                         ),
                     )
                     self._dragging_events = False
+                    self._move_drag_preview_time = None
+                    self._move_drag_snap_time = None
+                    self._snap_indicator_time = None
                     event.accept()
                     return
                 self.event_selected.emit(
@@ -333,6 +341,11 @@ class _TimelineCanvasInteractionMixin:
                     event_id,
                     self._selection_mode_for_modifiers(event.modifiers()),
                 )
+                return
+        if self._edit_mode == "draw" and event.button() == Qt.MouseButton.LeftButton:
+            if self._section_label_hit(pos) is not None or self._section_boundary_hit(
+                pos,
+            ) is not None:
                 return
         lane_hit = self._event_lane_hit(pos)
         if lane_hit is not None and event.button() == Qt.MouseButton.LeftButton:
@@ -354,6 +367,7 @@ class _TimelineCanvasInteractionMixin:
                     anchor_pos=pos,
                     origin_layer_id=lane_layer_id,
                     origin_take_id=lane_take_id,
+                    origin_event_id=None,
                     modifiers=event.modifiers(),
                     edit_mode=self._edit_mode,
                     fix_action=self._fix_action,
@@ -446,18 +460,17 @@ class _TimelineCanvasInteractionMixin:
     def mouseDoubleClickEvent(self: Any, event: QMouseEvent | None) -> None:
         if event is None:
             return
-        if event.button() == Qt.MouseButton.LeftButton:
-            pos = event.position()
-            section_label_hit = self._section_label_hit(pos)
-            if section_label_hit is not None:
-                self.section_label_double_clicked.emit(section_label_hit)
-                event.accept()
-                return
-            section_boundary_hit = self._section_boundary_hit(pos)
-            if section_boundary_hit is not None:
-                self.section_boundary_double_clicked.emit(section_boundary_hit)
-                event.accept()
-                return
+        pos = event.position()
+        section_label_hit = self._section_label_hit(pos)
+        if section_label_hit is not None:
+            self.section_label_double_clicked.emit(section_label_hit)
+            event.accept()
+            return
+        section_boundary_hit = self._section_boundary_hit(pos)
+        if section_boundary_hit is not None:
+            self.section_boundary_double_clicked.emit(section_boundary_hit)
+            event.accept()
+            return
         super().mouseDoubleClickEvent(event)
 
     def _build_context_menu(
@@ -468,7 +481,7 @@ class _TimelineCanvasInteractionMixin:
     ) -> QMenu:
         menu = QMenu(self)
         first_section = True
-        seen_action_ids: set[str] = set()
+        seen_action_keys: set[tuple[str, str | None]] = set()
         for section in contract.context_sections:
             visible_actions: list[InspectorAction] = []
             for action in section.actions:
@@ -477,11 +490,12 @@ class _TimelineCanvasInteractionMixin:
                     hit_kind,
                 ):
                     continue
-                if hit_kind is not None and action.action_id in seen_action_ids:
+                action_key = self._context_action_dedupe_key(action)
+                if hit_kind is not None and action_key in seen_action_keys:
                     continue
                 visible_actions.append(action)
                 if hit_kind is not None:
-                    seen_action_ids.add(action.action_id)
+                    seen_action_keys.add(action_key)
             if not visible_actions:
                 continue
             if not first_section:
@@ -520,6 +534,13 @@ class _TimelineCanvasInteractionMixin:
             return True
         return group in allowed
 
+    @staticmethod
+    def _context_action_dedupe_key(action: InspectorAction) -> tuple[str, str | None]:
+        if action.action_id == "transfer.workspace_open":
+            direction = str(action.params.get("direction", "")).strip().lower() or None
+            return (action.action_id, direction)
+        return (action.action_id, None)
+
     def mouseReleaseEvent(self: Any, event: QMouseEvent | None) -> None:
         if event is None:
             return
@@ -549,17 +570,14 @@ class _TimelineCanvasInteractionMixin:
                 return
             if self._drag_candidate is not None:
                 if self._dragging_events:
-                    delta_seconds = (
-                        event.position().x() - float(self._drag_candidate["anchor_x"])
-                    ) / max(1.0, self.presentation.pixels_per_second)
                     anchor_start = float(self._drag_candidate["anchor_event_start"])
-                    snapped_time = self._resolve_snap_target_time(
-                        anchor_start + delta_seconds,
-                        modifiers=event.modifiers(),
-                        exclude_event_ids=tuple(self.presentation.selected_event_ids),
-                    )
-                    if snapped_time is not None:
-                        delta_seconds = snapped_time - anchor_start
+                    preview_time = self._move_drag_preview_time
+                    if preview_time is None:
+                        delta_seconds = (
+                            event.position().x() - float(self._drag_candidate["anchor_x"])
+                        ) / max(1.0, self.presentation.pixels_per_second)
+                        preview_time = anchor_start + delta_seconds
+                    delta_seconds = float(preview_time) - anchor_start
                     target_layer_id = self._event_drop_target_layer_id(event.position())
                     source_layer_id = self._drag_candidate["source_layer_id"]
                     if target_layer_id == source_layer_id:
@@ -578,6 +596,8 @@ class _TimelineCanvasInteractionMixin:
                 self._drag_candidate = None
                 self._dragging_events = False
                 self._snap_indicator_time = None
+                self._move_drag_preview_time = None
+                self._move_drag_snap_time = None
                 self.update()
                 if event.isAccepted():
                     return
@@ -700,10 +720,6 @@ class _TimelineCanvasInteractionMixin:
             return
         if not has_primary and not has_shift and event.key() == Qt.Key.Key_M:
             self.edit_mode_requested.emit("move")
-            event.accept()
-            return
-        if not has_primary and not has_shift and event.key() == Qt.Key.Key_R:
-            self.edit_mode_requested.emit("region")
             event.accept()
             return
         if not has_primary and not has_shift and event.key() == Qt.Key.Key_F:
@@ -1347,6 +1363,59 @@ class _TimelineCanvasInteractionMixin:
                     times.extend((float(event.start), float(event.end)))
         return tuple(times)
 
+    def _update_event_drag_preview(
+        self: Any,
+        pos: QPointF,
+        *,
+        modifiers: Qt.KeyboardModifier,
+    ) -> None:
+        if self._drag_candidate is None:
+            return
+        raw_delta = (float(pos.x()) - float(self._drag_candidate["anchor_x"])) / max(
+            1.0,
+            self.presentation.pixels_per_second,
+        )
+        anchor_time = float(self._drag_candidate["anchor_event_start"])
+        raw_time = anchor_time + raw_delta
+        snapped_time = self._resolve_drag_snap_target_time(
+            raw_time,
+            modifiers=modifiers,
+            exclude_event_ids=tuple(self.presentation.selected_event_ids),
+        )
+        preview_time = snapped_time if snapped_time is not None else raw_time
+        self._move_drag_preview_time = float(preview_time)
+        self._snap_indicator_time = float(preview_time)
+
+    def _resolve_drag_snap_target_time(
+        self: Any,
+        time_seconds: float,
+        *,
+        modifiers: Qt.KeyboardModifier,
+        exclude_event_ids: tuple[EventId, ...],
+    ) -> float | None:
+        if self._move_drag_snap_time is not None:
+            if not self._snap_enabled or modifiers & Qt.KeyboardModifier.AltModifier:
+                self._move_drag_snap_time = None
+            else:
+                lock_delta_px = abs(float(time_seconds) - float(self._move_drag_snap_time)) * max(
+                    1.0,
+                    self.presentation.pixels_per_second,
+                )
+                sticky_radius_px = float(SNAP_MAGNETISM_RADIUS_PX) * float(
+                    MOVE_DRAG_SNAP_LOCK_MULTIPLIER
+                )
+                if lock_delta_px <= sticky_radius_px:
+                    return float(self._move_drag_snap_time)
+                self._move_drag_snap_time = None
+
+        snapped_time = self._resolve_snap_target_time(
+            time_seconds,
+            modifiers=modifiers,
+            exclude_event_ids=exclude_event_ids,
+        )
+        self._move_drag_snap_time = float(snapped_time) if snapped_time is not None else None
+        return snapped_time
+
     def _resolve_snap_target_time(
         self: Any,
         time_seconds: float,
@@ -1430,11 +1499,23 @@ class _TimelineCanvasInteractionMixin:
         self._marquee_rect = None
 
         if rect is None or rect.width() < DRAG_THRESHOLD_PX and rect.height() < DRAG_THRESHOLD_PX:
-            self._select_take_or_layer_for_lane(
-                layer_id=candidate["origin_layer_id"],
-                take_id=candidate["origin_take_id"],
-                modifiers=candidate["modifiers"],
-            )
+            if (
+                candidate["edit_mode"] == "fix"
+                and candidate["fix_action"] == "select"
+                and candidate["origin_event_id"] is not None
+            ):
+                self.event_selected.emit(
+                    candidate["origin_layer_id"],
+                    candidate["origin_take_id"],
+                    candidate["origin_event_id"],
+                    self._selection_mode_for_modifiers(candidate["modifiers"]),
+                )
+            else:
+                self._select_take_or_layer_for_lane(
+                    layer_id=candidate["origin_layer_id"],
+                    take_id=candidate["origin_take_id"],
+                    modifiers=candidate["modifiers"],
+                )
             self.update()
             return
 
@@ -1622,8 +1703,6 @@ class _TimelineCanvasInteractionMixin:
 
         first_rect, first_layer_id = rows[0]
         if pointer_y <= float(first_rect.top()):
-            if str(first_layer_id) == "source_audio":
-                return first_layer_id, False
             return None, True
 
         for index, (rect, layer_id) in enumerate(rows):
@@ -1632,8 +1711,6 @@ class _TimelineCanvasInteractionMixin:
             midpoint = top + (float(rect.height()) * 0.5)
             if pointer_y <= midpoint:
                 if index == 0:
-                    if str(layer_id) == "source_audio":
-                        return layer_id, False
                     return None, True
                 return rows[index - 1][1], False
             if pointer_y <= bottom:

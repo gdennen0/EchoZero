@@ -5,6 +5,7 @@ Connects explicit missed-event review intents to durable Foundry signal material
 
 from __future__ import annotations
 
+from copy import deepcopy
 import json
 from pathlib import Path
 
@@ -56,6 +57,31 @@ def _runtime_event(runtime: AppShellRuntime, *, layer_id: LayerId, event_id: str
                 if str(event.id) == event_id:
                     return event
     raise AssertionError(f"Runtime event not found: {event_id}")
+
+
+def _ensure_two_review_target_ids(
+    runtime: AppShellRuntime,
+    *,
+    layer_id: LayerId,
+    seed_event_id: str,
+) -> tuple[object, list[str]]:
+    layer = next(layer for layer in runtime.presentation().layers if layer.layer_id == layer_id)
+    event_ids = [str(event.event_id) for event in layer.events]
+    if len(event_ids) < 2:
+        runtime.dispatch(
+            CommitMissedEventReview(
+                layer_id=layer_id,
+                take_id=layer.main_take_id,
+                time_range=TimeRange(0.2, 0.34),
+                label="Kick",
+                source_event_id=seed_event_id,
+                payload_ref=seed_event_id,
+            )
+        )
+        layer = next(layer for layer in runtime.presentation().layers if layer.layer_id == layer_id)
+        event_ids = [str(event.event_id) for event in layer.events]
+    assert len(event_ids) >= 2
+    return layer, event_ids[:2]
 
 
 def test_timeline_fix_mode_routes_review_commits_through_shared_pipeline_controller(
@@ -161,23 +187,11 @@ def test_app_shell_runtime_commit_verified_event_review_creates_signal(tmp_path:
 def test_app_shell_runtime_commit_verified_events_review_batches_signals(tmp_path: Path):
     runtime, layer_id, event_id, _start, _end = _build_timeline_review_runtime(tmp_path)
     try:
-        layer = next(layer for layer in runtime.presentation().layers if layer.layer_id == layer_id)
-        event_ids = [str(event.event_id) for event in layer.events]
-        if len(event_ids) < 2:
-            runtime.dispatch(
-                CommitMissedEventReview(
-                    layer_id=layer_id,
-                    take_id=layer.main_take_id,
-                    time_range=TimeRange(0.2, 0.34),
-                    label="Kick",
-                    source_event_id=event_id,
-                    payload_ref=event_id,
-                )
-            )
-            layer = next(layer for layer in runtime.presentation().layers if layer.layer_id == layer_id)
-            event_ids = [str(event.event_id) for event in layer.events]
-        assert len(event_ids) >= 2
-        target_ids = event_ids[:2]
+        layer, target_ids = _ensure_two_review_target_ids(
+            runtime,
+            layer_id=layer_id,
+            seed_event_id=event_id,
+        )
 
         runtime.dispatch(
             CommitVerifiedEventsReview(
@@ -218,6 +232,49 @@ def test_app_shell_runtime_commit_verified_events_review_batches_signals(tmp_pat
         runtime.shutdown()
 
 
+def test_app_shell_runtime_commit_verified_events_review_supports_undo(tmp_path: Path):
+    runtime, layer_id, event_id, _start, _end = _build_timeline_review_runtime(tmp_path)
+    try:
+        layer, target_ids = _ensure_two_review_target_ids(
+            runtime,
+            layer_id=layer_id,
+            seed_event_id=event_id,
+        )
+        before_review_metadata = {
+            target_id: deepcopy(_runtime_event(runtime, layer_id=layer_id, event_id=target_id).metadata.get("review"))
+            for target_id in target_ids
+        }
+
+        runtime.dispatch(
+            CommitVerifiedEventsReview(
+                event_refs=[
+                    EventRef(
+                        layer_id=layer_id,
+                        take_id=layer.main_take_id,
+                        event_id=EventId(target_ids[0]),
+                    ),
+                    EventRef(
+                        layer_id=layer_id,
+                        take_id=layer.main_take_id,
+                        event_id=EventId(target_ids[1]),
+                    ),
+                ],
+                review_note="batch verify undo",
+            )
+        )
+
+        assert runtime.can_undo() is True
+        assert runtime.undo_label() == "Verify Events"
+
+        runtime.undo()
+
+        for target_id in target_ids:
+            runtime_event = _runtime_event(runtime, layer_id=layer_id, event_id=target_id)
+            assert runtime_event.metadata.get("review") == before_review_metadata[target_id]
+    finally:
+        runtime.shutdown()
+
+
 def test_app_shell_runtime_commit_rejected_event_review_demotes_event_and_creates_signal(
     tmp_path: Path,
 ):
@@ -252,23 +309,11 @@ def test_app_shell_runtime_commit_rejected_event_review_demotes_event_and_create
 def test_app_shell_runtime_commit_rejected_events_review_batches_signals(tmp_path: Path):
     runtime, layer_id, event_id, _start, _end = _build_timeline_review_runtime(tmp_path)
     try:
-        layer = next(layer for layer in runtime.presentation().layers if layer.layer_id == layer_id)
-        event_ids = [str(event.event_id) for event in layer.events]
-        if len(event_ids) < 2:
-            runtime.dispatch(
-                CommitMissedEventReview(
-                    layer_id=layer_id,
-                    take_id=layer.main_take_id,
-                    time_range=TimeRange(0.2, 0.34),
-                    label="Kick",
-                    source_event_id=event_id,
-                    payload_ref=event_id,
-                )
-            )
-            layer = next(layer for layer in runtime.presentation().layers if layer.layer_id == layer_id)
-            event_ids = [str(event.event_id) for event in layer.events]
-        assert len(event_ids) >= 2
-        target_ids = event_ids[:2]
+        layer, target_ids = _ensure_two_review_target_ids(
+            runtime,
+            layer_id=layer_id,
+            seed_event_id=event_id,
+        )
 
         runtime.dispatch(
             CommitRejectedEventsReview(
@@ -300,6 +345,49 @@ def test_app_shell_runtime_commit_rejected_events_review_batches_signals(tmp_pat
             runtime_event = _runtime_event(runtime, layer_id=layer_id, event_id=target_id)
             assert runtime_event.metadata["review"]["promotion_state"] == "demoted"
             assert runtime_event.metadata["review"]["review_state"] == "corrected"
+    finally:
+        runtime.shutdown()
+
+
+def test_app_shell_runtime_commit_rejected_events_review_supports_undo(tmp_path: Path):
+    runtime, layer_id, event_id, _start, _end = _build_timeline_review_runtime(tmp_path)
+    try:
+        layer, target_ids = _ensure_two_review_target_ids(
+            runtime,
+            layer_id=layer_id,
+            seed_event_id=event_id,
+        )
+        before_review_metadata = {
+            target_id: deepcopy(_runtime_event(runtime, layer_id=layer_id, event_id=target_id).metadata.get("review"))
+            for target_id in target_ids
+        }
+
+        runtime.dispatch(
+            CommitRejectedEventsReview(
+                event_refs=[
+                    EventRef(
+                        layer_id=layer_id,
+                        take_id=layer.main_take_id,
+                        event_id=EventId(target_ids[0]),
+                    ),
+                    EventRef(
+                        layer_id=layer_id,
+                        take_id=layer.main_take_id,
+                        event_id=EventId(target_ids[1]),
+                    ),
+                ],
+                review_note="batch reject undo",
+            )
+        )
+
+        assert runtime.can_undo() is True
+        assert runtime.undo_label() == "Reject Events"
+
+        runtime.undo()
+
+        for target_id in target_ids:
+            runtime_event = _runtime_event(runtime, layer_id=layer_id, event_id=target_id)
+            assert runtime_event.metadata.get("review") == before_review_metadata[target_id]
     finally:
         runtime.shutdown()
 
@@ -358,6 +446,46 @@ def test_app_shell_runtime_commit_missed_events_review_batches_signals_and_creat
         runtime.shutdown()
 
 
+def test_app_shell_runtime_commit_missed_events_review_supports_undo(tmp_path: Path):
+    runtime, layer_id, event_id, _start, _end = _build_timeline_review_runtime(tmp_path)
+    try:
+        before_layer = next(layer for layer in runtime.presentation().layers if layer.layer_id == layer_id)
+        before_event_ids = {str(event.event_id) for event in before_layer.events}
+
+        runtime.dispatch(
+            CommitMissedEventsReview(
+                intents=[
+                    CommitMissedEventReview(
+                        layer_id=layer_id,
+                        take_id=before_layer.main_take_id,
+                        time_range=TimeRange(0.25, 0.37),
+                        label="Kick",
+                        source_event_id=event_id,
+                        payload_ref=event_id,
+                    ),
+                    CommitMissedEventReview(
+                        layer_id=layer_id,
+                        take_id=before_layer.main_take_id,
+                        time_range=TimeRange(0.45, 0.57),
+                        label="Kick",
+                        source_event_id="synthetic_onset_b",
+                        payload_ref="synthetic_onset_b",
+                    ),
+                ]
+            )
+        )
+
+        assert runtime.can_undo() is True
+        assert runtime.undo_label() == "Add Missed Events"
+
+        undone = runtime.undo()
+        undone_layer = next(layer for layer in undone.layers if layer.layer_id == layer_id)
+        undone_event_ids = {str(event.event_id) for event in undone_layer.events}
+        assert undone_event_ids == before_event_ids
+    finally:
+        runtime.shutdown()
+
+
 def test_app_shell_runtime_commit_relabel_event_review_updates_label_and_creates_signal(
     tmp_path: Path,
     monkeypatch,
@@ -399,6 +527,10 @@ def test_app_shell_runtime_commit_relabel_event_review_updates_label_and_creates
         assert manifest_rows
         assert any(row["decision_kind"] == "relabeled" for row in manifest_rows)
         assert any(row["class_label"] == "snare" for row in manifest_rows)
+        relabeled_row = next(row for row in manifest_rows if row["decision_kind"] == "relabeled")
+        assert Path(relabeled_row["clip_path"]).is_absolute() is False
+        assert Path(relabeled_row["source_audio_path"]).is_absolute() is False
+        assert (export_root / relabeled_row["clip_path"]).exists()
     finally:
         runtime.shutdown()
 
@@ -443,5 +575,9 @@ def test_app_shell_runtime_commit_boundary_corrected_event_review_updates_timing
             if line.strip()
         ]
         assert any(row["decision_kind"] == "boundary_corrected" for row in manifest_rows)
+        corrected_row = next(row for row in manifest_rows if row["decision_kind"] == "boundary_corrected")
+        assert Path(corrected_row["clip_path"]).is_absolute() is False
+        assert Path(corrected_row["source_audio_path"]).is_absolute() is False
+        assert (export_root / corrected_row["clip_path"]).exists()
     finally:
         runtime.shutdown()

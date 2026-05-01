@@ -86,6 +86,8 @@ class _MA3PushHost(Protocol):
 
     def _normalize_manual_push_track_option(self, raw_track: Any) -> ManualPushTrackOption: ...
 
+    def _normalize_manual_push_sequence_option(self, raw_sequence: Any) -> ManualPushSequenceOption: ...
+
 
 class TimelineOrchestratorMA3PushMixin:
     """Handles saved-route MA3 updates and direct layer push execution."""
@@ -139,16 +141,22 @@ class TimelineOrchestratorMA3PushMixin:
         *,
         layer_id: LayerId,
         target_track_coord: str,
+        ma3_channel_no: int | None = None,
         sequence_action: MA3TrackSequenceAction | None = None,
     ) -> None:
         layer = self._find_layer(timeline, layer_id)
         self._require_ma3_event_layer(layer, action_name="SetLayerMA3Route")
+        route_events_for_sequence = self._events_for_layer_sequence_prep(layer)
         self._prepare_target_track_for_push_if_needed(
             target_track_coord=target_track_coord,
             sequence_action=sequence_action,
             action_name="SetLayerMA3Route",
+            selected_events=route_events_for_sequence,
+            allow_hitmaker_auto=True,
+            fallback_event_type="hit",
         )
         layer.sync.ma3_track_coord = target_track_coord
+        layer.sync.ma3_channel_no = ma3_channel_no
 
     def _handle_push_layer_to_ma3(self, timeline: Timeline, intent: PushLayerToMA3) -> None:
         layer = self._find_layer(timeline, intent.layer_id)
@@ -156,10 +164,14 @@ class TimelineOrchestratorMA3PushMixin:
 
         selected_events = self._resolve_push_events_for_layer(timeline, layer, intent)
         target_track_coord = self._resolve_push_target_coord(layer, intent)
+        ma3_channel_no = self._resolve_push_target_channel_no(layer, intent)
         self._prepare_target_track_for_push_if_needed(
             target_track_coord=target_track_coord,
             sequence_action=intent.sequence_action,
             action_name="PushLayerToMA3",
+            selected_events=selected_events,
+            allow_hitmaker_auto=True,
+            fallback_event_type="hit",
         )
         session = cast(_MA3PushHost, self).session_service.get_session()
         push_offset_seconds = self._resolve_project_ma3_push_offset_seconds(session)
@@ -174,6 +186,7 @@ class TimelineOrchestratorMA3PushMixin:
                     "start_push",
                     error_message="Sync service does not support MA3 async push operations",
                     target_track_coord=target_track_coord,
+                    ma3_channel_no=ma3_channel_no,
                     selected_events=selected_events,
                     transfer_mode=intent.apply_mode.value,
                     start_offset_seconds=push_offset_seconds,
@@ -191,6 +204,7 @@ class TimelineOrchestratorMA3PushMixin:
 
         self._apply_sync_push_transfer_legacy(
             target_track_coord=target_track_coord,
+            ma3_channel_no=ma3_channel_no,
             selected_events=selected_events,
             transfer_mode=intent.apply_mode.value,
             start_offset_seconds=push_offset_seconds,
@@ -211,6 +225,7 @@ class TimelineOrchestratorMA3PushMixin:
         self,
         *,
         target_track_coord: str,
+        ma3_channel_no: int | None,
         selected_events: list[Event],
         transfer_mode: str,
         start_offset_seconds: float,
@@ -223,9 +238,23 @@ class TimelineOrchestratorMA3PushMixin:
         candidates = [
             {
                 "target_track_coord": target_track_coord,
+                "ma3_channel_no": ma3_channel_no,
                 "selected_events": selected_events,
                 "transfer_mode": transfer_mode,
                 "start_offset_seconds": start_offset_seconds,
+            },
+            {
+                "target_track_coord": target_track_coord,
+                "selected_events": selected_events,
+                "transfer_mode": transfer_mode,
+                "start_offset_seconds": start_offset_seconds,
+            },
+            {
+                "target_track_coord": target_track_coord,
+                "ma3_channel_no": ma3_channel_no,
+                "selected_events": selected_events,
+                "transfer_mode": transfer_mode,
+                "push_offset_seconds": start_offset_seconds,
             },
             {
                 "target_track_coord": target_track_coord,
@@ -235,6 +264,7 @@ class TimelineOrchestratorMA3PushMixin:
             },
             {
                 "target_track_coord": target_track_coord,
+                "ma3_channel_no": ma3_channel_no,
                 "selected_events": selected_events,
                 "transfer_mode": transfer_mode,
             },
@@ -486,6 +516,9 @@ class TimelineOrchestratorMA3PushMixin:
         target_track_coord: str,
         sequence_action: MA3TrackSequenceAction | None,
         action_name: str,
+        selected_events: list[Event] | None,
+        allow_hitmaker_auto: bool,
+        fallback_event_type: str | None = None,
     ) -> None:
         target_track = self._cached_manual_push_track_option_by_coord(
             target_track_coord,
@@ -496,18 +529,60 @@ class TimelineOrchestratorMA3PushMixin:
                 "refresh_push_track_options",
                 error_message="Sync service does not support MA3 push-track refresh",
                 target_track_coord=target_track_coord,
+                required=False,
             )
             target_track = self._cached_manual_push_track_option_by_coord(
                 target_track_coord,
                 refresh=True,
             )
         if target_track is not None and target_track.sequence_no is not None:
+            try:
+                self._prepare_track_for_push(target_track_coord)
+                return
+            except Exception as exc:
+                if not (allow_hitmaker_auto and self._is_no_sequence_assigned_error(exc)):
+                    raise
+                auto_created_sequence = self._create_hitmaker_sequence_for_events(
+                    selected_events=selected_events or [],
+                    preferred_name=self._preferred_hitmaker_sequence_name_for_track(target_track),
+                    fallback_event_type=fallback_event_type,
+                )
+                if auto_created_sequence is None:
+                    raise
+                sequence_no = auto_created_sequence.number
+                self._assign_track_sequence(
+                    target_track_coord=target_track_coord,
+                    sequence_no=sequence_no,
+                )
+                self._prepare_track_for_push(target_track_coord)
+                self._update_cached_track_sequence_no(
+                    target_track_coord=target_track_coord,
+                    sequence_no=sequence_no,
+                )
             return
 
         if target_track is None and sequence_action is None:
             return
 
         if sequence_action is None:
+            if allow_hitmaker_auto:
+                auto_created_sequence = self._create_hitmaker_sequence_for_events(
+                    selected_events=selected_events or [],
+                    preferred_name=self._preferred_hitmaker_sequence_name_for_track(target_track),
+                    fallback_event_type=fallback_event_type,
+                )
+                if auto_created_sequence is not None:
+                    sequence_no = auto_created_sequence.number
+                    self._assign_track_sequence(
+                        target_track_coord=target_track_coord,
+                        sequence_no=sequence_no,
+                    )
+                    self._prepare_track_for_push(target_track_coord)
+                    self._update_cached_track_sequence_no(
+                        target_track_coord=target_track_coord,
+                        sequence_no=sequence_no,
+                    )
+                    return
             raise ValueError(
                 f"{action_name} target track {target_track_coord} has no assigned MA3 sequence"
             )
@@ -520,7 +595,18 @@ class TimelineOrchestratorMA3PushMixin:
                 )
             sequence_no = sequence_action.sequence_no
         else:
-            created_sequence = self._create_ma3_sequence(sequence_action)
+            if allow_hitmaker_auto:
+                created_sequence = self._create_hitmaker_sequence_for_events(
+                    selected_events=selected_events or [],
+                    preferred_name=sequence_action.preferred_name,
+                    fallback_event_type=fallback_event_type,
+                )
+                if created_sequence is None:
+                    raise ValueError(
+                        f"{action_name} requires a hit-capable event type to create sequences via HitMaker"
+                    )
+            else:
+                created_sequence = self._create_ma3_sequence(sequence_action)
             sequence_no = created_sequence.number
 
         self._assign_track_sequence(
@@ -532,6 +618,138 @@ class TimelineOrchestratorMA3PushMixin:
             target_track_coord=target_track_coord,
             sequence_no=sequence_no,
         )
+
+    def _create_hitmaker_sequence_for_events(
+        self,
+        *,
+        selected_events: list[Event],
+        preferred_name: str | None = None,
+        fallback_event_type: str | None = None,
+    ) -> ManualPushSequenceOption | None:
+        event_type = self._resolve_hit_event_type(selected_events)
+        if event_type is None:
+            normalized_fallback = str(fallback_event_type or "").strip().lower()
+            if normalized_fallback:
+                event_type = normalized_fallback
+        if event_type is None:
+            return None
+        resolved_preferred_name = preferred_name
+        if resolved_preferred_name is None or not str(resolved_preferred_name).strip():
+            resolved_preferred_name = self._derive_hit_sequence_name(
+                selected_events,
+                event_type=event_type,
+            )
+        raw_sequence = self._call_sync_capability(
+            "create_sequence_for_event_type",
+            error_message="Sync service does not support HitMaker sequence creation",
+            required=False,
+            event_type=event_type,
+            sequence_type="go_hit",
+            preferred_name=resolved_preferred_name,
+        )
+        if raw_sequence is None:
+            return None
+        created_sequence = cast(_MA3PushHost, self)._normalize_manual_push_sequence_option(raw_sequence)
+        session = cast(_MA3PushHost, self).session_service.get_session()
+        for index, existing in enumerate(session.manual_push_flow.available_sequences):
+            if existing.number == created_sequence.number:
+                session.manual_push_flow.available_sequences[index] = created_sequence
+                break
+        else:
+            session.manual_push_flow.available_sequences.append(created_sequence)
+        session.manual_push_flow.available_sequences.sort(key=lambda value: value.number)
+        return created_sequence
+
+    def _events_for_layer_sequence_prep(self, layer: Layer) -> list[Event]:
+        main_take = cast(_MA3PushHost, self)._main_take(layer)
+        if main_take is None or not main_take.events:
+            return []
+        promoted_main_events = [event for event in main_take.events if event.is_promoted]
+        if promoted_main_events:
+            return promoted_main_events
+        return list(main_take.events)
+
+    @staticmethod
+    def _resolve_hit_event_type(selected_events: list[Event]) -> str | None:
+        hit_tokens = {
+            "hit",
+            "kick",
+            "snare",
+            "clap",
+            "rim",
+            "rimshot",
+            "tom",
+            "hat",
+            "hihat",
+            "hi-hat",
+            "ride",
+            "crash",
+            "perc",
+            "percussion",
+        }
+        token_score: dict[str, int] = {}
+
+        def push_token(raw_value: object) -> None:
+            if raw_value is None:
+                return
+            text = str(raw_value).strip().lower()
+            if not text:
+                return
+            text = text.replace("-", " ").replace("_", " ")
+            for part in text.split():
+                token = part.strip()
+                if not token:
+                    continue
+                if token in {"event", "events", "main", "take", "cue"}:
+                    continue
+                token_score[token] = token_score.get(token, 0) + 1
+
+        for event in selected_events:
+            push_token(event.label)
+            for key in ("class", "label", "type", "instrument", "event_type"):
+                push_token(event.classifications.get(key))
+            detection = event.detection_metadata
+            for key in ("class", "label", "type", "instrument"):
+                push_token(detection.get(key))
+
+        ranked = sorted(token_score.items(), key=lambda item: (-item[1], item[0]))
+        for token, _score in ranked:
+            if token in hit_tokens or "hit" in token:
+                return token
+        return None
+
+    @staticmethod
+    def _derive_hit_sequence_name(
+        selected_events: list[Event],
+        *,
+        event_type: str,
+    ) -> str | None:
+        cleaned_event_type = str(event_type or "").strip()
+        if not cleaned_event_type:
+            return None
+        if selected_events:
+            source_label = str(selected_events[0].label or "").strip()
+            if source_label and source_label.lower() not in {"event", "events"}:
+                return source_label
+        return cleaned_event_type.replace("_", " ").replace("-", " ").title()
+
+    @staticmethod
+    def _is_no_sequence_assigned_error(exc: Exception) -> bool:
+        text = str(exc or "").strip().lower()
+        if "no_sequence_assigned" in text:
+            return True
+        if "no sequence assigned" in text:
+            return True
+        return False
+
+    @staticmethod
+    def _preferred_hitmaker_sequence_name_for_track(
+        track: ManualPushTrackOption | None,
+    ) -> str | None:
+        if track is None:
+            return None
+        resolved = str(track.name or "").strip()
+        return resolved or None
 
     def _cached_manual_push_track_option_by_coord(
         self,
@@ -569,11 +787,14 @@ class TimelineOrchestratorMA3PushMixin:
         capability_name: str,
         *,
         error_message: str,
+        required: bool = True,
         **kwargs: Any,
     ) -> Any:
         sync_service = cast(_MA3PushHost, self).sync_service
         capability = getattr(sync_service, capability_name, None)
         if not callable(capability):
+            if not required:
+                return None
             raise RuntimeError(error_message)
         return capability(**kwargs)
 
@@ -586,6 +807,14 @@ class TimelineOrchestratorMA3PushMixin:
         assert intent.target_mode is MA3PushTargetMode.DIFFERENT_TRACK_ONCE
         assert intent.target_track_coord is not None
         return intent.target_track_coord
+
+    @staticmethod
+    def _resolve_push_target_channel_no(layer: Layer, intent: PushLayerToMA3) -> int | None:
+        if intent.target_mode is MA3PushTargetMode.SAVED_ROUTE:
+            if intent.ma3_channel_no is not None:
+                return intent.ma3_channel_no
+            return layer.sync.ma3_channel_no
+        return intent.ma3_channel_no
 
     def _resolve_push_events_for_layer(
         self,

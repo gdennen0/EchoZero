@@ -130,6 +130,11 @@ def main(argv: list[str] | None = None) -> int:
         app_settings_service=app_settings_service,
         audio_output_config=audio_output_config,
     )
+    if sync_bridge is not None:
+        try:
+            surface.runtime.enable_sync()
+        except Exception as exc:
+            print(f"ma3_sync_enable_failed={exc}", flush=True)
     widget = surface.widget
     widget.show()
     fit_window_to_available_screen(widget)

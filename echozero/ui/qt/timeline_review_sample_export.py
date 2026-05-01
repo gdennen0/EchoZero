@@ -65,6 +65,8 @@ def export_timeline_review_sample(
             "end_seconds": float(end_seconds),
         }
 
+    source_manifest_path = _portable_manifest_path(source_audio, export_root=export_root)
+    clip_manifest_path = _portable_manifest_path(clip_path, export_root=export_root)
     manifest_row = {
         "ts_utc": datetime.now(UTC).isoformat(),
         "signal_id": signal.id,
@@ -73,8 +75,8 @@ def export_timeline_review_sample(
         "class_label": normalized_class,
         "decision_kind": decision_kind.value,
         "review_outcome": signal.review_outcome.value,
-        "source_audio_path": str(source_audio.resolve()),
-        "clip_path": str(clip_path.resolve()),
+        "source_audio_path": source_manifest_path,
+        "clip_path": clip_manifest_path,
         "start_seconds": float(start_seconds),
         "end_seconds": float(end_seconds),
     }
@@ -138,6 +140,18 @@ def _default_review_export_root() -> Path:
     if local_app_data:
         return (Path(local_app_data) / "EchoZero" / "data" / "tmp" / "review_samples").resolve()
     return (Path.home() / ".echozero" / "data" / "tmp" / "review_samples").resolve()
+
+
+def _portable_manifest_path(path: Path, *, export_root: Path) -> str:
+    """Return a manifest-safe path that does not require absolute machine paths."""
+
+    candidate = path.expanduser()
+    if not candidate.is_absolute():
+        return candidate.as_posix()
+    try:
+        return candidate.relative_to(export_root).as_posix()
+    except ValueError:
+        return candidate.name
 
 
 def _safe_segment(value: str) -> str:

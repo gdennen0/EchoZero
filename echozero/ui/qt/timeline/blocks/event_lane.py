@@ -30,6 +30,7 @@ class EventLanePresentation:
     header_width: int
     layer_kind: LayerKind = LayerKind.EVENT
     event_height: int = 22
+    event_hit_min_width_px: float | None = None
     dimmed: bool = False
     viewport_width: int = 1440
     default_fill_hex: str | None = None
@@ -134,7 +135,21 @@ class EventLaneBlock:
                         Qt.AlignmentFlag.AlignVCenter,
                         event.label,
                     )
+                hit_rect = rendered_rect
+                min_hit_width = float(presentation.event_hit_min_width_px or 0.0)
+                if min_hit_width > rendered_rect.width():
+                    available_width = max(0.0, content_right - content_left)
+                    target_width = min(min_hit_width, available_width)
+                    if target_width > rendered_rect.width():
+                        left = rendered_rect.center().x() - (target_width * 0.5)
+                        left = max(content_left, min(left, content_right - target_width))
+                        hit_rect = QRectF(
+                            left,
+                            rendered_rect.y(),
+                            target_width,
+                            rendered_rect.height(),
+                        )
                 rects.append(
-                    (rendered_rect, presentation.layer_id, presentation.take_id, event.event_id)
+                    (hit_rect, presentation.layer_id, presentation.take_id, event.event_id)
                 )
         return rects

@@ -7,15 +7,18 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
+from datetime import datetime
 from threading import Event
 from time import monotonic, sleep
 
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtWidgets import (
+    QCheckBox,
     QFormLayout,
     QGroupBox,
     QHBoxLayout,
     QLabel,
+    QPlainTextEdit,
     QPushButton,
     QVBoxLayout,
     QWidget,
@@ -35,6 +38,7 @@ from echozero.infrastructure.sync.ma3_osc import (
 
 _PING_TIMEOUT_SECONDS = 1.5
 _PING_SETTLE_SECONDS = 0.25
+_MONITOR_REFRESH_MS = 500
 
 
 @dataclass(frozen=True, slots=True)
@@ -54,10 +58,12 @@ class OscSettingsPanel(QWidget):
         self,
         *,
         values_provider: Callable[[], Mapping[str, object]],
+        monitor_provider: Callable[[], list[Mapping[str, object]]] | None = None,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
         self._values_provider = values_provider
+        self._monitor_provider = monitor_provider
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -104,7 +110,49 @@ class OscSettingsPanel(QWidget):
         group_layout.addLayout(actions)
 
         layout.addWidget(group)
+        layout.addWidget(self._build_monitor_group())
         self._set_status("unknown", "Unknown", "Run Check Status to validate OSC endpoints.")
+        self._sync_monitor_state()
+
+    def _build_monitor_group(self) -> QGroupBox:
+        group = QGroupBox("Recent Incoming OSC", self)
+        group.setProperty("section", True)
+        layout = QVBoxLayout(group)
+        layout.setContentsMargins(10, 10, 10, 10)
+        layout.setSpacing(6)
+
+        self._monitor_status = QLabel(
+            "Monitor unavailable in this shell.",
+            group,
+        )
+        self._monitor_status.setWordWrap(True)
+        layout.addWidget(self._monitor_status)
+
+        self._monitor_output = QPlainTextEdit(group)
+        self._monitor_output.setReadOnly(True)
+        self._monitor_output.setLineWrapMode(QPlainTextEdit.LineWrapMode.NoWrap)
+        self._monitor_output.setMinimumHeight(118)
+        self._monitor_output.setPlainText("No inbound OSC messages yet.")
+        layout.addWidget(self._monitor_output)
+
+        actions = QHBoxLayout()
+        actions.setContentsMargins(0, 0, 0, 0)
+        actions.setSpacing(6)
+        actions.addStretch(1)
+        self._monitor_auto = QCheckBox("Auto Refresh", group)
+        self._monitor_auto.setChecked(True)
+        self._monitor_auto.toggled.connect(self._sync_monitor_state)
+        actions.addWidget(self._monitor_auto)
+        self._monitor_refresh = QPushButton("Refresh", group)
+        self._monitor_refresh.setProperty("appearance", "subtle")
+        self._monitor_refresh.clicked.connect(self._refresh_monitor)
+        actions.addWidget(self._monitor_refresh)
+        layout.addLayout(actions)
+
+        self._monitor_timer = QTimer(group)
+        self._monitor_timer.setInterval(_MONITOR_REFRESH_MS)
+        self._monitor_timer.timeout.connect(self._refresh_monitor)
+        return group
 
     def mark_settings_dirty(self) -> None:
         """Reset connection health to unknown after OSC form edits."""
@@ -128,6 +176,86 @@ class OscSettingsPanel(QWidget):
         self._status_value.setStyleSheet(f"color: {color}; font-weight: 600;")
         self._status_detail.setStyleSheet(f"color: {color};")
         self._status_detail.setText(detail)
+
+    def _sync_monitor_state(self) -> None:
+        provider_available = callable(self._monitor_provider)
+        self._monitor_auto.setEnabled(provider_available)
+        self._monitor_refresh.setEnabled(provider_available)
+        if not provider_available:
+            self._monitor_timer.stop()
+            self._monitor_status.setStyleSheet("color: #8a5a00;")
+            self._monitor_status.setText(
+                "Live monitor unavailable: this surface has no active MA3 bridge hook."
+            )
+            self._monitor_output.setPlainText("No live OSC stream available in this shell.")
+            return
+
+        self._monitor_status.setStyleSheet("color: #0f7f3a;")
+        self._monitor_status.setText("Showing the latest inbound OSC messages seen by EZ.")
+        self._refresh_monitor()
+        if self._monitor_auto.isChecked():
+            self._monitor_timer.start()
+        else:
+            self._monitor_timer.stop()
+
+    def _refresh_monitor(self) -> None:
+        if not callable(self._monitor_provider):
+            return
+        try:
+            rows = list(self._monitor_provider())
+        except Exception as exc:
+            self._monitor_status.setStyleSheet("color: #8f1f1f;")
+            self._monitor_status.setText(f"Monitor read failed: {exc}")
+            return
+
+        lines = self._format_monitor_lines(rows)
+        if not lines:
+            self._monitor_output.setPlainText("No inbound OSC messages yet.")
+            return
+        self._monitor_output.setPlainText("\n".join(lines))
+        self._monitor_output.verticalScrollBar().setValue(
+            self._monitor_output.verticalScrollBar().maximum()
+        )
+
+    @staticmethod
+    def _format_monitor_lines(rows: list[Mapping[str, object]]) -> list[str]:
+        lines: list[str] = []
+        for row in rows[-12:]:
+            timestamp = OscSettingsPanel._format_monitor_timestamp(row.get("timestamp"))
+            message_type = str(row.get("message_type") or "unknown").strip() or "unknown"
+            change = str(row.get("change") or "unknown").strip() or "unknown"
+            fields = row.get("fields")
+            field_summary = OscSettingsPanel._monitor_field_summary(
+                fields if isinstance(fields, Mapping) else {}
+            )
+            lines.append(f"{timestamp} {message_type}.{change} {field_summary}".rstrip())
+        return lines
+
+    @staticmethod
+    def _format_monitor_timestamp(raw_timestamp: object) -> str:
+        try:
+            resolved = float(raw_timestamp)
+        except (TypeError, ValueError):
+            return "--:--:--"
+        if resolved <= 0:
+            return "--:--:--"
+        try:
+            return datetime.fromtimestamp(resolved).strftime("%H:%M:%S")
+        except (OverflowError, OSError, ValueError):
+            return "--:--:--"
+
+    @staticmethod
+    def _monitor_field_summary(fields: Mapping[str, object]) -> str:
+        keys = ("tc", "tg", "track", "to_seconds", "from_seconds", "delta_seconds", "status", "error")
+        parts: list[str] = []
+        for key in keys:
+            if key not in fields:
+                continue
+            value = fields.get(key)
+            if value in {None, ""}:
+                continue
+            parts.append(f"{key}={value}")
+        return " ".join(parts)
 
     def _on_check_status(self) -> None:
         config = self._resolve_config()

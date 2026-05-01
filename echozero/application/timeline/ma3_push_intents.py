@@ -278,6 +278,7 @@ class SetLayerMA3Route(TimelineIntent):
 
     layer_id: LayerId
     target_track_coord: str
+    ma3_channel_no: int | None = None
     sequence_action: MA3TrackSequenceAction | None = None
 
     def __post_init__(self) -> None:
@@ -287,6 +288,11 @@ class SetLayerMA3Route(TimelineIntent):
         if not target_track_coord:
             raise ValueError("SetLayerMA3Route requires a non-empty target_track_coord")
         self.target_track_coord = target_track_coord
+        self.ma3_channel_no = _coerce_optional_positive_int(
+            self.ma3_channel_no,
+            action_name="SetLayerMA3Route",
+            field_name="ma3_channel_no",
+        )
         self.sequence_action = _coerce_sequence_action(self.sequence_action)
 
 
@@ -312,6 +318,7 @@ class PushLayerToMA3(TimelineIntent):
     target_mode: MA3PushTargetMode | str = MA3PushTargetMode.SAVED_ROUTE
     apply_mode: MA3PushApplyMode | str = MA3PushApplyMode.MERGE
     target_track_coord: str | None = None
+    ma3_channel_no: int | None = None
     selected_event_ids: list[EventId] = field(default_factory=list)
     sequence_action: MA3TrackSequenceAction | None = None
 
@@ -325,6 +332,11 @@ class PushLayerToMA3(TimelineIntent):
 
         target_track_coord = str(self.target_track_coord or "").strip()
         self.target_track_coord = target_track_coord or None
+        self.ma3_channel_no = _coerce_optional_positive_int(
+            self.ma3_channel_no,
+            action_name="PushLayerToMA3",
+            field_name="ma3_channel_no",
+        )
         self.selected_event_ids = list(dict.fromkeys(self.selected_event_ids))
         self.sequence_action = _coerce_sequence_action(self.sequence_action)
 

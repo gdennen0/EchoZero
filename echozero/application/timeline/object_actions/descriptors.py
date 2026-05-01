@@ -141,6 +141,7 @@ _CANONICAL_NON_OBJECT_ACTION_IDS: set[str] = {
     "gain_unity",
     "gain_up",
     "import_smpte_audio_to_layer",
+    "layer.routing_settings",
     "live_sync_clear_pause_reason",
     "live_sync_set_armed_write",
     "live_sync_set_observe",
@@ -174,6 +175,7 @@ _CANONICAL_NON_OBJECT_ACTION_IDS: set[str] = {
     "transfer.plan_apply",
     "transfer.plan_cancel",
     "transfer.plan_preview",
+    "transfer.match_ma3_cues",
     "transfer.route_layer_track",
     "transfer.send_selection",
     "transfer.send_to_track_once",
@@ -247,6 +249,7 @@ def object_action_descriptors() -> tuple[ActionDescriptor, ...]:
 def pipeline_actions_for_audio_layer(
     *,
     is_stem_capable: bool,
+    is_onset_capable: bool = False,
     is_drum_capable: bool,
     is_song_drum_capable: bool = False,
 ) -> tuple[ActionDescriptor, ...]:
@@ -260,11 +263,12 @@ def pipeline_actions_for_audio_layer(
                 EXTRACT_SONG_SECTIONS_DESCRIPTOR,
             )
         )
+    if is_onset_capable:
+        descriptors.append(EXTRACT_DRUM_EVENTS_DESCRIPTOR)
     if is_drum_capable:
         descriptors.extend(
             (
                 EXTRACT_CLASSIFIED_DRUMS_DESCRIPTOR,
-                EXTRACT_DRUM_EVENTS_DESCRIPTOR,
             )
         )
     return tuple(descriptors)

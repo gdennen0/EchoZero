@@ -8,7 +8,6 @@ from dataclasses import dataclass, field
 
 from echozero.application.presentation.models import (
     LayerPresentation,
-    RegionPresentation,
     SectionCuePresentation,
     SectionRegionPresentation,
     TimelinePresentation,
@@ -72,8 +71,6 @@ class TimelineAssembler:
                 selected_event_refs=list(state.selected_event_refs),
                 playback_output_channels=max(0, int(session.playback_state.output_channels)),
                 selected_event_ids=list(state.selected_event_ids),
-                selected_region_id=timeline.selection.selected_region_id,
-                regions=self._assemble_regions(timeline),
                 pixels_per_second=timeline.viewport.pixels_per_second,
                 scroll_x=timeline.viewport.scroll_x,
                 scroll_y=timeline.viewport.scroll_y,
@@ -87,31 +84,6 @@ class TimelineAssembler:
                     song_version_id=str(timeline.song_version_id),
                 ),
             )
-
-    @staticmethod
-    def _assemble_regions(timeline: Timeline) -> list[RegionPresentation]:
-        ordered = sorted(
-            timeline.regions,
-            key=lambda region: (
-                float(region.start),
-                float(region.end),
-                int(region.order_index),
-                str(region.id),
-            ),
-        )
-        selected_region_id = timeline.selection.selected_region_id
-        return [
-            RegionPresentation(
-                region_id=region.id,
-                start=float(region.start),
-                end=float(region.end),
-                label=region.label,
-                color=region.color,
-                kind=region.kind,
-                is_selected=region.id == selected_region_id,
-            )
-            for region in ordered
-        ]
 
     @staticmethod
     def _assemble_section_cues(timeline: Timeline) -> list[SectionCuePresentation]:
