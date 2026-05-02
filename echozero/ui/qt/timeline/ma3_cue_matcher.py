@@ -21,7 +21,12 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from echozero.application.shared.cue_numbers import CueNumber, cue_number_text, parse_positive_cue_number
+from echozero.application.shared.cue_numbers import (
+    CueNumber,
+    cue_number_from_ref_text,
+    cue_number_text,
+    parse_positive_cue_number,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -195,7 +200,13 @@ class MA3CueMatcherDialog(QDialog):
             if current_no_text:
                 matched = cue_by_number.get(current_no_text.casefold())
             if matched is None and row.current_cue_ref:
-                matched = cue_by_number.get(str(row.current_cue_ref).strip().casefold())
+                cue_ref_text = str(row.current_cue_ref).strip()
+                matched = cue_by_number.get(cue_ref_text.casefold())
+                if matched is None:
+                    cue_ref_number = cue_number_from_ref_text(cue_ref_text)
+                    cue_ref_number_text = cue_number_text(cue_ref_number)
+                    if cue_ref_number_text:
+                        matched = cue_by_number.get(cue_ref_number_text.casefold())
             if matched is None:
                 matched = cue_by_name.get(str(row.label or "").strip().casefold())
             if matched is None:
@@ -210,8 +221,15 @@ class MA3CueMatcherDialog(QDialog):
         source_cue = self._cue_number_from_combo(self._target_combo(source_row))
         if source_cue is None:
             return
+        source_option_index = self._cue_option_index(source_cue)
         for row_idx in selection[1:]:
-            self._set_row_target_cue(row_idx, source_cue)
+            if source_option_index is None:
+                self._set_row_target_cue(row_idx, source_cue)
+                continue
+            option_index = source_option_index + (row_idx - source_row)
+            if option_index < 0 or option_index >= len(self._cue_options):
+                continue
+            self._set_row_target_cue(row_idx, self._cue_options[option_index].cue_number)
 
     def _clear_selected(self) -> None:
         selection = {index.row() for index in self._table.selectedIndexes()}
@@ -262,6 +280,15 @@ class MA3CueMatcherDialog(QDialog):
     def _cue_number_from_combo(self, combo: QComboBox) -> CueNumber | None:
         return self._parse_combo_cue_text(str(combo.currentText() or ""))
 
+    def _cue_option_index(self, cue_number: CueNumber) -> int | None:
+        cue_text = cue_number_text(cue_number)
+        if cue_text is None:
+            return None
+        for index, cue in enumerate(self._cue_options):
+            if cue_number_text(cue.cue_number) == cue_text:
+                return index
+        return None
+
     @staticmethod
     def _parse_combo_cue_text(value: str) -> CueNumber | None:
         raw = str(value or "").strip()
@@ -271,7 +298,10 @@ class MA3CueMatcherDialog(QDialog):
         parsed = parse_positive_cue_number(number_token)
         if parsed is not None:
             return parsed
-        return parse_positive_cue_number(raw)
+        parsed = parse_positive_cue_number(raw)
+        if parsed is not None:
+            return parsed
+        return cue_number_from_ref_text(raw)
 
     def _target_combo(self, row_idx: int) -> QComboBox:
         widget = self._table.cellWidget(row_idx, self._COL_TARGET)

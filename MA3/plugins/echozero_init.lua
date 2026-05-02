@@ -62,6 +62,7 @@ local function init()
         {"EZ.GetEvents",     EZ.GetEvents},
         {"EZ.GetSequences",  EZ.GetSequences},
         {"EZ.Version", EZ.Version},
+        {"EZ.SetTargetPopup", EZ.SetTargetPopup},
         {"EZ.JumpToPreviousSection", EZ.JumpToPreviousSection},
         {"EZ.ScrubTimecodeBy", EZ.ScrubTimecodeBy},
         {"EZ.ScrubTimecodeForward", EZ.ScrubTimecodeForward},

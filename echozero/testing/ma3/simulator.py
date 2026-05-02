@@ -41,7 +41,6 @@ from echozero.infrastructure.sync.ma3_osc import (
     parse_track_coord,
 )
 
-
 _SEQUENCE_CHUNK_SIZE = 40
 _TRACK_CHUNK_SIZE = 40
 _CUE_COMMAND_RE = re.compile(r"(?i)\b(?:go\+|goto)\s+cue\s+(\d+(?:\.\d+)?)\b")
@@ -228,9 +227,7 @@ class _SimulatedMA3OSCServer:
         ]
         if timecode_no is not None:
             tracks = [
-                track
-                for track in tracks
-                if parse_track_coord(track.coord)[0] == int(timecode_no)
+                track for track in tracks if parse_track_coord(track.coord)[0] == int(timecode_no)
             ]
         if track_group_no is not None:
             tracks = [
@@ -250,7 +247,9 @@ class _SimulatedMA3OSCServer:
         return [
             MA3TrackGroupSnapshot(
                 number=group_no,
-                name=self._track_group_name_by_key.get((int(timecode_no), group_no), f"Group {group_no}"),
+                name=self._track_group_name_by_key.get(
+                    (int(timecode_no), group_no), f"Group {group_no}"
+                ),
                 track_count=len(tracks),
             )
             for group_no, tracks in sorted(self._group_tracks(int(timecode_no)).items())
@@ -357,8 +356,7 @@ class _SimulatedMA3OSCServer:
                 self._sequences_by_number[sequence.number] = sequence
                 cue_count = int(sequence.cue_count or 0)
                 self._sequence_cues_by_sequence_no[sequence.number] = [
-                    {"no": index, "name": f"Cue {index}"}
-                    for index in range(1, cue_count + 1)
+                    {"no": index, "name": f"Cue {index}"} for index in range(1, cue_count + 1)
                 ]
 
     def set_current_song_label(self, song_label: str | None) -> None:
@@ -433,10 +431,35 @@ class _SimulatedMA3OSCServer:
         self._execute(normalized)
 
     def _execute(self, command: str) -> None:
+        if self._handle_raw_label_command(command):
+            return
         name, args = _parse_command(command)
         handler = getattr(self, f"_handle_{name}", None)
         if callable(handler):
             handler(*args)
+
+    def _handle_raw_label_command(self, command: str) -> bool:
+        match = re.fullmatch(
+            r"(?i)\s*label\s+sequence\s+(\d+)\s+cue\s+"
+            r"(\d+(?:\.\d+)?)\s+\"((?:\\.|[^\"])*)\"\s*",
+            str(command or ""),
+        )
+        if match is None:
+            return False
+        sequence_no = int(match.group(1))
+        cue_number = parse_positive_cue_number(match.group(2))
+        if cue_number is None:
+            return True
+        cue_name = match.group(3).replace('\\"', '"').replace("\\\\", "\\")
+        cues = self._sequence_cues_by_sequence_no.setdefault(sequence_no, [])
+        for cue in cues:
+            if parse_positive_cue_number(cue.get("no")) == cue_number:
+                cue["name"] = cue_name
+                break
+        else:
+            cues.append({"no": cue_number, "name": cue_name})
+            cues.sort(key=lambda cue: float(parse_positive_cue_number(cue.get("no")) or 0))
+        return True
 
     def _handle_SetTarget(self, host: str, port: int) -> None:
         self._target = str(host), int(port)
@@ -867,7 +890,9 @@ class _SimulatedMA3OSCServer:
             self._send_track_error(tc_no, tg_no, track_no, "Track does not exist")
             return
         if int(sequence_no) not in self._sequences_by_number:
-            self._send_track_error(tc_no, tg_no, track_no, f"Sequence {int(sequence_no)} does not exist")
+            self._send_track_error(
+                tc_no, tg_no, track_no, f"Sequence {int(sequence_no)} does not exist"
+            )
             return
         self._sequence_by_coord[coord] = int(sequence_no)
         self._send_message(
@@ -926,7 +951,9 @@ class _SimulatedMA3OSCServer:
             self._send_track_error(tc_no, tg_no, track_no, "Track has no assigned sequence")
             return
         if coord in self._cmd_subtrack_create_blocked:
-            self._send_track_error(tc_no, tg_no, track_no, "Track prep could not create CmdSubTrack")
+            self._send_track_error(
+                tc_no, tg_no, track_no, "Track prep could not create CmdSubTrack"
+            )
             return
         self._cmd_subtrack_ready_by_coord[coord] = True
         time_range_idx = self._time_range_idx_by_coord.setdefault(coord, 1)
@@ -1296,9 +1323,7 @@ class SimulatedMA3Bridge:
         *,
         preferred_name: str | None = None,
     ) -> MA3SequenceSnapshot:
-        return self._require_bridge().create_sequence_next_available(
-            preferred_name=preferred_name
-        )
+        return self._require_bridge().create_sequence_next_available(preferred_name=preferred_name)
 
     def create_sequence_in_current_song_range(
         self,
@@ -1327,9 +1352,7 @@ class SimulatedMA3Bridge:
         *,
         preferred_name: str | None = None,
     ) -> MA3TimecodeSnapshot:
-        return self._require_bridge().create_timecode_next_available(
-            preferred_name=preferred_name
-        )
+        return self._require_bridge().create_timecode_next_available(preferred_name=preferred_name)
 
     def create_track_group_next_available(
         self,

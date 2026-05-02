@@ -112,3 +112,76 @@ def test_playback_track_builder_uses_event_slice_mode_for_event_layers() -> None
 
     assert len(plan.tracks) == 1
     assert plan.tracks[0].source_key.startswith("event:")
+
+
+def test_playback_track_builder_event_slice_overlap_scales_to_prevent_hard_clip() -> None:
+    builder = PlaybackTrackBuilder(
+        lambda _path: (np.ones(1024, dtype=np.float32), 44100)
+    )
+    presentation = SimpleNamespace(
+        layers=[
+            SimpleNamespace(
+                layer_id="layer_event",
+                title="Kick",
+                kind="event",
+                source_audio_path="drums.wav",
+                playback_enabled=True,
+                playback_mode=PlaybackMode.EVENT_SLICE,
+                playback_source_ref="drums.wav",
+                events=[
+                    SimpleNamespace(start=0.0, muted=False, badges=()),
+                    SimpleNamespace(start=0.0, muted=False, badges=()),
+                ],
+                output_bus=None,
+                muted=False,
+                soloed=False,
+                takes=[],
+            )
+        ],
+        selected_layer_id="layer_event",
+        selected_take_id=None,
+        playback_output_channels=2,
+    )
+
+    plan = builder.build_track_plan(presentation)
+
+    assert len(plan.tracks) == 1
+    rendered = plan.tracks[0].buffer
+    assert rendered is not None
+    assert float(np.max(np.abs(rendered))) <= 1.0
+    assert float(np.max(np.abs(rendered))) >= 0.95
+
+
+def test_playback_track_builder_event_slice_applies_boundary_fades_for_long_clips() -> None:
+    builder = PlaybackTrackBuilder(
+        lambda _path: (np.ones(2048, dtype=np.float32), 44100)
+    )
+    presentation = SimpleNamespace(
+        layers=[
+            SimpleNamespace(
+                layer_id="layer_event",
+                title="Kick",
+                kind="event",
+                source_audio_path="drums.wav",
+                playback_enabled=True,
+                playback_mode=PlaybackMode.EVENT_SLICE,
+                playback_source_ref="drums.wav",
+                events=[SimpleNamespace(start=0.0, muted=False, badges=())],
+                output_bus=None,
+                muted=False,
+                soloed=False,
+                takes=[],
+            )
+        ],
+        selected_layer_id="layer_event",
+        selected_take_id=None,
+        playback_output_channels=2,
+    )
+
+    plan = builder.build_track_plan(presentation)
+
+    rendered = plan.tracks[0].buffer
+    assert rendered is not None
+    assert float(rendered[0]) < 0.5
+    assert float(rendered[-1]) < 0.5
+    assert float(rendered[len(rendered) // 2]) > 0.9

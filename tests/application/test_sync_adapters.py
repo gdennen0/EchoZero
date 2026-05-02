@@ -426,6 +426,108 @@ def test_ma3_sync_adapter_preserves_float_cue_numbers_and_infers_float_cue_refs(
     ]
 
 
+class _ScaledWholeNumberCueRefBridge(_Bridge):
+    def list_track_events(self, source_track_coord: str):
+        assert source_track_coord == "tc1_tg2_tr3"
+        return [
+            {
+                "id": "ma3_evt_1",
+                "name": "Mark",
+                "time": 1.25,
+                "cueNo": 1000,
+                "cueRef": "1",
+            }
+        ]
+
+
+def test_ma3_sync_adapter_normalizes_scaled_ma_whole_number_when_ref_agrees():
+    service = MA3SyncAdapter(_ScaledWholeNumberCueRefBridge())
+
+    pull_events = service.list_pull_source_events("tc1_tg2_tr3")
+
+    assert pull_events == [
+        {
+            "event_id": "ma3_evt_1",
+            "label": "Mark",
+            "start": 1.25,
+            "end": None,
+            "cue_number": 1,
+            "cue_ref": "1",
+            "color": None,
+            "notes": None,
+            "payload_ref": None,
+        }
+    ]
+
+
+class _ScaledFractionalCommandBridge(_Bridge):
+    def list_track_events(self, source_track_coord: str):
+        assert source_track_coord == "tc1_tg2_tr3"
+        return [
+            {
+                "id": "ma3_evt_1",
+                "name": "Mark",
+                "time": 1.25,
+                "cueNo": 1500,
+                "cmd": "Go+ Cue 1.5",
+            }
+        ]
+
+
+def test_ma3_sync_adapter_normalizes_scaled_ma_fractional_cue_when_command_agrees():
+    service = MA3SyncAdapter(_ScaledFractionalCommandBridge())
+
+    pull_events = service.list_pull_source_events("tc1_tg2_tr3")
+
+    assert pull_events == [
+        {
+            "event_id": "ma3_evt_1",
+            "label": "Mark",
+            "start": 1.25,
+            "end": None,
+            "cue_number": 1.5,
+            "cue_ref": "1.5",
+            "color": None,
+            "notes": None,
+            "payload_ref": None,
+        }
+    ]
+
+
+class _LiteralThousandCueBridge(_Bridge):
+    def list_track_events(self, source_track_coord: str):
+        assert source_track_coord == "tc1_tg2_tr3"
+        return [
+            {
+                "id": "ma3_evt_1",
+                "name": "Cue 1000",
+                "time": 1.25,
+                "cueNo": 1000,
+                "cueRef": "1000",
+            }
+        ]
+
+
+def test_ma3_sync_adapter_does_not_normalize_scaled_cue_without_matching_hint():
+    service = MA3SyncAdapter(_LiteralThousandCueBridge())
+
+    pull_events = service.list_pull_source_events("tc1_tg2_tr3")
+
+    assert pull_events == [
+        {
+            "event_id": "ma3_evt_1",
+            "label": "Cue 1000",
+            "start": 1.25,
+            "end": None,
+            "cue_number": 1000,
+            "cue_ref": "1000",
+            "color": None,
+            "notes": None,
+            "payload_ref": None,
+        }
+    ]
+
+
 class _CommandOnlyCueBridge(_Bridge):
     def list_track_events(self, source_track_coord: str):
         assert source_track_coord == "tc1_tg2_tr3"
@@ -455,6 +557,34 @@ def test_ma3_sync_adapter_infers_cue_ref_when_fields_are_missing():
             "color": None,
             "notes": None,
             "payload_ref": None,
+        }
+    ]
+
+
+class _ScaledSequenceCueBridge(_Bridge):
+    def list_sequence_cues(self, *, sequence_no: int):
+        assert sequence_no == 12
+        return [
+            {
+                "sequence_no": 12,
+                "cueNo": 1500,
+                "cueRef": "1.5",
+                "name": "Mark",
+            }
+        ]
+
+
+def test_ma3_sync_adapter_normalizes_scaled_sequence_cues_when_ref_agrees():
+    service = MA3SyncAdapter(_ScaledSequenceCueBridge())
+
+    cues = service.list_sequence_cues(sequence_no=12)
+
+    assert cues == [
+        {
+            "sequence_no": 12,
+            "cue_number": 1.5,
+            "cue_ref": "1.5",
+            "name": "Mark",
         }
     ]
 

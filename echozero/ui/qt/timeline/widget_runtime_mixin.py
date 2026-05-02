@@ -15,6 +15,12 @@ from PyQt6.QtGui import QResizeEvent
 from PyQt6.QtWidgets import QFrame, QLabel, QScrollArea, QScrollBar, QWidget
 
 from echozero.application.playback.timecode import format_clock_label
+from echozero.application.playback.sync_delta import (
+    PlaybackChangeKind,
+    PlaybackSyncDelta,
+    classify_playback_sync_change,
+)
+from echozero.application.playback.sync_projection import PlaybackSyncPayload
 from echozero.application.presentation.models import TimelinePresentation
 from echozero.application.shared.enums import FollowMode
 from echozero.application.timeline.ma3_push_intents import PollMA3PushOperation
@@ -53,6 +59,7 @@ from echozero.application.timeline.intents import (
 )
 from echozero.application.timeline.models import EventRef
 from echozero.ui.FEEL import (
+    TIMELINE_MIX_SYNC_DEBOUNCE_MS,
     TIMELINE_RUNTIME_TICK_ACTIVE_MS,
     TIMELINE_RUNTIME_TICK_IDLE_MS,
     TIMELINE_STRUCTURAL_SYNC_DEBOUNCE_MS,
@@ -120,7 +127,7 @@ class _TimelineWidgetRuntimeHost(Protocol):
     presentation: TimelinePresentation
     _on_intent: Callable[[TimelineIntent], TimelinePresentation | None] | None
     _runtime_audio: TimelineRuntimeAudioController | None
-    _runtime_source_signature: tuple[tuple[str, str], ...] | None
+    _runtime_sync_payload: PlaybackSyncPayload | None
     _runtime_playhead_floor: float | None
     _runtime_timing_snapshot: RuntimeAudioTimingSnapshot | None
     _edit_mode: str
@@ -140,7 +147,9 @@ class _TimelineWidgetRuntimeHost(Protocol):
     _pipeline_status_dismissed_key: str | None
     _pipeline_status_auto_dismiss_timer: object
     _runtime_timer: object
+    _runtime_mix_sync_timer: object
     _runtime_structural_sync_timer: object
+    _runtime_mix_sync_pending_presentation: TimelinePresentation | None
     _runtime_structural_sync_pending_presentation: TimelinePresentation | None
 
     def width(self) -> int: ...
@@ -172,7 +181,7 @@ class _TimelineWidgetRuntimeHost(Protocol):
 
 
 class TimelineWidgetRuntimeMixin:
-    _runtime_source_signature: tuple[tuple[str, str], ...] | None
+    _runtime_sync_payload: PlaybackSyncPayload | None
     _runtime_playhead_floor: float | None
     _runtime_timing_snapshot: RuntimeAudioTimingSnapshot | None
 
@@ -237,10 +246,14 @@ class TimelineWidgetRuntimeMixin:
         """Swap the runtime-audio controller and resync it from the current presentation."""
 
         self._runtime_audio = runtime_audio
-        self._runtime_source_signature = None
+        self._runtime_sync_payload = None
         self._runtime_playhead_floor = None
         self._runtime_timing_snapshot = None
+        self._runtime_mix_sync_pending_presentation = None
         self._runtime_structural_sync_pending_presentation = None
+        mix_timer = getattr(self, "_runtime_mix_sync_timer", None)
+        if mix_timer is not None and hasattr(mix_timer, "stop"):
+            mix_timer.stop()
         timer = getattr(self, "_runtime_structural_sync_timer", None)
         if timer is not None and hasattr(timer, "stop"):
             timer.stop()
@@ -254,39 +267,64 @@ class TimelineWidgetRuntimeMixin:
     def _is_structural_intent(intent: TimelineIntent) -> bool:
         return isinstance(intent, _STRUCTURAL_INTENT_TYPES)
 
-    def _resolve_runtime_signature(
+    def _classify_runtime_audio_change(
         self: _TimelineWidgetRuntimeHost,
         presentation: TimelinePresentation,
-    ) -> tuple[tuple[str, str], ...]:
-        runtime_audio = self._runtime_audio
-        if runtime_audio is not None and hasattr(runtime_audio, "presentation_signature"):
-            return runtime_audio.presentation_signature(presentation)
-        return tuple(
-            (str(layer.layer_id), layer.source_audio_path or "")
-            for layer in presentation.layers
-            if layer.source_audio_path
+    ) -> PlaybackSyncDelta:
+        return classify_playback_sync_change(
+            self._runtime_sync_payload,
+            presentation,
         )
 
-    def _sync_runtime_audio_mix(self: _TimelineWidgetRuntimeHost, presentation: TimelinePresentation) -> None:
+    def _record_runtime_audio_sync_decision(
+        self: _TimelineWidgetRuntimeHost,
+        delta: PlaybackSyncDelta,
+    ) -> None:
         runtime_audio = self._runtime_audio
         if runtime_audio is None:
             return
+        recorder = getattr(runtime_audio, "record_local_sync_decision", None)
+        if callable(recorder):
+            recorder(
+                delta.change_kind.value,
+                projection_build_ms=delta.projection_build_ms,
+                classify_ms=delta.classify_ms,
+            )
+
+    def _sync_runtime_audio_mix(
+        self: _TimelineWidgetRuntimeHost,
+        presentation: TimelinePresentation,
+        *,
+        delta: PlaybackSyncDelta | None = None,
+    ) -> None:
+        runtime_audio = self._runtime_audio
+        if runtime_audio is None:
+            return
+        resolved_delta = delta or self._classify_runtime_audio_change(presentation)
+        self._record_runtime_audio_sync_decision(resolved_delta)
         sync_mix_state = getattr(runtime_audio, "sync_mix_state", None)
         if callable(sync_mix_state):
             sync_mix_state(presentation)
-            return
-        runtime_audio.apply_mix_state(presentation)
+        else:
+            runtime_audio.apply_mix_state(presentation)
+        self._runtime_sync_payload = resolved_delta.payload
+        self._runtime_mix_sync_pending_presentation = None
+        timer = getattr(self, "_runtime_mix_sync_timer", None)
+        if timer is not None and hasattr(timer, "stop"):
+            timer.stop()
 
     def _sync_runtime_audio_structure(
         self: _TimelineWidgetRuntimeHost,
         presentation: TimelinePresentation,
         *,
         reason: str,
+        delta: PlaybackSyncDelta | None = None,
     ) -> None:
         runtime_audio = self._runtime_audio
         if runtime_audio is None:
             return
-        runtime_signature = self._resolve_runtime_signature(presentation)
+        resolved_delta = delta or self._classify_runtime_audio_change(presentation)
+        self._record_runtime_audio_sync_decision(resolved_delta)
         sync_structure_state = getattr(runtime_audio, "sync_structure_state", None)
         if callable(sync_structure_state):
             sync_structure_state(presentation)
@@ -296,8 +334,12 @@ class TimelineWidgetRuntimeMixin:
                 sync_presentation(presentation)
             else:
                 runtime_audio.build_for_presentation(presentation)
-        self._runtime_source_signature = runtime_signature
+        self._runtime_sync_payload = resolved_delta.payload
+        self._runtime_mix_sync_pending_presentation = None
         self._runtime_structural_sync_pending_presentation = None
+        mix_timer = getattr(self, "_runtime_mix_sync_timer", None)
+        if mix_timer is not None and hasattr(mix_timer, "stop"):
+            mix_timer.stop()
         timer = getattr(self, "_runtime_structural_sync_timer", None)
         if timer is not None and hasattr(timer, "stop"):
             timer.stop()
@@ -311,11 +353,19 @@ class TimelineWidgetRuntimeMixin:
     ) -> None:
         if self._runtime_audio is None:
             return
-        runtime_signature = self._resolve_runtime_signature(presentation)
-        if runtime_signature != self._runtime_source_signature:
-            self._sync_runtime_audio_structure(presentation, reason=reason)
+        delta = self._classify_runtime_audio_change(presentation)
+        if delta.change_kind is PlaybackChangeKind.NONE:
+            self._record_runtime_audio_sync_decision(delta)
             return
-        self._sync_runtime_audio_mix(presentation)
+        if delta.change_kind is PlaybackChangeKind.STRUCTURE:
+            self._sync_runtime_audio_structure(
+                presentation,
+                reason=reason,
+                delta=delta,
+            )
+            return
+        self._record_runtime_audio_sync_decision(delta)
+        self._queue_mix_runtime_sync(presentation)
 
     def _queue_structural_runtime_sync(
         self: _TimelineWidgetRuntimeHost,
@@ -331,6 +381,21 @@ class TimelineWidgetRuntimeMixin:
         if timer is not None and hasattr(timer, "start"):
             timer.start(int(TIMELINE_STRUCTURAL_SYNC_DEBOUNCE_MS))
 
+    def _queue_mix_runtime_sync(
+        self: _TimelineWidgetRuntimeHost,
+        presentation: TimelinePresentation,
+    ) -> None:
+        self._runtime_mix_sync_pending_presentation = presentation
+        timer = getattr(self, "_runtime_mix_sync_timer", None)
+        if timer is not None and hasattr(timer, "start"):
+            timer.start(int(TIMELINE_MIX_SYNC_DEBOUNCE_MS))
+
+    def _flush_pending_mix_runtime_sync(self: _TimelineWidgetRuntimeHost) -> None:
+        pending = self._runtime_mix_sync_pending_presentation
+        if pending is None:
+            return
+        self._sync_runtime_audio_mix(pending)
+
     def _flush_pending_structural_runtime_sync(
         self: _TimelineWidgetRuntimeHost,
         *,
@@ -340,6 +405,9 @@ class TimelineWidgetRuntimeMixin:
         if pending is None:
             return
         self._sync_runtime_audio_structure(pending, reason=reason)
+
+    def _on_runtime_mix_sync_timeout(self: _TimelineWidgetRuntimeHost) -> None:
+        self._flush_pending_mix_runtime_sync()
 
     def _on_runtime_structural_sync_timeout(self: _TimelineWidgetRuntimeHost) -> None:
         self._flush_pending_structural_runtime_sync(reason="debounce-timeout")
@@ -694,23 +762,27 @@ class TimelineWidgetRuntimeMixin:
         runtime_audio = self._runtime_audio
         if runtime_audio is None:
             return
-        if self._is_mix_only_intent(intent):
-            self._sync_runtime_audio_mix(presentation)
-            return
+        delta = self._classify_runtime_audio_change(presentation)
+        self._record_runtime_audio_sync_decision(delta)
         if isinstance(intent, (Play, Pause, Stop, Seek)):
             if isinstance(intent, (Pause, Stop, Seek)):
+                self._flush_pending_mix_runtime_sync()
                 self._flush_pending_structural_runtime_sync(reason="transport-boundary")
             return
-
-        signature = self._resolve_runtime_signature(presentation)
-        signature_changed = signature != self._runtime_source_signature
-        if self._is_structural_intent(intent) or signature_changed:
+        if delta.change_kind is PlaybackChangeKind.NONE:
+            return
+        if delta.change_kind is PlaybackChangeKind.MIX_ONLY:
+            self._queue_mix_runtime_sync(presentation)
+            return
+        if self._is_structural_intent(intent) or delta.change_kind is PlaybackChangeKind.STRUCTURE:
             if was_playing:
                 self._queue_structural_runtime_sync(presentation)
                 return
-            self._sync_runtime_audio_structure(presentation, reason="intent-structural")
-            return
-        self._sync_runtime_audio_mix(presentation)
+            self._sync_runtime_audio_structure(
+                presentation,
+                reason="intent-structural",
+                delta=delta,
+            )
 
     def _with_selected_event_centered(
         self: _TimelineWidgetRuntimeHost,
@@ -828,6 +900,12 @@ class TimelineWidgetRuntimeMixin:
                     current_time_label=self.presentation.current_time_label,
                 )
                 self.set_presentation(updated)
+
+        if (
+            self._runtime_mix_sync_pending_presentation is not None
+            and not bool(self.presentation.is_playing)
+        ):
+            self._flush_pending_mix_runtime_sync()
 
         if (
             self._runtime_structural_sync_pending_presentation is not None

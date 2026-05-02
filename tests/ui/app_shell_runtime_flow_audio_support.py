@@ -4,11 +4,13 @@ Connects the compatibility wrapper to the bounded audio support slice.
 """
 
 import shutil
+import time
 
 from echozero.application.settings import AudioOutputRuntimeConfig
 from echozero.application.shared.enums import LayerKind
-from echozero.application.timeline.intents import Play, SelectEvent
+from echozero.application.timeline.intents import Play, SelectEvent, SelectLayer, SetLayerMute
 from echozero.audio.engine import AudioEngine
+from echozero.application.playback.process_client import ProcessPlaybackClient
 from echozero.testing.analysis_mocks import build_mock_analysis_service, write_test_wav
 from echozero.ui.qt.app_shell import AppShellRuntime, build_app_shell
 from echozero.ui.qt.app_shell_runtime_services import build_runtime_audio_controller
@@ -67,12 +69,15 @@ def test_app_shell_runtime_apply_audio_output_config_rebuilds_runtime_audio_cont
 
         assert rebuilt_runtime_audio is not None
         assert rebuilt_runtime_audio is not original_runtime_audio
-        assert rebuilt_runtime_audio.engine.sample_rate == 48000
-        assert rebuilt_runtime_audio.engine._channels == 2
-        assert rebuilt_runtime_audio.engine._output_device == 3
-        assert rebuilt_runtime_audio.engine._stream_latency == "low"
-        assert rebuilt_runtime_audio.engine._stream_blocksize == 512
-        assert rebuilt_runtime_audio.engine._prime_output_buffers_using_stream_callback is False
+        assert isinstance(rebuilt_runtime_audio, ProcessPlaybackClient)
+        health = rebuilt_runtime_audio.health()
+        assert bool(health.get("ok", False))
+        snapshot = rebuilt_runtime_audio.snapshot_state(runtime.presentation())
+        assert snapshot.output_sample_rate == 48000
+        assert snapshot.output_channels == 2
+        assert snapshot.diagnostics.audio_process_connected is True
+        assert snapshot.diagnostics.audio_process_pid is not None
+        assert snapshot.diagnostics.latency_profile == "ultra_low"
     finally:
         runtime.shutdown()
         shutil.rmtree(temp_root, ignore_errors=True)
@@ -264,6 +269,56 @@ def test_app_shell_runtime_play_dispatch_rebuilds_runtime_audio():
         assert counted.play_calls == 1
         assert runtime.presentation().is_playing is True
         assert runtime.session.transport_state.is_playing is True
+    finally:
+        runtime.shutdown()
+        shutil.rmtree(temp_root, ignore_errors=True)
+
+
+def test_app_shell_runtime_playback_actions_keep_glitch_count_flat_and_mix_reason_stable():
+    temp_root = _repo_local_temp_root()
+    runtime = build_app_shell(working_dir_root=temp_root / "working")
+
+    assert isinstance(runtime, AppShellRuntime)
+    try:
+        runtime.add_song_from_path(
+            "Imported Song", write_test_wav(temp_root / "fixtures" / "stutter-fix.wav")
+        )
+        runtime.dispatch(Play())
+
+        source_layer = runtime.presentation().layers[0]
+        started = time.perf_counter()
+        runtime.dispatch(SetLayerMute(layer_id=source_layer.layer_id, muted=True))
+        elapsed_ms = max(0.0, (time.perf_counter() - started) * 1000.0)
+        snapshot = runtime.runtime_audio.snapshot_state(runtime.presentation())
+
+        assert snapshot.diagnostics.glitch_count == 0
+        assert snapshot.diagnostics.last_track_sync_reason == "mix-state-applied"
+        assert snapshot.diagnostics.last_ipc_command == "snapshot_state"
+        assert elapsed_ms < 500.0
+    finally:
+        runtime.shutdown()
+        shutil.rmtree(temp_root, ignore_errors=True)
+
+
+def test_app_shell_runtime_selection_dispatch_does_not_snapshot_runtime_audio():
+    temp_root = _repo_local_temp_root()
+    runtime = build_app_shell(working_dir_root=temp_root / "working")
+
+    assert isinstance(runtime, AppShellRuntime)
+
+    counted = _CountedRuntimeAudio()
+    runtime.runtime_audio = counted
+
+    try:
+        runtime.add_song_from_path(
+            "Imported Song", write_test_wav(temp_root / "fixtures" / "selection-only.wav")
+        )
+        counted.snapshot_calls = 0
+
+        source_layer = runtime.presentation().layers[0]
+        runtime.dispatch(SelectLayer(source_layer.layer_id))
+
+        assert counted.snapshot_calls == 0
     finally:
         runtime.shutdown()
         shutil.rmtree(temp_root, ignore_errors=True)

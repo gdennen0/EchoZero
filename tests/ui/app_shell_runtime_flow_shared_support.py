@@ -15,6 +15,7 @@ from pathlib import Path
 
 import pytest
 
+from echozero.application.playback.models import PlaybackState
 from echozero.application.presentation.inspector_contract import (
     TimelineInspectorHitTarget,
     build_timeline_inspector_contract,
@@ -62,6 +63,7 @@ class _CountedRuntimeAudio:
         self.play_calls = 0
         self.preview_calls: list[tuple[str, float, float, float]] = []
         self.is_playing_state = False
+        self.snapshot_calls = 0
 
     def build_for_presentation(self, _presentation) -> None:
         self.build_calls += 1
@@ -100,6 +102,10 @@ class _CountedRuntimeAudio:
 
     def is_playing(self) -> bool:
         return self.is_playing_state
+
+    def snapshot_state(self, presentation):
+        self.snapshot_calls += 1
+        return PlaybackState()
 
     def shutdown(self) -> None:
         return None

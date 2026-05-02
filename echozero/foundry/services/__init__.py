@@ -4,7 +4,9 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from .artifact_service import ArtifactService
     from .baseline_trainer import BaselineTrainer
+    from .champion_service import ChampionService
     from .cnn_trainer import CnnTrainer
+    from .continuous_training_service import ContinuousTrainingService
     from .crnn_trainer import CrnnTrainer
     from .dataset_service import DatasetService
     from .eval_service import EvalService
@@ -20,11 +22,14 @@ if TYPE_CHECKING:
     from .review_pipeline_controller import ReviewPipelineController
     from .review_signal_service import ReviewSignalService
     from .runtime_bundle_install_service import RuntimeBundleInstallService
+    from .sample_library_service import SampleLibraryService
+    from .snapshot_service import SnapshotService
     from .run_notification_service import RunNotificationService
     from .run_spec_validator import RunSpecValidator
     from .run_telemetry_service import RunTelemetryService
     from .split_balance_service import SplitBalanceService
     from .train_run_service import TrainRunService
+    from .training_recipe_service import TrainingRecipeService
     from .training_orchestrator import TrainingOrchestrator
     from .trainer_backend_factory import TrainerBackendFactory
     from .training_runtime import TrainingNumericsError
@@ -32,9 +37,11 @@ if TYPE_CHECKING:
 __all__ = [
     "ArtifactService",
     "BaselineTrainer",
+    "ChampionService",
     "DatasetService",
     "EvalService",
     "CnnTrainer",
+    "ContinuousTrainingService",
     "CrnnTrainer",
     "FoundryQueryService",
     "ReviewSessionService",
@@ -46,11 +53,14 @@ __all__ = [
     "ReviewPipelineController",
     "ReviewSignalService",
     "RuntimeBundleInstallService",
+    "SampleLibraryService",
+    "SnapshotService",
     "RunNotificationService",
     "RunSpecValidator",
     "RunTelemetryService",
     "SplitBalanceService",
     "TrainRunService",
+    "TrainingRecipeService",
     "TrainingOrchestrator",
     "TrainerBackendFactory",
     "TrainingNumericsError",
@@ -59,9 +69,14 @@ __all__ = [
 _LAZY_EXPORTS = {
     "ArtifactService": ("echozero.foundry.services.artifact_service", "ArtifactService"),
     "BaselineTrainer": ("echozero.foundry.services.baseline_trainer", "BaselineTrainer"),
+    "ChampionService": ("echozero.foundry.services.champion_service", "ChampionService"),
     "DatasetService": ("echozero.foundry.services.dataset_service", "DatasetService"),
     "EvalService": ("echozero.foundry.services.eval_service", "EvalService"),
     "CnnTrainer": ("echozero.foundry.services.cnn_trainer", "CnnTrainer"),
+    "ContinuousTrainingService": (
+        "echozero.foundry.services.continuous_training_service",
+        "ContinuousTrainingService",
+    ),
     "CrnnTrainer": ("echozero.foundry.services.crnn_trainer", "CrnnTrainer"),
     "FoundryQueryService": ("echozero.foundry.services.query_service", "FoundryQueryService"),
     "ReviewSessionService": ("echozero.foundry.services.review_session_service", "ReviewSessionService"),
@@ -94,11 +109,20 @@ _LAZY_EXPORTS = {
         "echozero.foundry.services.runtime_bundle_install_service",
         "RuntimeBundleInstallService",
     ),
+    "SampleLibraryService": (
+        "echozero.foundry.services.sample_library_service",
+        "SampleLibraryService",
+    ),
+    "SnapshotService": ("echozero.foundry.services.snapshot_service", "SnapshotService"),
     "RunNotificationService": ("echozero.foundry.services.run_notification_service", "RunNotificationService"),
     "RunSpecValidator": ("echozero.foundry.services.run_spec_validator", "RunSpecValidator"),
     "RunTelemetryService": ("echozero.foundry.services.run_telemetry_service", "RunTelemetryService"),
     "SplitBalanceService": ("echozero.foundry.services.split_balance_service", "SplitBalanceService"),
     "TrainRunService": ("echozero.foundry.services.train_run_service", "TrainRunService"),
+    "TrainingRecipeService": (
+        "echozero.foundry.services.training_recipe_service",
+        "TrainingRecipeService",
+    ),
     "TrainingOrchestrator": ("echozero.foundry.services.training_orchestrator", "TrainingOrchestrator"),
     "TrainerBackendFactory": ("echozero.foundry.services.trainer_backend_factory", "TrainerBackendFactory"),
     "TrainingNumericsError": ("echozero.foundry.services.training_runtime", "TrainingNumericsError"),

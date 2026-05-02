@@ -1028,6 +1028,45 @@ def test_launcher_osc_settings_action_opens_dialog(monkeypatch):
     assert dialog_calls == [(runtime.app_settings_service, widget)]
 
 
+def test_launcher_audio_settings_rebinds_widget_runtime_audio_controller(monkeypatch):
+    class _Settings:
+        def __init__(self) -> None:
+            self.config = SimpleNamespace(sample_rate=44100, output_device="2")
+
+        def resolve_audio_output_config(self):
+            return self.config
+
+    current_runtime_audio = FakeRuntimeAudio()
+    replacement_runtime_audio = FakeRuntimeAudio()
+    settings = _Settings()
+    apply_calls: list[object] = []
+    runtime = SimpleNamespace(
+        runtime_audio=current_runtime_audio,
+        app_settings_service=settings,
+        is_dirty=False,
+        project_path=None,
+        presentation=lambda: "presentation",
+        dispatch=lambda intent: intent,
+    )
+
+    def _apply_audio_output_config(config) -> None:
+        apply_calls.append(config)
+        runtime.runtime_audio = replacement_runtime_audio
+
+    runtime.apply_audio_output_config = _apply_audio_output_config
+
+    monkeypatch.setattr(launcher_surface, "QAction", FakeAction)
+
+    widget = FakeWidget(runtime.presentation(), on_intent=runtime.dispatch, runtime_audio=runtime.runtime_audio)
+    launcher = run_echozero.LauncherController(runtime=runtime, widget=widget, app_settings_service=settings)
+    launcher.install()
+
+    launcher._apply_runtime_audio_settings()
+
+    assert apply_calls == [settings.config]
+    assert widget.runtime_audio is replacement_runtime_audio
+
+
 def test_launcher_project_settings_action_updates_ma3_push_offset(monkeypatch):
     runtime_audio = FakeRuntimeAudio()
     calls: list[float] = []

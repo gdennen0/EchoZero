@@ -8,6 +8,7 @@ from __future__ import annotations
 from echozero.application.mixer.models import AudibilityState, LayerMixerState, MixerState
 from echozero.application.mixer.service import MixerService
 from echozero.application.playback.models import PlaybackState
+from echozero.application.playback.process_client import ProcessPlaybackClient
 from echozero.application.playback.service import PlaybackService
 from echozero.application.session.models import Session
 from echozero.application.session.service import SessionService
@@ -24,7 +25,6 @@ from echozero.application.timeline.assembler import TimelineAssembler
 from echozero.application.timeline.models import Layer
 from echozero.application.timeline.orchestrator import TimelineOrchestrator
 from echozero.application.timeline.queries import TimelineQueries
-from echozero.audio.engine import AudioEngine
 from echozero.persistence.session import ProjectStorage
 from echozero.ui.qt.app_shell_project_timeline import (
     apply_timeline_presentation_overlay,
@@ -32,10 +32,6 @@ from echozero.ui.qt.app_shell_project_timeline import (
 )
 from echozero.ui.qt.app_shell_project_runtime_state import (
     load_project_runtime_state,
-)
-from echozero.ui.qt.timeline.runtime_audio import (
-    TimelinePlaybackController,
-    TimelineRuntimeAudioController,
 )
 
 
@@ -154,33 +150,17 @@ class RuntimePlaybackService(PlaybackService):
 
 def build_playback_controller(
     audio_output_config: AudioOutputRuntimeConfig | None = None,
-) -> TimelinePlaybackController:
+) -> ProcessPlaybackClient:
     """Build the canonical playback controller for one optional audio output config."""
 
-    if audio_output_config is None:
-        return TimelinePlaybackController()
-
-    def _engine_factory() -> AudioEngine:
-        return AudioEngine(
-            sample_rate=audio_output_config.sample_rate,
-            channels=audio_output_config.channels,
-            stream_latency=audio_output_config.stream_latency,
-            stream_blocksize=audio_output_config.stream_blocksize,
-            prime_output_buffers_using_stream_callback=(
-                audio_output_config.prime_output_buffers_using_stream_callback
-            ),
-            output_device=audio_output_config.output_device,
-        )
-
-    return TimelinePlaybackController(
-        engine_factory=_engine_factory,
-        preview_engine_factory=_engine_factory,
+    return ProcessPlaybackClient(
+        audio_output_config=audio_output_config,
     )
 
 
 def build_runtime_audio_controller(
     audio_output_config: AudioOutputRuntimeConfig | None = None,
-) -> TimelineRuntimeAudioController:
+) -> ProcessPlaybackClient:
     """Compatibility alias for callers that still say `build_runtime_audio_controller`."""
 
     return build_playback_controller(audio_output_config)

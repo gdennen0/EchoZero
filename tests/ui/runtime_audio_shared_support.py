@@ -72,6 +72,7 @@ class FakeRuntimeAudio:
         self.mix_states: list[TimelinePresentation] = []
         self.snapshot: RuntimeAudioTimingSnapshot | None = None
         self.coalesced_edits = 0
+        self.local_sync_decisions: list[tuple[str, float, float]] = []
 
     def build_for_presentation(self, presentation: TimelinePresentation) -> None:
         return None
@@ -116,6 +117,21 @@ class FakeRuntimeAudio:
 
     def is_playing(self) -> bool:
         return self.playing
+
+    def record_local_sync_decision(
+        self,
+        change_kind: str,
+        *,
+        projection_build_ms: float = 0.0,
+        classify_ms: float = 0.0,
+    ) -> None:
+        self.local_sync_decisions.append(
+            (
+                str(change_kind),
+                float(projection_build_ms),
+                float(classify_ms),
+            )
+        )
 
     def presentation_signature(self, presentation: TimelinePresentation):
         return tuple(

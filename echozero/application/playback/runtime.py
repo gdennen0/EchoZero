@@ -64,10 +64,8 @@ class PlaybackController:
         self._engine = engine or (
             engine_factory() if engine_factory is not None else AudioEngine()
         )
-        resolved_preview_factory = preview_engine_factory or engine_factory
-        self._preview_engine = preview_engine or (
-            resolved_preview_factory() if resolved_preview_factory is not None else AudioEngine()
-        )
+        _ = preview_engine
+        _ = preview_engine_factory
         self._track_builder = PlaybackTrackBuilder(audio_loader)
         self._async_track_builder = PlaybackTrackBuilder(audio_loader)
         self._loaded_track_signature: tuple[tuple[str, str], ...] = ()
@@ -90,6 +88,10 @@ class PlaybackController:
         self._coalesced_edit_count = 0
         self._last_structural_rebuild_ms = 0.0
         self._max_structural_rebuild_ms = 0.0
+        self._last_local_projection_build_ms = 0.0
+        self._last_local_sync_classify_ms = 0.0
+        self._last_local_sync_change_kind = ""
+        self._last_ipc_command = ""
 
     @property
     def engine(self) -> AudioEngine:
@@ -198,12 +200,11 @@ class PlaybackController:
             self._drain_completed_structure_outcomes_without_apply(outcome="cancelled")
         self._structure_executor.shutdown(wait=False, cancel_futures=True)
         self._shutdown_state = "shutdown"
+        self.stop_preview()
         self._engine.clear_tracks()
         self._loaded_track_signature = ()
         self._loaded_uses_track_routing = False
         self._engine.shutdown()
-        self.stop_preview()
-        self._preview_engine.shutdown()
 
     def preview_clip(
         self,
@@ -232,25 +233,31 @@ class PlaybackController:
             return False
         self.stop_preview()
         self._last_transition = "preview_start"
-        self._preview_engine.load_track(
-            self._PREVIEW_TRACK_ID,
+        played = self._engine.play_overlay(
             preview_buffer,
             sample_rate,
-            name="Event Preview",
             volume=_db_to_linear(gain_db),
         )
-        self._preview_engine.seek_seconds(0.0)
-        self._preview_engine.play()
-        self._preview_active = True
-        return True
+        self._preview_active = bool(played)
+        return bool(played)
 
     def stop_preview(self) -> None:
         self._last_transition = "preview_stop"
         self._preview_active = False
-        self._preview_engine.stop()
-        self._preview_engine.remove_track(self._PREVIEW_TRACK_ID)
-        if self._preview_engine.is_active:
-            self._preview_engine.shutdown()
+        self._engine.stop_overlay()
+
+    def record_local_sync_decision(
+        self,
+        change_kind: str,
+        *,
+        projection_build_ms: float = 0.0,
+        classify_ms: float = 0.0,
+    ) -> None:
+        """Record one local app-process sync decision for diagnostics."""
+
+        self._last_local_sync_change_kind = str(change_kind or "")
+        self._last_local_projection_build_ms = max(0.0, float(projection_build_ms))
+        self._last_local_sync_classify_ms = max(0.0, float(classify_ms))
 
     def presentation_signature(
         self,
@@ -296,6 +303,10 @@ class PlaybackController:
                 coalesced_edit_count=self._coalesced_edit_count,
                 last_structural_rebuild_ms=self._last_structural_rebuild_ms,
                 max_structural_rebuild_ms=self._max_structural_rebuild_ms,
+                local_projection_build_ms=self._last_local_projection_build_ms,
+                local_sync_classify_ms=self._last_local_sync_classify_ms,
+                last_local_sync_change_kind=self._last_local_sync_change_kind,
+                last_ipc_command=self._last_ipc_command,
             ),
         )
 
@@ -304,16 +315,50 @@ class PlaybackController:
         presentation: TimelinePresentation,
     ) -> TimelinePresentation:
         configured_channels = int(getattr(presentation, "playback_output_channels", 0) or 0)
-        if configured_channels > 0:
+        required_channels = self._max_required_output_channels_for_routes(presentation)
+        if configured_channels > 0 and configured_channels >= required_channels:
             return presentation
+        resolved_channels = max(
+            1,
+            configured_channels,
+            required_channels,
+            int(self._engine.output_channels),
+        )
         return replace(
             presentation,
-            playback_output_channels=max(1, int(self._engine.output_channels)),
+            playback_output_channels=resolved_channels,
         )
 
+    @staticmethod
+    def _max_required_output_channels_for_routes(presentation: TimelinePresentation) -> int:
+        required = 0
+        for layer in getattr(presentation, "layers", ()):
+            output_bus = getattr(layer, "output_bus", None)
+            if not isinstance(output_bus, str):
+                continue
+            parsed = PlaybackController._parse_output_bus(output_bus)
+            if parsed is None:
+                continue
+            _start_channel, end_channel = parsed
+            required = max(required, end_channel)
+        return max(0, int(required))
+
+    @staticmethod
+    def _parse_output_bus(output_bus: str) -> tuple[int, int] | None:
+        token = str(output_bus or "").strip().lower()
+        if not token.startswith("outputs_"):
+            return None
+        parts = token.split("_")
+        if len(parts) != 3 or (not parts[1].isdigit()) or (not parts[2].isdigit()):
+            return None
+        start_channel = int(parts[1])
+        end_channel = int(parts[2])
+        if start_channel < 1 or end_channel < start_channel:
+            return None
+        return start_channel, end_channel
+
     def _sync_preview_state(self) -> None:
-        if self._preview_active and self._preview_engine.reached_end:
-            self.stop_preview()
+        self._preview_active = bool(self._engine.overlay_active)
 
     def _sync_track_plan(self, track_plan: PlaybackTrackPlan) -> None:
         self._track_builder.prune_cache(track_plan.cache_keys)
@@ -391,6 +436,7 @@ class PlaybackController:
                 resume_playing=resume_playing,
                 reason="structure-async-applied",
                 resolve_audio=False,
+                preserve_transport_clock=resume_playing,
             )
             self._latest_ready_generation = generation
             self._mark_generation_terminal_outcome(generation, "applied")
@@ -466,11 +512,12 @@ class PlaybackController:
         resume_playing: bool,
         reason: str,
         resolve_audio: bool = True,
+        preserve_transport_clock: bool = False,
     ) -> None:
         started = time.perf_counter()
         engine_tracks = []
         for playback_track in track_plan.tracks:
-            if resolve_audio:
+            if resolve_audio or playback_track.buffer is None or playback_track.sample_rate <= 0:
                 self._track_builder.resolve_audio(playback_track)
             engine_track = playback_track.to_audio_track(
                 engine_track_id=self._engine_track_id(track_plan, playback_track),
@@ -481,6 +528,14 @@ class PlaybackController:
         self._engine.replace_tracks(engine_tracks)
         self._loaded_track_signature = track_plan.signature
         self._loaded_uses_track_routing = track_plan.uses_track_routing
+        if preserve_transport_clock:
+            elapsed_ms = max(0.0, (time.perf_counter() - started) * 1000.0)
+            self._structural_rebuild_count += 1
+            self._last_structural_rebuild_ms = elapsed_ms
+            if elapsed_ms > self._max_structural_rebuild_ms:
+                self._max_structural_rebuild_ms = elapsed_ms
+            self._last_track_sync_reason = reason
+            return
         if resume_seconds > 0.0:
             self._engine.seek_seconds(resume_seconds)
         if resume_playing and engine_tracks:

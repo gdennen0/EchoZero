@@ -181,7 +181,7 @@ def test_widget_set_presentation_avoids_rebuilding_runtime_layers_when_sources_u
         widget.set_presentation(next_presentation)
 
         assert runtime_audio.build_calls == 1
-        assert runtime_audio.mix_calls == 1
+        assert runtime_audio.mix_calls == 0
     finally:
         widget.close()
         app.processEvents()
@@ -215,7 +215,7 @@ def test_widget_set_presentation_routes_runtime_audio_without_rebuild_when_selec
         widget.set_presentation(next_presentation)
 
         assert runtime_audio.build_calls == 1
-        assert runtime_audio.mix_calls == 1
+        assert runtime_audio.mix_calls == 0
     finally:
         widget.close()
         app.processEvents()
@@ -259,6 +259,7 @@ def test_widget_set_presentation_rebuilds_runtime_layers_when_event_slice_source
             layers=[changed_source.layers[0], replace(changed_source.layers[1], gain_db=-6.0)],
         )
         widget.set_presentation(soloed_source)
+        widget._on_runtime_mix_sync_timeout()
 
         assert runtime_audio.build_calls == 2
         assert runtime_audio.mix_calls == 1
@@ -395,7 +396,7 @@ def test_widget_dispatch_flushes_pending_structural_sync_on_pause():
         app.processEvents()
 
 
-def test_widget_dispatch_applies_mix_only_intents_immediately_while_playing():
+def test_widget_dispatch_coalesces_mix_only_intents_while_playing():
     app = QApplication.instance() or QApplication([])
     base = replace(
         _event_slice_presentation(),
@@ -435,8 +436,10 @@ def test_widget_dispatch_applies_mix_only_intents_immediately_while_playing():
 
         widget._dispatch(SetLayerMute(layer_id=LayerId("bed"), muted=True))
 
-        assert runtime_audio.mix_calls == 1
+        assert runtime_audio.mix_calls == 0
         assert widget._runtime_structural_sync_pending_presentation is None
+        widget._on_runtime_mix_sync_timeout()
+        assert runtime_audio.mix_calls == 1
     finally:
         widget.close()
         app.processEvents()

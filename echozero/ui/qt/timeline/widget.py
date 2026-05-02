@@ -107,7 +107,7 @@ class TimelineWidget(TimelineWidgetRuntimeMixin, TimelineWidgetContractMixin, QW
         self._on_intent = on_intent
         self._app_settings_service = app_settings_service
         self._runtime_audio = runtime_audio
-        self._runtime_source_signature: tuple[tuple[str, str], ...] | None = None
+        self._runtime_sync_payload = None
         self._runtime_playhead_floor: float | None = None
         self._runtime_timing_snapshot: RuntimeAudioTimingSnapshot | None = None
         self._edit_mode = "select"
@@ -306,6 +306,10 @@ class TimelineWidget(TimelineWidgetRuntimeMixin, TimelineWidgetContractMixin, QW
         self._runtime_timer.setInterval(TIMELINE_RUNTIME_TICK_ACTIVE_MS)
         self._runtime_timer.timeout.connect(self._on_runtime_tick)
         self._runtime_timer.start()
+        self._runtime_mix_sync_pending_presentation: TimelinePresentation | None = None
+        self._runtime_mix_sync_timer = QTimer(self)
+        self._runtime_mix_sync_timer.setSingleShot(True)
+        self._runtime_mix_sync_timer.timeout.connect(self._on_runtime_mix_sync_timeout)
         self._runtime_structural_sync_pending_presentation: TimelinePresentation | None = None
         self._runtime_structural_sync_timer = QTimer(self)
         self._runtime_structural_sync_timer.setSingleShot(True)

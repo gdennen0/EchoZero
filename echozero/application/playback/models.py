@@ -38,6 +38,21 @@ class PlaybackDiagnostics:
     coalesced_edit_count: int = 0
     last_structural_rebuild_ms: float = 0.0
     max_structural_rebuild_ms: float = 0.0
+    audio_process_connected: bool = False
+    audio_process_pid: int | None = None
+    ipc_rtt_ms: float = 0.0
+    last_ipc_error: str | None = None
+    latency_profile: str = ""
+    latency_profile_switch_count: int = 0
+    last_latency_profile_reason: str | None = None
+    local_projection_build_ms: float = 0.0
+    local_sync_classify_ms: float = 0.0
+    last_local_sync_change_kind: str = ""
+    last_ipc_command: str = ""
+    rt_command_queue_depth: int = 0
+    rt_last_apply_latency_ms: float = 0.0
+    rt_last_seek_apply_latency_ms: float = 0.0
+    device_reinit_count: int = 0
 
 
 @dataclass(slots=True)

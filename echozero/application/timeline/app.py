@@ -52,7 +52,7 @@ class TimelineApplication:
         presentation = self.orchestrator.handle(self.timeline, intent)
         presentation = self._enrich_presentation(presentation)
         self._apply_runtime_audio_after_dispatch(intent, presentation)
-        self._sync_runtime_state(presentation)
+        self._sync_runtime_state_for_transport_intent(intent, presentation)
         return presentation
 
     def replace_timeline(self, timeline: Timeline) -> None:
@@ -119,10 +119,15 @@ class TimelineApplication:
             else:
                 runtime_audio.apply_mix_state(presentation)
 
-    def _sync_runtime_state(self, presentation: TimelinePresentation) -> None:
+    def _sync_runtime_state_for_transport_intent(
+        self,
+        intent: TimelineIntent,
+        presentation: TimelinePresentation,
+    ) -> None:
         runtime_audio = self.runtime_audio
         if runtime_audio is None:
             return
-
+        if not isinstance(intent, (Play, Pause, Stop, Seek)):
+            return
         if hasattr(runtime_audio, "snapshot_state"):
             self.session.playback_state = runtime_audio.snapshot_state(presentation)

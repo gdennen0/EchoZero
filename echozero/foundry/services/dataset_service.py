@@ -216,6 +216,64 @@ class DatasetService:
         )
         return self._versions.save(version)
 
+    def create_version_from_samples(
+        self,
+        dataset_id: str,
+        *,
+        samples: list[DatasetSample],
+        sample_rate: int = 22050,
+        audio_standard: str = "mono_wav_pcm16",
+        taxonomy: dict | None = None,
+        label_policy: dict | None = None,
+        manifest: dict | None = None,
+        stats: dict | None = None,
+        lineage: dict | None = None,
+    ) -> DatasetVersion:
+        """Persist one explicit dataset version from already curated samples."""
+        dataset = self._datasets.get(dataset_id)
+        if dataset is None:
+            raise ValueError(f"Dataset not found: {dataset_id}")
+        if not samples:
+            raise ValueError("At least one sample is required to create a dataset version")
+
+        existing = self._versions.list_for_dataset(dataset_id)
+        next_version_num = (existing[-1].version + 1) if existing else 1
+        class_map = sorted({sample.label for sample in samples})
+        content_groups = self._content_groups(samples)
+        version = DatasetVersion(
+            id=f"dsv_{uuid4().hex[:12]}",
+            dataset_id=dataset_id,
+            version=next_version_num,
+            manifest_hash=self.compute_manifest_hash(samples),
+            sample_rate=sample_rate,
+            audio_standard=audio_standard,
+            class_map=class_map,
+            samples=samples,
+            taxonomy=taxonomy or self._build_review_taxonomy(class_map),
+            label_policy=label_policy or self._build_review_label_policy(class_map),
+            manifest=manifest
+            or {
+                "schema": "foundry.dataset_manifest.v1",
+                "source_kind": dataset.source_kind,
+                "source_ref": dataset.source_ref,
+                "deterministic_order": [sample.sample_id for sample in samples],
+                "content_hash_algorithm": "sha256",
+                "content_groups": content_groups,
+            },
+            stats=stats
+            or {
+                "sample_count": len(samples),
+                "real_sample_count": sum(1 for sample in samples if not sample.is_synthetic),
+                "synthetic_sample_count": sum(1 for sample in samples if sample.is_synthetic),
+                "class_counts": {
+                    label: sum(1 for sample in samples if sample.label == label)
+                    for label in class_map
+                },
+            },
+            lineage=lineage or {},
+        )
+        return self._versions.save(version)
+
     def get_dataset(self, dataset_id: str) -> Dataset | None:
         return self._datasets.get(dataset_id)
 

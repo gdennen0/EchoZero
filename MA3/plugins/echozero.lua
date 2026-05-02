@@ -380,6 +380,102 @@ function EZ.SetTarget(ip, port)
     if OSC and OSC.setConfig then OSC.setConfig(EZ.config) end
     EZ.log(string.format("Target: %s:%d", EZ.config.ip, EZ.config.port)); return true
 end
+local function _coerceTargetPort(rawValue)
+    local port = tonumber(rawValue)
+    if not port then
+        return nil
+    end
+    port = math.floor(port)
+    if port < 1 or port > 65535 then
+        return nil
+    end
+    return port
+end
+
+local function _showTargetConfigDialog(defaultIp, defaultPort)
+    local messageBoxModule = rawget(_G, "MessageBoxModule")
+    if messageBoxModule and type(messageBoxModule.Complex) == "function" then
+        local result = messageBoxModule.Complex(
+            "EZ OSC Target",
+            "Set the EchoZero callback target for this console.",
+            {
+                {name = "IP Address", value = tostring(defaultIp or ""), maxTextLength = 64},
+                {
+                    name = "Port",
+                    value = tostring(defaultPort or 9000),
+                    whiteFilter = "0123456789",
+                    maxTextLength = 5,
+                },
+            },
+            {},
+            {},
+            {
+                {value = 1, name = "Apply"},
+                {value = 0, name = "Cancel"},
+            }
+        )
+        if result.success and messageBoxModule.WasCommandClicked(result, 1) then
+            return {
+                ip = messageBoxModule.GetInputValue(result, "IP Address"),
+                port = messageBoxModule.GetInputValue(result, "Port"),
+            }
+        end
+        return nil
+    end
+
+    if type(MessageBox) == "function" then
+        local result = MessageBox({
+            title = "EZ OSC Target",
+            message = "Set the EchoZero callback target for this console.",
+            commands = {
+                {value = 1, name = "Apply"},
+                {value = 0, name = "Cancel"},
+            },
+            inputs = {
+                {name = "IP Address", value = tostring(defaultIp or ""), maxTextLength = 64},
+                {
+                    name = "Port",
+                    value = tostring(defaultPort or 9000),
+                    whiteFilter = "0123456789",
+                    maxTextLength = 5,
+                },
+            },
+        })
+        if result and result.success and result.result == 1 and result.inputs then
+            return {
+                ip = result.inputs["IP Address"],
+                port = result.inputs["Port"],
+            }
+        end
+        return nil
+    end
+
+    return nil
+end
+
+function EZ.SetTargetPopup()
+    local values = _showTargetConfigDialog(EZ.config.ip, EZ.config.port)
+    if not values then
+        EZ.log("Target update cancelled.")
+        return false
+    end
+
+    local ip = tostring(values.ip or ""):match("^%s*(.-)%s*$")
+    if not ip or ip == "" then
+        EZ.log("ERROR: IP address cannot be empty.")
+        return false
+    end
+
+    local port = _coerceTargetPort(values.port)
+    if not port then
+        EZ.log("ERROR: Port must be an integer from 1 to 65535.")
+        return false
+    end
+
+    return EZ.SetTarget(ip, port)
+end
+EZ.ConfigureTarget = EZ.SetTargetPopup
+
 function EZ.SetDebug(enabled)
     EZ.config.debug = enabled and true or false
     -- Sync to OSC module so debug logging is consistent

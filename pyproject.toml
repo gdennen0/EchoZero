@@ -28,6 +28,7 @@ dependencies = [
     "soundfile>=0.12",
     "sounddevice>=0.4",
     "PyQt6>=6.5",
+    "websockets>=14,<17",
 ]
 
 [project.scripts]

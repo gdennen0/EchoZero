@@ -13,7 +13,7 @@ import numpy as np
 
 from echozero.audio.clock import Clock, ClockSubscriber
 from echozero.audio.crossfade import CrossfadeBuffer
-from echozero.audio.layer import AudioLayer, AudioTrack
+from echozero.audio.layer import AudioLayer, AudioTrack, resample_buffer
 from echozero.audio.mixer import Mixer
 from echozero.audio.output_backend import (
     DEFAULT_BUFFER_SIZE,
@@ -29,6 +29,8 @@ from echozero.audio.transport import Transport
 
 
 DEFAULT_SCRATCH_FRAMES = 32768
+_DECLICK_RAMP_SAMPLES = 64
+_DECLICK_DELTA_THRESHOLD = 0.05
 
 
 def _create_audio_buffer(frames: int, channels: int) -> np.ndarray:
@@ -66,6 +68,11 @@ class AudioEngine:
         "_post_scratch",
         "_glitch_count",
         "_last_status",
+        "_last_output_tail",
+        "_pending_declick",
+        "_overlay_buffer",
+        "_overlay_read_index",
+        "_overlay_volume",
     )
 
     def __init__(
@@ -118,6 +125,14 @@ class AudioEngine:
         self._post_scratch = _create_audio_buffer(scratch_size, self._channels)
         self._glitch_count = 0
         self._last_status: Any = None
+        if self._channels <= 1:
+            self._last_output_tail = np.zeros(1, dtype=np.float32)
+        else:
+            self._last_output_tail = np.zeros(self._channels, dtype=np.float32)
+        self._pending_declick = True
+        self._overlay_buffer: np.ndarray | None = None
+        self._overlay_read_index = 0
+        self._overlay_volume = np.float32(1.0)
 
     @property
     def clock(self) -> Clock:
@@ -265,11 +280,13 @@ class AudioEngine:
         """Atomically replace the current playback track set."""
 
         self._mixer.replace_tracks(tracks)
+        self._pending_declick = True
 
     def clear_tracks(self) -> None:
         """Remove every playback track from the engine mixer."""
 
         self._mixer.clear_tracks()
+        self._pending_declick = True
 
     def add_layer(
         self,
@@ -317,23 +334,28 @@ class AudioEngine:
         self._end_of_content = False
         if not self._active:
             self._open_stream()
+        self._pending_declick = True
         self._transport.play()
 
     def pause(self) -> None:
         self._transport.pause()
         self._last_audible_monotonic_seconds = None
+        self._pending_declick = True
 
     def stop(self) -> None:
         self._end_of_content = False
         self._transport.stop()
         self._last_audible_time_seconds = 0.0
         self._last_audible_monotonic_seconds = None
+        self._pending_declick = True
+        self.stop_overlay()
 
     def seek(self, position_samples: int) -> None:
         self._end_of_content = False
         self._transport.seek(position_samples)
         self._last_audible_time_seconds = self._clock.position_seconds
         self._last_audible_monotonic_seconds = None
+        self._pending_declick = True
 
     def seek_seconds(self, seconds: float) -> None:
         self.seek(int(seconds * self._clock.sample_rate))
@@ -354,6 +376,57 @@ class AudioEngine:
         self._reported_output_latency_seconds = 0.0
         self._last_audible_time_seconds = None
         self._last_audible_monotonic_seconds = None
+        self._pending_declick = True
+        self.stop_overlay()
+
+    @property
+    def overlay_active(self) -> bool:
+        return self._overlay_buffer is not None
+
+    def play_overlay(
+        self,
+        buffer: np.ndarray,
+        sample_rate: int,
+        *,
+        volume: float = 1.0,
+    ) -> bool:
+        """Play one-shot overlay audio on the main stream without a second engine."""
+
+        if buffer.size == 0 or sample_rate <= 0:
+            self.stop_overlay()
+            return False
+        prepared = np.asarray(buffer, dtype=np.float32)
+        if int(sample_rate) != int(self._clock.sample_rate):
+            prepared = resample_buffer(prepared, int(sample_rate), int(self._clock.sample_rate))
+        if prepared.size == 0:
+            self.stop_overlay()
+            return False
+        if self._channels <= 1:
+            if prepared.ndim == 2:
+                prepared = np.mean(prepared, axis=1, dtype=np.float32)
+            prepared = np.asarray(prepared, dtype=np.float32)
+        else:
+            if prepared.ndim == 1:
+                prepared = np.repeat(prepared[:, None], self._channels, axis=1)
+            elif prepared.shape[1] < self._channels:
+                pad_channels = self._channels - int(prepared.shape[1])
+                pad = np.repeat(prepared[:, -1:], pad_channels, axis=1)
+                prepared = np.concatenate((prepared, pad), axis=1)
+            elif prepared.shape[1] > self._channels:
+                prepared = np.asarray(prepared[:, :self._channels], dtype=np.float32)
+        self._overlay_buffer = np.asarray(prepared, dtype=np.float32)
+        self._overlay_read_index = 0
+        self._overlay_volume = np.float32(max(0.0, float(volume)))
+        if not self._active:
+            self._open_stream()
+        return True
+
+    def stop_overlay(self) -> None:
+        """Stop one-shot overlay playback and clear staged overlay samples."""
+
+        self._overlay_buffer = None
+        self._overlay_read_index = 0
+        self._overlay_volume = np.float32(1.0)
 
     def _open_stream(self) -> None:
         if self._active:
@@ -379,60 +452,65 @@ class AudioEngine:
             self._glitch_count += 1
             self._last_status = f"callback_frames_exceeded_scratch:{frames}>{len(self._output_scratch)}"
             return
+        mixed = self._output_scratch[:frames]
         if not self._transport.is_playing:
-            outdata[:] = 0
-            return
-
-        position = self._clock.advance(frames)
-        self._update_callback_timing_snapshot(time_info)
-        duration = self._mixer.duration_samples
-        if duration > 0 and not self._clock.loop_enabled and position >= duration:
-            outdata[:] = 0
-            self._transport.pause()
-            self._end_of_content = True
-            return
-
-        wrap_offset = self._clock.last_wrap_offset
-        loop_region = self._clock.loop_region
-        if wrap_offset >= 0 and loop_region is not None:
-            pre_frames = wrap_offset
-            if pre_frames > 0:
-                self._mixer.read_mix_into(self._pre_scratch, position, pre_frames)
-            remaining = frames - pre_frames
-            loop_length = loop_region.end - loop_region.start
-            post_filled = 0
-            read_position = loop_region.start
-            while post_filled < remaining:
-                chunk = min(loop_length, remaining - post_filled)
-                self._mixer.read_mix_into(
-                    self._post_scratch[post_filled:],
-                    read_position,
-                    chunk,
-                )
-                read_position = loop_region.start + (
-                    (read_position - loop_region.start + chunk) % loop_length
-                )
-                post_filled += chunk
-            mixed = self._output_scratch[:frames]
-            if pre_frames > 0:
-                mixed[:pre_frames] = self._pre_scratch[:pre_frames]
-            mixed[pre_frames:frames] = self._post_scratch[:remaining]
-            crossfade_length = min(self._crossfade.length, pre_frames, remaining)
-            if pre_frames > 0 and crossfade_length > 0:
-                tail = self._pre_scratch[pre_frames - crossfade_length:pre_frames]
-                head = self._post_scratch[:crossfade_length]
-                self._crossfade.apply(
-                    mixed,
-                    tail,
-                    head,
-                    pre_frames - crossfade_length,
-                    crossfade_length,
-                )
+            mixed[:] = 0.0
         else:
-            self._mixer.read_mix_into(self._output_scratch, position, frames)
-            mixed = self._output_scratch[:frames]
+            position = self._clock.advance(frames)
+            self._update_callback_timing_snapshot(time_info)
+            duration = self._mixer.duration_samples
+            if duration > 0 and not self._clock.loop_enabled and position >= duration:
+                mixed[:] = 0.0
+                self._transport.pause()
+                self._end_of_content = True
+            else:
+                wrap_offset = self._clock.last_wrap_offset
+                loop_region = self._clock.loop_region
+                if wrap_offset >= 0 and loop_region is not None:
+                    pre_frames = wrap_offset
+                    if pre_frames > 0:
+                        self._mixer.read_mix_into(self._pre_scratch, position, pre_frames)
+                    remaining = frames - pre_frames
+                    loop_length = loop_region.end - loop_region.start
+                    post_filled = 0
+                    read_position = loop_region.start
+                    while post_filled < remaining:
+                        chunk = min(loop_length, remaining - post_filled)
+                        self._mixer.read_mix_into(
+                            self._post_scratch[post_filled:],
+                            read_position,
+                            chunk,
+                        )
+                        read_position = loop_region.start + (
+                            (read_position - loop_region.start + chunk) % loop_length
+                        )
+                        post_filled += chunk
+                    if pre_frames > 0:
+                        mixed[:pre_frames] = self._pre_scratch[:pre_frames]
+                    mixed[pre_frames:frames] = self._post_scratch[:remaining]
+                    crossfade_length = min(self._crossfade.length, pre_frames, remaining)
+                    if pre_frames > 0 and crossfade_length > 0:
+                        tail = self._pre_scratch[pre_frames - crossfade_length:pre_frames]
+                        head = self._post_scratch[:crossfade_length]
+                        self._crossfade.apply(
+                            mixed,
+                            tail,
+                            head,
+                            pre_frames - crossfade_length,
+                            crossfade_length,
+                        )
+                else:
+                    self._mixer.read_mix_into(self._output_scratch, position, frames)
+
+        self._mix_overlay_into(mixed, frames)
 
         self._sanitize_output_samples(mixed, frames)
+        self._apply_boundary_declick(
+            mixed,
+            frames=frames,
+            force=bool(self._pending_declick),
+        )
+        self._pending_declick = False
         if self._channels == 1:
             outdata[:, 0] = mixed if mixed.ndim == 1 else mixed[:, 0]
             return
@@ -440,6 +518,38 @@ class AudioEngine:
             outdata[:, :] = mixed[:, None]
             return
         outdata[:, :] = mixed[:, :self._channels]
+
+    def _mix_overlay_into(self, mixed: np.ndarray, frames: int) -> None:
+        overlay = self._overlay_buffer
+        if overlay is None:
+            return
+        start = int(self._overlay_read_index)
+        if start >= int(overlay.shape[0]):
+            self.stop_overlay()
+            self._pending_declick = True
+            return
+        available = int(overlay.shape[0]) - start
+        chunk_frames = min(int(frames), available)
+        if chunk_frames <= 0:
+            self.stop_overlay()
+            self._pending_declick = True
+            return
+        overlay_chunk = overlay[start:start + chunk_frames]
+        if mixed.ndim == 1:
+            if overlay_chunk.ndim == 2:
+                overlay_chunk = overlay_chunk[:, 0]
+            mixed[:chunk_frames] += overlay_chunk * self._overlay_volume
+        else:
+            if overlay_chunk.ndim == 1:
+                mixed[:chunk_frames, :] += overlay_chunk[:, None] * self._overlay_volume
+            else:
+                mixed[:chunk_frames, :overlay_chunk.shape[1]] += (
+                    overlay_chunk * self._overlay_volume
+                )
+        self._overlay_read_index = start + chunk_frames
+        if self._overlay_read_index >= int(overlay.shape[0]):
+            self.stop_overlay()
+            self._pending_declick = True
 
     def add_clock_subscriber(self, sub: ClockSubscriber) -> None:
         self._clock.add_subscriber(sub)
@@ -461,6 +571,31 @@ class AudioEngine:
         out = buffer[:frames]
         np.nan_to_num(out, copy=False, nan=0.0, posinf=1.0, neginf=-1.0)
         np.clip(out, -1.0, 1.0, out=out)
+
+    def _apply_boundary_declick(self, buffer: np.ndarray, *, frames: int, force: bool) -> None:
+        if frames <= 0:
+            return
+        declick_frames = min(int(frames), int(_DECLICK_RAMP_SAMPLES))
+        if declick_frames <= 1:
+            return
+
+        if buffer.ndim == 1:
+            start_sample = float(buffer[0])
+            prior_tail = float(self._last_output_tail[0])
+            delta = start_sample - prior_tail
+            if force and abs(delta) >= _DECLICK_DELTA_THRESHOLD:
+                ramp = np.linspace(1.0, 0.0, declick_frames, dtype=np.float32)
+                buffer[:declick_frames] -= np.float32(delta) * ramp
+            self._last_output_tail[0] = np.float32(buffer[frames - 1])
+            return
+
+        start_sample = np.asarray(buffer[0], dtype=np.float32)
+        prior_tail = np.asarray(self._last_output_tail, dtype=np.float32)
+        delta = start_sample - prior_tail
+        if force and bool(np.any(np.abs(delta) >= _DECLICK_DELTA_THRESHOLD)):
+            ramp = np.linspace(1.0, 0.0, declick_frames, dtype=np.float32)[:, None]
+            buffer[:declick_frames] -= delta[None, :] * ramp
+        self._last_output_tail[:] = np.asarray(buffer[frames - 1], dtype=np.float32)
 
     def _update_callback_timing_snapshot(self, time_info: Any) -> None:
         output_latency_seconds = self._reported_output_latency_seconds

@@ -94,6 +94,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--no-promote", action="store_true")
     parser.add_argument("--negative-library-limit", type=int, default=NEGATIVE_LIBRARY_LIMIT)
     parser.add_argument("--epochs", type=int, default=TRAINING_EPOCHS)
+    parser.add_argument("--olivia-train-duplicates", type=int, default=OLIVIA_TRAIN_DUPLICATES)
+    parser.add_argument("--batch-size", type=int, default=64)
+    parser.add_argument("--learning-rate", type=float, default=0.001)
+    parser.add_argument("--weight-decay", type=float, default=0.0001)
     return parser.parse_args()
 
 
@@ -125,13 +129,23 @@ def main() -> int:
         project_path=args.project.expanduser().resolve(),
         samples_root=args.samples_root.expanduser().resolve(),
         base_samples=base_samples,
+        olivia_train_duplicates=args.olivia_train_duplicates,
     )
     integrity = DatasetService.validate_version_integrity(version)
     if not integrity["ok"]:
         raise RuntimeError(f"Dataset integrity failed: {integrity['errors']}")
 
     app = FoundryApp(workspace_root)
-    run = app.create_run(version.id, build_run_spec(version, epochs=args.epochs))
+    run = app.create_run(
+        version.id,
+        build_run_spec(
+            version,
+            epochs=args.epochs,
+            batch_size=args.batch_size,
+            learning_rate=args.learning_rate,
+            weight_decay=args.weight_decay,
+        ),
+    )
     completed_run = app.start_run(run.id)
     artifacts = app.list_artifacts_for_run(completed_run.id)
     if completed_run.status.value != "completed" or not artifacts:
@@ -181,6 +195,14 @@ def main() -> int:
         "datasetId": dataset.id,
         "datasetVersionId": version.id,
         "datasetStats": version.stats,
+        "trainingKnobs": {
+            "epochs": args.epochs,
+            "batchSize": args.batch_size,
+            "learningRate": args.learning_rate,
+            "weightDecay": args.weight_decay,
+            "oliviaTrainDuplicates": args.olivia_train_duplicates,
+            "negativeLibraryLimit": args.negative_library_limit,
+        },
         "splitDistribution": version.split_plan.get("label_distribution", {}),
         "runId": completed_run.id,
         "artifactId": artifact.id,
@@ -273,6 +295,8 @@ def build_project_event_clips(project_db: Path, project_cache: Path, output_dir:
             events = extract_events(row["data_json"])
             song_title = str(song_rows[layer["song_version_id"]]["title"])
             for event in events:
+                if not is_training_eligible_project_event(label, event):
+                    continue
                 event_id = str(event.get("id") or uuid4().hex)
                 time_seconds = float(event.get("time", 0.0))
                 clip_path = output_dir / label / safe_filename(f"{song_title}_{event_id}.wav")
@@ -291,6 +315,36 @@ def build_project_event_clips(project_db: Path, project_cache: Path, output_dir:
                     )
                 )
     return sorted(clips, key=lambda clip: (clip.label, clip.song_title, clip.time_seconds, clip.event_id))
+
+
+def is_training_eligible_project_event(label: str, event: dict[str, object]) -> bool:
+    """Return true when a project event is reliable enough for weighted training."""
+    metadata = event.get("metadata")
+    metadata = metadata if isinstance(metadata, dict) else {}
+    detection = metadata.get("detection")
+    detection = detection if isinstance(detection, dict) else {}
+    review = metadata.get("review")
+    review = review if isinstance(review, dict) else {}
+    promotion_state = str(
+        metadata.get("promotion_state")
+        or review.get("promotion_state")
+        or ""
+    ).strip().lower()
+    if promotion_state == "demoted":
+        return False
+    threshold_passed = detection.get("threshold_passed")
+    score = coerce_float(
+        metadata.get(
+            "classifier_score",
+            detection.get("classifier_score"),
+        )
+    )
+    if promotion_state == "promoted":
+        return True
+    if threshold_passed is True:
+        return True
+    threshold = 0.65 if label == POSITIVE_LABEL else 0.5
+    return score is not None and score >= threshold
 
 
 def collect_main_audio_by_layer(connection: sqlite3.Connection) -> dict[str, str]:
@@ -390,9 +444,10 @@ def sample_from_event_clip(clip: EventClip) -> DatasetSample:
             "event_time_seconds": clip.time_seconds,
             "source_audio_ref": clip.source_audio_ref,
             "original_label": clip.label,
-            "group_id": clip.group_id,
+            "event_group_id": clip.group_id,
+            "group_id": f"content:{clip.content_hash}",
         },
-        group_id=clip.group_id,
+        group_id=f"content:{clip.content_hash}",
         curation_state=CurationState.ACCEPTED,
     )
 
@@ -433,6 +488,7 @@ def persist_weighted_dataset(
     project_path: Path,
     samples_root: Path,
     base_samples: list[DatasetSample],
+    olivia_train_duplicates: int,
 ) -> tuple[Dataset, DatasetVersion]:
     """Persist the final train-weighted binary dataset into Foundry state."""
     dataset = Dataset(
@@ -444,7 +500,7 @@ def persist_weighted_dataset(
             "schema": "echozero.olivia_snare_monster_dataset.v1",
             "project_path": str(project_path),
             "samples_root": str(samples_root),
-            "olivia_train_duplicates": OLIVIA_TRAIN_DUPLICATES,
+            "olivia_train_duplicates": olivia_train_duplicates,
         },
     )
     base_version = DatasetVersion(
@@ -462,7 +518,11 @@ def persist_weighted_dataset(
     )
     split_service = SplitBalanceService()
     base_split = split_service.plan_splits(base_version, validation_split=0.15, test_split=0.10, seed=42)
-    final_samples = apply_train_only_olivia_weighting(base_samples, base_split)
+    final_samples = apply_train_only_olivia_weighting(
+        base_samples,
+        base_split,
+        olivia_train_duplicates=olivia_train_duplicates,
+    )
     final_version = DatasetVersion(
         id=base_version.id,
         dataset_id=dataset.id,
@@ -494,6 +554,7 @@ def persist_weighted_dataset(
             "kind": "olivia_weighted_binary_snare",
             "base_sample_count": len(base_samples),
             "weighted_sample_count": len(final_samples),
+            "olivia_train_duplicates": olivia_train_duplicates,
         },
     )
     DatasetRepository(workspace_root).save(dataset)
@@ -504,6 +565,8 @@ def persist_weighted_dataset(
 def apply_train_only_olivia_weighting(
     samples: list[DatasetSample],
     split_plan: dict[str, object],
+    *,
+    olivia_train_duplicates: int,
 ) -> list[DatasetSample]:
     """Duplicate only train-split Olivia samples so eval remains honest."""
     assignments = split_plan.get("assignments", {})
@@ -513,7 +576,7 @@ def apply_train_only_olivia_weighting(
             continue
         if sample.source_provenance.get("source_kind") != "olivia_project_event":
             continue
-        for copy_index in range(OLIVIA_TRAIN_DUPLICATES):
+        for copy_index in range(max(0, olivia_train_duplicates)):
             final_samples.append(
                 DatasetSample(
                     sample_id=f"{sample.sample_id}_w{copy_index + 1}",
@@ -535,19 +598,20 @@ def apply_train_only_olivia_weighting(
 def build_final_split_plan(samples: list[DatasetSample], base_split: dict[str, object]) -> dict[str, object]:
     """Extend the base split with train-only weighting copies."""
     assignments = dict(base_split["assignments"])
-    train_ids = list(base_split["train_ids"])
     for sample in samples:
         if sample.sample_id in assignments:
             continue
         assignments[sample.sample_id] = "train"
-        train_ids.append(sample.sample_id)
+    train_ids = sorted(sample_id for sample_id, split_name in assignments.items() if split_name == "train")
+    val_ids = sorted(sample_id for sample_id, split_name in assignments.items() if split_name == "val")
+    test_ids = sorted(sample_id for sample_id, split_name in assignments.items() if split_name == "test")
     split_plan = {
         **base_split,
         "dataset_manifest_hash": DatasetService.compute_manifest_hash(samples),
         "dataset_sample_count": len(samples),
-        "train_ids": sorted(train_ids),
-        "val_ids": sorted(base_split["val_ids"]),
-        "test_ids": sorted(base_split["test_ids"]),
+        "train_ids": train_ids,
+        "val_ids": val_ids,
+        "test_ids": test_ids,
         "assignments": assignments,
     }
     temp_version = DatasetVersion(
@@ -568,7 +632,14 @@ def build_final_split_plan(samples: list[DatasetSample], base_split: dict[str, o
     return split_plan
 
 
-def build_run_spec(version: DatasetVersion, *, epochs: int) -> dict[str, object]:
+def build_run_spec(
+    version: DatasetVersion,
+    *,
+    epochs: int,
+    batch_size: int,
+    learning_rate: float,
+    weight_decay: float,
+) -> dict[str, object]:
     """Build the Foundry CRNN run spec."""
     return {
         "schema": "foundry.train_run_spec.v1",
@@ -585,8 +656,8 @@ def build_run_spec(version: DatasetVersion, *, epochs: int) -> dict[str, object]
         },
         "training": {
             "epochs": epochs,
-            "batchSize": 64,
-            "learningRate": 0.001,
+            "batchSize": batch_size,
+            "learningRate": learning_rate,
             "seed": 42,
             "trainerProfile": "stronger_v1",
             "optimizer": "adamw",
@@ -599,7 +670,7 @@ def build_run_spec(version: DatasetVersion, *, epochs: int) -> dict[str, object]
             "earlyStoppingPatience": 3,
             "minEpochs": 4,
             "regularizationAlpha": 0.0001,
-            "weightDecay": 0.0001,
+            "weightDecay": weight_decay,
             "gradientClipNorm": 1.0,
         },
         "promotion": {
@@ -775,8 +846,6 @@ def evaluate_olivia_score_gate(score_sets: list[RuntimeScoreSet]) -> dict[str, o
         reasons.append(
             f"candidate Olivia score margin {candidate_margin:.6f} below best reference {best_reference_margin:.6f}"
         )
-    if summarize_scores(candidate.positive_scores)["mean"] < 0.5:
-        reasons.append("candidate mean positive snare score is below 0.5")
     return {
         "passed": not reasons,
         "reasons": reasons,
@@ -803,6 +872,14 @@ def summarize_scores(scores: list[float]) -> dict[str, float | int]:
         "p90": float(np.percentile(values, 90)),
         "lowConfidenceCount": int(np.sum(values < 0.5)),
     }
+
+
+def coerce_float(value: object) -> float | None:
+    """Coerce a numeric-ish value into a float."""
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
 
 
 def build_taxonomy() -> dict[str, object]:

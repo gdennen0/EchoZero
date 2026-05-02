@@ -19,9 +19,9 @@ from echozero.testing.ma3.simulator import _SimulatedMA3OSCServer
 
 def test_parse_ma3_osc_payload_keeps_json_fields_and_pipe_containing_raw_values():
     message = parse_ma3_osc_payload(
-        'type=track|change=changed|timestamp=1712860800|tc=101|tg=1|track=1|'
+        "type=track|change=changed|timestamp=1712860800|tc=101|tg=1|track=1|"
         'events=[{"idx":1,"time":1.25,"name":"Kick","cmd":"Go+ | Cue 5"}]|'
-        'added=[{fingerprint:0.409233|Kick|Go+|Cue 5}]'
+        "added=[{fingerprint:0.409233|Kick|Go+|Cue 5}]"
     )
 
     assert message.key == "track.changed"
@@ -300,7 +300,9 @@ def test_ma3_osc_bridge_falls_back_to_localhost_when_bind_host_is_unavailable(mo
         def server_close(self) -> None:
             self._poll.set()
 
-    monkeypatch.setattr("echozero.infrastructure.osc.service.ThreadingOSCUDPServer", _FakeThreadingOSCUDPServer)
+    monkeypatch.setattr(
+        "echozero.infrastructure.osc.service.ThreadingOSCUDPServer", _FakeThreadingOSCUDPServer
+    )
 
     bridge = MA3OSCBridge(
         listen_host="10.255.255.1",
@@ -513,10 +515,36 @@ def test_ma3_osc_bridge_uses_event_label_for_cue_name_when_cue_ref_exists():
         transfer_mode="overwrite",
     )
 
-    assert (
-        "EZ.AddEvent(1, 2, 5, 1, 'Go+ Cue 11', 'Q11A Verse', 11, 'Verse', 1)"
-        in bridge.commands
+    assert "EZ.AddEvent(1, 2, 5, 1, 'Go+ Cue 11', 'Q11A Verse', 11, 'Verse', 1)" in bridge.commands
+
+
+def test_ma3_osc_bridge_relabels_assigned_sequence_cue_before_section_event_write():
+    bridge = SimulatedMA3Bridge()
+
+    bridge.apply_push_transfer(
+        target_track_coord="tc1_tg2_tr3",
+        selected_events=[
+            Event(
+                id="evt_section",
+                take_id="take_1",
+                start=4.0,
+                end=4.1,
+                cue_number=2,
+                cue_ref="2",
+                label="Big Chorus",
+            )
+        ],
+        transfer_mode="merge",
     )
+
+    label_command = 'label sequence 12 cue 2 "Big Chorus"'
+    add_event_command = "EZ.AddEvent(1, 2, 3, 4, 'Go+ Cue 2', '2 Big Chorus', 2, 'Big Chorus', 1)"
+    cues = bridge.list_sequence_cues(sequence_no=12)
+
+    assert label_command in bridge.commands
+    assert add_event_command in bridge.commands
+    assert bridge.commands.index(label_command) < bridge.commands.index(add_event_command)
+    assert next(cue for cue in cues if cue["cue_number"] == 2)["name"] == "Big Chorus"
 
 
 def test_ma3_osc_bridge_creates_next_available_sequence_via_lua_method():

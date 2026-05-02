@@ -16,47 +16,15 @@ from echozero.application.presentation.models import TimelinePresentation
 from echozero.application.shared.enums import PlaybackMode
 from echozero.application.shared.ids import LayerId, TakeId
 from echozero.application.shared.layer_kinds import is_event_like_layer_kind
+from echozero.application.playback.track_identity import (
+    event_slice_signature,
+    sanitize_output_bus_for_channels,
+)
 from echozero.audio.layer import AudioTrack
 
 
 def _db_to_linear(gain_db: float) -> float:
     return float(10.0 ** (float(gain_db) / 20.0))
-
-
-def _normalize_output_bus(value: object) -> str | None:
-    if not isinstance(value, str):
-        return None
-    output_bus = value.strip().lower()
-    return output_bus or None
-
-
-def _parse_output_bus_token(output_bus: str | None) -> tuple[int, int] | None:
-    token = _normalize_output_bus(output_bus)
-    if token is None or not token.startswith("outputs_"):
-        return None
-    parts = token.split("_")
-    if len(parts) != 3 or (not parts[1].isdigit()) or (not parts[2].isdigit()):
-        return None
-    start_channel = int(parts[1])
-    end_channel = int(parts[2])
-    if start_channel < 1 or end_channel < start_channel:
-        return None
-    return start_channel, end_channel
-
-
-def _sanitize_output_bus_for_channels(
-    value: object,
-    *,
-    playback_output_channels: int,
-) -> str | None:
-    parsed = _parse_output_bus_token(_normalize_output_bus(value))
-    if parsed is None:
-        return None
-    start_channel, end_channel = parsed
-    channel_count = max(1, int(playback_output_channels))
-    if start_channel > channel_count or end_channel > channel_count:
-        return None
-    return f"outputs_{start_channel}_{end_channel}"
 
 
 def _event_start_seconds(event: object) -> float:
@@ -77,11 +45,32 @@ def _event_badges(event: object) -> tuple[str, ...]:
     return tuple(str(badge) for badge in badges)
 
 
-def _event_signature(events: list[object]) -> str:
-    return ",".join(
-        f"{_event_start_seconds(event):.6f}:{int(_event_is_muted(event))}:{int('demoted' in _event_badges(event))}"
-        for event in events
-    )
+def _event_slice_fade_samples(sample_rate: int, total_samples: int) -> int:
+    if total_samples < 64:
+        return 0
+    requested = max(2, int(round(float(sample_rate) * 0.0015)))
+    return min(requested, max(0, total_samples // 8))
+
+
+def _shape_event_slice_for_click_suppression(
+    source: np.ndarray,
+    *,
+    sample_rate: int,
+) -> np.ndarray:
+    total_samples = int(source.shape[0]) if source.ndim > 0 else 0
+    fade_samples = _event_slice_fade_samples(sample_rate, total_samples)
+    if fade_samples < 2:
+        return np.asarray(source, dtype=np.float32)
+    shaped = np.asarray(source, dtype=np.float32).copy()
+    ramp_in = np.linspace(0.0, 1.0, fade_samples, dtype=np.float32)
+    ramp_out = np.linspace(1.0, 0.0, fade_samples, dtype=np.float32)
+    if shaped.ndim == 1:
+        shaped[:fade_samples] *= ramp_in
+        shaped[-fade_samples:] *= ramp_out
+    else:
+        shaped[:fade_samples, :] *= ramp_in[:, None]
+        shaped[-fade_samples:, :] *= ramp_out[:, None]
+    return shaped
 
 
 @dataclass(slots=True)
@@ -371,7 +360,7 @@ class PlaybackTrackBuilder:
                 source_take_id=None,
                 name=str(getattr(layer, "title")),
                 gain_db=float(getattr(layer, "gain_db", 0.0)),
-                output_bus=_sanitize_output_bus_for_channels(
+                output_bus=sanitize_output_bus_for_channels(
                     getattr(layer, "output_bus", None),
                     playback_output_channels=playback_output_channels,
                 ),
@@ -388,7 +377,7 @@ class PlaybackTrackBuilder:
             source_take_id=None,
             title=str(getattr(layer, "title")),
             gain_db=float(getattr(layer, "gain_db", 0.0)),
-            output_bus=_sanitize_output_bus_for_channels(
+            output_bus=sanitize_output_bus_for_channels(
                 getattr(layer, "output_bus", None),
                 playback_output_channels=playback_output_channels,
             ),
@@ -416,7 +405,7 @@ class PlaybackTrackBuilder:
                 source_take_id=getattr(take, "take_id"),
                 name=f"{getattr(layer, 'title')} · {getattr(take, 'name')}",
                 gain_db=float(getattr(layer, "gain_db", 0.0)),
-                output_bus=_sanitize_output_bus_for_channels(
+                output_bus=sanitize_output_bus_for_channels(
                     getattr(layer, "output_bus", None),
                     playback_output_channels=playback_output_channels,
                 ),
@@ -433,7 +422,7 @@ class PlaybackTrackBuilder:
             source_take_id=getattr(take, "take_id"),
             title=f"{getattr(layer, 'title')} · {getattr(take, 'name')}",
             gain_db=float(getattr(layer, "gain_db", 0.0)),
-            output_bus=_sanitize_output_bus_for_channels(
+            output_bus=sanitize_output_bus_for_channels(
                 getattr(layer, "output_bus", None),
                 playback_output_channels=playback_output_channels,
             ),
@@ -458,7 +447,7 @@ class PlaybackTrackBuilder:
         resolve_audio: bool,
     ) -> PlaybackTrack | None:
         sample_source_key = f"event-sample:{playback_source_ref}"
-        rendered_source_key = f"event:{playback_source_ref}:{_event_signature(events)}"
+        rendered_source_key = f"event:{playback_source_ref}:{event_slice_signature(events)}"
         if not resolve_audio:
             return PlaybackTrack(
                 track_id=track_id,
@@ -544,15 +533,21 @@ class PlaybackTrackBuilder:
             max(0, int(round(_event_start_seconds(event) * sample_rate)))
             for event in active_events
         ]
-        total_samples = max(start_samples) + int(event_buffer.shape[0])
+        shaped_event_buffer = _shape_event_slice_for_click_suppression(
+            event_buffer,
+            sample_rate=sample_rate,
+        )
+        total_samples = max(start_samples) + int(shaped_event_buffer.shape[0])
         if event_buffer.ndim == 1:
             rendered = np.zeros(total_samples, dtype=np.float32)
         else:
             rendered = np.zeros((total_samples, event_buffer.shape[1]), dtype=np.float32)
         for start_sample in start_samples:
-            end_sample = start_sample + int(event_buffer.shape[0])
-            rendered[start_sample:end_sample] += event_buffer
-        np.clip(rendered, -1.0, 1.0, out=rendered)
+            end_sample = start_sample + int(shaped_event_buffer.shape[0])
+            rendered[start_sample:end_sample] += shaped_event_buffer
+        peak = float(np.max(np.abs(rendered))) if rendered.size > 0 else 0.0
+        if peak > 1.0:
+            rendered *= np.float32(0.98 / peak)
         return rendered
 
 

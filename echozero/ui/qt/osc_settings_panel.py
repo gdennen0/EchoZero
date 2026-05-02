@@ -20,6 +20,7 @@ from PyQt6.QtWidgets import (
     QLabel,
     QPlainTextEdit,
     QPushButton,
+    QSizePolicy,
     QVBoxLayout,
     QWidget,
 )
@@ -59,20 +60,24 @@ class OscSettingsPanel(QWidget):
         *,
         values_provider: Callable[[], Mapping[str, object]],
         monitor_provider: Callable[[], list[Mapping[str, object]]] | None = None,
+        clear_monitor: Callable[[], None] | None = None,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
         self._values_provider = values_provider
         self._monitor_provider = monitor_provider
+        self._clear_monitor = clear_monitor
 
-        layout = QVBoxLayout(self)
+        layout = QHBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(6)
+        layout.setSpacing(8)
 
         group = QGroupBox("OSC Connection", self)
         group.setProperty("section", True)
+        group.setProperty("compact", True)
+        group.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Minimum)
         group_layout = QVBoxLayout(group)
-        group_layout.setContentsMargins(10, 10, 10, 10)
+        group_layout.setContentsMargins(8, 8, 8, 8)
         group_layout.setSpacing(6)
 
         form = QFormLayout()
@@ -109,16 +114,18 @@ class OscSettingsPanel(QWidget):
         actions.addWidget(self._ping_button)
         group_layout.addLayout(actions)
 
-        layout.addWidget(group)
-        layout.addWidget(self._build_monitor_group())
+        layout.addWidget(group, 1)
+        layout.addWidget(self._build_monitor_group(), 2)
         self._set_status("unknown", "Unknown", "Run Check Status to validate OSC endpoints.")
         self._sync_monitor_state()
 
     def _build_monitor_group(self) -> QGroupBox:
         group = QGroupBox("Recent Incoming OSC", self)
         group.setProperty("section", True)
+        group.setProperty("compact", True)
+        group.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
         layout = QVBoxLayout(group)
-        layout.setContentsMargins(10, 10, 10, 10)
+        layout.setContentsMargins(8, 8, 8, 8)
         layout.setSpacing(6)
 
         self._monitor_status = QLabel(
@@ -130,8 +137,13 @@ class OscSettingsPanel(QWidget):
 
         self._monitor_output = QPlainTextEdit(group)
         self._monitor_output.setReadOnly(True)
-        self._monitor_output.setLineWrapMode(QPlainTextEdit.LineWrapMode.NoWrap)
-        self._monitor_output.setMinimumHeight(118)
+        self._monitor_output.setLineWrapMode(QPlainTextEdit.LineWrapMode.WidgetWidth)
+        self._monitor_output.setMinimumHeight(72)
+        self._monitor_output.setMaximumHeight(92)
+        self._monitor_output.setSizePolicy(
+            QSizePolicy.Policy.Expanding,
+            QSizePolicy.Policy.Fixed,
+        )
         self._monitor_output.setPlainText("No inbound OSC messages yet.")
         layout.addWidget(self._monitor_output)
 
@@ -143,6 +155,10 @@ class OscSettingsPanel(QWidget):
         self._monitor_auto.setChecked(True)
         self._monitor_auto.toggled.connect(self._sync_monitor_state)
         actions.addWidget(self._monitor_auto)
+        self._monitor_clear = QPushButton("Clear Log", group)
+        self._monitor_clear.setProperty("appearance", "subtle")
+        self._monitor_clear.clicked.connect(self._clear_monitor_log)
+        actions.addWidget(self._monitor_clear)
         self._monitor_refresh = QPushButton("Refresh", group)
         self._monitor_refresh.setProperty("appearance", "subtle")
         self._monitor_refresh.clicked.connect(self._refresh_monitor)
@@ -181,6 +197,7 @@ class OscSettingsPanel(QWidget):
         provider_available = callable(self._monitor_provider)
         self._monitor_auto.setEnabled(provider_available)
         self._monitor_refresh.setEnabled(provider_available)
+        self._monitor_clear.setEnabled(provider_available and callable(self._clear_monitor))
         if not provider_available:
             self._monitor_timer.stop()
             self._monitor_status.setStyleSheet("color: #8a5a00;")
@@ -197,6 +214,12 @@ class OscSettingsPanel(QWidget):
             self._monitor_timer.start()
         else:
             self._monitor_timer.stop()
+
+    def _clear_monitor_log(self) -> None:
+        if callable(self._clear_monitor):
+            self._clear_monitor()
+        self._monitor_output.setPlainText("No inbound OSC messages yet.")
+        self._refresh_monitor()
 
     def _refresh_monitor(self) -> None:
         if not callable(self._monitor_provider):

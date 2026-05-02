@@ -10,6 +10,16 @@ from .entities import (
     TrainRun,
     TrainRunStatus,
 )
+from .library import (
+    ChampionModelRecord,
+    ContributionPolicy,
+    ContributionRecord,
+    LibrarySampleState,
+    LibrarySnapshot,
+    ModelCandidateRecord,
+    SampleLibraryRecord,
+    TrainingRecipeName,
+)
 from .review import (
     ExplicitReviewCommit,
     ReviewCommitCommand,
@@ -27,12 +37,19 @@ from .review import (
 __all__ = [
     "Artifact",
     "CompatibilityReport",
+    "ChampionModelRecord",
+    "ContributionPolicy",
+    "ContributionRecord",
     "CurationState",
     "Dataset",
     "DatasetSample",
     "DatasetVersion",
     "EvalReport",
+    "LibrarySampleState",
+    "LibrarySnapshot",
     "ModelArtifact",
+    "ModelCandidateRecord",
+    "SampleLibraryRecord",
     "ExplicitReviewCommit",
     "ReviewCommitCommand",
     "ReviewCommitContext",
@@ -46,4 +63,5 @@ __all__ = [
     "build_review_decision",
     "TrainRun",
     "TrainRunStatus",
+    "TrainingRecipeName",
 ]

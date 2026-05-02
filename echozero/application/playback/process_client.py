@@ -1,0 +1,488 @@
+"""
+Playback process client: app-process adapter for isolated runtime-audio playback.
+Exists because UI/app actions must not share execution contention with real-time audio callbacks.
+Connects existing runtime-audio controller calls to a child playback service over HTTP and WebSocket.
+"""
+
+from __future__ import annotations
+
+import http.client
+import json
+import secrets
+import socket
+import subprocess
+import sys
+import tempfile
+import threading
+import time
+from pathlib import Path
+from typing import Any
+
+from echozero.application.playback.models import PlaybackState, PlaybackTimingSnapshot
+from echozero.application.playback.process_shared import (
+    PLAYBACK_IPC_COMMAND_PATH,
+    PLAYBACK_IPC_HEALTH_PATH,
+    PLAYBACK_IPC_HOST,
+    PLAYBACK_IPC_TOKEN_HEADER,
+    PLAYBACK_IPC_VERSION,
+    PlaybackIpcError,
+    decode_playback_state,
+    decode_timing_snapshot,
+)
+from echozero.application.playback.sync_projection import PlaybackSyncPayload
+from echozero.application.presentation.models import TimelinePresentation
+from echozero.application.settings import AudioOutputRuntimeConfig
+from echozero.errors import InfrastructureError
+
+
+try:
+    from websockets.sync.client import connect as ws_connect
+except ImportError as exc:  # pragma: no cover - environment contract
+    raise InfrastructureError("websockets package is required for playback process IPC") from exc
+
+
+class ProcessPlaybackClient:
+    """Runtime-audio client that proxies calls to the playback child process."""
+
+    def __init__(
+        self,
+        *,
+        audio_output_config: AudioOutputRuntimeConfig | None = None,
+        service_start_timeout_seconds: float = 6.0,
+    ) -> None:
+        self._audio_output_config = audio_output_config
+        self._service_start_timeout_seconds = max(1.0, float(service_start_timeout_seconds))
+        self._host = PLAYBACK_IPC_HOST
+        self._port = 0
+        self._ws_port = 0
+        self._token = secrets.token_urlsafe(24)
+        self._command_counter = 0
+        self._http = None
+        self._process = None
+        self._ws_url = ""
+        self._started = False
+        self._shutdown = False
+        self._ws_stop_event = threading.Event()
+        self._ws_thread: threading.Thread | None = None
+        self._audio_config_file: Path | None = None
+        self._latest_sync_payload: dict[str, object] | None = None
+
+        self._audio_process_connected = False
+        self._audio_process_pid: int | None = None
+        self._ipc_rtt_ms = 0.0
+        self._last_ipc_error: str | None = None
+        self._latency_profile = ""
+        self._latency_profile_switch_count = 0
+        self._last_latency_profile_reason: str | None = None
+        self._startup_stderr: str | None = None
+        self._last_local_sync_change_kind = ""
+        self._last_local_projection_build_ms = 0.0
+        self._last_local_sync_classify_ms = 0.0
+        self._last_ipc_command = ""
+
+        self.start()
+
+    def start(self) -> None:
+        """Start the child playback process and initialize IPC channels."""
+
+        if self._started and not self._shutdown:
+            return
+        self._shutdown = False
+        self._port = _reserve_local_port()
+        self._ws_port = _reserve_local_port()
+        while self._ws_port == self._port:
+            self._ws_port = _reserve_local_port()
+        self._http = http.client.HTTPConnection(self._host, self._port, timeout=3.0)
+        self._process = self._spawn_service_process()
+        self._wait_for_health()
+        self._started = True
+        self._audio_process_connected = True
+        self._start_ws_listener()
+
+    def health(self) -> dict[str, object]:
+        """Return playback process health payload."""
+
+        return self._health_request()
+
+    def shutdown(self) -> None:
+        """Stop the child playback process and release IPC resources."""
+
+        if self._shutdown:
+            return
+        self._shutdown = True
+        self._ws_stop_event.set()
+        try:
+            self._command("shutdown", {})
+        except Exception:
+            pass
+        if self._ws_thread is not None:
+            self._ws_thread.join(timeout=1.0)
+            self._ws_thread = None
+        if self._process is not None:
+            try:
+                self._process.wait(timeout=2.0)
+            except subprocess.TimeoutExpired:
+                self._process.terminate()
+                try:
+                    self._process.wait(timeout=1.0)
+                except subprocess.TimeoutExpired:
+                    self._process.kill()
+                    self._process.wait(timeout=1.0)
+            self._process = None
+        if self._http is not None:
+            try:
+                self._http.close()
+            except Exception:
+                pass
+            self._http = None
+        if self._audio_config_file is not None:
+            self._audio_config_file.unlink(missing_ok=True)
+            self._audio_config_file = None
+        self._audio_process_connected = False
+
+    def sync_presentation(self, presentation: TimelinePresentation) -> None:
+        self.sync_structure_state(presentation)
+
+    def build_for_presentation(self, presentation: TimelinePresentation) -> None:
+        self.sync_structure_state(presentation)
+
+    def sync_structure_state(self, presentation: TimelinePresentation) -> None:
+        payload = PlaybackSyncPayload.from_presentation(presentation).to_dict()
+        self._latest_sync_payload = payload
+        _ = self._command("sync_structure_state", {"payload": payload})
+
+    def sync_mix_state(self, presentation: TimelinePresentation) -> None:
+        payload = PlaybackSyncPayload.from_presentation(presentation).to_dict()
+        self._latest_sync_payload = payload
+        _ = self._command("sync_mix_state", {"payload": payload})
+
+    def apply_mix_state(self, presentation: TimelinePresentation) -> None:
+        self.sync_mix_state(presentation)
+
+    def drain_pending_structure_sync(self) -> None:
+        _ = self._command("drain_pending_structure_sync", {})
+
+    def record_coalesced_structural_edits(self, count: int = 1) -> None:
+        _ = self._command("record_coalesced_structural_edits", {"count": int(count)})
+
+    def play(self) -> None:
+        _ = self._command("play", {})
+
+    def pause(self) -> None:
+        _ = self._command("pause", {})
+
+    def stop(self) -> None:
+        _ = self._command("stop", {})
+
+    def seek(self, position_seconds: float) -> None:
+        _ = self._command("seek", {"position_seconds": float(position_seconds)})
+
+    def preview_clip(
+        self,
+        source_ref: str,
+        *,
+        start_seconds: float,
+        end_seconds: float,
+        gain_db: float = 0.0,
+    ) -> bool:
+        response = self._command(
+            "preview_clip",
+            {
+                "source_ref": str(source_ref),
+                "start_seconds": float(start_seconds),
+                "end_seconds": float(end_seconds),
+                "gain_db": float(gain_db),
+            },
+        )
+        return bool(response.get("played", False))
+
+    def current_time_seconds(self) -> float:
+        response = self._command("current_time_seconds", {})
+        return float(response.get("value", 0.0) or 0.0)
+
+    def is_playing(self) -> bool:
+        response = self._command("is_playing", {})
+        return bool(response.get("value", False))
+
+    def timing_snapshot(self) -> PlaybackTimingSnapshot:
+        response = self._command("timing_snapshot", {})
+        value = response.get("value")
+        if not isinstance(value, dict):
+            raise PlaybackIpcError("timing_snapshot response missing value payload")
+        return decode_timing_snapshot(value)
+
+    def snapshot_state(self, presentation: TimelinePresentation) -> PlaybackState:
+        payload = PlaybackSyncPayload.from_presentation(presentation).to_dict()
+        self._latest_sync_payload = payload
+        response = self._command("snapshot_state", {"payload": payload})
+        value = response.get("value")
+        if not isinstance(value, dict):
+            raise PlaybackIpcError("snapshot_state response missing value payload")
+        state = decode_playback_state(value)
+        diagnostics = state.diagnostics
+        diagnostics.audio_process_connected = bool(self._audio_process_connected)
+        diagnostics.audio_process_pid = self._audio_process_pid
+        diagnostics.ipc_rtt_ms = float(self._ipc_rtt_ms)
+        diagnostics.last_ipc_error = self._last_ipc_error
+        diagnostics.latency_profile = self._latency_profile or diagnostics.latency_profile
+        diagnostics.latency_profile_switch_count = max(
+            int(diagnostics.latency_profile_switch_count),
+            int(self._latency_profile_switch_count),
+        )
+        if self._last_latency_profile_reason is not None:
+            diagnostics.last_latency_profile_reason = self._last_latency_profile_reason
+        diagnostics.local_projection_build_ms = float(self._last_local_projection_build_ms)
+        diagnostics.local_sync_classify_ms = float(self._last_local_sync_classify_ms)
+        diagnostics.last_local_sync_change_kind = self._last_local_sync_change_kind
+        diagnostics.last_ipc_command = self._last_ipc_command
+        return state
+
+    def presentation_signature(self, presentation: TimelinePresentation) -> tuple[tuple[str, str], ...]:
+        payload = PlaybackSyncPayload.from_presentation(presentation).to_dict()
+        self._latest_sync_payload = payload
+        response = self._command("presentation_signature", {"payload": payload})
+        raw = response.get("value", ()) or ()
+        signature: list[tuple[str, str]] = []
+        for item in raw:
+            if isinstance(item, (list, tuple)) and len(item) == 2:
+                signature.append((str(item[0]), str(item[1])))
+        return tuple(signature)
+
+    def record_local_sync_decision(
+        self,
+        change_kind: str,
+        *,
+        projection_build_ms: float = 0.0,
+        classify_ms: float = 0.0,
+    ) -> None:
+        """Record one local app-process sync decision for diagnostics."""
+
+        self._last_local_sync_change_kind = str(change_kind or "")
+        self._last_local_projection_build_ms = max(0.0, float(projection_build_ms))
+        self._last_local_sync_classify_ms = max(0.0, float(classify_ms))
+
+    def _next_command_id(self) -> str:
+        self._command_counter += 1
+        return f"cmd-{self._command_counter}"
+
+    def _command(self, operation: str, params: dict[str, object]) -> dict[str, object]:
+        if self._shutdown:
+            raise PlaybackIpcError("playback process client is shut down")
+        command_id = self._next_command_id()
+        payload = {
+            "version": PLAYBACK_IPC_VERSION,
+            "command_id": command_id,
+            "operation": operation,
+            "params": params,
+        }
+        self._last_ipc_command = str(operation)
+        started = time.perf_counter()
+        response = self._request_json("POST", PLAYBACK_IPC_COMMAND_PATH, payload)
+        self._ipc_rtt_ms = max(0.0, (time.perf_counter() - started) * 1000.0)
+        meta = response.get("meta")
+        if isinstance(meta, dict):
+            self._ipc_rtt_ms = float(meta.get("ipc_rtt_ms", self._ipc_rtt_ms) or self._ipc_rtt_ms)
+        result = response.get("result")
+        if not isinstance(result, dict):
+            raise PlaybackIpcError(f"Invalid command result for operation '{operation}'")
+        return result
+
+    def _health_request(self) -> dict[str, object]:
+        payload = self._request_json("GET", PLAYBACK_IPC_HEALTH_PATH, None)
+        if str(payload.get("version", "")) != PLAYBACK_IPC_VERSION:
+            raise PlaybackIpcError(
+                f"Playback IPC version mismatch: expected {PLAYBACK_IPC_VERSION}, got {payload.get('version')}"
+            )
+        self._audio_process_pid = int(payload.get("pid", 0) or 0)
+        self._ws_url = str(payload.get("ws_url", "") or "")
+        return payload
+
+    def _request_json(
+        self,
+        method: str,
+        path: str,
+        payload: dict[str, object] | None,
+    ) -> dict[str, object]:
+        if self._http is None:
+            raise PlaybackIpcError("HTTP channel is not initialized")
+
+        headers = {
+            "Accept": "application/json",
+            PLAYBACK_IPC_TOKEN_HEADER: self._token,
+        }
+        body = None
+        if payload is not None:
+            body = json.dumps(payload, separators=(",", ":"))
+            headers["Content-Type"] = "application/json"
+        try:
+            self._http.request(method, path, body=body, headers=headers)
+            response = self._http.getresponse()
+            raw = response.read()
+        except Exception as exc:
+            self._last_ipc_error = f"{type(exc).__name__}: {exc}"
+            self._reconnect_http_channel()
+            raise PlaybackIpcError(f"Playback IPC request failed: {exc}") from exc
+
+        try:
+            decoded = json.loads(raw.decode("utf-8")) if raw else {}
+        except json.JSONDecodeError as exc:
+            self._last_ipc_error = f"JSONDecodeError: {exc}"
+            raise PlaybackIpcError(f"Playback IPC returned invalid JSON: {exc}") from exc
+        if not isinstance(decoded, dict):
+            raise PlaybackIpcError("Playback IPC response must be a JSON object")
+        if response.status >= 400 or not bool(decoded.get("ok", False)):
+            error = str(decoded.get("error", f"http_{response.status}"))
+            self._last_ipc_error = error
+            raise PlaybackIpcError(error)
+        return decoded
+
+    def _spawn_service_process(self):
+        command = [
+            sys.executable,
+            "-m",
+            "echozero.application.playback.process_service_entry",
+            "--host",
+            self._host,
+            "--port",
+            str(self._port),
+            "--ws-port",
+            str(self._ws_port),
+            f"--token={self._token}",
+        ]
+        if self._audio_output_config is not None:
+            with tempfile.NamedTemporaryFile(
+                mode="w",
+                suffix=".json",
+                delete=False,
+                encoding="utf-8",
+            ) as handle:
+                payload = {
+                    "output_device": self._audio_output_config.output_device,
+                    "sample_rate": self._audio_output_config.sample_rate,
+                    "channels": self._audio_output_config.channels,
+                    "stream_latency": self._audio_output_config.stream_latency,
+                    "stream_blocksize": self._audio_output_config.stream_blocksize,
+                    "prime_output_buffers_using_stream_callback": (
+                        self._audio_output_config.prime_output_buffers_using_stream_callback
+                    ),
+                }
+                json.dump(payload, handle)
+                self._audio_config_file = Path(handle.name)
+            command.extend(["--audio-config-json", str(self._audio_config_file)])
+        process = subprocess.Popen(command, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+        return process
+
+    def _wait_for_health(self) -> None:
+        deadline = time.time() + self._service_start_timeout_seconds
+        while time.time() < deadline:
+            if self._process is not None and self._process.poll() is not None:
+                startup_error = self._collect_startup_stderr()
+                if startup_error:
+                    raise PlaybackIpcError(
+                        f"Playback service process exited during startup: {startup_error}"
+                    )
+                raise PlaybackIpcError("Playback service process exited during startup")
+            try:
+                self._health_request()
+                return
+            except Exception:
+                time.sleep(0.05)
+                continue
+        raise PlaybackIpcError("Timed out waiting for playback service health")
+
+    def _collect_startup_stderr(self) -> str | None:
+        if self._startup_stderr is not None:
+            return self._startup_stderr or None
+        process = self._process
+        if process is None or process.stderr is None:
+            return None
+        try:
+            stderr_text = process.stderr.read().decode("utf-8", errors="replace").strip()
+        except Exception:
+            stderr_text = ""
+        self._startup_stderr = stderr_text
+        return stderr_text or None
+
+    def _reconnect_http_channel(self) -> None:
+        if self._http is not None:
+            try:
+                self._http.close()
+            except Exception:
+                pass
+        self._http = http.client.HTTPConnection(self._host, self._port, timeout=3.0)
+
+    def _start_ws_listener(self) -> None:
+        self._ws_stop_event.clear()
+        if not self._ws_url:
+            return
+        self._ws_thread = threading.Thread(
+            target=self._run_ws_listener,
+            name="ez-playback-client-events",
+            daemon=True,
+        )
+        self._ws_thread.start()
+
+    def _run_ws_listener(self) -> None:
+        while not self._ws_stop_event.is_set() and not self._shutdown:
+            try:
+                with ws_connect(
+                    self._ws_url,
+                    additional_headers={PLAYBACK_IPC_TOKEN_HEADER: self._token},
+                    open_timeout=2,
+                    ping_interval=10,
+                    ping_timeout=10,
+                    close_timeout=1,
+                ) as websocket:
+                    for message in websocket:
+                        if self._ws_stop_event.is_set() or self._shutdown:
+                            return
+                        self._handle_ws_event(message)
+            except Exception:
+                if self._ws_stop_event.is_set() or self._shutdown:
+                    return
+                time.sleep(0.15)
+
+    def _handle_ws_event(self, raw_message: object) -> None:
+        if not isinstance(raw_message, str):
+            return
+        try:
+            payload = json.loads(raw_message)
+        except json.JSONDecodeError:
+            return
+        if not isinstance(payload, dict):
+            return
+        event_type = str(payload.get("type", "") or "")
+        body = payload.get("payload")
+        if not isinstance(body, dict):
+            body = {}
+
+        if event_type == "service-started":
+            if body.get("pid") is not None:
+                self._audio_process_pid = int(body.get("pid", 0) or 0)
+            self._audio_process_connected = True
+            return
+
+        if event_type == "latency-profile-switched":
+            self._latency_profile = str(body.get("profile", self._latency_profile) or self._latency_profile)
+            self._latency_profile_switch_count = int(
+                body.get("switch_count", self._latency_profile_switch_count) or self._latency_profile_switch_count
+            )
+            self._last_latency_profile_reason = (
+                str(body.get("reason")) if body.get("reason") is not None else None
+            )
+            return
+
+        if event_type == "command-error":
+            error_text = body.get("error")
+            if error_text is not None:
+                self._last_ipc_error = str(error_text)
+
+
+def _reserve_local_port() -> int:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as handle:
+        handle.bind((PLAYBACK_IPC_HOST, 0))
+        handle.listen(1)
+        return int(handle.getsockname()[1])
+
+
+__all__ = ["ProcessPlaybackClient"]

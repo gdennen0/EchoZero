@@ -9,7 +9,11 @@ from threading import Condition, Lock
 from time import monotonic, sleep
 from typing import Any, Protocol
 
-from echozero.application.shared.cue_numbers import CueNumber, cue_number_text, parse_positive_cue_number
+from echozero.application.shared.cue_numbers import (
+    CueNumber,
+    cue_number_text,
+    parse_positive_cue_number,
+)
 from echozero.infrastructure.osc import (
     OscInboundMessage,
     OscReceiveServer,
@@ -123,6 +127,12 @@ class MA3OSCBridge:
         with self._lock:
             return list(self._messages)
 
+    def clear_messages(self) -> None:
+        """Clear the operator-facing inbound OSC message history."""
+
+        with self._lock:
+            self._messages.clear()
+
     def start(self) -> "MA3OSCBridge":
         if self._listener is not None:
             return self
@@ -162,7 +172,10 @@ class MA3OSCBridge:
         if listen_path is not None:
             self._listen_path = str(listen_path)
         if command_transport is not None:
-            if self._command_transport is not None and self._command_transport is not command_transport:
+            if (
+                self._command_transport is not None
+                and self._command_transport is not command_transport
+            ):
                 self._command_transport.close()
             self._command_transport = command_transport
         else:
@@ -221,7 +234,10 @@ class MA3OSCBridge:
             raise ValueError("list_tracks track_group_no requires timecode_no")
         with self._lock:
             if track_group_no is not None:
-                has_requested_tracks = (int(timecode_no), int(track_group_no)) in self._tracks_by_group
+                has_requested_tracks = (
+                    int(timecode_no),
+                    int(track_group_no),
+                ) in self._tracks_by_group
             else:
                 has_tracks = bool(self._tracks_by_coord)
                 has_requested_tracks = (
@@ -260,7 +276,9 @@ class MA3OSCBridge:
             return []
         self._ensure_listener()
         with self._lock:
-            should_refresh = coord not in self._events_by_coord or coord in self._invalidated_event_coords
+            should_refresh = (
+                coord not in self._events_by_coord or coord in self._invalidated_event_coords
+            )
         if should_refresh:
             self.refresh_track_events(coord)
         with self._lock:
@@ -443,9 +461,7 @@ class MA3OSCBridge:
             raise ValueError("event_type is required")
         normalized_sequence_type = str(sequence_type or "").strip().lower() or "go_hit"
         normalized_preferred_name = (
-            None
-            if preferred_name is None
-            else str(preferred_name).strip() or None
+            None if preferred_name is None else str(preferred_name).strip() or None
         )
         if self._command_transport is None:
             raise RuntimeError("MA3 OSC bridge does not have an outbound command transport")
@@ -479,9 +495,7 @@ class MA3OSCBridge:
 
         refreshed_sequences = self.list_sequences(start_no=start_no, end_no=end_no)
         created_sequences = [
-            sequence
-            for sequence in refreshed_sequences
-            if sequence.number not in known_by_number
+            sequence for sequence in refreshed_sequences if sequence.number not in known_by_number
         ]
         if created_sequences:
             return sorted(created_sequences, key=lambda sequence: sequence.number)[-1]
@@ -694,9 +708,7 @@ class MA3OSCBridge:
 
         target_name = str(message.fields.get("name") or desired_name).strip().lower()
         named_tracks = [
-            track
-            for track in tracks
-            if str(track.name or "").strip().lower() == target_name
+            track for track in tracks if str(track.name or "").strip().lower() == target_name
         ]
         if named_tracks:
             return sorted(named_tracks, key=lambda track: parse_track_coord(track.coord)[2])[-1]
@@ -775,8 +787,7 @@ class MA3OSCBridge:
         self._wait_for_message(
             after_index=after_index,
             predicate=lambda message, tc_no=requested_timecode_no: (
-                message.key == "trackgroups.list"
-                and int(message.fields.get("tc") or 0) == tc_no
+                message.key == "trackgroups.list" and int(message.fields.get("tc") or 0) == tc_no
             ),
             timeout=self._response_timeout,
             missing=f"Timed out waiting for MA3 track groups in TC{requested_timecode_no}",
@@ -829,22 +840,22 @@ class MA3OSCBridge:
         requested_timecode_no = _optional_int(timecode_no)
         if requested_timecode_no is not None:
             timecodes = [
-                (tc_no, name)
-                for tc_no, name in timecodes
-                if tc_no == requested_timecode_no
-            ] or [
-                (requested_timecode_no, self._timecodes_by_number.get(requested_timecode_no))
-            ]
+                (tc_no, name) for tc_no, name in timecodes if tc_no == requested_timecode_no
+            ] or [(requested_timecode_no, self._timecodes_by_number.get(requested_timecode_no))]
         valid_timecodes = {tc_no for tc_no, _name in timecodes}
         with self._lock:
             if requested_timecode_no is None:
-                for tc_no in [tc for tc in self._trackgroups_by_timecode if tc not in valid_timecodes]:
+                for tc_no in [
+                    tc for tc in self._trackgroups_by_timecode if tc not in valid_timecodes
+                ]:
                     self._trackgroups_by_timecode.pop(tc_no, None)
                 for key in [key for key in self._tracks_by_group if key[0] not in valid_timecodes]:
                     self._tracks_by_group.pop(key, None)
             else:
                 self._trackgroups_by_timecode.pop(requested_timecode_no, None)
-                for key in [key for key in self._tracks_by_group if key[0] == requested_timecode_no]:
+                for key in [
+                    key for key in self._tracks_by_group if key[0] == requested_timecode_no
+                ]:
                     self._tracks_by_group.pop(key, None)
             self._rebuild_track_index_locked()
 
@@ -893,9 +904,7 @@ class MA3OSCBridge:
             coords = self._sorted_track_coords_locked()
             if timecode_no is not None:
                 coords = [
-                    coord
-                    for coord in coords
-                    if _coord_timecode_no(coord) == int(timecode_no)
+                    coord for coord in coords if _coord_timecode_no(coord) == int(timecode_no)
                 ]
             return [self._tracks_by_coord[coord] for coord in coords]
 
@@ -983,6 +992,7 @@ class MA3OSCBridge:
                 missing=f"Timed out clearing MA3 track {coord} before overwrite",
             )
 
+        sequence_no = self._track_sequence_no_for_coord(coord, tc_no=tc_no, tg_no=tg_no)
         first_event = True
         sent_event_count = 0
         for raw_event in selected_events or []:
@@ -1000,6 +1010,11 @@ class MA3OSCBridge:
 
             start = max(0.0, float(snapshot.start or 0.0) + resolved_start_offset)
             send_start_index = self._message_count()
+            self._send_sequence_cue_label_command(
+                sequence_no=sequence_no,
+                cue_number=cue_number,
+                cue_label=cue_label,
+            )
             self._send_add_event_command(
                 tc_no=tc_no,
                 tg_no=tg_no,
@@ -1027,13 +1042,46 @@ class MA3OSCBridge:
                 )
                 first_event = False
             sent_event_count += 1
-            if (
-                _PUSH_WRITE_BATCH_SIZE > 0
-                and sent_event_count % _PUSH_WRITE_BATCH_SIZE == 0
-            ):
+            if _PUSH_WRITE_BATCH_SIZE > 0 and sent_event_count % _PUSH_WRITE_BATCH_SIZE == 0:
                 sleep(_PUSH_WRITE_BATCH_SETTLE_SECONDS)
 
         self.refresh_track_events(coord)
+
+    def _track_sequence_no_for_coord(
+        self,
+        coord: str,
+        *,
+        tc_no: int,
+        tg_no: int,
+    ) -> int | None:
+        with self._lock:
+            cached = self._tracks_by_coord.get(coord)
+        if cached is not None and cached.sequence_no is not None:
+            return int(cached.sequence_no)
+        tracks = self.refresh_tracks(timecode_no=tc_no, track_group_no=tg_no)
+        for track in tracks:
+            if track.coord == coord and track.sequence_no is not None:
+                return int(track.sequence_no)
+        return None
+
+    def _send_sequence_cue_label_command(
+        self,
+        *,
+        sequence_no: int | None,
+        cue_number: CueNumber | None,
+        cue_label: str | None,
+    ) -> None:
+        cue_number_label = cue_number_text(cue_number)
+        resolved_cue_label = str(cue_label or "").strip()
+        if sequence_no is None or cue_number_label is None or not resolved_cue_label:
+            return
+        self._send_raw_console_command(
+            "label sequence {sequence_no} cue {cue_number} {cue_label}".format(
+                sequence_no=int(sequence_no),
+                cue_number=cue_number_label,
+                cue_label=_format_console_quoted_string(resolved_cue_label),
+            )
+        )
 
     def _send_add_event_command(
         self,
@@ -1048,17 +1096,9 @@ class MA3OSCBridge:
         cue_number: CueNumber | None = None,
         cue_label: str | None = None,
     ) -> None:
-        event_name_arg = (
-            "nil"
-            if event_name is None
-            else _format_lua_string(event_name)
-        )
+        event_name_arg = "nil" if event_name is None else _format_lua_string(event_name)
         cue_number_arg = "nil" if cue_number is None else str(cue_number_text(cue_number))
-        cue_label_arg = (
-            "nil"
-            if cue_label is None
-            else _format_lua_string(cue_label)
-        )
+        cue_label_arg = "nil" if cue_label is None else _format_lua_string(cue_label)
         channel_no_arg = str(max(1, int(channel_no)))
         self._send_command(
             "EZ.AddEvent({tc}, {tg}, {track}, {start}, {command}, {event_name}, {cue_number}, {cue_label}, {channel_no})".format(
@@ -1099,7 +1139,9 @@ class MA3OSCBridge:
 
         error_text = str(error.fields.get("error") or "").strip()
         if "No CmdSubTrack" not in error_text:
-            raise RuntimeError(f"MA3 AddEvent failed for {coord}: {error_text or error.raw_payload}")
+            raise RuntimeError(
+                f"MA3 AddEvent failed for {coord}: {error_text or error.raw_payload}"
+            )
 
         self._send_command(f"EZ.CreateCmdSubTrack({tc_no}, {tg_no}, {track_no}, 1)")
         sleep(_CMD_SUBTRACK_RETRY_SETTLE_SECONDS)
@@ -1232,6 +1274,12 @@ class MA3OSCBridge:
         if transport is None:
             return
         transport.send(format_ma3_lua_command(command))
+
+    def _send_raw_console_command(self, command: str) -> None:
+        transport = self._command_transport
+        if transport is None:
+            return
+        transport.send(str(command or "").strip())
 
     def _message_count(self) -> int:
         with self._lock:
@@ -1405,7 +1453,12 @@ class MA3OSCBridge:
                 self._invalidated_event_coords.add(coord)
             return
 
-        if message_type in {"event", "track"} and change in {"deleted", "updated", "cleared", "created"}:
+        if message_type in {"event", "track"} and change in {
+            "deleted",
+            "updated",
+            "cleared",
+            "created",
+        }:
             coord = self._coord_from_fields(fields)
             if coord is not None:
                 self._invalidated_event_coords.add(coord)
@@ -1556,9 +1609,7 @@ class MA3OSCBridge:
             self._sequence_chunks.pop(request_id, None)
 
         self._sequences_by_number = {
-            sequence.number: sequence
-            for sequence in normalized
-            if sequence.number > 0
+            sequence.number: sequence for sequence in normalized if sequence.number > 0
         }
         if request_id is not None:
             self._pending_sequence_requests.pop(request_id, None)
@@ -1922,13 +1973,12 @@ class MA3OSCBridge:
                         return message
                     if message.key == "track.error":
                         error_text = str(message.fields.get("error") or "").strip()
-                        raise RuntimeError(
-                            error_text or f"MA3 track operation failed for {coord}"
-                        )
+                        raise RuntimeError(error_text or f"MA3 track operation failed for {coord}")
                 remaining = deadline - monotonic()
                 if remaining <= 0:
                     raise TimeoutError(missing)
                 self._condition.wait(timeout=remaining)
+
 
 def _coord_timecode_no(coord: str) -> int | None:
     try:
@@ -1942,6 +1992,12 @@ def _value(raw: Any, key: str) -> Any:
     if isinstance(raw, dict):
         return raw.get(key)
     return getattr(raw, key, None)
+
+
+def _format_console_quoted_string(value: object) -> str:
+    text = str(value or "")
+    escaped = text.replace("\\", "\\\\").replace('"', '\\"')
+    return f'"{escaped}"'
 
 
 def _coerce_transport_update_payload(message: MA3OSCMessage) -> dict[str, object] | None:

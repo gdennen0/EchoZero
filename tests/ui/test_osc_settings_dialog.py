@@ -147,6 +147,27 @@ def test_osc_settings_dialog_panel_reports_ready_after_status_check(monkeypatch)
         app.processEvents()
 
 
+def test_osc_settings_dialog_keeps_settings_and_feedback_in_separate_panes() -> None:
+    app = QApplication.instance() or QApplication([])
+    service = AppSettingsService(_MemoryStore(), audio_device_options_provider=_device_options)
+    dialog = OscSettingsDialog(service, monitor_provider=lambda: [])
+
+    try:
+        dialog.resize(700, 620)
+        dialog.show()
+        app.processEvents()
+
+        form_bottom = dialog._form.geometry().bottom()
+        panel_top = dialog._panel.geometry().top()
+        assert form_bottom < panel_top
+        assert dialog._form.height() >= 230
+        assert dialog._panel._monitor_output.maximumHeight() == 92
+        assert dialog._panel._monitor_output.lineWrapMode().name == "WidgetWidth"
+    finally:
+        dialog.close()
+        app.processEvents()
+
+
 def test_osc_settings_dialog_panel_ping_updates_connection_and_latency(monkeypatch) -> None:
     app = QApplication.instance() or QApplication([])
     service = AppSettingsService(_MemoryStore(), audio_device_options_provider=_device_options)
@@ -231,6 +252,35 @@ def test_osc_settings_panel_monitor_refresh_renders_recent_messages() -> None:
         assert "to_seconds=29.1" in body
         assert "transport.jumped_previous_section" in body
         assert "track=4" in body
+    finally:
+        panel.close()
+        app.processEvents()
+
+
+def test_osc_settings_panel_clear_log_clears_provider_and_display() -> None:
+    app = QApplication.instance() or QApplication([])
+    rows = [
+        {
+            "timestamp": 1_717_590_000,
+            "message_type": "transport",
+            "change": "scrubbed",
+            "fields": {"tc": 112},
+        },
+    ]
+    panel = OscSettingsPanel(
+        values_provider=lambda: {},
+        monitor_provider=lambda: rows,
+        clear_monitor=rows.clear,
+    )
+
+    try:
+        panel._refresh_monitor()
+        assert "transport.scrubbed" in panel._monitor_output.toPlainText()
+
+        panel._monitor_clear.click()
+
+        assert rows == []
+        assert panel._monitor_output.toPlainText() == "No inbound OSC messages yet."
     finally:
         panel.close()
         app.processEvents()

@@ -109,6 +109,41 @@ def test_runtime_surfaces_recent_ma3_osc_messages() -> None:
         shutil.rmtree(temp_root, ignore_errors=True)
 
 
+def test_runtime_clears_recent_ma3_osc_messages() -> None:
+    temp_root = _repo_local_temp_root()
+
+    class _FakeMessage:
+        message_type = "connection"
+        change = "ping"
+        timestamp = 1.0
+        fields = {"status": "ok"}
+        raw_payload = "raw"
+
+    class _FakeBridge:
+        def __init__(self) -> None:
+            self._messages = [_FakeMessage()]
+
+        @property
+        def messages(self) -> list[_FakeMessage]:
+            return list(self._messages)
+
+        def clear_messages(self) -> None:
+            self._messages.clear()
+
+    runtime = build_app_shell(
+        working_dir_root=temp_root / "runtime-clear-messages",
+        sync_bridge=_FakeBridge(),
+    )
+
+    try:
+        assert runtime.recent_ma3_osc_messages()
+        runtime.clear_ma3_osc_messages()
+        assert runtime.recent_ma3_osc_messages() == []
+    finally:
+        runtime.shutdown()
+        shutil.rmtree(temp_root, ignore_errors=True)
+
+
 def test_runtime_prefers_low_latency_transport_poll_only_when_ma3_connected() -> None:
     temp_root = _repo_local_temp_root()
 

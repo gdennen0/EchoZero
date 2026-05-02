@@ -14,12 +14,17 @@ from echozero.domain.events import (
 from echozero.event_bus import EventBus
 from echozero.foundry.domain import CompatibilityReport, Dataset, EvalReport, ModelArtifact, TrainRun
 from echozero.foundry.persistence import (
+    ChampionModelRepository,
+    ContributionRepository,
     DatasetRepository,
     DatasetVersionRepository,
     EvalReportRepository,
+    LibrarySnapshotRepository,
     ModelArtifactRepository,
+    ModelCandidateRepository,
     ReviewSignalRepository,
     ReviewSessionRepository,
+    SampleLibraryRepository,
 )
 from echozero.foundry.domain.review import ReviewCommitContext
 from echozero.foundry.presentation import FoundryActivityFeed
@@ -29,12 +34,17 @@ from echozero.foundry.services.query_service import (
 )
 from echozero.foundry.services import (
     ArtifactService,
+    ChampionService,
+    ContinuousTrainingService,
     DatasetService,
     EvalService,
     ReviewExtractionService,
     ReviewSessionService,
     RuntimeBundleInstallService,
+    SampleLibraryService,
+    SnapshotService,
     SplitBalanceService,
+    TrainingRecipeService,
     TrainingOrchestrator,
     TrainRunService,
 )
@@ -56,6 +66,11 @@ class FoundryApp:
         self._eval_repo = EvalReportRepository(root)
         self._review_repo = ReviewSessionRepository(root)
         self._review_signal_repo = ReviewSignalRepository(root)
+        self._library_repo = SampleLibraryRepository(root)
+        self._snapshot_repo = LibrarySnapshotRepository(root)
+        self._candidate_repo = ModelCandidateRepository(root)
+        self._champion_repo = ChampionModelRepository(root)
+        self._contribution_repo = ContributionRepository(root)
 
         self.datasets = DatasetService(
             root,
@@ -70,6 +85,23 @@ class FoundryApp:
         self.runs = TrainRunService(root, eval_service=self.eval, artifact_service=self.artifacts)
         self.review_extraction = ReviewExtractionService(root, dataset_service=self.datasets)
         self.training_orchestrator = TrainingOrchestrator(root, run_service=self.runs)
+        self.sample_library = SampleLibraryService(root, repository=self._library_repo)
+        self.snapshots = SnapshotService(root, repository=self._snapshot_repo)
+        self.training_recipes = TrainingRecipeService()
+        self.champions = ChampionService(root, repository=self._champion_repo)
+        self.continuous_training = ContinuousTrainingService(
+            root,
+            dataset_service=self.datasets,
+            library_service=self.sample_library,
+            snapshot_service=self.snapshots,
+            recipe_service=self.training_recipes,
+            orchestrator=self.training_orchestrator,
+            split_balance_service=self.split_balance,
+            candidate_repository=self._candidate_repo,
+            artifact_repository=self._artifact_repo,
+            eval_repository=self._eval_repo,
+            champion_service=self.champions,
+        )
         self.queries = FoundryQueryService(
             dataset_repo=self._dataset_repo,
             version_repo=self._dataset_version_repo,
@@ -272,3 +304,7 @@ class FoundryApp:
             project_ref=project_ref,
             queue_source_kind=queue_source_kind,
         )
+
+    def summarize_sample_library(self) -> dict[str, object]:
+        """Return a compact summary of local library growth."""
+        return self.sample_library.summarize()

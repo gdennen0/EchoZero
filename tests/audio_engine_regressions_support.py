@@ -321,6 +321,27 @@ class TestBatch2Fixes:
         engine._audio_callback(outdata, 256, None, None)
         assert engine.glitch_count == 2  # unchanged
 
+    def test_glitch_status_does_not_retrigger_declick_shaping_each_callback(self) -> None:
+        """Glitch status should not continuously reshape steady-state waveform output."""
+        engine = AudioEngine(stream_factory=fake_stream_factory)
+        # Alternating polarity guarantees a large inter-block edge if de-click is force-applied.
+        alternating = np.where(np.arange(4096) % 2 == 0, 1.0, -1.0).astype(np.float32)
+        engine.add_layer("l1", alternating, 44100)
+        engine.play()
+
+        out_a = np.zeros((64, 1), dtype=np.float32)
+        out_b = np.zeros((64, 1), dtype=np.float32)
+
+        class FakeStatus:
+            pass
+
+        engine._audio_callback(out_a, 64, None, None)
+        engine._audio_callback(out_b, 64, None, FakeStatus())
+
+        # First sample of second block should remain the true waveform value (+1.0),
+        # not be pulled toward the previous tail by forced declick shaping.
+        assert out_b[0, 0] == pytest.approx(1.0, abs=1e-6)
+
     # -- A15: Solo count optimization --
     def test_set_solo_maintains_count(self) -> None:
         """A15: set_solo() canonical method maintains _solo_count."""
@@ -463,5 +484,26 @@ class TestBatch2Fixes:
         assert engine.mixer._solo_count == 1
         # Output should be l1 only (no l2)
         np.testing.assert_array_almost_equal(outdata[:, 0], buf1[:256])
+
+    def test_boundary_declick_smooths_track_swap_discontinuity(self) -> None:
+        """Track-set swaps should apply a short ramp to avoid boundary clicks."""
+        engine = AudioEngine(stream_factory=fake_stream_factory)
+        positive = np.ones(4096, dtype=np.float32)
+        negative = np.full(4096, -1.0, dtype=np.float32)
+        engine.add_layer("l1", positive, 44100)
+        engine.play()
+
+        outdata_a = np.zeros((256, 1), dtype=np.float32)
+        engine._audio_callback(outdata_a, 256, None, None)
+        assert float(outdata_a[-1, 0]) > 0.9
+
+        engine.clear_tracks()
+        engine.add_layer("l1", negative, 44100)
+        outdata_b = np.zeros((256, 1), dtype=np.float32)
+        engine._audio_callback(outdata_b, 256, None, None)
+
+        # The first sample should be ramped from prior tail, not jump to -1 instantly.
+        assert float(outdata_b[0, 0]) > 0.5
+        assert float(outdata_b[255, 0]) < -0.9
 
 __all__ = [name for name in globals() if name.startswith("Test")]

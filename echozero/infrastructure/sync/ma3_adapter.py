@@ -271,11 +271,11 @@ def coerce_sequence_cue_snapshot(raw_cue: Any) -> MA3SequenceCueSnapshot | None:
         cue_number = _value(raw_cue, "cue_no")
     if cue_number in {None, ""}:
         cue_number = _value(raw_cue, "no")
-    parsed_cue_number = parse_positive_cue_number(cue_number)
+    cue_ref = _value(raw_cue, "cue_ref")
+    if cue_ref in {None, ""}:
+        cue_ref = _value(raw_cue, "cueRef")
+    parsed_cue_number = _coerce_possible_scaled_ma_cue_number(cue_number, cue_ref)
     if parsed_cue_number is None:
-        cue_ref = _value(raw_cue, "cue_ref")
-        if cue_ref in {None, ""}:
-            cue_ref = _value(raw_cue, "cueRef")
         parsed_cue_number = _cue_number_from_ref_text(cue_ref)
     if parsed_cue_number is None:
         return None
@@ -347,6 +347,7 @@ def coerce_event_snapshot(raw_event: Any) -> MA3EventSnapshot:
         cue_destination = _value(raw_event, "cueDestination")
     if cue_destination in {None, ""}:
         cue_destination = _value(raw_event, "cuedestination")
+    command_text = _value(raw_event, "cmd")
     resolved_cue_ref = None if cue_ref in {None, ""} else str(cue_ref).strip() or None
     start = _optional_float(_value(raw_event, "start"))
     if start is None:
@@ -361,7 +362,13 @@ def coerce_event_snapshot(raw_event: Any) -> MA3EventSnapshot:
         end = start + duration
     if start is not None and end is not None and end <= start:
         end = None
-    resolved_cue_number = parse_positive_cue_number(cue_number)
+    resolved_cue_number = _coerce_possible_scaled_ma_cue_number(
+        cue_number,
+        resolved_cue_ref,
+        cue_destination,
+        command_text,
+        label,
+    )
     if resolved_cue_number is None:
         resolved_cue_number = _cue_number_from_destination_text(cue_destination)
     label_text = str(label or "Event").strip() or "Event"
@@ -399,7 +406,7 @@ def coerce_event_snapshot(raw_event: Any) -> MA3EventSnapshot:
         label=label_text or resolved_cue_ref or "Event",
         start=start,
         end=end,
-        cmd=None if _value(raw_event, "cmd") is None else str(_value(raw_event, "cmd")),
+        cmd=None if command_text is None else str(command_text),
         cue_number=resolved_cue_number,
         cue_ref=resolved_cue_ref,
         color=None if _value(raw_event, "color") in {None, ""} else str(_value(raw_event, "color")),
@@ -551,6 +558,34 @@ def _value(raw: Any, key: str) -> Any:
 
 def _cue_number_from_ref_text(cue_ref: str | None) -> CueNumber | None:
     return shared_cue_number_from_ref_text(cue_ref)
+
+
+def _coerce_possible_scaled_ma_cue_number(
+    raw_cue_number: object,
+    *hints: object,
+) -> CueNumber | None:
+    parsed = parse_positive_cue_number(raw_cue_number)
+    if parsed is None:
+        return None
+    if not isinstance(parsed, int) or parsed < 1000:
+        return parsed
+    scaled_candidate = parse_positive_cue_number(float(parsed) / 1000.0)
+    if scaled_candidate is None:
+        return parsed
+    for hint in hints:
+        hinted_cue_number = _cue_number_hint(hint)
+        if hinted_cue_number == scaled_candidate:
+            return scaled_candidate
+    return parsed
+
+
+def _cue_number_hint(value: object) -> CueNumber | None:
+    if value in {None, ""}:
+        return None
+    ref_number = _cue_number_from_ref_text(str(value))
+    if ref_number is not None:
+        return ref_number
+    return _cue_number_from_destination_text(value)
 
 
 def _cue_number_from_destination_text(cue_destination: object) -> CueNumber | None:

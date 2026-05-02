@@ -265,6 +265,20 @@ class AppShellRuntime(
             )
         return normalized
 
+    def clear_ma3_osc_messages(self) -> None:
+        """Clear the runtime inbound MA3 OSC message history."""
+
+        bridge = self._sync_bridge
+        if bridge is None:
+            return
+        clear_messages = getattr(bridge, "clear_messages", None)
+        if callable(clear_messages):
+            clear_messages()
+            return
+        messages = getattr(bridge, "messages", None)
+        if isinstance(messages, list):
+            messages.clear()
+
     def stage_project_runtime_presentation(
         self,
         presentation: TimelinePresentation | None,

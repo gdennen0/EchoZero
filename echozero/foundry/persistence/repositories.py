@@ -10,12 +10,19 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from echozero.foundry.domain import (
+    ChampionModelRecord,
+    ContributionPolicy,
+    ContributionRecord,
     CurationState,
     Dataset,
     DatasetSample,
     DatasetVersion,
     EvalReport,
+    LibrarySampleState,
+    LibrarySnapshot,
     ModelArtifact,
+    ModelCandidateRecord,
+    SampleLibraryRecord,
     TrainRun,
     TrainRunStatus,
 )
@@ -110,6 +117,11 @@ def migrate_foundry_state(root: Path) -> dict[str, bool]:
         "dataset_versions.json": "foundry.state.dataset_versions.v1",
         "eval_reports.json": "foundry.state.eval_reports.v1",
         "artifacts.json": "foundry.state.artifacts.v1",
+        "library_samples.json": "foundry.state.library_samples.v1",
+        "library_snapshots.json": "foundry.state.library_snapshots.v1",
+        "model_candidates.json": "foundry.state.model_candidates.v1",
+        "champions.json": "foundry.state.champions.v1",
+        "contributions.json": "foundry.state.contributions.v1",
     }
     results: dict[str, bool] = {}
     for filename, schema in mappings.items():
@@ -505,3 +517,244 @@ class ModelArtifactRepository:
             if artifact is not None:
                 artifacts.append(artifact)
         return artifacts
+
+
+class SampleLibraryRepository:
+    def __init__(self, root: Path):
+        self._path = root / "foundry" / "state" / "library_samples.json"
+        self._schema = "foundry.state.library_samples.v1"
+
+    def save(self, record: SampleLibraryRecord) -> SampleLibraryRecord:
+        rows = _read_state(self._path, self._schema)
+        rows[record.id] = {
+            "id": record.id,
+            "audio_ref": record.audio_ref,
+            "label": record.label,
+            "state": record.state.value,
+            "source_type": record.source_type,
+            "source_ref": record.source_ref,
+            "provenance": record.provenance,
+            "quality_flags": record.quality_flags,
+            "tags": record.tags,
+            "content_hash": record.content_hash,
+            "duration_ms": record.duration_ms,
+            "review_count": record.review_count,
+            "contribution_policy": record.contribution_policy.value,
+            "created_at": record.created_at.isoformat(),
+            "reviewed_at": record.reviewed_at.isoformat() if record.reviewed_at else None,
+        }
+        _write_state(self._path, self._schema, rows)
+        return record
+
+    def get(self, record_id: str) -> SampleLibraryRecord | None:
+        row = _read_state(self._path, self._schema).get(record_id)
+        if not row:
+            return None
+        reviewed_at = row.get("reviewed_at")
+        return SampleLibraryRecord(
+            id=row["id"],
+            audio_ref=row["audio_ref"],
+            label=row["label"],
+            state=LibrarySampleState(row["state"]),
+            source_type=row["source_type"],
+            source_ref=row["source_ref"],
+            provenance=row.get("provenance", {}),
+            quality_flags=list(row.get("quality_flags", [])),
+            tags=list(row.get("tags", [])),
+            content_hash=row.get("content_hash", ""),
+            duration_ms=row.get("duration_ms"),
+            review_count=int(row.get("review_count", 0)),
+            contribution_policy=ContributionPolicy(
+                row.get("contribution_policy", ContributionPolicy.LOCAL_ONLY.value)
+            ),
+            created_at=datetime.fromisoformat(row["created_at"]),
+            reviewed_at=datetime.fromisoformat(reviewed_at) if reviewed_at else None,
+        )
+
+    def list(self) -> list[SampleLibraryRecord]:
+        records: list[SampleLibraryRecord] = []
+        for record_id in _read_state(self._path, self._schema).keys():
+            record = self.get(record_id)
+            if record is not None:
+                records.append(record)
+        return sorted(records, key=lambda item: (item.created_at, item.id))
+
+
+class LibrarySnapshotRepository:
+    def __init__(self, root: Path):
+        self._path = root / "foundry" / "state" / "library_snapshots.json"
+        self._schema = "foundry.state.library_snapshots.v1"
+
+    def save(self, snapshot: LibrarySnapshot) -> LibrarySnapshot:
+        rows = _read_state(self._path, self._schema)
+        rows[snapshot.id] = {
+            "id": snapshot.id,
+            "name": snapshot.name,
+            "sample_ids": snapshot.sample_ids,
+            "sample_count": snapshot.sample_count,
+            "class_counts": snapshot.class_counts,
+            "source_summary": snapshot.source_summary,
+            "filters": snapshot.filters,
+            "provenance": snapshot.provenance,
+            "created_at": snapshot.created_at.isoformat(),
+        }
+        _write_state(self._path, self._schema, rows)
+        return snapshot
+
+    def get(self, snapshot_id: str) -> LibrarySnapshot | None:
+        row = _read_state(self._path, self._schema).get(snapshot_id)
+        if not row:
+            return None
+        return LibrarySnapshot(
+            id=row["id"],
+            name=row["name"],
+            sample_ids=list(row.get("sample_ids", [])),
+            sample_count=int(row.get("sample_count", 0)),
+            class_counts=dict(row.get("class_counts", {})),
+            source_summary=dict(row.get("source_summary", {})),
+            filters=dict(row.get("filters", {})),
+            provenance=dict(row.get("provenance", {})),
+            created_at=datetime.fromisoformat(row["created_at"]),
+        )
+
+    def list(self) -> list[LibrarySnapshot]:
+        snapshots: list[LibrarySnapshot] = []
+        for snapshot_id in _read_state(self._path, self._schema).keys():
+            snapshot = self.get(snapshot_id)
+            if snapshot is not None:
+                snapshots.append(snapshot)
+        return sorted(snapshots, key=lambda item: (item.created_at, item.id))
+
+
+class ModelCandidateRepository:
+    def __init__(self, root: Path):
+        self._path = root / "foundry" / "state" / "model_candidates.json"
+        self._schema = "foundry.state.model_candidates.v1"
+
+    def save(self, candidate: ModelCandidateRecord) -> ModelCandidateRecord:
+        rows = _read_state(self._path, self._schema)
+        rows[candidate.id] = {
+            "id": candidate.id,
+            "snapshot_id": candidate.snapshot_id,
+            "recipe_name": candidate.recipe_name,
+            "dataset_id": candidate.dataset_id,
+            "dataset_version_id": candidate.dataset_version_id,
+            "run_id": candidate.run_id,
+            "artifact_id": candidate.artifact_id,
+            "eval_report_id": candidate.eval_report_id,
+            "status": candidate.status,
+            "metrics": candidate.metrics,
+            "comparison": candidate.comparison,
+            "created_at": candidate.created_at.isoformat(),
+            "updated_at": candidate.updated_at.isoformat(),
+        }
+        _write_state(self._path, self._schema, rows)
+        return candidate
+
+    def get(self, candidate_id: str) -> ModelCandidateRecord | None:
+        row = _read_state(self._path, self._schema).get(candidate_id)
+        if not row:
+            return None
+        return ModelCandidateRecord(
+            id=row["id"],
+            snapshot_id=row["snapshot_id"],
+            recipe_name=row["recipe_name"],
+            dataset_id=row["dataset_id"],
+            dataset_version_id=row["dataset_version_id"],
+            run_id=row["run_id"],
+            artifact_id=row.get("artifact_id"),
+            eval_report_id=row.get("eval_report_id"),
+            status=row.get("status", "queued"),
+            metrics=dict(row.get("metrics", {})),
+            comparison=dict(row.get("comparison", {})),
+            created_at=datetime.fromisoformat(row["created_at"]),
+            updated_at=datetime.fromisoformat(row["updated_at"]),
+        )
+
+    def list(self) -> list[ModelCandidateRecord]:
+        candidates: list[ModelCandidateRecord] = []
+        for candidate_id in _read_state(self._path, self._schema).keys():
+            candidate = self.get(candidate_id)
+            if candidate is not None:
+                candidates.append(candidate)
+        return sorted(candidates, key=lambda item: (item.created_at, item.id))
+
+
+class ChampionModelRepository:
+    def __init__(self, root: Path):
+        self._path = root / "foundry" / "state" / "champions.json"
+        self._schema = "foundry.state.champions.v1"
+
+    def save(self, champion: ChampionModelRecord) -> ChampionModelRecord:
+        rows = _read_state(self._path, self._schema)
+        rows[champion.scope] = {
+            "scope": champion.scope,
+            "candidate_id": champion.candidate_id,
+            "artifact_id": champion.artifact_id,
+            "promoted_at": champion.promoted_at.isoformat(),
+            "previous_candidate_id": champion.previous_candidate_id,
+            "notes": champion.notes,
+        }
+        _write_state(self._path, self._schema, rows)
+        return champion
+
+    def get(self, scope: str) -> ChampionModelRecord | None:
+        row = _read_state(self._path, self._schema).get(scope)
+        if not row:
+            return None
+        return ChampionModelRecord(
+            scope=row["scope"],
+            candidate_id=row["candidate_id"],
+            artifact_id=row["artifact_id"],
+            promoted_at=datetime.fromisoformat(row["promoted_at"]),
+            previous_candidate_id=row.get("previous_candidate_id"),
+            notes=dict(row.get("notes", {})),
+        )
+
+    def list(self) -> list[ChampionModelRecord]:
+        champions: list[ChampionModelRecord] = []
+        for scope in _read_state(self._path, self._schema).keys():
+            champion = self.get(scope)
+            if champion is not None:
+                champions.append(champion)
+        return sorted(champions, key=lambda item: item.scope)
+
+
+class ContributionRepository:
+    def __init__(self, root: Path):
+        self._path = root / "foundry" / "state" / "contributions.json"
+        self._schema = "foundry.state.contributions.v1"
+
+    def save(self, record: ContributionRecord) -> ContributionRecord:
+        rows = _read_state(self._path, self._schema)
+        rows[record.id] = {
+            "id": record.id,
+            "sample_id": record.sample_id,
+            "policy": record.policy.value,
+            "status": record.status,
+            "payload": record.payload,
+            "created_at": record.created_at.isoformat(),
+        }
+        _write_state(self._path, self._schema, rows)
+        return record
+
+    def get(self, record_id: str) -> ContributionRecord | None:
+        row = _read_state(self._path, self._schema).get(record_id)
+        if not row:
+            return None
+        return ContributionRecord(
+            id=row["id"],
+            sample_id=row["sample_id"],
+            policy=ContributionPolicy(row["policy"]),
+            status=row["status"],
+            payload=dict(row.get("payload", {})),
+            created_at=datetime.fromisoformat(row["created_at"]),
+        )
+
+    def list(self) -> list[ContributionRecord]:
+        records: list[ContributionRecord] = []
+        for record_id in _read_state(self._path, self._schema).keys():
+            record = self.get(record_id)
+            if record is not None:
+                records.append(record)
+        return sorted(records, key=lambda item: (item.created_at, item.id))

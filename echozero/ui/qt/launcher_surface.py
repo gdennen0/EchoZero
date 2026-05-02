@@ -222,6 +222,9 @@ class LauncherController:
         if not callable(resolve_config) or not callable(apply_config):
             return
         apply_config(resolve_config())
+        set_runtime_audio_controller = getattr(self.widget, "set_runtime_audio_controller", None)
+        if callable(set_runtime_audio_controller):
+            set_runtime_audio_controller(getattr(self.runtime, "runtime_audio", None))
 
     def _apply_runtime_osc_settings(self) -> None:
         apply_config = getattr(self.runtime, "apply_ma3_osc_runtime_config", None)
@@ -614,15 +617,22 @@ class LauncherController:
             return False
         monitor_provider = getattr(self.runtime, "recent_ma3_osc_messages", None)
         monitor_callback = monitor_provider if callable(monitor_provider) else None
+        clear_provider = getattr(self.runtime, "clear_ma3_osc_messages", None)
+        clear_callback = clear_provider if callable(clear_provider) else None
         try:
             dialog = OscSettingsDialog(
                 self._app_settings_service,
                 on_saved=self._on_app_settings_saved,
                 monitor_provider=monitor_callback,
+                clear_monitor=clear_callback,
                 parent=self.widget,
             )
         except TypeError as exc:
-            if "on_saved" not in str(exc) and "monitor_provider" not in str(exc):
+            if (
+                "on_saved" not in str(exc)
+                and "monitor_provider" not in str(exc)
+                and "clear_monitor" not in str(exc)
+            ):
                 raise
             try:
                 dialog = OscSettingsDialog(
