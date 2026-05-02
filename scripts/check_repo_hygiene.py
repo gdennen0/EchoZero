@@ -139,7 +139,6 @@ MODULE_MAX_LINE_RULES: dict[str, int] = {
     "echozero/ui/qt/timeline/object_info_panel.py": 325,
     "echozero/ui/qt/timeline/widget_canvas.py": 225,
     "echozero/application/timeline/orchestrator.py": 900,
-    "echozero/application/timeline/orchestrator_selection_mixin.py": 60,
     "echozero/application/timeline/object_action_settings_service.py": 500,
     "echozero/application/timeline/assembler.py": 900,
     "echozero/application/presentation/inspector_contract.py": 500,

@@ -122,7 +122,6 @@ def test_recent_split_roots_have_default_size_guardrails() -> None:
     assert module.MODULE_MAX_LINE_RULES["echozero/ui/qt/timeline/object_info_panel.py"] == 325
     assert module.MODULE_MAX_LINE_RULES["echozero/ui/qt/timeline/widget_canvas.py"] == 225
     assert module.MODULE_MAX_LINE_RULES["echozero/foundry/ui/main_window_run_mixin.py"] == 40
-    assert module.MODULE_MAX_LINE_RULES["echozero/application/timeline/orchestrator_selection_mixin.py"] == 60
     assert module.MODULE_MAX_LINE_RULES["echozero/application/timeline/object_action_settings_service.py"] == 500
     assert module.MODULE_MAX_LINE_RULES["echozero/persistence/session.py"] == 430
     assert module.MODULE_MAX_LINE_RULES["echozero/models/provider.py"] == 360

@@ -48,8 +48,8 @@ from echozero.application.timeline.ma3_push_intents import (
 from echozero.application.timeline.orchestrator_ma3_push_mixin import (
     TimelineOrchestratorMA3PushMixin,
 )
-from echozero.application.timeline.orchestrator_selection_mixin import (
-    TimelineOrchestratorSelectionMixin,
+from echozero.application.timeline.orchestrator_event_batch_mixin import (
+    TimelineOrchestratorEventBatchMixin,
 )
 from echozero.application.timeline.orchestrator_manual_pull_import_mixin import (
     TimelineOrchestratorManualPullImportMixin,
@@ -191,7 +191,7 @@ _TRANSFER_WORKSPACE_INTENTS = (
 
 @dataclass(slots=True)
 class TimelineOrchestratorOwner(
-    TimelineOrchestratorSelectionMixin,
+    TimelineOrchestratorEventBatchMixin,
     TimelineOrchestratorMA3PushMixin,
     TimelineOrchestratorSyncPresetMixin,
     TimelineOrchestratorTransferLookupMixin,
