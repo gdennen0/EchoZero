@@ -35,7 +35,6 @@ from echozero.application.timeline.intents import (
     SelectPushTargetTrack,
 )
 from echozero.ui.qt.timeline.manual_pull import (
-    ManualPullTimelineSelectionResult,
     ManualPullWorkspaceDialog,
 )
 from echozero.ui.qt.timeline.widget_action_contract_mixin import _coerce_layer_id
@@ -49,9 +48,6 @@ class _TransferActionHost(Protocol):
     _focus_layer_for_header_action: Callable[[object], None]
     _input_dialog: type[QInputDialog]
     _message_box: type[QMessageBox]
-    _open_manual_pull_timeline_popup: Callable[
-        [ManualPullFlowPresentation], ManualPullTimelineSelectionResult | None
-    ]
 
     def _handle_runtime_pipeline_action(self, action_id: str, params: dict[str, object]) -> bool: ...
 
@@ -253,16 +249,11 @@ class TimelineWidgetTransferWorkspaceMixin:
             labels = [self._manual_push_track_label(track) for track in flow.available_tracks]
         return True
 
-    def _default_open_manual_pull_timeline_popup(
-        self, flow: ManualPullFlowPresentation
-    ) -> ManualPullTimelineSelectionResult | None:
-        return self._open_manual_pull_workspace_dialog(flow, exit_on_cancel=False)
-
     def _run_manual_pull_workspace(self) -> bool:
         host = cast(_TransferActionHost, self)
         flow = host._get_presentation().manual_pull_flow
-        selection = self._open_manual_pull_workspace_dialog(flow, exit_on_cancel=True)
-        if selection is None:
+        accepted = self._open_manual_pull_workspace_dialog(flow, exit_on_cancel=True)
+        if not accepted:
             return True
         host._dispatch(ApplyPullFromMA3())
         return True
@@ -272,7 +263,7 @@ class TimelineWidgetTransferWorkspaceMixin:
         flow: ManualPullFlowPresentation,
         *,
         exit_on_cancel: bool,
-    ) -> ManualPullTimelineSelectionResult | None:
+    ) -> bool:
         host = cast(_TransferActionHost, self)
         if not flow.workspace_active:
             host._dispatch(OpenPullFromMA3Dialog())
@@ -319,12 +310,8 @@ class TimelineWidgetTransferWorkspaceMixin:
         if dialog.exec() != ManualPullWorkspaceDialog.DialogCode.Accepted:
             if exit_on_cancel:
                 host._dispatch(ExitPullFromMA3Workspace())
-            return None
-        return ManualPullTimelineSelectionResult(
-            selected_event_ids=dialog.selected_event_ids(),
-            target_layer_id=dialog.selected_target_layer_id(),
-            import_mode=dialog.selected_import_mode(),
-        )
+            return False
+        return True
 
     @staticmethod
     def _manual_push_track_label(track: ManualPushTrackOptionPresentation) -> str:

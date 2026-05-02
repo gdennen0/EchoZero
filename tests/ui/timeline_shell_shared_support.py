@@ -125,8 +125,6 @@ from echozero.ui.qt.timeline.test_harness import (
     estimate_full_window_height,
 )
 from echozero.ui.qt.timeline.widget import (
-    ManualPullTimelineDialog,
-    ManualPullTimelineSelectionResult,
     TimelineWidget,
     compute_scroll_bounds,
     estimate_timeline_span_seconds,

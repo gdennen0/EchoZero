@@ -22,10 +22,7 @@ from PyQt6.QtWidgets import (
 )
 
 from echozero.application.presentation.inspector_contract import InspectorAction
-from echozero.application.presentation.models import (
-    ManualPullFlowPresentation,
-    TimelinePresentation,
-)
+from echozero.application.presentation.models import TimelinePresentation
 from echozero.application.shared.enums import LayerKind
 from echozero.application.shared.ids import EventId, LayerId
 from echozero.application.timeline.intents import (
@@ -67,10 +64,6 @@ from echozero.ui.qt.timeline.widget_action_contract_mixin import (
     _coerce_take_id,
     TimelineWidgetContractActionMixin,
 )
-from echozero.ui.qt.timeline.manual_pull import (
-    ManualPullTimelineSelectionResult,
-)
-
 _NATURAL_TOKEN_PATTERN = re.compile(r"(\d+)")
 _FINAL_PIPELINE_RUN_STATUSES = frozenset({"completed", "failed", "cancelled"})
 
@@ -133,9 +126,6 @@ class TimelineWidgetActionRouter(
         set_presentation: Callable[[TimelinePresentation], None],
         resolve_runtime_shell: Callable[[], _TimelineRuntimeShell | None],
         selected_event_ids_for_selected_layers: Callable[[], list[EventId]],
-        open_manual_pull_timeline_popup: (
-            Callable[[ManualPullFlowPresentation], ManualPullTimelineSelectionResult | None] | None
-        ) = None,
         input_dialog: type[QInputDialog] = QInputDialog,
         file_dialog: type[QFileDialog] = QFileDialog,
         message_box: type[QMessageBox] = QMessageBox,
@@ -147,13 +137,6 @@ class TimelineWidgetActionRouter(
         self._set_presentation = set_presentation
         self._resolve_runtime_shell = resolve_runtime_shell
         self._selected_event_ids_for_selected_layers = selected_event_ids_for_selected_layers
-        self._open_manual_pull_timeline_popup: Callable[
-            [ManualPullFlowPresentation], ManualPullTimelineSelectionResult | None
-        ] = (
-            open_manual_pull_timeline_popup
-            if open_manual_pull_timeline_popup is not None
-            else self._default_open_manual_pull_timeline_popup
-        )
         self._input_dialog = input_dialog
         self._file_dialog = file_dialog
         self._message_box = message_box
