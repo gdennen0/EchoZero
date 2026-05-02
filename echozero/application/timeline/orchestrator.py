@@ -149,10 +149,48 @@ from echozero.application.timeline.models import (
 from echozero.application.transport.service import TransportService
 
 _KEYBOARD_STEP_SECONDS = 1.0 / 30.0
+_TRANSFER_WORKSPACE_INTENTS = (
+    RefreshMA3PushTracks,
+    RefreshMA3Sequences,
+    AssignMA3TrackSequence,
+    CreateMA3Sequence,
+    CreateMA3Timecode,
+    CreateMA3TrackGroup,
+    CreateMA3Track,
+    PrepareMA3TrackForPush,
+    SetLayerMA3Route,
+    PushLayerToMA3,
+    PollMA3PushOperation,
+    OpenPushToMA3Dialog,
+    ExitPushToMA3Mode,
+    SetPushTrackOptions,
+    SelectPushTargetTrack,
+    SetPushTransferMode,
+    ConfirmPushToMA3,
+    OpenPullFromMA3Dialog,
+    ExitPullFromMA3Workspace,
+    SetPullTrackOptions,
+    SelectPullSourceTimecode,
+    SelectPullSourceTrackGroup,
+    SelectPullSourceTracks,
+    SelectPullSourceTrack,
+    SetPullSourceEvents,
+    SelectPullSourceEvents,
+    SelectPullTargetLayer,
+    SetPullImportMode,
+    ConfirmPullFromMA3,
+    ApplyPullFromMA3,
+    SaveTransferPreset,
+    ApplyTransferPreset,
+    DeleteTransferPreset,
+    PreviewTransferPlan,
+    ApplyTransferPlan,
+    CancelTransferPlan,
+)
 
 
 @dataclass(slots=True)
-class TimelineOrchestrator(
+class TimelineMutator(
     TimelineOrchestratorSelectionMixin,
     TimelineOrchestratorMA3PushMixin,
     TimelineOrchestratorSyncPresetMixin,
@@ -160,7 +198,7 @@ class TimelineOrchestrator(
     TimelineOrchestratorManualPullImportMixin,
     TimelineOrchestratorTransferPlanMixin,
 ):
-    """Coordinates timeline intents across sibling application services."""
+    """Owns canonical timeline mutation and compatibility handling for app intents."""
 
     session_service: SessionService
     transport_service: TransportService
@@ -1089,6 +1127,40 @@ class TimelineOrchestrator(
             )
             self._cancel_transfer_plan(session, plan)
 
+        return self._assemble_after_handle(timeline)
+
+    @staticmethod
+    def _manual_pull_selected_events(flow: ManualPullFlowState) -> list[ManualPullEventOption]:
+        return TimelineMutator._manual_pull_selected_events_by_ids(
+            available_events=flow.available_events,
+            selected_ids=flow.selected_ma3_event_ids,
+            action_name="ApplyPullFromMA3",
+        )
+
+    @staticmethod
+    def _manual_pull_selected_events_by_ids(
+        *,
+        available_events: list[ManualPullEventOption],
+        selected_ids: list[str],
+        action_name: str,
+    ) -> list[ManualPullEventOption]:
+        available_by_id = {event.event_id: event for event in available_events}
+        selected_events: list[ManualPullEventOption] = []
+        missing_event_ids: list[str] = []
+        for event_id in selected_ids:
+            selected_event = available_by_id.get(event_id)
+            if selected_event is None:
+                missing_event_ids.append(event_id)
+                continue
+            selected_events.append(selected_event)
+        if missing_event_ids:
+            raise ValueError(
+                f"{action_name} selected_ma3_event_ids not found in available_events: "
+                + ", ".join(missing_event_ids)
+            )
+        return selected_events
+
+    def _assemble_after_handle(self, timeline: Timeline) -> TimelinePresentation:
         session = self.session_service.get_session()
         if session.manual_push_flow.push_mode_active:
             session.manual_push_flow.selected_layer_ids = self._selected_layer_scope(timeline)
@@ -1118,37 +1190,6 @@ class TimelineOrchestrator(
             sync=session.sync_state,
         )
         return self.assembler.assemble(timeline=timeline, session=session)
-
-    @staticmethod
-    def _manual_pull_selected_events(flow: ManualPullFlowState) -> list[ManualPullEventOption]:
-        return TimelineOrchestrator._manual_pull_selected_events_by_ids(
-            available_events=flow.available_events,
-            selected_ids=flow.selected_ma3_event_ids,
-            action_name="ApplyPullFromMA3",
-        )
-
-    @staticmethod
-    def _manual_pull_selected_events_by_ids(
-        *,
-        available_events: list[ManualPullEventOption],
-        selected_ids: list[str],
-        action_name: str,
-    ) -> list[ManualPullEventOption]:
-        available_by_id = {event.event_id: event for event in available_events}
-        selected_events: list[ManualPullEventOption] = []
-        missing_event_ids: list[str] = []
-        for event_id in selected_ids:
-            selected_event = available_by_id.get(event_id)
-            if selected_event is None:
-                missing_event_ids.append(event_id)
-                continue
-            selected_events.append(selected_event)
-        if missing_event_ids:
-            raise ValueError(
-                f"{action_name} selected_ma3_event_ids not found in available_events: "
-                + ", ".join(missing_event_ids)
-            )
-        return selected_events
 
     def _set_active_manual_pull_source_track(
         self,
@@ -1245,7 +1286,7 @@ class TimelineOrchestrator(
     @staticmethod
     def _manual_pull_import_mode_for_target_layer(
         timeline: Timeline,
-        target_layer_id: LayerId | None,
+        target_layer_id: str | None,
     ) -> str:
         if target_layer_id in {
             _PULL_TARGET_CREATE_NEW_LAYER_ID,
@@ -1468,3 +1509,709 @@ class TimelineOrchestrator(
                 reserved.add(candidate)
                 return EventId(candidate)
             suffix += 1
+
+
+class MA3TransferWorkspaceService(TimelineMutator):
+    """Owns MA3 push, pull, presets, and transfer workspace state."""
+
+    def handles(self, intent: TimelineIntent) -> bool:
+        return isinstance(intent, _TRANSFER_WORKSPACE_INTENTS)
+
+    def handle(self, timeline: Timeline, intent: TimelineIntent) -> TimelinePresentation:
+        if isinstance(intent, RefreshMA3PushTracks):
+            self._handle_refresh_ma3_push_tracks(intent)
+
+        elif isinstance(intent, RefreshMA3Sequences):
+            self._handle_refresh_ma3_sequences(intent)
+
+        elif isinstance(intent, AssignMA3TrackSequence):
+            self._handle_assign_ma3_track_sequence(intent)
+
+        elif isinstance(intent, CreateMA3Sequence):
+            self._handle_create_ma3_sequence(intent)
+
+        elif isinstance(intent, CreateMA3Timecode):
+            self._handle_create_ma3_timecode(intent)
+
+        elif isinstance(intent, CreateMA3TrackGroup):
+            self._handle_create_ma3_track_group(intent)
+
+        elif isinstance(intent, CreateMA3Track):
+            self._handle_create_ma3_track(intent)
+
+        elif isinstance(intent, PrepareMA3TrackForPush):
+            self._handle_prepare_ma3_track_for_push(intent)
+
+        elif isinstance(intent, SetLayerMA3Route):
+            self._handle_set_layer_ma3_route(
+                timeline,
+                layer_id=intent.layer_id,
+                target_track_coord=intent.target_track_coord,
+                ma3_channel_no=intent.ma3_channel_no,
+                sequence_action=intent.sequence_action,
+            )
+
+        elif isinstance(intent, PushLayerToMA3):
+            self._handle_push_layer_to_ma3(timeline, intent)
+
+        elif isinstance(intent, PollMA3PushOperation):
+            self._handle_poll_ma3_push_operation(timeline, intent)
+
+        elif isinstance(intent, OpenPushToMA3Dialog):
+            session = self.session_service.get_session()
+            self._set_selected_event_refs(
+                timeline,
+                self._resolve_event_refs_by_ids(
+                    timeline,
+                    list(intent.selection_event_ids),
+                    preferred_layer_ids=self._selected_layer_scope(timeline),
+                    preferred_take_id=timeline.selection.selected_take_id,
+                ),
+            )
+            session.manual_push_flow.selected_layer_ids = self._selected_layer_scope(timeline)
+            session.manual_push_flow.dialog_open = False
+            session.manual_push_flow.push_mode_active = True
+            session.manual_push_flow.selected_event_ids = list(intent.selection_event_ids)
+            session.manual_push_flow.target_track_coord = None
+            session.manual_push_flow.transfer_mode = "merge"
+            session.manual_push_flow.operation_id = None
+            session.manual_push_flow.operation_status = "idle"
+            session.manual_push_flow.operation_message = ""
+            session.manual_push_flow.diff_gate_open = False
+            session.manual_push_flow.diff_preview = None
+            self._refresh_manual_push_tracks()
+            self._rebuild_push_transfer_plan(timeline, session)
+
+        elif isinstance(intent, ExitPushToMA3Mode):
+            session = self.session_service.get_session()
+            session.manual_push_flow.dialog_open = False
+            session.manual_push_flow.push_mode_active = False
+            session.manual_push_flow.selected_layer_ids = []
+            session.manual_push_flow.selected_event_ids = []
+            session.manual_push_flow.available_timecodes = []
+            session.manual_push_flow.selected_timecode_no = None
+            session.manual_push_flow.available_track_groups = []
+            session.manual_push_flow.selected_track_group_no = None
+            session.manual_push_flow.available_tracks = []
+            session.manual_push_flow.available_sequences = []
+            session.manual_push_flow.current_song_sequence_range = None
+            session.manual_push_flow.target_track_coord = None
+            session.manual_push_flow.transfer_mode = "merge"
+            operation_id = session.manual_push_flow.operation_id
+            cancel_operation = getattr(self.sync_service, "cancel_operation", None)
+            if operation_id and callable(cancel_operation):
+                cancel_operation(operation_id)
+            session.manual_push_flow.operation_id = None
+            session.manual_push_flow.operation_status = "idle"
+            session.manual_push_flow.operation_message = ""
+            session.manual_push_flow.diff_gate_open = False
+            session.manual_push_flow.diff_preview = None
+            session.batch_transfer_plan = None
+
+        elif isinstance(intent, SetPushTrackOptions):
+            session = self.session_service.get_session()
+            session.manual_push_flow.available_tracks = list(intent.tracks)
+            if session.manual_push_flow.push_mode_active:
+                self._rebuild_push_transfer_plan(timeline, session)
+
+        elif isinstance(intent, SelectPushTargetTrack):
+            session = self.session_service.get_session()
+            available_coords = {track.coord for track in session.manual_push_flow.available_tracks}
+            if intent.target_track_coord not in available_coords:
+                raise ValueError(
+                    f"SelectPushTargetTrack target_track_coord not found in available_tracks: "
+                    f"{intent.target_track_coord}"
+                )
+            session.manual_push_flow.target_track_coord = intent.target_track_coord
+            if intent.layer_id is not None:
+                layer = self._find_layer(timeline, intent.layer_id)
+                layer.sync.ma3_track_coord = intent.target_track_coord
+            elif (
+                timeline.selection.selected_layer_id is not None
+                and session.manual_push_flow.push_mode_active
+            ):
+                layer = self._find_layer(timeline, timeline.selection.selected_layer_id)
+                layer.sync.ma3_track_coord = intent.target_track_coord
+            if session.manual_push_flow.push_mode_active:
+                self._rebuild_push_transfer_plan(timeline, session)
+
+        elif isinstance(intent, SetPushTransferMode):
+            session = self.session_service.get_session()
+            session.manual_push_flow.transfer_mode = intent.mode
+
+        elif isinstance(intent, ConfirmPushToMA3):
+            session = self.session_service.get_session()
+            target_track = self._manual_push_track_by_coord(
+                session.manual_push_flow.available_tracks,
+                intent.target_track_coord,
+            )
+            selected_events = self._selected_events_by_ids(timeline, intent.selected_event_ids)
+            selected_event_ids = [event.id for event in selected_events]
+            selected_event_lookup = set(selected_event_ids)
+            if session.manual_push_flow.push_mode_active:
+                for layer_id in self._selected_layer_scope(timeline):
+                    layer = self._find_layer(timeline, layer_id)
+                    main_take = self._main_take(layer)
+                    if main_take is not None and any(
+                        event.id in selected_event_lookup for event in main_take.events
+                    ):
+                        layer.sync.ma3_track_coord = target_track.coord
+            diff_summary, diff_rows = self.diff_service.build_push_preview_rows(
+                selected_events=selected_events,
+                target_track_name=target_track.name,
+                target_track_coord=target_track.coord,
+            )
+            session.manual_push_flow.dialog_open = False
+            session.manual_push_flow.selected_event_ids = selected_event_ids
+            session.manual_push_flow.target_track_coord = intent.target_track_coord
+            session.manual_push_flow.diff_gate_open = True
+            session.manual_push_flow.diff_preview = ManualPushDiffPreview(
+                selected_count=len(selected_event_ids),
+                target_track_coord=target_track.coord,
+                target_track_name=target_track.name,
+                target_track_note=target_track.note,
+                target_track_event_count=target_track.event_count,
+                diff_summary=diff_summary,
+                diff_rows=diff_rows,
+            )
+            if session.manual_push_flow.push_mode_active:
+                self._rebuild_push_transfer_plan(timeline, session)
+
+        elif isinstance(intent, OpenPullFromMA3Dialog):
+            session = self.session_service.get_session()
+            flow = session.manual_pull_flow
+            flow.dialog_open = False
+            flow.workspace_active = True
+            flow.available_timecodes = self._load_manual_pull_timecode_options()
+            flow.available_target_layers = self._load_manual_pull_target_options(timeline)
+            flow.selected_timecode_no = self._default_manual_pull_timecode_no(
+                timeline,
+                available_timecodes=flow.available_timecodes,
+            )
+            flow.available_track_groups = (
+                self._load_manual_pull_track_group_options(timecode_no=flow.selected_timecode_no)
+                if flow.selected_timecode_no is not None
+                else []
+            )
+            flow.selected_track_group_no = self._default_manual_pull_track_group_no(
+                timeline,
+                selected_timecode_no=flow.selected_timecode_no,
+                available_track_groups=flow.available_track_groups,
+            )
+            flow.available_tracks = (
+                self._load_manual_pull_track_options(
+                    timecode_no=flow.selected_timecode_no,
+                )
+                if flow.selected_timecode_no is not None
+                else []
+            )
+            flow.selected_source_track_coords = []
+            flow.active_source_track_coord = None
+            flow.source_track_coord = None
+            flow.available_events = []
+            flow.selected_ma3_event_ids = []
+            flow.selected_ma3_event_ids_by_track = {}
+            flow.import_mode = "new_take"
+            flow.import_mode_by_source_track = {}
+            flow.target_layer_id = None
+            flow.target_layer_id_by_source_track = {}
+            flow.diff_gate_open = False
+            flow.diff_preview = None
+            default_source_track_coord = self._default_manual_pull_source_track_coord(
+                timeline,
+                session,
+                available_tracks=flow.available_tracks,
+                preferred_track_group_no=flow.selected_track_group_no,
+            )
+            if default_source_track_coord is not None:
+                self._set_active_manual_pull_source_track(
+                    timeline,
+                    session,
+                    source_track_coord=default_source_track_coord,
+                )
+            else:
+                self._refresh_manual_pull_target_options(timeline, session)
+            self._rebuild_pull_transfer_plan(timeline, session)
+
+        elif isinstance(intent, ExitPullFromMA3Workspace):
+            session = self.session_service.get_session()
+            flow = session.manual_pull_flow
+            flow.dialog_open = False
+            flow.workspace_active = False
+            flow.available_timecodes = []
+            flow.selected_timecode_no = None
+            flow.available_track_groups = []
+            flow.selected_track_group_no = None
+            flow.available_tracks = []
+            flow.selected_source_track_coords = []
+            flow.active_source_track_coord = None
+            flow.source_track_coord = None
+            flow.available_events = []
+            flow.selected_ma3_event_ids = []
+            flow.selected_ma3_event_ids_by_track = {}
+            flow.import_mode = "new_take"
+            flow.import_mode_by_source_track = {}
+            flow.available_target_layers = []
+            flow.target_layer_id = None
+            flow.target_layer_id_by_source_track = {}
+            flow.diff_gate_open = False
+            flow.diff_preview = None
+            if (
+                session.batch_transfer_plan is not None
+                and session.batch_transfer_plan.operation_type == "pull"
+            ):
+                session.batch_transfer_plan = None
+
+        elif isinstance(intent, SetPullTrackOptions):
+            session = self.session_service.get_session()
+            session.manual_pull_flow.available_tracks = list(intent.tracks)
+            if session.manual_pull_flow.workspace_active:
+                selected_coords = {
+                    track.coord for track in session.manual_pull_flow.available_tracks
+                }
+                session.manual_pull_flow.selected_source_track_coords = [
+                    coord
+                    for coord in session.manual_pull_flow.selected_source_track_coords
+                    if coord in selected_coords
+                ]
+                if session.manual_pull_flow.active_source_track_coord not in selected_coords:
+                    session.manual_pull_flow.active_source_track_coord = None
+                    session.manual_pull_flow.source_track_coord = None
+                    session.manual_pull_flow.available_events = []
+                    session.manual_pull_flow.selected_ma3_event_ids = []
+                    session.manual_pull_flow.import_mode = "new_take"
+                    session.manual_pull_flow.target_layer_id = None
+                self._refresh_manual_pull_target_options(timeline, session)
+                self._rebuild_pull_transfer_plan(timeline, session)
+
+        elif isinstance(intent, SelectPullSourceTimecode):
+            session = self.session_service.get_session()
+            flow = session.manual_pull_flow
+            available_timecodes = {timecode.number for timecode in flow.available_timecodes}
+            if intent.timecode_no not in available_timecodes:
+                raise ValueError(
+                    "SelectPullSourceTimecode timecode_no not found in available_timecodes: "
+                    f"{intent.timecode_no}"
+                )
+            flow.selected_timecode_no = intent.timecode_no
+            flow.available_track_groups = self._load_manual_pull_track_group_options(
+                timecode_no=intent.timecode_no
+            )
+            flow.selected_track_group_no = self._default_manual_pull_track_group_no(
+                timeline,
+                selected_timecode_no=flow.selected_timecode_no,
+                available_track_groups=flow.available_track_groups,
+            )
+            flow.available_tracks = (
+                self._load_manual_pull_track_options(
+                    timecode_no=flow.selected_timecode_no,
+                )
+                if flow.selected_timecode_no is not None
+                else []
+            )
+            default_source_track_coord = self._default_manual_pull_source_track_coord(
+                timeline,
+                session,
+                available_tracks=flow.available_tracks,
+                preferred_track_group_no=flow.selected_track_group_no,
+            )
+            if default_source_track_coord is None:
+                self._clear_manual_pull_source_selection(session)
+                self._refresh_manual_pull_target_options(timeline, session)
+            else:
+                self._set_active_manual_pull_source_track(
+                    timeline,
+                    session,
+                    source_track_coord=default_source_track_coord,
+                )
+            self._rebuild_pull_transfer_plan(timeline, session)
+
+        elif isinstance(intent, SelectPullSourceTrackGroup):
+            session = self.session_service.get_session()
+            flow = session.manual_pull_flow
+            available_track_groups = {group.number for group in flow.available_track_groups}
+            if intent.track_group_no not in available_track_groups:
+                raise ValueError(
+                    "SelectPullSourceTrackGroup track_group_no not found in available_track_groups: "
+                    f"{intent.track_group_no}"
+                )
+            flow.selected_track_group_no = intent.track_group_no
+            flow.available_tracks = (
+                self._load_manual_pull_track_options(
+                    timecode_no=flow.selected_timecode_no,
+                )
+                if flow.selected_timecode_no is not None
+                else []
+            )
+            default_source_track_coord = self._default_manual_pull_source_track_coord(
+                timeline,
+                session,
+                available_tracks=flow.available_tracks,
+                preferred_track_group_no=flow.selected_track_group_no,
+            )
+            if default_source_track_coord is None:
+                self._clear_manual_pull_source_selection(session)
+                self._refresh_manual_pull_target_options(timeline, session)
+            else:
+                self._set_active_manual_pull_source_track(
+                    timeline,
+                    session,
+                    source_track_coord=default_source_track_coord,
+                )
+            self._rebuild_pull_transfer_plan(timeline, session)
+
+        elif isinstance(intent, SelectPullSourceTracks):
+            session = self.session_service.get_session()
+            available_by_coord = {
+                track.coord: track for track in session.manual_pull_flow.available_tracks
+            }
+            ordered_coords: list[str] = []
+            unknown_coords: list[str] = []
+            for coord in intent.source_track_coords:
+                if coord not in available_by_coord:
+                    unknown_coords.append(coord)
+                    continue
+                if coord not in ordered_coords:
+                    ordered_coords.append(coord)
+            if unknown_coords:
+                raise ValueError(
+                    "SelectPullSourceTracks source_track_coords not found in available_tracks: "
+                    + ", ".join(unknown_coords)
+                )
+            session.manual_pull_flow.selected_source_track_coords = ordered_coords
+            self._refresh_manual_pull_target_options(timeline, session)
+            if session.manual_pull_flow.active_source_track_coord not in ordered_coords:
+                next_active_coord = ordered_coords[0]
+                session.manual_pull_flow.active_source_track_coord = next_active_coord
+                session.manual_pull_flow.source_track_coord = next_active_coord
+                session.manual_pull_flow.available_events = self._load_manual_pull_event_options(
+                    next_active_coord
+                )
+                session.manual_pull_flow.selected_ma3_event_ids = list(
+                    session.manual_pull_flow.selected_ma3_event_ids_by_track.get(next_active_coord, [])
+                )
+                session.manual_pull_flow.import_mode = (
+                    session.manual_pull_flow.import_mode_by_source_track.get(
+                        next_active_coord,
+                        "new_take",
+                    )
+                )
+                session.manual_pull_flow.target_layer_id = (
+                    session.manual_pull_flow.target_layer_id_by_source_track.get(next_active_coord)
+                )
+            session.manual_pull_flow.diff_gate_open = False
+            session.manual_pull_flow.diff_preview = None
+            self._rebuild_pull_transfer_plan(timeline, session)
+
+        elif isinstance(intent, SelectPullSourceTrack):
+            session = self.session_service.get_session()
+            source_track = self._manual_pull_track_by_coord(
+                session.manual_pull_flow.available_tracks,
+                intent.source_track_coord,
+                action_name="SelectPullSourceTrack",
+            )
+            self._set_active_manual_pull_source_track(
+                timeline,
+                session,
+                source_track_coord=source_track.coord,
+            )
+            session.manual_pull_flow.selected_track_group_no = self._ma3_track_coord_track_group_no(
+                source_track.coord
+            )
+            if session.manual_pull_flow.workspace_active:
+                self._rebuild_pull_transfer_plan(timeline, session)
+
+        elif isinstance(intent, SetPullSourceEvents):
+            session = self.session_service.get_session()
+            session.manual_pull_flow.available_events = list(intent.events)
+
+        elif isinstance(intent, SelectPullSourceEvents):
+            session = self.session_service.get_session()
+            available_event_ids = {
+                event.event_id for event in session.manual_pull_flow.available_events
+            }
+            unknown_event_ids = [
+                event_id
+                for event_id in intent.selected_ma3_event_ids
+                if event_id not in available_event_ids
+            ]
+            if unknown_event_ids:
+                raise ValueError(
+                    "SelectPullSourceEvents selected_ma3_event_ids not found in available_events: "
+                    + ", ".join(unknown_event_ids)
+                )
+            session.manual_pull_flow.selected_ma3_event_ids = list(intent.selected_ma3_event_ids)
+            active_source_coord = (
+                session.manual_pull_flow.active_source_track_coord
+                or session.manual_pull_flow.source_track_coord
+            )
+            if active_source_coord:
+                session.manual_pull_flow.selected_ma3_event_ids_by_track[active_source_coord] = list(
+                    intent.selected_ma3_event_ids
+                )
+            session.manual_pull_flow.diff_gate_open = False
+            session.manual_pull_flow.diff_preview = None
+            if session.manual_pull_flow.workspace_active:
+                self._rebuild_pull_transfer_plan(timeline, session)
+
+        elif isinstance(intent, SelectPullTargetLayer):
+            session = self.session_service.get_session()
+            target_option = self._manual_pull_target_layer_by_id(
+                session.manual_pull_flow.available_target_layers,
+                intent.target_layer_id,
+                action_name="SelectPullTargetLayer",
+            )
+            session.manual_pull_flow.target_layer_id = target_option.layer_id
+            derived_import_mode = self._manual_pull_import_mode_for_target_layer(
+                timeline,
+                target_option.layer_id,
+            )
+            active_source_coord = (
+                session.manual_pull_flow.active_source_track_coord
+                or session.manual_pull_flow.source_track_coord
+            )
+            if target_option.layer_id == _PULL_TARGET_CREATE_NEW_LAYER_PER_SOURCE_TRACK_ID:
+                for coord in session.manual_pull_flow.selected_source_track_coords:
+                    session.manual_pull_flow.target_layer_id_by_source_track[coord] = (
+                        target_option.layer_id
+                    )
+                    session.manual_pull_flow.import_mode_by_source_track[coord] = (
+                        derived_import_mode
+                    )
+            elif active_source_coord:
+                session.manual_pull_flow.target_layer_id_by_source_track[active_source_coord] = (
+                    target_option.layer_id
+                )
+                session.manual_pull_flow.import_mode_by_source_track[active_source_coord] = (
+                    derived_import_mode
+                )
+            session.manual_pull_flow.import_mode = derived_import_mode
+            session.manual_pull_flow.diff_gate_open = False
+            session.manual_pull_flow.diff_preview = None
+            if session.manual_pull_flow.workspace_active:
+                self._rebuild_pull_transfer_plan(timeline, session)
+
+        elif isinstance(intent, SetPullImportMode):
+            session = self.session_service.get_session()
+            active_source_coord = (
+                session.manual_pull_flow.active_source_track_coord
+                or session.manual_pull_flow.source_track_coord
+            )
+            resolved_target_layer_id = (
+                session.manual_pull_flow.target_layer_id_by_source_track.get(active_source_coord)
+                if active_source_coord is not None
+                else session.manual_pull_flow.target_layer_id
+            )
+            resolved_import_mode = (
+                self._manual_pull_import_mode_for_target_layer(
+                    timeline,
+                    resolved_target_layer_id,
+                )
+                if resolved_target_layer_id is not None
+                else intent.import_mode
+            )
+            session.manual_pull_flow.import_mode = resolved_import_mode
+            if active_source_coord:
+                session.manual_pull_flow.import_mode_by_source_track[active_source_coord] = (
+                    resolved_import_mode
+                )
+            session.manual_pull_flow.diff_gate_open = False
+            session.manual_pull_flow.diff_preview = None
+            if session.manual_pull_flow.workspace_active:
+                self._rebuild_pull_transfer_plan(timeline, session)
+
+        elif isinstance(intent, ConfirmPullFromMA3):
+            session = self.session_service.get_session()
+            source_track = self._manual_pull_track_by_coord(
+                session.manual_pull_flow.available_tracks,
+                intent.source_track_coord,
+                action_name="ConfirmPullFromMA3",
+            )
+            target_option = self._manual_pull_target_layer_by_id(
+                session.manual_pull_flow.available_target_layers,
+                intent.target_layer_id,
+                action_name="ConfirmPullFromMA3",
+            )
+            available_event_ids = {
+                event.event_id for event in session.manual_pull_flow.available_events
+            }
+            unknown_event_ids = [
+                event_id
+                for event_id in intent.selected_ma3_event_ids
+                if event_id not in available_event_ids
+            ]
+            if unknown_event_ids:
+                raise ValueError(
+                    "ConfirmPullFromMA3 selected_ma3_event_ids not found in available_events: "
+                    + ", ".join(unknown_event_ids)
+                )
+            session.manual_pull_flow.dialog_open = False
+            session.manual_pull_flow.workspace_active = True
+            session.manual_pull_flow.selected_source_track_coords = [source_track.coord]
+            session.manual_pull_flow.active_source_track_coord = source_track.coord
+            session.manual_pull_flow.source_track_coord = source_track.coord
+            session.manual_pull_flow.selected_ma3_event_ids = list(intent.selected_ma3_event_ids)
+            session.manual_pull_flow.selected_ma3_event_ids_by_track[source_track.coord] = list(
+                intent.selected_ma3_event_ids
+            )
+            derived_import_mode = self._manual_pull_import_mode_for_target_layer(
+                timeline,
+                target_option.layer_id,
+            )
+            session.manual_pull_flow.import_mode = derived_import_mode
+            session.manual_pull_flow.import_mode_by_source_track[source_track.coord] = (
+                derived_import_mode
+            )
+            session.manual_pull_flow.target_layer_id = target_option.layer_id
+            session.manual_pull_flow.target_layer_id_by_source_track[source_track.coord] = (
+                target_option.layer_id
+            )
+            session.manual_pull_flow.diff_gate_open = False
+            session.manual_pull_flow.diff_preview = None
+            if session.manual_pull_flow.workspace_active:
+                self._rebuild_pull_transfer_plan(timeline, session)
+
+        elif isinstance(intent, ApplyPullFromMA3):
+            session = self.session_service.get_session()
+            flow = session.manual_pull_flow
+            if not flow.source_track_coord:
+                raise ValueError("ApplyPullFromMA3 requires a selected source_track_coord")
+            if not flow.selected_ma3_event_ids:
+                raise ValueError("ApplyPullFromMA3 requires selected MA3 events")
+            if flow.target_layer_id is None:
+                raise ValueError("ApplyPullFromMA3 requires a selected target_layer_id")
+
+            source_track = self._manual_pull_track_by_coord(
+                flow.available_tracks,
+                flow.source_track_coord,
+                action_name="ApplyPullFromMA3",
+            )
+            selected_pull_events = self._manual_pull_selected_events(flow)
+            resolved_target_layer = self._resolve_manual_pull_target_layer(
+                timeline,
+                target_layer_id=flow.target_layer_id,
+                source_track=source_track,
+            )
+            resolved_import_mode = self._manual_pull_import_mode_for_target_layer(
+                timeline,
+                flow.target_layer_id,
+            )
+            flow.import_mode = resolved_import_mode
+            selected_take_id, selected_event_ids = self._apply_manual_pull_import(
+                target_layer=resolved_target_layer,
+                source_track=source_track,
+                selected_events=selected_pull_events,
+                import_mode=resolved_import_mode,
+            )
+
+            flow.target_layer_id_by_source_track[source_track.coord] = resolved_target_layer.id
+            flow.target_layer_id = resolved_target_layer.id
+            flow.import_mode_by_source_track[source_track.coord] = (
+                self._manual_pull_import_mode_for_target_layer(
+                    timeline,
+                    resolved_target_layer.id,
+                )
+            )
+            flow.import_mode = flow.import_mode_by_source_track[source_track.coord]
+            self._refresh_manual_pull_target_options(timeline, session)
+
+            timeline.selection.selected_layer_id = resolved_target_layer.id
+            timeline.selection.selected_layer_ids = [resolved_target_layer.id]
+            timeline.selection.selected_take_id = selected_take_id
+            self._set_selected_event_refs(
+                timeline,
+                self._resolve_event_refs_by_ids(
+                    timeline,
+                    selected_event_ids,
+                    preferred_layer_ids=[resolved_target_layer.id],
+                    preferred_take_id=selected_take_id,
+                ),
+            )
+
+            flow.diff_gate_open = False
+            flow.diff_preview = None
+            if flow.workspace_active:
+                self._rebuild_pull_transfer_plan(timeline, session)
+
+        elif isinstance(intent, SaveTransferPreset):
+            session = self.session_service.get_session()
+            self._save_transfer_preset(timeline, session, intent.name)
+
+        elif isinstance(intent, ApplyTransferPreset):
+            session = self.session_service.get_session()
+            self._apply_transfer_preset(timeline, session, intent.preset_id)
+
+        elif isinstance(intent, DeleteTransferPreset):
+            session = self.session_service.get_session()
+            self._delete_transfer_preset(session, intent.preset_id)
+
+        elif isinstance(intent, PreviewTransferPlan):
+            session = self.session_service.get_session()
+            plan = self._require_active_transfer_plan(
+                session,
+                intent.plan_id,
+                action_name="PreviewTransferPlan",
+            )
+            self._preview_transfer_plan(timeline, session, plan)
+
+        elif isinstance(intent, ApplyTransferPlan):
+            session = self.session_service.get_session()
+            plan = self._require_active_transfer_plan(
+                session,
+                intent.plan_id,
+                action_name="ApplyTransferPlan",
+            )
+            self._apply_transfer_plan(timeline, session, plan)
+
+        elif isinstance(intent, CancelTransferPlan):
+            session = self.session_service.get_session()
+            plan = self._require_active_transfer_plan(
+                session,
+                intent.plan_id,
+                action_name="CancelTransferPlan",
+            )
+            self._cancel_transfer_plan(session, plan)
+
+        else:
+            return super().handle(timeline, intent)
+        return self._assemble_after_handle(timeline)
+
+
+@dataclass(slots=True)
+class TimelineOrchestrator:
+    """Route timeline intents to the explicit mutation and transfer owners."""
+
+    session_service: SessionService
+    transport_service: TransportService
+    mixer_service: MixerService
+    playback_service: PlaybackService
+    sync_service: SyncService
+    assembler: "TimelineAssembler"
+    diff_service: SyncDiffService = field(default_factory=SyncDiffService)
+    mutator: TimelineMutator = field(init=False)
+    transfer_workspace: MA3TransferWorkspaceService = field(init=False)
+
+    def __post_init__(self) -> None:
+        self.mutator = TimelineMutator(
+            session_service=self.session_service,
+            transport_service=self.transport_service,
+            mixer_service=self.mixer_service,
+            playback_service=self.playback_service,
+            sync_service=self.sync_service,
+            assembler=self.assembler,
+            diff_service=self.diff_service,
+        )
+        self.transfer_workspace = MA3TransferWorkspaceService(
+            session_service=self.session_service,
+            transport_service=self.transport_service,
+            mixer_service=self.mixer_service,
+            playback_service=self.playback_service,
+            sync_service=self.sync_service,
+            assembler=self.assembler,
+            diff_service=self.diff_service,
+        )
+
+    def handle(self, timeline: Timeline, intent: TimelineIntent) -> TimelinePresentation:
+        if self.transfer_workspace.handles(intent):
+            return self.transfer_workspace.handle(timeline, intent)
+        return self.mutator.handle(timeline, intent)
