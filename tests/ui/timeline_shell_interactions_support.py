@@ -2028,6 +2028,28 @@ def test_dragging_selected_event_dispatches_move_intent():
         app.processEvents()
 
 
+def test_select_mode_hover_uses_move_cursor_for_selected_event():
+    app = QApplication.instance() or QApplication([])
+    widget = TimelineWidget(_drag_test_presentation())
+    try:
+        _render_for_hit_testing(widget)
+
+        event_rect = next(
+            rect
+            for rect, _layer_id, _take_id, candidate_event_id in widget._canvas._event_rects
+            if str(candidate_event_id) == "main_evt"
+        )
+
+        QTest.mouseMove(widget._canvas, event_rect.center().toPoint())
+        app.processEvents()
+
+        assert widget._editor_bar._mode_buttons["select"].isChecked() is True
+        assert widget._canvas.cursor().shape() == Qt.CursorShape.SizeAllCursor
+    finally:
+        widget.close()
+        app.processEvents()
+
+
 def test_select_mode_keeps_section_events_hit_testable():
     app = QApplication.instance() or QApplication([])
     presentation = replace(

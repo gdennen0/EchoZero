@@ -1286,6 +1286,9 @@ class _TimelineCanvasInteractionMixin:
         if self._edit_mode == "select" and self._resize_target_layer_id(pos) is not None:
             self.setCursor(Qt.CursorShape.SizeVerCursor)
             return
+        if self._edit_mode == "select" and self._draggable_event_hit(pos) is not None:
+            self.setCursor(Qt.CursorShape.SizeAllCursor)
+            return
         self._sync_cursor()
 
     def _header_resize_handle_contains(self: Any, pos: QPointF) -> bool:
@@ -1301,6 +1304,20 @@ class _TimelineCanvasInteractionMixin:
         for rect, layer_id, take_id in self._event_lane_rects:
             if rect.contains(pos):
                 return rect, layer_id, take_id
+        return None
+
+    def _draggable_event_hit(self: Any, pos: QPointF) -> EventRect | None:
+        for event_rect in self._event_rects:
+            rect, layer_id, take_id, event_id = event_rect
+            if not rect.contains(pos):
+                continue
+            if self._can_start_event_drag(
+                Qt.KeyboardModifier.NoModifier,
+                layer_id,
+                take_id,
+                event_id,
+            ):
+                return event_rect
         return None
 
     def _fix_overlay_hit(
