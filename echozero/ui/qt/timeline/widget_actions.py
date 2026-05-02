@@ -29,11 +29,9 @@ from echozero.application.timeline.intents import (
     ApplyTransferPlan,
     ApplyTransferPreset,
     CancelTransferPlan,
-    ClearSelection,
     DeleteTransferPreset,
     PreviewTransferPlan,
     SaveTransferPreset,
-    SelectAllEvents,
     SetGain,
     SetPushTransferMode,
 )
@@ -162,12 +160,6 @@ class TimelineWidgetActionRouter(
             return self._handle_match_events_to_ma3_cues(params)
         if resolved_action_id == "transfer.send_to_track_once":
             return self._handle_send_to_different_track_once(params)
-        if resolved_action_id == "push_select_all_events":
-            self._dispatch(SelectAllEvents())
-            return True
-        if resolved_action_id == "push_unselect_all_events":
-            self._dispatch(ClearSelection())
-            return True
         if resolved_action_id == "set_push_transfer_mode":
             return self._handle_set_push_transfer_mode()
         if resolved_action_id == "save_transfer_preset":
