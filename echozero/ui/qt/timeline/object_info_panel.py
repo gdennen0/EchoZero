@@ -375,27 +375,6 @@ class ObjectInfoPanel(_ObjectInfoPanelActionsMixin, QFrame):
         button.style().polish(button)
         button.update()
 
-    def set_context(self, presentation: TimelinePresentation, text: str) -> None:
-        """Set raw sidebar text for legacy callers during transition to full contracts."""
-
-        del presentation
-        self._contract = InspectorContract(title=text, empty_state=text)
-        self._kind.setText("None")
-        self._selection_title.setText("Selection")
-        self._set_body_text(text)
-        self._clear_action_sections()
-        self._pipeline_action_plans = {}
-        self._sync_event_preview(None)
-        self._layer_controls.setVisible(False)
-        self._layer_controls_title.setText("No layer selected.")
-        self._panel_mute_btn.setText("Mute")
-        self._panel_solo_btn.setText("Solo")
-        self._set_button_active(self._panel_mute_btn, False)
-        self._set_button_active(self._panel_solo_btn, False)
-        self._set_button_active(self._gain_down_btn, False)
-        self._set_button_active(self._gain_unity_btn, False)
-        self._set_button_active(self._gain_up_btn, False)
-
     def set_contract(
         self, presentation: TimelinePresentation, contract: InspectorContract
     ) -> None:
