@@ -154,7 +154,7 @@ class TimelineWidgetContractMixin:
     ) -> None:
         if direction == 0:
             return
-        prior_selected_event_refs = tuple(self.presentation.selected_event_refs)
+        prior_selected_event_refs = tuple(self.presentation.resolved_selected_event_refs())
         prior_selected_event_ids = tuple(self.presentation.selected_event_ids)
         self._dispatch(
             SelectAdjacentEventInSelectedLayer(
@@ -163,7 +163,7 @@ class TimelineWidgetContractMixin:
             )
         )
         if self._edit_mode == "fix" and (
-            prior_selected_event_refs != tuple(self.presentation.selected_event_refs)
+            prior_selected_event_refs != tuple(self.presentation.resolved_selected_event_refs())
             or prior_selected_event_ids != tuple(self.presentation.selected_event_ids)
         ):
             self._preview_selected_event_clip()
@@ -339,7 +339,7 @@ class TimelineWidgetContractMixin:
 
         selected_refs = [
             event_ref
-            for event_ref in self.presentation.selected_event_refs
+            for event_ref in self.presentation.resolved_selected_event_refs()
             if str(event_ref.event_id) in requested_id_set
         ]
         if selected_refs:
@@ -584,8 +584,8 @@ class TimelineWidgetContractMixin:
     def _preview_event_hit_target_for_selection(
         presentation: TimelinePresentation,
     ) -> TimelineInspectorHitTarget | None:
-        if presentation.selected_event_refs:
-            selected_ref = presentation.selected_event_refs[-1]
+        selected_ref = presentation.primary_selected_event_ref()
+        if selected_ref is not None:
             return TimelineInspectorHitTarget(
                 kind="event",
                 layer_id=selected_ref.layer_id,
