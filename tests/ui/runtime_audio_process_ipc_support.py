@@ -41,7 +41,7 @@ def test_process_runtime_audio_snapshot_includes_process_diagnostics(
     assert state.diagnostics.audio_process_connected is True
     assert state.diagnostics.audio_process_pid is not None
     assert state.diagnostics.ipc_rtt_ms >= 0.0
-    assert state.diagnostics.latency_profile == "ultra_low"
+    assert state.diagnostics.latency_profile == "low"
 
 
 def test_process_runtime_audio_accepts_compact_sync_and_signature(

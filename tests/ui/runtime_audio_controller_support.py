@@ -582,33 +582,27 @@ def test_runtime_controller_keeps_active_event_lane_when_routed_layers_are_prese
 
 def test_runtime_controller_preview_clip_plays_sliced_audio_on_preview_engine():
     engine = AudioEngine(stream_factory=_fake_stream_factory)
-    preview_engine = AudioEngine(sample_rate=10, stream_factory=_fake_stream_factory)
     controller = TimelineRuntimeAudioController(
         engine=engine,
-        preview_engine=preview_engine,
         audio_loader=lambda _path: (np.arange(10, dtype=np.float32), 10),
     )
 
     played = controller.preview_clip("kick.wav", start_seconds=0.2, end_seconds=0.6)
 
     assert played is True
-    preview_layer = preview_engine.mixer.get_layer(
-        TimelineRuntimeAudioController._PREVIEW_TRACK_ID
-    )
+    preview_layer = getattr(engine, "_overlay_buffer", None)
     assert preview_layer is not None
     np.testing.assert_array_equal(
-        preview_layer.buffer, np.array([2.0, 3.0, 4.0, 5.0], dtype=np.float32)
+        preview_layer, np.array([2.0, 3.0, 4.0, 5.0], dtype=np.float32)
     )
-    assert preview_engine.transport.is_playing is True
+    assert engine.overlay_active is True
     controller.shutdown()
 
 
 def test_runtime_controller_preview_clip_tears_down_preview_stream_after_end():
     engine = AudioEngine(stream_factory=_fake_stream_factory)
-    preview_engine = AudioEngine(sample_rate=10, stream_factory=_fake_stream_factory)
     controller = TimelineRuntimeAudioController(
         engine=engine,
-        preview_engine=preview_engine,
         audio_loader=lambda _path: (np.arange(10, dtype=np.float32), 10),
     )
 
@@ -616,16 +610,12 @@ def test_runtime_controller_preview_clip_tears_down_preview_stream_after_end():
 
     assert played is True
     outdata = np.zeros((256, 1), dtype=np.float32)
-    preview_engine._audio_callback(outdata, 256, None, None)
-    preview_engine._audio_callback(outdata, 256, None, None)
+    engine._audio_callback(outdata, 256, None, None)
+    engine._audio_callback(outdata, 256, None, None)
 
     controller.current_time_seconds()
 
-    assert preview_engine.is_active is False
-    assert (
-        preview_engine.mixer.get_layer(TimelineRuntimeAudioController._PREVIEW_TRACK_ID)
-        is None
-    )
+    assert engine.overlay_active is False
     controller.shutdown()
 
 
