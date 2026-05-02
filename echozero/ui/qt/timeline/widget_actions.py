@@ -31,7 +31,6 @@ from echozero.application.timeline.intents import (
     CancelTransferPlan,
     ClearSelection,
     DeleteTransferPreset,
-    OpenPushToMA3Dialog,
     PreviewTransferPlan,
     SaveTransferPreset,
     SelectLayer,
@@ -174,10 +173,6 @@ class TimelineWidgetActionRouter(
             return self._handle_match_events_to_ma3_cues(params)
         if resolved_action_id == "transfer.send_to_track_once":
             return self._handle_send_to_different_track_once(params)
-        if resolved_action_id == "push_legacy_mode":
-            selected_event_ids = self._selected_event_ids_for_selected_layers()
-            self._dispatch(OpenPushToMA3Dialog(selection_event_ids=selected_event_ids))
-            return True
         if resolved_action_id == "push_select_all_events":
             self._dispatch(SelectAllEvents())
             return True
