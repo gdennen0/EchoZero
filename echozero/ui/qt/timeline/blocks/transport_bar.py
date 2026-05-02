@@ -10,7 +10,6 @@ from echozero.ui.FEEL import TIMELINE_TRANSPORT_BUTTON_HEIGHT_PX, TIMELINE_TRANS
 @dataclass(slots=True)
 class TransportLayout:
     rect: QRectF
-    title_rect: QRectF
     controls_rect: QRectF
     time_rect: QRectF
     meta_rect: QRectF
@@ -32,10 +31,6 @@ class TransportLayout:
         inner_left = horizontal_padding
         inner_right = max(inner_left, width - horizontal_padding)
         inner_width = max(0.0, inner_right - inner_left)
-
-        # The transport title is intentionally hidden; keep a zero-width slot for compatibility.
-        title_x = inner_left
-        title_width = 0.0
 
         controls_width = min(400.0, max(210.0, inner_width * 0.50))
         controls_width = min(controls_width, inner_width)
@@ -72,7 +67,6 @@ class TransportLayout:
 
         return TransportLayout(
             rect=rect,
-            title_rect=centered_rect(title_x, title_width, 30.0),
             controls_rect=centered_rect(
                 controls_x,
                 controls_width,

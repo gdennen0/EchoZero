@@ -1063,7 +1063,6 @@ def test_open_object_action_settings_routes_to_pipeline_settings_browser(monkeyp
 def test_transport_layout_centers_compact_bar_content():
     layout = TransportLayout.create(width=1280)
     center_lines = (
-        layout.title_rect.center().y(),
         layout.controls_rect.center().y(),
         layout.time_rect.center().y(),
         layout.meta_rect.center().y(),
