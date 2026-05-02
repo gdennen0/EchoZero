@@ -1904,7 +1904,13 @@ def test_move_mode_up_down_dispatch_adjacent_layer_move_intents():
     )
     try:
         _render_for_hit_testing(widget)
-        widget._editor_bar._mode_buttons["move"].click()
+        assert widget._editor_bar._mode_buttons["move"].isHidden() is True
+
+        QTest.keyClick(widget._canvas, Qt.Key.Key_M)
+        QApplication.processEvents()
+
+        assert widget._editor_bar._mode_buttons["move"].isHidden() is False
+        assert widget._editor_bar._mode_buttons["move"].isChecked() is True
 
         QTest.keyClick(widget._canvas, Qt.Key.Key_Up)
         QTest.keyClick(widget._canvas, Qt.Key.Key_Down)
@@ -2006,7 +2012,6 @@ def test_dragging_selected_event_dispatches_move_intent():
     )
     try:
         _render_for_hit_testing(widget)
-        widget._editor_bar._mode_buttons["move"].click()
 
         for rect, _, _, candidate_event_id in widget._canvas._event_rects:
             if str(candidate_event_id) == "main_evt":
@@ -2032,7 +2037,6 @@ def test_move_drag_sets_continuous_preview_bar_time_during_drag() -> None:
     )
     try:
         _render_for_hit_testing(widget)
-        widget._editor_bar._mode_buttons["move"].click()
 
         for rect, _, _, candidate_event_id in widget._canvas._event_rects:
             if str(candidate_event_id) == "main_evt":
@@ -2102,7 +2106,6 @@ def test_option_dragging_selected_event_dispatches_copy_move_intent():
     )
     try:
         _render_for_hit_testing(widget)
-        widget._editor_bar._mode_buttons["move"].click()
 
         for rect, _, _, candidate_event_id in widget._canvas._event_rects:
             if str(candidate_event_id) == "main_evt":
@@ -2138,7 +2141,6 @@ def test_dragging_selected_event_over_other_event_layer_dispatches_transfer_targ
     )
     try:
         _render_for_hit_testing(widget)
-        widget._editor_bar._mode_buttons["move"].click()
 
         for rect, _, _, candidate_event_id in widget._canvas._event_rects:
             if str(candidate_event_id) == "main_evt":
@@ -2173,7 +2175,6 @@ def test_option_dragging_selected_event_over_other_layer_dispatches_copy_transfe
     )
     try:
         _render_for_hit_testing(widget)
-        widget._editor_bar._mode_buttons["move"].click()
 
         for rect, _, _, candidate_event_id in widget._canvas._event_rects:
             if str(candidate_event_id) == "main_evt":

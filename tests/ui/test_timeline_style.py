@@ -928,14 +928,30 @@ def test_timeline_editor_mode_bar_groups_tools_and_syncs_state():
             "erase",
             "fix",
         ]
+        assert bar._mode_buttons["select"].isHidden() is False
+        assert bar._mode_buttons["move"].isHidden() is True
+        assert bar._mode_buttons["draw"].isHidden() is False
+        assert bar._mode_buttons["erase"].isHidden() is True
+        assert bar._mode_buttons["fix"].isHidden() is False
         assert bar._mode_buttons["move"].text() == "↔ Move"
-        assert bar._mode_buttons["draw"].text() == "+ Draw"
+        assert bar._mode_buttons["draw"].text() == "+ Add"
         assert bar._mode_buttons["erase"].text() == "- Erase"
         assert bar._mode_buttons["fix"].text() == "🩹 Fix"
         assert bar._fix_action_buttons["select"].objectName() == "timelineEditorFixSelectButton"
         assert bar._mode_buttons["draw"].isChecked()
         assert bar._snap_button.isChecked()
         assert bar._grid_button.text() == "▦ Grid: Beat"
+
+        bar.set_state(
+            edit_mode="erase",
+            snap_enabled=True,
+            grid_mode="beat",
+            beat_available=True,
+        )
+
+        assert bar._mode_buttons["erase"].isHidden() is False
+        assert bar._mode_buttons["erase"].isChecked() is True
+        assert bar._mode_buttons["move"].isHidden() is True
     finally:
         bar.close()
         app.processEvents()
@@ -988,6 +1004,8 @@ def test_timeline_editor_mode_bar_switches_to_compact_density_when_narrow():
         assert bar.property("compact") is True
         assert bar._mode_buttons["select"].text() == "↖"
         assert bar._mode_buttons["move"].text() == "↔"
+        assert bar._mode_buttons["move"].isHidden() is True
+        assert bar._mode_buttons["erase"].isHidden() is True
         assert bar._settings_button.text() == ""
         assert bar._osc_settings_button.text() == "O"
         assert bar._pipeline_settings_button.text() == "P"

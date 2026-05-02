@@ -70,6 +70,7 @@ class TimelineEditorModeBar(QWidget):
     osc_settings_requested = pyqtSignal()
     pipeline_settings_requested = pyqtSignal()
     _COMPACT_WIDTH_THRESHOLD_PX = 1400
+    _PRIMARY_VISIBLE_MODES: tuple[str, ...] = ("select", "draw", "fix")
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -82,7 +83,7 @@ class TimelineEditorModeBar(QWidget):
         self._mode_labels_full: dict[str, str] = {
             "select": "↖ Select",
             "move": "↔ Move",
-            "draw": "+ Draw",
+            "draw": "+ Add",
             "fix": "🩹 Fix",
             "erase": "- Erase",
         }
@@ -113,17 +114,17 @@ class TimelineEditorModeBar(QWidget):
         mode_group.setObjectName("timelineEditorModeGroup")
         mode_group.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Fixed)
         mode_layout = self._create_group_layout(mode_group)
-        mode_label = QLabel("Edit", mode_group)
+        mode_label = QLabel("Mode", mode_group)
         mode_label.setProperty("timelineToolbarLabel", True)
         mode_label.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
         self._toolbar_labels.append(mode_label)
         mode_layout.addWidget(mode_label, 0, Qt.AlignmentFlag.AlignVCenter)
         mode_tooltips = {
-            "select": "Select mode",
-            "move": "Move selected events",
-            "draw": "Draw new events",
+            "select": "Default mode: select, inspect, and drag selected events",
+            "move": "Advanced mode: move and nudge selected events (shortcut: M)",
+            "draw": "Add new events",
             "fix": "Fix assistant mode",
-            "erase": "Erase selected events",
+            "erase": "Advanced mode: erase events with direct clicks (shortcut: E)",
         }
         for mode in ("select", "move", "draw", "erase", "fix"):
             button = QPushButton(self._mode_labels_full[mode], mode_group)
@@ -170,7 +171,7 @@ class TimelineEditorModeBar(QWidget):
         self._add_event_at_playhead_button = QPushButton("+ Playhead", assist_group)
         self._add_event_at_playhead_button.setObjectName("timelineEditorAddAtPlayheadButton")
         self._add_event_at_playhead_button.setToolTip(
-            "Draw mode: add a 0.5s event at the current playhead (shortcut: A)"
+            "Add mode: add a 0.5s event at the current playhead (shortcut: A)"
         )
         self._add_event_at_playhead_button.clicked.connect(
             self.add_event_at_playhead_requested.emit
@@ -275,6 +276,7 @@ class TimelineEditorModeBar(QWidget):
         self._grid_mode = TimelineGridMode.AUTO
         self._set_shell_button_labels(compact=False)
         self._set_mode_button_labels(compact=False)
+        self._sync_advanced_mode_button_visibility(edit_mode="select")
         self._sync_fix_include_demoted_button_label(enabled=False)
         self._apply_button_width_hints(compact=False)
         if parent is not None:
@@ -303,6 +305,7 @@ class TimelineEditorModeBar(QWidget):
             button.blockSignals(True)
             button.setChecked(mode_name == edit_mode)
             button.blockSignals(False)
+        self._sync_advanced_mode_button_visibility(edit_mode=edit_mode)
         resolved_fix_action = self._normalize_fix_action(fix_action)
         fix_action_enabled = edit_mode == "fix"
         for action_name, button in self._fix_action_buttons.items():
@@ -408,6 +411,12 @@ class TimelineEditorModeBar(QWidget):
         labels = self._mode_labels_compact if compact else self._mode_labels_full
         for mode, button in self._mode_buttons.items():
             button.setText(labels.get(mode, self._mode_labels_full.get(mode, mode.title())))
+
+    def _sync_advanced_mode_button_visibility(self, *, edit_mode: str) -> None:
+        active_mode = str(edit_mode or "select").strip().lower()
+        primary_visible = set(self._PRIMARY_VISIBLE_MODES)
+        for mode, button in self._mode_buttons.items():
+            button.setVisible(mode in primary_visible or mode == active_mode)
 
     def _set_shell_button_labels(self, *, compact: bool) -> None:
         self._refresh_settings_button_icon()

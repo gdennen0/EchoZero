@@ -32,10 +32,6 @@ _SECTION_TOGGLE_ARROW_SIZE_PX = 4
 
 
 class _ObjectInfoPanelActionsMixin:
-    _OBJECT_INFO_MA3_ACTION_IDS = frozenset(
-        {"route_layer_to_ma3_track", "transfer.match_ma3_cues"}
-    )
-
     def _iter_contract_actions(self: Any):
         for section in self._contract.context_sections:
             for action in section.actions:
@@ -65,12 +61,6 @@ class _ObjectInfoPanelActionsMixin:
                 params={"layer_id": layer_id, "gain_db": float(self._gain_spin.value())},
             )
         )
-
-    def _emit_open_routing_settings(self: Any) -> None:
-        action = self._find_contract_action("layer.routing_settings")
-        if action is None or not action.enabled:
-            return
-        self.action_requested.emit(action)
 
     def _emit_toggle_mute_from_panel(self: Any) -> None:
         action = (
@@ -126,16 +116,7 @@ class _ObjectInfoPanelActionsMixin:
             actions = tuple(
                 action
                 for action in section.actions
-                if action.action_id != "preview_event_clip"
-                and action.action_id != "layer.routing_settings"
-                and (
-                    (action.group or "").strip().lower() != "transfer"
-                    or action.action_id in self._OBJECT_INFO_MA3_ACTION_IDS
-                    or (
-                        action.action_id == "transfer.workspace_open"
-                        and str(action.params.get("direction", "")).strip().lower() == "push"
-                    )
-                )
+                if self._is_primary_inspector_action(action)
             )
             if not actions:
                 continue
@@ -319,6 +300,20 @@ class _ObjectInfoPanelActionsMixin:
             return
         self.settings_requested.emit(replace(action, params=dict(action.params)))
 
+    @staticmethod
+    def _is_primary_inspector_action(action: InspectorAction) -> bool:
+        group = str(action.group or "").strip().lower()
+        direction = str(action.params.get("direction", "")).strip().lower()
+        if action.action_id == "preview_event_clip":
+            return False
+        if action.action_id == "song.version.set_ma3_timecode_pool":
+            return False
+        if group in {"mix", "gain", "routing", "pipeline", "live_sync"}:
+            return False
+        if group == "transfer":
+            return action.action_id == "transfer.workspace_open" and direction == "push"
+        return True
+
     def _sync_mute_solo_controls(self: Any, *, selected_layer: object | None) -> None:
         muted = bool(getattr(selected_layer, "muted", False))
         soloed = bool(getattr(selected_layer, "soloed", False))
@@ -338,13 +333,19 @@ class _ObjectInfoPanelActionsMixin:
         self._panel_mute_btn.setEnabled(mute_action is not None and mute_action.enabled)
         self._panel_solo_btn.setEnabled(solo_action is not None and solo_action.enabled)
 
+    def _has_lightweight_audio_controls(self: Any) -> bool:
+        gain_actions = (
+            self._find_contract_action("gain_down"),
+            self._find_contract_action("gain_unity"),
+            self._find_contract_action("gain_up"),
+        )
+        return any(action is not None and action.enabled for action in gain_actions)
+
     def _sync_gain_controls(
         self: Any,
-        layer_action: InspectorAction | None,
         *,
         selected_layer: object | None,
     ) -> None:
-        del layer_action
         gain_down_action = self._find_contract_action("gain_down")
         gain_unity_action = self._find_contract_action("gain_unity")
         gain_up_action = self._find_contract_action("gain_up")
@@ -369,47 +370,6 @@ class _ObjectInfoPanelActionsMixin:
         self._set_button_active(self._gain_up_btn, abs(gain_db - 6.0) < 0.01)
         self._gain_spin.setEnabled(has_gain_controls and gains_enabled)
         self._gain_apply_btn.setEnabled(has_gain_controls and gains_enabled)
-
-    def _sync_output_bus_controls(
-        self: Any,
-        *,
-        layer_action: InspectorAction | None,
-        selected_output_bus: str | None,
-    ) -> None:
-        routing_action = self._find_contract_action("layer.routing_settings")
-        has_controls = routing_action is not None
-        enabled = (
-            has_controls
-            and layer_action is not None
-            and layer_action.enabled
-            and bool(routing_action.enabled)
-        )
-        route_label = self._output_bus_option_label(self._normalize_output_bus(selected_output_bus))
-        self._routing_settings_btn.setText(f"Routing Settings ({route_label})")
-        self._routing_settings_btn.setVisible(has_controls)
-        self._routing_settings_btn.setEnabled(enabled)
-
-    @staticmethod
-    def _normalize_output_bus(value: object) -> str | None:
-        if not isinstance(value, str):
-            return None
-        normalized = value.strip().lower()
-        return normalized or None
-
-    @staticmethod
-    def _output_bus_option_label(output_bus: str | None) -> str:
-        if output_bus is None:
-            return "Default Output"
-        parts = output_bus.strip().lower().split("_")
-        if len(parts) == 3 and parts[0] == "outputs" and parts[1].isdigit() and parts[2].isdigit():
-            start_channel = int(parts[1])
-            end_channel = int(parts[2])
-            if start_channel == end_channel:
-                return f"Output {start_channel}"
-            if end_channel > start_channel + 1:
-                return f"Outputs {start_channel}-{end_channel}"
-            return f"Outputs {start_channel}/{end_channel}"
-        return output_bus
 
     @staticmethod
     def _set_button_active(button: QPushButton, is_active: bool) -> None:

@@ -8,6 +8,25 @@ from __future__ import annotations
 from echozero.application.presentation.inspector_contract import InspectorContract
 from echozero.application.timeline.object_actions import ObjectActionSettingsPlan
 
+_HIDDEN_SECTION_IDS = frozenset({"event-transfer", "take-transfer"})
+_HIDDEN_ROW_LABELS = frozenset(
+    {
+        "gain",
+        "live sync divergence",
+        "live sync pause",
+        "live sync state",
+        "ma3 tc pool",
+        "mute",
+        "output route",
+        "pan",
+        "solo",
+        "song id",
+        "sync mapping",
+        "sync state",
+        "version id",
+    }
+)
+
 
 def contract_kind_label(contract: InspectorContract) -> str:
     if contract.identity is not None:
@@ -18,13 +37,10 @@ def contract_kind_label(contract: InspectorContract) -> str:
 
 
 def contract_detail_text(contract: InspectorContract) -> str:
-    if not contract.sections:
+    rows = list(_visible_contract_lines(contract))
+    if not rows:
         return contract.empty_state
-    lines: list[str] = []
-    for section in contract.sections:
-        for row in section.rows:
-            lines.append(f"{row.label}: {row.value}")
-    return "\n".join(lines)
+    return "\n".join(rows)
 
 
 def plan_detail_text(plan: ObjectActionSettingsPlan) -> str:
@@ -65,7 +81,17 @@ def rendered_contract_text(contract: InspectorContract, *, fallback: str) -> str
     if contract.identity is None and not contract.sections:
         return contract.empty_state or fallback
     lines: list[str] = [contract.title]
-    for section in contract.sections:
-        for row in section.rows:
-            lines.append(f"{row.label}: {row.value}")
+    lines.extend(_visible_contract_lines(contract))
     return "\n".join(lines)
+
+
+def _visible_contract_lines(contract: InspectorContract) -> tuple[str, ...]:
+    lines: list[str] = []
+    for section in contract.sections:
+        if section.section_id in _HIDDEN_SECTION_IDS:
+            continue
+        for row in section.rows:
+            if row.label in _HIDDEN_ROW_LABELS:
+                continue
+            lines.append(f"{row.label}: {row.value}")
+    return tuple(lines)

@@ -305,7 +305,7 @@ class _TimelineCanvasInteractionMixin:
                         )
                     return
                 if (
-                    self._edit_mode == "move"
+                    self._edit_mode in {"move", "select"}
                     and event.button() == Qt.MouseButton.LeftButton
                     and self._can_start_event_drag(
                         event.modifiers(),
