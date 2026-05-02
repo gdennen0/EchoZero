@@ -190,7 +190,7 @@ _TRANSFER_WORKSPACE_INTENTS = (
 
 
 @dataclass(slots=True)
-class TimelineMutator(
+class TimelineOrchestratorOwner(
     TimelineOrchestratorSelectionMixin,
     TimelineOrchestratorMA3PushMixin,
     TimelineOrchestratorSyncPresetMixin,
@@ -198,7 +198,7 @@ class TimelineMutator(
     TimelineOrchestratorManualPullImportMixin,
     TimelineOrchestratorTransferPlanMixin,
 ):
-    """Owns canonical timeline mutation and compatibility handling for app intents."""
+    """Provides shared timeline and transfer helpers for explicit application owners."""
 
     session_service: SessionService
     transport_service: TransportService
@@ -207,6 +207,15 @@ class TimelineMutator(
     sync_service: SyncService
     assembler: "TimelineAssembler"
     diff_service: SyncDiffService = field(default_factory=SyncDiffService)
+
+    def _handle_unsupported_intent(
+        self,
+        timeline: Timeline,
+        intent: TimelineIntent,
+    ) -> TimelinePresentation:
+        raise TypeError(
+            f"{type(self).__name__} does not handle intent type {type(intent).__name__}"
+        )
 
     def handle(self, timeline: Timeline, intent: TimelineIntent) -> TimelinePresentation:
         if isinstance(intent, _TRANSFER_WORKSPACE_INTENTS):
@@ -1136,7 +1145,7 @@ class TimelineMutator(
 
     @staticmethod
     def _manual_pull_selected_events(flow: ManualPullFlowState) -> list[ManualPullEventOption]:
-        return TimelineMutator._manual_pull_selected_events_by_ids(
+        return TimelineOrchestratorOwner._manual_pull_selected_events_by_ids(
             available_events=flow.available_events,
             selected_ids=flow.selected_ma3_event_ids,
             action_name="ApplyPullFromMA3",
@@ -1516,7 +1525,13 @@ class TimelineMutator(
             suffix += 1
 
 
-class MA3TransferWorkspaceService(TimelineMutator):
+@dataclass(slots=True)
+class TimelineMutator(TimelineOrchestratorOwner):
+    """Owns canonical timeline mutation and compatibility handling for app intents."""
+
+
+@dataclass(slots=True)
+class MA3TransferWorkspaceService(TimelineOrchestratorOwner):
     """Owns MA3 push, pull, presets, and transfer workspace state."""
 
     def handles(self, intent: TimelineIntent) -> bool:
@@ -2178,7 +2193,7 @@ class MA3TransferWorkspaceService(TimelineMutator):
             self._cancel_transfer_plan(session, plan)
 
         else:
-            return super().handle(timeline, intent)
+            return self._handle_unsupported_intent(timeline, intent)
         return self._assemble_after_handle(timeline)
 
 
