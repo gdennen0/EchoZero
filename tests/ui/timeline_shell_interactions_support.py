@@ -2028,6 +2028,31 @@ def test_dragging_selected_event_dispatches_move_intent():
         app.processEvents()
 
 
+def test_select_mode_keeps_section_events_hit_testable():
+    app = QApplication.instance() or QApplication([])
+    presentation = replace(
+        _section_overlay_scope_presentation(),
+        selected_layer_id=LayerId("layer_sections"),
+        selected_layer_ids=[LayerId("layer_sections")],
+        selected_event_ids=[EventId("cue_intro")],
+    )
+    widget = TimelineWidget(presentation)
+    try:
+        _render_for_hit_testing(widget)
+
+        section_event_rects = [
+            rect
+            for rect, layer_id, _take_id, event_id in widget._canvas._event_rects
+            if layer_id == LayerId("layer_sections") and event_id == EventId("cue_intro")
+        ]
+
+        assert widget._editor_bar._mode_buttons["select"].isChecked() is True
+        assert section_event_rects
+    finally:
+        widget.close()
+        app.processEvents()
+
+
 def test_move_drag_sets_continuous_preview_bar_time_during_drag() -> None:
     app = QApplication.instance() or QApplication([])
     intents: list[object] = []

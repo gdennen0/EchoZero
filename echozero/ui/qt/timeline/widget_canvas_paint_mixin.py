@@ -442,7 +442,7 @@ class _TimelineCanvasPaintMixin:
                     ),
                 )
             else:
-                if self._edit_mode == "move" or layer.kind is not LayerKind.SECTION:
+                if self._edit_mode in {"move", "select"} or layer.kind is not LayerKind.SECTION:
                     visible_events = self._visible_lane_events(layer.events)
                     event_lane_top = float(
                         top + max(0.0, (row_height - self._event_height) * 0.5)
@@ -467,7 +467,7 @@ class _TimelineCanvasPaintMixin:
                                     layer_kind=layer.kind,
                                     event_hit_min_width_px=(
                                         float(SECTION_MOVE_EVENT_HIT_MIN_WIDTH_PX)
-                                        if self._edit_mode == "move"
+                                        if self._edit_mode in {"move", "select"}
                                         and layer.kind is LayerKind.SECTION
                                         else None
                                     ),
@@ -549,7 +549,7 @@ class _TimelineCanvasPaintMixin:
                     ),
                 )
             else:
-                if self._edit_mode == "move" or take.kind is not LayerKind.SECTION:
+                if self._edit_mode in {"move", "select"} or take.kind is not LayerKind.SECTION:
                     visible_events = self._visible_lane_events(take.events)
                     event_lane_top = float(
                         top + max(
@@ -577,7 +577,7 @@ class _TimelineCanvasPaintMixin:
                                     layer_kind=take.kind,
                                     event_hit_min_width_px=(
                                         float(SECTION_MOVE_EVENT_HIT_MIN_WIDTH_PX)
-                                        if self._edit_mode == "move"
+                                        if self._edit_mode in {"move", "select"}
                                         and take.kind is LayerKind.SECTION
                                         else None
                                     ),
