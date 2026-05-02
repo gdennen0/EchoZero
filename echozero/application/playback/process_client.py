@@ -156,6 +156,74 @@ class ProcessPlaybackClient:
         self._latest_sync_payload = payload
         _ = self._command("sync_mix_state", {"payload": payload})
 
+    def enqueue_structure(self, generation: int, presentation: TimelinePresentation) -> int:
+        payload = PlaybackSyncPayload.from_presentation(presentation).to_dict()
+        self._latest_sync_payload = payload
+        response = self._command(
+            "enqueue_structure",
+            {"generation": int(generation), "payload": payload},
+        )
+        return int(response.get("generation", generation) or generation)
+
+    def enqueue_mix(self, presentation: TimelinePresentation) -> None:
+        payload = PlaybackSyncPayload.from_presentation(presentation).to_dict()
+        self._latest_sync_payload = payload
+        _ = self._command("enqueue_mix", {"payload": payload})
+
+    def enqueue_seek(self, target_samples: int, *, seek_id: str = "") -> dict[str, object]:
+        response = self._command(
+            "enqueue_seek",
+            {"target_samples": int(target_samples), "seek_id": str(seek_id)},
+        )
+        return dict(response)
+
+    def enqueue_preview(
+        self,
+        *,
+        source_ref: str,
+        start_seconds: float,
+        end_seconds: float,
+        gain_db: float = 0.0,
+    ) -> bool:
+        response = self._command(
+            "enqueue_preview",
+            {
+                "clip_spec": {
+                    "source_ref": str(source_ref),
+                    "start_seconds": float(start_seconds),
+                    "end_seconds": float(end_seconds),
+                    "gain_db": float(gain_db),
+                }
+            },
+        )
+        return bool(response.get("played", False))
+
+    def reconfigure_device(
+        self,
+        *,
+        device_spec: dict[str, object],
+        profile: str = "",
+    ) -> dict[str, object]:
+        response = self._command(
+            "reconfigure_device",
+            {
+                "device_spec": dict(device_spec),
+                "profile": str(profile),
+            },
+        )
+        return dict(response)
+
+    def drain_events(self) -> list[dict[str, object]]:
+        response = self._command("drain_events", {})
+        events = response.get("events")
+        if not isinstance(events, list):
+            return []
+        output: list[dict[str, object]] = []
+        for item in events:
+            if isinstance(item, dict):
+                output.append(item)
+        return output
+
     def apply_mix_state(self, presentation: TimelinePresentation) -> None:
         self.sync_mix_state(presentation)
 
