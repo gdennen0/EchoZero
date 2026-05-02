@@ -92,6 +92,8 @@ class PlaybackController:
         self._last_local_sync_classify_ms = 0.0
         self._last_local_sync_change_kind = ""
         self._last_ipc_command = ""
+        self._rt_last_apply_latency_ms = 0.0
+        self._rt_last_seek_apply_latency_ms = 0.0
 
     @property
     def engine(self) -> AudioEngine:
@@ -159,7 +161,9 @@ class PlaybackController:
 
     def seek(self, position_seconds: float) -> None:
         self._last_transition = "seek"
+        started = time.perf_counter()
         self._engine.seek_seconds(position_seconds)
+        self._rt_last_seek_apply_latency_ms = max(0.0, (time.perf_counter() - started) * 1000.0)
 
     def current_time_seconds(self) -> float:
         self.drain_pending_structure_sync()
@@ -307,6 +311,8 @@ class PlaybackController:
                 local_sync_classify_ms=self._last_local_sync_classify_ms,
                 last_local_sync_change_kind=self._last_local_sync_change_kind,
                 last_ipc_command=self._last_ipc_command,
+                rt_last_apply_latency_ms=self._rt_last_apply_latency_ms,
+                rt_last_seek_apply_latency_ms=self._rt_last_seek_apply_latency_ms,
             ),
         )
 
@@ -530,6 +536,7 @@ class PlaybackController:
         self._loaded_uses_track_routing = track_plan.uses_track_routing
         if preserve_transport_clock:
             elapsed_ms = max(0.0, (time.perf_counter() - started) * 1000.0)
+            self._rt_last_apply_latency_ms = elapsed_ms
             self._structural_rebuild_count += 1
             self._last_structural_rebuild_ms = elapsed_ms
             if elapsed_ms > self._max_structural_rebuild_ms:
@@ -541,6 +548,7 @@ class PlaybackController:
         if resume_playing and engine_tracks:
             self._engine.play()
         elapsed_ms = max(0.0, (time.perf_counter() - started) * 1000.0)
+        self._rt_last_apply_latency_ms = elapsed_ms
         self._structural_rebuild_count += 1
         self._last_structural_rebuild_ms = elapsed_ms
         if elapsed_ms > self._max_structural_rebuild_ms:
