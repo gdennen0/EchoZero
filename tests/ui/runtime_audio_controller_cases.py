@@ -11,6 +11,7 @@ from tests.ui.runtime_audio_support import (
     test_runtime_controller_preserves_stereo_audio_layer_channels,
     test_runtime_controller_plays_layers_without_explicit_playback_target,
     test_runtime_controller_preview_clip_plays_sliced_audio_on_preview_engine,
+    test_runtime_controller_route_change_applies_immediately_during_mix_sync,
     test_runtime_controller_routes_active_take_when_multichannel_mode_is_enabled,
     test_runtime_controller_snapshot_state_reports_backend_session_and_target,
     test_runtime_controller_switches_playback_target_without_stopping_transport,

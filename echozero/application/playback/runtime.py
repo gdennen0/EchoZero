@@ -30,6 +30,7 @@ from echozero.application.playback.tracks import (
 from echozero.application.presentation.models import TimelinePresentation
 from echozero.application.shared.enums import PlaybackStatus
 from echozero.audio.engine import AudioEngine
+from echozero.audio.layer import AudioTrack
 from echozero.audio.file_cache import load_audio_file
 
 
@@ -69,6 +70,7 @@ class PlaybackController:
         self._track_builder = PlaybackTrackBuilder(audio_loader)
         self._async_track_builder = PlaybackTrackBuilder(audio_loader)
         self._loaded_track_signature: tuple[tuple[str, str], ...] = ()
+        self._loaded_track_structure_signature: tuple[tuple[str, str], ...] = ()
         self._loaded_uses_track_routing = False
         self._structure_executor: ThreadPoolExecutor = ThreadPoolExecutor(
             max_workers=1,
@@ -207,6 +209,7 @@ class PlaybackController:
         self.stop_preview()
         self._engine.clear_tracks()
         self._loaded_track_signature = ()
+        self._loaded_track_structure_signature = ()
         self._loaded_uses_track_routing = False
         self._engine.shutdown()
 
@@ -370,17 +373,18 @@ class PlaybackController:
         self._track_builder.prune_cache(track_plan.cache_keys)
         resume_seconds = self._current_engine_time_seconds()
         resume_playing = bool(self._engine.transport.is_playing)
+        structure_signature = self._track_structure_signature(track_plan.tracks)
         should_reload_tracks = (
-            track_plan.signature != self._loaded_track_signature
+            structure_signature != self._loaded_track_structure_signature
             or track_plan.uses_track_routing != self._loaded_uses_track_routing
         )
         if should_reload_tracks:
             if (
-                track_plan.signature != self._loaded_track_signature
+                structure_signature != self._loaded_track_structure_signature
                 and track_plan.uses_track_routing != self._loaded_uses_track_routing
             ):
                 reason = "track-signature-and-routing-changed"
-            elif track_plan.signature != self._loaded_track_signature:
+            elif structure_signature != self._loaded_track_structure_signature:
                 reason = "track-signature-changed"
             else:
                 reason = "routing-mode-changed"
@@ -533,6 +537,7 @@ class PlaybackController:
             engine_tracks.append(engine_track)
         self._engine.replace_tracks(engine_tracks)
         self._loaded_track_signature = track_plan.signature
+        self._loaded_track_structure_signature = self._track_structure_signature(track_plan.tracks)
         self._loaded_uses_track_routing = track_plan.uses_track_routing
         if preserve_transport_clock:
             elapsed_ms = max(0.0, (time.perf_counter() - started) * 1000.0)
@@ -556,19 +561,67 @@ class PlaybackController:
         self._last_track_sync_reason = reason
 
     def _apply_track_mix_state(self, mix_plan: PlaybackMixPlan) -> bool:
-        if (
-            mix_plan.signature != self._loaded_track_signature
-            or mix_plan.uses_track_routing != self._loaded_uses_track_routing
-        ):
+        if mix_plan.uses_track_routing != self._loaded_uses_track_routing:
             return True
+        structure_signature = self._track_structure_signature(mix_plan.tracks)
+        if structure_signature != self._loaded_track_structure_signature:
+            return True
+        desired_mix: dict[str, tuple[bool, float, str | None]] = {}
         for playback_track in mix_plan.tracks:
-            engine_track = self._engine.get_track(self._engine_track_id(mix_plan, playback_track))
-            if engine_track is None:
+            engine_track_id = self._engine_track_id(mix_plan, playback_track)
+            desired_mix[engine_track_id] = (
+                bool(playback_track.muted),
+                _db_to_linear(playback_track.gain_db),
+                playback_track.output_bus,
+            )
+
+        existing_tracks = list(self._engine.tracks)
+        existing_ids = [str(track.id) for track in existing_tracks]
+        desired_ids = [self._engine_track_id(mix_plan, playback_track) for playback_track in mix_plan.tracks]
+        if len(existing_ids) != len(desired_ids) or set(existing_ids) != set(desired_ids):
+            return True
+
+        applied_change = False
+        next_tracks: list[AudioTrack] = []
+        for engine_track in existing_tracks:
+            track_id = str(engine_track.id)
+            desired = desired_mix.get(track_id)
+            if desired is None:
                 return True
-            engine_track.muted = bool(playback_track.muted)
-            engine_track.volume = _db_to_linear(playback_track.gain_db)
-            engine_track.output_bus = playback_track.output_bus
+            muted, volume, output_bus = desired
+            if (
+                bool(engine_track.muted) == muted
+                and abs(float(engine_track.volume) - float(volume)) <= 1e-6
+                and engine_track.output_bus == output_bus
+            ):
+                next_tracks.append(engine_track)
+                continue
+            applied_change = True
+            cloned = AudioTrack(
+                layer_id=str(engine_track.id),
+                name=str(engine_track.name),
+                buffer=engine_track.buffer,
+                sample_rate=int(engine_track.sample_rate),
+                offset=int(engine_track.offset),
+                volume=float(volume),
+                output_bus=output_bus,
+            )
+            cloned.muted = bool(muted)
+            cloned.solo = bool(engine_track.solo)
+            next_tracks.append(cloned)
+
+        if applied_change:
+            self._engine.replace_tracks(next_tracks)
         return False
+
+    @staticmethod
+    def _track_structure_signature(
+        tracks: tuple[PlaybackTrack, ...] | list[PlaybackTrack],
+    ) -> tuple[tuple[str, str], ...]:
+        return tuple(
+            (str(playback_track.track_id), str(playback_track.source_key))
+            for playback_track in tracks
+        )
 
     def _engine_track_id(
         self,

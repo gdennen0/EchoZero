@@ -347,10 +347,8 @@ class PlaybackProcessService:
             }
 
         if operation == "snapshot_state":
-            projection = self._latest_projection
-            if projection is None:
-                projection = self._require_projection(params, allow_empty=True)
-                self._latest_projection = projection
+            projection = self._require_projection(params, allow_empty=True)
+            self._latest_projection = projection
             state = self._controller.snapshot_state(projection)
             self._apply_service_diagnostics(state)
             return {"value": encode_playback_state(state)}

@@ -8,9 +8,11 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 import pytest
+from dataclasses import replace
 
 from echozero.application.playback.process_client import ProcessPlaybackClient
 from echozero.application.playback.process_shared import PlaybackIpcError
+from echozero.application.shared.ids import LayerId
 from echozero.ui.qt.timeline.demo_app import build_demo_app
 
 
@@ -55,6 +57,28 @@ def test_process_runtime_audio_accepts_compact_sync_and_signature(
     signature = process_runtime_audio.presentation_signature(presentation)
 
     assert isinstance(signature, tuple)
+
+
+def test_process_runtime_audio_snapshot_state_uses_request_payload_authoritatively(
+    process_runtime_audio: ProcessPlaybackClient,
+) -> None:
+    presentation = build_demo_app().presentation()
+    assert len(presentation.layers) >= 2
+    base = replace(
+        presentation,
+        selected_layer_id=LayerId(str(presentation.layers[0].layer_id)),
+    )
+    updated = replace(
+        presentation,
+        selected_layer_id=LayerId(str(presentation.layers[1].layer_id)),
+    )
+
+    process_runtime_audio.sync_structure_state(base)
+    state_base = process_runtime_audio.snapshot_state(base)
+    state_updated = process_runtime_audio.snapshot_state(updated)
+
+    assert state_base.active_layer_id == base.selected_layer_id
+    assert state_updated.active_layer_id == updated.selected_layer_id
 
 
 def test_process_runtime_audio_shutdown_is_idempotent() -> None:

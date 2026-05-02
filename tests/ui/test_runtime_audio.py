@@ -3,4 +3,5 @@ Keeps the historical test path stable while importing the smaller runtime-audio 
 """
 
 from tests.ui.runtime_audio_controller_cases import *  # noqa: F401,F403
+from tests.ui.runtime_audio_process_ipc_support import *  # noqa: F401,F403
 from tests.ui.runtime_audio_widget_cases import *  # noqa: F401,F403

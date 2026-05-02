@@ -833,7 +833,7 @@ def test_runtime_controller_mute_and_solo_controls_update_effective_mix_without_
 
     controller = TimelineRuntimeAudioController(engine=engine, audio_loader=_loader)
     controller.build_for_presentation(base)
-    mixed_default = engine.mixer.read_mix(int(0.5 * 44100), 2)
+    mixed_default = engine.mixer.read_mix(int(0.5 * 44100), 32)
 
     muted_bed = replace(
         base,
@@ -843,7 +843,8 @@ def test_runtime_controller_mute_and_solo_controls_update_effective_mix_without_
         ],
     )
     controller.apply_mix_state(muted_bed)
-    mixed_bed_muted = engine.mixer.read_mix(int(0.5 * 44100), 2)
+    _ = engine.mixer.read_mix(int(0.5 * 44100), 32)
+    mixed_bed_muted = engine.mixer.read_mix(int(0.5 * 44100), 32)
 
     soloed_kick = replace(
         base,
@@ -853,12 +854,62 @@ def test_runtime_controller_mute_and_solo_controls_update_effective_mix_without_
         ],
     )
     controller.apply_mix_state(soloed_kick)
-    mixed_kick_solo = engine.mixer.read_mix(int(0.5 * 44100), 2)
+    _ = engine.mixer.read_mix(int(0.5 * 44100), 32)
+    mixed_kick_solo = engine.mixer.read_mix(int(0.5 * 44100), 32)
 
     assert controller._last_track_sync_reason == "mix-state-applied"
-    np.testing.assert_array_almost_equal(mixed_default, np.array([1.0, 0.75], dtype=np.float32))
-    np.testing.assert_array_almost_equal(mixed_bed_muted, np.array([1.0, 0.5], dtype=np.float32))
-    np.testing.assert_array_almost_equal(mixed_kick_solo, np.array([1.0, 0.5], dtype=np.float32))
+    np.testing.assert_allclose(
+        mixed_default[-2:],
+        np.array([1.0, 0.75], dtype=np.float32),
+        atol=1e-4,
+    )
+    np.testing.assert_allclose(
+        mixed_bed_muted[-2:],
+        np.array([1.0, 0.5], dtype=np.float32),
+        atol=1e-4,
+    )
+    np.testing.assert_allclose(
+        mixed_kick_solo[-2:],
+        np.array([1.0, 0.5], dtype=np.float32),
+        atol=1e-4,
+    )
+    controller.shutdown()
+
+
+def test_runtime_controller_route_change_applies_immediately_during_mix_sync():
+    base = _event_slice_presentation()
+    presentation = replace(
+        base,
+        layers=[
+            replace(base.layers[0], output_bus="outputs_1_2"),
+            base.layers[1],
+        ],
+    )
+    engine = AudioEngine(sample_rate=44100, channels=4, stream_factory=_fake_stream_factory)
+
+    def _loader(path: str):
+        if path == "bed.wav":
+            return np.full(44100, 0.25, dtype=np.float32), 44100
+        if path == "kick.wav":
+            return np.array([1.0, 0.5], dtype=np.float32), 44100
+        raise AssertionError(path)
+
+    controller = TimelineRuntimeAudioController(engine=engine, audio_loader=_loader)
+    controller.build_for_presentation(presentation)
+
+    rerouted = replace(
+        presentation,
+        layers=[
+            replace(presentation.layers[0], output_bus="outputs_3_4"),
+            presentation.layers[1],
+        ],
+    )
+    controller.apply_mix_state(rerouted)
+
+    assert controller._last_track_sync_reason == "mix-state-applied"
+    routed = engine.mixer.get_layer("__ez_route__bed")
+    assert routed is not None
+    assert routed.output_bus == "outputs_3_4"
     controller.shutdown()
 
 

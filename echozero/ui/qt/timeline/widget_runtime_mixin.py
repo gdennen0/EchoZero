@@ -335,7 +335,6 @@ class TimelineWidgetRuntimeMixin:
             else:
                 runtime_audio.build_for_presentation(presentation)
         self._runtime_sync_payload = resolved_delta.payload
-        self._runtime_mix_sync_pending_presentation = None
         self._runtime_structural_sync_pending_presentation = None
         mix_timer = getattr(self, "_runtime_mix_sync_timer", None)
         if mix_timer is not None and hasattr(mix_timer, "stop"):
@@ -358,11 +357,14 @@ class TimelineWidgetRuntimeMixin:
             self._record_runtime_audio_sync_decision(delta)
             return
         if delta.change_kind is PlaybackChangeKind.STRUCTURE:
-            self._sync_runtime_audio_structure(
-                presentation,
-                reason=reason,
-                delta=delta,
-            )
+            if bool(presentation.is_playing):
+                self._queue_structural_runtime_sync(presentation)
+            else:
+                self._sync_runtime_audio_structure(
+                    presentation,
+                    reason=reason,
+                    delta=delta,
+                )
             return
         self._record_runtime_audio_sync_decision(delta)
         self._queue_mix_runtime_sync(presentation)
@@ -872,9 +874,7 @@ class TimelineWidgetRuntimeMixin:
             transport_update = consume_transport_update()
             transport_action = _resolve_transport_action(transport_update)
             if transport_action == "play":
-                if bool(self.presentation.is_playing):
-                    self._dispatch(Pause())
-                else:
+                if not bool(self.presentation.is_playing):
                     self._dispatch(Play())
             elif transport_action == "pause":
                 self._dispatch(Pause())

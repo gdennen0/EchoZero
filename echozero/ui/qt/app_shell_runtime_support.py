@@ -62,6 +62,13 @@ class RuntimeAudioController(Protocol):
 
     def is_playing(self) -> bool: ...
 
+    def reconfigure_device(
+        self,
+        *,
+        device_spec: dict[str, object],
+        profile: str = "",
+    ) -> dict[str, object]: ...
+
     def shutdown(self) -> None: ...
 
 
@@ -187,10 +194,49 @@ def apply_audio_output_config(
     was_playing = False
 
     if previous_runtime_audio is not None:
-        current_time_seconds = float(previous_runtime_audio.current_time_seconds())
-        was_playing = bool(previous_runtime_audio.is_playing())
-        if was_playing:
+        try:
+            current_time_seconds = float(previous_runtime_audio.current_time_seconds())
+        except Exception:
+            current_time_seconds = 0.0
+        try:
+            was_playing = bool(previous_runtime_audio.is_playing())
+        except Exception:
+            was_playing = False
+
+    if previous_runtime_audio is not None:
+        reconfigure_device = getattr(previous_runtime_audio, "reconfigure_device", None)
+        if callable(reconfigure_device):
+            device_spec: dict[str, object]
+            if config is None:
+                device_spec = {}
+            else:
+                device_spec = {
+                    "output_device": config.output_device,
+                    "sample_rate": config.sample_rate,
+                    "channels": config.channels,
+                    "stream_latency": config.stream_latency,
+                    "stream_blocksize": config.stream_blocksize,
+                    "prime_output_buffers_using_stream_callback": (
+                        config.prime_output_buffers_using_stream_callback
+                    ),
+                }
+            try:
+                reconfigure_device(device_spec=device_spec, profile="")
+                snapshot_state = getattr(previous_runtime_audio, "snapshot_state", None)
+                if callable(snapshot_state):
+                    shell.session.playback_state = snapshot_state(presentation)
+                shell.session.transport_state.is_playing = bool(previous_runtime_audio.is_playing())
+                shell.session.transport_state.playhead = float(previous_runtime_audio.current_time_seconds())
+                return
+            except Exception:
+                # Fall through to full rebuild path when in-process reconfigure is unavailable.
+                pass
+
+    if previous_runtime_audio is not None and was_playing:
+        try:
             previous_runtime_audio.pause()
+        except Exception:
+            was_playing = False
 
     next_runtime_audio = build_playback_controller(config)
     try:
@@ -215,7 +261,10 @@ def apply_audio_output_config(
 
     shell.runtime_audio = next_runtime_audio
     if previous_runtime_audio is not None:
-        previous_runtime_audio.shutdown()
+        try:
+            previous_runtime_audio.shutdown()
+        except Exception:
+            pass
     snapshot_state = getattr(next_runtime_audio, "snapshot_state", None)
     if callable(snapshot_state):
         shell.session.playback_state = snapshot_state(presentation)

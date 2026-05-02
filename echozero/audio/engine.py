@@ -379,6 +379,11 @@ class AudioEngine:
         self._pending_declick = True
         self.stop_overlay()
 
+    def request_declick(self) -> None:
+        """Force one output-boundary declick on next callback buffer."""
+
+        self._pending_declick = True
+
     @property
     def overlay_active(self) -> bool:
         return self._overlay_buffer is not None

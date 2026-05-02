@@ -44,6 +44,27 @@ except ImportError as exc:  # pragma: no cover - environment contract
 class ProcessPlaybackClient:
     """Runtime-audio client that proxies calls to the playback child process."""
 
+    _SHUTDOWN_NOOP_OPERATIONS = frozenset(
+        {
+            "sync_structure_state",
+            "sync_mix_state",
+            "drain_pending_structure_sync",
+            "record_coalesced_structural_edits",
+            "play",
+            "pause",
+            "stop",
+            "seek",
+            "preview_clip",
+            "enqueue_structure",
+            "enqueue_mix",
+            "enqueue_seek",
+            "enqueue_preview",
+            "reconfigure_device",
+            "drain_events",
+            "shutdown",
+        }
+    )
+
     def __init__(
         self,
         *,
@@ -109,12 +130,12 @@ class ProcessPlaybackClient:
 
         if self._shutdown:
             return
-        self._shutdown = True
-        self._ws_stop_event.set()
         try:
             self._command("shutdown", {})
         except Exception:
             pass
+        self._shutdown = True
+        self._ws_stop_event.set()
         if self._ws_thread is not None:
             self._ws_thread.join(timeout=1.0)
             self._ws_thread = None
@@ -335,6 +356,8 @@ class ProcessPlaybackClient:
 
     def _command(self, operation: str, params: dict[str, object]) -> dict[str, object]:
         if self._shutdown:
+            if str(operation) in self._SHUTDOWN_NOOP_OPERATIONS:
+                return {}
             raise PlaybackIpcError("playback process client is shut down")
         command_id = self._next_command_id()
         payload = {
@@ -501,11 +524,13 @@ class ProcessPlaybackClient:
                     ping_timeout=10,
                     close_timeout=1,
                 ) as websocket:
+                    self._audio_process_connected = True
                     for message in websocket:
                         if self._ws_stop_event.is_set() or self._shutdown:
                             return
                         self._handle_ws_event(message)
             except Exception:
+                self._audio_process_connected = False
                 if self._ws_stop_event.is_set() or self._shutdown:
                     return
                 time.sleep(0.15)
