@@ -209,6 +209,11 @@ class TimelineMutator(
     diff_service: SyncDiffService = field(default_factory=SyncDiffService)
 
     def handle(self, timeline: Timeline, intent: TimelineIntent) -> TimelinePresentation:
+        if isinstance(intent, _TRANSFER_WORKSPACE_INTENTS):
+            raise TypeError(
+                "TimelineMutator does not own transfer workspace intents; "
+                "dispatch them through MA3TransferWorkspaceService or TimelineOrchestrator."
+            )
         if isinstance(intent, SelectLayer):
             self._handle_select_layer(timeline, intent.layer_id, mode=intent.mode)
 
@@ -2210,8 +2215,20 @@ class TimelineOrchestrator:
             assembler=self.assembler,
             diff_service=self.diff_service,
         )
+        self._sync_owners()
+
+    def _sync_owners(self) -> None:
+        for owner in (self.mutator, self.transfer_workspace):
+            owner.session_service = self.session_service
+            owner.transport_service = self.transport_service
+            owner.mixer_service = self.mixer_service
+            owner.playback_service = self.playback_service
+            owner.sync_service = self.sync_service
+            owner.assembler = self.assembler
+            owner.diff_service = self.diff_service
 
     def handle(self, timeline: Timeline, intent: TimelineIntent) -> TimelinePresentation:
+        self._sync_owners()
         if self.transfer_workspace.handles(intent):
             return self.transfer_workspace.handle(timeline, intent)
         return self.mutator.handle(timeline, intent)
