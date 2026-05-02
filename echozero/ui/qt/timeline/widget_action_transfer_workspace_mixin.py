@@ -26,6 +26,7 @@ from echozero.application.timeline.intents import (
     ExitPullFromMA3Workspace,
     ExitPushToMA3Mode,
     OpenPullFromMA3Dialog,
+    SelectLayer,
     SelectPullSourceEvents,
     SelectPullSourceTimecode,
     SelectPullSourceTrack,
@@ -45,7 +46,6 @@ class _TransferActionHost(Protocol):
     _dispatch: Callable[[object], None]
     _get_presentation: Callable[[], TimelinePresentation]
     _selected_event_ids_for_selected_layers: Callable[[], list[EventId]]
-    _focus_layer_for_header_action: Callable[[object], None]
     _input_dialog: type[QInputDialog]
     _message_box: type[QMessageBox]
 
@@ -99,7 +99,7 @@ class TimelineWidgetTransferWorkspaceMixin:
                 return False
             layer_id = _coerce_layer_id(params.get("layer_id"))
             if layer_id is not None:
-                host._focus_layer_for_header_action(layer_id)
+                self._focus_layer_for_transfer_workspace(layer_id)
             return self._run_manual_pull_workspace()
         if action_id == "select_pull_source_tracks":
             return self._run_manual_pull_workspace()
@@ -113,6 +113,15 @@ class TimelineWidgetTransferWorkspaceMixin:
             host._dispatch(ExitPullFromMA3Workspace())
             return True
         return False
+
+    def _focus_layer_for_transfer_workspace(self, layer_id: object) -> None:
+        host = cast(_TransferActionHost, self)
+        resolved_layer_id = _coerce_layer_id(layer_id)
+        if resolved_layer_id is None:
+            return
+        presentation = host._get_presentation()
+        if presentation.selected_layer_id != resolved_layer_id:
+            host._dispatch(SelectLayer(resolved_layer_id))
 
     def _preview_push_diff(self, params: dict[str, object]) -> bool:
         host = cast(_TransferActionHost, self)

@@ -33,7 +33,6 @@ from echozero.application.timeline.intents import (
     DeleteTransferPreset,
     PreviewTransferPlan,
     SaveTransferPreset,
-    SelectLayer,
     SelectAllEvents,
     SetGain,
     SetPushTransferMode,
@@ -140,16 +139,6 @@ class TimelineWidgetActionRouter(
         self._file_dialog = file_dialog
         self._message_box = message_box
         self._resolve_models_dir = resolve_models_dir
-
-    def _focus_layer_for_header_action(self, layer_id: object) -> None:
-        """Compatibility shim for transfer mixins that expect widget-level focus helpers."""
-
-        resolved_layer_id = _coerce_layer_id(layer_id)
-        if resolved_layer_id is None:
-            return
-        presentation = self._get_presentation()
-        if presentation.selected_layer_id != resolved_layer_id:
-            self._dispatch(SelectLayer(resolved_layer_id))
 
     def handle_transfer_action(self, action_id: str, params: dict[str, object]) -> bool:
         """Route transfer actions directly to the narrowed push/pull presenters."""
