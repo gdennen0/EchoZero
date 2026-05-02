@@ -18,6 +18,7 @@ from echozero.application.presentation.models import (
 from echozero.application.shared.enums import LayerKind
 from echozero.application.shared.ids import EventId, LayerId, TakeId, TimelineId
 from echozero.application.sync.models import LiveSyncState
+from echozero.application.timeline.models import EventRef
 from echozero.application.timeline.object_actions import descriptor_for_action, is_object_action
 
 
@@ -551,6 +552,41 @@ def test_inspector_contract_main_event_state():
         "transfer.match_ma3_cues",
         "transfer.send_to_track_once",
     } <= set(action_ids)
+
+
+def test_inspector_contract_prefers_selected_event_ids_over_stale_selected_event_refs():
+    presentation = _contract_test_presentation()
+    presentation.selected_layer_id = LayerId("layer_kick")
+    presentation.selected_take_id = TakeId("take_alt")
+    presentation.selected_event_ids = [EventId("take_evt")]
+    presentation.selected_event_refs = [
+        EventRef(
+            layer_id=LayerId("layer_kick"),
+            take_id=TakeId("take_main"),
+            event_id=EventId("main_evt"),
+        )
+    ]
+
+    contract = build_timeline_inspector_contract(presentation)
+    rows = _section_rows(contract)
+
+    assert contract.title == "Event Take"
+    assert rows["id"] == "take_evt"
+    assert rows["take"] == "Take 2 (take_alt)"
+
+
+def test_inspector_contract_resolves_selected_event_from_ids_without_selected_event_refs():
+    presentation = _contract_test_presentation()
+    presentation.selected_layer_id = LayerId("layer_kick")
+    presentation.selected_take_id = TakeId("take_alt")
+    presentation.selected_event_ids = [EventId("take_evt")]
+
+    contract = build_timeline_inspector_contract(presentation)
+    rows = _section_rows(contract)
+
+    assert contract.title == "Event Take"
+    assert rows["id"] == "take_evt"
+    assert rows["take"] == "Take 2 (take_alt)"
 
 
 def test_inspector_contract_take_event_state():

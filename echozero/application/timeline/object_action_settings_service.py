@@ -1,6 +1,6 @@
-"""Application-level settings lane for timeline object actions.
-Exists to keep object-action settings resolution and persistence out of Qt surfaces.
-Connects pipeline templates, scoped config storage, and extracted copy/runtime helper slices.
+"""Application-level execution lane for timeline object actions.
+Exists to keep object-action settings resolution, persistence, and execution out of Qt surfaces.
+Connects pipeline templates, scoped config storage, and session helpers through one explicit owner.
 """
 
 from __future__ import annotations
@@ -45,6 +45,7 @@ from echozero.runtime_models.bundle_compat import upgrade_installed_runtime_bund
 from echozero.services.orchestrator import AnalysisResult, Orchestrator
 
 __all__ = [
+    "ObjectActionExecutionService",
     "ObjectActionSettingsService",
     "ensure_installed_models_dir",
     "resolve_installed_binary_drum_bundles",
@@ -53,11 +54,11 @@ __all__ = [
 ]
 
 
-class ObjectActionSettingsService(
+class ObjectActionExecutionService(
     ObjectActionSettingsSessionMixin,
     ObjectActionSettingsRuntimeMixin,
 ):
-    """Own object-action settings routing, persistence, and helper delegation."""
+    """Own object-action settings routing, persistence, and execution."""
 
     def __init__(
         self,
@@ -406,7 +407,7 @@ class ObjectActionSettingsService(
         object_type: str | None,
     ) -> dict[str, object]:
         resolved_params = dict(params or {})
-        normalized_layer_id = ObjectActionSettingsService._normalize_optional_object_id(
+        normalized_layer_id = ObjectActionExecutionService._normalize_optional_object_id(
             resolved_params.get("layer_id")
         )
         if normalized_layer_id is None:
@@ -414,7 +415,9 @@ class ObjectActionSettingsService(
         else:
             resolved_params["layer_id"] = normalized_layer_id
 
-        normalized_object_id = ObjectActionSettingsService._normalize_optional_object_id(object_id)
+        normalized_object_id = ObjectActionExecutionService._normalize_optional_object_id(
+            object_id
+        )
         if (
             object_type == "layer"
             and normalized_object_id is not None
@@ -493,3 +496,4 @@ class ObjectActionSettingsService(
         if workflow is None or workflow.pipeline_template_id is None:
             raise ValueError(f"Unsupported object action '{action_id}'.")
         return workflow, workflow.pipeline_template_id
+ObjectActionSettingsService = ObjectActionExecutionService

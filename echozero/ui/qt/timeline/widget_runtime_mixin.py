@@ -835,8 +835,8 @@ class TimelineWidgetRuntimeMixin:
     def _selected_event_center_seconds(
         presentation: TimelinePresentation,
     ) -> float | None:
-        if presentation.selected_event_refs:
-            selected_ref = presentation.selected_event_refs[-1]
+        selected_ref = presentation.primary_selected_event_ref()
+        if selected_ref is not None:
             resolved = TimelineWidgetRuntimeMixin._event_center_seconds_for_ref(
                 presentation,
                 selected_ref,

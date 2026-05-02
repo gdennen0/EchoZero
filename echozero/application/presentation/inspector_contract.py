@@ -12,6 +12,7 @@ from echozero.application.presentation.inspector_contract_context_actions import
 )
 from echozero.application.presentation.inspector_contract_lookup import (
     find_event as _find_event,
+    find_event_ref as _find_event_ref,
     find_layer as _find_layer,
     find_selected_event as _find_selected_event,
     find_take as _find_take,
@@ -105,14 +106,9 @@ def build_timeline_inspector_contract(
             has_selected_events=bool(presentation.selected_event_ids),
         )
 
-    if presentation.selected_event_refs:
-        selected_ref = presentation.selected_event_refs[-1]
-        event_match = _find_event(
-            presentation,
-            layer_id=selected_ref.layer_id,
-            take_id=selected_ref.take_id,
-            event_id=selected_ref.event_id,
-        )
+    selected_ref = presentation.primary_selected_event_ref()
+    if selected_ref is not None:
+        event_match = _find_event_ref(presentation, selected_ref)
         if event_match is not None:
             layer, take, event = event_match
             return _event_contract(
