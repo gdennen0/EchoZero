@@ -102,6 +102,7 @@ class AudioEngine:
         self._clock = Clock(sample_rate=self._output_config.sample_rate)
         self._transport = Transport(self._clock)
         self._mixer = Mixer()
+        self._mixer.configure_gain_smoothing(sample_rate=self._clock.sample_rate)
         self._crossfade = CrossfadeBuffer(
             crossfade_samples=int(self._output_config.sample_rate * 0.004)
         )
@@ -281,6 +282,17 @@ class AudioEngine:
 
         self._mixer.replace_tracks(tracks)
         self._pending_declick = True
+
+    def apply_track_mix_updates(
+        self,
+        updates: dict[str, tuple[bool, float, str | None]],
+    ) -> bool:
+        """Apply mix-only updates without replacing engine track objects."""
+
+        applied, requires_declick = self._mixer.apply_track_mix_updates(updates)
+        if requires_declick:
+            self._pending_declick = True
+        return bool(applied)
 
     def clear_tracks(self) -> None:
         """Remove every playback track from the engine mixer."""

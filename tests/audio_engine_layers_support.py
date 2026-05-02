@@ -325,6 +325,54 @@ class TestMixer:
         out = mixer.read_mix(0, 256)
         np.testing.assert_array_equal(out, np.zeros(256, dtype=np.float32))
 
+    def test_apply_track_mix_updates_routes_layer_without_replacing_track(self) -> None:
+        buf = np.ones(32, dtype=np.float32)
+        mixer = Mixer()
+        layer = AudioLayer("l1", "timecode", buf, 44100, output_bus="outputs_1_2")
+        mixer.add_layer(layer)
+
+        applied, requires_declick = mixer.apply_track_mix_updates(
+            {"l1": (False, 1.0, "outputs_3_4")}
+        )
+
+        assert applied is True
+        assert requires_declick is True
+        assert layer.output_bus == "outputs_3_4"
+        routed = mixer.read_mix(0, 2, channels=4)
+        np.testing.assert_array_equal(
+            routed,
+            np.array(
+                [
+                    [0.0, 0.0, 1.0, 1.0],
+                    [0.0, 0.0, 1.0, 1.0],
+                ],
+                dtype=np.float32,
+            ),
+        )
+
+    def test_gain_ramp_spans_multiple_callbacks_for_mute_transition(self) -> None:
+        buf = np.ones(512, dtype=np.float32)
+        mixer = Mixer()
+        mixer.configure_gain_smoothing(sample_rate=1000, seconds=0.05)
+        layer = AudioLayer("l1", "bed", buf, 1000)
+        mixer.add_layer(layer)
+
+        _ = mixer.read_mix(0, 16)
+        applied, _ = mixer.apply_track_mix_updates({"l1": (True, 1.0, None)})
+        assert applied is True
+
+        first = mixer.read_mix(16, 16)
+        second = mixer.read_mix(32, 16)
+        third = mixer.read_mix(48, 16)
+
+        assert float(np.max(first)) > 0.0
+        assert float(np.max(first)) < 1.0
+        assert float(np.max(second)) < float(np.max(first))
+        assert float(np.max(third)) < float(np.max(second))
+
+        settled = mixer.read_mix(96, 32)
+        assert float(np.max(np.abs(settled))) <= 1e-3
+
     def test_solo_logic_plays_only_soloed(self) -> None:
         buf1 = _sine(1000, freq=440)
         buf2 = _sine(1000, freq=880)

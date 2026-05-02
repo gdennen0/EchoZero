@@ -6,6 +6,8 @@ Connects `AudioTrack` reads to engine-ready mixed buffers without UI semantics.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 import numpy as np
 
 from echozero.audio.layer import AudioLayer, AudioTrack
@@ -15,7 +17,7 @@ from echozero.audio.layer import AudioLayer, AudioTrack
 # blocksize=0 on real hardware.
 _MAX_SCRATCH_FRAMES = 32768
 _MAX_OUTPUT_CHANNELS = 16
-_GAIN_SMOOTHING_SECONDS = 0.012
+_GAIN_SMOOTHING_SECONDS = 0.02
 _GAIN_SILENCE_EPSILON = 1e-5
 
 
@@ -43,6 +45,13 @@ def _resolve_output_bus_span(output_bus: str | None, output_channels: int) -> tu
     return (start, width)
 
 
+@dataclass(slots=True)
+class _GainEnvelope:
+    current: float
+    target: float
+    remaining_samples: int
+
+
 class Mixer:
     """Multi-track audio mixer with mute/solo and clipping protection.
 
@@ -58,7 +67,7 @@ class Mixer:
         "_scratch_multichannel",
         "_layer_scratch_multichannel",
         "_solo_count",
-        "_gain_state",
+        "_gain_envelopes",
         "_gain_ramp",
         "_gain_ramp_index",
         "_gain_smoothing_samples",
@@ -82,7 +91,7 @@ class Mixer:
         )
         # A15: track solo count so read_mix doesn't need any(l.solo for l in layers)
         self._solo_count: int = 0
-        self._gain_state: dict[str, float] = {}
+        self._gain_envelopes: dict[str, _GainEnvelope] = {}
         self._gain_ramp: np.ndarray = np.zeros(_MAX_SCRATCH_FRAMES, dtype=np.float32)
         self._gain_ramp_index: np.ndarray = np.arange(_MAX_SCRATCH_FRAMES, dtype=np.float32)
         self._gain_smoothing_samples = max(8, int(round(44100 * _GAIN_SMOOTHING_SECONDS)))
@@ -121,9 +130,51 @@ class Mixer:
         self._layers = list(tracks)
         self._solo_count = sum(1 for track in self._layers if track.solo)
         active_ids = {str(track.id) for track in self._layers}
-        stale_ids = [track_id for track_id in self._gain_state if track_id not in active_ids]
+        stale_ids = [track_id for track_id in self._gain_envelopes if track_id not in active_ids]
         for stale_id in stale_ids:
-            self._gain_state.pop(stale_id, None)
+            self._gain_envelopes.pop(stale_id, None)
+
+    def apply_track_mix_updates(
+        self,
+        updates: dict[str, tuple[bool, float, str | None]],
+    ) -> tuple[bool, bool]:
+        """Apply muted/volume/output_bus updates in place.
+
+        Returns:
+            (applied_changes, requires_declick)
+        """
+
+        if not updates:
+            return (False, False)
+        applied_change = False
+        requires_declick = False
+        for layer in self._layers:
+            desired = updates.get(str(layer.id))
+            if desired is None:
+                continue
+            muted, volume, output_bus = desired
+            if bool(layer.muted) != bool(muted):
+                layer.muted = bool(muted)
+                applied_change = True
+                requires_declick = True
+            if abs(float(layer.volume) - float(volume)) > 1e-6:
+                layer.volume = float(volume)
+                applied_change = True
+            if layer.output_bus != output_bus:
+                layer.output_bus = output_bus
+                applied_change = True
+                requires_declick = True
+        return (applied_change, requires_declick)
+
+    def configure_gain_smoothing(
+        self,
+        *,
+        sample_rate: int,
+        seconds: float = _GAIN_SMOOTHING_SECONDS,
+    ) -> None:
+        """Tune gain smoothing window to the active output sample rate."""
+
+        self._gain_smoothing_samples = max(8, int(round(float(sample_rate) * float(seconds))))
 
     def remove_track(self, track_id: str) -> AudioTrack | None:
         """Remove one track by ID. Returns the removed track or None."""
@@ -133,7 +184,7 @@ class Mixer:
         if removed and removed[0].solo:
             self._solo_count = max(0, self._solo_count - 1)
         self._layers = new_layers
-        self._gain_state.pop(str(track_id), None)
+        self._gain_envelopes.pop(str(track_id), None)
         return removed[0] if removed else None
 
     def remove_layer(self, layer_id: str) -> AudioTrack | None:
@@ -155,7 +206,7 @@ class Mixer:
         """Remove all tracks."""
         self._layers = []
         self._solo_count = 0
-        self._gain_state.clear()
+        self._gain_envelopes.clear()
 
     def clear(self) -> None:
         """Compatibility alias for callers that still say `clear`."""
@@ -269,12 +320,25 @@ class Mixer:
             else:
                 audible = not bool(layer.muted)
             target_gain = float(layer.volume) if audible else 0.0
-            current_gain = float(self._gain_state.get(layer_id, target_gain))
+            envelope = self._gain_envelopes.get(layer_id)
+            if envelope is None:
+                envelope = _GainEnvelope(
+                    current=float(target_gain),
+                    target=float(target_gain),
+                    remaining_samples=0,
+                )
+                self._gain_envelopes[layer_id] = envelope
+            elif abs(float(target_gain) - float(envelope.target)) > _GAIN_SILENCE_EPSILON:
+                envelope.target = float(target_gain)
+                envelope.remaining_samples = max(1, int(self._gain_smoothing_samples))
+            current_gain = float(envelope.current)
             if (
                 abs(current_gain) <= _GAIN_SILENCE_EPSILON
                 and abs(target_gain) <= _GAIN_SILENCE_EPSILON
+                and envelope.remaining_samples <= 0
             ):
-                self._gain_state[layer_id] = 0.0
+                envelope.current = 0.0
+                envelope.target = 0.0
                 continue
 
             if out.ndim == 1:
@@ -284,13 +348,11 @@ class Mixer:
                 layer_buf = self._layer_scratch[:frames]
                 # A1: use separate layer scratch so it never overlaps with `out`
                 layer.read_into(layer_buf, position, frames)
-                end_gain = self._apply_gain_ramp(
+                self._apply_gain_ramp(
                     layer_buf,
-                    current_gain=current_gain,
-                    target_gain=target_gain,
+                    envelope=envelope,
                     frames=frames,
                 )
-                self._gain_state[layer_id] = float(end_gain)
                 out += layer_buf
                 continue
 
@@ -309,13 +371,11 @@ class Mixer:
             layer_buf = self._layer_scratch_multichannel[:frames, :target_width]
             # A1: use separate layer scratch so it never overlaps with `out`
             layer.read_into(layer_buf, position, frames)
-            end_gain = self._apply_gain_ramp(
+            self._apply_gain_ramp(
                 layer_buf,
-                current_gain=current_gain,
-                target_gain=target_gain,
+                envelope=envelope,
                 frames=frames,
             )
-            self._gain_state[layer_id] = float(end_gain)
             out[:, target_start:target_start + target_width] += layer_buf
 
         out *= self._master_volume
@@ -327,33 +387,48 @@ class Mixer:
         self,
         buffer: np.ndarray,
         *,
-        current_gain: float,
-        target_gain: float,
+        envelope: _GainEnvelope,
         frames: int,
-    ) -> float:
+    ) -> None:
         if frames <= 0:
-            return float(target_gain)
+            return
+        current_gain = float(envelope.current)
+        target_gain = float(envelope.target)
+        remaining = max(0, int(envelope.remaining_samples))
         if abs(target_gain - current_gain) <= _GAIN_SILENCE_EPSILON:
             buffer[:frames] *= np.float32(target_gain)
-            return float(target_gain)
-        ramp_samples = max(1, min(int(frames), int(self._gain_smoothing_samples)))
+            envelope.current = float(target_gain)
+            envelope.remaining_samples = 0
+            return
+        if remaining <= 0:
+            remaining = max(1, int(self._gain_smoothing_samples))
+        ramp_samples = max(1, min(int(frames), remaining))
         ramp = self._gain_ramp[:frames]
         if ramp_samples <= 1:
             ramp[:frames] = np.float32(target_gain)
             end_gain = float(target_gain)
+            remaining = 0
         else:
-            step = np.float32((target_gain - current_gain) / float(max(1, ramp_samples - 1)))
-            ramp[:ramp_samples] = np.float32(current_gain) + (self._gain_ramp_index[:ramp_samples] * step)
+            phase = (self._gain_ramp_index[:ramp_samples] + 1.0) / float(remaining)
+            phase = np.minimum(phase, np.float32(1.0))
+            ramp[:ramp_samples] = np.float32(current_gain) + (
+                np.float32(target_gain - current_gain) * phase
+            )
+            end_gain = float(ramp[ramp_samples - 1])
+            remaining = max(0, remaining - ramp_samples)
             if ramp_samples < frames:
-                ramp[ramp_samples:frames] = np.float32(target_gain)
-                end_gain = float(target_gain)
-            else:
-                end_gain = float(ramp[ramp_samples - 1])
+                if remaining <= 0:
+                    ramp[ramp_samples:frames] = np.float32(target_gain)
+                    end_gain = float(target_gain)
+                else:
+                    ramp[ramp_samples:frames] = np.float32(end_gain)
         if buffer.ndim == 1:
             np.multiply(buffer[:frames], ramp[:frames], out=buffer[:frames])
-            return end_gain
-        np.multiply(buffer[:frames], ramp[:frames, None], out=buffer[:frames])
-        return end_gain
+        else:
+            np.multiply(buffer[:frames], ramp[:frames, None], out=buffer[:frames])
+        envelope.current = float(end_gain)
+        envelope.target = float(target_gain)
+        envelope.remaining_samples = int(remaining)
 
     @property
     def duration_samples(self) -> int:

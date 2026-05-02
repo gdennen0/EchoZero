@@ -581,6 +581,11 @@ class PlaybackController:
         if len(existing_ids) != len(desired_ids) or set(existing_ids) != set(desired_ids):
             return True
 
+        apply_mix_updates = getattr(self._engine, "apply_track_mix_updates", None)
+        if callable(apply_mix_updates):
+            _ = apply_mix_updates(desired_mix)
+            return False
+
         applied_change = False
         next_tracks: list[AudioTrack] = []
         for engine_track in existing_tracks:
