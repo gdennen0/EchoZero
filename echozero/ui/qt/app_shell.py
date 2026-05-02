@@ -19,6 +19,8 @@ from echozero.application.settings import AppSettingsService, AudioOutputRuntime
 from echozero.application.shared.enums import SyncMode
 from echozero.application.shared.ids import (
     LayerId,
+    SongId,
+    SongVersionId,
 )
 from echozero.application.sync.adapters import MA3SyncBridge
 from echozero.application.sync.models import SyncState
@@ -35,6 +37,7 @@ from echozero.application.timeline.object_actions import (
     ObjectActionService,
 )
 from echozero.domain.types import AudioData
+from echozero.foundry.domain.review import ReviewPolarity
 from echozero.foundry.review_server_controller import (
     ReviewServerController,
     ReviewServerLaunch,
@@ -69,10 +72,38 @@ from echozero.ui.qt.app_shell_history import (
     undo as _undo,
 )
 from echozero.ui.qt.app_shell_object_action_mixin import AppShellObjectActionMixin
-from echozero.ui.qt.app_shell_project_mixin import AppShellProjectMixin
+from echozero.ui.qt.app_shell_project_lifecycle import add_song_from_path as _add_song_from_path
+from echozero.ui.qt.app_shell_project_lifecycle import add_song_version as _add_song_version
+from echozero.ui.qt.app_shell_project_lifecycle import delete_song as _delete_song
+from echozero.ui.qt.app_shell_project_lifecycle import delete_song_version as _delete_song_version
+from echozero.ui.qt.app_shell_project_lifecycle import get_project_ma3_push_offset_seconds as _get_project_ma3_push_offset_seconds
+from echozero.ui.qt.app_shell_project_lifecycle import list_ma3_timecode_pools as _list_ma3_timecode_pools
+from echozero.ui.qt.app_shell_project_lifecycle import list_song_version_transfer_layers as _list_song_version_transfer_layers
+from echozero.ui.qt.app_shell_project_lifecycle import move_song as _move_song
+from echozero.ui.qt.app_shell_project_lifecycle import new_project as _new_project
+from echozero.ui.qt.app_shell_project_lifecycle import open_project as _open_project
+from echozero.ui.qt.app_shell_project_lifecycle import recover_project as _recover_project
+from echozero.ui.qt.app_shell_project_lifecycle import refresh_from_storage as _refresh_from_storage
+from echozero.ui.qt.app_shell_project_lifecycle import reorder_songs as _reorder_songs
+from echozero.ui.qt.app_shell_project_lifecycle import save_project as _save_project
+from echozero.ui.qt.app_shell_project_lifecycle import save_project_as as _save_project_as
+from echozero.ui.qt.app_shell_project_lifecycle import select_song as _select_song
+from echozero.ui.qt.app_shell_project_lifecycle import set_project_ma3_push_offset_seconds as _set_project_ma3_push_offset_seconds
+from echozero.ui.qt.app_shell_project_lifecycle import set_song_version_ma3_timecode_pool as _set_song_version_ma3_timecode_pool
+from echozero.ui.qt.app_shell_project_lifecycle import switch_song_version as _switch_song_version
 from echozero.ui.qt.app_shell_project_review import (
     bind_phone_review_server_to_current_project,
     clear_project_review_runtime_bridge,
+)
+from echozero.ui.qt.app_shell_project_review import (
+    ProjectReviewDatasetPaths,
+    ProjectReviewLaunch,
+    create_project_review_session,
+    get_latest_project_review_dataset_version,
+    latest_project_review_dataset_artifact_path,
+    latest_project_review_dataset_folder,
+    list_project_review_dataset_versions,
+    open_project_review_session,
 )
 from echozero.ui.qt.app_shell_runtime_services import build_runtime_timeline_application
 from echozero.ui.qt.app_shell_runtime_support import (
@@ -86,9 +117,6 @@ from echozero.ui.qt.app_shell_runtime_support import (
 )
 from echozero.ui.qt.app_shell_runtime_support import (
     build_object_action_services as _build_object_action_services,
-)
-from echozero.ui.qt.app_shell_runtime_support import (
-    preview_event_clip as _preview_event_clip,
 )
 from echozero.ui.qt.app_shell_runtime_support import (
     require_layer as _require_layer,
@@ -121,15 +149,17 @@ from echozero.ui.qt.app_shell_storage_sync import (
     sync_storage_backed_timeline as _sync_storage_backed_timeline,
 )
 from echozero.ui.qt.app_shell_specialized_model import AppShellSpecializedModelMixin
+from echozero.ui.qt.timeline_review_sample_export import review_sample_export_root
 _T = TypeVar("_T")
 
 
-class AppShellRuntime(
+class StageZeroRuntimeController(
     AppShellEditingMixin,
-    AppShellProjectMixin,
     AppShellObjectActionMixin,
     AppShellSpecializedModelMixin,
 ):
+    """Concrete Stage Zero runtime owner for shell lifecycle, session state, and collaborators."""
+
     _object_action_settings: ObjectActionService
     _pipeline_runs: OperationProgressService
 
@@ -366,6 +396,195 @@ class AppShellRuntime(
     def _sync_storage_backed_layers(self, layer_ids: list[LayerId]) -> None:
         _sync_storage_backed_layers(self, layer_ids=layer_ids)
 
+    def new_project(self, name: str = "EchoZero Project") -> None:
+        _new_project(self, name=name)
+
+    def save_project_as(self, path: str | Path) -> Path:
+        return _save_project_as(self, path)
+
+    def save_project(self) -> Path:
+        return _save_project(self)
+
+    def open_project(self, path: str | Path) -> None:
+        _open_project(self, path)
+
+    def recover_project(self, path: str | Path) -> None:
+        _recover_project(self, path)
+
+    def add_song_from_path(
+        self,
+        title: str,
+        audio_path: str | Path,
+        *,
+        run_import_pipeline: bool | None = None,
+        import_pipeline_action_ids: tuple[str, ...] | None = None,
+    ) -> TimelinePresentation:
+        return _add_song_from_path(
+            self,
+            title,
+            audio_path,
+            run_import_pipeline=run_import_pipeline,
+            import_pipeline_action_ids=import_pipeline_action_ids,
+        )
+
+    def select_song(self, song_id: str | SongId) -> TimelinePresentation:
+        return _select_song(self, song_id)
+
+    def switch_song_version(self, song_version_id: str | SongVersionId) -> TimelinePresentation:
+        return _switch_song_version(self, song_version_id)
+
+    def add_song_version(
+        self,
+        song_id: str | SongId,
+        audio_path: str | Path,
+        *,
+        label: str | None = None,
+        activate: bool = True,
+        transfer_layers: bool = False,
+        transfer_layer_ids: list[str] | None = None,
+        run_import_pipeline: bool | None = None,
+        import_pipeline_action_ids: tuple[str, ...] | None = None,
+    ) -> TimelinePresentation:
+        return _add_song_version(
+            self,
+            song_id,
+            audio_path,
+            label=label,
+            activate=activate,
+            transfer_layers=transfer_layers,
+            transfer_layer_ids=transfer_layer_ids,
+            run_import_pipeline=run_import_pipeline,
+            import_pipeline_action_ids=import_pipeline_action_ids,
+        )
+
+    def list_song_version_transfer_layers(self, song_id: str | SongId) -> list[tuple[str, str]]:
+        return _list_song_version_transfer_layers(self, song_id)
+
+    def reorder_songs(self, song_ids: list[str]) -> TimelinePresentation:
+        return _reorder_songs(self, song_ids)
+
+    def move_song(self, song_id: str | SongId, *, steps: int) -> TimelinePresentation:
+        return _move_song(self, song_id, steps=steps)
+
+    def delete_song(self, song_id: str | SongId) -> TimelinePresentation:
+        return _delete_song(self, song_id)
+
+    def delete_song_version(self, song_version_id: str | SongVersionId) -> TimelinePresentation:
+        return _delete_song_version(self, song_version_id)
+
+    def list_ma3_timecode_pools(self) -> list[tuple[int, str | None]]:
+        return _list_ma3_timecode_pools(self)
+
+    def set_song_version_ma3_timecode_pool(
+        self,
+        song_version_id: str | SongVersionId,
+        timecode_pool_no: int | None,
+    ) -> TimelinePresentation:
+        return _set_song_version_ma3_timecode_pool(self, song_version_id, timecode_pool_no)
+
+    def get_project_ma3_push_offset_seconds(self) -> float:
+        return _get_project_ma3_push_offset_seconds(self)
+
+    def set_project_ma3_push_offset_seconds(
+        self,
+        offset_seconds: float,
+    ) -> TimelinePresentation:
+        return _set_project_ma3_push_offset_seconds(self, offset_seconds)
+
+    def _refresh_from_storage(
+        self,
+        *,
+        active_song_id: object | None = None,
+        active_song_version_id: object | None = None,
+    ) -> None:
+        _refresh_from_storage(
+            self,
+            active_song_id=active_song_id,
+            active_song_version_id=active_song_version_id,
+        )
+
+    def create_project_review_session(
+        self,
+        *,
+        name: str | None = None,
+        song_id: str | None = None,
+        song_version_id: str | None = None,
+        layer_id: str | None = None,
+        polarity: ReviewPolarity = ReviewPolarity.POSITIVE,
+        review_mode: str | None = None,
+        questionable_score_threshold: float | None = None,
+        item_limit: int | None = None,
+    ):
+        return create_project_review_session(
+            self,
+            name=name,
+            song_id=song_id,
+            song_version_id=song_version_id,
+            layer_id=layer_id,
+            polarity=polarity,
+            review_mode=review_mode,
+            questionable_score_threshold=questionable_score_threshold,
+            item_limit=item_limit,
+        )
+
+    def open_project_review_session(
+        self,
+        *,
+        name: str | None = None,
+        song_id: str | None = None,
+        song_version_id: str | None = None,
+        layer_id: str | None = None,
+        polarity: ReviewPolarity = ReviewPolarity.POSITIVE,
+        review_mode: str | None = None,
+        questionable_score_threshold: float | None = None,
+        item_limit: int | None = None,
+    ) -> ProjectReviewLaunch:
+        return open_project_review_session(
+            self,
+            name=name,
+            song_id=song_id,
+            song_version_id=song_version_id,
+            layer_id=layer_id,
+            polarity=polarity,
+            review_mode=review_mode,
+            questionable_score_threshold=questionable_score_threshold,
+            item_limit=item_limit,
+        )
+
+    def list_project_review_dataset_versions(
+        self,
+        *,
+        queue_source_kind: str | None = "ez_project",
+    ) -> list[ProjectReviewDatasetPaths]:
+        return list_project_review_dataset_versions(self, queue_source_kind=queue_source_kind)
+
+    def get_latest_project_review_dataset_version(
+        self,
+        *,
+        queue_source_kind: str | None = "ez_project",
+    ) -> ProjectReviewDatasetPaths | None:
+        return get_latest_project_review_dataset_version(self, queue_source_kind=queue_source_kind)
+
+    def latest_project_review_dataset_folder(
+        self,
+        *,
+        queue_source_kind: str | None = "ez_project",
+    ) -> Path:
+        return latest_project_review_dataset_folder(self, queue_source_kind=queue_source_kind)
+
+    def latest_project_review_dataset_artifact_path(
+        self,
+        *,
+        queue_source_kind: str | None = "ez_project",
+    ) -> Path:
+        return latest_project_review_dataset_artifact_path(
+            self,
+            queue_source_kind=queue_source_kind,
+        )
+
+    def review_sample_export_root(self) -> Path:
+        return review_sample_export_root(self.project_storage.working_dir)
+
     def shutdown(self) -> None:
         self._review_server_controller.stop()
         clear_project_review_runtime_bridge(self)
@@ -406,9 +625,9 @@ def build_app_shell(
     initial_project_name: str = "EchoZero Project",
     app_settings_service: AppSettingsService | None = None,
     audio_output_config: AudioOutputRuntimeConfig | None = None,
-) -> AppShellRuntime:
+) -> StageZeroRuntimeController:
     """Build the canonical in-memory app runtime used by the launcher and app-flow harness."""
-    return AppShellRuntime(
+    return StageZeroRuntimeController(
         project_storage=ProjectStorage.create_new(
             name=initial_project_name,
             working_dir_root=working_dir_root,
@@ -419,6 +638,9 @@ def build_app_shell(
         app_settings_service=app_settings_service,
         audio_output_config=audio_output_config,
     )
+
+
+AppShellRuntime = StageZeroRuntimeController
 
 
 def _build_runtime_orchestrator() -> Orchestrator:
