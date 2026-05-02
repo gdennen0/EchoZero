@@ -385,6 +385,22 @@ class _TimelineCanvasInteractionMixin:
             return
         for rect, layer_id in self._toggle_rects:
             if rect.contains(pos):
+                if event.modifiers() & Qt.KeyboardModifier.ShiftModifier:
+                    self.toggle_layer_fully_collapsed(layer_id)
+                    event.accept()
+                    return
+                layer = next(
+                    (
+                        candidate
+                        for candidate in self.presentation.layers
+                        if candidate.layer_id == layer_id
+                    ),
+                    None,
+                )
+                if layer is not None and layer.is_fully_collapsed:
+                    self.toggle_layer_fully_collapsed(layer_id)
+                    event.accept()
+                    return
                 self.take_toggle_clicked.emit(layer_id)
                 return
         for rect, layer_id in self._header_select_rects:

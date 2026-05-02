@@ -6,6 +6,11 @@ Last reviewed: 2026-04-30
 
 This flow matches the current `ez-foundry` CLI and produces a dataset version, split plan, train run, exported model, and compatibility validation report.
 
+Foundry also supports a smaller library-first retraining loop:
+- record a reviewed dataset version into the durable local sample library
+- inspect the library summary
+- kick off a fresh run from approved library samples without rebuilding the dataset/run plumbing by hand
+
 ## Windows desktop run path
 
 From the repo root on Windows:
@@ -81,6 +86,35 @@ The command prints JSON containing:
 - `exports_dir`
 
 When promotion settings are present, Foundry also writes the gate result and any reference comparison summary into `metrics.json`, `run_summary.json`, and the artifact manifest.
+
+## Library-first local retraining workflow
+
+Record one reviewed dataset version into the durable sample library:
+
+```powershell
+python -m echozero.foundry.cli --root . record-sample-library DATASET_VERSION_ID
+```
+
+Inspect the current local library summary:
+
+```powershell
+python -m echozero.foundry.cli --root . sample-library-summary
+```
+
+Kick off a run directly from approved library samples:
+
+```powershell
+python -m echozero.foundry.cli --root . train-sample-library "Local Drum Library" --epochs 4
+```
+
+The command prints JSON containing:
+
+- `run_id`
+- `dataset_version_id`
+- `status`
+- `eval_report_ids`
+- `artifact_ids`
+- `exports_dir`
 
 ## Windows convenience script
 

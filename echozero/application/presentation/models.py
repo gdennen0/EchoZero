@@ -435,6 +435,7 @@ class LayerPresentation:
     is_selected: bool = False
     is_playback_active: bool = False
     is_expanded: bool = False
+    is_fully_collapsed: bool = False
     events: list[EventPresentation] = field(default_factory=list)
     takes: list[TakeLanePresentation] = field(default_factory=list)
     visible: bool = True

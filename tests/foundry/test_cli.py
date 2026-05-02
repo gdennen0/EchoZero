@@ -77,6 +77,36 @@ def test_cli_train_folder_happy_path(tmp_path: Path, capsys):
     assert payload["artifact_ids"]
 
 
+def test_cli_sample_library_record_and_train_flow(tmp_path: Path, capsys):
+    samples = tmp_path / "samples"
+    write_percussion_dataset(samples)
+
+    assert main(["--root", str(tmp_path), "create-dataset", "Library Drums"]) == 0
+    dataset_id = json.loads(capsys.readouterr().out)["id"]
+
+    assert main(["--root", str(tmp_path), "ingest-folder", dataset_id, str(samples)]) == 0
+    version_id = json.loads(capsys.readouterr().out)["version_id"]
+
+    assert main(["--root", str(tmp_path), "record-sample-library", version_id]) == 0
+    recorded = json.loads(capsys.readouterr().out)
+    assert recorded["version_id"] == version_id
+    assert recorded["recorded_count"] == 8
+    assert len(recorded["library_sample_ids"]) == 8
+
+    assert main(["--root", str(tmp_path), "sample-library-summary"]) == 0
+    summary = json.loads(capsys.readouterr().out)
+    assert summary["sample_count"] == 8
+    assert summary["approved_count"] == 8
+    assert summary["approved_class_counts"] == {"kick": 4, "snare": 4}
+
+    assert main(["--root", str(tmp_path), "train-sample-library", "Library Drums", "--epochs", "1"]) == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["status"] == "completed"
+    assert payload["dataset_version_id"].startswith("dsv_")
+    assert payload["eval_report_ids"]
+    assert payload["artifact_ids"]
+
+
 def test_cli_train_folder_next_level_profile(tmp_path: Path, capsys):
     samples = tmp_path / "samples"
     write_percussion_dataset(samples)

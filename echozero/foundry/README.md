@@ -20,6 +20,7 @@ Treat it as a supported subsystem, not as an experiment bucket.
 ## Canonical Flows
 
 - Dataset creation and ingest
+- Sample-library capture and library-first retraining kickoff
 - Split planning and balancing
 - Run creation and background training
 - Artifact export

@@ -348,6 +348,42 @@ def test_contract_expand_all_layers_dispatches_only_for_collapsed_layers():
         app.processEvents()
 
 
+def test_shift_click_toggle_fully_collapses_layer_to_header_only_row():
+    app = QApplication.instance() or QApplication([])
+    widget = TimelineWidget(_selection_test_presentation())
+    try:
+        _render_for_hit_testing(widget)
+        toggle_rect, _layer_id = widget._canvas._toggle_rects[0]
+
+        _click_rect(widget, toggle_rect, Qt.KeyboardModifier.ShiftModifier)
+
+        layer = widget._canvas.presentation.layers[0]
+        assert layer.is_fully_collapsed is True
+        assert widget._canvas._take_rects == []
+        assert widget._canvas._event_rects == []
+    finally:
+        widget.close()
+        app.processEvents()
+
+
+def test_click_toggle_expands_layer_from_full_collapse_state():
+    app = QApplication.instance() or QApplication([])
+    widget = TimelineWidget(_selection_test_presentation())
+    try:
+        _render_for_hit_testing(widget)
+        toggle_rect, _layer_id = widget._canvas._toggle_rects[0]
+        _click_rect(widget, toggle_rect, Qt.KeyboardModifier.ShiftModifier)
+        _click_rect(widget, toggle_rect)
+
+        layer = widget._canvas.presentation.layers[0]
+        assert layer.is_fully_collapsed is False
+        assert bool(widget._canvas._take_rects)
+        assert bool(widget._canvas._event_rects)
+    finally:
+        widget.close()
+        app.processEvents()
+
+
 def test_object_info_panel_updates_for_main_lane_event_selection():
     app = QApplication.instance() or QApplication([])
     harness = _SelectionInspectorHarness(_selection_test_presentation())

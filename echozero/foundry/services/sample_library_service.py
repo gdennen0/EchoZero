@@ -12,7 +12,6 @@ from pathlib import Path
 from uuid import uuid4
 
 from echozero.foundry.domain import (
-    ContributionPolicy,
     DatasetSample,
     DatasetVersion,
     LibrarySampleState,
@@ -38,7 +37,6 @@ class SampleLibraryService:
         version: DatasetVersion,
         *,
         state: LibrarySampleState = LibrarySampleState.APPROVED,
-        contribution_policy: ContributionPolicy = ContributionPolicy.LOCAL_ONLY,
     ) -> list[SampleLibraryRecord]:
         """Copy one dataset version into the durable sample library."""
         records = [
@@ -61,7 +59,6 @@ class SampleLibraryService:
                     content_hash=sample.content_hash,
                     duration_ms=sample.duration_ms,
                     review_count=1,
-                    contribution_policy=contribution_policy,
                     reviewed_at=datetime.now(UTC),
                 )
             )
@@ -106,7 +103,6 @@ class SampleLibraryService:
             tags=candidate.tags,
             duration_ms=candidate.duration_ms,
             review_count=max(existing.review_count, candidate.review_count),
-            contribution_policy=candidate.contribution_policy,
             reviewed_at=candidate.reviewed_at or existing.reviewed_at,
         )
         return self._repository.save(merged)
