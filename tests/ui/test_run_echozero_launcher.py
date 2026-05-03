@@ -5,6 +5,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import echozero.ui.qt.launcher_surface as launcher_surface
+import pytest
 import run_echozero
 from echozero.application.settings import AppSettingsLaunchOverrides
 from PyQt6.QtWidgets import QMessageBox
@@ -297,7 +298,11 @@ def _install_launcher_fakes(monkeypatch, *, exec_result: int = 0, exec_error: Ex
     monkeypatch.setattr(run_echozero, "build_launcher_surface", fake_build_launcher_surface)
     monkeypatch.setattr(run_echozero, "QApplication", FakeQApplication)
     monkeypatch.setattr(run_echozero, "QTimer", FakeQTimer)
-    monkeypatch.setattr(run_echozero, "AutomationBridgeServer", FakeAutomationBridgeServer)
+    monkeypatch.setattr(
+        run_echozero,
+        "_build_automation_bridge_server",
+        lambda **kwargs: FakeAutomationBridgeServer(**kwargs),
+    )
     monkeypatch.setattr(run_echozero, "build_default_app_settings_service", lambda: app_settings_service)
     monkeypatch.setattr(run_echozero, "OscUdpSendTransport", FakeOscUdpSendTransport)
     monkeypatch.setattr(run_echozero, "MA3OSCBridge", FakeMA3OSCBridge)
@@ -406,6 +411,77 @@ def test_run_echozero_main_writes_automation_info_file(monkeypatch, tmp_path):
 
     assert result == 0
     assert info_path.read_text(encoding="utf-8").strip() == "http://127.0.0.1:43210"
+
+
+def test_ensure_repo_ui_automation_source_root_inserts_checkout_path_once(tmp_path):
+    repo_src = tmp_path / "packages" / "ui_automation" / "src"
+    repo_src.mkdir(parents=True)
+    path_entries = ["existing-entry"]
+
+    added = run_echozero._ensure_repo_ui_automation_source_root(
+        repo_ui_automation_src=repo_src,
+        sys_path=path_entries,
+    )
+    repeated = run_echozero._ensure_repo_ui_automation_source_root(
+        repo_ui_automation_src=repo_src,
+        sys_path=path_entries,
+    )
+
+    assert added is True
+    assert repeated is False
+    assert path_entries[0] == str(repo_src.resolve())
+    assert path_entries.count(str(repo_src.resolve())) == 1
+
+
+def test_build_automation_bridge_server_repairs_missing_ui_automation_import(monkeypatch):
+    calls: list[str] = []
+
+    def fake_import_module(name: str):
+        calls.append(name)
+        if len(calls) == 1:
+            exc = ModuleNotFoundError("No module named 'ui_automation'")
+            exc.name = "ui_automation"
+            raise exc
+        return SimpleNamespace(AutomationBridgeServer=FakeAutomationBridgeServer)
+
+    monkeypatch.setattr(run_echozero.importlib, "import_module", fake_import_module)
+    monkeypatch.setattr(run_echozero, "_ensure_repo_ui_automation_source_root", lambda: True)
+
+    bridge = run_echozero._build_automation_bridge_server(
+        runtime=object(),
+        widget=object(),
+        launcher=object(),
+        app=object(),
+        port=9134,
+    )
+
+    assert isinstance(bridge, FakeAutomationBridgeServer)
+    assert bridge.port == 9134
+    assert calls == [
+        "echozero.ui.qt.automation_bridge",
+        "echozero.ui.qt.automation_bridge",
+    ]
+
+
+def test_build_automation_bridge_server_raises_clear_message_when_ui_automation_is_unavailable(
+    monkeypatch,
+):
+    def fake_import_module(name: str):
+        exc = ModuleNotFoundError("No module named 'ui_automation'")
+        exc.name = "ui_automation"
+        raise exc
+
+    monkeypatch.setattr(run_echozero.importlib, "import_module", fake_import_module)
+    monkeypatch.setattr(run_echozero, "_ensure_repo_ui_automation_source_root", lambda: False)
+
+    with pytest.raises(RuntimeError, match="dev_bootstrap.py"):
+        run_echozero._build_automation_bridge_server(
+            runtime=object(),
+            widget=object(),
+            launcher=object(),
+            app=object(),
+            port=9134,
+        )
 
 
 def test_run_echozero_main_uses_app_settings_service_for_launcher_and_ma3(monkeypatch):

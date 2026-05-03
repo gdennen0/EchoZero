@@ -10,6 +10,10 @@ surfaces.
 ### Canonical runtime
 
 - `run_echozero.py` is the only primary desktop launcher.
+- From a repo checkout, `.venv/bin/python run_echozero.py` is the supported
+  direct launch command once the venv has the runtime dependencies installed.
+  Normal app launch must not depend on a hidden editable-install state for
+  `packages/ui_automation/src`.
 - `echozero/ui/qt/launcher_surface.py` is the shared shell assembly used by:
   - the launcher
   - `echozero/testing/app_flow.py`
@@ -17,6 +21,10 @@ surfaces.
 
 This means the app a developer launches and the app the automation harness
 drives now share the same widget/controller construction path.
+
+For local automation attach flows, the launcher may still need the repo
+`packages/ui_automation/src` source root. The launcher is responsible for making
+that source root explicit or failing with a clear remediation message.
 
 ### Current control stack
 
