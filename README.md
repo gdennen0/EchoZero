@@ -34,6 +34,15 @@ Run the canonical EZ2 app shell:
 .venv/bin/python run_echozero.py
 ```
 
+From a repo checkout, that launcher is expected to work directly once the venv
+has the runtime dependencies installed. It no longer relies on a hidden
+editable-install path tweak just to resolve `packages/ui_automation/src` during
+normal app launch.
+
+For cross-machine dev handoff, use the explicit state export/import path in
+[docs/CROSS-MACHINE-DEVELOPMENT.md](docs/CROSS-MACHINE-DEVELOPMENT.md) rather
+than copying a whole virtualenv.
+
 Launch EZ2 in a fresh macOS Terminal window (keeps your current shell free):
 
 ```bash

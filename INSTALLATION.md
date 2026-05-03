@@ -36,6 +36,19 @@ pip install -r requirements.txt
 python run_echozero.py
 ```
 
+## Cross-Machine Dev Handoff
+
+Use a fresh clone plus bootstrap on the target machine, then import portable
+runtime state instead of copying a whole virtualenv:
+
+```bash
+.venv/bin/python scripts/export_dev_state.py artifacts/dev-state/echozero-dev-state.zip
+.venv/bin/python scripts/import_dev_state.py artifacts/dev-state/echozero-dev-state.zip
+```
+
+See [docs/CROSS-MACHINE-DEVELOPMENT.md](docs/CROSS-MACHINE-DEVELOPMENT.md) for
+the supported cross-machine path and the exact portable payload.
+
 ## Run Foundry
 
 ```bash

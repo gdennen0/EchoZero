@@ -69,6 +69,7 @@ def main(argv: list[str] | None = None) -> int:
     print("Bootstrap complete.")
     print(f"Activate: source {parsed.venv}/bin/activate")
     print(f"App: {venv_python} run_echozero.py")
+    print("Launch contract: direct repo launch is supported; bootstrap remains the canonical way to install all dev/test tooling.")
     return 0
 
 

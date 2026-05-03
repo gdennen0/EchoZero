@@ -6,6 +6,7 @@ Connects process startup and release launch flows to the Stage Zero shell.
 from __future__ import annotations
 
 import argparse
+import importlib
 import sys
 import tempfile
 from pathlib import Path
@@ -19,7 +20,6 @@ from echozero.application.settings import (
 )
 from echozero.infrastructure.osc import OscUdpSendTransport
 from echozero.infrastructure.sync.ma3_osc import MA3OSCBridge
-from echozero.ui.qt.automation_bridge import AutomationBridgeServer
 from echozero.ui.qt.launcher_surface import (
     PROJECT_FILE_FILTER,
     LauncherController,
@@ -28,6 +28,50 @@ from echozero.ui.qt.launcher_surface import (
 from echozero.ui.qt.runtime_logging import install_runtime_logging
 from echozero.ui.qt.window_geometry import fit_window_to_available_screen
 from echozero.ui.style.qt import ensure_qt_theme_installed
+
+
+_REPO_UI_AUTOMATION_SRC = Path(__file__).resolve().parent / "packages" / "ui_automation" / "src"
+
+
+def _ensure_repo_ui_automation_source_root(
+    *,
+    repo_ui_automation_src: Path = _REPO_UI_AUTOMATION_SRC,
+    sys_path: list[str] | None = None,
+) -> bool:
+    """Add the repo ui_automation source root when launching from a checkout."""
+    path_entries = sys.path if sys_path is None else sys_path
+    resolved_src = repo_ui_automation_src.resolve()
+    if not resolved_src.is_dir():
+        return False
+    resolved_text = str(resolved_src)
+    if resolved_text in path_entries:
+        return False
+    path_entries.insert(0, resolved_text)
+    return True
+
+
+def _build_automation_bridge_server(*, runtime, widget, launcher, app, port: int):
+    """Create the live automation bridge, repairing repo source roots when possible."""
+    module_name = "echozero.ui.qt.automation_bridge"
+    try:
+        automation_bridge = importlib.import_module(module_name)
+    except ModuleNotFoundError as exc:
+        if exc.name != "ui_automation" or not _ensure_repo_ui_automation_source_root():
+            raise RuntimeError(
+                "Automation bridge requires the ui_automation source root. "
+                "Run `python3 scripts/dev_bootstrap.py` from the repo root or "
+                "install the project with `pip install -e \".[dev]\"`."
+            ) from exc
+        sys.modules.pop(module_name, None)
+        automation_bridge = importlib.import_module(module_name)
+    automation_bridge_server = getattr(automation_bridge, "AutomationBridgeServer")
+    return automation_bridge_server(
+        runtime=runtime,
+        widget=widget,
+        launcher=launcher,
+        app=app,
+        port=port,
+    )
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -140,7 +184,7 @@ def main(argv: list[str] | None = None) -> int:
     fit_window_to_available_screen(widget)
     bridge = None
     if parsed.automation_port is not None:
-        bridge = AutomationBridgeServer(
+        bridge = _build_automation_bridge_server(
             runtime=surface.runtime,
             widget=surface.widget,
             launcher=surface.controller,
