@@ -939,6 +939,13 @@ class TimelineWidgetActionRouter(
         if defer_pipeline_runs:
             resolved_run_import_pipeline = False
             resolved_pipeline_action_ids = None
+        self._require_native_import_pipeline_control(
+            runtime_name=type(song_runtime).__name__,
+            action_name="add_song_from_path",
+            run_import_pipeline=resolved_run_import_pipeline,
+            pipeline_action_ids=resolved_pipeline_action_ids,
+            supports_native_pipeline_control=supports_native_pipeline_control,
+        )
         try:
             updated = self._invoke_with_supported_kwargs(
                 song_runtime.add_song_from_path,
@@ -963,13 +970,6 @@ class TimelineWidgetActionRouter(
                     imported_targets=tuple(imported_targets),
                     action_ids=deferred_action_ids,
                 )
-        self._run_legacy_import_pipeline_actions_if_needed(
-            runtime=runtime,
-            source_label=Path(audio_path).name,
-            run_import_pipeline=resolved_run_import_pipeline,
-            pipeline_action_ids=resolved_pipeline_action_ids,
-            supports_native_pipeline_control=supports_native_pipeline_control,
-        )
         return True
 
     def _invoke_add_song_version(
@@ -1008,6 +1008,13 @@ class TimelineWidgetActionRouter(
         if defer_pipeline_runs:
             resolved_run_import_pipeline = False
             resolved_pipeline_action_ids = None
+        self._require_native_import_pipeline_control(
+            runtime_name=type(version_runtime).__name__,
+            action_name="add_song_version",
+            run_import_pipeline=resolved_run_import_pipeline,
+            pipeline_action_ids=resolved_pipeline_action_ids,
+            supports_native_pipeline_control=supports_native_pipeline_control,
+        )
         try:
             updated = self._invoke_with_supported_kwargs(
                 version_runtime.add_song_version,
@@ -1035,13 +1042,6 @@ class TimelineWidgetActionRouter(
                     imported_targets=tuple(imported_targets),
                     action_ids=deferred_action_ids,
                 )
-        self._run_legacy_import_pipeline_actions_if_needed(
-            runtime=runtime,
-            source_label=Path(audio_path).name,
-            run_import_pipeline=resolved_run_import_pipeline,
-            pipeline_action_ids=resolved_pipeline_action_ids,
-            supports_native_pipeline_control=supports_native_pipeline_control,
-        )
         return True
 
     def _resolve_deferred_import_pipeline_runs(
@@ -1063,17 +1063,15 @@ class TimelineWidgetActionRouter(
         )
         return (should_defer, action_ids)
 
-    def _run_legacy_import_pipeline_actions_if_needed(
+    def _require_native_import_pipeline_control(
         self,
         *,
-        runtime: _TimelineRuntimeShell,
-        source_label: str,
+        runtime_name: str,
+        action_name: str,
         run_import_pipeline: bool | None,
         pipeline_action_ids: tuple[str, ...] | None,
         supports_native_pipeline_control: bool,
     ) -> None:
-        """Run import pipeline actions when older runtimes lack import kwargs support."""
-
         if supports_native_pipeline_control:
             return
         action_ids = tuple(
@@ -1085,37 +1083,11 @@ class TimelineWidgetActionRouter(
             return
         if run_import_pipeline is False:
             return
-
-        run_runtime = cast(_RunObjectActionRuntimeShell | None, runtime)
-        run_object_action = (
-            run_runtime.run_object_action
-            if run_runtime is not None and callable(getattr(run_runtime, "run_object_action", None))
-            else None
+        raise RuntimeError(
+            f"{runtime_name}.{action_name} must accept "
+            "'run_import_pipeline' and 'import_pipeline_action_ids' when import pipeline "
+            "actions are configured"
         )
-        if not callable(run_object_action):
-            return
-
-        source_layer_id = self._resolve_import_source_audio_layer_id(runtime)
-        if source_layer_id is None:
-            return
-
-        for action_id in action_ids:
-            try:
-                assert run_runtime is not None
-                updated = run_runtime.run_object_action(
-                    action_id,
-                    {},
-                    object_id=source_layer_id,
-                    object_type="layer",
-                )
-            except Exception as exc:
-                self._message_box.warning(
-                    self._widget,
-                    "Import Pipeline Actions",
-                    f"{source_label}: {exc}",
-                )
-                continue
-            self._set_presentation(updated if updated is not None else runtime.presentation())
 
     @staticmethod
     def _method_supports_any_kwargs(

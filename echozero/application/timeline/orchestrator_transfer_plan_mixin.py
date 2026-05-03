@@ -5,8 +5,7 @@ Connects manual push/pull plan state to typed preview/apply execution across the
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
-import inspect
+from collections.abc import Callable
 from time import monotonic, sleep
 from typing import Any, Protocol, cast
 
@@ -372,28 +371,14 @@ class TimelineOrchestratorTransferPlanMixin:
         selected_events: list[Event],
     ) -> None:
         host = cast(_TransferPlanHost, self)
-        kwargs: dict[str, object] = {
-            "target_track_coord": target_track_coord,
-            "selected_events": selected_events,
-        }
         session = host.session_service.get_session()
-        transfer_mode = session.manual_push_flow.transfer_mode
-        start_offset_seconds = self._project_ma3_push_offset_seconds(session)
-        try:
-            parameters: Mapping[str, inspect.Parameter] | None = inspect.signature(callback).parameters
-        except (TypeError, ValueError):
-            parameters = None
-        if parameters is not None and "transfer_mode" in parameters:
-            kwargs["transfer_mode"] = transfer_mode
-        elif parameters is not None and "mode" in parameters:
-            kwargs["mode"] = transfer_mode
-        if parameters is not None and "start_offset_seconds" in parameters:
-            kwargs["start_offset_seconds"] = start_offset_seconds
-        elif parameters is not None and "push_offset_seconds" in parameters:
-            kwargs["push_offset_seconds"] = start_offset_seconds
-        if parameters is not None and "ma3_channel_no" in parameters:
-            kwargs["ma3_channel_no"] = ma3_channel_no
-        callback(**kwargs)
+        callback(
+            target_track_coord=target_track_coord,
+            ma3_channel_no=ma3_channel_no,
+            selected_events=selected_events,
+            transfer_mode=session.manual_push_flow.transfer_mode,
+            start_offset_seconds=self._project_ma3_push_offset_seconds(session),
+        )
 
     @staticmethod
     def _push_row_ma3_channel_no(
