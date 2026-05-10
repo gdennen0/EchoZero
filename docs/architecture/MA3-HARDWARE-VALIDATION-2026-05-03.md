@@ -85,9 +85,9 @@ Result:
 
 Artifacts:
 
-- [artifacts/ma3-harness/live-localhost/summary.json](</Users/march/Documents/GitHub/EchoZero/artifacts/ma3-harness/live-localhost/summary.json:1>)
-- [artifacts/ma3-harness/live-localhost/summary.md](</Users/march/Documents/GitHub/EchoZero/artifacts/ma3-harness/live-localhost/summary.md:1>)
-- [artifacts/ma3-harness/live-localhost/transcript.json](</Users/march/Documents/GitHub/EchoZero/artifacts/ma3-harness/live-localhost/transcript.json:1>)
+- `artifacts/ma3-harness/live-localhost/summary.json`
+- `artifacts/ma3-harness/live-localhost/summary.md`
+- `artifacts/ma3-harness/live-localhost/transcript.json`
 
 ### Live Localhost Bundled Validation Report With Triggered Receive
 
@@ -99,9 +99,9 @@ Result:
 
 Artifacts:
 
-- [artifacts/ma3-harness/live-localhost-bundled/summary.json](</Users/march/Documents/GitHub/EchoZero/artifacts/ma3-harness/live-localhost-bundled/summary.json:1>)
-- [artifacts/ma3-harness/live-localhost-bundled/summary.md](</Users/march/Documents/GitHub/EchoZero/artifacts/ma3-harness/live-localhost-bundled/summary.md:1>)
-- [artifacts/ma3-harness/live-localhost-bundled/transcript.json](</Users/march/Documents/GitHub/EchoZero/artifacts/ma3-harness/live-localhost-bundled/transcript.json:1>)
+- `artifacts/ma3-harness/live-localhost-bundled/summary.json`
+- `artifacts/ma3-harness/live-localhost-bundled/summary.md`
+- `artifacts/ma3-harness/live-localhost-bundled/transcript.json`
 
 ### Canonical App-Boundary Pull Workspace Smoke
 
@@ -121,7 +121,7 @@ Result:
 
 Artifact:
 
-- [artifacts/ma3-harness/live-localhost/receive-capture-idle-transcript.json](</Users/march/Documents/GitHub/EchoZero/artifacts/ma3-harness/live-localhost/receive-capture-idle-transcript.json:1>)
+- `artifacts/ma3-harness/live-localhost/receive-capture-idle-transcript.json`
 
 ### Live Localhost Receive Triggered Capture
 
@@ -133,7 +133,7 @@ Result:
 
 Artifact:
 
-- [artifacts/ma3-harness/live-localhost/receive-capture-play-transcript.json](</Users/march/Documents/GitHub/EchoZero/artifacts/ma3-harness/live-localhost/receive-capture-play-transcript.json:1>)
+- `artifacts/ma3-harness/live-localhost/receive-capture-play-transcript.json`
 
 ## Observed Live Results
 

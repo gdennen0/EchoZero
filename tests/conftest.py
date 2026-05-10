@@ -6,18 +6,18 @@ All fixtures follow pytest conventions — import-free via conftest auto-discove
 
 from __future__ import annotations
 
+import importlib.util
 import os
+import shutil
 import sqlite3
 import sys
 import tempfile
-import shutil
 from pathlib import Path
-from uuid import uuid4
 from typing import Generator
+from uuid import uuid4
 
 import numpy as np
 import pytest
-
 
 # Keep all test temp dirs inside the repository and avoid OS temp locations
 _TMP_ROOT = Path(__file__).resolve().parent / ".local-pytest-tmp"
@@ -29,11 +29,41 @@ _UI_AUTOMATION_SRC = Path(__file__).resolve().parents[1] / "packages" / "ui_auto
 if _UI_AUTOMATION_SRC.exists():
     sys.path.insert(0, str(_UI_AUTOMATION_SRC))
 
+_TORCH_REQUIRED_TEST_FILES = {
+    "tests/foundry/test_artifact_shared_fingerprint.py",
+    "tests/foundry/test_cli.py",
+    "tests/foundry/test_compatibility_report_contract.py",
+    "tests/foundry/test_foundry_app.py",
+    "tests/foundry/test_foundry_smoke.py",
+    "tests/foundry/test_foundry_ui_actions.py",
+    "tests/foundry/test_notification_cadence.py",
+    "tests/foundry/test_persistence.py",
+    "tests/foundry/test_query_service.py",
+    "tests/foundry/test_run_lifecycle.py",
+    "tests/foundry/test_train_artifact_runtime_parity.py",
+}
+
 
 def pytest_configure(config) -> None:
     _TMP_ROOT.mkdir(parents=True, exist_ok=True)
     # Force pytest's internal tmp directories into a writable repo-local path.
     config.option.basetemp = str(_TMP_ROOT / "run")
+
+
+def pytest_collection_modifyitems(config, items) -> None:
+    """Skip ML execution tests when the optional torch extra is not installed."""
+    del config
+    if importlib.util.find_spec("torch") is not None:
+        return
+    skip_torch = pytest.mark.skip(reason="torch is not installed in this environment")
+    for item in items:
+        path = Path(str(item.fspath)).resolve()
+        try:
+            rel = path.relative_to(Path(__file__).resolve().parents[1]).as_posix()
+        except ValueError:
+            continue
+        if rel in _TORCH_REQUIRED_TEST_FILES:
+            item.add_marker(skip_torch)
 
 
 @pytest.fixture

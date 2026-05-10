@@ -1,7 +1,7 @@
 # MA3 Lua Lib V1 Idea Board
 
 Status: draft
-Last updated: 2026-05-02
+Last reviewed: 2026-05-02
 
 ## Intent
 

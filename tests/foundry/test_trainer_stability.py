@@ -4,7 +4,8 @@ import json
 from pathlib import Path
 
 import pytest
-import torch
+
+torch = pytest.importorskip("torch")
 
 from echozero.foundry.app import FoundryApp
 from echozero.foundry.domain import DatasetSample, DatasetVersion, TrainRunStatus
@@ -20,7 +21,9 @@ def _prepared_version(root: Path, *, sample_count: int = 4):
     app = FoundryApp(root)
     dataset = app.datasets.create_dataset("Trainer Stability Drums")
     version = app.datasets.ingest_from_folder(dataset.id, samples)
-    app.plan_version(version.id, validation_split=0.2, test_split=0.2, seed=19, balance_strategy="none")
+    app.plan_version(
+        version.id, validation_split=0.2, test_split=0.2, seed=19, balance_strategy="none"
+    )
     return app.datasets.get_version(version.id)
 
 
@@ -80,10 +83,14 @@ def test_cnn_run_persists_reproducibility_fingerprint(tmp_path: Path):
     assert reproducibility["deterministic"] is True
     assert isinstance(reproducibility["configFingerprint"], str)
     assert len(reproducibility["configFingerprint"]) == 64
-    assert run_summary["reproducibility"]["configFingerprint"] == reproducibility["configFingerprint"]
+    assert (
+        run_summary["reproducibility"]["configFingerprint"] == reproducibility["configFingerprint"]
+    )
 
 
-def test_cnn_non_finite_watchdog_fails_run_with_explicit_error(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+def test_cnn_non_finite_watchdog_fails_run_with_explicit_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
     version = _prepared_version(tmp_path)
     assert version is not None
 
@@ -124,7 +131,9 @@ def test_baseline_non_finite_audio_watchdog_fails_run_with_explicit_error(
         del path, sample_rate
         return torch.full((max_length,), float("nan"), dtype=torch.float32).numpy()
 
-    monkeypatch.setattr(baseline_trainer_module.BaselineTrainer, "_load_audio", staticmethod(_bad_audio))
+    monkeypatch.setattr(
+        baseline_trainer_module.BaselineTrainer, "_load_audio", staticmethod(_bad_audio)
+    )
 
     run = app.runs.start_run(run.id)
     assert run.status == TrainRunStatus.FAILED

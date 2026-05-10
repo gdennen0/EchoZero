@@ -15,9 +15,11 @@ from typing import Any
 import numpy as np
 
 from echozero.errors import ExecutionError, ValidationError
-from echozero.inference_eval.runtime_preflight import resolve_runtime_model_path, run_runtime_preflight
+from echozero.inference_eval.runtime_preflight import (
+    resolve_runtime_model_path,
+    run_runtime_preflight,
+)
 
-from .architectures import CrnnRuntimeModel, SimpleCnnRuntimeModel
 from .bundle_compat import load_runtime_checkpoint
 
 
@@ -96,7 +98,9 @@ def load_runtime_model(model_path: str | Path, *, device: str = "auto") -> Loade
     classes = tuple(str(value).strip().lower() for value in checkpoint.get("classes", ()))
     if not classes:
         raise ValidationError(f"Checkpoint {resolved_model_path} is missing classes metadata.")
-    preprocessing = checkpoint.get("preprocessing") or checkpoint.get("inference_preprocessing") or {}
+    preprocessing = (
+        checkpoint.get("preprocessing") or checkpoint.get("inference_preprocessing") or {}
+    )
     sample_rate = int(preprocessing["sampleRate"])
     max_length = int(preprocessing["maxLength"])
     n_fft = int(preprocessing["nFft"])
@@ -150,6 +154,8 @@ def build_model_artifact_reference(runtime_model: LoadedRuntimeModel) -> dict[st
 
 def instantiate_runtime_model(*, state_dict: dict[str, Any], n_mels: int, num_classes: int) -> Any:
     """Instantiate a shared runtime architecture from a checkpoint state dict."""
+    from .architectures import CrnnRuntimeModel, SimpleCnnRuntimeModel
+
     keys = set(state_dict.keys())
     if any(key.startswith("rnn.") for key in keys):
         return CrnnRuntimeModel(num_classes=num_classes, mel_bins=n_mels)
@@ -168,23 +174,27 @@ def _build_runtime_predictor(
 ) -> tuple[Any, str]:
     state_dict = checkpoint.get("model_state_dict")
     if isinstance(state_dict, dict):
-        model = instantiate_runtime_model(state_dict=state_dict, n_mels=n_mels, num_classes=class_count)
+        model = instantiate_runtime_model(
+            state_dict=state_dict, n_mels=n_mels, num_classes=class_count
+        )
         model.load_state_dict(state_dict)
         model.to(resolved_device)
         model.eval()
         return model, "spectrogram"
     if _is_legacy_baseline_sgd_checkpoint(checkpoint):
-        return _build_legacy_baseline_predictor(checkpoint, n_mels=n_mels, class_count=class_count), "pooled_melspec"
+        return (
+            _build_legacy_baseline_predictor(checkpoint, n_mels=n_mels, class_count=class_count),
+            "pooled_melspec",
+        )
     raise ExecutionError(f"Checkpoint {resolved_model_path} is missing model_state_dict.")
 
 
 def _is_legacy_baseline_sgd_checkpoint(checkpoint: Mapping[str, Any]) -> bool:
     trainer = str(checkpoint.get("trainer") or "").lower()
     model_type = str(checkpoint.get("model_type") or "").lower()
-    return (
-        model_type == "baseline_sgd"
-        or trainer.startswith("baseline_sgd_")
-    ) and all(key in checkpoint for key in ("coef", "intercept", "scaler_mean", "scaler_scale"))
+    return (model_type == "baseline_sgd" or trainer.startswith("baseline_sgd_")) and all(
+        key in checkpoint for key in ("coef", "intercept", "scaler_mean", "scaler_scale")
+    )
 
 
 def _build_legacy_baseline_predictor(
@@ -199,19 +209,29 @@ def _build_legacy_baseline_predictor(
     scaler_mean = _checkpoint_array(checkpoint, "scaler_mean", expected_ndim=1)
     scaler_scale = _checkpoint_array(checkpoint, "scaler_scale", expected_ndim=1)
     if coef.shape[1] != feature_size:
-        raise ExecutionError("Legacy baseline runtime checkpoint has an unexpected pooled feature width.")
+        raise ExecutionError(
+            "Legacy baseline runtime checkpoint has an unexpected pooled feature width."
+        )
     if scaler_mean.shape[0] != feature_size or scaler_scale.shape[0] != feature_size:
-        raise ExecutionError("Legacy baseline runtime checkpoint scaler shape does not match pooled features.")
+        raise ExecutionError(
+            "Legacy baseline runtime checkpoint scaler shape does not match pooled features."
+        )
     if class_count == 2:
         if coef.shape[0] not in {1, 2}:
-            raise ExecutionError("Legacy baseline runtime checkpoint has an unexpected binary coefficient shape.")
+            raise ExecutionError(
+                "Legacy baseline runtime checkpoint has an unexpected binary coefficient shape."
+            )
         if intercept.shape[0] != coef.shape[0]:
-            raise ExecutionError("Legacy baseline runtime checkpoint intercept shape does not match coefficients.")
+            raise ExecutionError(
+                "Legacy baseline runtime checkpoint intercept shape does not match coefficients."
+            )
         if coef.shape[0] == 2:
             coef = coef[1:, :]
             intercept = intercept[1:]
     elif coef.shape[0] != class_count or intercept.shape[0] != class_count:
-        raise ExecutionError("Legacy baseline runtime checkpoint shape does not match the exported classes.")
+        raise ExecutionError(
+            "Legacy baseline runtime checkpoint shape does not match the exported classes."
+        )
     return _BaselineSgdRuntimePredictor(
         coef=coef.astype(np.float32),
         intercept=intercept.astype(np.float32),
@@ -283,7 +303,9 @@ def build_feature_tensor(
 def predict_probabilities(runtime_model: LoadedRuntimeModel, feature: np.ndarray) -> np.ndarray:
     """Return class probabilities for one preprocessed runtime feature tensor."""
     if isinstance(runtime_model.model, _BaselineSgdRuntimePredictor):
-        return runtime_model.model.predict_probabilities(feature, class_count=len(runtime_model.classes))[0]
+        return runtime_model.model.predict_probabilities(
+            feature, class_count=len(runtime_model.classes)
+        )[0]
     try:
         import torch
     except ImportError as exc:
@@ -301,7 +323,9 @@ def predict_probabilities_batch(
 ) -> np.ndarray:
     """Return class probabilities for a batch of runtime feature tensors."""
     if isinstance(runtime_model.model, _BaselineSgdRuntimePredictor):
-        return runtime_model.model.predict_probabilities(features, class_count=len(runtime_model.classes))
+        return runtime_model.model.predict_probabilities(
+            features, class_count=len(runtime_model.classes)
+        )
     try:
         import torch
     except ImportError as exc:
@@ -313,7 +337,9 @@ def predict_probabilities_batch(
     return probabilities.astype(np.float32)
 
 
-def _resolve_runtime_artifact_manifest(model_path: Path) -> tuple[Path | None, dict[str, Any] | None]:
+def _resolve_runtime_artifact_manifest(
+    model_path: Path,
+) -> tuple[Path | None, dict[str, Any] | None]:
     resolved_model_path = model_path.resolve()
     matches: list[tuple[Path, dict[str, Any]]] = []
     for manifest_path in sorted(resolved_model_path.parent.glob("*.manifest.json")):
@@ -338,7 +364,9 @@ def _load_manifest(path: Path) -> dict[str, Any] | None:
     return dict(payload)
 
 
-def _resolve_manifest_weights_path(manifest_path: Path, manifest: Mapping[str, Any]) -> Path | None:
+def _resolve_manifest_weights_path(
+    manifest_path: Path, manifest: Mapping[str, Any]
+) -> Path | None:
     raw_weights_path = manifest.get("weightsPath")
     if not isinstance(raw_weights_path, str) or not raw_weights_path.strip():
         return None
@@ -383,7 +411,11 @@ def _display_identity_from_manifest(
     raw_classes = manifest.get("classes")
     classes = [str(value) for value in raw_classes] if isinstance(raw_classes, list) else []
     raw_weights_path = manifest.get("weightsPath")
-    weights_path = str(raw_weights_path) if isinstance(raw_weights_path, str) and raw_weights_path.strip() else None
+    weights_path = (
+        str(raw_weights_path)
+        if isinstance(raw_weights_path, str) and raw_weights_path.strip()
+        else None
+    )
     display_identity: dict[str, Any] = {
         "artifactId": artifact_identity.get("artifactId"),
         "runId": artifact_identity.get("runId"),
@@ -394,7 +426,5 @@ def _display_identity_from_manifest(
         "consumer": runtime.get("consumer"),
     }
     return {
-        key: value
-        for key, value in display_identity.items()
-        if value is not None and value != []
+        key: value for key, value in display_identity.items() if value is not None and value != []
     }
