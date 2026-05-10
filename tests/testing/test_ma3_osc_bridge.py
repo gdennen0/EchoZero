@@ -16,6 +16,15 @@ from echozero.infrastructure.sync.ma3_adapter import MA3SequenceSnapshot, MA3Tra
 from echozero.testing.ma3 import SimulatedMA3Bridge
 from echozero.testing.ma3.simulator import _SimulatedMA3OSCServer
 
+_SUPPORTED_PRESET_TYPES = (
+    (1, "Dimmer"),
+    (2, "Position"),
+    (4, "Color"),
+    (5, "Beam"),
+    (6, "Focus"),
+    (22, "Optical"),
+)
+
 
 def test_parse_ma3_osc_payload_keeps_json_fields_and_pipe_containing_raw_values():
     message = parse_ma3_osc_payload(
@@ -127,6 +136,34 @@ def test_simulated_ma3_bridge_fetches_plugin_health_snapshot():
     assert str(plugin_health["hitmaker_version"]) == "1.1.0"
     assert plugin_health["hitmaker_supports_event_type_create"] is True
     assert "EZ.GetPluginHealth()" in bridge.commands
+
+
+def test_simulated_ma3_bridge_fetches_ping_and_version_snapshots():
+    bridge = SimulatedMA3Bridge()
+
+    ping = bridge.ping()
+    version = bridge.get_version_info()
+
+    assert ping["status"] == "ok"
+    assert str(version["ez_version"]) == "2.0"
+    assert version["ez_build"] == "2026-04-30.hitmaker-health-1"
+    assert "EZ.Ping()" in bridge.commands
+    assert "EZ.Version()" in bridge.commands
+
+
+def test_ma3_osc_bridge_ping_retries_once_after_dropped_first_reply():
+    bridge = SimulatedMA3Bridge()
+    bridge.set_drop_ping_reply_count(1)
+
+    ping = bridge.ping()
+
+    assert ping["status"] == "ok"
+    ping_commands = [command for command in bridge.commands if command == "EZ.Ping()"]
+    target_commands = [
+        command for command in bridge.commands if command.startswith("EZ.SetTarget(")
+    ]
+    assert len(ping_commands) == 2
+    assert len(target_commands) >= 2
 
 
 def test_simulated_ma3_bridge_fetches_sequence_cues_via_osc_commands():
@@ -606,6 +643,369 @@ def test_ma3_osc_bridge_creates_timecode_track_group_and_track():
     assert "EZ.CreateTimecode('Song B')" in bridge.commands
     assert "EZ.CreateTrackGroup(2, 'FX')" in bridge.commands
     assert "EZ.CreateTrack(2, 1, 'Laser')" in bridge.commands
+
+
+@pytest.mark.parametrize(("preset_type_no", "preset_label"), _SUPPORTED_PRESET_TYPES)
+def test_ma3_osc_bridge_creates_static_preset_for_each_supported_type(
+    preset_type_no: int,
+    preset_label: str,
+):
+    bridge = SimulatedMA3Bridge()
+    preset_no = 100 + preset_type_no
+    preset_name = f"{preset_label} Base"
+    value_command = f"At Preset {preset_type_no}.1"
+
+    created = bridge.create_static_preset(
+        preset_type_no=preset_type_no,
+        preset_no=preset_no,
+        store_mode="Global",
+        preset_name=preset_name,
+        selection_command="Fixture 1 Thru 4",
+        value_command=value_command,
+    )
+
+    assert created.preset_type == preset_type_no
+    assert created.number == preset_no
+    assert created.name == preset_name
+    assert created.store_mode == "Global"
+    assert created.kind == "static"
+    assert created.step_count == 1
+    assert (
+        f"EZ.CreateStaticPreset({preset_type_no}, {preset_no}, 'Global', '{preset_name}', "
+        f"'Fixture 1 Thru 4', '{value_command}')"
+    ) in bridge.commands
+
+
+@pytest.mark.parametrize(("preset_type_no", "preset_label"), _SUPPORTED_PRESET_TYPES)
+def test_ma3_osc_bridge_creates_phaser_preset_for_each_supported_type(
+    preset_type_no: int,
+    preset_label: str,
+):
+    bridge = SimulatedMA3Bridge()
+    preset_no = 200 + preset_type_no
+    preset_name = f"{preset_label} Chase"
+    step_spec = f"{preset_type_no}.1;{preset_type_no}.2;{preset_type_no}.3"
+
+    created = bridge.create_phaser_preset(
+        preset_type_no=preset_type_no,
+        preset_no=preset_no,
+        store_mode="Global",
+        preset_name=preset_name,
+        selection_command="Fixture 1 Thru 4",
+        step_preset_refs=[
+            f"{preset_type_no}.1",
+            f"{preset_type_no}.2",
+            f"{preset_type_no}.3",
+        ],
+        speed_bpm=120.0,
+    )
+
+    assert created.preset_type == preset_type_no
+    assert created.number == preset_no
+    assert created.name == preset_name
+    assert created.store_mode == "Global"
+    assert created.kind == "phaser"
+    assert created.step_count == 3
+    assert (
+        f"EZ.CreatePhaserPreset({preset_type_no}, {preset_no}, 'Global', '{preset_name}', "
+        f"'Fixture 1 Thru 4', '{step_spec}', 120)"
+    ) in bridge.commands
+
+
+def test_ma3_osc_bridge_creates_pool_21_phaser_with_mixed_preset_types():
+    bridge = SimulatedMA3Bridge()
+
+    created = bridge.create_phaser_preset(
+        preset_type_no=21,
+        preset_no=221,
+        store_mode="Selective",
+        preset_name="Mixed Type Phaser",
+        selection_command="Fixture 1 Thru 4",
+        step_preset_refs=[
+            ["1.1", "4.1"],
+            ["2.1", "6.1"],
+            ["5.1", "22.1"],
+        ],
+        speed_bpm=96.0,
+    )
+
+    assert created.preset_type == 21
+    assert created.number == 221
+    assert created.name == "Mixed Type Phaser"
+    assert created.store_mode == "Selective"
+    assert created.kind == "phaser"
+    assert created.step_count == 3
+    assert (
+        "EZ.CreatePhaserPreset(21, 221, 'Selective', 'Mixed Type Phaser', "
+        "'Fixture 1 Thru 4', '1.1+4.1;2.1+6.1;5.1+22.1', 96)"
+    ) in bridge.commands
+
+
+def test_ma3_osc_bridge_lists_and_describes_presets_via_explicit_osc_api():
+    bridge = SimulatedMA3Bridge()
+    bridge.create_phaser_preset(
+        preset_type_no=21,
+        preset_no=221,
+        store_mode="Selective",
+        preset_name="Mixed Type Phaser",
+        selection_command="Fixture 1 Thru 4",
+        step_preset_refs=[
+            ["1.1", "4.1"],
+            ["2.1", "6.1"],
+            ["5.1", "22.1"],
+        ],
+        speed_bpm=96.0,
+    )
+
+    presets = bridge.list_presets(preset_type_no=21)
+    described = bridge.describe_preset(preset_type_no=21, preset_no=221)
+
+    assert presets == [
+        {
+            "preset_type": 21,
+            "number": 221,
+            "name": "Mixed Type Phaser",
+            "store_mode": "Selective",
+            "kind": "phaser",
+            "step_count": 3,
+            "path": "PresetPools/21/221",
+        }
+    ]
+    assert described["path"] == "PresetPools/21/221"
+    assert described["class"] == "Preset"
+    assert described["name"] == "Mixed Type Phaser"
+    assert described["store_mode"] == "Selective"
+    assert described["kind"] == "phaser"
+    assert described["children"][0]["path"] == "PresetPools/21/221/Recipe 1"
+    child_property_names = {item["name"] for item in described["children"][0]["property_items"]}
+    assert {"STEP_1", "STEP_2", "STEP_3", "SPEEDFROMX"} <= child_property_names
+    assert any(command.startswith("EZ.ListPresets(21, ") for command in bridge.commands)
+    assert any(command.startswith("EZ.DescribePreset(21, 221, ") for command in bridge.commands)
+
+
+def test_ma3_osc_bridge_previews_and_applies_preset_replacements_when_group_matches():
+    bridge = SimulatedMA3Bridge()
+
+    preview = bridge.preview_replace_preset_when_group(
+        preset_type_no=21,
+        source_preset_ref="Preset 21.221",
+        dest_preset_ref="Preset 21.222",
+        group_filter_csv="Drums",
+        sequence_numbers_csv="12",
+    )
+    applied = bridge.replace_preset_when_group(
+        preset_type_no=21,
+        source_preset_ref="Preset 21.221",
+        dest_preset_ref="Preset 21.222",
+        group_filter_csv="Drums",
+        sequence_numbers_csv="12",
+    )
+    after = bridge.preview_replace_preset_when_group(
+        preset_type_no=21,
+        source_preset_ref="Preset 21.221",
+        dest_preset_ref="Preset 21.222",
+        group_filter_csv="Drums",
+        sequence_numbers_csv="12",
+    )
+
+    assert preview["count"] == 2
+    assert preview["findings"][0]["partNumber"] == "0.1"
+    assert applied["replaced_count"] == 2
+    assert after["count"] == 0
+    assert any(
+        command.startswith("EZ.PreviewReplacePresetWhenGroup(21, ") for command in bridge.commands
+    )
+    assert any(command.startswith("EZ.ReplacePresetWhenGroup(21, ") for command in bridge.commands)
+
+
+def test_ma3_osc_bridge_analyzes_effective_cue_recipe_state():
+    bridge = SimulatedMA3Bridge()
+
+    analysis = bridge.analyze_cue_recipe_state(sequence_no=12, cue_no=2)
+
+    assert analysis["sequence_no"] == 12
+    assert analysis["cue_no"] == 2.0
+    assert analysis["supported"] is True
+    assert analysis["status"] == "ready"
+    assert analysis["local_line_count"] == 3
+    assert analysis["contributor_count"] == 3
+    assert analysis["state_keys"] == ["Drums:Beam", "Drums:Color", "Drums:Dimmer"]
+    assert analysis["contributors"][0]["preset_ref"] == "Preset 21.222"
+    assert any(
+        "does not model direct stored values" in warning.lower()
+        for warning in analysis["warnings"]
+    )
+    assert any(
+        command.startswith("EZ.AnalyzeCueRecipeState(12, '2', ") for command in bridge.commands
+    )
+
+
+def test_ma3_osc_bridge_previews_and_applies_recipe_cue_only_restore():
+    bridge = SimulatedMA3Bridge()
+
+    preview = bridge.preview_recipe_cue_only(sequence_no=12, source_cue_no=4, target_cue_no=2)
+    applied = bridge.apply_recipe_cue_only(sequence_no=12, source_cue_no=4, target_cue_no=2)
+    after_target = bridge.analyze_cue_recipe_state(sequence_no=12, cue_no=2)
+    after_next = bridge.analyze_cue_recipe_state(sequence_no=12, cue_no=3)
+
+    assert preview["supported"] is True
+    assert preview["status"] == "ready"
+    assert preview["changed_keys"] == ["Drums:Beam", "Drums:Color", "Drums:Dimmer"]
+    assert len(preview["stored_lines"]) == 1
+    assert preview["stored_lines"][0]["preset_ref"] == "Preset 21.333"
+    assert len(preview["restore_lines"]) == 3
+    assert {row["preset_ref"] for row in preview["restore_lines"]} == {
+        "Preset 21.222",
+        "Preset 4.44",
+        "Preset 5.23",
+    }
+    assert applied["next_cue_no"] == 3.0
+    assert after_target["contributors"][0]["preset_ref"] == "Preset 21.333"
+    assert {row["preset_ref"] for row in after_next["contributors"]} == {
+        "Preset 21.222",
+        "Preset 4.44",
+        "Preset 5.23",
+    }
+    assert any(
+        command.startswith("EZ.PreviewRecipeCueOnly(12, '4', '2', ") for command in bridge.commands
+    )
+    assert any(
+        command.startswith("EZ.ApplyRecipeCueOnly(12, '4', '2', ") for command in bridge.commands
+    )
+
+
+def test_ma3_osc_bridge_copies_cue_with_status_from_effective_contributors():
+    bridge = SimulatedMA3Bridge()
+
+    copied = bridge.copy_cue_with_status(sequence_no=12, source_cue_no=3, dest_cue_no=5)
+    analysis = bridge.analyze_cue_recipe_state(sequence_no=12, cue_no=5)
+
+    assert copied["copied_line_count"] == 3
+    assert {row["selection_key"] for row in copied["copied_lines"]} == {
+        "Drums:Beam",
+        "Drums:Color",
+        "Drums:Dimmer",
+    }
+    assert analysis["local_line_count"] == 3
+    assert any(
+        command.startswith("EZ.CopyCueWithStatus(12, '3', '5', ") for command in bridge.commands
+    )
+
+
+def test_ma3_osc_bridge_previews_copy_cue_with_status_without_mutating_destination():
+    bridge = SimulatedMA3Bridge()
+
+    preview = bridge.preview_copy_cue_with_status(sequence_no=12, source_cue_no=3, dest_cue_no=5)
+    analysis = bridge.analyze_cue_recipe_state(sequence_no=12, cue_no=5)
+
+    assert preview["supported"] is True
+    assert preview["status"] == "ready"
+    assert preview["copied_line_count"] == 3
+    assert preview["contributor_count"] == 3
+    assert preview["local_line_count"] == 0
+    assert analysis["local_line_count"] == 0
+    assert any(
+        command.startswith("EZ.PreviewCopyCueWithStatus(12, '3', '5', ")
+        for command in bridge.commands
+    )
+
+
+def test_ma3_osc_bridge_creates_recipe_preset_from_explicit_source_ref():
+    bridge = SimulatedMA3Bridge()
+
+    created = bridge.create_recipe_preset(
+        preset_type_no=4,
+        preset_no=103,
+        store_mode="Selective",
+        preset_name="Base Recipe",
+        selection_command="Fixture 1 Thru 4",
+        source_preset_ref="4.1",
+        selection_mode="Strict",
+    )
+
+    assert created.preset_type == 4
+    assert created.number == 103
+    assert created.name == "Base Recipe"
+    assert created.store_mode == "Selective"
+    assert created.kind == "recipe"
+    assert created.step_count == 1
+    assert (
+        "EZ.CreateRecipePreset(4, 103, 'Selective', 'Base Recipe', "
+        "'Fixture 1 Thru 4', '4.1', 'Strict')"
+    ) in bridge.commands
+
+
+def test_ma3_osc_bridge_edits_static_preset_via_explicit_authoring_inputs():
+    bridge = SimulatedMA3Bridge()
+    bridge.create_static_preset(
+        preset_type_no=4,
+        preset_no=104,
+        store_mode="Global",
+        preset_name="Old Red",
+        selection_command="Fixture 1 Thru 4",
+        value_command="At Preset 4.1",
+    )
+
+    updated = bridge.edit_static_preset(
+        preset_type_no=4,
+        preset_no=104,
+        store_mode="Global",
+        preset_name="New Blue",
+        selection_command="Fixture 5 Thru 8",
+        value_command="At Preset 4.2",
+    )
+
+    assert updated.number == 104
+    assert updated.name == "New Blue"
+    assert updated.kind == "static"
+    assert (
+        "EZ.EditStaticPreset(4, 104, 'Global', 'New Blue', " "'Fixture 5 Thru 8', 'At Preset 4.2')"
+    ) in bridge.commands
+
+
+def test_ma3_osc_bridge_edits_phaser_preset_from_explicit_steps():
+    bridge = SimulatedMA3Bridge()
+
+    updated = bridge.edit_phaser_preset(
+        preset_type_no=4,
+        preset_no=105,
+        store_mode="Global",
+        preset_name="Wide Chase",
+        selection_command="Fixture 1 Thru 4",
+        step_preset_refs=["4.1", "4.3"],
+        speed_bpm=90.0,
+    )
+
+    assert updated.number == 105
+    assert updated.name == "Wide Chase"
+    assert updated.kind == "phaser"
+    assert updated.step_count == 2
+    assert (
+        "EZ.EditPhaserPreset(4, 105, 'Global', 'Wide Chase', " "'Fixture 1 Thru 4', '4.1;4.3', 90)"
+    ) in bridge.commands
+
+
+def test_ma3_osc_bridge_edits_recipe_preset_from_explicit_source_ref():
+    bridge = SimulatedMA3Bridge()
+
+    updated = bridge.edit_recipe_preset(
+        preset_type_no=4,
+        preset_no=106,
+        store_mode="Selective",
+        preset_name="Updated Recipe",
+        selection_command="Fixture 9 Thru 12",
+        source_preset_ref="4.9",
+        selection_mode="Strict",
+    )
+
+    assert updated.number == 106
+    assert updated.name == "Updated Recipe"
+    assert updated.kind == "recipe"
+    assert updated.step_count == 1
+    assert (
+        "EZ.EditRecipePreset(4, 106, 'Selective', 'Updated Recipe', "
+        "'Fixture 9 Thru 12', '4.9', 'Strict')"
+    ) in bridge.commands
 
 
 def test_ma3_osc_bridge_prepare_track_raises_track_error_for_unassigned_target():

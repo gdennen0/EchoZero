@@ -11,6 +11,8 @@ It must stay read-only with respect to domain and application truth.
 
 - `models.py`: typed presentation dataclasses consumed by Qt and automation surfaces
 - `inspector_contract.py`: public inspector contract builders and selection routing
+- `inspector_contract_builders.py`: object-specific contract assembly behind the public inspector entrypoint
+- `inspector_contract_lookup.py`: stable layer, take, and event lookup helpers shared by inspector surfaces
 - `inspector_contract_types.py`: stable inspector dataclasses shared across UI and tests
 - `inspector_contract_support.py`: preview, lookup, and context-action helpers behind the public contract
 - `action_descriptors.py`: small shared descriptor helpers

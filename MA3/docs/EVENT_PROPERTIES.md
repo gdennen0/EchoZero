@@ -7,78 +7,47 @@ This document captures discovered properties of timecode event objects.
 ### Path to Event
 
 ```lua
--- Full path to event (CORRECTED - events are children of event layers!)
+-- Full path to a live command event
 local tc = DataPool().Timecodes[101]
 local track_group = tc[1]
-local children = track_group:Children()
-local layer = children[1]  -- Skip index 0 Marker
-local event_layers = layer:Children()  -- These are event layers!
-local event_layer = event_layers[1]  -- First event layer
-local events = event_layer:Children()  -- Actual events
-local event = events[1]  -- First actual event
+local ordered_children = track_group:Children()
+local track = ordered_children[2]  -- ordered child 1 is MarkerTrack
+local time_range = track:Children()[1]
+local cmd_subtrack = time_range:Children()[1]
+local event = cmd_subtrack:Children()[1]
 ```
 
 ### Using Helper Functions
 
 ```lua
--- Get specific event (now requires event_layer_index)
-local event = GetEvent(101, 1, 1, 1, 1)  -- tc, tg, child, event_layer, event
-
--- Get event layers in layer
-local event_layers = GetEventLayers(101, 1, 1)
-
--- Get events in event layer
-local events = GetEventsInLayer(101, 1, 1, 1)  -- tc, tg, child, event_layer
-
--- Explore event properties
-ExploreEvent(101, 1, 1, 1, 1)  -- Now requires event_layer_index
-ExploreEventLayers(101, 1, 1)  -- Explore event layers
-ExploreEventsInLayer(101, 1, 1, 1)  -- Explore events in event layer
-ExploreFirstEvents(101, 5)  -- First 5 events
+-- Recommended access tuple:
+-- tc_no, tg_no, ordered_track_child_idx, time_range_idx, subtrack_idx, event_idx
+local event = GetEvent(101, 1, 2, 1, 1, 1)
+ExploreEvent(101, 1, 2, 1, 1, 1)
 ```
 
 ## Event Properties
 
-### Common Properties (To Be Discovered)
+### Observed CmdEvent Properties
 
-Run exploration functions to discover properties:
-
-```lua
--- In MA3 command line
-Lua "ExploreEvent(101, 1, 1, 1)"
-Lua "ExploreFirstEvents(101, 3)"
-Lua "ExploreLayerEvents(101, 1, 1)"
-```
-
-### Expected Properties
-
-Based on timecode functionality, events may have:
+From the live terminal sample path
+`Timecode -> TrackGroup -> Track -> TimeRange -> CmdSubTrack -> CmdEvent`:
 
 - **Time Properties**:
-  - `time` - Event time
-  - `timecode` - Timecode value
-  - `timestamp` - Timestamp
-  - `start` - Start time
-  - `end` - End time
-  - `duration` - Duration
+  - `TIME` - event time in MA time format
+  - `ABSTIME` - resolved absolute time
+  - `RAWTIME` - raw internal MA time units
 
 - **Command Properties**:
-  - `command` - Command string
-  - `cmd` - Command
-  - `value` - Command value
-  - `data` - Command data
-
-- **Timing Properties**:
-  - `fade` - Fade time
-  - `delay` - Delay time
-  - `position` - Position in timeline
+  - `TOKEN` - command token such as `Goto`
+  - `CUEDESTINATION` - target cue
+  - `EXECUTECOMMAND` - whether the command executes
+  - `REALTIMECMD` - realtime command text
 
 - **Identification**:
-  - `name` - Event name
-  - `no` - Event number
-  - `index` - Array index
-  - `type` - Event type
-  - `class` - Event class
+  - `NAME` - event label
+  - `INDEX` - child index
+  - `CLASS` - `CmdEvent`
 
 ## Exploration Functions
 
@@ -251,4 +220,3 @@ Event Properties:
 - `MA3_NESTED_ACCESS.md` - Access patterns
 - `timecode_helper.lua` - Helper functions
 - `timecode_explorer.lua` - Exploration functions
-

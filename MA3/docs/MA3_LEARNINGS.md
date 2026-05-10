@@ -200,6 +200,112 @@ end
 
 ---
 
+### 9. Dump Child Numbers Are Not Reliable Handle Indices
+
+**Problem:** The `:Dump()` child numbering can describe semantic child numbers, not
+the exact bracket index you must use on the handle.
+
+Observed examples from the live terminal:
+
+```lua
+DataPool()[6][1]:Dump()
+-- shows special sequence children before regular cues
+-- OffCue, CueZero, then numbered cues
+
+DataPool()[14][1][1]:Dump()
+-- TrackGroup shows:
+--   #0000 "Marker"      Class = "MarkerTrack"
+--   #0001 "1 'AUTOMATOR'" Class = "Track"
+
+-- But the live handles are:
+DataPool()[14][1][1][1]  -- MarkerTrack
+DataPool()[14][1][1][2]  -- Track
+```
+
+**Why it matters:** A crawler cannot assume the `#000N` label from `:Dump()`
+is the same value to append in `handle[N]`.
+
+**Practical rule:** Treat `:Dump()` child listings as structural evidence, not
+authoritative handle indexing proof. Validate special cases live before turning
+them into harness traversal rules.
+
+---
+
+### 10. PresetPools Traversal Prefers `:Children()` Over Direct Indexing
+
+**Problem:** `PresetPools` exposed logical pools through `:Children()`, but
+direct numeric handle indexing was not reliable for the same pool ordinals.
+
+Observed live example:
+
+```lua
+local pools = DataPool()[4]:Children()
+-- pools[14] -> "Preset Recipes"
+
+-- Works
+local preset_recipes = pools[14]
+
+-- Not reliable in the same way
+local broken = DataPool()[4][14]  -- nil in the live terminal
+```
+
+**Why it matters:** For preset-pool traversal, the ordinal position in the
+ordered children array and the direct numeric bracket index on the pool handle
+are not interchangeable assumptions.
+
+**Practical rule:** For `PresetPools`, prefer:
+
+```lua
+local pools = DataPool()[4]:Children()
+local preset_recipes = pools[14]
+```
+
+instead of assuming:
+
+```lua
+local preset_recipes = DataPool()[4][14]
+```
+
+---
+
+### 11. Real Show Cue Parts Frequently Expose Child `Recipe` Objects
+
+**Problem:** Early sequence samples can make cue parts look empty and purely
+value-based.
+
+**Observed live result:** scanning the first 30 sequences with sequence numbers
+`>= 1000` showed that cue-part recipe children are common in actual show
+content.
+
+Representative pattern:
+
+```lua
+Sequence
+  -> Cue
+    -> Part
+      -> Recipe
+```
+
+Representative live path:
+
+```lua
+Root/ShowData/DataPools/1 'Default'/Sequences/1200 'BadIdea'/1 'Mark'/0 'Mark'/Recipe 1
+```
+
+**Why it matters:** Cue recipes are not just a documentation concept. They are
+real structural objects in sequence data and must be modeled explicitly.
+
+**Practical rule:** If you want meaningful cue semantics, inspect:
+
+```lua
+cue:Children()        -- parts
+part:Children()       -- recipe lines / recipe children when present
+```
+
+Do not stop at the cue or part-level flat properties.
+
+---
+
 ### 9. Pool Numbers vs Indices
 
 **Problem:** UI shows pool numbers, Lua uses indices.

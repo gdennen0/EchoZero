@@ -5,9 +5,11 @@ from __future__ import annotations
 import pytest
 
 from echozero.application.playback.timecode import (
+    PlaybackTimecodeAuthority,
     TimebaseSpec,
     TimecodeCodec,
     TimecodeDisplayPolicy,
+    TimecodeMode,
     format_clock_label,
 )
 
@@ -47,10 +49,28 @@ def test_samples_frames_roundtrip_for_29_97() -> None:
     assert abs(roundtrip_frames - 12345) <= 1
 
 
+@pytest.mark.parametrize("fps", [24, 25, 29.97, 30])
+def test_samples_frames_roundtrip_for_supported_rates(fps: float) -> None:
+    codec = TimecodeCodec(TimebaseSpec.from_legacy_fps(fps))
+
+    for frame_index in (0, 1, 24, 99, 1001, 12345):
+        samples = codec.frames_to_samples(frame_index, sample_rate=48000)
+        assert abs(codec.samples_to_frames(samples, sample_rate=48000) - frame_index) <= 1
+
+
 def test_non_drop_roundtrip_timecode_labels() -> None:
     codec = TimecodeCodec(TimebaseSpec.from_legacy_fps(30))
 
     for frame_index in (0, 1, 29, 30, 1799, 1800, 108000, 259199):
+        label = codec.format_timecode_from_frames(frame_index)
+        assert codec.frames_from_timecode(label) == frame_index
+
+
+@pytest.mark.parametrize("fps", [24, 25, 29.97, 30])
+def test_non_drop_roundtrip_timecode_labels_for_supported_rates(fps: float) -> None:
+    codec = TimecodeCodec(TimebaseSpec.from_legacy_fps(fps, drop_frame=False))
+
+    for frame_index in (0, 1, 42, 999, 2500, 10000):
         label = codec.format_timecode_from_frames(frame_index)
         assert codec.frames_from_timecode(label) == frame_index
 
@@ -60,6 +80,16 @@ def test_drop_frame_formats_minute_boundary_skip() -> None:
 
     assert codec.format_timecode_from_frames(1799) == "00:00:59;29"
     assert codec.format_timecode_from_frames(1800) == "00:01:00;02"
+
+
+def test_29_97_drop_frame_roundtrip_and_non_drop_diverge_at_minute_boundary() -> None:
+    drop = TimecodeCodec(TimebaseSpec.from_legacy_fps(29.97, drop_frame=True))
+    non_drop = TimecodeCodec(TimebaseSpec.from_legacy_fps(29.97, drop_frame=False))
+
+    assert drop.format_timecode_from_frames(1800) == "00:01:00;02"
+    assert non_drop.format_timecode_from_frames(1800) == "00:01:00:00"
+    assert drop.frames_from_timecode("00:01:00;02") == 1800
+    assert non_drop.frames_from_timecode("00:01:00:00") == 1800
 
 
 def test_drop_frame_rejects_skipped_frame_labels() -> None:
@@ -83,6 +113,34 @@ def test_start_offset_applies_on_format_and_parse() -> None:
 
     assert codec.format_timecode_from_frames(0) == "00:00:01:00"
     assert codec.frames_from_timecode("00:00:01:00") == 0
+
+
+def test_internal_generated_timecode_from_playback_position() -> None:
+    authority = PlaybackTimecodeAuthority(
+        TimebaseSpec.from_legacy_fps(25, start_frame_offset=25),
+        sample_rate=48000,
+    )
+
+    snapshot = authority.position_from_seconds(2.0)
+
+    assert snapshot.mode is TimecodeMode.INTERNAL_GENERATED
+    assert snapshot.is_locked is True
+    assert snapshot.sample_position == 96000
+    assert snapshot.frame_index == 50
+    assert snapshot.label == "00:00:03:00"
+
+
+def test_clock_display_policy_uses_same_authority_for_label_generation() -> None:
+    authority = PlaybackTimecodeAuthority(
+        TimebaseSpec.from_legacy_fps(30, display_policy=TimecodeDisplayPolicy.CLOCK),
+        sample_rate=48000,
+    )
+
+    snapshot = authority.position_from_samples(60000)
+
+    assert snapshot.elapsed_seconds == 1.25
+    assert snapshot.frame_index == 38
+    assert snapshot.label == "00:01.25"
 
 
 def test_clock_label_formatter_clamps_negative_seconds() -> None:

@@ -3,6 +3,9 @@ Exists to keep inspector and context hit-target coverage separate from transfer 
 Connects the compatibility wrapper to the bounded object-info support slice.
 """
 
+from echozero.ui.qt.timeline.object_info_panel_text import (
+    rendered_contract_text as _rendered_object_info_text,
+)
 from tests.ui.timeline_shell_shared_support import *  # noqa: F401,F403
 
 def test_main_row_event_click_dispatches_main_take_identity():
@@ -54,8 +57,10 @@ def test_object_info_panel_shows_current_song_version_without_selection():
 
         info = widget._object_info.text()
         assert "Song Alpha Song" in info
-        assert "song id: song_alpha" in info
         assert "version label: Festival Edit" in info
+        assert "song id: song_alpha" not in info
+        assert "version id:" not in info
+        assert "ma3 tc pool:" not in info
         assert widget._object_info._kind.text() == "Song Version"
     finally:
         widget.close()
@@ -86,7 +91,7 @@ def test_object_info_panel_updates_for_layer_selection():
         app.processEvents()
 
 
-def test_object_info_panel_exposes_ma3_routing_button_outside_context_menu():
+def test_object_info_panel_keeps_only_transfer_workspace_entrypoint():
     app = QApplication.instance() or QApplication([])
     harness = _SelectionInspectorHarness(
         replace(_selection_test_presentation(), selected_layer_id=LayerId("layer_kick"))
@@ -97,21 +102,18 @@ def test_object_info_panel_exposes_ma3_routing_button_outside_context_menu():
 
         action_ids = set(widget._object_info._action_buttons)
 
-        assert (
-            "transfer.route_layer_track" in action_ids
-            or "route_layer_to_ma3_track" in action_ids
-        )
-        assert "send_layer_to_ma3" not in action_ids
-        assert "send_selected_events_to_ma3" not in action_ids
-        assert "send_to_different_track_once" not in action_ids
+        assert "transfer.workspace_open" in action_ids
+        assert "transfer.route_layer_track" not in action_ids
+        assert "transfer.send_selection" not in action_ids
+        assert "transfer.match_ma3_cues" not in action_ids
+        assert "transfer.send_to_track_once" not in action_ids
     finally:
         widget.close()
         app.processEvents()
 
 
-def test_object_info_panel_audio_routing_settings_button_dispatches_set_layer_output_bus():
+def test_object_info_panel_audio_surface_hides_routing_controls():
     app = QApplication.instance() or QApplication([])
-    intents: list[object] = []
     base = _selection_test_presentation()
     audio_layer = replace(
         base.layers[0],
@@ -124,43 +126,12 @@ def test_object_info_panel_audio_routing_settings_button_dispatches_set_layer_ou
         layers=[audio_layer],
         selected_layer_id=LayerId("layer_kick"),
         selected_layer_ids=[LayerId("layer_kick")],
-        playback_output_channels=4,
     )
-    widget = TimelineWidget(
-        presentation, on_intent=lambda intent: intents.append(intent) or presentation
-    )
-    dialog_results = iter(["outputs_3_3", "outputs_4_4"])
+    widget = TimelineWidget(presentation, on_intent=lambda intent: presentation)
     try:
         _render_for_hit_testing(widget)
-        from echozero.ui.qt.timeline import widget_action_contract_mixin as _contract_mixin
-
-        class _DialogStub:
-            def __init__(self, **kwargs):
-                del kwargs
-                self._selected = next(dialog_results)
-
-            def exec(self):
-                return True
-
-            def selected_output_bus(self):
-                return self._selected
-
-        original_dialog = _contract_mixin.LayerRoutingSettingsDialog
-        _contract_mixin.LayerRoutingSettingsDialog = _DialogStub
-        try:
-            widget._object_info._routing_settings_btn.click()
-            widget._object_info._routing_settings_btn.click()
-        finally:
-            _contract_mixin.LayerRoutingSettingsDialog = original_dialog
-
-        assert intents[0] == SetLayerOutputBus(
-            layer_id=LayerId("layer_kick"),
-            output_bus="outputs_3_3",
-        )
-        assert intents[1] == SetLayerOutputBus(
-            layer_id=LayerId("layer_kick"),
-            output_bus="outputs_4_4",
-        )
+        assert not hasattr(widget._object_info, "_routing_settings_btn")
+        assert "layer.routing_settings" not in widget._object_info._action_buttons
     finally:
         widget.close()
         app.processEvents()
@@ -197,10 +168,6 @@ def test_object_info_panel_audio_settings_panel_reflects_and_dispatches_layer_mi
         assert widget._object_info._layer_controls_title.text().startswith("Layer: Kick")
         assert widget._object_info._panel_mute_btn.text() == "Unmute"
         assert widget._object_info._panel_solo_btn.text() == "Unsolo"
-        assert (
-            widget._object_info._routing_settings_btn.text()
-            == "Routing Settings (Outputs 3/4)"
-        )
         assert widget._object_info._gain_spin.value() == -6.0
 
         widget._object_info._panel_mute_btn.click()
@@ -237,8 +204,11 @@ def test_object_info_panel_mix_buttons_dispatch_mute_and_solo_intents():
     try:
         _render_for_hit_testing(widget)
 
-        widget._object_info._action_buttons["set_layer_mute_on"].click()
-        widget._object_info._action_buttons["set_layer_solo_on"].click()
+        assert "set_layer_mute_on" not in widget._object_info._action_buttons
+        assert "set_layer_solo_on" not in widget._object_info._action_buttons
+
+        widget._object_info._panel_mute_btn.click()
+        widget._object_info._panel_solo_btn.click()
 
         assert intents == [
             SetLayerMute(layer_id=LayerId("layer_kick"), muted=True),
@@ -260,8 +230,10 @@ def test_object_info_panel_event_layer_hides_mix_buttons():
     widget = TimelineWidget(presentation, on_intent=lambda intent: presentation)
     try:
         _render_for_hit_testing(widget)
+        assert widget._object_info._layer_controls.isHidden() is True
         assert "set_layer_mute_on" not in widget._object_info._action_buttons
         assert "set_layer_solo_on" not in widget._object_info._action_buttons
+        assert "gain_up" not in widget._object_info._action_buttons
     finally:
         widget.close()
         app.processEvents()
@@ -343,6 +315,42 @@ def test_contract_expand_all_layers_dispatches_only_for_collapsed_layers():
         )
 
         assert intents == [ToggleLayerExpanded(layer_id=LayerId("layer_b"))]
+    finally:
+        widget.close()
+        app.processEvents()
+
+
+def test_shift_click_toggle_fully_collapses_layer_to_header_only_row():
+    app = QApplication.instance() or QApplication([])
+    widget = TimelineWidget(_selection_test_presentation())
+    try:
+        _render_for_hit_testing(widget)
+        toggle_rect, _layer_id = widget._canvas._toggle_rects[0]
+
+        _click_rect(widget, toggle_rect, Qt.KeyboardModifier.ShiftModifier)
+
+        layer = widget._canvas.presentation.layers[0]
+        assert layer.is_fully_collapsed is True
+        assert widget._canvas._take_rects == []
+        assert widget._canvas._event_rects == []
+    finally:
+        widget.close()
+        app.processEvents()
+
+
+def test_click_toggle_expands_layer_from_full_collapse_state():
+    app = QApplication.instance() or QApplication([])
+    widget = TimelineWidget(_selection_test_presentation())
+    try:
+        _render_for_hit_testing(widget)
+        toggle_rect, _layer_id = widget._canvas._toggle_rects[0]
+        _click_rect(widget, toggle_rect, Qt.KeyboardModifier.ShiftModifier)
+        _click_rect(widget, toggle_rect)
+
+        layer = widget._canvas.presentation.layers[0]
+        assert layer.is_fully_collapsed is False
+        assert bool(widget._canvas._take_rects)
+        assert bool(widget._canvas._event_rects)
     finally:
         widget.close()
         app.processEvents()
@@ -543,7 +551,10 @@ def test_object_info_panel_renders_selected_layer_contract_text():
         contract = build_timeline_inspector_contract(widget.presentation)
 
         assert widget._object_info.contract() == contract
-        assert widget._object_info.text() == render_inspector_contract_text(contract)
+        assert widget._object_info.text() == _rendered_object_info_text(
+            contract,
+            fallback=widget._object_info._body.toPlainText(),
+        )
     finally:
         widget.close()
         app.processEvents()
@@ -557,21 +568,33 @@ def test_object_info_panel_remains_contract_rendered_through_selection_transitio
         _render_for_hit_testing(widget)
 
         expected = build_timeline_inspector_contract(widget.presentation)
-        assert widget._object_info.text() == render_inspector_contract_text(expected)
+        assert widget._object_info.text() == _rendered_object_info_text(
+            expected,
+            fallback=widget._object_info._body.toPlainText(),
+        )
 
         header_rect, _ = widget._canvas._header_select_rects[0]
         _click_rect(widget, header_rect)
         expected = build_timeline_inspector_contract(widget.presentation)
-        assert widget._object_info.text() == render_inspector_contract_text(expected)
+        assert widget._object_info.text() == _rendered_object_info_text(
+            expected,
+            fallback=widget._object_info._body.toPlainText(),
+        )
 
         _click_event_rect(widget, "main_evt")
         expected = build_timeline_inspector_contract(widget.presentation)
-        assert widget._object_info.text() == render_inspector_contract_text(expected)
+        assert widget._object_info.text() == _rendered_object_info_text(
+            expected,
+            fallback=widget._object_info._body.toPlainText(),
+        )
 
         QTest.keyClick(widget._canvas, Qt.Key.Key_Escape)
         QApplication.processEvents()
         expected = build_timeline_inspector_contract(widget.presentation)
-        assert widget._object_info.text() == render_inspector_contract_text(expected)
+        assert widget._object_info.text() == _rendered_object_info_text(
+            expected,
+            fallback=widget._object_info._body.toPlainText(),
+        )
     finally:
         widget.close()
         app.processEvents()

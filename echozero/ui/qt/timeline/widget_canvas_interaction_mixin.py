@@ -305,7 +305,7 @@ class _TimelineCanvasInteractionMixin:
                         )
                     return
                 if (
-                    self._edit_mode == "move"
+                    self._edit_mode in {"move", "select"}
                     and event.button() == Qt.MouseButton.LeftButton
                     and self._can_start_event_drag(
                         event.modifiers(),
@@ -385,6 +385,22 @@ class _TimelineCanvasInteractionMixin:
             return
         for rect, layer_id in self._toggle_rects:
             if rect.contains(pos):
+                if event.modifiers() & Qt.KeyboardModifier.ShiftModifier:
+                    self.toggle_layer_fully_collapsed(layer_id)
+                    event.accept()
+                    return
+                layer = next(
+                    (
+                        candidate
+                        for candidate in self.presentation.layers
+                        if candidate.layer_id == layer_id
+                    ),
+                    None,
+                )
+                if layer is not None and layer.is_fully_collapsed:
+                    self.toggle_layer_fully_collapsed(layer_id)
+                    event.accept()
+                    return
                 self.take_toggle_clicked.emit(layer_id)
                 return
         for rect, layer_id in self._header_select_rects:
@@ -682,11 +698,7 @@ class _TimelineCanvasInteractionMixin:
             event.key() in (Qt.Key.Key_Backspace, Qt.Key.Key_Delete)
             and self.presentation.selected_event_ids
         ):
-            self.delete_events_requested.emit(
-                list(self.presentation.selected_event_refs)
-                if self.presentation.selected_event_refs
-                else list(self.presentation.selected_event_ids)
-            )
+            self.delete_events_requested.emit(list(self.presentation.selected_event_ids))
             event.accept()
             return
         if event.key() == Qt.Key.Key_A and has_primary:
@@ -701,7 +713,7 @@ class _TimelineCanvasInteractionMixin:
             not has_primary
             and not has_shift
             and event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter)
-            and (self.presentation.selected_event_refs or self.presentation.selected_event_ids)
+            and self.presentation.has_event_selection()
         ):
             self.preview_selected_event_clip_requested.emit()
             event.accept()
@@ -809,9 +821,7 @@ class _TimelineCanvasInteractionMixin:
             return
         super().keyPressEvent(event)
 
-    def _selected_event_shortcut_payload(self: Any) -> list[EventRef] | list[EventId]:
-        if self.presentation.selected_event_refs:
-            return list(self.presentation.selected_event_refs)
+    def _selected_event_shortcut_payload(self: Any) -> list[EventId]:
         if self.presentation.selected_event_ids:
             return list(self.presentation.selected_event_ids)
         return []
@@ -823,8 +833,7 @@ class _TimelineCanvasInteractionMixin:
         if self._edit_mode == "select":
             if event.key() == Qt.Key.Key_Left:
                 if (
-                    self.presentation.selected_event_refs
-                    or self.presentation.selected_event_ids
+                    self.presentation.has_event_selection()
                     or self.presentation.selected_layer_id is not None
                     or bool(self.presentation.selected_layer_ids)
                 ):
@@ -832,8 +841,7 @@ class _TimelineCanvasInteractionMixin:
                 return True
             if event.key() == Qt.Key.Key_Right:
                 if (
-                    self.presentation.selected_event_refs
-                    or self.presentation.selected_event_ids
+                    self.presentation.has_event_selection()
                     or self.presentation.selected_layer_id is not None
                     or bool(self.presentation.selected_layer_ids)
                 ):
@@ -871,8 +879,7 @@ class _TimelineCanvasInteractionMixin:
     def _handle_fix_mode_key_press(self: Any, event: QKeyEvent) -> bool:
         if event.key() == Qt.Key.Key_Left:
             if (
-                self.presentation.selected_event_refs
-                or self.presentation.selected_event_ids
+                self.presentation.has_event_selection()
                 or self.presentation.selected_layer_id is not None
                 or bool(self.presentation.selected_layer_ids)
             ):
@@ -880,8 +887,7 @@ class _TimelineCanvasInteractionMixin:
             return True
         if event.key() == Qt.Key.Key_Right:
             if (
-                self.presentation.selected_event_refs
-                or self.presentation.selected_event_ids
+                self.presentation.has_event_selection()
                 or self.presentation.selected_layer_id is not None
                 or bool(self.presentation.selected_layer_ids)
             ):
@@ -903,8 +909,7 @@ class _TimelineCanvasInteractionMixin:
         candidates = self._fix_navigation_candidates()
         if not candidates:
             if (
-                self.presentation.selected_event_refs
-                or self.presentation.selected_event_ids
+                self.presentation.has_event_selection()
                 or self.presentation.selected_layer_id is not None
                 or bool(self.presentation.selected_layer_ids)
             ):
@@ -1281,6 +1286,9 @@ class _TimelineCanvasInteractionMixin:
         if self._edit_mode == "select" and self._resize_target_layer_id(pos) is not None:
             self.setCursor(Qt.CursorShape.SizeVerCursor)
             return
+        if self._edit_mode == "select" and self._draggable_event_hit(pos) is not None:
+            self.setCursor(Qt.CursorShape.SizeAllCursor)
+            return
         self._sync_cursor()
 
     def _header_resize_handle_contains(self: Any, pos: QPointF) -> bool:
@@ -1296,6 +1304,20 @@ class _TimelineCanvasInteractionMixin:
         for rect, layer_id, take_id in self._event_lane_rects:
             if rect.contains(pos):
                 return rect, layer_id, take_id
+        return None
+
+    def _draggable_event_hit(self: Any, pos: QPointF) -> EventRect | None:
+        for event_rect in self._event_rects:
+            rect, layer_id, take_id, event_id = event_rect
+            if not rect.contains(pos):
+                continue
+            if self._can_start_event_drag(
+                Qt.KeyboardModifier.NoModifier,
+                layer_id,
+                take_id,
+                event_id,
+            ):
+                return event_rect
         return None
 
     def _fix_overlay_hit(
@@ -1585,7 +1607,7 @@ class _TimelineCanvasInteractionMixin:
         mode = self._selection_mode_for_modifiers(modifiers)
         intersected_refs = self._event_refs_intersecting_rect(rect)
 
-        next_event_refs = list(self.presentation.selected_event_refs)
+        next_event_refs = list(self.presentation.resolved_selected_event_refs())
         if mode == "replace":
             next_event_refs = intersected_refs
         elif mode == "additive":
@@ -1795,8 +1817,9 @@ class _TimelineCanvasInteractionMixin:
         if take_id is None:
             return event_id in set(self.presentation.selected_event_ids)
         event_ref = EventRef(layer_id=layer_id, take_id=take_id, event_id=event_id)
-        if self.presentation.selected_event_refs:
-            return event_ref in set(self.presentation.selected_event_refs)
+        selected_event_refs = self.presentation.resolved_selected_event_refs()
+        if selected_event_refs:
+            return event_ref in set(selected_event_refs)
         return event_id in set(self.presentation.selected_event_ids)
 
     def _event_drop_target_layer_id(self: Any, pos: QPointF) -> LayerId | None:

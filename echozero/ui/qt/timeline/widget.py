@@ -60,10 +60,6 @@ from echozero.ui.qt.song_browser_drop import (
     has_droppable_audio,
 )
 from echozero.ui.qt.song_browser_panel import SongBrowserPanel
-from echozero.ui.qt.timeline.manual_pull import (
-    ManualPullTimelineDialog,
-    ManualPullTimelineSelectionResult,
-)
 from echozero.ui.qt.timeline.section_manager import SectionCueDraft, SectionManagerDialog
 from echozero.ui.qt.timeline.object_info_panel import ObjectInfoPanel
 from echozero.ui.qt.timeline.runtime_audio import (
@@ -321,9 +317,6 @@ class TimelineWidget(TimelineWidgetRuntimeMixin, TimelineWidgetContractMixin, QW
             set_presentation=self.apply_external_presentation_update,
             resolve_runtime_shell=self._resolve_runtime_shell,
             selected_event_ids_for_selected_layers=self._selected_event_ids_for_selected_layers,
-            open_manual_pull_timeline_popup=lambda flow: self._open_manual_pull_timeline_popup(
-                flow
-            ),
             input_dialog=QInputDialog,
             file_dialog=QFileDialog,
             message_box=QMessageBox,
@@ -857,8 +850,6 @@ class TimelineWidget(TimelineWidgetRuntimeMixin, TimelineWidgetContractMixin, QW
 
 
 __all__ = [
-    "ManualPullTimelineDialog",
-    "ManualPullTimelineSelectionResult",
     "ObjectInfoPanel",
     "TimelineCanvas",
     "TimelineEditorModeBar",

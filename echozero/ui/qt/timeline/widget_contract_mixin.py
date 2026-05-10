@@ -20,7 +20,6 @@ from echozero.application.presentation.inspector_contract import (
 from echozero.application.presentation.models import (
     BatchTransferPlanPresentation,
     LayerPresentation,
-    ManualPullFlowPresentation,
     TimelinePresentation,
 )
 from echozero.application.shared.enums import LayerKind
@@ -56,9 +55,6 @@ from echozero.application.timeline.intents import (
 )
 from echozero.application.timeline.models import EventRef
 from echozero.application.timeline.object_actions import ObjectActionSettingsPlan
-from echozero.ui.qt.timeline.manual_pull import (
-    ManualPullTimelineSelectionResult,
-)
 from echozero.ui.qt.timeline.object_info_panel import ObjectInfoPanel
 from echozero.ui.FEEL import TIMELINE_ADD_MODE_DEFAULT_EVENT_DURATION_SECONDS
 
@@ -80,9 +76,6 @@ class _TimelineWidgetActionRouter(Protocol):
     def open_object_action_settings(self, action: InspectorAction) -> None: ...
     def trigger_contract_action(self, action: InspectorAction) -> None: ...
     def _handle_runtime_pipeline_action(self, action_id: str, params: dict[str, object]) -> bool: ...
-    def _default_open_manual_pull_timeline_popup(
-        self, flow: ManualPullFlowPresentation
-    ) -> ManualPullTimelineSelectionResult | None: ...
 
 
 class _TimelineWidgetContractHost(Protocol):
@@ -154,7 +147,7 @@ class TimelineWidgetContractMixin:
     ) -> None:
         if direction == 0:
             return
-        prior_selected_event_refs = tuple(self.presentation.selected_event_refs)
+        prior_selected_event_refs = tuple(self.presentation.resolved_selected_event_refs())
         prior_selected_event_ids = tuple(self.presentation.selected_event_ids)
         self._dispatch(
             SelectAdjacentEventInSelectedLayer(
@@ -163,7 +156,7 @@ class TimelineWidgetContractMixin:
             )
         )
         if self._edit_mode == "fix" and (
-            prior_selected_event_refs != tuple(self.presentation.selected_event_refs)
+            prior_selected_event_refs != tuple(self.presentation.resolved_selected_event_refs())
             or prior_selected_event_ids != tuple(self.presentation.selected_event_ids)
         ):
             self._preview_selected_event_clip()
@@ -339,7 +332,7 @@ class TimelineWidgetContractMixin:
 
         selected_refs = [
             event_ref
-            for event_ref in self.presentation.selected_event_refs
+            for event_ref in self.presentation.resolved_selected_event_refs()
             if str(event_ref.event_id) in requested_id_set
         ]
         if selected_refs:
@@ -584,8 +577,8 @@ class TimelineWidgetContractMixin:
     def _preview_event_hit_target_for_selection(
         presentation: TimelinePresentation,
     ) -> TimelineInspectorHitTarget | None:
-        if presentation.selected_event_refs:
-            selected_ref = presentation.selected_event_refs[-1]
+        selected_ref = presentation.primary_selected_event_ref()
+        if selected_ref is not None:
             return TimelineInspectorHitTarget(
                 kind="event",
                 layer_id=selected_ref.layer_id,
@@ -730,12 +723,6 @@ class TimelineWidgetContractMixin:
         params: dict[str, object],
     ) -> bool:
         return self._action_router._handle_runtime_pipeline_action(action_id, params)
-
-    def _open_manual_pull_timeline_popup(
-        self: _TimelineWidgetContractHost,
-        flow: ManualPullFlowPresentation,
-    ) -> ManualPullTimelineSelectionResult | None:
-        return self._action_router._default_open_manual_pull_timeline_popup(flow)
 
     def _resolve_runtime_shell(
         self: _TimelineWidgetContractHost,

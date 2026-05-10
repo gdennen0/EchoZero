@@ -1904,7 +1904,13 @@ def test_move_mode_up_down_dispatch_adjacent_layer_move_intents():
     )
     try:
         _render_for_hit_testing(widget)
-        widget._editor_bar._mode_buttons["move"].click()
+        assert widget._editor_bar._mode_buttons["move"].isHidden() is True
+
+        QTest.keyClick(widget._canvas, Qt.Key.Key_M)
+        QApplication.processEvents()
+
+        assert widget._editor_bar._mode_buttons["move"].isHidden() is False
+        assert widget._editor_bar._mode_buttons["move"].isChecked() is True
 
         QTest.keyClick(widget._canvas, Qt.Key.Key_Up)
         QTest.keyClick(widget._canvas, Qt.Key.Key_Down)
@@ -2006,7 +2012,6 @@ def test_dragging_selected_event_dispatches_move_intent():
     )
     try:
         _render_for_hit_testing(widget)
-        widget._editor_bar._mode_buttons["move"].click()
 
         for rect, _, _, candidate_event_id in widget._canvas._event_rects:
             if str(candidate_event_id) == "main_evt":
@@ -2023,6 +2028,53 @@ def test_dragging_selected_event_dispatches_move_intent():
         app.processEvents()
 
 
+def test_select_mode_hover_uses_move_cursor_for_selected_event():
+    app = QApplication.instance() or QApplication([])
+    widget = TimelineWidget(_drag_test_presentation())
+    try:
+        _render_for_hit_testing(widget)
+
+        event_rect = next(
+            rect
+            for rect, _layer_id, _take_id, candidate_event_id in widget._canvas._event_rects
+            if str(candidate_event_id) == "main_evt"
+        )
+
+        QTest.mouseMove(widget._canvas, event_rect.center().toPoint())
+        app.processEvents()
+
+        assert widget._editor_bar._mode_buttons["select"].isChecked() is True
+        assert widget._canvas.cursor().shape() == Qt.CursorShape.SizeAllCursor
+    finally:
+        widget.close()
+        app.processEvents()
+
+
+def test_select_mode_keeps_section_events_hit_testable():
+    app = QApplication.instance() or QApplication([])
+    presentation = replace(
+        _section_overlay_scope_presentation(),
+        selected_layer_id=LayerId("layer_sections"),
+        selected_layer_ids=[LayerId("layer_sections")],
+        selected_event_ids=[EventId("cue_intro")],
+    )
+    widget = TimelineWidget(presentation)
+    try:
+        _render_for_hit_testing(widget)
+
+        section_event_rects = [
+            rect
+            for rect, layer_id, _take_id, event_id in widget._canvas._event_rects
+            if layer_id == LayerId("layer_sections") and event_id == EventId("cue_intro")
+        ]
+
+        assert widget._editor_bar._mode_buttons["select"].isChecked() is True
+        assert section_event_rects
+    finally:
+        widget.close()
+        app.processEvents()
+
+
 def test_move_drag_sets_continuous_preview_bar_time_during_drag() -> None:
     app = QApplication.instance() or QApplication([])
     intents: list[object] = []
@@ -2032,7 +2084,6 @@ def test_move_drag_sets_continuous_preview_bar_time_during_drag() -> None:
     )
     try:
         _render_for_hit_testing(widget)
-        widget._editor_bar._mode_buttons["move"].click()
 
         for rect, _, _, candidate_event_id in widget._canvas._event_rects:
             if str(candidate_event_id) == "main_evt":
@@ -2102,7 +2153,6 @@ def test_option_dragging_selected_event_dispatches_copy_move_intent():
     )
     try:
         _render_for_hit_testing(widget)
-        widget._editor_bar._mode_buttons["move"].click()
 
         for rect, _, _, candidate_event_id in widget._canvas._event_rects:
             if str(candidate_event_id) == "main_evt":
@@ -2138,7 +2188,6 @@ def test_dragging_selected_event_over_other_event_layer_dispatches_transfer_targ
     )
     try:
         _render_for_hit_testing(widget)
-        widget._editor_bar._mode_buttons["move"].click()
 
         for rect, _, _, candidate_event_id in widget._canvas._event_rects:
             if str(candidate_event_id) == "main_evt":
@@ -2173,7 +2222,6 @@ def test_option_dragging_selected_event_over_other_layer_dispatches_copy_transfe
     )
     try:
         _render_for_hit_testing(widget)
-        widget._editor_bar._mode_buttons["move"].click()
 
         for rect, _, _, candidate_event_id in widget._canvas._event_rects:
             if str(candidate_event_id) == "main_evt":

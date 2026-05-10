@@ -5,6 +5,8 @@ Connects the compatibility wrapper to the bounded contract-action support slice.
 
 from pathlib import Path
 
+import pytest
+
 from tests.ui.timeline_shell_shared_support import *  # noqa: F401,F403
 
 from echozero.ui.qt.song_browser_drop import SongBrowserAudioDrop
@@ -318,12 +320,16 @@ def test_contract_add_song_action_legacy_runtime_runs_configured_import_pipeline
     )
     widget = TimelineWidget(runtime.presentation(), on_intent=runtime.dispatch)
     try:
-        widget._trigger_contract_action(InspectorAction(action_id="song.add", label="Add Song"))
+        with pytest.raises(
+            RuntimeError,
+            match="must accept 'run_import_pipeline' and 'import_pipeline_action_ids'",
+        ):
+            widget._trigger_contract_action(
+                InspectorAction(action_id="song.add", label="Add Song")
+            )
 
-        assert runtime.calls == [("import", "C:/audio/import.wav")]
-        assert runtime.pipeline_calls == [
-            ("timeline.extract_stems", "layer_song", "layer")
-        ]
+        assert runtime.calls == []
+        assert runtime.pipeline_calls == []
     finally:
         widget.close()
         app.processEvents()
@@ -752,23 +758,23 @@ def test_contract_add_song_version_action_legacy_runtime_runs_configured_import_
             if action.action_id == "song.version.add"
         )
 
-        widget._trigger_contract_action(
-            replace(
-                action,
-                params={
-                    **action.params,
-                    "audio_path": "C:/audio/version-3.wav",
-                    "label": "Legacy Edit",
-                },
+        with pytest.raises(
+            RuntimeError,
+            match="must accept 'run_import_pipeline' and 'import_pipeline_action_ids'",
+        ):
+            widget._trigger_contract_action(
+                replace(
+                    action,
+                    params={
+                        **action.params,
+                        "audio_path": "C:/audio/version-3.wav",
+                        "label": "Legacy Edit",
+                    },
+                )
             )
-        )
 
-        assert runtime.calls == [
-            ("song_alpha", "C:/audio/version-3.wav", "Legacy Edit")
-        ]
-        assert runtime.pipeline_calls == [
-            ("timeline.extract_stems", "layer_song", "layer")
-        ]
+        assert runtime.calls == []
+        assert runtime.pipeline_calls == []
     finally:
         widget.close()
         app.processEvents()
@@ -1225,13 +1231,14 @@ def test_timeline_drop_import_runs_configured_import_pipeline_actions(tmp_path):
     audio_path.write_bytes(b"RIFF")
     widget = TimelineWidget(runtime.presentation(), on_intent=runtime.dispatch)
     try:
-        handled = widget._handle_song_drop((str(audio_path),))
+        with pytest.raises(
+            RuntimeError,
+            match="must accept 'run_import_pipeline' and 'import_pipeline_action_ids'",
+        ):
+            widget._handle_song_drop((str(audio_path),))
 
-        assert handled is True
-        assert runtime.add_song_calls == [("drop-song", str(audio_path))]
-        assert runtime.pipeline_calls == [
-            ("timeline.extract_stems", "source_audio", "layer")
-        ]
+        assert runtime.add_song_calls == []
+        assert runtime.pipeline_calls == []
     finally:
         widget.close()
         app.processEvents()

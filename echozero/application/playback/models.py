@@ -33,7 +33,15 @@ class PlaybackDiagnostics:
     stream_blocksize: int = 0
     prime_output_buffers_using_stream_callback: bool = True
     last_transition: str = ""
+    transition_state: str = "stopped"
     last_track_sync_reason: str = ""
+    ramp_samples_remaining: int = 0
+    last_discontinuity_reason: str | None = None
+    last_ramp_reason: str | None = None
+    timecode_mode: str = "internal_generated"
+    timecode_lock_state: str = "locked"
+    drift_ppm: float | None = None
+    drift_ms: float | None = None
     structural_rebuild_count: int = 0
     coalesced_edit_count: int = 0
     last_structural_rebuild_ms: float = 0.0
@@ -74,3 +82,11 @@ class PlaybackTimingSnapshot:
     clock_time_seconds: float
     snapshot_monotonic_seconds: float | None
     is_playing: bool
+    sample_position: int = 0
+    frame_index: int = 0
+    timecode_label: str = ""
+    display_label: str = ""
+    timecode_mode: str = "internal_generated"
+    timecode_lock_state: str = "locked"
+    drift_ppm: float | None = None
+    drift_ms: float | None = None

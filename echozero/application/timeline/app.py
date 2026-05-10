@@ -26,7 +26,11 @@ from echozero.application.timeline.intents import (
     Stop,
     TimelineIntent,
 )
-from echozero.application.timeline.orchestrator import TimelineOrchestrator
+from echozero.application.timeline.orchestrator import (
+    MA3TransferWorkspaceService,
+    TimelineOrchestrator,
+    TimelineMutator,
+)
 from echozero.application.timeline.queries import TimelineQueries
 from echozero.application.timeline.models import Timeline
 
@@ -54,6 +58,26 @@ class TimelineApplication:
         self._apply_runtime_audio_after_dispatch(intent, presentation)
         self._sync_runtime_state_for_transport_intent(intent, presentation)
         return presentation
+
+    @property
+    def timeline_mutator(self) -> TimelineMutator:
+        """Expose the canonical mutation owner for app-shell collaborators."""
+
+        self.orchestrator._sync_owners()
+        return self.orchestrator.mutator
+
+    @property
+    def transfer_workspace_service(self) -> MA3TransferWorkspaceService:
+        """Expose the MA3 transfer workspace owner for transfer-facing flows."""
+
+        self.orchestrator._sync_owners()
+        return self.orchestrator.transfer_workspace
+
+    @property
+    def ma3_transfer_workspace(self) -> MA3TransferWorkspaceService:
+        """Compatibility alias for the explicit MA3 transfer workspace owner."""
+
+        return self.transfer_workspace_service
 
     def replace_timeline(self, timeline: Timeline) -> None:
         self.timeline = timeline

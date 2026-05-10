@@ -1,5 +1,6 @@
 """Timeline object-actions lane.
 Exists to keep object-action descriptors, settings contracts, and orchestration under one application boundary.
+Connects callers to object-action contracts directly while lazily exposing the execution service to avoid import cycles.
 """
 
 from echozero.application.timeline.object_actions.descriptors import (
@@ -17,7 +18,6 @@ from echozero.application.timeline.object_actions.descriptors import (
     resolve_action_id,
     workflow_descriptor_for_action,
 )
-from echozero.application.timeline.object_actions.service import ObjectActionService
 from echozero.application.timeline.object_actions.session import (
     ApplyCopySource,
     ChangeSessionScope,
@@ -79,3 +79,11 @@ __all__ = [
     "resolve_action_id",
     "workflow_descriptor_for_action",
 ]
+
+
+def __getattr__(name: str):
+    if name == "ObjectActionService":
+        from echozero.application.timeline.object_actions.service import ObjectActionService
+
+        return ObjectActionService
+    raise AttributeError(name)

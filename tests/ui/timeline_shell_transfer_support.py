@@ -139,18 +139,27 @@ def test_layer_contract_exposes_send_actions_without_batch_or_pull_actions():
     assert "transfer.plan_apply" not in action_ids
 
 
-def test_transfer_workspace_open_action_prompts_once_and_imports_all_events():
+def test_transfer_workspace_open_action_prompts_once_and_imports_all_events(monkeypatch):
     app = QApplication.instance() or QApplication([])
     base = _selection_test_presentation()
     harness = _ManualPullHarness(base)
     widget = TimelineWidget(harness.presentation(), on_intent=harness.dispatch)
 
-    class _TrackSelectionDialog:
-        @staticmethod
-        def getItem(*_args, **_kwargs):
-            return ("Track 3 (tc1_tg2_tr3) - Lead [2 events]", True)
+    def _accept_workspace_dialog(_router, flow, *, exit_on_cancel):
+        if not flow.workspace_active:
+            _router._dispatch(OpenPullFromMA3Dialog())
+        _router._dispatch(SelectPullSourceTracks(source_track_coords=["tc1_tg2_tr3"]))
+        _router._dispatch(SelectPullSourceTrack(source_track_coord="tc1_tg2_tr3"))
+        _router._dispatch(
+            SelectPullSourceEvents(selected_ma3_event_ids=["ma3_evt_1", "ma3_evt_2"])
+        )
+        return True
 
-    widget._action_router._input_dialog = _TrackSelectionDialog
+    monkeypatch.setattr(
+        TimelineWidgetTransferWorkspaceMixin,
+        "_open_manual_pull_workspace_dialog",
+        _accept_workspace_dialog,
+    )
     try:
         _render_for_hit_testing(widget)
         pull_action = next(
@@ -175,7 +184,9 @@ def test_transfer_workspace_open_action_prompts_once_and_imports_all_events():
         app.processEvents()
 
 
-def test_transfer_workspace_open_pull_from_section_layer_focuses_layer_without_router_crash():
+def test_transfer_workspace_open_pull_from_section_layer_focuses_layer_without_router_crash(
+    monkeypatch,
+):
     app = QApplication.instance() or QApplication([])
     base = _selection_test_presentation()
     section_layer = replace(
@@ -209,6 +220,17 @@ def test_transfer_workspace_open_pull_from_section_layer_focuses_layer_without_r
         return presentation
 
     widget = TimelineWidget(presentation, on_intent=_dispatch)
+
+    def _cancel_workspace_dialog(_router, flow, *, exit_on_cancel):
+        if not flow.workspace_active:
+            _router._dispatch(OpenPullFromMA3Dialog())
+        return False
+
+    monkeypatch.setattr(
+        TimelineWidgetTransferWorkspaceMixin,
+        "_open_manual_pull_workspace_dialog",
+        _cancel_workspace_dialog,
+    )
     try:
         _render_for_hit_testing(widget)
         pull_action = next(
@@ -1712,72 +1734,6 @@ def test_overwrite_send_requires_confirmation_before_dispatch(monkeypatch):
         assert any("Selected EZ events: 1 event" in prompt for prompt in prompts)
     finally:
         widget.close()
-        app.processEvents()
-
-
-def test_manual_pull_timeline_dialog_keeps_target_selection_in_same_popup():
-    app = QApplication.instance() or QApplication([])
-    dialog = ManualPullTimelineDialog(
-        source_track_label="Track 3 (tc1_tg2_tr3)",
-        events=[
-            ManualPullEventOptionPresentation(
-                event_id="ma3_evt_1",
-                label="Cue 1",
-                start=1.0,
-                end=1.5,
-            ),
-            ManualPullEventOptionPresentation(
-                event_id="ma3_evt_2",
-                label="Cue 2",
-                start=2.0,
-                end=2.5,
-            ),
-        ],
-        selected_event_ids=["ma3_evt_2"],
-        available_targets=[
-            ManualPullTargetOptionPresentation(layer_id=LayerId("layer_kick"), name="Kick"),
-            ManualPullTargetOptionPresentation(
-                layer_id=LayerId("__manual_pull__:create_new_layer"), name="Create New Layer"
-            ),
-        ],
-        selected_target_layer_id=LayerId("__manual_pull__:create_new_layer"),
-        selected_import_mode="new_take",
-    )
-    try:
-        assert dialog.selected_event_ids() == ["ma3_evt_2"]
-        assert dialog.selected_target_layer_id() == LayerId("__manual_pull__:create_new_layer")
-        assert dialog.selected_import_mode() == "main"
-        assert dialog._import_mode_combo.isEnabled() is False
-        assert [
-            dialog._target_combo.itemText(index) for index in range(dialog._target_combo.count())
-        ] == [
-            "Kick",
-            "Create New Layer",
-        ]
-        assert [
-            dialog._import_mode_combo.itemText(index)
-            for index in range(dialog._import_mode_combo.count())
-        ] == [
-            "Import as New Take",
-            "Import to Main",
-        ]
-        assert dialog._scroll_area.widget() is dialog._canvas
-        assert dialog._zoom_value_label.text() == "100%"
-
-        initial_pps = dialog._canvas.pixels_per_second
-        initial_min_width = dialog._canvas.minimumWidth()
-        dialog._zoom_in_btn.click()
-        app.processEvents()
-        assert dialog._canvas.pixels_per_second > initial_pps
-        assert dialog._canvas.minimumWidth() >= initial_min_width
-
-        dialog._canvas.set_selected_event_ids(["ma3_evt_1", "ma3_evt_2"])
-
-        assert dialog.selected_event_ids() == ["ma3_evt_1", "ma3_evt_2"]
-        assert dialog.selected_target_layer_id() == LayerId("__manual_pull__:create_new_layer")
-        assert dialog._selection_label.text() == "Selected: 2 events"
-    finally:
-        dialog.close()
         app.processEvents()
 
 

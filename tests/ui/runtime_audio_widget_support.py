@@ -8,6 +8,7 @@ from echozero.ui.FEEL import TIMELINE_RUNTIME_TICK_IDLE_MS
 from echozero.application.shared.ranges import TimeRange
 from echozero.application.timeline.intents import CreateEvent
 
+
 def test_widget_runtime_tick_tracks_provider_smoothly_without_seek_dispatch():
     app = QApplication.instance() or QApplication([])
     presentation = _audio_presentation()
@@ -79,6 +80,38 @@ def test_widget_runtime_tick_extrapolates_from_backend_timing_snapshot(monkeypat
         app.processEvents()
 
 
+def test_widget_runtime_tick_uses_backend_timecode_display_label(monkeypatch):
+    app = QApplication.instance() or QApplication([])
+    presentation = _audio_presentation()
+    runtime_audio = FakeRuntimeAudio()
+    widget = TimelineWidget(
+        presentation,
+        on_intent=lambda intent: presentation,
+        runtime_audio=runtime_audio,
+    )
+    widget._runtime_timer.stop()
+    try:
+        runtime_audio.playing = True
+        runtime_audio.snapshot = RuntimeAudioTimingSnapshot(
+            audible_time_seconds=2.0,
+            clock_time_seconds=2.0,
+            snapshot_monotonic_seconds=900.0,
+            is_playing=True,
+            sample_position=96000,
+            frame_index=48,
+            timecode_label="00:00:02:00",
+            display_label="00:00:02:00",
+        )
+        monkeypatch.setattr(time, "monotonic", lambda: 900.0)
+
+        widget._on_runtime_tick()
+
+        assert widget.presentation.current_time_label == "00:00:02:00"
+    finally:
+        widget.close()
+        app.processEvents()
+
+
 def test_widget_dispatch_preserves_runtime_playhead_on_audio_route_update():
     app = QApplication.instance() or QApplication([])
     presentation = _audio_presentation()
@@ -96,9 +129,7 @@ def test_widget_dispatch_preserves_runtime_playhead_on_audio_route_update():
                 if isinstance(intent, SetLayerMute)
                 else presentation.selected_layer_id
             ),
-            selected_take_id=(
-                presentation.selected_take_id
-            ),
+            selected_take_id=(presentation.selected_take_id),
             playhead=0.0,
             is_playing=False,
             current_time_label="00:00.00",
@@ -503,13 +534,9 @@ def test_widget_runtime_ticks_do_not_snap_backward_during_audio_route_churn():
         updated = replace(
             current,
             selected_layer_id=(
-                intent.layer_id
-                if isinstance(intent, SetLayerMute)
-                else current.selected_layer_id
+                intent.layer_id if isinstance(intent, SetLayerMute) else current.selected_layer_id
             ),
-            selected_take_id=(
-                current.selected_take_id
-            ),
+            selected_take_id=(current.selected_take_id),
             playhead=0.0,
             is_playing=False,
             current_time_label="00:00.00",
@@ -589,9 +616,11 @@ def test_widget_seek_churn_keeps_seek_anchor_through_stale_runtime_samples():
             updated = replace(
                 current,
                 layers=[
-                    replace(layer, muted=bool(intent.muted))
-                    if layer.layer_id == intent.layer_id
-                    else layer
+                    (
+                        replace(layer, muted=bool(intent.muted))
+                        if layer.layer_id == intent.layer_id
+                        else layer
+                    )
                     for layer in current.layers
                 ],
                 playhead=0.0,
@@ -756,5 +785,6 @@ def test_widget_zoom_keeps_anchor_time_under_cursor():
     finally:
         widget.close()
         app.processEvents()
+
 
 __all__ = [name for name in globals() if name.startswith("test_")]

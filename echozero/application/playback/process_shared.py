@@ -17,7 +17,6 @@ from echozero.application.playback.models import (
 )
 from echozero.application.shared.enums import PlaybackMode, PlaybackStatus
 
-
 PLAYBACK_IPC_VERSION = "1"
 PLAYBACK_IPC_TOKEN_HEADER = "x-ez-playback-token"
 PLAYBACK_IPC_HOST = "127.0.0.1"
@@ -42,6 +41,14 @@ def encode_timing_snapshot(snapshot: PlaybackTimingSnapshot) -> dict[str, object
             else None
         ),
         "is_playing": bool(snapshot.is_playing),
+        "sample_position": int(snapshot.sample_position),
+        "frame_index": int(snapshot.frame_index),
+        "timecode_label": str(snapshot.timecode_label),
+        "display_label": str(snapshot.display_label),
+        "timecode_mode": str(snapshot.timecode_mode),
+        "timecode_lock_state": str(snapshot.timecode_lock_state),
+        "drift_ppm": float(snapshot.drift_ppm) if snapshot.drift_ppm is not None else None,
+        "drift_ms": float(snapshot.drift_ms) if snapshot.drift_ms is not None else None,
     }
 
 
@@ -57,6 +64,18 @@ def decode_timing_snapshot(payload: dict[str, object]) -> PlaybackTimingSnapshot
             else None
         ),
         is_playing=bool(payload.get("is_playing", False)),
+        sample_position=int(payload.get("sample_position", 0) or 0),
+        frame_index=int(payload.get("frame_index", 0) or 0),
+        timecode_label=str(payload.get("timecode_label", "") or ""),
+        display_label=str(payload.get("display_label", "") or ""),
+        timecode_mode=str(
+            payload.get("timecode_mode", "internal_generated") or "internal_generated"
+        ),
+        timecode_lock_state=str(payload.get("timecode_lock_state", "locked") or "locked"),
+        drift_ppm=(
+            float(payload.get("drift_ppm")) if payload.get("drift_ppm") is not None else None
+        ),
+        drift_ms=(float(payload.get("drift_ms")) if payload.get("drift_ms") is not None else None),
     )
 
 
@@ -76,7 +95,9 @@ def encode_playback_state(state: PlaybackState) -> dict[str, object]:
         ],
         "latency_ms": float(state.latency_ms),
         "backend_name": str(state.backend_name),
-        "active_layer_id": str(state.active_layer_id) if state.active_layer_id is not None else None,
+        "active_layer_id": (
+            str(state.active_layer_id) if state.active_layer_id is not None else None
+        ),
         "active_take_id": str(state.active_take_id) if state.active_take_id is not None else None,
         "output_sample_rate": int(state.output_sample_rate),
         "output_channels": int(state.output_channels),
@@ -98,13 +119,48 @@ def decode_playback_state(payload: dict[str, object]) -> PlaybackState:
             _mapping_get(diagnostics_payload, "prime_output_buffers_using_stream_callback", True)
         ),
         last_transition=str(_mapping_get(diagnostics_payload, "last_transition", "") or ""),
+        transition_state=str(
+            _mapping_get(diagnostics_payload, "transition_state", "stopped") or "stopped"
+        ),
         last_track_sync_reason=str(
             _mapping_get(diagnostics_payload, "last_track_sync_reason", "") or ""
+        ),
+        ramp_samples_remaining=int(
+            _mapping_get(diagnostics_payload, "ramp_samples_remaining", 0) or 0
+        ),
+        last_discontinuity_reason=(
+            str(_mapping_get(diagnostics_payload, "last_discontinuity_reason", None))
+            if _mapping_get(diagnostics_payload, "last_discontinuity_reason", None) is not None
+            else None
+        ),
+        last_ramp_reason=(
+            str(_mapping_get(diagnostics_payload, "last_ramp_reason", None))
+            if _mapping_get(diagnostics_payload, "last_ramp_reason", None) is not None
+            else None
+        ),
+        timecode_mode=str(
+            _mapping_get(diagnostics_payload, "timecode_mode", "internal_generated")
+            or "internal_generated"
+        ),
+        timecode_lock_state=str(
+            _mapping_get(diagnostics_payload, "timecode_lock_state", "locked") or "locked"
+        ),
+        drift_ppm=(
+            float(_mapping_get(diagnostics_payload, "drift_ppm", 0.0))
+            if _mapping_get(diagnostics_payload, "drift_ppm", None) is not None
+            else None
+        ),
+        drift_ms=(
+            float(_mapping_get(diagnostics_payload, "drift_ms", 0.0))
+            if _mapping_get(diagnostics_payload, "drift_ms", None) is not None
+            else None
         ),
         structural_rebuild_count=int(
             _mapping_get(diagnostics_payload, "structural_rebuild_count", 0) or 0
         ),
-        coalesced_edit_count=int(_mapping_get(diagnostics_payload, "coalesced_edit_count", 0) or 0),
+        coalesced_edit_count=int(
+            _mapping_get(diagnostics_payload, "coalesced_edit_count", 0) or 0
+        ),
         last_structural_rebuild_ms=float(
             _mapping_get(diagnostics_payload, "last_structural_rebuild_ms", 0.0) or 0.0
         ),
@@ -161,8 +217,12 @@ def decode_playback_state(payload: dict[str, object]) -> PlaybackState:
         active_sources=active_sources,
         latency_ms=float(payload.get("latency_ms", 0.0) or 0.0),
         backend_name=str(payload.get("backend_name", "") or ""),
-        active_layer_id=str(payload.get("active_layer_id")) if payload.get("active_layer_id") else None,
-        active_take_id=str(payload.get("active_take_id")) if payload.get("active_take_id") else None,
+        active_layer_id=(
+            str(payload.get("active_layer_id")) if payload.get("active_layer_id") else None
+        ),
+        active_take_id=(
+            str(payload.get("active_take_id")) if payload.get("active_take_id") else None
+        ),
         output_sample_rate=int(payload.get("output_sample_rate", 0) or 0),
         output_channels=int(payload.get("output_channels", 0) or 0),
         diagnostics=diagnostics,

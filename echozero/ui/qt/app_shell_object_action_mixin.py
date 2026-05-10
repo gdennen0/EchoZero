@@ -34,18 +34,28 @@ from echozero.ui.qt.app_shell_object_actions import (
     save_object_action_settings,
     wait_for_operation,
 )
-from echozero.ui.qt.app_shell_runtime_support import RuntimeSupportShell, preview_event_clip
+from echozero.ui.qt.app_shell_runtime_support import preview_event_clip
 
 
-class AppShellObjectActionShell(RuntimeSupportShell, Protocol):
+class AppShellObjectActionShell(Protocol):
     _app: TimelineApplication
     _is_dirty: bool
     _last_pipeline_run_revision: int
     _object_action_settings: ObjectActionService
     _pipeline_runs: OperationProgressService
+    _analysis_service: object
+    _sync_bridge: object | None
+    _app_settings_service: object | None
+    project_storage: object
 
     @property
     def session(self) -> Session: ...
+
+    @property
+    def runtime_audio(self) -> object | None: ...
+
+    @runtime_audio.setter
+    def runtime_audio(self, value: object | None) -> None: ...
 
     def presentation(self) -> TimelinePresentation: ...
 

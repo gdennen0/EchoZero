@@ -12,6 +12,7 @@ from echozero.application.shared.cue_numbers import (
     parse_positive_cue_number,
 )
 
+
 @dataclass(frozen=True, slots=True)
 class MA3TrackSnapshot:
     """Normalized snapshot of one MA3 track exposed to the sync layer."""
@@ -67,6 +68,18 @@ class MA3SequenceRangeSnapshot:
     song_label: str | None
     start: int
     end: int
+
+
+@dataclass(frozen=True, slots=True)
+class MA3PresetSnapshot:
+    """Normalized snapshot of one MA3 preset creation or lookup result."""
+
+    preset_type: int
+    number: int
+    name: str
+    store_mode: str
+    kind: str
+    step_count: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -158,6 +171,107 @@ class MA3Adapter(Protocol):
         track_group_no: int,
         preferred_name: str | None = None,
     ) -> MA3TrackSnapshot: ...
+
+    def create_static_preset(
+        self,
+        *,
+        preset_type_no: int,
+        preset_no: int,
+        store_mode: str,
+        preset_name: str,
+        selection_command: str,
+        value_command: str,
+    ) -> MA3PresetSnapshot: ...
+
+    def create_phaser_preset(
+        self,
+        *,
+        preset_type_no: int,
+        preset_no: int,
+        store_mode: str,
+        preset_name: str,
+        selection_command: str,
+        step_preset_refs: Sequence[Sequence[str] | str],
+        speed_bpm: float | None = None,
+    ) -> MA3PresetSnapshot: ...
+
+    def create_recipe_preset(
+        self,
+        *,
+        preset_type_no: int,
+        preset_no: int,
+        store_mode: str,
+        preset_name: str,
+        selection_command: str,
+        source_preset_ref: str,
+        selection_mode: str = "Strict",
+    ) -> MA3PresetSnapshot: ...
+
+    def edit_static_preset(
+        self,
+        *,
+        preset_type_no: int,
+        preset_no: int,
+        store_mode: str,
+        preset_name: str,
+        selection_command: str,
+        value_command: str,
+    ) -> MA3PresetSnapshot: ...
+
+    def edit_phaser_preset(
+        self,
+        *,
+        preset_type_no: int,
+        preset_no: int,
+        store_mode: str,
+        preset_name: str,
+        selection_command: str,
+        step_preset_refs: Sequence[Sequence[str] | str],
+        speed_bpm: float | None = None,
+    ) -> MA3PresetSnapshot: ...
+
+    def edit_recipe_preset(
+        self,
+        *,
+        preset_type_no: int,
+        preset_no: int,
+        store_mode: str,
+        preset_name: str,
+        selection_command: str,
+        source_preset_ref: str,
+        selection_mode: str = "Strict",
+    ) -> MA3PresetSnapshot: ...
+
+    def analyze_cue_recipe_state(
+        self,
+        *,
+        sequence_no: int,
+        cue_no: CueNumber | float | int | str,
+    ) -> dict[str, object]: ...
+
+    def preview_recipe_cue_only(
+        self,
+        *,
+        sequence_no: int,
+        source_cue_no: CueNumber | float | int | str,
+        target_cue_no: CueNumber | float | int | str,
+    ) -> dict[str, object]: ...
+
+    def apply_recipe_cue_only(
+        self,
+        *,
+        sequence_no: int,
+        source_cue_no: CueNumber | float | int | str,
+        target_cue_no: CueNumber | float | int | str,
+    ) -> dict[str, object]: ...
+
+    def copy_cue_with_status(
+        self,
+        *,
+        sequence_no: int,
+        source_cue_no: CueNumber | float | int | str,
+        dest_cue_no: CueNumber | float | int | str,
+    ) -> dict[str, object]: ...
 
     def prepare_track_for_events(self, *, target_track_coord: str) -> None: ...
 
@@ -316,6 +430,36 @@ def coerce_sequence_range_snapshot(raw_range: Any) -> MA3SequenceRangeSnapshot |
     )
 
 
+def coerce_preset_snapshot(raw_preset: Any) -> MA3PresetSnapshot:
+    """Coerce bridge payloads into the canonical MA3 preset snapshot shape."""
+
+    if isinstance(raw_preset, MA3PresetSnapshot):
+        return raw_preset
+
+    preset_type = _value(raw_preset, "preset_type")
+    if preset_type in {None, ""}:
+        preset_type = _value(raw_preset, "type")
+    number = _value(raw_preset, "number")
+    if number in {None, ""}:
+        number = _value(raw_preset, "no")
+    name = _value(raw_preset, "name")
+    store_mode = _value(raw_preset, "store_mode")
+    if store_mode in {None, ""}:
+        store_mode = _value(raw_preset, "mode")
+    kind = _value(raw_preset, "kind")
+    step_count = _value(raw_preset, "step_count")
+    if step_count in {None, ""}:
+        step_count = _value(raw_preset, "stepCount")
+    return MA3PresetSnapshot(
+        preset_type=int(_optional_int(preset_type) or 0),
+        number=int(_optional_int(number) or 0),
+        name=str(name or ""),
+        store_mode=str(store_mode or ""),
+        kind=str(kind or ""),
+        step_count=_optional_positive_int(step_count),
+    )
+
+
 def coerce_event_snapshot(raw_event: Any) -> MA3EventSnapshot:
     """Coerce bridge payloads into the canonical MA3 event snapshot shape."""
 
@@ -409,11 +553,12 @@ def coerce_event_snapshot(raw_event: Any) -> MA3EventSnapshot:
         cmd=None if command_text is None else str(command_text),
         cue_number=resolved_cue_number,
         cue_ref=resolved_cue_ref,
-        color=None if _value(raw_event, "color") in {None, ""} else str(_value(raw_event, "color")),
+        color=(
+            None if _value(raw_event, "color") in {None, ""} else str(_value(raw_event, "color"))
+        ),
         notes=(
             None
-            if _value(raw_event, "notes") in {None, ""}
-            and _value(raw_event, "note") in {None, ""}
+            if _value(raw_event, "notes") in {None, ""} and _value(raw_event, "note") in {None, ""}
             else str(_value(raw_event, "notes") or _value(raw_event, "note"))
         ),
         payload_ref=(
@@ -497,6 +642,20 @@ def sequence_range_snapshot_payload(raw_range: Any) -> dict[str, object] | None:
         "song_label": snapshot.song_label,
         "start": snapshot.start,
         "end": snapshot.end,
+    }
+
+
+def preset_snapshot_payload(raw_preset: Any) -> dict[str, object]:
+    """Serialize one MA3 preset snapshot into a plain adapter payload."""
+
+    snapshot = coerce_preset_snapshot(raw_preset)
+    return {
+        "preset_type": snapshot.preset_type,
+        "number": snapshot.number,
+        "name": snapshot.name,
+        "store_mode": snapshot.store_mode,
+        "kind": snapshot.kind,
+        "step_count": snapshot.step_count,
     }
 
 

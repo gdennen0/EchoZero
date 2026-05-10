@@ -5,6 +5,7 @@ Connects timeline presentation, inspector contracts, and reusable row blocks to 
 
 from __future__ import annotations
 
+from dataclasses import replace
 from typing import Final
 
 from PyQt6.QtCore import Qt, pyqtSignal
@@ -172,6 +173,8 @@ class TimelineCanvas(_TimelineCanvasPaintMixin, _TimelineCanvasInteractionMixin,
             self._layer_height_config.layer_kind_main_row_height_px
         )
         self._custom_main_row_height_by_layer: dict[LayerId, int] = {}
+        self._fully_collapsed_layer_ids: set[LayerId] = set()
+        self._collapsed_row_height = int(max(24, self._main_row_min_height))
         self._event_height = EVENT_BAR_HEIGHT_PX
         self._take_rects: list[_TakeRect] = []
         self._take_option_rects: list[_TakeRect] = []
@@ -247,7 +250,7 @@ class TimelineCanvas(_TimelineCanvasPaintMixin, _TimelineCanvasInteractionMixin,
         height = self._top_padding
         for layer in self.presentation.layers:
             height += self._main_row_height_for_layer(layer)
-            if layer.is_expanded:
+            if layer.is_expanded and not layer.is_fully_collapsed:
                 height += len(layer.takes) * self._take_row_height
         self.setMinimumHeight(max(320, height + 12))
 
@@ -272,7 +275,7 @@ class TimelineCanvas(_TimelineCanvasPaintMixin, _TimelineCanvasInteractionMixin,
         *,
         recompute_layout: bool = True,
     ) -> None:
-        self.presentation = presentation
+        self.presentation = self._apply_full_collapse_overrides(presentation)
         self._prune_row_height_overrides()
         if recompute_layout:
             self._recompute_height()
@@ -338,6 +341,8 @@ class TimelineCanvas(_TimelineCanvasPaintMixin, _TimelineCanvasInteractionMixin,
         return int(self._main_row_height_by_kind.get(kind, self._main_row_height))
 
     def _main_row_height_for_layer(self, layer: LayerPresentation) -> int:
+        if layer.is_fully_collapsed:
+            return int(self._collapsed_row_height)
         return int(
             self._custom_main_row_height_by_layer.get(
                 layer.layer_id,
@@ -362,6 +367,8 @@ class TimelineCanvas(_TimelineCanvasPaintMixin, _TimelineCanvasInteractionMixin,
         )
         if layer is None:
             return
+        if layer.is_fully_collapsed:
+            return
         clamped = int(max(self._main_row_min_height, min(self._main_row_max_height, int(height))))
         default_height = self._default_main_row_height_for_kind(layer.kind)
         previous_height = self._main_row_height_for_layer(layer)
@@ -383,6 +390,39 @@ class TimelineCanvas(_TimelineCanvasPaintMixin, _TimelineCanvasInteractionMixin,
         ]
         for layer_id in stale_layer_ids:
             self._custom_main_row_height_by_layer.pop(layer_id, None)
+        self._fully_collapsed_layer_ids = {
+            layer_id for layer_id in self._fully_collapsed_layer_ids if layer_id in active_layer_ids
+        }
+
+    def _apply_full_collapse_overrides(
+        self,
+        presentation: TimelinePresentation,
+    ) -> TimelinePresentation:
+        layers = [
+            replace(
+                layer,
+                is_fully_collapsed=(layer.layer_id in self._fully_collapsed_layer_ids),
+            )
+            for layer in presentation.layers
+        ]
+        return replace(presentation, layers=layers)
+
+    def toggle_layer_fully_collapsed(self, layer_id: LayerId) -> None:
+        layer = next((candidate for candidate in self.presentation.layers if candidate.layer_id == layer_id), None)
+        if layer is None or not layer.takes:
+            return
+        if layer_id in self._fully_collapsed_layer_ids:
+            self._fully_collapsed_layer_ids.remove(layer_id)
+        else:
+            self._fully_collapsed_layer_ids.add(layer_id)
+            self._open_take_options = {
+                (candidate_layer_id, take_id)
+                for candidate_layer_id, take_id in self._open_take_options
+                if candidate_layer_id != layer_id
+            }
+        self.presentation = self._apply_full_collapse_overrides(self.presentation)
+        self._recompute_height()
+        self.update()
 
 
 __all__ = ["TimelineCanvas", "badge_tooltip_labels"]

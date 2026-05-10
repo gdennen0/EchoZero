@@ -174,17 +174,26 @@ class _SyncService(SyncService):
     def list_pull_source_events(self, source_track_coord: str):
         return list(self._events_by_track.get(source_track_coord, []))
 
-    def apply_push_transfer(self, *, target_track_coord, selected_events):
+    def apply_push_transfer(
+        self,
+        *,
+        target_track_coord,
+        ma3_channel_no=None,
+        selected_events,
+        transfer_mode="merge",
+        start_offset_seconds=0.0,
+    ):
+        del ma3_channel_no
+        del start_offset_seconds
         event_ids = [str(event.id) for event in selected_events]
         self.push_calls.append((target_track_coord, event_ids))
+        self.push_mode_calls.append(str(transfer_mode))
         if self._fail_track is not None and target_track_coord == self._fail_track:
             raise RuntimeError(f"Push apply failed for {target_track_coord}")
 
 
 class _TransferModeSyncService(_SyncService):
-    def apply_push_transfer(self, *, target_track_coord, selected_events, transfer_mode):
-        self.push_mode_calls.append(transfer_mode)
-        super().apply_push_transfer(target_track_coord=target_track_coord, selected_events=selected_events)
+    pass
 
 
 class _ModeAliasSyncService(_SyncService):
@@ -616,11 +625,11 @@ def test_apply_transfer_plan_passes_push_transfer_mode_when_endpoint_supports_tr
     assert sync_service.push_mode_calls == ["overwrite"]
 
 
-def test_apply_transfer_plan_passes_push_transfer_mode_when_endpoint_uses_mode_alias():
+def test_apply_transfer_plan_fails_when_endpoint_uses_mode_alias_signature():
     sync_service = _ModeAliasSyncService(
         push_tracks=[ManualPushTrackOption(coord="tc1_tg2_tr3", name="Track 3")]
     )
-    orchestrator, timeline, _session = _build_orchestrator(sync_service)
+    orchestrator, timeline, session = _build_orchestrator(sync_service)
     timeline.selection.selected_layer_id = LayerId("layer_kick")
     timeline.selection.selected_take_id = TakeId("take_kick")
     timeline.selection.selected_event_ids = [EventId("kick_evt")]
@@ -636,8 +645,12 @@ def test_apply_transfer_plan_passes_push_transfer_mode_when_endpoint_uses_mode_a
     orchestrator.handle(timeline, SetPushTransferMode(mode="overwrite"))
     orchestrator.handle(timeline, ApplyTransferPlan(plan_id=f"push:{timeline.id}"))
 
-    assert sync_service.push_calls == [("tc1_tg2_tr3", ["kick_evt"])]
-    assert sync_service.push_mode_calls == ["overwrite"]
+    assert sync_service.push_calls == []
+    assert session.batch_transfer_plan is not None
+    assert session.batch_transfer_plan.rows[0].status == "failed"
+    assert "unexpected keyword argument 'ma3_channel_no'" in (
+        session.batch_transfer_plan.rows[0].issue or ""
+    )
 
 
 

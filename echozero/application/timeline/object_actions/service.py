@@ -1,5 +1,17 @@
-"""Application-level orchestration for timeline object actions."""
+"""Public service exports for timeline object-action execution.
+Exists to expose one explicit execution owner instead of a settings-first alias chain.
+Connects timeline callers to the canonical object-action service surface.
+"""
 
-from echozero.application.timeline.object_action_settings_service import ObjectActionSettingsService as ObjectActionService
+from echozero.application.timeline.object_action_settings_service import (
+    ObjectActionExecutionService,
+    ObjectActionSettingsService,
+)
 
-__all__ = ["ObjectActionService"]
+ObjectActionService = ObjectActionExecutionService
+
+__all__ = [
+    "ObjectActionExecutionService",
+    "ObjectActionService",
+    "ObjectActionSettingsService",
+]

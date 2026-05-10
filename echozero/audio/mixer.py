@@ -12,7 +12,6 @@ import numpy as np
 
 from echozero.audio.layer import AudioLayer, AudioTrack
 
-
 # Leave headroom for host-chosen callback sizes when sounddevice runs with
 # blocksize=0 on real hardware.
 _MAX_SCRATCH_FRAMES = 32768
@@ -236,7 +235,7 @@ class Mixer:
     def solo_exclusive(self, layer_id: str) -> None:
         """Solo one layer, unsolo all others. Standard DAW behavior for click-solo."""
         for layer in self._layers:
-            layer.solo = (layer.id == layer_id)
+            layer.solo = layer.id == layer_id
         # A15: recount after bulk change
         self._solo_count = sum(1 for l in self._layers if l.solo)
 
@@ -376,7 +375,7 @@ class Mixer:
                 envelope=envelope,
                 frames=frames,
             )
-            out[:, target_start:target_start + target_width] += layer_buf
+            out[:, target_start : target_start + target_width] += layer_buf
 
         out *= self._master_volume
 
@@ -436,6 +435,16 @@ class Mixer:
         if not self._layers:
             return 0
         return max(l.end_sample for l in self._layers)
+
+    @property
+    def ramp_samples_remaining(self) -> int:
+        """Largest active gain-ramp remainder across mixer tracks."""
+
+        if not self._gain_envelopes:
+            return 0
+        return max(
+            0, max(int(envelope.remaining_samples) for envelope in self._gain_envelopes.values())
+        )
 
     @property
     def track_count(self) -> int:

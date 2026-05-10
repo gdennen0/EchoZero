@@ -184,17 +184,6 @@ class _PreviewEventRuntimeShell(_TimelineRuntimeShell, Protocol):
     ) -> None: ...
 
 
-class _RunObjectActionRuntimeShell(_TimelineRuntimeShell, Protocol):
-    def run_object_action(
-        self,
-        action_id: str,
-        params: dict[str, object],
-        *,
-        object_id: LayerId,
-        object_type: str,
-    ) -> TimelinePresentation: ...
-
-
 def _coerce_layer_id(value: object) -> LayerId | None:
     if isinstance(value, str):
         stripped = value.strip()
@@ -277,62 +266,21 @@ class TimelineWidgetContractActionMixin:
         self._remember_audio_picker_directory(audio_path)
         return audio_path
 
-    def _run_configured_import_pipeline_actions(
-        self,
-        *,
-        runtime: _TimelineRuntimeShell,
-        source_label: str,
-    ) -> None:
-        host = cast(_ContractActionHost, self)
-        resolver = getattr(self, "_configured_import_pipeline_actions", None)
-        runner = getattr(self, "_run_import_pipeline_actions", None)
-        if not callable(resolver):
-            return
-        action_ids = resolver(runtime)
-        if not action_ids:
-            return
-        if callable(runner):
-            runner(
-                runtime=runtime,
-                source_label=source_label,
-                action_ids=action_ids,
-            )
-            return
-        source_layer_id = self._resolve_import_source_audio_layer_id(runtime)
-        if source_layer_id is None:
-            return
-        run_runtime = cast(_RunObjectActionRuntimeShell | None, runtime)
-        if run_runtime is None or not callable(getattr(run_runtime, "run_object_action", None)):
-            return
-        for action_id in action_ids:
-            try:
-                updated = run_runtime.run_object_action(
-                    action_id,
-                    {},
-                    object_id=source_layer_id,
-                    object_type="layer",
-                )
-            except Exception as exc:
-                host._message_box.warning(
-                    host._widget,
-                    "Import Pipeline Actions",
-                    f"{source_label}: {exc}",
-                )
-                continue
-            host._set_presentation(updated if updated is not None else runtime.presentation())
-
     @staticmethod
-    def _resolve_import_source_audio_layer_id(
-        runtime: _TimelineRuntimeShell,
-    ) -> LayerId | None:
-        presentation = runtime.presentation()
-        for layer in presentation.layers:
-            if str(layer.layer_id).strip() == "source_audio":
-                return cast(LayerId, layer.layer_id)
-        for layer in presentation.layers:
-            if layer.kind is LayerKind.AUDIO:
-                return cast(LayerId, layer.layer_id)
-        return None
+    def _require_native_import_pipeline_control(
+        *,
+        runtime_name: str,
+        action_name: str,
+        configured_action_ids: tuple[str, ...],
+        supports_native_pipeline_control: bool,
+    ) -> None:
+        if supports_native_pipeline_control or not configured_action_ids:
+            return
+        raise RuntimeError(
+            f"{runtime_name}.{action_name} must accept "
+            "'run_import_pipeline' and 'import_pipeline_action_ids' when import pipeline "
+            "actions are configured"
+        )
 
     def _configured_import_pipeline_action_ids(
         self,
@@ -676,17 +624,13 @@ class TimelineWidgetContractActionMixin:
         configured_action_ids = self._configured_import_pipeline_action_ids(runtime)
         canonical_import = getattr(self, "_invoke_add_song_from_path", None)
         if callable(canonical_import) and configured_action_ids is not None:
-            try:
-                handled = canonical_import(
-                    runtime,
-                    title.strip(),
-                    audio_path,
-                    run_import_pipeline=bool(configured_action_ids),
-                    pipeline_action_ids=configured_action_ids or None,
-                )
-            except Exception as exc:
-                host._message_box.warning(host._widget, "Add Song", str(exc))
-                return
+            handled = canonical_import(
+                runtime,
+                title.strip(),
+                audio_path,
+                run_import_pipeline=bool(configured_action_ids),
+                pipeline_action_ids=configured_action_ids or None,
+            )
             if not bool(handled):
                 return
             return
@@ -701,6 +645,12 @@ class TimelineWidgetContractActionMixin:
             call_kwargs["import_pipeline_action_ids"] = (
                 configured_action_ids or None
             )
+        self._require_native_import_pipeline_control(
+            runtime_name=type(runtime).__name__,
+            action_name="add_song_from_path",
+            configured_action_ids=configured_action_ids or (),
+            supports_native_pipeline_control=supports_native_pipeline_control,
+        )
         try:
             updated = self._invoke_with_supported_kwargs(
                 runtime.add_song_from_path,
@@ -712,11 +662,6 @@ class TimelineWidgetContractActionMixin:
             host._message_box.warning(host._widget, "Add Song", str(exc))
             return
         host._set_presentation(updated if updated is not None else runtime.presentation())
-        if configured_action_ids and not supports_native_pipeline_control:
-            self._run_configured_import_pipeline_actions(
-                runtime=runtime,
-                source_label=Path(audio_path).name,
-            )
 
     def add_song_from_dialog(self) -> None:
         self._run_add_song_from_path_action()
@@ -888,20 +833,16 @@ class TimelineWidgetContractActionMixin:
         configured_action_ids = self._configured_import_pipeline_action_ids(runtime)
         canonical_import = getattr(self, "_invoke_add_song_version", None)
         if callable(canonical_import) and configured_action_ids is not None:
-            try:
-                handled = canonical_import(
-                    runtime,
-                    song_id,
-                    audio_path,
-                    label=resolved_label,
-                    transfer_layers=transfer_layers,
-                    transfer_layer_ids=transfer_layer_ids,
-                    run_import_pipeline=bool(configured_action_ids),
-                    pipeline_action_ids=configured_action_ids or None,
-                )
-            except Exception as exc:
-                host._message_box.warning(host._widget, "Add Version", str(exc))
-                return
+            handled = canonical_import(
+                runtime,
+                song_id,
+                audio_path,
+                label=resolved_label,
+                transfer_layers=transfer_layers,
+                transfer_layer_ids=transfer_layer_ids,
+                run_import_pipeline=bool(configured_action_ids),
+                pipeline_action_ids=configured_action_ids or None,
+            )
             if not bool(handled):
                 return
             return
@@ -918,6 +859,12 @@ class TimelineWidgetContractActionMixin:
         if configured_action_ids is not None:
             call_kwargs["run_import_pipeline"] = bool(configured_action_ids)
             call_kwargs["import_pipeline_action_ids"] = configured_action_ids or None
+        self._require_native_import_pipeline_control(
+            runtime_name=type(runtime).__name__,
+            action_name="add_song_version",
+            configured_action_ids=configured_action_ids or (),
+            supports_native_pipeline_control=supports_native_pipeline_control,
+        )
         try:
             updated = self._invoke_with_supported_kwargs(
                 runtime.add_song_version,
@@ -929,11 +876,6 @@ class TimelineWidgetContractActionMixin:
             host._message_box.warning(host._widget, "Add Version", str(exc))
             return
         host._set_presentation(updated if updated is not None else runtime.presentation())
-        if configured_action_ids and not supports_native_pipeline_control:
-            self._run_configured_import_pipeline_actions(
-                runtime=runtime,
-                source_label=Path(audio_path).name,
-            )
 
     def add_song_version(self, song_id: str) -> None:
         self._run_add_song_version_action({"song_id": song_id})

@@ -72,7 +72,7 @@ class RuntimeAudioController(Protocol):
     def shutdown(self) -> None: ...
 
 
-class RuntimeSupportShell(Protocol):
+class _RuntimeControllerLike(Protocol):
     _app: TimelineApplication
     _analysis_service: Orchestrator
     _object_action_settings: ObjectActionService
@@ -93,7 +93,7 @@ class RuntimeSupportShell(Protocol):
     def presentation(self) -> TimelinePresentation: ...
 
 
-def build_object_action_services(shell: RuntimeSupportShell) -> None:
+def build_object_action_services(shell: _RuntimeControllerLike) -> None:
     shell._object_action_settings = ObjectActionService(
         project_storage_getter=lambda: shell.project_storage,
         session_getter=lambda: shell.session,
@@ -123,7 +123,7 @@ def build_object_action_services(shell: RuntimeSupportShell) -> None:
     )
 
 
-def select_active_source_layer(shell: RuntimeSupportShell) -> None:
+def select_active_source_layer(shell: _RuntimeControllerLike) -> None:
     source_layer_id = LayerId("source_audio")
     if not any(layer.id == source_layer_id for layer in shell._app.timeline.layers):
         return
@@ -136,7 +136,7 @@ def select_active_source_layer(shell: RuntimeSupportShell) -> None:
 
 
 def sync_runtime_audio_from_presentation(
-    shell: RuntimeSupportShell,
+    shell: _RuntimeControllerLike,
     presentation: TimelinePresentation,
 ) -> None:
     runtime_audio = shell.runtime_audio
@@ -158,7 +158,7 @@ def sync_runtime_audio_from_presentation(
 
 
 def preview_event_clip(
-    shell: RuntimeSupportShell,
+    shell: _RuntimeControllerLike,
     *,
     layer_id: LayerId,
     take_id: TakeId | None = None,
@@ -183,7 +183,7 @@ def preview_event_clip(
 
 
 def apply_audio_output_config(
-    shell: RuntimeSupportShell,
+    shell: _RuntimeControllerLike,
     config: AudioOutputRuntimeConfig | None,
 ) -> None:
     """Rebuild runtime audio using one updated machine-local output configuration."""
@@ -272,7 +272,7 @@ def apply_audio_output_config(
     shell.session.transport_state.playhead = float(next_runtime_audio.current_time_seconds())
 
 
-def apply_ma3_osc_runtime_config(shell: RuntimeSupportShell) -> bool:
+def apply_ma3_osc_runtime_config(shell: _RuntimeControllerLike) -> bool:
     """Reconfigure the active MA3 bridge from current AppSettings values."""
 
     bridge = getattr(shell, "_sync_bridge", None)
@@ -305,14 +305,14 @@ def apply_ma3_osc_runtime_config(shell: RuntimeSupportShell) -> bool:
     return True
 
 
-def require_layer(shell: RuntimeSupportShell, layer_id: LayerId) -> LayerPresentation:
+def require_layer(shell: _RuntimeControllerLike, layer_id: LayerId) -> LayerPresentation:
     for layer in shell.presentation().layers:
         if layer.layer_id == layer_id:
             return layer
     raise ValueError(f"Unknown layer_id: {layer_id}")
 
 
-def shutdown(shell: RuntimeSupportShell) -> None:
+def shutdown(shell: _RuntimeControllerLike) -> None:
     shell._pipeline_runs.shutdown()
     runtime_audio = shell.runtime_audio
     if runtime_audio is not None:

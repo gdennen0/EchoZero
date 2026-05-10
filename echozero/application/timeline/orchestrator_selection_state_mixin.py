@@ -184,15 +184,12 @@ class TimelineOrchestratorSelectionStateMixin:
         return resolved
 
     def _selected_event_refs(self, timeline: Timeline) -> list[EventRef]:
-        if (
-            timeline.selection.selected_event_refs
-            and [event_ref.event_id for event_ref in timeline.selection.selected_event_refs]
-            == list(timeline.selection.selected_event_ids)
-        ):
-            return list(timeline.selection.selected_event_refs)
+        selected_event_ids = list(dict.fromkeys(timeline.selection.selected_event_ids))
+        if not selected_event_ids:
+            return []
         return self._resolve_event_refs_by_ids(
             timeline,
-            list(timeline.selection.selected_event_ids),
+            selected_event_ids,
             preferred_layer_ids=list(timeline.selection.selected_layer_ids),
             preferred_take_id=timeline.selection.selected_take_id,
         )
@@ -335,16 +332,14 @@ class TimelineOrchestratorSelectionStateMixin:
         selected_layer_ids: list[LayerId],
     ) -> None:
         normalized_event_ids = list(dict.fromkeys(event_ids))
-        normalized_event_refs = (
-            list(dict.fromkeys(event_refs))
-            if event_refs
-            else self._resolve_event_refs_by_ids(
-                timeline,
-                normalized_event_ids,
-                preferred_layer_ids=selected_layer_ids,
-                preferred_take_id=anchor_take_id,
-            )
+        normalized_event_refs = self._resolve_event_refs_by_ids(
+            timeline,
+            normalized_event_ids,
+            preferred_layer_ids=selected_layer_ids,
+            preferred_take_id=anchor_take_id,
         )
+        if not normalized_event_refs and event_refs:
+            normalized_event_refs = list(dict.fromkeys(event_refs))
         normalized_layer_ids = list(dict.fromkeys(selected_layer_ids))
 
         if not normalized_event_refs and not normalized_event_ids:

@@ -58,17 +58,18 @@ class LayerHeaderBlock:
             Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter | Qt.TextFlag.TextSingleLine,
             self._elided_title_text(layer.title, title_font, slots.title_rect.width()),
         )
+        control_rects: list[tuple[str, QRectF]] = []
+        if not layer.is_fully_collapsed:
+            self._draw_status_chips(painter, slots.status_rect, layer)
+            control_rects = self._draw_header_controls(
+                painter,
+                slots.controls_rect,
+                slots.active_rect,
+                layer.header_controls,
+                dimmed=dimmed,
+            )
 
-        self._draw_status_chips(painter, slots.status_rect, layer)
-        control_rects = self._draw_header_controls(
-            painter,
-            slots.controls_rect,
-            slots.active_rect,
-            layer.header_controls,
-            dimmed=dimmed,
-        )
-
-        if layer.takes:
+        if layer.takes or layer.is_fully_collapsed:
             painter.setPen(QColor(self.style.toggle_border_hex))
             painter.setBrush(QBrush(QColor(self.style.toggle_fill_hex)))
             painter.drawRoundedRect(
@@ -85,7 +86,7 @@ class LayerHeaderBlock:
             painter.drawText(
                 slots.toggle_rect.adjusted(0, -1, 0, -1),
                 Qt.AlignmentFlag.AlignCenter | Qt.TextFlag.TextSingleLine,
-                'v' if layer.is_expanded else '>',
+                '+' if layer.is_fully_collapsed else 'v' if layer.is_expanded else '>',
             )
             painter.setFont(prior_font)
         return HeaderHitTargets(control_rects=tuple(control_rects))

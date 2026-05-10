@@ -202,7 +202,9 @@ class TimelineOrchestratorMA3PushMixin:
             )
             return
 
-        self._apply_sync_push_transfer_legacy(
+        self._call_sync_capability(
+            "apply_push_transfer",
+            error_message="Sync service does not support canonical MA3 push apply",
             target_track_coord=target_track_coord,
             ma3_channel_no=ma3_channel_no,
             selected_events=selected_events,
@@ -220,73 +222,6 @@ class TimelineOrchestratorMA3PushMixin:
             target_track_coord=target_track_coord,
         )
         self._refresh_manual_push_tracks(target_track_coord=target_track_coord)
-
-    def _apply_sync_push_transfer_legacy(
-        self,
-        *,
-        target_track_coord: str,
-        ma3_channel_no: int | None,
-        selected_events: list[Event],
-        transfer_mode: str,
-        start_offset_seconds: float,
-    ) -> None:
-        sync_service = cast(_MA3PushHost, self).sync_service
-        capability = getattr(sync_service, "apply_push_transfer", None)
-        if not callable(capability):
-            raise RuntimeError("Sync service does not support MA3 push apply")
-
-        candidates = [
-            {
-                "target_track_coord": target_track_coord,
-                "ma3_channel_no": ma3_channel_no,
-                "selected_events": selected_events,
-                "transfer_mode": transfer_mode,
-                "start_offset_seconds": start_offset_seconds,
-            },
-            {
-                "target_track_coord": target_track_coord,
-                "selected_events": selected_events,
-                "transfer_mode": transfer_mode,
-                "start_offset_seconds": start_offset_seconds,
-            },
-            {
-                "target_track_coord": target_track_coord,
-                "ma3_channel_no": ma3_channel_no,
-                "selected_events": selected_events,
-                "transfer_mode": transfer_mode,
-                "push_offset_seconds": start_offset_seconds,
-            },
-            {
-                "target_track_coord": target_track_coord,
-                "selected_events": selected_events,
-                "transfer_mode": transfer_mode,
-                "push_offset_seconds": start_offset_seconds,
-            },
-            {
-                "target_track_coord": target_track_coord,
-                "ma3_channel_no": ma3_channel_no,
-                "selected_events": selected_events,
-                "transfer_mode": transfer_mode,
-            },
-            {
-                "target_track_coord": target_track_coord,
-                "selected_events": selected_events,
-                "mode": transfer_mode,
-            },
-            {
-                "target_track_coord": target_track_coord,
-                "selected_events": selected_events,
-            },
-        ]
-        last_exc: TypeError | None = None
-        for kwargs in candidates:
-            try:
-                capability(**kwargs)
-                return
-            except TypeError as exc:
-                last_exc = exc
-        if last_exc is not None:
-            raise last_exc
 
     def _handle_poll_ma3_push_operation(
         self,

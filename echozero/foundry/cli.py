@@ -5,13 +5,20 @@ import json
 from pathlib import Path
 
 from echozero.foundry import FoundryApp
-from echozero.foundry.persistence import EvalReportRepository, ModelArtifactRepository, migrate_foundry_state
+from echozero.foundry.domain import LibrarySampleState
+from echozero.foundry.persistence import (
+    EvalReportRepository,
+    ModelArtifactRepository,
+    migrate_foundry_state,
+)
 from echozero.foundry.review_server import serve_review_session
 from echozero.foundry.ui import run_foundry_ui
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="ez-foundry", description="EchoZero Foundry standalone CLI")
+    parser = argparse.ArgumentParser(
+        prog="ez-foundry", description="EchoZero Foundry standalone CLI"
+    )
     parser.add_argument("--root", type=Path, default=Path.cwd(), help="Foundry workspace root")
 
     sub = parser.add_subparsers(dest="command", required=True)
@@ -22,6 +29,31 @@ def build_parser() -> argparse.ArgumentParser:
     ingest = sub.add_parser("ingest-folder")
     ingest.add_argument("dataset_id")
     ingest.add_argument("folder")
+
+    sample_library_record = sub.add_parser("record-sample-library")
+    sample_library_record.add_argument("version_id")
+    sample_library_record.add_argument(
+        "--state",
+        choices=[state.value for state in LibrarySampleState],
+        default=LibrarySampleState.APPROVED.value,
+    )
+
+    sample_library_summary = sub.add_parser("sample-library-summary")
+
+    sample_library_train = sub.add_parser("train-sample-library")
+    sample_library_train.add_argument("name")
+    sample_library_train.add_argument("--epochs", type=int, default=4)
+    sample_library_train.add_argument("--scope", default="local.default")
+    sample_library_train.add_argument(
+        "--refresh-version-id",
+        help="Record this dataset version into the sample library before training.",
+    )
+    sample_library_train.add_argument(
+        "--refresh-state",
+        choices=[state.value for state in LibrarySampleState],
+        default=LibrarySampleState.APPROVED.value,
+        help="Library state to apply when --refresh-version-id is used.",
+    )
 
     review_import = sub.add_parser("import-review-session")
     review_import.add_argument("items_path")
@@ -90,7 +122,9 @@ def build_parser() -> argparse.ArgumentParser:
     train_folder.add_argument("--augment-noise-std", type=float, default=0.02)
     train_folder.add_argument("--augment-gain-jitter", type=float, default=0.10)
     train_folder.add_argument("--augment-copies", type=int, default=1)
-    train_folder.add_argument("--next-level", action="store_true", help="Enable v1.5 imbalance+augmentation defaults")
+    train_folder.add_argument(
+        "--next-level", action="store_true", help="Enable v1.5 imbalance+augmentation defaults"
+    )
     train_folder.add_argument(
         "--trainer-profile",
         choices=["baseline_v1", "stronger_v1"],
@@ -147,7 +181,9 @@ def build_parser() -> argparse.ArgumentParser:
     val = sub.add_parser("validate-artifact")
     val.add_argument("artifact_id")
 
-    sub.add_parser("migrate-state", help="Explicitly migrate legacy foundry/state JSON to v1 envelopes")
+    sub.add_parser(
+        "migrate-state", help="Explicitly migrate legacy foundry/state JSON to v1 envelopes"
+    )
 
     sub.add_parser("ui", help="Launch standalone Foundry UI")
 
@@ -174,6 +210,63 @@ def main(argv: list[str] | None = None) -> int:
         version = app.datasets.ingest_from_folder(args.dataset_id, args.folder)
         print(json.dumps({"version_id": version.id, "samples": len(version.samples)}, indent=2))
         return 0
+
+    if args.command == "record-sample-library":
+        records = app.record_sample_library_version(
+            args.version_id,
+            state=LibrarySampleState(args.state),
+        )
+        print(
+            json.dumps(
+                {
+                    "version_id": args.version_id,
+                    "recorded_count": len(records),
+                    "state": args.state,
+                    "library_sample_ids": [record.id for record in records],
+                },
+                indent=2,
+            )
+        )
+        return 0
+
+    if args.command == "sample-library-summary":
+        print(json.dumps(app.summarize_sample_library(), indent=2))
+        return 0
+
+    if args.command == "train-sample-library":
+        refreshed_sample_count = 0
+        if args.refresh_version_id:
+            version = app.datasets.get_version(args.refresh_version_id)
+            if version is None:
+                raise ValueError(f"DatasetVersion not found: {args.refresh_version_id}")
+            refreshed_sample_count = len(version.samples)
+        run = app.kickoff_sample_library_run(
+            name=args.name,
+            epochs=args.epochs,
+            scope=args.scope,
+            refresh_version_id=args.refresh_version_id,
+            refresh_state=LibrarySampleState(args.refresh_state),
+        )
+        eval_reports = EvalReportRepository(args.root).list_for_run(run.id)
+        artifacts = ModelArtifactRepository(args.root).list_for_run(run.id)
+        print(
+            json.dumps(
+                {
+                    "run_id": run.id,
+                    "dataset_version_id": run.dataset_version_id,
+                    "status": run.status.value,
+                    "scope": args.scope,
+                    "refresh_version_id": args.refresh_version_id,
+                    "refresh_state": args.refresh_state if args.refresh_version_id else None,
+                    "refreshed_sample_count": refreshed_sample_count,
+                    "eval_report_ids": [report.id for report in eval_reports],
+                    "artifact_ids": [artifact.id for artifact in artifacts],
+                    "exports_dir": str(run.exports_dir(args.root)),
+                },
+                indent=2,
+            )
+        )
+        return 0 if run.status.value == "completed" else 1
 
     if args.command == "import-review-session":
         session = app.reviews.import_session_file(
@@ -260,8 +353,12 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     if args.command == "train-folder":
-        dataset = app.datasets.create_dataset(args.name, source_ref=str(Path(args.folder).resolve()))
-        version = app.datasets.ingest_from_folder(dataset.id, args.folder, sample_rate=args.sample_rate)
+        dataset = app.datasets.create_dataset(
+            args.name, source_ref=str(Path(args.folder).resolve())
+        )
+        version = app.datasets.ingest_from_folder(
+            dataset.id, args.folder, sample_rate=args.sample_rate
+        )
         app.plan_version(
             version.id,
             validation_split=args.val,
@@ -318,7 +415,9 @@ def main(argv: list[str] | None = None) -> int:
                 gate_macro_f1_floor=args.gate_macro_f1_floor,
                 gate_max_regression_vs_reference=args.gate_max_regression_vs_reference,
                 gate_max_real_vs_synth_gap=args.gate_max_real_vs_synth_gap,
-                gate_per_class_recall_floors=_parse_per_class_recall_floors(args.gate_per_class_recall_floor),
+                gate_per_class_recall_floors=_parse_per_class_recall_floors(
+                    args.gate_per_class_recall_floor
+                ),
                 reference_run_id=args.reference_run_id,
                 reference_artifact_id=args.reference_artifact_id,
             ),

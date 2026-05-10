@@ -293,7 +293,7 @@ class _TimelineCanvasPaintMixin:
                 row_height=row_height,
             )
             y += row_height
-            if layer.is_expanded:
+            if layer.is_expanded and not layer.is_fully_collapsed:
                 for take in layer.takes:
                     self._draw_take_row(painter, layer, take, y)
                     y += self._take_row_height
@@ -302,6 +302,10 @@ class _TimelineCanvasPaintMixin:
     def _header_tooltip_text(layer: LayerPresentation) -> str:
         labels = badge_tooltip_labels(layer.badges)
         parts: list[str] = []
+        if layer.takes:
+            parts.append(
+                "Toggle takes: click chevron | Full collapse: Shift-click chevron"
+            )
         if labels:
             parts.append(" | ".join(labels))
         if layer.status.stale:
@@ -363,11 +367,12 @@ class _TimelineCanvasPaintMixin:
             painter.setBrush(Qt.BrushStyle.NoBrush)
             painter.drawRoundedRect(outline_rect, 8.0, 8.0)
             painter.restore()
-        if self._shows_section_overlay_for_layer(layer):
+        if self._shows_section_overlay_for_layer(layer) and not layer.is_fully_collapsed:
             self._draw_section_overlay_band(painter, top=top, row_height=row_height)
-        if layer.kind is not LayerKind.SECTION:
+        if layer.kind is not LayerKind.SECTION and not layer.is_fully_collapsed:
             self._draw_section_backdrop_band(painter, top=top, row_height=row_height)
-        self._draw_time_grid_band(painter, top=top, row_height=row_height)
+        if not layer.is_fully_collapsed:
+            self._draw_time_grid_band(painter, top=top, row_height=row_height)
         painter.fillRect(
             0,
             top + row_height - 1,
@@ -375,26 +380,28 @@ class _TimelineCanvasPaintMixin:
             1,
             QColor(self._style.canvas.row_divider_hex),
         )
-        resize_hit_padding = max(2, int(self._resize_handle_hit_padding))
-        self._layer_row_resize_hit_rects.append(
-            (
-                QRectF(
-                    0.0,
-                    float(top + row_height - resize_hit_padding),
-                    float(self.width()),
-                    float(resize_hit_padding * 2),
-                ),
-                layer.layer_id,
+        if not layer.is_fully_collapsed:
+            resize_hit_padding = max(2, int(self._resize_handle_hit_padding))
+            self._layer_row_resize_hit_rects.append(
+                (
+                    QRectF(
+                        0.0,
+                        float(top + row_height - resize_hit_padding),
+                        float(self.width()),
+                        float(resize_hit_padding * 2),
+                    ),
+                    layer.layer_id,
+                )
             )
-        )
 
         slots = self._header_block_slots_factory(layout)
         if layer.takes:
             self._toggle_rects.append((slots.toggle_rect, layer.layer_id))
         self._header_select_rects.append((layout.header_rect, layer.layer_id))
-        self._row_body_select_rects.append((layout.content_rect, layer.layer_id, None))
+        if not layer.is_fully_collapsed:
+            self._row_body_select_rects.append((layout.content_rect, layer.layer_id, None))
         self._header_hover_rects.append((layout.header_rect, layer))
-        if is_event_like_layer_kind(layer.kind):
+        if is_event_like_layer_kind(layer.kind) and not layer.is_fully_collapsed:
             self._event_drop_rects.append((layout.content_rect, layer.layer_id))
             self._event_lane_rects.append((layout.content_rect, layer.layer_id, layer.main_take_id))
         hit_targets = self._header_block.paint(painter, slots, layer, dimmed=dimmed)
@@ -411,6 +418,8 @@ class _TimelineCanvasPaintMixin:
                 self._pull_rects.append((rect, layer.layer_id))
             elif control_id == "open_section_layer_manager":
                 self._section_manager_rects.append((rect, layer.layer_id))
+        if layer.is_fully_collapsed:
+            return
 
         painter.save()
         painter.setClipRect(layout.content_rect)
@@ -433,7 +442,7 @@ class _TimelineCanvasPaintMixin:
                     ),
                 )
             else:
-                if self._edit_mode == "move" or layer.kind is not LayerKind.SECTION:
+                if self._edit_mode in {"move", "select"} or layer.kind is not LayerKind.SECTION:
                     visible_events = self._visible_lane_events(layer.events)
                     event_lane_top = float(
                         top + max(0.0, (row_height - self._event_height) * 0.5)
@@ -458,7 +467,7 @@ class _TimelineCanvasPaintMixin:
                                     layer_kind=layer.kind,
                                     event_hit_min_width_px=(
                                         float(SECTION_MOVE_EVENT_HIT_MIN_WIDTH_PX)
-                                        if self._edit_mode == "move"
+                                        if self._edit_mode in {"move", "select"}
                                         and layer.kind is LayerKind.SECTION
                                         else None
                                     ),
@@ -540,7 +549,7 @@ class _TimelineCanvasPaintMixin:
                     ),
                 )
             else:
-                if self._edit_mode == "move" or take.kind is not LayerKind.SECTION:
+                if self._edit_mode in {"move", "select"} or take.kind is not LayerKind.SECTION:
                     visible_events = self._visible_lane_events(take.events)
                     event_lane_top = float(
                         top + max(
@@ -568,7 +577,7 @@ class _TimelineCanvasPaintMixin:
                                     layer_kind=take.kind,
                                     event_hit_min_width_px=(
                                         float(SECTION_MOVE_EVENT_HIT_MIN_WIDTH_PX)
-                                        if self._edit_mode == "move"
+                                        if self._edit_mode in {"move", "select"}
                                         and take.kind is LayerKind.SECTION
                                         else None
                                     ),

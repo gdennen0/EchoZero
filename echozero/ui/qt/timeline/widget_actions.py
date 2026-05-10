@@ -22,23 +22,31 @@ from PyQt6.QtWidgets import (
 )
 
 from echozero.application.presentation.inspector_contract import InspectorAction
-from echozero.application.presentation.models import (
-    ManualPullFlowPresentation,
-    TimelinePresentation,
-)
+from echozero.application.presentation.models import TimelinePresentation
 from echozero.application.shared.enums import LayerKind
 from echozero.application.shared.ids import EventId, LayerId
 from echozero.application.timeline.intents import (
-    SelectLayer,
+    ApplyTransferPlan,
+    ApplyTransferPreset,
+    CancelTransferPlan,
+    DeleteTransferPreset,
+    PreviewTransferPlan,
+    SaveTransferPreset,
     SetGain,
+    SetPushTransferMode,
 )
 from echozero.application.timeline.object_actions import (
     ObjectActionSettingsSession,
     descriptor_for_action,
+    is_object_action,
     object_action_descriptors,
+    resolve_action_id,
 )
 from echozero.models.paths import ensure_installed_models_dir
 from echozero.ui.qt.pipeline_settings_browser_dialog import PipelineSettingsBrowserDialog
+from echozero.ui.qt.timeline.widget_action_ma3_push_mixin import (
+    TimelineWidgetMA3PushActionMixin,
+)
 from echozero.ui.qt.timeline.widget_action_contract_mixin import (
     _AddSongRuntimeShell,
     _AddSongVersionRuntimeShell,
@@ -52,13 +60,6 @@ from echozero.ui.qt.timeline.widget_action_contract_mixin import (
     _coerce_take_id,
     TimelineWidgetContractActionMixin,
 )
-from echozero.ui.qt.timeline.widget_action_transfer_mixin import (
-    TimelineWidgetTransferActionMixin,
-)
-from echozero.ui.qt.timeline.manual_pull import (
-    ManualPullTimelineSelectionResult,
-)
-
 _NATURAL_TOKEN_PATTERN = re.compile(r"(\d+)")
 _FINAL_PIPELINE_RUN_STATUSES = frozenset({"completed", "failed", "cancelled"})
 
@@ -108,7 +109,7 @@ class _RunObjectActionRuntimeShell(_TimelineRuntimeShell, Protocol):
 
 class TimelineWidgetActionRouter(
     TimelineWidgetContractActionMixin,
-    TimelineWidgetTransferActionMixin,
+    TimelineWidgetMA3PushActionMixin,
 ):
     """Routes inspector and transfer actions for the timeline widget."""
 
@@ -121,9 +122,6 @@ class TimelineWidgetActionRouter(
         set_presentation: Callable[[TimelinePresentation], None],
         resolve_runtime_shell: Callable[[], _TimelineRuntimeShell | None],
         selected_event_ids_for_selected_layers: Callable[[], list[EventId]],
-        open_manual_pull_timeline_popup: (
-            Callable[[ManualPullFlowPresentation], ManualPullTimelineSelectionResult | None] | None
-        ) = None,
         input_dialog: type[QInputDialog] = QInputDialog,
         file_dialog: type[QFileDialog] = QFileDialog,
         message_box: type[QMessageBox] = QMessageBox,
@@ -135,27 +133,167 @@ class TimelineWidgetActionRouter(
         self._set_presentation = set_presentation
         self._resolve_runtime_shell = resolve_runtime_shell
         self._selected_event_ids_for_selected_layers = selected_event_ids_for_selected_layers
-        self._open_manual_pull_timeline_popup: Callable[
-            [ManualPullFlowPresentation], ManualPullTimelineSelectionResult | None
-        ] = (
-            open_manual_pull_timeline_popup
-            if open_manual_pull_timeline_popup is not None
-            else self._default_open_manual_pull_timeline_popup
-        )
         self._input_dialog = input_dialog
         self._file_dialog = file_dialog
         self._message_box = message_box
         self._resolve_models_dir = resolve_models_dir
 
-    def _focus_layer_for_header_action(self, layer_id: object) -> None:
-        """Compatibility shim for transfer mixins that expect widget-level focus helpers."""
+    def handle_transfer_action(self, action_id: str, params: dict[str, object]) -> bool:
+        """Route transfer actions directly to the narrowed push/pull presenters."""
 
-        resolved_layer_id = _coerce_layer_id(layer_id)
-        if resolved_layer_id is None:
-            return
+        resolved_action_id = resolve_action_id(action_id, warn_on_alias=True) or action_id
+        if resolved_action_id == "transfer.workspace_open":
+            direction = str(params.get("direction", "")).strip().lower()
+            if direction == "push":
+                return self._handle_send_layer_to_ma3(params)
+            if direction == "pull":
+                return self._handle_manual_transfer_workspace_action(
+                    "transfer.workspace_open",
+                    params,
+                )
+            return False
+        if resolved_action_id == "transfer.route_layer_track":
+            return self._handle_route_layer_to_ma3_track(params)
+        if resolved_action_id == "transfer.send_selection":
+            return self._handle_send_selected_events_to_ma3(params)
+        if resolved_action_id == "transfer.match_ma3_cues":
+            return self._handle_match_events_to_ma3_cues(params)
+        if resolved_action_id == "transfer.send_to_track_once":
+            return self._handle_send_to_different_track_once(params)
+        if resolved_action_id == "set_push_transfer_mode":
+            return self._handle_set_push_transfer_mode()
+        if resolved_action_id == "save_transfer_preset":
+            return self._handle_save_transfer_preset()
+        if resolved_action_id in {"apply_transfer_preset", "delete_transfer_preset"}:
+            return self._handle_transfer_preset_action(resolved_action_id)
+        if resolved_action_id in {"transfer.plan_preview", "transfer.plan_apply", "transfer.plan_cancel"}:
+            return self._handle_transfer_plan_action(resolved_action_id, params)
+        if resolved_action_id in {
+            "select_push_target_track",
+            "preview_push_diff",
+            "exit_push_mode",
+            "select_pull_source_tracks",
+            "select_pull_source_events",
+            "set_pull_target_layer_mapping",
+            "preview_pull_diff",
+            "exit_pull_workspace",
+        }:
+            return self._handle_manual_transfer_workspace_action(resolved_action_id, params)
+        if is_object_action(resolved_action_id):
+            return self._handle_runtime_pipeline_action(resolved_action_id, params)
+        return False
+
+    def _handle_set_push_transfer_mode(self) -> bool:
         presentation = self._get_presentation()
-        if presentation.selected_layer_id != resolved_layer_id:
-            self._dispatch(SelectLayer(resolved_layer_id))
+        current_mode = (presentation.manual_push_flow.transfer_mode or "merge").strip().lower()
+        mode_labels = ["Merge", "Overwrite"]
+        default_index = 0 if current_mode == "merge" else 1
+        chosen_mode, accepted = self._input_dialog.getItem(
+            self._widget,
+            "Push Transfer Mode",
+            "Transfer mode",
+            mode_labels,
+            default_index,
+            False,
+        )
+        if not accepted:
+            return True
+        selected_mode = chosen_mode.strip().lower()
+        if selected_mode:
+            self._dispatch(SetPushTransferMode(mode=selected_mode))
+        return True
+
+    def _handle_save_transfer_preset(self) -> bool:
+        preset_name, accepted = self._input_dialog.getText(
+            self._widget,
+            "Save Transfer Preset",
+            "Preset name",
+        )
+        if not accepted or not preset_name.strip():
+            return True
+        self._dispatch(SaveTransferPreset(name=preset_name))
+        return True
+
+    def _handle_transfer_preset_action(self, action_id: str) -> bool:
+        presentation = self._get_presentation()
+        if not presentation.transfer_presets:
+            return True
+        labels = [self._transfer_preset_label(preset) for preset in presentation.transfer_presets]
+        title = (
+            "Apply Transfer Preset"
+            if action_id == "apply_transfer_preset"
+            else "Delete Transfer Preset"
+        )
+        chosen_label, accepted = self._input_dialog.getItem(
+            self._widget,
+            title,
+            "Preset",
+            labels,
+            0,
+            False,
+        )
+        if not accepted:
+            return True
+        selected_preset = next(
+            (
+                preset
+                for preset, label in zip(presentation.transfer_presets, labels)
+                if label == chosen_label
+            ),
+            None,
+        )
+        if selected_preset is None:
+            return True
+        if action_id == "apply_transfer_preset":
+            self._dispatch(ApplyTransferPreset(preset_id=selected_preset.preset_id))
+        else:
+            self._dispatch(DeleteTransferPreset(preset_id=selected_preset.preset_id))
+        return True
+
+    def _handle_transfer_plan_action(self, action_id: str, params: dict[str, object]) -> bool:
+        plan_id = params.get("plan_id")
+        if action_id == "transfer.plan_cancel":
+            if isinstance(plan_id, str):
+                self._dispatch(CancelTransferPlan(plan_id=plan_id))
+            return True
+        if not isinstance(plan_id, str):
+            return True
+        if not self._resolve_blocked_push_rows_for_plan_action(plan_id):
+            return True
+        if action_id == "transfer.plan_preview":
+            self._dispatch(PreviewTransferPlan(plan_id=plan_id))
+            plan = self._get_presentation().batch_transfer_plan
+            if plan is not None and plan.plan_id == plan_id:
+                self._message_box.information(
+                    self._widget,
+                    "Transfer Plan Preview",
+                    self._transfer_plan_preview_summary(
+                        operation_type=plan.operation_type,
+                        total_rows=len(plan.rows),
+                        ready_count=plan.ready_count,
+                        blocked_count=plan.blocked_count,
+                        applied_count=plan.applied_count,
+                        failed_count=plan.failed_count,
+                    ),
+                )
+            return True
+        if action_id == "transfer.plan_apply":
+            self._dispatch(ApplyTransferPlan(plan_id=plan_id))
+            plan = self._get_presentation().batch_transfer_plan
+            if plan is not None and plan.plan_id == plan_id:
+                self._message_box.information(
+                    self._widget,
+                    "Transfer Plan Results",
+                    self._transfer_plan_apply_summary(
+                        operation_type=plan.operation_type,
+                        total_rows=len(plan.rows),
+                        applied_count=plan.applied_count,
+                        failed_count=plan.failed_count,
+                        blocked_count=plan.blocked_count,
+                    ),
+                )
+            return True
+        return False
 
     def import_dropped_audio_path(
         self,
@@ -801,6 +939,13 @@ class TimelineWidgetActionRouter(
         if defer_pipeline_runs:
             resolved_run_import_pipeline = False
             resolved_pipeline_action_ids = None
+        self._require_native_import_pipeline_control(
+            runtime_name=type(song_runtime).__name__,
+            action_name="add_song_from_path",
+            run_import_pipeline=resolved_run_import_pipeline,
+            pipeline_action_ids=resolved_pipeline_action_ids,
+            supports_native_pipeline_control=supports_native_pipeline_control,
+        )
         try:
             updated = self._invoke_with_supported_kwargs(
                 song_runtime.add_song_from_path,
@@ -825,13 +970,6 @@ class TimelineWidgetActionRouter(
                     imported_targets=tuple(imported_targets),
                     action_ids=deferred_action_ids,
                 )
-        self._run_legacy_import_pipeline_actions_if_needed(
-            runtime=runtime,
-            source_label=Path(audio_path).name,
-            run_import_pipeline=resolved_run_import_pipeline,
-            pipeline_action_ids=resolved_pipeline_action_ids,
-            supports_native_pipeline_control=supports_native_pipeline_control,
-        )
         return True
 
     def _invoke_add_song_version(
@@ -870,6 +1008,13 @@ class TimelineWidgetActionRouter(
         if defer_pipeline_runs:
             resolved_run_import_pipeline = False
             resolved_pipeline_action_ids = None
+        self._require_native_import_pipeline_control(
+            runtime_name=type(version_runtime).__name__,
+            action_name="add_song_version",
+            run_import_pipeline=resolved_run_import_pipeline,
+            pipeline_action_ids=resolved_pipeline_action_ids,
+            supports_native_pipeline_control=supports_native_pipeline_control,
+        )
         try:
             updated = self._invoke_with_supported_kwargs(
                 version_runtime.add_song_version,
@@ -897,13 +1042,6 @@ class TimelineWidgetActionRouter(
                     imported_targets=tuple(imported_targets),
                     action_ids=deferred_action_ids,
                 )
-        self._run_legacy_import_pipeline_actions_if_needed(
-            runtime=runtime,
-            source_label=Path(audio_path).name,
-            run_import_pipeline=resolved_run_import_pipeline,
-            pipeline_action_ids=resolved_pipeline_action_ids,
-            supports_native_pipeline_control=supports_native_pipeline_control,
-        )
         return True
 
     def _resolve_deferred_import_pipeline_runs(
@@ -925,17 +1063,15 @@ class TimelineWidgetActionRouter(
         )
         return (should_defer, action_ids)
 
-    def _run_legacy_import_pipeline_actions_if_needed(
+    def _require_native_import_pipeline_control(
         self,
         *,
-        runtime: _TimelineRuntimeShell,
-        source_label: str,
+        runtime_name: str,
+        action_name: str,
         run_import_pipeline: bool | None,
         pipeline_action_ids: tuple[str, ...] | None,
         supports_native_pipeline_control: bool,
     ) -> None:
-        """Run import pipeline actions when older runtimes lack import kwargs support."""
-
         if supports_native_pipeline_control:
             return
         action_ids = tuple(
@@ -947,37 +1083,11 @@ class TimelineWidgetActionRouter(
             return
         if run_import_pipeline is False:
             return
-
-        run_runtime = cast(_RunObjectActionRuntimeShell | None, runtime)
-        run_object_action = (
-            run_runtime.run_object_action
-            if run_runtime is not None and callable(getattr(run_runtime, "run_object_action", None))
-            else None
+        raise RuntimeError(
+            f"{runtime_name}.{action_name} must accept "
+            "'run_import_pipeline' and 'import_pipeline_action_ids' when import pipeline "
+            "actions are configured"
         )
-        if not callable(run_object_action):
-            return
-
-        source_layer_id = self._resolve_import_source_audio_layer_id(runtime)
-        if source_layer_id is None:
-            return
-
-        for action_id in action_ids:
-            try:
-                assert run_runtime is not None
-                updated = run_runtime.run_object_action(
-                    action_id,
-                    {},
-                    object_id=source_layer_id,
-                    object_type="layer",
-                )
-            except Exception as exc:
-                self._message_box.warning(
-                    self._widget,
-                    "Import Pipeline Actions",
-                    f"{source_label}: {exc}",
-                )
-                continue
-            self._set_presentation(updated if updated is not None else runtime.presentation())
 
     @staticmethod
     def _method_supports_any_kwargs(

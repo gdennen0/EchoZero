@@ -163,11 +163,15 @@ track:Set("Target", sequence)
 
 | Function | Description | EchoZero Usage |
 |----------|-------------|----------------|
-| `PropertyCount(handle)` | Number of properties | [UNTESTED] |
-| `PropertyName(handle, index)` | Property name by index | [UNTESTED] |
-| `PropertyType(handle, index)` | Property type | [UNTESTED] |
-| `PropertyInfo(handle, index)` | Property metadata | [UNTESTED] |
-| `Dump(handle)` | Debug dump object info | [TESTED] Exploration |
+| `PropertyCount(handle)` | Number of properties | [TERMINAL ONLY] Native inspection |
+| `PropertyName(handle, index)` | Property name by index | [TERMINAL ONLY] Native inspection |
+| `PropertyType(handle, index)` | Property type | [TERMINAL ONLY] Native inspection |
+| `PropertyInfo(handle, index)` | Property metadata | [TERMINAL ONLY] Native inspection |
+| `Dump(handle)` | Debug dump object info | [TERMINAL ONLY] Native inspection |
+
+Live terminal note:
+the current MA3 terminal exposes these reliably as handle methods, for example
+`sequence:PropertyCount()` and `sequence:PropertyInfo(0)`.
 
 ### Object Class/Type [USED]
 

@@ -221,18 +221,6 @@ class ObjectInfoPanel(_ObjectInfoPanelActionsMixin, QFrame):
         self._layer_controls_title.setWordWrap(True)
         layer_controls_layout.addWidget(self._layer_controls_title)
 
-        route_row = QGridLayout()
-        route_row.setContentsMargins(0, 0, 0, 0)
-        route_row.setHorizontalSpacing(6)
-        route_row.setVerticalSpacing(6)
-        route_label = QLabel("Routing", self._layer_controls)
-        route_label.setObjectName("selectionMetaLabel")
-        self._routing_settings_btn = QPushButton("Routing Settings", self._layer_controls)
-        self._set_button_appearance(self._routing_settings_btn, "primary")
-        route_row.addWidget(route_label, 0, 0)
-        route_row.addWidget(self._routing_settings_btn, 1, 0, 1, 2)
-        layer_controls_layout.addLayout(route_row)
-
         mix_row = QHBoxLayout()
         mix_row.setContentsMargins(0, 0, 0, 0)
         mix_row.setSpacing(6)
@@ -276,7 +264,6 @@ class ObjectInfoPanel(_ObjectInfoPanelActionsMixin, QFrame):
         layer_controls_layout.addLayout(gain_custom_row)
         details_layout.addWidget(self._layer_controls)
 
-        self._routing_settings_btn.clicked.connect(self._emit_open_routing_settings)
         self._panel_mute_btn.clicked.connect(self._emit_toggle_mute_from_panel)
         self._panel_solo_btn.clicked.connect(self._emit_toggle_solo_from_panel)
         self._gain_down_btn.clicked.connect(
@@ -373,7 +360,6 @@ class ObjectInfoPanel(_ObjectInfoPanelActionsMixin, QFrame):
             widget.update()
 
     def _set_controls_enabled(self, *, has_layer: bool) -> None:
-        self._routing_settings_btn.setEnabled(has_layer)
         self._panel_mute_btn.setEnabled(has_layer)
         self._panel_solo_btn.setEnabled(has_layer)
         self._gain_down_btn.setEnabled(has_layer)
@@ -388,28 +374,6 @@ class ObjectInfoPanel(_ObjectInfoPanelActionsMixin, QFrame):
         button.style().unpolish(button)
         button.style().polish(button)
         button.update()
-
-    def set_context(self, presentation: TimelinePresentation, text: str) -> None:
-        """Set raw sidebar text for legacy callers during transition to full contracts."""
-
-        del presentation
-        self._contract = InspectorContract(title=text, empty_state=text)
-        self._kind.setText("None")
-        self._selection_title.setText("Selection")
-        self._set_body_text(text)
-        self._clear_action_sections()
-        self._pipeline_action_plans = {}
-        self._sync_event_preview(None)
-        self._layer_controls.setVisible(False)
-        self._layer_controls_title.setText("No layer selected.")
-        self._panel_mute_btn.setText("Mute")
-        self._panel_solo_btn.setText("Solo")
-        self._set_button_active(self._panel_mute_btn, False)
-        self._set_button_active(self._panel_solo_btn, False)
-        self._set_button_active(self._gain_down_btn, False)
-        self._set_button_active(self._gain_unity_btn, False)
-        self._set_button_active(self._gain_up_btn, False)
-        self._routing_settings_btn.setVisible(False)
 
     def set_contract(
         self, presentation: TimelinePresentation, contract: InspectorContract
@@ -426,43 +390,26 @@ class ObjectInfoPanel(_ObjectInfoPanelActionsMixin, QFrame):
         self._kind.setText(object_type)
 
         layer_id = self._layer_id_for_controls()
-        has_layer = layer_id is not None
-        self._set_controls_enabled(has_layer=has_layer)
-        self._layer_controls.setVisible(has_layer)
-
-        route_layer_id = layer_id
-        layer_action = None
         selected_layer = None
-        if route_layer_id is not None:
-            layer_action = next(
-                (
-                    action
-                    for action in self._iter_contract_actions()
-                    if action.params.get("layer_id") == route_layer_id
-                ),
-                None,
-            )
-        selected_output_bus = None
-        if route_layer_id is not None:
+        if layer_id is not None:
             selected_layer = next(
-                (layer for layer in presentation.layers if layer.layer_id == route_layer_id),
+                (layer for layer in presentation.layers if layer.layer_id == layer_id),
                 None,
             )
             if selected_layer is not None:
-                selected_output_bus = selected_layer.output_bus
                 self._layer_controls_title.setText(
                     f"Layer: {selected_layer.title} ({selected_layer.layer_id})"
                 )
             else:
-                self._layer_controls_title.setText(f"Layer: {route_layer_id}")
+                self._layer_controls_title.setText(f"Layer: {layer_id}")
         else:
             self._layer_controls_title.setText("No layer selected.")
-        self._sync_output_bus_controls(
-            layer_action=layer_action,
-            selected_output_bus=selected_output_bus,
-        )
+
+        show_audio_controls = self._has_lightweight_audio_controls()
+        self._set_controls_enabled(has_layer=show_audio_controls)
+        self._layer_controls.setVisible(show_audio_controls)
         self._sync_mute_solo_controls(selected_layer=selected_layer)
-        self._sync_gain_controls(layer_action, selected_layer=selected_layer)
+        self._sync_gain_controls(selected_layer=selected_layer)
 
     def set_action_settings_plans(self, plans: tuple[ObjectActionSettingsPlan, ...]) -> None:
         """Attach inspector settings plans for pipeline-backed object actions."""

@@ -1,11 +1,9 @@
-"""Manual pull timeline dialog surfaces for MA3 import flows.
-Exists to keep the main timeline widget free of popup-specific rendering and selection logic.
+"""Manual pull workspace surfaces for MA3 import flows.
+Exists to keep the main timeline widget free of transfer workspace rendering and selection logic.
 Connects manual pull event picking to the timeline transfer action router.
 """
 
 from __future__ import annotations
-
-from dataclasses import dataclass
 
 from PyQt6.QtCore import QPointF, QRectF, Qt, QSignalBlocker, pyqtSignal
 from PyQt6.QtGui import QColor, QPainter, QPen, QPolygonF, QWheelEvent
@@ -42,17 +40,8 @@ def _pull_import_mode_for_target(
     return "main" if target_kind is LayerKind.SECTION else "new_take"
 
 
-@dataclass(slots=True, frozen=True)
-class ManualPullTimelineSelectionResult:
-    """User selections returned from the manual pull timeline dialog."""
-
-    selected_event_ids: list[str]
-    target_layer_id: LayerId | None
-    import_mode: str = "new_take"
-
-
 class ManualPullTimelineCanvas(QWidget):
-    """Scrollable event-selection canvas used inside the manual pull dialog."""
+    """Scrollable event-selection canvas used inside the manual pull workspace."""
 
     selection_changed = pyqtSignal(object)
     zoom_changed = pyqtSignal(float)
@@ -357,195 +346,6 @@ class ManualPullTimelineRuler(QWidget):
             painter.drawLine(int(x), int(rect.bottom()) - 8, int(x), int(rect.bottom()))
             painter.setPen(QColor(TIMELINE_STYLE.ruler.label_hex))
             painter.drawText(int(x) + 3, int(rect.top()) + 12, f"{second}")
-
-
-class ManualPullTimelineDialog(QDialog):
-    """Dialog for selecting MA3 source events and the EZ import target."""
-
-    def __init__(
-        self,
-        *,
-        source_track_label: str,
-        events,
-        selected_event_ids: list[str] | None,
-        available_targets,
-        selected_target_layer_id,
-        selected_import_mode: str = "new_take",
-        parent=None,
-    ):
-        super().__init__(parent)
-        self.setWindowTitle("Import from MA3")
-        self.resize(980, 440)
-        self._target_kinds_by_id = {
-            target.layer_id: getattr(target, "kind", None) for target in available_targets
-        }
-
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(16, 16, 16, 16)
-        layout.setSpacing(10)
-
-        layout.addWidget(QLabel(f"Source track: {source_track_label}", self))
-
-        help_label = QLabel(
-            "Select source events on the timeline and choose the destination EZ layer below. "
-            "Click to select. Ctrl/Cmd toggles. Shift selects a range. Ctrl/Cmd + wheel zooms; wheel scrolls timeline.",
-            self,
-        )
-        help_label.setWordWrap(True)
-        layout.addWidget(help_label)
-
-        zoom_row = QHBoxLayout()
-        zoom_row.addWidget(QLabel("Zoom", self))
-        self._zoom_out_btn = QPushButton("-", self)
-        self._zoom_in_btn = QPushButton("+", self)
-        self._zoom_reset_btn = QPushButton("Reset", self)
-        self._zoom_value_label = QLabel("100%", self)
-        zoom_row.addWidget(self._zoom_out_btn)
-        zoom_row.addWidget(self._zoom_in_btn)
-        zoom_row.addWidget(self._zoom_reset_btn)
-        zoom_row.addWidget(self._zoom_value_label)
-        zoom_row.addStretch(1)
-        layout.addLayout(zoom_row)
-
-        self._canvas = ManualPullTimelineCanvas(events, selected_event_ids=selected_event_ids, parent=self)
-        self._scroll_area = QScrollArea(self)
-        self._scroll_area.setWidgetResizable(False)
-        self._scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        self._scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
-        self._scroll_area.setWidget(self._canvas)
-        self._scroll_area.setMinimumHeight(180)
-
-        self._timeline_scroll = self._scroll_area.horizontalScrollBar()
-        self._ruler = ManualPullTimelineRuler(self._canvas, self._timeline_scroll, self)
-        layout.addWidget(self._ruler)
-        layout.addWidget(self._scroll_area)
-
-        self._selection_label = QLabel(self)
-        layout.addWidget(self._selection_label)
-
-        target_row = QHBoxLayout()
-        target_row.addWidget(QLabel("Target EZ layer", self))
-        self._target_combo = QComboBox(self)
-        for target in available_targets:
-            self._target_combo.addItem(target.name, target.layer_id)
-        if selected_target_layer_id is not None:
-            for index in range(self._target_combo.count()):
-                if self._target_combo.itemData(index) == selected_target_layer_id:
-                    self._target_combo.setCurrentIndex(index)
-                    break
-        target_row.addWidget(self._target_combo, 1)
-        layout.addLayout(target_row)
-
-        import_row = QHBoxLayout()
-        import_row.addWidget(QLabel("Import mode", self))
-        self._import_mode_combo = QComboBox(self)
-        self._import_mode_combo.addItem("Import as New Take", "new_take")
-        self._import_mode_combo.addItem("Import to Main", "main")
-        for index in range(self._import_mode_combo.count()):
-            if self._import_mode_combo.itemData(index) == selected_import_mode:
-                self._import_mode_combo.setCurrentIndex(index)
-                break
-        self._import_mode_combo.setEnabled(False)
-        import_row.addWidget(self._import_mode_combo, 1)
-        layout.addLayout(import_row)
-
-        self._buttons = QDialogButtonBox(
-            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel,
-            parent=self,
-        )
-        self._buttons.accepted.connect(self.accept)
-        self._buttons.rejected.connect(self.reject)
-        layout.addWidget(self._buttons)
-
-        self._zoom_out_btn.clicked.connect(self._zoom_out)
-        self._zoom_in_btn.clicked.connect(self._zoom_in)
-        self._zoom_reset_btn.clicked.connect(self._reset_zoom)
-        self._canvas.selection_changed.connect(self._refresh_state)
-        self._target_combo.currentIndexChanged.connect(self._handle_target_changed)
-        self._canvas.zoom_changed.connect(self._refresh_zoom_label)
-        self._sync_import_mode_with_target(fallback_mode=selected_import_mode)
-        self._refresh_zoom_label(self._canvas.zoom_factor)
-        self._refresh_state()
-
-    def selected_event_ids(self) -> list[str]:
-        """Return the currently selected MA3 event ids in display order."""
-
-        return self._canvas.selected_event_ids()
-
-    def selected_target_layer_id(self) -> LayerId | None:
-        """Return the currently selected EZ target layer id."""
-
-        value = self._target_combo.currentData()
-        if isinstance(value, str):
-            stripped = value.strip()
-            if stripped:
-                return LayerId(stripped)
-        return None
-
-    def selected_import_mode(self) -> str:
-        """Return the import mode chosen for the current pull selection."""
-
-        return str(self._import_mode_combo.currentData() or "new_take")
-
-    def _selected_target_kind(self) -> LayerKind | None:
-        target_layer_id = self.selected_target_layer_id()
-        if target_layer_id is None:
-            return None
-        return self._target_kinds_by_id.get(target_layer_id)
-
-    def accept(self) -> None:
-        """Reject submission until the dialog has both event and layer selections."""
-
-        if not self.selected_event_ids():
-            QMessageBox.warning(self, "Import from MA3", "Select at least one source event.")
-            return
-        if self.selected_target_layer_id() is None:
-            QMessageBox.warning(self, "Import from MA3", "Select a target EZ layer.")
-            return
-        super().accept()
-
-    def _zoom_in(self) -> None:
-        self._canvas.zoom_in()
-        self._ruler.update()
-
-    def _zoom_out(self) -> None:
-        self._canvas.zoom_out()
-        self._ruler.update()
-
-    def _reset_zoom(self) -> None:
-        self._canvas.reset_zoom()
-        self._ruler.update()
-
-    def _refresh_zoom_label(self, zoom_factor: float) -> None:
-        self._zoom_value_label.setText(f"{int(round(zoom_factor * 100))}%")
-
-    def _handle_target_changed(self) -> None:
-        self._sync_import_mode_with_target()
-        self._refresh_state()
-
-    def _sync_import_mode_with_target(self, *, fallback_mode: str | None = None) -> None:
-        target_layer_id = self.selected_target_layer_id()
-        import_mode = (
-            _pull_import_mode_for_target(
-                target_layer_id,
-                target_kind=self._selected_target_kind(),
-            )
-            if target_layer_id is not None
-            else str(fallback_mode or "new_take")
-        )
-        with QSignalBlocker(self._import_mode_combo):
-            for index in range(self._import_mode_combo.count()):
-                if self._import_mode_combo.itemData(index) == import_mode:
-                    self._import_mode_combo.setCurrentIndex(index)
-                    break
-
-    def _refresh_state(self, *_args) -> None:
-        selected_count = len(self.selected_event_ids())
-        noun = "event" if selected_count == 1 else "events"
-        self._selection_label.setText(f"Selected: {selected_count} {noun}")
-        ok_button = self._buttons.button(QDialogButtonBox.StandardButton.Ok)
-        if ok_button is not None:
-            ok_button.setEnabled(bool(self.selected_event_ids()) and self.selected_target_layer_id() is not None)
 
 
 class ManualPullWorkspaceDialog(QDialog):

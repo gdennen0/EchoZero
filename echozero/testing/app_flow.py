@@ -9,6 +9,7 @@ import numpy as np
 from PyQt6.QtWidgets import QApplication
 
 from echozero.application.shared.enums import SyncMode
+from echozero.application.sync.adapters import MA3SyncBridge
 from echozero.application.sync.service import SyncService
 from echozero.services.orchestrator import Orchestrator
 from echozero.testing.ma3 import OSCLoopback, OSCMessageCapture, SimulatedMA3Bridge
@@ -24,6 +25,7 @@ class AppFlowHarness:
         *,
         simulate_ma3: bool = False,
         simulate_ma3_osc: bool = False,
+        sync_bridge: MA3SyncBridge | None = None,
         working_dir_root: Path | None = None,
         initial_project_name: str = "EchoZero Test Project",
         analysis_service: Orchestrator | None = None,
@@ -42,7 +44,13 @@ class AppFlowHarness:
         self._working_dir_root = Path(working_dir_root)
         self._working_dir_root.mkdir(parents=True, exist_ok=True)
         self._dialog_root = self._working_dir_root.parent
-        self.ma3_bridge = SimulatedMA3Bridge() if simulate_ma3 else None
+        if sync_bridge is not None and simulate_ma3:
+            raise ValueError("AppFlowHarness accepts either sync_bridge or simulate_ma3, not both")
+        self.ma3_bridge = (
+            sync_bridge
+            if sync_bridge is not None
+            else (SimulatedMA3Bridge() if simulate_ma3 else None)
+        )
         self.ma3_osc_loopback = OSCLoopback().start() if simulate_ma3_osc else None
         surface = build_launcher_surface(
             sync_bridge=self.ma3_bridge,
@@ -112,7 +120,7 @@ class AppFlowHarness:
         self.runtime.runtime_audio = runtime_audio
         self.widget._runtime_audio = runtime_audio
         runtime_audio.build_for_presentation(self.presentation())
-        self._app.processEvents()
+        self.flush_runtime_audio_sync()
 
     def advance_playback(self, *, frames: int = 256, iterations: int = 1) -> None:
         runtime_audio = self.runtime.runtime_audio
@@ -125,6 +133,13 @@ class AppFlowHarness:
             engine._audio_callback(outdata, frames, None, None)
             self.widget._on_runtime_tick()
             self._app.processEvents()
+
+    def flush_runtime_audio_sync(self) -> None:
+        """Drive one deterministic idle/update pass for debounced runtime-audio sync."""
+
+        if hasattr(self.widget, "_on_runtime_tick"):
+            self.widget._on_runtime_tick()
+        self._app.processEvents()
 
     def send_ma3_osc(self, path: str, *args: object) -> None:
         if self.ma3_osc_loopback is None:

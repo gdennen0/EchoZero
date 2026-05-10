@@ -63,10 +63,32 @@ def find_event(
     return None
 
 
+def find_event_ref(
+    presentation: TimelinePresentation,
+    event_ref: object,
+) -> tuple[LayerPresentation, TakeLanePresentation | None, EventPresentation] | None:
+    if event_ref is None:
+        return None
+    return find_event(
+        presentation,
+        layer_id=getattr(event_ref, "layer_id", None),
+        take_id=getattr(event_ref, "take_id", None),
+        event_id=getattr(event_ref, "event_id", None),
+    )
+
+
 def find_selected_event(
     presentation: TimelinePresentation,
     event_id: object,
 ) -> tuple[LayerPresentation, TakeLanePresentation | None, EventPresentation] | None:
+    selected_ref = presentation.resolve_event_ref(
+        event_id,
+        preferred_layer_id=presentation.selected_layer_id,
+        preferred_take_id=presentation.selected_take_id,
+        preferred_layer_ids=presentation.selected_layer_ids,
+    )
+    if selected_ref is not None:
+        return find_event_ref(presentation, selected_ref)
     return find_event(
         presentation,
         layer_id=presentation.selected_layer_id,

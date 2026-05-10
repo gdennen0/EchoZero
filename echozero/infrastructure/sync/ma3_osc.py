@@ -22,12 +22,14 @@ from echozero.infrastructure.osc import (
 )
 from echozero.infrastructure.sync.ma3_adapter import (
     MA3EventSnapshot,
+    MA3PresetSnapshot,
     MA3SequenceRangeSnapshot,
     MA3SequenceSnapshot,
     MA3TimecodeSnapshot,
     MA3TrackGroupSnapshot,
     MA3TrackSnapshot,
     coerce_event_snapshot,
+    coerce_preset_snapshot,
     transport_event_label,
 )
 from echozero.infrastructure.sync.ma3_protocol import (
@@ -39,7 +41,18 @@ from echozero.infrastructure.sync.ma3_protocol import (
     _optional_float,
     _optional_int,
     encode_ma3_osc_payload,
+    format_analyze_cue_recipe_state_command,
+    format_apply_recipe_cue_only_command,
+    format_describe_preset_command,
+    format_describe_datapool_object_command,
+    format_copy_cue_with_status_command,
+    format_get_datapool_objects_command,
+    format_list_presets_command,
     format_ma3_lua_command,
+    format_preview_copy_cue_with_status_command,
+    format_preview_recipe_cue_only_command,
+    format_preview_replace_preset_when_group_command,
+    format_replace_preset_when_group_command,
     format_track_coord,
     parse_ma3_osc_payload,
     parse_track_coord,
@@ -106,11 +119,17 @@ class MA3OSCBridge:
         self._sequence_cues_by_sequence_no: dict[int, list[dict[str, object]]] = {}
         self._pending_sequence_cue_requests: dict[int, int] = {}
         self._sequence_cue_chunks: dict[int, list[list[dict[str, object]]]] = {}
+        self._pending_datapool_children_requests: dict[int, str] = {}
+        self._pending_datapool_object_requests: dict[int, str] = {}
         self._hooked_tracks: set[str] = set()
         self._sequences_by_number: dict[int, MA3SequenceSnapshot] = {}
         self._current_song_sequence_range: MA3SequenceRangeSnapshot | None = None
         self._plugin_health: dict[str, object] | None = None
+        self._plugin_version: dict[str, object] | None = None
+        self._ping_snapshot: dict[str, object] | None = None
         self._transport_updates: list[dict[str, object]] = []
+        self._datapool_children_by_path: dict[str, list[dict[str, object]]] = {}
+        self._datapool_object_by_path: dict[str, dict[str, object]] = {}
 
     @property
     def is_running(self) -> bool:
@@ -367,6 +386,52 @@ class MA3OSCBridge:
         with self._lock:
             return self._current_song_sequence_range
 
+    def ping(self) -> dict[str, object]:
+        if self._command_transport is None:
+            with self._lock:
+                return dict(self._ping_snapshot or {})
+
+        for attempt in range(2):
+            self._ensure_command_ready()
+            after_index = self._message_count()
+            self._send_command("EZ.Ping()")
+            try:
+                message = self._wait_for_message(
+                    after_index=after_index,
+                    predicate=lambda message: message.key == "connection.ping",
+                    timeout=self._response_timeout,
+                    missing="Timed out waiting for MA3 ping reply",
+                )
+            except TimeoutError:
+                if attempt >= 1:
+                    raise
+                self._target_configured = False
+                sleep(_TARGET_CONFIG_SETTLE_SECONDS)
+                continue
+            with self._lock:
+                self._ping_snapshot = dict(message.fields)
+                return dict(self._ping_snapshot)
+
+        raise TimeoutError("Timed out waiting for MA3 ping reply")
+
+    def get_version_info(self) -> dict[str, object]:
+        if self._command_transport is None:
+            with self._lock:
+                return dict(self._plugin_version or {})
+
+        self._ensure_command_ready()
+        after_index = self._message_count()
+        self._send_command("EZ.Version()")
+        message = self._wait_for_message(
+            after_index=after_index,
+            predicate=lambda message: message.key == "plugin.version",
+            timeout=self._response_timeout,
+            missing="Timed out waiting for MA3 version reply",
+        )
+        with self._lock:
+            self._plugin_version = dict(message.fields)
+            return dict(self._plugin_version)
+
     def get_plugin_health(self) -> dict[str, object]:
         if self._command_transport is None:
             with self._lock:
@@ -384,6 +449,288 @@ class MA3OSCBridge:
         with self._lock:
             self._plugin_health = dict(message.fields)
             return dict(self._plugin_health)
+
+    def list_datapool_objects(self, path: str | None = None) -> list[dict[str, object]]:
+        requested_path = self._normalize_datapool_path(path)
+        if self._command_transport is None:
+            with self._lock:
+                return list(self._datapool_children_by_path.get(requested_path, []))
+
+        request_id = self._next_request_token()
+        with self._condition:
+            self._pending_datapool_children_requests[request_id] = requested_path
+            self._datapool_children_by_path.pop(requested_path, None)
+        self._ensure_command_ready()
+        self._send_command(
+            format_get_datapool_objects_command(path=requested_path or None, request_id=request_id)
+        )
+        self._wait_for(
+            lambda request_id=request_id: request_id
+            not in self._pending_datapool_children_requests,
+            timeout=self._response_timeout,
+            missing=(
+                "Timed out waiting for MA3 DataPool children"
+                if not requested_path
+                else f"Timed out waiting for MA3 DataPool children for {requested_path}"
+            ),
+        )
+        with self._lock:
+            return list(self._datapool_children_by_path.get(requested_path, []))
+
+    def describe_datapool_object(self, path: str | None = None) -> dict[str, object]:
+        requested_path = self._normalize_datapool_path(path)
+        if self._command_transport is None:
+            with self._lock:
+                return dict(self._datapool_object_by_path.get(requested_path, {}))
+
+        request_id = self._next_request_token()
+        with self._condition:
+            self._pending_datapool_object_requests[request_id] = requested_path
+            self._datapool_object_by_path.pop(requested_path, None)
+        self._ensure_command_ready()
+        self._send_command(
+            format_describe_datapool_object_command(
+                path=requested_path or None,
+                request_id=request_id,
+            )
+        )
+        self._wait_for(
+            lambda request_id=request_id: request_id not in self._pending_datapool_object_requests,
+            timeout=self._response_timeout,
+            missing=(
+                "Timed out waiting for MA3 DataPool object details"
+                if not requested_path
+                else f"Timed out waiting for MA3 DataPool object details for {requested_path}"
+            ),
+        )
+        with self._lock:
+            return dict(self._datapool_object_by_path.get(requested_path, {}))
+
+    def list_presets(self, *, preset_type_no: int) -> list[dict[str, object]]:
+        requested_preset_type_no = _optional_int(preset_type_no)
+        if requested_preset_type_no is None or requested_preset_type_no < 1:
+            raise ValueError("preset_type_no is required")
+        if self._command_transport is None:
+            raise RuntimeError("MA3 OSC bridge does not have an outbound command transport")
+
+        request_id = self._next_request_token()
+        self._ensure_command_ready()
+        after_index = self._message_count()
+        self._send_command(
+            format_list_presets_command(
+                preset_type_no=int(requested_preset_type_no),
+                request_id=request_id,
+            )
+        )
+        message = self._wait_for_message(
+            after_index=after_index,
+            predicate=lambda item, expected_type=int(
+                requested_preset_type_no
+            ), expected_request_id=request_id: (
+                (
+                    item.key == "presets.list"
+                    and int(item.fields.get("preset_type") or 0) == expected_type
+                    and int(item.fields.get("request_id") or 0) == expected_request_id
+                )
+                or (
+                    item.key == "preset.error"
+                    and int(item.fields.get("preset_type") or 0) == expected_type
+                    and int(item.fields.get("number") or 0) == 0
+                )
+            ),
+            timeout=self._response_timeout,
+            missing=f"Timed out waiting for MA3 preset list in pool {int(requested_preset_type_no)}",
+        )
+        if message.key == "preset.error":
+            error_text = str(message.fields.get("error") or "").strip()
+            raise RuntimeError(error_text or "MA3 preset list failed")
+        raw_presets = message.fields.get("presets") or []
+        return [
+            dict(raw_preset)
+            for raw_preset in (raw_presets if isinstance(raw_presets, list) else [])
+            if isinstance(raw_preset, dict)
+        ]
+
+    def describe_preset(self, *, preset_type_no: int, preset_no: int) -> dict[str, object]:
+        requested_preset_type_no = _optional_int(preset_type_no)
+        requested_preset_no = _optional_int(preset_no)
+        if requested_preset_type_no is None or requested_preset_type_no < 1:
+            raise ValueError("preset_type_no is required")
+        if requested_preset_no is None or requested_preset_no < 1:
+            raise ValueError("preset_no is required")
+        if self._command_transport is None:
+            raise RuntimeError("MA3 OSC bridge does not have an outbound command transport")
+
+        request_id = self._next_request_token()
+        self._ensure_command_ready()
+        after_index = self._message_count()
+        self._send_command(
+            format_describe_preset_command(
+                preset_type_no=int(requested_preset_type_no),
+                preset_no=int(requested_preset_no),
+                request_id=request_id,
+            )
+        )
+        message = self._wait_for_message(
+            after_index=after_index,
+            predicate=lambda item, expected_type=int(requested_preset_type_no), expected_no=int(
+                requested_preset_no
+            ), expected_request_id=request_id: (
+                (
+                    item.key == "preset.described"
+                    and int(item.fields.get("preset_type") or 0) == expected_type
+                    and int(item.fields.get("number") or 0) == expected_no
+                    and int(item.fields.get("request_id") or 0) == expected_request_id
+                )
+                or (
+                    item.key == "preset.error"
+                    and int(item.fields.get("preset_type") or 0) == expected_type
+                    and int(item.fields.get("number") or 0) == expected_no
+                )
+            ),
+            timeout=self._response_timeout,
+            missing=(
+                "Timed out waiting for MA3 preset description "
+                f"{int(requested_preset_type_no)}.{int(requested_preset_no)}"
+            ),
+        )
+        if message.key == "preset.error":
+            error_text = str(message.fields.get("error") or "").strip()
+            raise RuntimeError(error_text or "MA3 preset describe failed")
+        raw_object = message.fields.get("object")
+        if not isinstance(raw_object, dict):
+            return {}
+        return self._normalize_datapool_entry(raw_object)
+
+    def preview_replace_preset_when_group(
+        self,
+        *,
+        preset_type_no: int,
+        source_preset_ref: str,
+        dest_preset_ref: str,
+        group_filter_csv: str,
+        sequence_numbers_csv: str,
+    ) -> dict[str, object]:
+        return self._run_preset_replace_when_group(
+            command_text=format_preview_replace_preset_when_group_command(
+                preset_type_no=int(preset_type_no),
+                source_preset_ref=str(source_preset_ref),
+                dest_preset_ref=str(dest_preset_ref),
+                group_filter_csv=str(group_filter_csv),
+                sequence_numbers_csv=str(sequence_numbers_csv),
+                request_id=self._next_request_token(),
+            ),
+            expected_change="preview",
+        )
+
+    def replace_preset_when_group(
+        self,
+        *,
+        preset_type_no: int,
+        source_preset_ref: str,
+        dest_preset_ref: str,
+        group_filter_csv: str,
+        sequence_numbers_csv: str,
+    ) -> dict[str, object]:
+        return self._run_preset_replace_when_group(
+            command_text=format_replace_preset_when_group_command(
+                preset_type_no=int(preset_type_no),
+                source_preset_ref=str(source_preset_ref),
+                dest_preset_ref=str(dest_preset_ref),
+                group_filter_csv=str(group_filter_csv),
+                sequence_numbers_csv=str(sequence_numbers_csv),
+                request_id=self._next_request_token(),
+            ),
+            expected_change="applied",
+        )
+
+    def analyze_cue_recipe_state(
+        self,
+        *,
+        sequence_no: int,
+        cue_no: CueNumber | float | int | str,
+    ) -> dict[str, object]:
+        return self._run_recipe_cue_state_operation(
+            command_text=format_analyze_cue_recipe_state_command(
+                sequence_no=int(sequence_no),
+                cue_no=self._normalize_cue_ref_text(cue_no),
+                request_id=self._next_request_token(),
+            ),
+            expected_change="analysis",
+            missing="Timed out waiting for MA3 cue recipe state analysis",
+        )
+
+    def preview_recipe_cue_only(
+        self,
+        *,
+        sequence_no: int,
+        source_cue_no: CueNumber | float | int | str,
+        target_cue_no: CueNumber | float | int | str,
+    ) -> dict[str, object]:
+        return self._run_recipe_cue_state_operation(
+            command_text=format_preview_recipe_cue_only_command(
+                sequence_no=int(sequence_no),
+                source_cue_no=self._normalize_cue_ref_text(source_cue_no),
+                target_cue_no=self._normalize_cue_ref_text(target_cue_no),
+                request_id=self._next_request_token(),
+            ),
+            expected_change="cue_only_preview",
+            missing="Timed out waiting for MA3 recipe cue-only preview",
+        )
+
+    def apply_recipe_cue_only(
+        self,
+        *,
+        sequence_no: int,
+        source_cue_no: CueNumber | float | int | str,
+        target_cue_no: CueNumber | float | int | str,
+    ) -> dict[str, object]:
+        return self._run_recipe_cue_state_operation(
+            command_text=format_apply_recipe_cue_only_command(
+                sequence_no=int(sequence_no),
+                source_cue_no=self._normalize_cue_ref_text(source_cue_no),
+                target_cue_no=self._normalize_cue_ref_text(target_cue_no),
+                request_id=self._next_request_token(),
+            ),
+            expected_change="cue_only_applied",
+            missing="Timed out waiting for MA3 recipe cue-only apply",
+        )
+
+    def copy_cue_with_status(
+        self,
+        *,
+        sequence_no: int,
+        source_cue_no: CueNumber | float | int | str,
+        dest_cue_no: CueNumber | float | int | str,
+    ) -> dict[str, object]:
+        return self._run_recipe_cue_state_operation(
+            command_text=format_copy_cue_with_status_command(
+                sequence_no=int(sequence_no),
+                source_cue_no=self._normalize_cue_ref_text(source_cue_no),
+                dest_cue_no=self._normalize_cue_ref_text(dest_cue_no),
+                request_id=self._next_request_token(),
+            ),
+            expected_change="copied_with_status",
+            missing="Timed out waiting for MA3 copy cue with status",
+        )
+
+    def preview_copy_cue_with_status(
+        self,
+        *,
+        sequence_no: int,
+        source_cue_no: CueNumber | float | int | str,
+        dest_cue_no: CueNumber | float | int | str,
+    ) -> dict[str, object]:
+        return self._run_recipe_cue_state_operation(
+            command_text=format_preview_copy_cue_with_status_command(
+                sequence_no=int(sequence_no),
+                source_cue_no=self._normalize_cue_ref_text(source_cue_no),
+                dest_cue_no=self._normalize_cue_ref_text(dest_cue_no),
+                request_id=self._next_request_token(),
+            ),
+            expected_change="copy_with_status_preview",
+            missing="Timed out waiting for MA3 copy cue with status preview",
+        )
 
     def consume_transport_update(self) -> dict[str, object] | None:
         """Consume one queued MA3 transport update from inbound OSC state."""
@@ -716,6 +1063,332 @@ class MA3OSCBridge:
         if tracks:
             return sorted(tracks, key=lambda track: parse_track_coord(track.coord)[2])[-1]
         raise RuntimeError("MA3 track creation succeeded but no track was returned")
+
+    def create_static_preset(
+        self,
+        *,
+        preset_type_no: int,
+        preset_no: int,
+        store_mode: str,
+        preset_name: str,
+        selection_command: str,
+        value_command: str,
+    ) -> MA3PresetSnapshot:
+        requested_preset_type_no = _optional_int(preset_type_no)
+        requested_preset_no = _optional_int(preset_no)
+        normalized_mode = self._normalize_store_mode(store_mode)
+        normalized_name = str(preset_name or "").strip()
+        normalized_selection_command = str(selection_command or "").strip()
+        normalized_value_command = str(value_command or "").strip()
+        if requested_preset_type_no is None or requested_preset_type_no < 1:
+            raise ValueError("preset_type_no is required")
+        if requested_preset_no is None or requested_preset_no < 1:
+            raise ValueError("preset_no is required")
+        if not normalized_name:
+            raise ValueError("preset_name is required")
+        if not normalized_selection_command:
+            raise ValueError("selection_command is required")
+        if not normalized_value_command:
+            raise ValueError("value_command is required")
+        if self._command_transport is None:
+            raise RuntimeError("MA3 OSC bridge does not have an outbound command transport")
+
+        return self._execute_preset_authoring_command(
+            command_text=(
+                "EZ.CreateStaticPreset({preset_type}, {preset_no}, {store_mode}, {preset_name}, "
+                "{selection_command}, {value_command})".format(
+                    preset_type=int(requested_preset_type_no),
+                    preset_no=int(requested_preset_no),
+                    store_mode=_format_lua_string(normalized_mode),
+                    preset_name=_format_lua_string(normalized_name),
+                    selection_command=_format_lua_string(normalized_selection_command),
+                    value_command=_format_lua_string(normalized_value_command),
+                )
+            ),
+            preset_type_no=int(requested_preset_type_no),
+            preset_no=int(requested_preset_no),
+            missing=(
+                "Timed out waiting for MA3 static preset creation "
+                f"{int(requested_preset_type_no)}.{int(requested_preset_no)}"
+            ),
+            failure_text="MA3 static preset creation failed",
+        )
+
+    def create_phaser_preset(
+        self,
+        *,
+        preset_type_no: int,
+        preset_no: int,
+        store_mode: str,
+        preset_name: str,
+        selection_command: str,
+        step_preset_refs: tuple[str, ...] | list[str] | tuple[list[str], ...] | list[list[str]],
+        speed_bpm: float | None = None,
+    ) -> MA3PresetSnapshot:
+        requested_preset_type_no = _optional_int(preset_type_no)
+        requested_preset_no = _optional_int(preset_no)
+        normalized_mode = self._normalize_store_mode(store_mode)
+        normalized_name = str(preset_name or "").strip()
+        normalized_selection_command = str(selection_command or "").strip()
+        normalized_step_spec = self._encode_step_preset_spec(step_preset_refs)
+        normalized_speed_bpm = None if speed_bpm is None else float(speed_bpm)
+        if requested_preset_type_no is None or requested_preset_type_no < 1:
+            raise ValueError("preset_type_no is required")
+        if requested_preset_no is None or requested_preset_no < 1:
+            raise ValueError("preset_no is required")
+        if not normalized_name:
+            raise ValueError("preset_name is required")
+        if not normalized_selection_command:
+            raise ValueError("selection_command is required")
+        if not normalized_step_spec:
+            raise ValueError("step_preset_refs is required")
+        if normalized_speed_bpm is not None and normalized_speed_bpm <= 0.0:
+            raise ValueError("speed_bpm must be positive when provided")
+        if self._command_transport is None:
+            raise RuntimeError("MA3 OSC bridge does not have an outbound command transport")
+
+        speed_arg = (
+            "nil" if normalized_speed_bpm is None else _format_lua_number(normalized_speed_bpm)
+        )
+        return self._execute_preset_authoring_command(
+            command_text=(
+                "EZ.CreatePhaserPreset({preset_type}, {preset_no}, {store_mode}, {preset_name}, "
+                "{selection_command}, {step_spec}, {speed_bpm})".format(
+                    preset_type=int(requested_preset_type_no),
+                    preset_no=int(requested_preset_no),
+                    store_mode=_format_lua_string(normalized_mode),
+                    preset_name=_format_lua_string(normalized_name),
+                    selection_command=_format_lua_string(normalized_selection_command),
+                    step_spec=_format_lua_string(normalized_step_spec),
+                    speed_bpm=speed_arg,
+                )
+            ),
+            preset_type_no=int(requested_preset_type_no),
+            preset_no=int(requested_preset_no),
+            missing=(
+                "Timed out waiting for MA3 phaser preset creation "
+                f"{int(requested_preset_type_no)}.{int(requested_preset_no)}"
+            ),
+            failure_text="MA3 phaser preset creation failed",
+        )
+
+    def create_recipe_preset(
+        self,
+        *,
+        preset_type_no: int,
+        preset_no: int,
+        store_mode: str,
+        preset_name: str,
+        selection_command: str,
+        source_preset_ref: str,
+        selection_mode: str = "Strict",
+    ) -> MA3PresetSnapshot:
+        requested_preset_type_no = _optional_int(preset_type_no)
+        requested_preset_no = _optional_int(preset_no)
+        normalized_mode = self._normalize_store_mode(store_mode)
+        normalized_name = str(preset_name or "").strip()
+        normalized_selection_command = str(selection_command or "").strip()
+        normalized_source_preset_ref = str(source_preset_ref or "").strip()
+        normalized_selection_mode = str(selection_mode or "").strip()
+        if requested_preset_type_no is None or requested_preset_type_no < 1:
+            raise ValueError("preset_type_no is required")
+        if requested_preset_no is None or requested_preset_no < 1:
+            raise ValueError("preset_no is required")
+        if not normalized_name:
+            raise ValueError("preset_name is required")
+        if not normalized_selection_command:
+            raise ValueError("selection_command is required")
+        if not normalized_source_preset_ref:
+            raise ValueError("source_preset_ref is required")
+        if not normalized_selection_mode:
+            raise ValueError("selection_mode is required")
+        if self._command_transport is None:
+            raise RuntimeError("MA3 OSC bridge does not have an outbound command transport")
+
+        return self._execute_preset_authoring_command(
+            command_text=(
+                "EZ.CreateRecipePreset({preset_type}, {preset_no}, {store_mode}, {preset_name}, "
+                "{selection_command}, {source_preset_ref}, {selection_mode})".format(
+                    preset_type=int(requested_preset_type_no),
+                    preset_no=int(requested_preset_no),
+                    store_mode=_format_lua_string(normalized_mode),
+                    preset_name=_format_lua_string(normalized_name),
+                    selection_command=_format_lua_string(normalized_selection_command),
+                    source_preset_ref=_format_lua_string(normalized_source_preset_ref),
+                    selection_mode=_format_lua_string(normalized_selection_mode),
+                )
+            ),
+            preset_type_no=int(requested_preset_type_no),
+            preset_no=int(requested_preset_no),
+            missing=(
+                "Timed out waiting for MA3 recipe preset creation "
+                f"{int(requested_preset_type_no)}.{int(requested_preset_no)}"
+            ),
+            failure_text="MA3 recipe preset creation failed",
+        )
+
+    def edit_static_preset(
+        self,
+        *,
+        preset_type_no: int,
+        preset_no: int,
+        store_mode: str,
+        preset_name: str,
+        selection_command: str,
+        value_command: str,
+    ) -> MA3PresetSnapshot:
+        requested_preset_type_no = _optional_int(preset_type_no)
+        requested_preset_no = _optional_int(preset_no)
+        normalized_mode = self._normalize_store_mode(store_mode)
+        normalized_name = str(preset_name or "").strip()
+        normalized_selection_command = str(selection_command or "").strip()
+        normalized_value_command = str(value_command or "").strip()
+        if requested_preset_type_no is None or requested_preset_type_no < 1:
+            raise ValueError("preset_type_no is required")
+        if requested_preset_no is None or requested_preset_no < 1:
+            raise ValueError("preset_no is required")
+        if not normalized_name:
+            raise ValueError("preset_name is required")
+        if not normalized_selection_command:
+            raise ValueError("selection_command is required")
+        if not normalized_value_command:
+            raise ValueError("value_command is required")
+        if self._command_transport is None:
+            raise RuntimeError("MA3 OSC bridge does not have an outbound command transport")
+
+        return self._execute_preset_authoring_command(
+            command_text=(
+                "EZ.EditStaticPreset({preset_type}, {preset_no}, {store_mode}, {preset_name}, "
+                "{selection_command}, {value_command})".format(
+                    preset_type=int(requested_preset_type_no),
+                    preset_no=int(requested_preset_no),
+                    store_mode=_format_lua_string(normalized_mode),
+                    preset_name=_format_lua_string(normalized_name),
+                    selection_command=_format_lua_string(normalized_selection_command),
+                    value_command=_format_lua_string(normalized_value_command),
+                )
+            ),
+            preset_type_no=int(requested_preset_type_no),
+            preset_no=int(requested_preset_no),
+            missing=(
+                "Timed out waiting for MA3 static preset edit "
+                f"{int(requested_preset_type_no)}.{int(requested_preset_no)}"
+            ),
+            failure_text="MA3 static preset edit failed",
+        )
+
+    def edit_phaser_preset(
+        self,
+        *,
+        preset_type_no: int,
+        preset_no: int,
+        store_mode: str,
+        preset_name: str,
+        selection_command: str,
+        step_preset_refs: tuple[str, ...] | list[str] | tuple[list[str], ...] | list[list[str]],
+        speed_bpm: float | None = None,
+    ) -> MA3PresetSnapshot:
+        requested_preset_type_no = _optional_int(preset_type_no)
+        requested_preset_no = _optional_int(preset_no)
+        normalized_mode = self._normalize_store_mode(store_mode)
+        normalized_name = str(preset_name or "").strip()
+        normalized_selection_command = str(selection_command or "").strip()
+        normalized_step_spec = self._encode_step_preset_spec(step_preset_refs)
+        normalized_speed_bpm = None if speed_bpm is None else float(speed_bpm)
+        if requested_preset_type_no is None or requested_preset_type_no < 1:
+            raise ValueError("preset_type_no is required")
+        if requested_preset_no is None or requested_preset_no < 1:
+            raise ValueError("preset_no is required")
+        if not normalized_name:
+            raise ValueError("preset_name is required")
+        if not normalized_selection_command:
+            raise ValueError("selection_command is required")
+        if not normalized_step_spec:
+            raise ValueError("step_preset_refs is required")
+        if normalized_speed_bpm is not None and normalized_speed_bpm <= 0.0:
+            raise ValueError("speed_bpm must be positive when provided")
+        if self._command_transport is None:
+            raise RuntimeError("MA3 OSC bridge does not have an outbound command transport")
+
+        speed_arg = (
+            "nil" if normalized_speed_bpm is None else _format_lua_number(normalized_speed_bpm)
+        )
+        return self._execute_preset_authoring_command(
+            command_text=(
+                "EZ.EditPhaserPreset({preset_type}, {preset_no}, {store_mode}, {preset_name}, "
+                "{selection_command}, {step_spec}, {speed_bpm})".format(
+                    preset_type=int(requested_preset_type_no),
+                    preset_no=int(requested_preset_no),
+                    store_mode=_format_lua_string(normalized_mode),
+                    preset_name=_format_lua_string(normalized_name),
+                    selection_command=_format_lua_string(normalized_selection_command),
+                    step_spec=_format_lua_string(normalized_step_spec),
+                    speed_bpm=speed_arg,
+                )
+            ),
+            preset_type_no=int(requested_preset_type_no),
+            preset_no=int(requested_preset_no),
+            missing=(
+                "Timed out waiting for MA3 phaser preset edit "
+                f"{int(requested_preset_type_no)}.{int(requested_preset_no)}"
+            ),
+            failure_text="MA3 phaser preset edit failed",
+        )
+
+    def edit_recipe_preset(
+        self,
+        *,
+        preset_type_no: int,
+        preset_no: int,
+        store_mode: str,
+        preset_name: str,
+        selection_command: str,
+        source_preset_ref: str,
+        selection_mode: str = "Strict",
+    ) -> MA3PresetSnapshot:
+        requested_preset_type_no = _optional_int(preset_type_no)
+        requested_preset_no = _optional_int(preset_no)
+        normalized_mode = self._normalize_store_mode(store_mode)
+        normalized_name = str(preset_name or "").strip()
+        normalized_selection_command = str(selection_command or "").strip()
+        normalized_source_preset_ref = str(source_preset_ref or "").strip()
+        normalized_selection_mode = str(selection_mode or "").strip()
+        if requested_preset_type_no is None or requested_preset_type_no < 1:
+            raise ValueError("preset_type_no is required")
+        if requested_preset_no is None or requested_preset_no < 1:
+            raise ValueError("preset_no is required")
+        if not normalized_name:
+            raise ValueError("preset_name is required")
+        if not normalized_selection_command:
+            raise ValueError("selection_command is required")
+        if not normalized_source_preset_ref:
+            raise ValueError("source_preset_ref is required")
+        if not normalized_selection_mode:
+            raise ValueError("selection_mode is required")
+        if self._command_transport is None:
+            raise RuntimeError("MA3 OSC bridge does not have an outbound command transport")
+
+        return self._execute_preset_authoring_command(
+            command_text=(
+                "EZ.EditRecipePreset({preset_type}, {preset_no}, {store_mode}, {preset_name}, "
+                "{selection_command}, {source_preset_ref}, {selection_mode})".format(
+                    preset_type=int(requested_preset_type_no),
+                    preset_no=int(requested_preset_no),
+                    store_mode=_format_lua_string(normalized_mode),
+                    preset_name=_format_lua_string(normalized_name),
+                    selection_command=_format_lua_string(normalized_selection_command),
+                    source_preset_ref=_format_lua_string(normalized_source_preset_ref),
+                    selection_mode=_format_lua_string(normalized_selection_mode),
+                )
+            ),
+            preset_type_no=int(requested_preset_type_no),
+            preset_no=int(requested_preset_no),
+            missing=(
+                "Timed out waiting for MA3 recipe preset edit "
+                f"{int(requested_preset_type_no)}.{int(requested_preset_no)}"
+            ),
+            failure_text="MA3 recipe preset edit failed",
+        )
 
     def prepare_track_for_events(self, *, target_track_coord: str) -> None:
         coord = str(target_track_coord or "").strip()
@@ -1233,6 +1906,10 @@ class MA3OSCBridge:
             self._sequence_cues_by_sequence_no.clear()
             self._pending_sequence_cue_requests.clear()
             self._sequence_cue_chunks.clear()
+            self._pending_datapool_children_requests.clear()
+            self._pending_datapool_object_requests.clear()
+            self._datapool_children_by_path.clear()
+            self._datapool_object_by_path.clear()
             self._sequences_by_number.clear()
             self._current_song_sequence_range = None
             self._condition.notify_all()
@@ -1410,12 +2087,40 @@ class MA3OSCBridge:
                 self._sequence_cues_by_sequence_no.setdefault(int(sequence_no), [])
             return
 
+        if message_type == "datapool" and change == "children":
+            self._ingest_datapool_children_locked(fields)
+            return
+
+        if message_type == "datapool" and change == "object":
+            self._ingest_datapool_object_locked(fields)
+            return
+
+        if message_type == "datapool" and change == "error":
+            request_id = _optional_int(fields.get("request_id"))
+            path = self._normalize_datapool_path(fields.get("path"))
+            if request_id is not None:
+                children_path = self._pending_datapool_children_requests.pop(request_id, None)
+                object_path = self._pending_datapool_object_requests.pop(request_id, None)
+                if not path:
+                    path = object_path if object_path is not None else children_path or ""
+            self._datapool_children_by_path.setdefault(path, [])
+            self._datapool_object_by_path.setdefault(path, {})
+            return
+
         if message_type == "sequence_range" and change == "current_song":
             self._current_song_sequence_range = self._sequence_range_snapshot_from_fields(fields)
             return
 
         if message_type == "plugin" and change == "health":
             self._plugin_health = dict(fields)
+            return
+
+        if message_type == "plugin" and change == "version":
+            self._plugin_version = dict(fields)
+            return
+
+        if message_type == "connection" and change == "ping":
+            self._ping_snapshot = dict(fields)
             return
 
         if message_type == "transport":
@@ -1676,6 +2381,31 @@ class MA3OSCBridge:
         if request_id is not None:
             self._pending_sequence_cue_requests.pop(request_id, None)
 
+    def _ingest_datapool_children_locked(self, fields: dict[str, object]) -> None:
+        request_id = _optional_int(fields.get("request_id"))
+        path = self._normalize_datapool_path(fields.get("path"))
+        if request_id is not None:
+            path = self._pending_datapool_children_requests.pop(request_id, path)
+        raw_children = fields.get("children") or []
+        normalized = [
+            self._normalize_datapool_entry(raw_child)
+            for raw_child in (raw_children if isinstance(raw_children, list) else [])
+            if isinstance(raw_child, dict)
+        ]
+        self._datapool_children_by_path[path] = normalized
+
+    def _ingest_datapool_object_locked(self, fields: dict[str, object]) -> None:
+        request_id = _optional_int(fields.get("request_id"))
+        path = self._normalize_datapool_path(fields.get("path"))
+        if request_id is not None:
+            path = self._pending_datapool_object_requests.pop(request_id, path)
+        raw_object = fields.get("object")
+        if not isinstance(raw_object, dict):
+            self._datapool_object_by_path[path] = {}
+            return
+        normalized = self._normalize_datapool_entry(raw_object)
+        self._datapool_object_by_path[path] = normalized
+
     def _rebuild_track_index_locked(self) -> None:
         self._tracks_by_coord = {}
         for tracks in self._tracks_by_group.values():
@@ -1735,6 +2465,117 @@ class MA3OSCBridge:
             name=str(fields.get("name") or ""),
             cue_count=cue_count,
         )
+
+    @staticmethod
+    def _preset_snapshot_from_fields(fields: dict[str, object]) -> MA3PresetSnapshot:
+        return coerce_preset_snapshot(
+            {
+                "preset_type": fields.get("preset_type", fields.get("type")),
+                "number": fields.get("number", fields.get("no")),
+                "name": fields.get("name"),
+                "store_mode": fields.get("store_mode", fields.get("mode")),
+                "kind": fields.get("kind"),
+                "step_count": fields.get("step_count"),
+            }
+        )
+
+    def _execute_preset_authoring_command(
+        self,
+        *,
+        command_text: str,
+        preset_type_no: int,
+        preset_no: int,
+        missing: str,
+        failure_text: str,
+    ) -> MA3PresetSnapshot:
+        self._ensure_command_ready()
+        after_index = self._message_count()
+        self._send_command(command_text)
+        message = self._wait_for_message(
+            after_index=after_index,
+            predicate=lambda item, expected_type=int(preset_type_no), expected_no=int(preset_no): (
+                item.key in {"preset.created", "preset.exists", "preset.updated", "preset.error"}
+                and int(item.fields.get("preset_type") or item.fields.get("type") or 0)
+                == expected_type
+                and int(item.fields.get("number") or item.fields.get("no") or 0) == expected_no
+            ),
+            timeout=self._response_timeout,
+            missing=missing,
+        )
+        if message.key == "preset.error":
+            error_text = str(message.fields.get("error") or "").strip()
+            raise RuntimeError(error_text or failure_text)
+        return self._preset_snapshot_from_fields(message.fields)
+
+    def _run_preset_replace_when_group(
+        self,
+        *,
+        command_text: str,
+        expected_change: str,
+    ) -> dict[str, object]:
+        self._ensure_command_ready()
+        after_index = self._message_count()
+        self._send_command(command_text)
+        message = self._wait_for_message(
+            after_index=after_index,
+            predicate=lambda item, expected_change=expected_change: item.message_type
+            in {
+                "preset_replace",
+                "preset",
+            }
+            and (
+                (item.message_type == "preset_replace" and item.change == expected_change)
+                or item.key == "preset.error"
+            ),
+            timeout=self._response_timeout,
+            missing=f"Timed out waiting for MA3 preset replace {expected_change}",
+        )
+        if message.key == "preset.error":
+            error_text = str(message.fields.get("error") or "").strip()
+            raise RuntimeError(error_text or "MA3 preset replace failed")
+        return dict(message.fields)
+
+    def _run_recipe_cue_state_operation(
+        self,
+        *,
+        command_text: str,
+        expected_change: str,
+        missing: str,
+    ) -> dict[str, object]:
+        self._ensure_command_ready()
+        after_index = self._message_count()
+        self._send_command(command_text)
+        message = self._wait_for_message(
+            after_index=after_index,
+            predicate=lambda item, expected_change=expected_change: item.message_type
+            in {
+                "recipe_cue",
+                "preset",
+            }
+            and (
+                (item.message_type == "recipe_cue" and item.change == expected_change)
+                or item.key == "preset.error"
+            ),
+            timeout=self._response_timeout,
+            missing=missing,
+        )
+        if message.key == "preset.error":
+            error_text = str(message.fields.get("error") or "").strip()
+            raise RuntimeError(error_text or "MA3 recipe cue operation failed")
+        return dict(message.fields)
+
+    @staticmethod
+    def _normalize_cue_ref_text(cue_no: CueNumber | float | int | str) -> str:
+        if isinstance(cue_no, str):
+            text = cue_no.strip()
+            if not text:
+                raise ValueError("cue_no is required")
+            parsed = parse_positive_cue_number(text)
+            return cue_number_text(parsed) if parsed is not None else text
+        parsed = parse_positive_cue_number(cue_no)
+        if parsed is None:
+            raise ValueError("cue_no is required")
+        return str(cue_number_text(parsed))
 
     @staticmethod
     def _sequence_range_snapshot_from_fields(
@@ -1812,7 +2653,11 @@ class MA3OSCBridge:
         cue_number = cue_number_text(event.cue_number)
         if cue_number is not None:
             cue_ref = str(event.cue_ref or "").strip()
-            if cue_ref:
+            normalized_cue_ref = cue_ref.casefold()
+            if cue_ref and normalized_cue_ref not in {
+                cue_number.casefold(),
+                f"cue {cue_number.casefold()}",
+            }:
                 return (start, f"cue:{cue_number}:{cue_ref.casefold()}")
             return (start, f"cue:{cue_number}")
         command = " ".join(cls._event_command_text(event).lower().split())
@@ -1978,6 +2823,106 @@ class MA3OSCBridge:
                 if remaining <= 0:
                     raise TimeoutError(missing)
                 self._condition.wait(timeout=remaining)
+
+    @staticmethod
+    def _normalize_datapool_path(path: object) -> str:
+        text = str(path or "").strip().strip("/")
+        return text
+
+    @staticmethod
+    def _normalize_store_mode(store_mode: str) -> str:
+        normalized_mode = str(store_mode or "").strip().lower()
+        if normalized_mode not in {"auto", "selective", "global", "universal", "forceglobal"}:
+            raise ValueError(
+                "store_mode must be one of Auto, Selective, Global, Universal, ForceGlobal"
+            )
+        if normalized_mode == "forceglobal":
+            return "ForceGlobal"
+        return normalized_mode.capitalize()
+
+    @staticmethod
+    def _encode_step_preset_spec(
+        step_preset_refs: tuple[str, ...] | list[str] | tuple[list[str], ...] | list[list[str]],
+    ) -> str:
+        encoded_steps: list[str] = []
+        for raw_step in step_preset_refs:
+            if isinstance(raw_step, str):
+                refs = [part.strip() for part in raw_step.split("+") if part.strip()]
+            else:
+                refs = [str(part or "").strip() for part in raw_step if str(part or "").strip()]
+            if not refs:
+                continue
+            encoded_steps.append("+".join(refs))
+        return ";".join(encoded_steps)
+
+    @classmethod
+    def _normalize_datapool_entry(cls, raw_entry: dict[str, object]) -> dict[str, object]:
+        path = cls._normalize_datapool_path(raw_entry.get("path"))
+        capabilities = raw_entry.get("capabilities")
+        if not isinstance(capabilities, list):
+            capabilities = []
+        normalized = {
+            "path": path,
+            "name": str(raw_entry.get("name") or ""),
+            "class": str(raw_entry.get("class") or ""),
+            "no": _optional_int(raw_entry.get("no")),
+            "index": _optional_int(raw_entry.get("index")),
+            "child_count": _optional_int(raw_entry.get("child_count")),
+            "has_children": bool(raw_entry.get("has_children")),
+            "capabilities": [str(item) for item in capabilities if str(item or "").strip()],
+        }
+        preset_type = _optional_int(raw_entry.get("preset_type"))
+        if preset_type is not None:
+            normalized["preset_type"] = preset_type
+        store_mode = raw_entry.get("store_mode")
+        if store_mode is not None and str(store_mode).strip():
+            normalized["store_mode"] = str(store_mode)
+        kind = raw_entry.get("kind")
+        if kind is not None and str(kind).strip():
+            normalized["kind"] = str(kind)
+        step_count = _optional_int(raw_entry.get("step_count"))
+        if step_count is not None:
+            normalized["step_count"] = step_count
+        address = raw_entry.get("address")
+        if address is not None and str(address).strip():
+            normalized["address"] = str(address)
+        child_index = _optional_int(raw_entry.get("child_index"))
+        if child_index is not None:
+            normalized["child_index"] = child_index
+        browse_token = raw_entry.get("browse_token")
+        if browse_token is not None and str(browse_token).strip():
+            normalized["browse_token"] = str(browse_token)
+        preview_children = raw_entry.get("preview_children")
+        if isinstance(preview_children, list):
+            normalized["preview_children"] = [
+                cls._normalize_datapool_entry(item)
+                for item in preview_children
+                if isinstance(item, dict)
+            ]
+        raw_children = raw_entry.get("children")
+        if isinstance(raw_children, list):
+            normalized["children"] = [
+                cls._normalize_datapool_entry(item)
+                for item in raw_children
+                if isinstance(item, dict)
+            ]
+        raw_properties = raw_entry.get("properties")
+        if isinstance(raw_properties, dict):
+            normalized["properties"] = dict(raw_properties)
+        raw_property_items = raw_entry.get("property_items")
+        if isinstance(raw_property_items, list):
+            normalized["property_items"] = [
+                dict(item) for item in raw_property_items if isinstance(item, dict)
+            ]
+        property_count = _optional_int(raw_entry.get("property_count"))
+        if property_count is not None:
+            normalized["property_count"] = property_count
+        if "properties_truncated" in raw_entry:
+            normalized["properties_truncated"] = bool(raw_entry.get("properties_truncated"))
+        dump = raw_entry.get("dump")
+        if dump is not None and str(dump).strip():
+            normalized["dump"] = str(dump)
+        return normalized
 
 
 def _coord_timecode_no(coord: str) -> int | None:

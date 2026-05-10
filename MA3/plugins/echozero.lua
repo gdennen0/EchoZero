@@ -14,6 +14,8 @@ EZ._trackgroup_hooks = EZ._trackgroup_hooks or {}
 EZ._version = "2.0"
 EZ._build = EZ._build or "2026-05-01.transport-send-debug-1"
 EZ._oscInitialized = false
+EZ._datapoolDumpCharLimit = EZ._datapoolDumpCharLimit or 12000
+EZ._datapoolPropertyLimit = EZ._datapoolPropertyLimit or 128
 
 -- PLUGIN HANDLE CAPTURE (luaComponentHandle at load time, :Parent() for HookObjectChange)
 local luaComponentHandle = select(4, ...)
@@ -72,6 +74,407 @@ function EZ.getTrack(tcNo, tgNo, trackNo)
     local ok, track = pcall(function() return DataPool().Timecodes[tcNo][tgNo][trackNo] end)
     return (ok and track) or nil
 end
+
+EZ._datapoolBrowseChildLimit = EZ._datapoolBrowseChildLimit or 200
+EZ._datapoolInspectPreviewLimit = EZ._datapoolInspectPreviewLimit or 12
+
+function EZ.safeChildren(handle)
+    if not handle then
+        return {}
+    end
+    local ok, children = pcall(function() return handle:Children() end)
+    if ok and children then
+        return children
+    end
+    return {}
+end
+
+function EZ.safeProperty(handle, propertyName)
+    if not handle or not propertyName then
+        return nil
+    end
+    local okField, fieldValue = pcall(function() return handle[propertyName] end)
+    if okField and fieldValue ~= nil and type(fieldValue) ~= "userdata" then
+        return fieldValue
+    end
+    if handle.Get then
+        local okGet, getValue = pcall(function() return handle:Get(propertyName) end)
+        if okGet and getValue ~= nil and getValue ~= "" then
+            if type(getValue) == "userdata" then
+                return tostring(getValue)
+            end
+            return getValue
+        end
+    end
+    return nil
+end
+
+function EZ.safeStringProperty(handle, propertyName)
+    local value = EZ.safeProperty(handle, propertyName)
+    if value == nil then
+        return ""
+    end
+    return tostring(value)
+end
+
+function EZ.safeNumberProperty(handle, propertyName)
+    local value = EZ.safeProperty(handle, propertyName)
+    if value == nil or value == "" then
+        return nil
+    end
+    return tonumber(value)
+end
+
+function EZ.safeClass(handle)
+    if not handle or not handle.GetClass then
+        return ""
+    end
+    local ok, className = pcall(function() return handle:GetClass() end)
+    if ok and className ~= nil then
+        return tostring(className)
+    end
+    return ""
+end
+
+function EZ.safeCount(handle)
+    if not handle then
+        return 0
+    end
+    local okCount, countValue = pcall(function() return handle:Count() end)
+    if okCount and countValue ~= nil then
+        return tonumber(countValue) or 0
+    end
+    local children = EZ.safeChildren(handle)
+    return #children
+end
+
+function EZ.safeAddress(handle)
+    if not handle or type(ToAddr) ~= "function" then
+        return ""
+    end
+    local ok, address = pcall(function() return ToAddr(handle, true, true) end)
+    if ok and address ~= nil then
+        return tostring(address)
+    end
+    return ""
+end
+
+function EZ.normalizeDataPoolPath(pathSpec)
+    if pathSpec == nil or pathSpec == "" then
+        return {}
+    end
+
+    local tokens = {}
+    if type(pathSpec) == "table" then
+        for _, rawToken in ipairs(pathSpec) do
+            if rawToken ~= nil then
+                local token = tostring(rawToken):match("^%s*(.-)%s*$")
+                if token ~= "" and token ~= "." and token ~= "/" then
+                    table.insert(tokens, token)
+                end
+            end
+        end
+        return tokens
+    end
+
+    local text = tostring(pathSpec)
+    text = text:gsub("^%s+", ""):gsub("%s+$", "")
+    text = text:gsub("^DataPool/?", "")
+    text = text:gsub("^/+", ""):gsub("/+$", "")
+    if text == "" then
+        return {}
+    end
+    for token in string.gmatch(text, "[^/]+") do
+        local trimmed = tostring(token):match("^%s*(.-)%s*$")
+        if trimmed ~= "" and trimmed ~= "." then
+            table.insert(tokens, trimmed)
+        end
+    end
+    return tokens
+end
+
+local function resolveChildByName(handle, token)
+    local children = EZ.safeChildren(handle)
+    for i = 1, #children do
+        local child = children[i]
+        if child and EZ.safeStringProperty(child, "name") == token then
+            return child, i
+        end
+    end
+    return nil, nil
+end
+
+function EZ.resolveDataPoolPath(pathSpec)
+    local dp = EZ.getDP()
+    if not dp then
+        return nil, {}, "datapool_unavailable"
+    end
+
+    local tokens = EZ.normalizeDataPoolPath(pathSpec)
+    local handle = dp
+    local resolved = {}
+
+    for _, token in ipairs(tokens) do
+        local nextHandle = nil
+        local nextIndex = nil
+        local numericToken = tonumber(token)
+        if numericToken ~= nil then
+            local childIndex = math.floor(numericToken)
+            local okDirect, directHandle = pcall(function() return handle[childIndex] end)
+            if okDirect and directHandle then
+                nextHandle = directHandle
+                nextIndex = childIndex
+            else
+                local children = EZ.safeChildren(handle)
+                nextHandle = children[childIndex]
+                if nextHandle then
+                    nextIndex = childIndex
+                end
+            end
+        end
+        if not nextHandle then
+            local okField, fieldHandle = pcall(function() return handle[token] end)
+            if okField and fieldHandle then
+                nextHandle = fieldHandle
+            end
+        end
+        if not nextHandle then
+            nextHandle, nextIndex = resolveChildByName(handle, token)
+        end
+        if not nextHandle then
+            return nil, resolved, string.format("path_not_found:%s", tostring(token))
+        end
+        handle = nextHandle
+        table.insert(resolved, tonumber(token) and tostring(nextIndex or token) or tostring(token))
+    end
+
+    return handle, resolved, nil
+end
+
+function EZ.getDataPoolBrowseToken(handle, fallbackIndex)
+    local noValue = EZ.safeNumberProperty(handle, "no")
+    if noValue ~= nil then
+        return tostring(noValue)
+    end
+    local nameValue = EZ.safeStringProperty(handle, "name")
+    if nameValue ~= "" then
+        return nameValue
+    end
+    local indexValue = EZ.safeNumberProperty(handle, "index")
+    if indexValue ~= nil then
+        return tostring(indexValue)
+    end
+    return tostring(fallbackIndex or "")
+end
+
+function EZ.describeHandle(handle, options)
+    if not handle then
+        return nil
+    end
+    options = options or {}
+
+    local description = {
+        name = EZ.safeStringProperty(handle, "name"),
+        class = EZ.safeClass(handle),
+        no = EZ.safeNumberProperty(handle, "no"),
+        index = EZ.safeNumberProperty(handle, "index"),
+        child_count = EZ.safeCount(handle),
+    }
+
+    local address = EZ.safeAddress(handle)
+    if address ~= "" then
+        description.address = address
+    end
+    if options.path then
+        description.path = options.path
+    end
+    if options.browse_token then
+        description.browse_token = tostring(options.browse_token)
+    end
+    if options.child_index ~= nil then
+        description.child_index = options.child_index
+    end
+
+    return description
+end
+
+function EZ.describeHandlePropertyItems(handle)
+    local items = {}
+    if not handle or not handle.PropertyCount then
+        return items, 0, false
+    end
+
+    local okCount, rawCount = pcall(function() return handle:PropertyCount() end)
+    local propertyCount = okCount and (tonumber(rawCount) or 0) or 0
+    local propertyLimit = math.max(0, tonumber(EZ._datapoolPropertyLimit) or 0)
+    local truncated = propertyLimit > 0 and propertyCount > propertyLimit
+    local maxCount = truncated and propertyLimit or propertyCount
+
+    for propertyIndex = 0, math.max(0, maxCount - 1) do
+        local okName, rawName = pcall(function() return handle:PropertyName(propertyIndex) end)
+        local propertyName = okName and tostring(rawName or "") or ""
+        if propertyName ~= "" then
+            local item = {
+                index = propertyIndex,
+                name = propertyName,
+            }
+            local okType, propertyType = pcall(function() return handle:PropertyType(propertyIndex) end)
+            if okType and propertyType ~= nil then
+                item.property_type = tostring(propertyType)
+            end
+            local okInfo, propertyInfo = pcall(function() return handle:PropertyInfo(propertyIndex) end)
+            if okInfo and propertyInfo ~= nil and tostring(propertyInfo) ~= "" then
+                item.property_info = tostring(propertyInfo)
+            end
+            local propertyValue = EZ.safeProperty(handle, propertyName)
+            if propertyValue ~= nil then
+                if type(propertyValue) == "table" then
+                    item.value = tostring(propertyValue)
+                else
+                    item.value = propertyValue
+                end
+            end
+            table.insert(items, item)
+        end
+    end
+
+    return items, propertyCount, truncated
+end
+
+local function sendDataPoolError(errorCode, pathSpec, requestId, resolvedPath)
+    local payload = {
+        error = tostring(errorCode or "unknown"),
+        path = table.concat(EZ.normalizeDataPoolPath(pathSpec), "/"),
+        resolved_path = tostring(resolvedPath or ""),
+    }
+    if requestId ~= nil then
+        payload.request_id = requestId
+    end
+    EZ.sendMessage("datapool", "error", payload)
+    return nil, payload
+end
+
+local function copyResolvedTokens(tokens)
+    local result = {}
+    for _, token in ipairs(tokens or {}) do
+        table.insert(result, tostring(token))
+    end
+    return result
+end
+
+local function addPreviewProperty(properties, propertyKey, propertyName)
+    local value = EZ.safeProperty(properties._handle, propertyName)
+    if value ~= nil and value ~= "" then
+        properties[propertyKey] = value
+    end
+end
+
+function EZ.GetDataPoolObjects(pathSpec, requestId)
+    local handle, resolvedTokens, err = EZ.resolveDataPoolPath(pathSpec)
+    local resolvedPath = table.concat(resolvedTokens or {}, "/")
+    if not handle then
+        return sendDataPoolError(err, pathSpec, requestId, resolvedPath)
+    end
+
+    local children = EZ.safeChildren(handle)
+    local childLimit = math.max(0, tonumber(EZ._datapoolBrowseChildLimit) or 0)
+    local result = {}
+    local childCount = #children
+    local maxIndex = childLimit > 0 and math.min(childCount, childLimit) or childCount
+
+    for childIndex = 1, maxIndex do
+        local child = children[childIndex]
+        local browseToken = EZ.getDataPoolBrowseToken(child, childIndex)
+        local childTokens = copyResolvedTokens(resolvedTokens)
+        table.insert(childTokens, browseToken)
+        local childPath = table.concat(childTokens, "/")
+        local description = EZ.describeHandle(child, {
+            path = childPath,
+            browse_token = browseToken,
+            child_index = childIndex,
+        })
+        if description then
+            table.insert(result, description)
+        end
+    end
+
+    local payload = {
+        path = resolvedPath,
+        count = #result,
+        total_children = childCount,
+        truncated = childLimit > 0 and childCount > childLimit or false,
+        children = result,
+    }
+    if requestId ~= nil then
+        payload.request_id = requestId
+    end
+    EZ.sendMessage("datapool", "children", payload)
+    return result
+end
+
+function EZ.DescribeDataPoolObject(pathSpec, requestId)
+    local handle, resolvedTokens, err = EZ.resolveDataPoolPath(pathSpec)
+    local resolvedPath = table.concat(resolvedTokens or {}, "/")
+    if not handle then
+        return sendDataPoolError(err, pathSpec, requestId, resolvedPath)
+    end
+
+    local object = EZ.describeHandle(handle, {
+        path = resolvedPath,
+        browse_token = resolvedTokens[#resolvedTokens],
+    }) or {}
+
+    local properties = {_handle = handle}
+    addPreviewProperty(properties, "note", "note")
+    addPreviewProperty(properties, "cmd", "cmd")
+    addPreviewProperty(properties, "time", "time")
+    addPreviewProperty(properties, "duration", "duration")
+    addPreviewProperty(properties, "target", "target")
+    addPreviewProperty(properties, "value", "value")
+    addPreviewProperty(properties, "cue", "cue")
+    addPreviewProperty(properties, "sequence", "sequence")
+    addPreviewProperty(properties, "track", "track")
+    properties._handle = nil
+
+    local previewChildren = {}
+    local previewLimit = math.max(0, tonumber(EZ._datapoolInspectPreviewLimit) or 0)
+    if previewLimit > 0 then
+        local children = EZ.safeChildren(handle)
+        local previewCount = math.min(#children, previewLimit)
+        for childIndex = 1, previewCount do
+            local child = children[childIndex]
+            local browseToken = EZ.getDataPoolBrowseToken(child, childIndex)
+            local childTokens = copyResolvedTokens(resolvedTokens)
+            table.insert(childTokens, browseToken)
+            local description = EZ.describeHandle(child, {
+                path = table.concat(childTokens, "/"),
+                browse_token = browseToken,
+                child_index = childIndex,
+            })
+            if description then
+                table.insert(previewChildren, description)
+            end
+        end
+    end
+
+    object.properties = properties
+    local propertyItems, propertyCount, propertiesTruncated = EZ.describeHandlePropertyItems(handle)
+    object.property_items = propertyItems
+    object.property_count = propertyCount
+    object.properties_truncated = propertiesTruncated
+    object.preview_children = previewChildren
+
+    local payload = {
+        path = resolvedPath,
+        object = object,
+    }
+    if requestId ~= nil then
+        payload.request_id = requestId
+    end
+    EZ.sendMessage("datapool", "object", payload)
+    return object
+end
+
 -- Get CmdSubTrack from a track (trackNo is user-visible 1-based, excluding Marker)
 -- IMPORTANT: Finds the FIRST TimeRange by class, not by index
 function EZ.getCmdSubTrack(tcNo, tgNo, trackNo, timeRangeIdx, subTrackIdx)
@@ -578,6 +981,11 @@ function EZ.Version()
     local build = tostring(EZ._build or "?")
     local text = string.format("[EZ] Version: %s (build %s)", version, build)
     Printf("%s", text)
+    EZ.sendMessage("plugin", "version", {
+        ez_version = version,
+        ez_build = build,
+        text = text
+    })
     return text
 end
 -- EZ.DiagnoseTime and EZ.TestSocket moved to echozero_debug.lua

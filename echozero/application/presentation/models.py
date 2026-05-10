@@ -435,6 +435,7 @@ class LayerPresentation:
     is_selected: bool = False
     is_playback_active: bool = False
     is_expanded: bool = False
+    is_fully_collapsed: bool = False
     events: list[EventPresentation] = field(default_factory=list)
     takes: list[TakeLanePresentation] = field(default_factory=list)
     visible: bool = True
@@ -520,3 +521,141 @@ class TimelinePresentation:
     batch_transfer_plan: BatchTransferPlanPresentation | None = None
     transfer_presets: list[TransferPresetPresentation] = field(default_factory=list)
     operation_progress_banner: OperationProgressBannerPresentation | None = None
+
+    def has_event_selection(self) -> bool:
+        """Report whether the presentation currently has any selected event ids."""
+
+        return bool(self.selected_event_ids or self.selected_event_refs)
+
+    def primary_selected_event_ref(self) -> EventRef | None:
+        """Return the current anchor event ref with ids treated as canonical selection."""
+
+        resolved_refs = self.resolved_selected_event_refs()
+        if resolved_refs:
+            return resolved_refs[-1]
+        return None
+
+    def resolved_selected_event_refs(self) -> list[EventRef]:
+        """Resolve canonical selected event ids into stable event refs for UI consumers."""
+
+        selected_event_ids = list(dict.fromkeys(self.selected_event_ids))
+        if selected_event_ids:
+            return self.resolve_event_refs(
+                selected_event_ids,
+                preferred_layer_id=self.selected_layer_id,
+                preferred_take_id=self.selected_take_id,
+                preferred_layer_ids=self.selected_layer_ids,
+            )
+        return self._dedupe_event_refs(self.selected_event_refs)
+
+    def resolve_event_refs(
+        self,
+        event_ids: list[EventId],
+        *,
+        preferred_layer_id: LayerId | None = None,
+        preferred_take_id: TakeId | None = None,
+        preferred_layer_ids: list[LayerId] | None = None,
+    ) -> list[EventRef]:
+        """Resolve event ids into refs using one centrally owned selection context."""
+
+        resolved_refs: list[EventRef] = []
+        seen: set[tuple[str, str, str]] = set()
+        for event_id in event_ids:
+            event_ref = self.resolve_event_ref(
+                event_id,
+                preferred_layer_id=preferred_layer_id,
+                preferred_take_id=preferred_take_id,
+                preferred_layer_ids=preferred_layer_ids,
+            )
+            if event_ref is None:
+                continue
+            key = (
+                str(event_ref.layer_id),
+                str(event_ref.take_id),
+                str(event_ref.event_id),
+            )
+            if key in seen:
+                continue
+            resolved_refs.append(event_ref)
+            seen.add(key)
+        return resolved_refs
+
+    def resolve_event_ref(
+        self,
+        event_id: EventId,
+        *,
+        preferred_layer_id: LayerId | None = None,
+        preferred_take_id: TakeId | None = None,
+        preferred_layer_ids: list[LayerId] | None = None,
+    ) -> EventRef | None:
+        """Resolve one event id into the best-fit layer/take context for the current view."""
+
+        matches = self._matching_event_refs(event_id)
+        if not matches:
+            return None
+
+        preferred_layers = [
+            layer_id
+            for layer_id in (
+                list(dict.fromkeys(preferred_layer_ids or []))
+                or ([preferred_layer_id] if preferred_layer_id is not None else [])
+            )
+            if layer_id is not None
+        ]
+        preferred_layer_keys = {str(layer_id) for layer_id in preferred_layers}
+
+        def score(event_ref: EventRef) -> tuple[int, int, int]:
+            exact_layer_take = int(
+                preferred_layer_id is not None
+                and preferred_take_id is not None
+                and event_ref.layer_id == preferred_layer_id
+                and event_ref.take_id == preferred_take_id
+            )
+            preferred_take = int(
+                preferred_take_id is not None and event_ref.take_id == preferred_take_id
+            )
+            preferred_layer = int(str(event_ref.layer_id) in preferred_layer_keys)
+            return (exact_layer_take, preferred_take, preferred_layer)
+
+        return max(matches, key=score)
+
+    def _matching_event_refs(self, event_id: EventId) -> list[EventRef]:
+        """Collect every visible ref matching one event id across layers and takes."""
+
+        matches: list[EventRef] = []
+        for layer in self.layers:
+            if layer.main_take_id is not None:
+                for event in layer.events:
+                    if event.event_id == event_id:
+                        matches.append(
+                            EventRef(
+                                layer_id=layer.layer_id,
+                                take_id=layer.main_take_id,
+                                event_id=event.event_id,
+                            )
+                        )
+            for take in layer.takes:
+                for event in take.events:
+                    if event.event_id == event_id:
+                        matches.append(
+                            EventRef(
+                                layer_id=layer.layer_id,
+                                take_id=take.take_id,
+                                event_id=event.event_id,
+                            )
+                        )
+        return matches
+
+    @staticmethod
+    def _dedupe_event_refs(event_refs: list[EventRef]) -> list[EventRef]:
+        """Remove duplicate event refs while preserving order."""
+
+        deduped: list[EventRef] = []
+        seen: set[tuple[str, str, str]] = set()
+        for event_ref in event_refs:
+            key = (str(event_ref.layer_id), str(event_ref.take_id), str(event_ref.event_id))
+            if key in seen:
+                continue
+            deduped.append(event_ref)
+            seen.add(key)
+        return deduped

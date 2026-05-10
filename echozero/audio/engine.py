@@ -27,7 +27,6 @@ from echozero.audio.sounddevice_backend import (
 )
 from echozero.audio.transport import Transport
 
-
 DEFAULT_SCRATCH_FRAMES = 32768
 _DECLICK_RAMP_SAMPLES = 64
 _DECLICK_DELTA_THRESHOLD = 0.05
@@ -70,7 +69,13 @@ class AudioEngine:
         "_last_status",
         "_last_output_tail",
         "_pending_declick",
+        "_pending_declick_reason",
+        "_declick_fade_in",
+        "_declick_fade_out",
+        "_last_discontinuity_reason",
+        "_last_ramp_reason",
         "_overlay_buffer",
+        "_overlay_playback_buffer",
         "_overlay_read_index",
         "_overlay_volume",
     )
@@ -131,7 +136,13 @@ class AudioEngine:
         else:
             self._last_output_tail = np.zeros(self._channels, dtype=np.float32)
         self._pending_declick = True
+        self._pending_declick_reason = "engine-startup"
+        self._declick_fade_in = np.linspace(0.0, 1.0, _DECLICK_RAMP_SAMPLES, dtype=np.float32)
+        self._declick_fade_out = np.linspace(1.0, 0.0, _DECLICK_RAMP_SAMPLES, dtype=np.float32)
+        self._last_discontinuity_reason: str | None = "engine-startup"
+        self._last_ramp_reason: str | None = None
         self._overlay_buffer: np.ndarray | None = None
+        self._overlay_playback_buffer: np.ndarray | None = None
         self._overlay_read_index = 0
         self._overlay_volume = np.float32(1.0)
 
@@ -223,6 +234,26 @@ class AudioEngine:
     def prime_output_buffers_using_stream_callback(self) -> bool:
         return self._prime_output_buffers_using_stream_callback
 
+    @property
+    def ramp_samples_remaining(self) -> int:
+        """Return current declick/gain ramp samples left for diagnostics."""
+
+        pending_declick = _DECLICK_RAMP_SAMPLES if self._pending_declick else 0
+        mixer_remaining = int(getattr(self._mixer, "ramp_samples_remaining", 0))
+        return max(0, pending_declick, mixer_remaining)
+
+    @property
+    def last_discontinuity_reason(self) -> str | None:
+        """Return the last output-boundary discontinuity reason."""
+
+        return self._last_discontinuity_reason
+
+    @property
+    def last_ramp_reason(self) -> str | None:
+        """Return the last ramp/declick reason."""
+
+        return self._last_ramp_reason
+
     def create_track(
         self,
         layer_id: str,
@@ -281,7 +312,7 @@ class AudioEngine:
         """Atomically replace the current playback track set."""
 
         self._mixer.replace_tracks(tracks)
-        self._pending_declick = True
+        self._request_declick("tracks-replaced")
 
     def apply_track_mix_updates(
         self,
@@ -291,14 +322,14 @@ class AudioEngine:
 
         applied, requires_declick = self._mixer.apply_track_mix_updates(updates)
         if requires_declick:
-            self._pending_declick = True
+            self._request_declick("mix-update")
         return bool(applied)
 
     def clear_tracks(self) -> None:
         """Remove every playback track from the engine mixer."""
 
         self._mixer.clear_tracks()
-        self._pending_declick = True
+        self._request_declick("tracks-cleared")
 
     def add_layer(
         self,
@@ -346,20 +377,20 @@ class AudioEngine:
         self._end_of_content = False
         if not self._active:
             self._open_stream()
-        self._pending_declick = True
+        self._request_declick("play")
         self._transport.play()
 
     def pause(self) -> None:
         self._transport.pause()
         self._last_audible_monotonic_seconds = None
-        self._pending_declick = True
+        self._request_declick("pause")
 
     def stop(self) -> None:
         self._end_of_content = False
         self._transport.stop()
         self._last_audible_time_seconds = 0.0
         self._last_audible_monotonic_seconds = None
-        self._pending_declick = True
+        self._request_declick("stop")
         self.stop_overlay()
 
     def seek(self, position_samples: int) -> None:
@@ -367,7 +398,7 @@ class AudioEngine:
         self._transport.seek(position_samples)
         self._last_audible_time_seconds = self._clock.position_seconds
         self._last_audible_monotonic_seconds = None
-        self._pending_declick = True
+        self._request_declick("seek")
 
     def seek_seconds(self, seconds: float) -> None:
         self.seek(int(seconds * self._clock.sample_rate))
@@ -388,13 +419,18 @@ class AudioEngine:
         self._reported_output_latency_seconds = 0.0
         self._last_audible_time_seconds = None
         self._last_audible_monotonic_seconds = None
-        self._pending_declick = True
+        self._request_declick("shutdown")
         self.stop_overlay()
 
     def request_declick(self) -> None:
         """Force one output-boundary declick on next callback buffer."""
 
+        self._request_declick("manual")
+
+    def _request_declick(self, reason: str) -> None:
         self._pending_declick = True
+        self._pending_declick_reason = str(reason or "unspecified")
+        self._last_discontinuity_reason = self._pending_declick_reason
 
     @property
     def overlay_active(self) -> bool:
@@ -412,7 +448,8 @@ class AudioEngine:
         if buffer.size == 0 or sample_rate <= 0:
             self.stop_overlay()
             return False
-        prepared = np.asarray(buffer, dtype=np.float32)
+        source = np.asarray(buffer, dtype=np.float32)
+        prepared = source
         if int(sample_rate) != int(self._clock.sample_rate):
             prepared = resample_buffer(prepared, int(sample_rate), int(self._clock.sample_rate))
         if prepared.size == 0:
@@ -430,10 +467,12 @@ class AudioEngine:
                 pad = np.repeat(prepared[:, -1:], pad_channels, axis=1)
                 prepared = np.concatenate((prepared, pad), axis=1)
             elif prepared.shape[1] > self._channels:
-                prepared = np.asarray(prepared[:, :self._channels], dtype=np.float32)
-        self._overlay_buffer = np.asarray(prepared, dtype=np.float32)
+                prepared = np.asarray(prepared[:, : self._channels], dtype=np.float32)
+        self._overlay_buffer = np.asarray(source, dtype=np.float32)
+        self._overlay_playback_buffer = np.asarray(prepared, dtype=np.float32)
         self._overlay_read_index = 0
         self._overlay_volume = np.float32(max(0.0, float(volume)))
+        self._request_declick("overlay-start")
         if not self._active:
             self._open_stream()
         return True
@@ -442,8 +481,10 @@ class AudioEngine:
         """Stop one-shot overlay playback and clear staged overlay samples."""
 
         self._overlay_buffer = None
+        self._overlay_playback_buffer = None
         self._overlay_read_index = 0
         self._overlay_volume = np.float32(1.0)
+        self._request_declick("overlay-stop")
 
     def _open_stream(self) -> None:
         if self._active:
@@ -458,7 +499,9 @@ class AudioEngine:
         )
         self._active = True
 
-    def _audio_callback(self, outdata: np.ndarray, frames: int, time_info: Any, status: Any) -> None:
+    def _audio_callback(
+        self, outdata: np.ndarray, frames: int, time_info: Any, status: Any
+    ) -> None:
         """Render one output buffer on the real-time thread."""
 
         if status:
@@ -467,7 +510,9 @@ class AudioEngine:
         if frames > len(self._output_scratch):
             outdata[:] = 0
             self._glitch_count += 1
-            self._last_status = f"callback_frames_exceeded_scratch:{frames}>{len(self._output_scratch)}"
+            self._last_status = (
+                f"callback_frames_exceeded_scratch:{frames}>{len(self._output_scratch)}"
+            )
             return
         mixed = self._output_scratch[:frames]
         if not self._transport.is_playing:
@@ -507,7 +552,7 @@ class AudioEngine:
                     mixed[pre_frames:frames] = self._post_scratch[:remaining]
                     crossfade_length = min(self._crossfade.length, pre_frames, remaining)
                     if pre_frames > 0 and crossfade_length > 0:
-                        tail = self._pre_scratch[pre_frames - crossfade_length:pre_frames]
+                        tail = self._pre_scratch[pre_frames - crossfade_length : pre_frames]
                         head = self._post_scratch[:crossfade_length]
                         self._crossfade.apply(
                             mixed,
@@ -534,39 +579,55 @@ class AudioEngine:
         if mixed.ndim == 1:
             outdata[:, :] = mixed[:, None]
             return
-        outdata[:, :] = mixed[:, :self._channels]
+        outdata[:, :] = mixed[:, : self._channels]
 
     def _mix_overlay_into(self, mixed: np.ndarray, frames: int) -> None:
-        overlay = self._overlay_buffer
+        overlay = self._overlay_playback_buffer
         if overlay is None:
             return
         start = int(self._overlay_read_index)
         if start >= int(overlay.shape[0]):
             self.stop_overlay()
-            self._pending_declick = True
             return
         available = int(overlay.shape[0]) - start
         chunk_frames = min(int(frames), available)
         if chunk_frames <= 0:
             self.stop_overlay()
-            self._pending_declick = True
             return
-        overlay_chunk = overlay[start:start + chunk_frames]
+        overlay_view = overlay[start : start + chunk_frames]
+        if start == 0:
+            fade_frames = min(chunk_frames, int(_DECLICK_RAMP_SAMPLES))
+            if fade_frames > 1:
+                if overlay_view.ndim == 1:
+                    overlay_view[:fade_frames] *= self._declick_fade_in[:fade_frames]
+                else:
+                    overlay_view[:fade_frames] *= self._declick_fade_in[:fade_frames, None]
+                self._last_ramp_reason = "overlay-start"
+        if start + chunk_frames >= int(overlay.shape[0]):
+            fade_frames = min(chunk_frames, int(_DECLICK_RAMP_SAMPLES))
+            if fade_frames > 1:
+                tail_start = chunk_frames - fade_frames
+                if overlay_view.ndim == 1:
+                    overlay_view[tail_start:chunk_frames] *= self._declick_fade_out[:fade_frames]
+                else:
+                    overlay_view[tail_start:chunk_frames] *= self._declick_fade_out[
+                        :fade_frames, None
+                    ]
+                self._last_ramp_reason = "overlay-end"
         if mixed.ndim == 1:
-            if overlay_chunk.ndim == 2:
-                overlay_chunk = overlay_chunk[:, 0]
-            mixed[:chunk_frames] += overlay_chunk * self._overlay_volume
+            if overlay_view.ndim == 2:
+                overlay_view = overlay_view[:, 0]
+            mixed[:chunk_frames] += overlay_view * self._overlay_volume
         else:
-            if overlay_chunk.ndim == 1:
-                mixed[:chunk_frames, :] += overlay_chunk[:, None] * self._overlay_volume
+            if overlay_view.ndim == 1:
+                mixed[:chunk_frames, :] += overlay_view[:, None] * self._overlay_volume
             else:
-                mixed[:chunk_frames, :overlay_chunk.shape[1]] += (
-                    overlay_chunk * self._overlay_volume
+                mixed[:chunk_frames, : overlay_view.shape[1]] += (
+                    overlay_view * self._overlay_volume
                 )
         self._overlay_read_index = start + chunk_frames
         if self._overlay_read_index >= int(overlay.shape[0]):
             self.stop_overlay()
-            self._pending_declick = True
 
     def add_clock_subscriber(self, sub: ClockSubscriber) -> None:
         self._clock.add_subscriber(sub)
@@ -601,8 +662,9 @@ class AudioEngine:
             prior_tail = float(self._last_output_tail[0])
             delta = start_sample - prior_tail
             if force and abs(delta) >= _DECLICK_DELTA_THRESHOLD:
-                ramp = np.linspace(1.0, 0.0, declick_frames, dtype=np.float32)
+                ramp = self._declick_fade_out[:declick_frames]
                 buffer[:declick_frames] -= np.float32(delta) * ramp
+                self._last_ramp_reason = self._pending_declick_reason
             self._last_output_tail[0] = np.float32(buffer[frames - 1])
             return
 
@@ -610,8 +672,9 @@ class AudioEngine:
         prior_tail = np.asarray(self._last_output_tail, dtype=np.float32)
         delta = start_sample - prior_tail
         if force and bool(np.any(np.abs(delta) >= _DECLICK_DELTA_THRESHOLD)):
-            ramp = np.linspace(1.0, 0.0, declick_frames, dtype=np.float32)[:, None]
+            ramp = self._declick_fade_out[:declick_frames, None]
             buffer[:declick_frames] -= delta[None, :] * ramp
+            self._last_ramp_reason = self._pending_declick_reason
         self._last_output_tail[:] = np.asarray(buffer[frames - 1], dtype=np.float32)
 
     def _update_callback_timing_snapshot(self, time_info: Any) -> None:

@@ -122,13 +122,11 @@ def test_recent_split_roots_have_default_size_guardrails() -> None:
     assert module.MODULE_MAX_LINE_RULES["echozero/ui/qt/timeline/object_info_panel.py"] == 325
     assert module.MODULE_MAX_LINE_RULES["echozero/ui/qt/timeline/widget_canvas.py"] == 225
     assert module.MODULE_MAX_LINE_RULES["echozero/foundry/ui/main_window_run_mixin.py"] == 40
-    assert module.MODULE_MAX_LINE_RULES["echozero/application/timeline/orchestrator_selection_mixin.py"] == 60
     assert module.MODULE_MAX_LINE_RULES["echozero/application/timeline/object_action_settings_service.py"] == 500
     assert module.MODULE_MAX_LINE_RULES["echozero/persistence/session.py"] == 430
     assert module.MODULE_MAX_LINE_RULES["echozero/models/provider.py"] == 360
     assert module.MODULE_MAX_LINE_RULES["echozero/foundry/services/baseline_trainer.py"] == 150
     assert module.MODULE_MAX_LINE_RULES["echozero/foundry/ui/main_window_workspace_mixin.py"] == 120
-    assert module.MODULE_MAX_LINE_RULES["echozero/ui/qt/timeline/widget_action_transfer_mixin.py"] == 220
     assert module.MODULE_MAX_LINE_RULES["tests/ui/timeline_shell_support.py"] == 30
     assert module.MODULE_MAX_LINE_RULES["tests/ui/app_shell_runtime_flow_support.py"] == 25
     assert module.MODULE_MAX_LINE_RULES["tests/persistence_support.py"] == 20
@@ -167,7 +165,6 @@ def test_recent_split_helpers_have_default_header_guardrails() -> None:
         "echozero/models/provider_sources.py",
         "echozero/persistence/session_versioning_mixin.py",
         "echozero/persistence/session_runtime_mixin.py",
-        "echozero/ui/qt/timeline/widget_action_transfer_mixin.py",
         "echozero/ui/qt/timeline/widget_action_transfer_workspace_mixin.py",
         "tests/ui/timeline_shell_support.py",
         "tests/ui/timeline_shell_shared_support.py",

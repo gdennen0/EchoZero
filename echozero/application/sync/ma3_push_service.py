@@ -13,6 +13,7 @@ from typing import Any, Callable, Literal, Protocol, cast
 
 from echozero.infrastructure.sync.ma3_adapter import (
     MA3EventSnapshot,
+    MA3PresetSnapshot,
     MA3SequenceRangeSnapshot,
     MA3SequenceSnapshot,
     MA3TimecodeSnapshot,
@@ -124,6 +125,76 @@ class MA3ProtocolClient(Protocol):
         track_group_no: int,
         preferred_name: str | None = None,
     ) -> MA3TrackSnapshot: ...
+
+    def create_static_preset(
+        self,
+        *,
+        preset_type_no: int,
+        preset_no: int,
+        store_mode: str,
+        preset_name: str,
+        selection_command: str,
+        value_command: str,
+    ) -> MA3PresetSnapshot: ...
+
+    def create_phaser_preset(
+        self,
+        *,
+        preset_type_no: int,
+        preset_no: int,
+        store_mode: str,
+        preset_name: str,
+        selection_command: str,
+        step_preset_refs: list[list[str]] | list[str] | tuple[list[str], ...] | tuple[str, ...],
+        speed_bpm: float | None = None,
+    ) -> MA3PresetSnapshot: ...
+
+    def create_recipe_preset(
+        self,
+        *,
+        preset_type_no: int,
+        preset_no: int,
+        store_mode: str,
+        preset_name: str,
+        selection_command: str,
+        source_preset_ref: str,
+        selection_mode: str = "Strict",
+    ) -> MA3PresetSnapshot: ...
+
+    def edit_static_preset(
+        self,
+        *,
+        preset_type_no: int,
+        preset_no: int,
+        store_mode: str,
+        preset_name: str,
+        selection_command: str,
+        value_command: str,
+    ) -> MA3PresetSnapshot: ...
+
+    def edit_phaser_preset(
+        self,
+        *,
+        preset_type_no: int,
+        preset_no: int,
+        store_mode: str,
+        preset_name: str,
+        selection_command: str,
+        step_preset_refs: list[list[str]] | list[str] | tuple[list[str], ...] | tuple[str, ...],
+        speed_bpm: float | None = None,
+    ) -> MA3PresetSnapshot: ...
+
+    def edit_recipe_preset(
+        self,
+        *,
+        preset_type_no: int,
+        preset_no: int,
+        store_mode: str,
+        preset_name: str,
+        selection_command: str,
+        source_preset_ref: str,
+        selection_mode: str = "Strict",
+    ) -> MA3PresetSnapshot: ...
 
     def prepare_track_for_events(self, *, target_track_coord: str) -> None: ...
 
@@ -303,7 +374,9 @@ class MA3CatalogService:
         self._track_groups_by_timecode: dict[int, list[MA3TrackGroupSnapshot]] = {}
         self._tracks_by_scope: dict[tuple[int | None, int | None], list[MA3TrackSnapshot]] = {}
         self._events_by_coord: dict[str, list[MA3EventSnapshot]] = {}
-        self._sequences_by_range: dict[tuple[int | None, int | None], list[MA3SequenceSnapshot]] = {}
+        self._sequences_by_range: dict[
+            tuple[int | None, int | None], list[MA3SequenceSnapshot]
+        ] = {}
         self._current_song_sequence_range: MA3SequenceRangeSnapshot | None = None
 
     def list_timecodes(self, *, refresh: bool = False) -> list[MA3TimecodeSnapshot]:

@@ -26,6 +26,7 @@ from echozero.application.shared.cue_numbers import (
 from echozero.infrastructure.osc import OscUdpSendTransport
 from echozero.infrastructure.sync.ma3_adapter import (
     MA3EventSnapshot,
+    MA3PresetSnapshot,
     MA3SequenceRangeSnapshot,
     MA3SequenceSnapshot,
     MA3TimecodeSnapshot,
@@ -44,6 +45,104 @@ from echozero.infrastructure.sync.ma3_osc import (
 _SEQUENCE_CHUNK_SIZE = 40
 _TRACK_CHUNK_SIZE = 40
 _CUE_COMMAND_RE = re.compile(r"(?i)\b(?:go\+|goto)\s+cue\s+(\d+(?:\.\d+)?)\b")
+_PRESET_POOL_NAMES = {
+    1: "Dimmer",
+    2: "Position",
+    4: "Color",
+    5: "Beam",
+    6: "Focus",
+    21: "Phasers",
+    22: "Optical",
+}
+
+
+def _default_recipe_line_rows() -> list[dict[str, object]]:
+    return [
+        {
+            "seq_number": 12,
+            "seq_name": "Song A",
+            "actual_cue_number": 1.0,
+            "part_number": "0.1",
+            "feature_group": "Dimmer",
+            "recipe_mode": "absolute",
+            "matched_group": "Drums",
+            "line_index": 1,
+            "selection_key": "Drums:Dimmer",
+            "source_cue_number": 1.0,
+            "source_part_number": "0.1",
+            "preset_ref": "Preset 21.221",
+        },
+        {
+            "seq_number": 12,
+            "seq_name": "Song A",
+            "actual_cue_number": 1.0,
+            "part_number": "0.2",
+            "feature_group": "Dimmer",
+            "recipe_mode": "absolute",
+            "matched_group": "Drums",
+            "line_index": 2,
+            "selection_key": "Drums:Dimmer",
+            "source_cue_number": 1.0,
+            "source_part_number": "0.2",
+            "preset_ref": "Preset 21.221",
+        },
+        {
+            "seq_number": 12,
+            "seq_name": "Song A",
+            "actual_cue_number": 2.0,
+            "part_number": "0.1",
+            "feature_group": "Dimmer",
+            "recipe_mode": "absolute",
+            "matched_group": "Drums",
+            "line_index": 1,
+            "selection_key": "Drums:Dimmer",
+            "source_cue_number": 2.0,
+            "source_part_number": "0.1",
+            "preset_ref": "Preset 21.222",
+        },
+        {
+            "seq_number": 12,
+            "seq_name": "Song A",
+            "actual_cue_number": 2.0,
+            "part_number": "0.2",
+            "feature_group": "Color",
+            "recipe_mode": "relative",
+            "matched_group": "Drums",
+            "line_index": 2,
+            "selection_key": "Drums:Color",
+            "source_cue_number": 2.0,
+            "source_part_number": "0.2",
+            "preset_ref": "Preset 4.44",
+        },
+        {
+            "seq_number": 12,
+            "seq_name": "Song A",
+            "actual_cue_number": 2.0,
+            "part_number": "0.3",
+            "feature_group": "Beam",
+            "recipe_mode": "absolute",
+            "matched_group": "Drums",
+            "line_index": 3,
+            "selection_key": "Drums:Beam",
+            "source_cue_number": 2.0,
+            "source_part_number": "0.3",
+            "preset_ref": "Preset 5.23",
+        },
+        {
+            "seq_number": 12,
+            "seq_name": "Song A",
+            "actual_cue_number": 4.0,
+            "part_number": "0.1",
+            "feature_group": "Dimmer",
+            "recipe_mode": "absolute",
+            "matched_group": "Drums",
+            "line_index": 1,
+            "selection_key": "Drums:Dimmer",
+            "source_cue_number": 4.0,
+            "source_part_number": "0.1",
+            "preset_ref": "Preset 21.333",
+        },
+    ]
 
 
 def _cue_number_from_command(command: str) -> CueNumber | None:
@@ -59,6 +158,13 @@ def _event_label_from_command(command: str, cue_number: CueNumber | None) -> str
         return f"Cue {cue_number_label}"
     text = str(command or "").strip()
     return text or "Event"
+
+
+def _cue_ref_from_number(cue_number: CueNumber | None) -> str | None:
+    cue_number_label = cue_number_text(cue_number)
+    if cue_number_label is None:
+        return None
+    return str(cue_number_label)
 
 
 def _default_tracks() -> list[MA3TrackSnapshot]:
@@ -92,6 +198,7 @@ def _default_events_by_track() -> dict[str, list[MA3EventSnapshot]]:
                 end=1.5,
                 cmd="Go+ Cue 1",
                 cue_number=1,
+                cue_ref="1",
             ),
             MA3EventSnapshot(
                 event_id="ma3_evt_2",
@@ -100,6 +207,7 @@ def _default_events_by_track() -> dict[str, list[MA3EventSnapshot]]:
                 end=2.5,
                 cmd="Go+ Cue 2",
                 cue_number=2,
+                cue_ref="2",
             ),
         ],
         "tc1_tg2_tr4": [
@@ -110,6 +218,7 @@ def _default_events_by_track() -> dict[str, list[MA3EventSnapshot]]:
                 end=9.5,
                 cmd="Go+ Cue 9",
                 cue_number=9,
+                cue_ref="9",
             ),
         ],
     }
@@ -152,6 +261,10 @@ class _SimulatedMA3OSCServer:
         self._cmd_subtrack_ready_by_coord: dict[str, bool] = {}
         self._cmd_subtrack_create_blocked: set[str] = set()
         self._clear_delay_seconds_by_coord: dict[str, float] = {}
+        self._presets_by_key: dict[tuple[int, int], MA3PresetSnapshot] = {}
+        self._preset_details_by_key: dict[tuple[int, int], dict[str, object]] = {}
+        self._recipe_line_rows: list[dict[str, object]] = _default_recipe_line_rows()
+        self._drop_ping_reply_count = 0
         self._hooked_tracks: set[str] = set()
         self._ez_version = "2.0"
         self._ez_build = "2026-04-30.hitmaker-health-1"
@@ -418,6 +531,9 @@ class _SimulatedMA3OSCServer:
             return
         self._clear_delay_seconds_by_coord[coord] = delay_seconds
 
+    def set_drop_ping_reply_count(self, count: int) -> None:
+        self._drop_ping_reply_count = max(0, int(count))
+
     def _handle_command(self, _address: str, *args: object) -> None:
         command = ""
         for arg in args:
@@ -465,7 +581,21 @@ class _SimulatedMA3OSCServer:
         self._target = str(host), int(port)
 
     def _handle_Ping(self) -> None:
+        if self._drop_ping_reply_count > 0:
+            self._drop_ping_reply_count -= 1
+            return
         self._send_message("connection", "ping", {"status": "ok"})
+
+    def _handle_Version(self) -> None:
+        self._send_message(
+            "plugin",
+            "version",
+            {
+                "ez_version": self._ez_version,
+                "ez_build": self._ez_build,
+                "text": f"[EZ] Version: {self._ez_version} (build {self._ez_build})",
+            },
+        )
 
     def _handle_GetPluginHealth(self) -> None:
         self._send_message(
@@ -482,6 +612,44 @@ class _SimulatedMA3OSCServer:
                 "hitmaker_supports_version_info": self._hitmaker_supports_version_info,
             },
         )
+
+    def _handle_GetDataPoolObjects(
+        self, path: str | None = None, request_id: int | None = None
+    ) -> None:
+        normalized_path = self._normalize_datapool_path(path)
+        children = self._datapool_children_for_path(normalized_path)
+        if children is None:
+            payload = {"path": normalized_path, "error": "path_not_found"}
+            if request_id is not None:
+                payload["request_id"] = int(request_id)
+            self._send_message("datapool", "error", payload)
+            return
+        payload = {
+            "path": normalized_path,
+            "count": len(children),
+            "total_children": len(children),
+            "truncated": False,
+            "children": children,
+        }
+        if request_id is not None:
+            payload["request_id"] = int(request_id)
+        self._send_message("datapool", "children", payload)
+
+    def _handle_DescribeDataPoolObject(
+        self, path: str | None = None, request_id: int | None = None
+    ) -> None:
+        normalized_path = self._normalize_datapool_path(path)
+        entry = self._datapool_object_for_path(normalized_path)
+        if entry is None:
+            payload = {"path": normalized_path, "error": "path_not_found"}
+            if request_id is not None:
+                payload["request_id"] = int(request_id)
+            self._send_message("datapool", "error", payload)
+            return
+        payload = {"path": normalized_path, "object": entry}
+        if request_id is not None:
+            payload["request_id"] = int(request_id)
+        self._send_message("datapool", "object", payload)
 
     def _handle_GetTimecodes(self) -> None:
         timecodes = [
@@ -645,6 +813,474 @@ class _SimulatedMA3OSCServer:
             },
         )
 
+    def _handle_CreateStaticPreset(
+        self,
+        preset_type_no: int,
+        preset_no: int,
+        store_mode: str,
+        preset_name: str,
+        selection_command: str,
+        value_command: str,
+    ) -> None:
+        requested_preset_type_no = int(preset_type_no)
+        requested_preset_no = int(preset_no)
+        normalized_mode = str(store_mode or "").strip()
+        normalized_name = str(preset_name or "").strip()
+        normalized_selection = str(selection_command or "").strip()
+        normalized_value = str(value_command or "").strip()
+        if requested_preset_type_no < 1 or requested_preset_no < 1:
+            self._send_preset_error(
+                requested_preset_type_no,
+                requested_preset_no,
+                "Preset type and number are required",
+            )
+            return
+        if not normalized_name:
+            self._send_preset_error(
+                requested_preset_type_no, requested_preset_no, "Preset name required"
+            )
+            return
+        if not normalized_selection:
+            self._send_preset_error(
+                requested_preset_type_no,
+                requested_preset_no,
+                "Selection command required",
+            )
+            return
+        if not normalized_value:
+            self._send_preset_error(
+                requested_preset_type_no,
+                requested_preset_no,
+                "Value command required",
+            )
+            return
+
+        key = (requested_preset_type_no, requested_preset_no)
+        existing = self._presets_by_key.get(key)
+        if existing is not None:
+            self._send_preset_snapshot("exists", existing)
+            return
+
+        created = MA3PresetSnapshot(
+            preset_type=requested_preset_type_no,
+            number=requested_preset_no,
+            name=normalized_name,
+            store_mode=normalized_mode,
+            kind="static",
+            step_count=1,
+        )
+        self._presets_by_key[key] = created
+        self._preset_details_by_key[key] = {
+            "selection_command": normalized_selection,
+            "value_command": normalized_value,
+        }
+        self._send_preset_snapshot("created", created)
+
+    def _handle_CreatePhaserPreset(
+        self,
+        preset_type_no: int,
+        preset_no: int,
+        store_mode: str,
+        preset_name: str,
+        selection_command: str,
+        step_spec: str,
+        speed_bpm: float | None = None,
+    ) -> None:
+        requested_preset_type_no = int(preset_type_no)
+        requested_preset_no = int(preset_no)
+        normalized_mode = str(store_mode or "").strip()
+        normalized_name = str(preset_name or "").strip()
+        normalized_selection = str(selection_command or "").strip()
+        normalized_step_spec = str(step_spec or "").strip()
+        if requested_preset_type_no < 1 or requested_preset_no < 1:
+            self._send_preset_error(
+                requested_preset_type_no,
+                requested_preset_no,
+                "Preset type and number are required",
+            )
+            return
+        if not normalized_name:
+            self._send_preset_error(
+                requested_preset_type_no, requested_preset_no, "Preset name required"
+            )
+            return
+        if not normalized_selection:
+            self._send_preset_error(
+                requested_preset_type_no,
+                requested_preset_no,
+                "Selection command required",
+            )
+            return
+        step_groups = [group for group in normalized_step_spec.split(";") if group.strip()]
+        if len(step_groups) < 2:
+            self._send_preset_error(
+                requested_preset_type_no,
+                requested_preset_no,
+                "Phaser presets require at least two steps",
+            )
+            return
+
+        key = (requested_preset_type_no, requested_preset_no)
+        existing = self._presets_by_key.get(key)
+        if existing is not None:
+            self._send_preset_snapshot("exists", existing)
+            return
+
+        created = MA3PresetSnapshot(
+            preset_type=requested_preset_type_no,
+            number=requested_preset_no,
+            name=normalized_name,
+            store_mode=normalized_mode,
+            kind="phaser",
+            step_count=len(step_groups),
+        )
+        self._presets_by_key[key] = created
+        self._preset_details_by_key[key] = {
+            "selection_command": normalized_selection,
+            "step_spec": normalized_step_spec,
+            "speed_bpm": None if speed_bpm is None else float(speed_bpm),
+        }
+        self._send_preset_snapshot("created", created)
+
+    def _handle_CreateRecipePreset(
+        self,
+        preset_type_no: int,
+        preset_no: int,
+        store_mode: str,
+        preset_name: str,
+        selection_command: str,
+        source_preset_ref: str,
+        selection_mode: str = "Strict",
+    ) -> None:
+        requested_preset_type_no = int(preset_type_no)
+        requested_preset_no = int(preset_no)
+        normalized_mode = str(store_mode or "").strip()
+        normalized_name = str(preset_name or "").strip()
+        normalized_selection = str(selection_command or "").strip()
+        normalized_source_ref = str(source_preset_ref or "").strip()
+        normalized_selection_mode = str(selection_mode or "").strip()
+        if requested_preset_type_no < 1 or requested_preset_no < 1:
+            self._send_preset_error(
+                requested_preset_type_no,
+                requested_preset_no,
+                "Preset type and number are required",
+            )
+            return
+        if not normalized_name:
+            self._send_preset_error(
+                requested_preset_type_no, requested_preset_no, "Preset name required"
+            )
+            return
+        if not normalized_selection:
+            self._send_preset_error(
+                requested_preset_type_no,
+                requested_preset_no,
+                "Selection command required",
+            )
+            return
+        if not normalized_source_ref:
+            self._send_preset_error(
+                requested_preset_type_no,
+                requested_preset_no,
+                "Source preset ref required",
+            )
+            return
+        if not normalized_selection_mode:
+            self._send_preset_error(
+                requested_preset_type_no,
+                requested_preset_no,
+                "Selection mode required",
+            )
+            return
+
+        key = (requested_preset_type_no, requested_preset_no)
+        existing = self._presets_by_key.get(key)
+        if existing is not None:
+            self._send_preset_snapshot("exists", existing)
+            return
+
+        created = MA3PresetSnapshot(
+            preset_type=requested_preset_type_no,
+            number=requested_preset_no,
+            name=normalized_name,
+            store_mode=normalized_mode,
+            kind="recipe",
+            step_count=1,
+        )
+        self._presets_by_key[key] = created
+        self._preset_details_by_key[key] = {
+            "selection_command": normalized_selection,
+            "source_preset_ref": normalized_source_ref,
+            "selection_mode": normalized_selection_mode,
+        }
+        self._send_preset_snapshot("created", created)
+
+    def _handle_EditStaticPreset(
+        self,
+        preset_type_no: int,
+        preset_no: int,
+        store_mode: str,
+        preset_name: str,
+        selection_command: str,
+        value_command: str,
+    ) -> None:
+        self._presets_by_key.pop((int(preset_type_no), int(preset_no)), None)
+        self._preset_details_by_key.pop((int(preset_type_no), int(preset_no)), None)
+        self._handle_CreateStaticPreset(
+            preset_type_no,
+            preset_no,
+            store_mode,
+            preset_name,
+            selection_command,
+            value_command,
+        )
+        key = (int(preset_type_no), int(preset_no))
+        updated = self._presets_by_key.get(key)
+        if updated is not None:
+            self._send_preset_snapshot("updated", updated)
+
+    def _handle_EditPhaserPreset(
+        self,
+        preset_type_no: int,
+        preset_no: int,
+        store_mode: str,
+        preset_name: str,
+        selection_command: str,
+        step_spec: str,
+        speed_bpm: float | None = None,
+    ) -> None:
+        self._presets_by_key.pop((int(preset_type_no), int(preset_no)), None)
+        self._preset_details_by_key.pop((int(preset_type_no), int(preset_no)), None)
+        self._handle_CreatePhaserPreset(
+            preset_type_no,
+            preset_no,
+            store_mode,
+            preset_name,
+            selection_command,
+            step_spec,
+            speed_bpm,
+        )
+        key = (int(preset_type_no), int(preset_no))
+        updated = self._presets_by_key.get(key)
+        if updated is not None:
+            self._send_preset_snapshot("updated", updated)
+
+    def _handle_EditRecipePreset(
+        self,
+        preset_type_no: int,
+        preset_no: int,
+        store_mode: str,
+        preset_name: str,
+        selection_command: str,
+        source_preset_ref: str,
+        selection_mode: str = "Strict",
+    ) -> None:
+        self._presets_by_key.pop((int(preset_type_no), int(preset_no)), None)
+        self._preset_details_by_key.pop((int(preset_type_no), int(preset_no)), None)
+        self._handle_CreateRecipePreset(
+            preset_type_no,
+            preset_no,
+            store_mode,
+            preset_name,
+            selection_command,
+            source_preset_ref,
+            selection_mode,
+        )
+        key = (int(preset_type_no), int(preset_no))
+        updated = self._presets_by_key.get(key)
+        if updated is not None:
+            self._send_preset_snapshot("updated", updated)
+
+    def _handle_ListPresets(self, preset_type_no: int, request_id: int | None = None) -> None:
+        requested_preset_type_no = int(preset_type_no)
+        pool = [
+            {
+                "preset_type": snapshot.preset_type,
+                "number": snapshot.number,
+                "name": snapshot.name,
+                "store_mode": snapshot.store_mode,
+                "kind": snapshot.kind,
+                "step_count": snapshot.step_count,
+                "path": f"PresetPools/{snapshot.preset_type}/{snapshot.number}",
+            }
+            for _preset_no, snapshot in self._preset_snapshots_for_type(requested_preset_type_no)
+        ]
+        self._send_message(
+            "presets",
+            "list",
+            {
+                "preset_type": requested_preset_type_no,
+                "presets": pool,
+                "request_id": None if request_id is None else int(request_id),
+            },
+        )
+
+    def _handle_DescribePreset(
+        self,
+        preset_type_no: int,
+        preset_no: int,
+        request_id: int | None = None,
+    ) -> None:
+        requested_preset_type_no = int(preset_type_no)
+        requested_preset_no = int(preset_no)
+        payload = self._datapool_object_for_path(
+            f"PresetPools/{requested_preset_type_no}/{requested_preset_no}"
+        )
+        if payload is None:
+            self._send_preset_error(
+                requested_preset_type_no, requested_preset_no, "Preset not found"
+            )
+            return
+        self._send_message(
+            "preset",
+            "described",
+            {
+                "preset_type": requested_preset_type_no,
+                "number": requested_preset_no,
+                "object": payload,
+                "request_id": None if request_id is None else int(request_id),
+            },
+        )
+
+    def _handle_PreviewReplacePresetWhenGroup(
+        self,
+        preset_type_no: int,
+        source_preset_ref: str,
+        dest_preset_ref: str,
+        group_filter_csv: str,
+        sequence_numbers_csv: str,
+        request_id: int | None = None,
+    ) -> None:
+        findings = self._preset_replace_findings(
+            source_preset_ref=str(source_preset_ref),
+            dest_preset_ref=str(dest_preset_ref),
+            group_filter_csv=str(group_filter_csv),
+            sequence_numbers_csv=str(sequence_numbers_csv),
+        )
+        self._send_message(
+            "preset_replace",
+            "preview",
+            {
+                "preset_type": int(preset_type_no),
+                "source_preset_ref": str(source_preset_ref),
+                "dest_preset_ref": str(dest_preset_ref),
+                "count": len(findings),
+                "findings": findings,
+                "request_id": None if request_id is None else int(request_id),
+            },
+        )
+
+    def _handle_ReplacePresetWhenGroup(
+        self,
+        preset_type_no: int,
+        source_preset_ref: str,
+        dest_preset_ref: str,
+        group_filter_csv: str,
+        sequence_numbers_csv: str,
+        request_id: int | None = None,
+    ) -> None:
+        findings = self._preset_replace_findings(
+            source_preset_ref=str(source_preset_ref),
+            dest_preset_ref=str(dest_preset_ref),
+            group_filter_csv=str(group_filter_csv),
+            sequence_numbers_csv=str(sequence_numbers_csv),
+        )
+        for finding in findings:
+            for row in self._recipe_line_rows:
+                if (
+                    int(row.get("seq_number") or 0) == int(finding.get("seqNumber") or 0)
+                    and str(row.get("part_number") or "") == str(finding.get("partNumber") or "")
+                    and float(row.get("actual_cue_number") or 0.0)
+                    == float(finding.get("actualCueNumber") or 0.0)
+                ):
+                    row["preset_ref"] = str(dest_preset_ref)
+        self._send_message(
+            "preset_replace",
+            "applied",
+            {
+                "preset_type": int(preset_type_no),
+                "source_preset_ref": str(source_preset_ref),
+                "dest_preset_ref": str(dest_preset_ref),
+                "count": len(findings),
+                "replaced_count": len(findings),
+                "findings": findings,
+                "request_id": None if request_id is None else int(request_id),
+            },
+        )
+
+    def _handle_AnalyzeCueRecipeState(
+        self,
+        sequence_no: int,
+        cue_no: str,
+        request_id: int | None = None,
+    ) -> None:
+        payload = self._analyze_cue_recipe_state(
+            sequence_no=int(sequence_no),
+            cue_number=float(cue_no),
+        )
+        payload["request_id"] = None if request_id is None else int(request_id)
+        self._send_message("recipe_cue", "analysis", payload)
+
+    def _handle_PreviewRecipeCueOnly(
+        self,
+        sequence_no: int,
+        source_cue_no: str,
+        target_cue_no: str,
+        request_id: int | None = None,
+    ) -> None:
+        payload = self._preview_recipe_cue_only(
+            sequence_no=int(sequence_no),
+            source_cue_no=float(source_cue_no),
+            target_cue_no=float(target_cue_no),
+        )
+        payload["request_id"] = None if request_id is None else int(request_id)
+        self._send_message("recipe_cue", "cue_only_preview", payload)
+
+    def _handle_ApplyRecipeCueOnly(
+        self,
+        sequence_no: int,
+        source_cue_no: str,
+        target_cue_no: str,
+        request_id: int | None = None,
+    ) -> None:
+        payload = self._apply_recipe_cue_only(
+            sequence_no=int(sequence_no),
+            source_cue_no=float(source_cue_no),
+            target_cue_no=float(target_cue_no),
+        )
+        payload["request_id"] = None if request_id is None else int(request_id)
+        self._send_message("recipe_cue", "cue_only_applied", payload)
+
+    def _handle_CopyCueWithStatus(
+        self,
+        sequence_no: int,
+        source_cue_no: str,
+        dest_cue_no: str,
+        request_id: int | None = None,
+    ) -> None:
+        payload = self._copy_cue_with_status(
+            sequence_no=int(sequence_no),
+            source_cue_no=float(source_cue_no),
+            dest_cue_no=float(dest_cue_no),
+        )
+        payload["request_id"] = None if request_id is None else int(request_id)
+        self._send_message("recipe_cue", "copied_with_status", payload)
+
+    def _handle_PreviewCopyCueWithStatus(
+        self,
+        sequence_no: int,
+        source_cue_no: str,
+        dest_cue_no: str,
+        request_id: int | None = None,
+    ) -> None:
+        payload = self._preview_copy_cue_with_status(
+            sequence_no=int(sequence_no),
+            source_cue_no=float(source_cue_no),
+            dest_cue_no=float(dest_cue_no),
+        )
+        payload["request_id"] = None if request_id is None else int(request_id)
+        self._send_message("recipe_cue", "copy_with_status_preview", payload)
+
     def _handle_GetTracks(self, tc_no: int, tg_no: int, request_id: int | None = None) -> None:
         tracks = []
         for track in self._group_tracks(int(tc_no)).get(int(tg_no), []):
@@ -766,6 +1402,7 @@ class _SimulatedMA3OSCServer:
         coord = format_track_coord(int(tc_no), int(tg_no), int(track_no))
         events = []
         for index, event in enumerate(self._events_by_coord.get(coord, []), start=1):
+            cue_ref = str(event.cue_ref or "").strip() or _cue_ref_from_number(event.cue_number)
             events.append(
                 {
                     "event_id": event.event_id,
@@ -776,6 +1413,7 @@ class _SimulatedMA3OSCServer:
                     "name": event.label,
                     "cmd": event.cmd or event.label,
                     "cue_number": event.cue_number,
+                    "cue_ref": cue_ref,
                     "tc": int(tc_no),
                     "tg": int(tg_no),
                     "track": int(track_no),
@@ -840,8 +1478,26 @@ class _SimulatedMA3OSCServer:
             if resolved_cue_number is not None
             else _cue_number_from_command(command)
         )
-        explicit_label = str(event_name or cue_label or "").strip()
-        label = explicit_label or _event_label_from_command(command, cue_number)
+        explicit_event_name = str(event_name or "").strip()
+        explicit_cue_label = str(cue_label or "").strip()
+        cue_ref = _cue_ref_from_number(cue_number)
+        label = _event_label_from_command(command, cue_number)
+        if (
+            explicit_event_name
+            and explicit_cue_label
+            and explicit_event_name != explicit_cue_label
+        ):
+            suffix_index = explicit_event_name.rfind(explicit_cue_label)
+            if suffix_index >= 0:
+                inferred_cue_ref = explicit_event_name[:suffix_index].strip(" :-")
+                cue_ref = inferred_cue_ref or cue_ref
+                label = explicit_cue_label
+            else:
+                label = explicit_event_name
+        elif explicit_event_name:
+            label = explicit_event_name
+        elif explicit_cue_label:
+            label = explicit_cue_label
         snapshot = MA3EventSnapshot(
             event_id=next_id,
             label=label,
@@ -849,6 +1505,7 @@ class _SimulatedMA3OSCServer:
             end=float(start),
             cmd=command,
             cue_number=cue_number,
+            cue_ref=cue_ref,
         )
         events.append(snapshot)
         events.sort(
@@ -1041,6 +1698,935 @@ class _SimulatedMA3OSCServer:
             tracks.sort(key=lambda track: parse_track_coord(track.coord)[2])
         return groups
 
+    @staticmethod
+    def _normalize_datapool_path(path: str | None) -> str:
+        text = str(path or "").strip().strip("/")
+        if text.startswith("DataPool/"):
+            text = text[len("DataPool/") :]
+        elif text == "DataPool":
+            text = ""
+        return text
+
+    @staticmethod
+    def _path_tokens(path: str) -> list[str]:
+        if not path:
+            return []
+        return [token for token in path.split("/") if token]
+
+    def _datapool_children_for_path(self, path: str) -> list[dict[str, object]] | None:
+        tokens = self._path_tokens(path)
+        if not tokens:
+            return [
+                self._make_datapool_entry(
+                    path="Timecodes",
+                    name="Timecodes",
+                    class_name="DataPoolCategory",
+                    child_count=len(self._timecode_name_by_no),
+                ),
+                self._make_datapool_entry(
+                    path="Sequences",
+                    name="Sequences",
+                    class_name="DataPoolCategory",
+                    child_count=len(self._sequences_by_number),
+                ),
+                self._make_datapool_entry(
+                    path="PresetPools",
+                    name="PresetPools",
+                    class_name="DataPoolCategory",
+                    child_count=len(self._preset_pool_types()),
+                ),
+            ]
+        if tokens == ["Timecodes"]:
+            return [
+                self._make_datapool_entry(
+                    path=f"Timecodes/{tc_no}",
+                    name=name,
+                    class_name="Timecode",
+                    no=int(tc_no),
+                    browse_token=str(tc_no),
+                    child_count=len(self._group_tracks(int(tc_no))),
+                )
+                for tc_no, name in sorted(self._timecode_name_by_no.items())
+            ]
+        if len(tokens) == 2 and tokens[0] == "Timecodes":
+            tc_no = int(tokens[1])
+            groups = self._group_tracks(tc_no)
+            return [
+                self._make_datapool_entry(
+                    path=f"Timecodes/{tc_no}/{group_no}",
+                    name=self._track_group_name_by_key.get(
+                        (tc_no, int(group_no)), f"Group {group_no}"
+                    ),
+                    class_name="TrackGroup",
+                    no=int(group_no),
+                    browse_token=str(group_no),
+                    child_count=len(tracks),
+                )
+                for group_no, tracks in sorted(groups.items())
+            ]
+        if len(tokens) == 3 and tokens[0] == "Timecodes":
+            tc_no = int(tokens[1])
+            tg_no = int(tokens[2])
+            tracks = self._group_tracks(tc_no).get(tg_no, [])
+            return [
+                self._make_datapool_entry(
+                    path=f"Timecodes/{tc_no}/{tg_no}/{track.number}",
+                    name=track.name,
+                    class_name="Track",
+                    no=int(track.number),
+                    browse_token=str(track.number),
+                    child_count=len(self._events_by_coord.get(track.coord, [])),
+                )
+                for track in tracks
+            ]
+        if tokens == ["Sequences"]:
+            return [
+                self._make_datapool_entry(
+                    path=f"Sequences/{sequence.number}",
+                    name=sequence.name,
+                    class_name="Sequence",
+                    no=int(sequence.number),
+                    browse_token=str(sequence.number),
+                    child_count=int(sequence.cue_count),
+                )
+                for sequence in sorted(
+                    self._sequences_by_number.values(), key=lambda item: item.number
+                )
+            ]
+        if tokens == ["PresetPools"]:
+            return [
+                self._make_datapool_entry(
+                    path=f"PresetPools/{preset_type_no}",
+                    name=self._preset_pool_name(preset_type_no),
+                    class_name="PresetPool",
+                    no=int(preset_type_no),
+                    browse_token=str(preset_type_no),
+                    child_count=len(self._preset_numbers_for_type(preset_type_no)),
+                )
+                for preset_type_no in self._preset_pool_types()
+            ]
+        if len(tokens) == 2 and tokens[0] == "PresetPools":
+            preset_type_no = int(tokens[1])
+            return [
+                self._make_datapool_entry(
+                    path=f"PresetPools/{preset_type_no}/{preset_no}",
+                    name=snapshot.name,
+                    class_name="Preset",
+                    no=int(preset_no),
+                    browse_token=str(preset_no),
+                    child_count=1 if self._preset_has_recipe_child(snapshot) else 0,
+                )
+                for preset_no, snapshot in self._preset_snapshots_for_type(preset_type_no)
+            ]
+        if len(tokens) == 3 and tokens[0] == "PresetPools":
+            preset_type_no = int(tokens[1])
+            preset_no = int(tokens[2])
+            snapshot = self._presets_by_key.get((preset_type_no, preset_no))
+            if snapshot is None or not self._preset_has_recipe_child(snapshot):
+                return []
+            return [
+                self._make_datapool_entry(
+                    path=f"PresetPools/{preset_type_no}/{preset_no}/Recipe 1",
+                    name="Recipe 1",
+                    class_name="Recipe",
+                    browse_token="Recipe 1",
+                    child_count=0,
+                )
+            ]
+        return None
+
+    def _datapool_object_for_path(self, path: str) -> dict[str, object] | None:
+        tokens = self._path_tokens(path)
+        if not tokens:
+            return {
+                **self._make_datapool_entry(
+                    path="", name="DataPool", class_name="DataPool", child_count=3
+                ),
+                "properties": self._make_datapool_properties(
+                    ("NAME", "DataPool"),
+                    ("COUNT", 3),
+                ),
+                "property_items": self._make_datapool_properties(
+                    ("NAME", "DataPool"),
+                    ("COUNT", 3),
+                ),
+                "preview_children": self._datapool_children_for_path("") or [],
+                "dump": "DataPool()",
+            }
+        if tokens == ["Timecodes"]:
+            children = self._datapool_children_for_path(path) or []
+            return {
+                **self._make_datapool_entry(
+                    path="Timecodes",
+                    name="Timecodes",
+                    class_name="DataPoolCategory",
+                    child_count=len(children),
+                ),
+                "properties": self._make_datapool_properties(
+                    ("NAME", "Timecodes"),
+                    ("COUNT", len(children)),
+                ),
+                "property_items": self._make_datapool_properties(
+                    ("NAME", "Timecodes"),
+                    ("COUNT", len(children)),
+                ),
+                "preview_children": children[:12],
+                "dump": "DataPool().Timecodes",
+            }
+        if len(tokens) == 2 and tokens[0] == "Timecodes":
+            tc_no = int(tokens[1])
+            name = self._timecode_name_by_no.get(tc_no)
+            if name is None:
+                return None
+            children = self._datapool_children_for_path(path) or []
+            return {
+                **self._make_datapool_entry(
+                    path=path,
+                    name=name,
+                    class_name="Timecode",
+                    no=tc_no,
+                    browse_token=str(tc_no),
+                    child_count=len(children),
+                ),
+                "properties": self._make_datapool_properties(
+                    ("NAME", name),
+                    ("NO", tc_no),
+                    ("COUNT", len(children)),
+                ),
+                "property_items": self._make_datapool_properties(
+                    ("NAME", name),
+                    ("NO", tc_no),
+                    ("COUNT", len(children)),
+                ),
+                "preview_children": children[:12],
+                "dump": f"DataPool().Timecodes[{tc_no}]",
+            }
+        if len(tokens) == 3 and tokens[0] == "Timecodes":
+            tc_no = int(tokens[1])
+            tg_no = int(tokens[2])
+            name = self._track_group_name_by_key.get((tc_no, tg_no), f"Group {tg_no}")
+            children = self._datapool_children_for_path(path) or []
+            return {
+                **self._make_datapool_entry(
+                    path=path,
+                    name=name,
+                    class_name="TrackGroup",
+                    no=tg_no,
+                    browse_token=str(tg_no),
+                    child_count=len(children),
+                ),
+                "properties": self._make_datapool_properties(
+                    ("NAME", name),
+                    ("NO", tg_no),
+                    ("COUNT", len(children)),
+                ),
+                "property_items": self._make_datapool_properties(
+                    ("NAME", name),
+                    ("NO", tg_no),
+                    ("COUNT", len(children)),
+                ),
+                "preview_children": children[:12],
+                "dump": f"DataPool().Timecodes[{tc_no}][{tg_no}]",
+            }
+        if len(tokens) == 4 and tokens[0] == "Timecodes":
+            tc_no = int(tokens[1])
+            tg_no = int(tokens[2])
+            track_no = int(tokens[3])
+            coord = format_track_coord(tc_no, tg_no, track_no)
+            track = self._tracks_by_coord.get(coord)
+            if track is None:
+                return None
+            preview_children: list[dict[str, object]] = []
+            for index, event in enumerate(self._events_by_coord.get(coord, []), start=1):
+                preview_children.append(
+                    self._make_datapool_entry(
+                        path=f"{path}/Event{index}",
+                        name=event.label,
+                        class_name="CmdEvent",
+                        no=index,
+                        browse_token=f"Event{index}",
+                        child_count=0,
+                    )
+                )
+            return {
+                **self._make_datapool_entry(
+                    path=path,
+                    name=track.name,
+                    class_name="Track",
+                    no=track.number,
+                    browse_token=str(track.number),
+                    child_count=len(preview_children),
+                ),
+                "properties": self._make_datapool_properties(
+                    ("NAME", track.name),
+                    ("NO", track.number),
+                    ("NOTE", track.note or ""),
+                    ("SEQUENCE", track.sequence_no),
+                ),
+                "property_items": self._make_datapool_properties(
+                    ("NAME", track.name),
+                    ("NO", track.number),
+                    ("NOTE", track.note or ""),
+                    ("SEQUENCE", track.sequence_no),
+                ),
+                "preview_children": preview_children[:12],
+                "dump": (
+                    f"DataPool().Timecodes[{tc_no}][{tg_no}][{track_no}]\n"
+                    f"class=Track\nname={track.name}\nno={track.number}\n"
+                    f"note={track.note or ''}\nsequence={track.sequence_no or ''}"
+                ),
+            }
+        if tokens == ["Sequences"]:
+            children = self._datapool_children_for_path(path) or []
+            return {
+                **self._make_datapool_entry(
+                    path="Sequences",
+                    name="Sequences",
+                    class_name="DataPoolCategory",
+                    child_count=len(children),
+                ),
+                "properties": self._make_datapool_properties(
+                    ("NAME", "Sequences"),
+                    ("COUNT", len(children)),
+                ),
+                "property_items": self._make_datapool_properties(
+                    ("NAME", "Sequences"),
+                    ("COUNT", len(children)),
+                ),
+                "preview_children": children[:12],
+                "dump": "DataPool().Sequences",
+            }
+        if len(tokens) == 2 and tokens[0] == "Sequences":
+            sequence_no = int(tokens[1])
+            sequence = self._sequences_by_number.get(sequence_no)
+            if sequence is None:
+                return None
+            return {
+                **self._make_datapool_entry(
+                    path=path,
+                    name=sequence.name,
+                    class_name="Sequence",
+                    no=sequence.number,
+                    browse_token=str(sequence.number),
+                    child_count=int(sequence.cue_count),
+                ),
+                "properties": self._make_datapool_properties(
+                    ("NAME", sequence.name),
+                    ("NO", sequence.number),
+                    ("CUE_COUNT", int(sequence.cue_count)),
+                ),
+                "property_items": self._make_datapool_properties(
+                    ("NAME", sequence.name),
+                    ("NO", sequence.number),
+                    ("CUE_COUNT", int(sequence.cue_count)),
+                ),
+                "preview_children": [],
+                "dump": (
+                    f"DataPool().Sequences[{sequence.number}]\n"
+                    f"class=Sequence\nname={sequence.name}\nno={sequence.number}\n"
+                    f"cue_count={sequence.cue_count}"
+                ),
+            }
+        if tokens == ["PresetPools"]:
+            children = self._datapool_children_for_path(path) or []
+            property_items = self._make_datapool_properties(
+                ("NAME", "PresetPools"),
+                ("COUNT", len(children)),
+            )
+            return {
+                **self._make_datapool_entry(
+                    path="PresetPools",
+                    name="PresetPools",
+                    class_name="DataPoolCategory",
+                    child_count=len(children),
+                ),
+                "properties": property_items,
+                "property_items": property_items,
+                "preview_children": children[:12],
+                "dump": "DataPool().PresetPools",
+            }
+        if len(tokens) == 2 and tokens[0] == "PresetPools":
+            preset_type_no = int(tokens[1])
+            children = self._datapool_children_for_path(path) or []
+            property_items = self._make_datapool_properties(
+                ("NAME", self._preset_pool_name(preset_type_no)),
+                ("NO", preset_type_no),
+                ("COUNT", len(children)),
+            )
+            return {
+                **self._make_datapool_entry(
+                    path=path,
+                    name=self._preset_pool_name(preset_type_no),
+                    class_name="PresetPool",
+                    no=preset_type_no,
+                    browse_token=str(preset_type_no),
+                    child_count=len(children),
+                ),
+                "properties": property_items,
+                "property_items": property_items,
+                "preview_children": children[:12],
+                "dump": f"DataPool().PresetPools[{preset_type_no}]",
+            }
+        if len(tokens) == 3 and tokens[0] == "PresetPools":
+            preset_type_no = int(tokens[1])
+            preset_no = int(tokens[2])
+            snapshot = self._presets_by_key.get((preset_type_no, preset_no))
+            if snapshot is None:
+                return None
+            property_items = self._preset_property_items(snapshot)
+            preview_children = self._datapool_children_for_path(path) or []
+            children = [
+                self._datapool_object_for_path(str(child.get("path") or ""))
+                for child in preview_children
+                if str(child.get("path") or "").strip()
+            ]
+            return {
+                **self._make_datapool_entry(
+                    path=path,
+                    name=snapshot.name,
+                    class_name="Preset",
+                    no=snapshot.number,
+                    browse_token=str(snapshot.number),
+                    child_count=len(preview_children),
+                ),
+                "preset_type": snapshot.preset_type,
+                "store_mode": snapshot.store_mode,
+                "kind": snapshot.kind,
+                "step_count": snapshot.step_count,
+                "properties": self._preset_properties_dict(property_items),
+                "property_items": property_items,
+                "preview_children": preview_children[:12],
+                "children": [child for child in children if isinstance(child, dict)],
+                "dump": f"DataPool().PresetPools[{preset_type_no}][{preset_no}]",
+            }
+        if len(tokens) == 4 and tokens[0] == "PresetPools":
+            preset_type_no = int(tokens[1])
+            preset_no = int(tokens[2])
+            snapshot = self._presets_by_key.get((preset_type_no, preset_no))
+            if (
+                snapshot is None
+                or tokens[3] != "Recipe 1"
+                or not self._preset_has_recipe_child(snapshot)
+            ):
+                return None
+            property_items = self._preset_recipe_property_items(snapshot)
+            return {
+                **self._make_datapool_entry(
+                    path=path,
+                    name="Recipe 1",
+                    class_name="Recipe",
+                    browse_token="Recipe 1",
+                    child_count=0,
+                ),
+                "properties": self._preset_properties_dict(property_items),
+                "property_items": property_items,
+                "preview_children": [],
+                "dump": f"DataPool().PresetPools[{preset_type_no}][{preset_no}]:Children()[1]",
+            }
+        return None
+
+    def _preset_pool_types(self) -> list[int]:
+        return sorted({preset_type_no for preset_type_no, _preset_no in self._presets_by_key})
+
+    def _preset_numbers_for_type(self, preset_type_no: int) -> list[int]:
+        return sorted(
+            preset_no
+            for (raw_type_no, preset_no) in self._presets_by_key
+            if int(raw_type_no) == int(preset_type_no)
+        )
+
+    def _preset_snapshots_for_type(
+        self, preset_type_no: int
+    ) -> list[tuple[int, MA3PresetSnapshot]]:
+        return [
+            (preset_no, self._presets_by_key[(raw_type_no, preset_no)])
+            for raw_type_no, preset_no in sorted(self._presets_by_key)
+            if int(raw_type_no) == int(preset_type_no)
+        ]
+
+    def _preset_pool_name(self, preset_type_no: int) -> str:
+        return _PRESET_POOL_NAMES.get(int(preset_type_no), f"Preset Pool {int(preset_type_no)}")
+
+    @staticmethod
+    def _preset_has_recipe_child(snapshot: MA3PresetSnapshot) -> bool:
+        return snapshot.kind in {"phaser", "recipe"}
+
+    @staticmethod
+    def _preset_properties_dict(property_items: list[dict[str, object]]) -> dict[str, object]:
+        result: dict[str, object] = {}
+        for item in property_items:
+            name = str(item.get("name") or "").strip()
+            if not name:
+                continue
+            result[name.lower()] = item.get("value")
+        return result
+
+    def _preset_property_items(self, snapshot: MA3PresetSnapshot) -> list[dict[str, object]]:
+        details = self._preset_details_by_key.get((snapshot.preset_type, snapshot.number), {})
+        items = self._make_datapool_properties(
+            ("NAME", snapshot.name),
+            ("NO", snapshot.number),
+            ("PRESETTYPE", snapshot.preset_type),
+            ("PRESETMODE", snapshot.store_mode),
+            ("KIND", snapshot.kind),
+            ("STEPCOUNT", snapshot.step_count),
+        )
+        if "selection_command" in details:
+            items.extend(
+                self._make_datapool_properties(("SELECTIONCOMMAND", details["selection_command"]))
+            )
+        return items
+
+    def _preset_recipe_property_items(
+        self, snapshot: MA3PresetSnapshot
+    ) -> list[dict[str, object]]:
+        details = self._preset_details_by_key.get((snapshot.preset_type, snapshot.number), {})
+        items = self._make_datapool_properties(
+            ("NAME", "Recipe 1"),
+            ("PARENT_PRESET", f"{snapshot.preset_type}.{snapshot.number}"),
+            ("KIND", snapshot.kind),
+        )
+        if snapshot.kind == "phaser":
+            step_spec = str(details.get("step_spec") or "")
+            for step_index, step_group in enumerate(
+                [group for group in step_spec.split(";") if group], start=1
+            ):
+                items.extend(self._make_datapool_properties((f"STEP_{step_index}", step_group)))
+            if details.get("speed_bpm") is not None:
+                items.extend(self._make_datapool_properties(("SPEEDFROMX", details["speed_bpm"])))
+        if snapshot.kind == "recipe":
+            if details.get("source_preset_ref") is not None:
+                items.extend(
+                    self._make_datapool_properties(("PRESET", details["source_preset_ref"]))
+                )
+            if details.get("selection_mode") is not None:
+                items.extend(
+                    self._make_datapool_properties(("SELECTIONMODE", details["selection_mode"]))
+                )
+        return items
+
+    def _preset_replace_findings(
+        self,
+        *,
+        source_preset_ref: str,
+        dest_preset_ref: str,
+        group_filter_csv: str,
+        sequence_numbers_csv: str,
+    ) -> list[dict[str, object]]:
+        group_filter = {
+            item.strip() for item in str(group_filter_csv or "").split(",") if item.strip()
+        }
+        sequence_numbers = {
+            int(item.strip())
+            for item in str(sequence_numbers_csv or "").split(",")
+            if item.strip().isdigit()
+        }
+        findings: list[dict[str, object]] = []
+        for row in self._recipe_line_rows:
+            if str(row.get("preset_ref") or "") != str(source_preset_ref):
+                continue
+            if group_filter and str(row.get("matched_group") or "") not in group_filter:
+                continue
+            if sequence_numbers and int(row.get("seq_number") or 0) not in sequence_numbers:
+                continue
+            findings.append(
+                {
+                    "description": (
+                        f'Seq {int(row["seq_number"])} "{row["seq_name"]}" Cue '
+                        f'{float(row["actual_cue_number"]):g} Part {row["part_number"]} '
+                        f'[Group: {row["matched_group"]}]: {source_preset_ref} -> {dest_preset_ref}'
+                    ),
+                    "seqNumber": int(row["seq_number"]),
+                    "actualCueNumber": float(row["actual_cue_number"]),
+                    "partNumber": str(row["part_number"]),
+                    "matched_group": str(row["matched_group"]),
+                }
+            )
+        return findings
+
+    def _cue_recipe_rows(
+        self,
+        *,
+        sequence_no: int,
+        cue_number: float,
+    ) -> list[dict[str, object]]:
+        rows = [
+            dict(row)
+            for row in self._recipe_line_rows
+            if int(row.get("seq_number") or 0) == int(sequence_no)
+            and float(row.get("actual_cue_number") or 0.0) == float(cue_number)
+        ]
+        rows.sort(
+            key=lambda row: (
+                float(row.get("actual_cue_number") or 0.0),
+                int(row.get("line_index") or 0),
+                str(row.get("part_number") or ""),
+            )
+        )
+        return rows
+
+    @staticmethod
+    def _recipe_state_key(row: dict[str, object]) -> str:
+        explicit = str(row.get("selection_key") or "").strip()
+        if explicit:
+            return explicit
+        return f'{str(row.get("matched_group") or "").strip()}:{str(row.get("feature_group") or "").strip()}'
+
+    @staticmethod
+    def _dedupe_texts(values: list[str]) -> list[str]:
+        seen: set[str] = set()
+        ordered: list[str] = []
+        for value in values:
+            text = str(value or "").strip()
+            if not text or text in seen:
+                continue
+            seen.add(text)
+            ordered.append(text)
+        return ordered
+
+    def _recipe_analysis_flags(
+        self,
+        *,
+        rows: list[dict[str, object]],
+    ) -> tuple[bool, list[str], list[str]]:
+        warnings: list[str] = []
+        unsupported_reasons: list[str] = []
+        for row in rows:
+            selection_key = self._recipe_state_key(row)
+            recipe_mode = str(row.get("recipe_mode") or "").strip().lower()
+            if not selection_key or selection_key == ":":
+                unsupported_reasons.append(
+                    "One or more recipe lines are missing a stable selection key."
+                )
+            if recipe_mode not in {"absolute", "relative"}:
+                unsupported_reasons.append(
+                    "One or more recipe lines are missing relative/absolute mode metadata."
+                )
+        if rows:
+            warnings.append(
+                "Analysis is limited to detected cue recipe lines and does not model direct stored values or cooked MA output."
+            )
+        return (
+            (not unsupported_reasons),
+            self._dedupe_texts(warnings),
+            self._dedupe_texts(unsupported_reasons),
+        )
+
+    def _effective_recipe_contributors(
+        self,
+        *,
+        sequence_no: int,
+        cue_number: float,
+    ) -> list[dict[str, object]]:
+        relevant_rows = [
+            dict(row)
+            for row in self._recipe_line_rows
+            if int(row.get("seq_number") or 0) == int(sequence_no)
+            and float(row.get("actual_cue_number") or 0.0) <= float(cue_number)
+        ]
+        relevant_rows.sort(
+            key=lambda row: (
+                float(row.get("actual_cue_number") or 0.0),
+                int(row.get("line_index") or 0),
+                str(row.get("part_number") or ""),
+            )
+        )
+        contributors_by_key: dict[str, list[dict[str, object]]] = {}
+        for row in relevant_rows:
+            key = self._recipe_state_key(row)
+            mode = str(row.get("recipe_mode") or "absolute").strip().lower()
+            if mode == "relative":
+                bucket = contributors_by_key.setdefault(key, [])
+                bucket.append(dict(row))
+                continue
+            contributors_by_key[key] = [dict(row)]
+        flattened: list[dict[str, object]] = []
+        for bucket in contributors_by_key.values():
+            flattened.extend(dict(item) for item in bucket)
+        flattened.sort(
+            key=lambda row: (
+                float(row.get("actual_cue_number") or 0.0),
+                int(row.get("line_index") or 0),
+                str(row.get("part_number") or ""),
+            )
+        )
+        return flattened
+
+    def _analyze_cue_recipe_state(
+        self,
+        *,
+        sequence_no: int,
+        cue_number: float,
+    ) -> dict[str, object]:
+        local_rows = self._cue_recipe_rows(sequence_no=sequence_no, cue_number=cue_number)
+        contributor_rows = self._effective_recipe_contributors(
+            sequence_no=sequence_no,
+            cue_number=cue_number,
+        )
+        state_keys = sorted({self._recipe_state_key(row) for row in contributor_rows})
+        supported, warnings, unsupported_reasons = self._recipe_analysis_flags(
+            rows=contributor_rows
+        )
+        return {
+            "sequence_no": int(sequence_no),
+            "cue_no": float(cue_number),
+            "supported": supported,
+            "status": "ready" if supported else "unsupported",
+            "warnings": warnings,
+            "unsupported_reasons": unsupported_reasons,
+            "local_line_count": len(local_rows),
+            "contributor_count": len(contributor_rows),
+            "state_keys": state_keys,
+            "local_lines": local_rows,
+            "contributors": contributor_rows,
+        }
+
+    def _replace_cue_recipe_rows(
+        self,
+        *,
+        sequence_no: int,
+        cue_number: float,
+        replacement_rows: list[dict[str, object]],
+    ) -> None:
+        survivors = [
+            dict(row)
+            for row in self._recipe_line_rows
+            if not (
+                int(row.get("seq_number") or 0) == int(sequence_no)
+                and float(row.get("actual_cue_number") or 0.0) == float(cue_number)
+            )
+        ]
+        normalized_rows: list[dict[str, object]] = []
+        for line_index, row in enumerate(replacement_rows, start=1):
+            cloned = dict(row)
+            cloned["seq_number"] = int(sequence_no)
+            cloned["actual_cue_number"] = float(cue_number)
+            cloned["line_index"] = line_index
+            cloned["part_number"] = f"0.{line_index}"
+            cloned["source_cue_number"] = float(row.get("source_cue_number") or cue_number)
+            cloned["source_part_number"] = str(
+                row.get("source_part_number") or row.get("part_number") or f"0.{line_index}"
+            )
+            normalized_rows.append(cloned)
+        survivors.extend(normalized_rows)
+        self._recipe_line_rows = survivors
+
+    @staticmethod
+    def _contributor_signature(rows: list[dict[str, object]]) -> set[tuple[str, str, str, str]]:
+        return {
+            (
+                str(row.get("selection_key") or ""),
+                str(row.get("recipe_mode") or ""),
+                str(row.get("preset_ref") or ""),
+                str(row.get("matched_group") or ""),
+            )
+            for row in rows
+        }
+
+    def _preview_recipe_cue_only(
+        self,
+        *,
+        sequence_no: int,
+        source_cue_no: float,
+        target_cue_no: float,
+    ) -> dict[str, object]:
+        source_analysis = self._analyze_cue_recipe_state(
+            sequence_no=sequence_no,
+            cue_number=source_cue_no,
+        )
+        next_cue_no = float(target_cue_no) + 1.0
+        incoming_rows = self._cue_recipe_rows(sequence_no=sequence_no, cue_number=source_cue_no)
+        before_next = self._effective_recipe_contributors(
+            sequence_no=sequence_no, cue_number=next_cue_no
+        )
+        after_target_rows = [dict(row) for row in incoming_rows]
+
+        original_rows = list(self._recipe_line_rows)
+        self._replace_cue_recipe_rows(
+            sequence_no=sequence_no,
+            cue_number=target_cue_no,
+            replacement_rows=after_target_rows,
+        )
+        after_next = self._effective_recipe_contributors(
+            sequence_no=sequence_no, cue_number=next_cue_no
+        )
+        self._recipe_line_rows = original_rows
+
+        affected_keys = {self._recipe_state_key(row) for row in before_next + after_next}
+        restore_rows = [
+            dict(row) for row in before_next if self._recipe_state_key(row) in affected_keys
+        ]
+        changed_keys = sorted(
+            key
+            for key in affected_keys
+            if self._contributor_signature(
+                [row for row in before_next if self._recipe_state_key(row) == key]
+            )
+            != self._contributor_signature(
+                [row for row in after_next if self._recipe_state_key(row) == key]
+            )
+        )
+        restore_rows = [
+            row for row in restore_rows if self._recipe_state_key(row) in set(changed_keys)
+        ]
+        warnings = list(source_analysis.get("warnings") or [])
+        unsupported_reasons = list(source_analysis.get("unsupported_reasons") or [])
+        if float(source_cue_no) == float(target_cue_no):
+            unsupported_reasons.append("Source cue and target cue must be different.")
+        if not incoming_rows:
+            unsupported_reasons.append("Source cue does not expose local recipe lines.")
+        if before_next:
+            warnings.append(
+                "Cue-only preview only restores detected recipe contributors in the following cue; direct stored values are not modeled."
+            )
+        unsupported_reasons = self._dedupe_texts(unsupported_reasons)
+        warnings = self._dedupe_texts(warnings)
+        return {
+            "sequence_no": int(sequence_no),
+            "source_cue_no": float(source_cue_no),
+            "target_cue_no": float(target_cue_no),
+            "next_cue_no": float(next_cue_no),
+            "supported": not unsupported_reasons,
+            "status": "ready" if not unsupported_reasons else "unsupported",
+            "warnings": warnings,
+            "unsupported_reasons": unsupported_reasons,
+            "stored_lines": [dict(row) for row in incoming_rows],
+            "restore_lines": restore_rows,
+            "changed_keys": changed_keys,
+        }
+
+    def _apply_recipe_cue_only(
+        self,
+        *,
+        sequence_no: int,
+        source_cue_no: float,
+        target_cue_no: float,
+    ) -> dict[str, object]:
+        preview = self._preview_recipe_cue_only(
+            sequence_no=sequence_no,
+            source_cue_no=source_cue_no,
+            target_cue_no=target_cue_no,
+        )
+        self._replace_cue_recipe_rows(
+            sequence_no=sequence_no,
+            cue_number=float(target_cue_no),
+            replacement_rows=[dict(row) for row in preview["stored_lines"]],
+        )
+        existing_next_rows = self._cue_recipe_rows(
+            sequence_no=sequence_no,
+            cue_number=float(preview["next_cue_no"]),
+        )
+        changed_keys = set(preview["changed_keys"])
+        merged_next_rows = [
+            dict(row)
+            for row in existing_next_rows
+            if self._recipe_state_key(row) not in changed_keys
+        ]
+        merged_next_rows.extend(dict(row) for row in preview["restore_lines"])
+        self._replace_cue_recipe_rows(
+            sequence_no=sequence_no,
+            cue_number=float(preview["next_cue_no"]),
+            replacement_rows=merged_next_rows,
+        )
+        return preview
+
+    def _copy_cue_with_status(
+        self,
+        *,
+        sequence_no: int,
+        source_cue_no: float,
+        dest_cue_no: float,
+    ) -> dict[str, object]:
+        contributors = self._effective_recipe_contributors(
+            sequence_no=sequence_no,
+            cue_number=source_cue_no,
+        )
+        self._replace_cue_recipe_rows(
+            sequence_no=sequence_no,
+            cue_number=dest_cue_no,
+            replacement_rows=[dict(row) for row in contributors],
+        )
+        return {
+            "sequence_no": int(sequence_no),
+            "source_cue_no": float(source_cue_no),
+            "dest_cue_no": float(dest_cue_no),
+            "copied_lines": [dict(row) for row in contributors],
+            "copied_line_count": len(contributors),
+        }
+
+    def _preview_copy_cue_with_status(
+        self,
+        *,
+        sequence_no: int,
+        source_cue_no: float,
+        dest_cue_no: float,
+    ) -> dict[str, object]:
+        analysis = self._analyze_cue_recipe_state(
+            sequence_no=sequence_no,
+            cue_number=source_cue_no,
+        )
+        warnings = list(analysis.get("warnings") or [])
+        unsupported_reasons = list(analysis.get("unsupported_reasons") or [])
+        if float(source_cue_no) == float(dest_cue_no):
+            unsupported_reasons.append("Source cue and destination cue must be different.")
+        if int(analysis.get("contributor_count") or 0) > int(
+            analysis.get("local_line_count") or 0
+        ):
+            warnings.append(
+                "Status preview includes tracked contributors from earlier cues, not only local recipe lines."
+            )
+        warnings = self._dedupe_texts(warnings)
+        unsupported_reasons = self._dedupe_texts(unsupported_reasons)
+        return {
+            "sequence_no": int(sequence_no),
+            "source_cue_no": float(source_cue_no),
+            "dest_cue_no": float(dest_cue_no),
+            "supported": not unsupported_reasons,
+            "status": "ready" if not unsupported_reasons else "unsupported",
+            "warnings": warnings,
+            "unsupported_reasons": unsupported_reasons,
+            "copied_lines": [dict(row) for row in analysis.get("contributors") or []],
+            "copied_line_count": int(analysis.get("contributor_count") or 0),
+            "local_line_count": int(analysis.get("local_line_count") or 0),
+            "contributor_count": int(analysis.get("contributor_count") or 0),
+        }
+
+    @staticmethod
+    def _make_datapool_entry(
+        *,
+        path: str,
+        name: str,
+        class_name: str,
+        no: int | None = None,
+        browse_token: str | None = None,
+        child_count: int = 0,
+    ) -> dict[str, object]:
+        entry: dict[str, object] = {
+            "path": path,
+            "name": str(name),
+            "class": class_name,
+            "child_count": int(child_count),
+        }
+        if no is not None:
+            entry["no"] = int(no)
+        if browse_token is not None:
+            entry["browse_token"] = str(browse_token)
+        return entry
+
+    @staticmethod
+    def _make_datapool_properties(*items: tuple[str, object]) -> list[dict[str, object]]:
+        properties: list[dict[str, object]] = []
+        for name, value in items:
+            properties.append(
+                {
+                    "name": str(name),
+                    "value": value,
+                    "property_type": type(value).__name__ if value is not None else "nil",
+                    "read_only": False,
+                }
+            )
+        return properties
+
     def _create_sequence(
         self,
         *,
@@ -1126,6 +2712,31 @@ class _SimulatedMA3OSCServer:
                 "tg": int(tg_no),
                 "track": int(track_no),
                 "error": str(error),
+            },
+        )
+
+    def _send_preset_error(self, preset_type_no: int, preset_no: int, error: str) -> None:
+        self._send_message(
+            "preset",
+            "error",
+            {
+                "preset_type": int(preset_type_no),
+                "number": int(preset_no),
+                "error": str(error),
+            },
+        )
+
+    def _send_preset_snapshot(self, change: str, snapshot: MA3PresetSnapshot) -> None:
+        self._send_message(
+            "preset",
+            change,
+            {
+                "preset_type": snapshot.preset_type,
+                "number": snapshot.number,
+                "name": snapshot.name,
+                "store_mode": snapshot.store_mode,
+                "kind": snapshot.kind,
+                "step_count": snapshot.step_count,
             },
         )
 
@@ -1252,6 +2863,118 @@ class SimulatedMA3Bridge:
     def get_current_song_sequence_range(self) -> MA3SequenceRangeSnapshot | None:
         return self._require_bridge().get_current_song_sequence_range()
 
+    def list_presets(self, *, preset_type_no: int) -> list[dict[str, object]]:
+        return self._require_bridge().list_presets(preset_type_no=preset_type_no)
+
+    def describe_preset(self, *, preset_type_no: int, preset_no: int) -> dict[str, object]:
+        return self._require_bridge().describe_preset(
+            preset_type_no=preset_type_no,
+            preset_no=preset_no,
+        )
+
+    def preview_replace_preset_when_group(
+        self,
+        *,
+        preset_type_no: int,
+        source_preset_ref: str,
+        dest_preset_ref: str,
+        group_filter_csv: str,
+        sequence_numbers_csv: str,
+    ) -> dict[str, object]:
+        return self._require_bridge().preview_replace_preset_when_group(
+            preset_type_no=preset_type_no,
+            source_preset_ref=source_preset_ref,
+            dest_preset_ref=dest_preset_ref,
+            group_filter_csv=group_filter_csv,
+            sequence_numbers_csv=sequence_numbers_csv,
+        )
+
+    def replace_preset_when_group(
+        self,
+        *,
+        preset_type_no: int,
+        source_preset_ref: str,
+        dest_preset_ref: str,
+        group_filter_csv: str,
+        sequence_numbers_csv: str,
+    ) -> dict[str, object]:
+        return self._require_bridge().replace_preset_when_group(
+            preset_type_no=preset_type_no,
+            source_preset_ref=source_preset_ref,
+            dest_preset_ref=dest_preset_ref,
+            group_filter_csv=group_filter_csv,
+            sequence_numbers_csv=sequence_numbers_csv,
+        )
+
+    def analyze_cue_recipe_state(
+        self,
+        *,
+        sequence_no: int,
+        cue_no: CueNumber | float | int | str,
+    ) -> dict[str, object]:
+        return self._require_bridge().analyze_cue_recipe_state(
+            sequence_no=sequence_no,
+            cue_no=cue_no,
+        )
+
+    def preview_recipe_cue_only(
+        self,
+        *,
+        sequence_no: int,
+        source_cue_no: CueNumber | float | int | str,
+        target_cue_no: CueNumber | float | int | str,
+    ) -> dict[str, object]:
+        return self._require_bridge().preview_recipe_cue_only(
+            sequence_no=sequence_no,
+            source_cue_no=source_cue_no,
+            target_cue_no=target_cue_no,
+        )
+
+    def apply_recipe_cue_only(
+        self,
+        *,
+        sequence_no: int,
+        source_cue_no: CueNumber | float | int | str,
+        target_cue_no: CueNumber | float | int | str,
+    ) -> dict[str, object]:
+        return self._require_bridge().apply_recipe_cue_only(
+            sequence_no=sequence_no,
+            source_cue_no=source_cue_no,
+            target_cue_no=target_cue_no,
+        )
+
+    def copy_cue_with_status(
+        self,
+        *,
+        sequence_no: int,
+        source_cue_no: CueNumber | float | int | str,
+        dest_cue_no: CueNumber | float | int | str,
+    ) -> dict[str, object]:
+        return self._require_bridge().copy_cue_with_status(
+            sequence_no=sequence_no,
+            source_cue_no=source_cue_no,
+            dest_cue_no=dest_cue_no,
+        )
+
+    def preview_copy_cue_with_status(
+        self,
+        *,
+        sequence_no: int,
+        source_cue_no: CueNumber | float | int | str,
+        dest_cue_no: CueNumber | float | int | str,
+    ) -> dict[str, object]:
+        return self._require_bridge().preview_copy_cue_with_status(
+            sequence_no=sequence_no,
+            source_cue_no=source_cue_no,
+            dest_cue_no=dest_cue_no,
+        )
+
+    def ping(self) -> dict[str, object]:
+        return self._require_bridge().ping()
+
+    def get_version_info(self) -> dict[str, object]:
+        return self._require_bridge().get_version_info()
+
     def get_plugin_health(self) -> dict[str, object]:
         return self._require_bridge().get_plugin_health()
 
@@ -1305,6 +3028,10 @@ class SimulatedMA3Bridge:
 
     def set_clear_delay(self, track_coord: str, *, seconds: float) -> None:
         self._require_server().set_clear_delay(track_coord, seconds=seconds)
+        self._require_bridge().invalidate()
+
+    def set_drop_ping_reply_count(self, count: int) -> None:
+        self._require_server().set_drop_ping_reply_count(count)
         self._require_bridge().invalidate()
 
     def assign_track_sequence(
@@ -1376,6 +3103,128 @@ class SimulatedMA3Bridge:
             timecode_no=timecode_no,
             track_group_no=track_group_no,
             preferred_name=preferred_name,
+        )
+
+    def create_static_preset(
+        self,
+        *,
+        preset_type_no: int,
+        preset_no: int,
+        store_mode: str,
+        preset_name: str,
+        selection_command: str,
+        value_command: str,
+    ) -> MA3PresetSnapshot:
+        return self._require_bridge().create_static_preset(
+            preset_type_no=preset_type_no,
+            preset_no=preset_no,
+            store_mode=store_mode,
+            preset_name=preset_name,
+            selection_command=selection_command,
+            value_command=value_command,
+        )
+
+    def create_phaser_preset(
+        self,
+        *,
+        preset_type_no: int,
+        preset_no: int,
+        store_mode: str,
+        preset_name: str,
+        selection_command: str,
+        step_preset_refs: tuple[str, ...] | list[str] | tuple[list[str], ...] | list[list[str]],
+        speed_bpm: float | None = None,
+    ) -> MA3PresetSnapshot:
+        return self._require_bridge().create_phaser_preset(
+            preset_type_no=preset_type_no,
+            preset_no=preset_no,
+            store_mode=store_mode,
+            preset_name=preset_name,
+            selection_command=selection_command,
+            step_preset_refs=step_preset_refs,
+            speed_bpm=speed_bpm,
+        )
+
+    def create_recipe_preset(
+        self,
+        *,
+        preset_type_no: int,
+        preset_no: int,
+        store_mode: str,
+        preset_name: str,
+        selection_command: str,
+        source_preset_ref: str,
+        selection_mode: str = "Strict",
+    ) -> MA3PresetSnapshot:
+        return self._require_bridge().create_recipe_preset(
+            preset_type_no=preset_type_no,
+            preset_no=preset_no,
+            store_mode=store_mode,
+            preset_name=preset_name,
+            selection_command=selection_command,
+            source_preset_ref=source_preset_ref,
+            selection_mode=selection_mode,
+        )
+
+    def edit_static_preset(
+        self,
+        *,
+        preset_type_no: int,
+        preset_no: int,
+        store_mode: str,
+        preset_name: str,
+        selection_command: str,
+        value_command: str,
+    ) -> MA3PresetSnapshot:
+        return self._require_bridge().edit_static_preset(
+            preset_type_no=preset_type_no,
+            preset_no=preset_no,
+            store_mode=store_mode,
+            preset_name=preset_name,
+            selection_command=selection_command,
+            value_command=value_command,
+        )
+
+    def edit_phaser_preset(
+        self,
+        *,
+        preset_type_no: int,
+        preset_no: int,
+        store_mode: str,
+        preset_name: str,
+        selection_command: str,
+        step_preset_refs: tuple[str, ...] | list[str] | tuple[list[str], ...] | list[list[str]],
+        speed_bpm: float | None = None,
+    ) -> MA3PresetSnapshot:
+        return self._require_bridge().edit_phaser_preset(
+            preset_type_no=preset_type_no,
+            preset_no=preset_no,
+            store_mode=store_mode,
+            preset_name=preset_name,
+            selection_command=selection_command,
+            step_preset_refs=step_preset_refs,
+            speed_bpm=speed_bpm,
+        )
+
+    def edit_recipe_preset(
+        self,
+        *,
+        preset_type_no: int,
+        preset_no: int,
+        store_mode: str,
+        preset_name: str,
+        selection_command: str,
+        source_preset_ref: str,
+        selection_mode: str = "Strict",
+    ) -> MA3PresetSnapshot:
+        return self._require_bridge().edit_recipe_preset(
+            preset_type_no=preset_type_no,
+            preset_no=preset_no,
+            store_mode=store_mode,
+            preset_name=preset_name,
+            selection_command=selection_command,
+            source_preset_ref=source_preset_ref,
+            selection_mode=selection_mode,
         )
 
     def prepare_track_for_events(self, *, target_track_coord: str) -> None:

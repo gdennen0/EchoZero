@@ -12,16 +12,20 @@ from echozero.domain.events import (
     create_event_id,
 )
 from echozero.event_bus import EventBus
-from echozero.foundry.domain import CompatibilityReport, Dataset, EvalReport, ModelArtifact, TrainRun
+from echozero.foundry.domain import (
+    CompatibilityReport,
+    Dataset,
+    EvalReport,
+    LibrarySampleState,
+    ModelArtifact,
+    SampleLibraryRecord,
+    TrainRun,
+)
 from echozero.foundry.persistence import (
-    ChampionModelRepository,
-    ContributionRepository,
     DatasetRepository,
     DatasetVersionRepository,
     EvalReportRepository,
-    LibrarySnapshotRepository,
     ModelArtifactRepository,
-    ModelCandidateRepository,
     ReviewSignalRepository,
     ReviewSessionRepository,
     SampleLibraryRepository,
@@ -34,7 +38,6 @@ from echozero.foundry.services.query_service import (
 )
 from echozero.foundry.services import (
     ArtifactService,
-    ChampionService,
     ContinuousTrainingService,
     DatasetService,
     EvalService,
@@ -42,9 +45,7 @@ from echozero.foundry.services import (
     ReviewSessionService,
     RuntimeBundleInstallService,
     SampleLibraryService,
-    SnapshotService,
     SplitBalanceService,
-    TrainingRecipeService,
     TrainingOrchestrator,
     TrainRunService,
 )
@@ -67,10 +68,6 @@ class FoundryApp:
         self._review_repo = ReviewSessionRepository(root)
         self._review_signal_repo = ReviewSignalRepository(root)
         self._library_repo = SampleLibraryRepository(root)
-        self._snapshot_repo = LibrarySnapshotRepository(root)
-        self._candidate_repo = ModelCandidateRepository(root)
-        self._champion_repo = ChampionModelRepository(root)
-        self._contribution_repo = ContributionRepository(root)
 
         self.datasets = DatasetService(
             root,
@@ -81,26 +78,19 @@ class FoundryApp:
         self.eval = EvalService(self._eval_repo)
         self.artifacts = ArtifactService(root, artifact_repository=self._artifact_repo)
         self.reviews = ReviewSessionService(root, repository=self._review_repo)
-        self.runtime_bundles = RuntimeBundleInstallService(root, artifact_repository=self._artifact_repo)
+        self.runtime_bundles = RuntimeBundleInstallService(
+            root, artifact_repository=self._artifact_repo
+        )
         self.runs = TrainRunService(root, eval_service=self.eval, artifact_service=self.artifacts)
         self.review_extraction = ReviewExtractionService(root, dataset_service=self.datasets)
         self.training_orchestrator = TrainingOrchestrator(root, run_service=self.runs)
         self.sample_library = SampleLibraryService(root, repository=self._library_repo)
-        self.snapshots = SnapshotService(root, repository=self._snapshot_repo)
-        self.training_recipes = TrainingRecipeService()
-        self.champions = ChampionService(root, repository=self._champion_repo)
         self.continuous_training = ContinuousTrainingService(
             root,
             dataset_service=self.datasets,
             library_service=self.sample_library,
-            snapshot_service=self.snapshots,
-            recipe_service=self.training_recipes,
             orchestrator=self.training_orchestrator,
             split_balance_service=self.split_balance,
-            candidate_repository=self._candidate_repo,
-            artifact_repository=self._artifact_repo,
-            eval_repository=self._eval_repo,
-            champion_service=self.champions,
         )
         self.queries = FoundryQueryService(
             dataset_repo=self._dataset_repo,
@@ -282,6 +272,36 @@ class FoundryApp:
 
     def list_eval_reports_for_run(self, run_id: str) -> list[EvalReport]:
         return self.queries.list_eval_reports_for_run(run_id)
+
+    def record_sample_library_version(
+        self,
+        version_id: str,
+        *,
+        state: LibrarySampleState = LibrarySampleState.APPROVED,
+    ) -> list[SampleLibraryRecord]:
+        """Copy one dataset version into the durable sample library."""
+        version = self.datasets.get_version(version_id)
+        if version is None:
+            raise ValueError(f"DatasetVersion not found: {version_id}")
+        return self.sample_library.record_dataset_version(version, state=state)
+
+    def kickoff_sample_library_run(
+        self,
+        *,
+        name: str,
+        epochs: int = 4,
+        scope: str = "local.default",
+        refresh_version_id: str | None = None,
+        refresh_state: LibrarySampleState = LibrarySampleState.APPROVED,
+    ) -> TrainRun:
+        """Create and start one train run from approved sample-library records."""
+        if refresh_version_id is not None:
+            self.record_sample_library_version(refresh_version_id, state=refresh_state)
+        return self.continuous_training.kickoff_run(name=name, epochs=epochs, scope=scope)
+
+    def list_sample_library_samples(self) -> list[SampleLibraryRecord]:
+        """Return every persisted sample-library record."""
+        return self.sample_library.list_samples()
 
     def list_project_review_dataset_versions(
         self,
