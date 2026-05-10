@@ -33,6 +33,7 @@ from echozero.application.shared.enums import PlaybackStatus
 from echozero.audio.engine import AudioEngine
 from echozero.audio.layer import AudioTrack
 from echozero.audio.file_cache import load_audio_file
+from echozero.audio.output_backend import DEFAULT_BUFFER_SIZE
 
 _SOUNDDEVICE_BACKEND = "sounddevice"
 
@@ -66,6 +67,7 @@ class PlaybackController:
         self._engine = engine or (
             engine_factory() if engine_factory is not None else AudioEngine()
         )
+        self._engine_factory = engine_factory
         _ = preview_engine
         _ = preview_engine_factory
         self._track_builder = PlaybackTrackBuilder(audio_loader)
@@ -98,6 +100,10 @@ class PlaybackController:
         self._rt_last_apply_latency_ms = 0.0
         self._rt_last_seek_apply_latency_ms = 0.0
         self._timebase = timebase or TimebaseSpec.from_legacy_fps(30)
+        self._latest_presentation: TimelinePresentation | None = None
+        self._device_reinit_count = 0
+        self._last_device_reinit_reason = ""
+        self._last_route_resolution_summary = ""
 
     @property
     def engine(self) -> AudioEngine:
@@ -115,6 +121,7 @@ class PlaybackController:
             self._last_track_sync_reason = "structure-async-shutdown-ignored"
             return
         self.drain_pending_structure_sync()
+        self._latest_presentation = presentation
         resolved = self._with_resolved_output_channels(presentation)
         if self.is_playing():
             self._queue_async_structure_sync(resolved)
@@ -128,6 +135,7 @@ class PlaybackController:
         if self._shutdown_state != "running":
             return
         self.drain_pending_structure_sync()
+        self._latest_presentation = presentation
         resolved = self._with_resolved_output_channels(presentation)
         mix_plan = self._track_builder.build_mix_plan(resolved)
         if self._apply_track_mix_state(mix_plan):
@@ -231,6 +239,47 @@ class PlaybackController:
         self._loaded_uses_track_routing = False
         self._engine.shutdown()
 
+    def reconfigure_device(
+        self,
+        *,
+        device_spec: dict[str, object],
+        profile: str = "",
+    ) -> dict[str, object]:
+        """Rebuild the output engine for one hardware/settings change."""
+
+        _ = profile
+        if self._shutdown_state != "running":
+            return {
+                "device_reinit_count": int(self._device_reinit_count),
+                "reason": "shutdown",
+            }
+        presentation = self._latest_presentation
+        current_time_seconds = self._current_engine_time_seconds()
+        was_playing = bool(self._engine.transport.is_playing)
+        reason = self._classify_device_reconfigure_reason(device_spec)
+        self._cancel_pending_structure_sync(reason=reason)
+        self._engine.shutdown()
+        self._engine = self._build_engine_for_device_spec(device_spec)
+        self._loaded_track_signature = ()
+        self._loaded_track_structure_signature = ()
+        self._loaded_uses_track_routing = False
+        self._preview_active = False
+        self._device_reinit_count += 1
+        self._last_device_reinit_reason = reason
+        self._last_track_sync_reason = reason
+        if presentation is not None:
+            self.sync_structure_state(presentation)
+            if current_time_seconds > 0.0:
+                self.seek(current_time_seconds)
+            if was_playing and self._engine.tracks:
+                self.play()
+        return {
+            "device_reinit_count": int(self._device_reinit_count),
+            "reason": reason,
+            "output_sample_rate": int(self._engine.sample_rate),
+            "output_channels": int(self._engine.output_channels),
+        }
+
     def preview_clip(
         self,
         source_ref: str,
@@ -293,6 +342,7 @@ class PlaybackController:
 
     def snapshot_state(self, presentation: TimelinePresentation) -> PlaybackState:
         self.drain_pending_structure_sync()
+        self._latest_presentation = presentation
         resolved = self._with_resolved_output_channels(presentation)
         active_tracks = self._track_builder.describe_selected_tracks(resolved)
         active_sources = [
@@ -317,11 +367,26 @@ class PlaybackController:
                 glitch_count=int(self._engine.glitch_count),
                 last_audio_status=self._format_audio_status(self._engine.last_audio_status),
                 output_device=self._format_output_device(self._engine.output_device),
+                resolved_output_device=self._format_output_device(
+                    self._engine.resolved_output_device
+                ),
+                output_device_name=self._engine.resolved_output_device_name,
                 stream_latency=self._engine.stream_latency,
                 stream_blocksize=int(self._engine.stream_blocksize),
                 prime_output_buffers_using_stream_callback=bool(
                     self._engine.prime_output_buffers_using_stream_callback
                 ),
+                requested_output_sample_rate=self._engine.output_config.requested_sample_rate,
+                requested_output_channels=self._engine.output_config.requested_channels,
+                device_max_output_channels=int(
+                    self._engine.output_config.device_max_output_channels
+                ),
+                hardware_resolution_reason=self._engine.output_config.hardware_resolution_reason,
+                sample_rate_resolution_reason=(
+                    self._engine.output_config.sample_rate_resolution_reason
+                ),
+                channel_resolution_reason=self._engine.output_config.channel_resolution_reason,
+                route_resolution_summary=self._last_route_resolution_summary,
                 last_transition=self._last_transition,
                 transition_state=self._transition_state(),
                 last_track_sync_reason=self._last_track_sync_reason,
@@ -342,6 +407,8 @@ class PlaybackController:
                 last_ipc_command=self._last_ipc_command,
                 rt_last_apply_latency_ms=self._rt_last_apply_latency_ms,
                 rt_last_seek_apply_latency_ms=self._rt_last_seek_apply_latency_ms,
+                device_reinit_count=int(self._device_reinit_count),
+                last_device_reinit_reason=self._last_device_reinit_reason,
             ),
         )
 
@@ -360,13 +427,18 @@ class PlaybackController:
     ) -> TimelinePresentation:
         configured_channels = int(getattr(presentation, "playback_output_channels", 0) or 0)
         required_channels = self._max_required_output_channels_for_routes(presentation)
+        hardware_channels = int(self._engine.output_channels)
+        self._last_route_resolution_summary = self._route_resolution_summary(
+            presentation,
+            hardware_channels=hardware_channels,
+        )
         if configured_channels > 0 and configured_channels >= required_channels:
             return presentation
         resolved_channels = max(
             1,
             configured_channels,
             required_channels,
-            int(self._engine.output_channels),
+            hardware_channels,
         )
         return replace(
             presentation,
@@ -400,6 +472,72 @@ class PlaybackController:
         if start_channel < 1 or end_channel < start_channel:
             return None
         return start_channel, end_channel
+
+    @staticmethod
+    def _route_resolution_summary(
+        presentation: TimelinePresentation,
+        *,
+        hardware_channels: int,
+    ) -> str:
+        clamped: list[str] = []
+        for layer in getattr(presentation, "layers", ()):
+            output_bus = getattr(layer, "output_bus", None)
+            if not isinstance(output_bus, str):
+                continue
+            parsed = PlaybackController._parse_output_bus(output_bus)
+            if parsed is None:
+                continue
+            _start_channel, end_channel = parsed
+            if end_channel > hardware_channels:
+                layer_id = str(getattr(layer, "layer_id", "unknown"))
+                clamped.append(f"{layer_id}:{output_bus}->silent")
+        if clamped:
+            return "routes-exceed-hardware:" + ",".join(clamped)
+        return "routes-fit-hardware"
+
+    @staticmethod
+    def _classify_device_reconfigure_reason(device_spec: dict[str, object]) -> str:
+        if "output_device" in device_spec:
+            return "device-change"
+        if any(
+            key in device_spec
+            for key in (
+                "sample_rate",
+                "channels",
+                "stream_latency",
+                "stream_blocksize",
+                "prime_output_buffers_using_stream_callback",
+            )
+        ):
+            return "settings-change"
+        return "device-refresh"
+
+    def _build_engine_for_device_spec(self, device_spec: dict[str, object]) -> AudioEngine:
+        if self._engine_factory is not None:
+            return self._engine_factory()
+        sample_rate = self._optional_int(device_spec.get("sample_rate"))
+        channels = self._optional_int(device_spec.get("channels"))
+        stream_blocksize = self._optional_int(device_spec.get("stream_blocksize"))
+        return AudioEngine(
+            sample_rate=sample_rate,
+            channels=channels,
+            buffer_size=self._optional_int(device_spec.get("buffer_size")) or DEFAULT_BUFFER_SIZE,
+            stream_latency=device_spec.get("stream_latency"),
+            stream_blocksize=stream_blocksize,
+            prime_output_buffers_using_stream_callback=bool(
+                device_spec.get("prime_output_buffers_using_stream_callback", True)
+            ),
+            output_device=device_spec.get("output_device"),
+        )
+
+    @staticmethod
+    def _optional_int(value: object) -> int | None:
+        if value is None:
+            return None
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return None
 
     def _sync_preview_state(self) -> None:
         self._preview_active = bool(self._engine.overlay_active)

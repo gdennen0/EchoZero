@@ -113,10 +113,41 @@ def decode_playback_state(payload: dict[str, object]) -> PlaybackState:
         glitch_count=int(_mapping_get(diagnostics_payload, "glitch_count", 0)),
         last_audio_status=_mapping_get(diagnostics_payload, "last_audio_status", None),
         output_device=_mapping_get(diagnostics_payload, "output_device", None),
+        resolved_output_device=_mapping_get(
+            diagnostics_payload,
+            "resolved_output_device",
+            None,
+        ),
+        output_device_name=_mapping_get(diagnostics_payload, "output_device_name", None),
         stream_latency=_mapping_get(diagnostics_payload, "stream_latency", None),
         stream_blocksize=int(_mapping_get(diagnostics_payload, "stream_blocksize", 0) or 0),
         prime_output_buffers_using_stream_callback=bool(
             _mapping_get(diagnostics_payload, "prime_output_buffers_using_stream_callback", True)
+        ),
+        requested_output_sample_rate=(
+            int(_mapping_get(diagnostics_payload, "requested_output_sample_rate", 0) or 0)
+            if _mapping_get(diagnostics_payload, "requested_output_sample_rate", None) is not None
+            else None
+        ),
+        requested_output_channels=(
+            int(_mapping_get(diagnostics_payload, "requested_output_channels", 0) or 0)
+            if _mapping_get(diagnostics_payload, "requested_output_channels", None) is not None
+            else None
+        ),
+        device_max_output_channels=int(
+            _mapping_get(diagnostics_payload, "device_max_output_channels", 0) or 0
+        ),
+        hardware_resolution_reason=str(
+            _mapping_get(diagnostics_payload, "hardware_resolution_reason", "") or ""
+        ),
+        sample_rate_resolution_reason=str(
+            _mapping_get(diagnostics_payload, "sample_rate_resolution_reason", "") or ""
+        ),
+        channel_resolution_reason=str(
+            _mapping_get(diagnostics_payload, "channel_resolution_reason", "") or ""
+        ),
+        route_resolution_summary=str(
+            _mapping_get(diagnostics_payload, "route_resolution_summary", "") or ""
         ),
         last_transition=str(_mapping_get(diagnostics_payload, "last_transition", "") or ""),
         transition_state=str(
@@ -200,6 +231,9 @@ def decode_playback_state(payload: dict[str, object]) -> PlaybackState:
             _mapping_get(diagnostics_payload, "rt_last_seek_apply_latency_ms", 0.0) or 0.0
         ),
         device_reinit_count=int(_mapping_get(diagnostics_payload, "device_reinit_count", 0) or 0),
+        last_device_reinit_reason=str(
+            _mapping_get(diagnostics_payload, "last_device_reinit_reason", "") or ""
+        ),
     )
     active_sources_payload = payload.get("active_sources", ()) or ()
     active_sources = [

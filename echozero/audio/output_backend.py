@@ -11,7 +11,6 @@ from typing import Any, Callable, Protocol
 
 import numpy as np
 
-
 DEFAULT_SAMPLE_RATE = 44100
 DEFAULT_BUFFER_SIZE = 256
 DEFAULT_CHANNELS = 1
@@ -30,6 +29,15 @@ class AudioOutputConfig:
     latency: str | float = "high"
     prime_output_buffers_using_stream_callback: bool = True
     output_device: int | str | None = None
+    requested_output_device: int | str | None = None
+    resolved_output_device: int | str | None = None
+    resolved_output_device_name: str | None = None
+    requested_sample_rate: int | None = None
+    requested_channels: int | None = None
+    device_max_output_channels: int = 0
+    hardware_resolution_reason: str = "resolved"
+    sample_rate_resolution_reason: str = "resolved"
+    channel_resolution_reason: str = "resolved"
 
 
 class AudioOutputStream(Protocol):
