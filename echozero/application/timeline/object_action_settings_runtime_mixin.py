@@ -224,12 +224,10 @@ def has_prior_outputs_for_action(
 ) -> bool:
     if source_layer_id is None:
         return False
+    source_layer_ids = _source_layer_id_candidates(shell, source_layer_id)
     return any(
         layer.status.pipeline_id == pipeline_template_id
-        and (
-            str(layer.status.source_layer_id) == str(source_layer_id)
-            or _is_imported_song_audio_layer(layer)
-        )
+        and str(layer.status.source_layer_id or "") in source_layer_ids
         for layer in shell.presentation().layers
     )
 
@@ -269,6 +267,23 @@ def extract_classified_drums_model_defaults() -> dict[str, object]:
             continue
         defaults[f"{label}_model_path"] = str(bundles[label].manifest_path)
     return defaults
+
+
+def _source_layer_id_candidates(
+    shell: ObjectActionSettingsRuntimeShell,
+    source_layer_id: object,
+) -> set[str]:
+    source_id = str(source_layer_id or "").strip()
+    if not source_id:
+        return set()
+    candidates = {source_id}
+    if source_id == "source_audio":
+        candidates.update(
+            str(layer.layer_id)
+            for layer in shell.presentation().layers
+            if _is_imported_song_audio_layer(layer)
+        )
+    return candidates
 
 
 def _resolve_installed_binary_drum_bundles_compat(

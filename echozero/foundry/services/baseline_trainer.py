@@ -179,7 +179,7 @@ class BaselineTrainer:
     ) -> tuple[np.ndarray, np.ndarray]:
         return cast(
             tuple[np.ndarray, np.ndarray],
-            build_features(
+            _load_baseline_runtime().build_features(
                 samples,
                 sample_rate=sample_rate,
                 max_length=max_length,
