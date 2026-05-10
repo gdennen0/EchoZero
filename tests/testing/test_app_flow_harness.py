@@ -34,6 +34,7 @@ from echozero.testing.analysis_mocks import (
     write_test_wav,
 )
 from echozero.testing.app_flow import AppFlowHarness
+from echozero.testing.ma3 import SimulatedMA3Bridge
 from echozero.ui.qt.timeline.widget_action_ma3_push_mixin import _ManualPushRoutePopupResult
 from echozero.ui.qt.timeline.runtime_audio import TimelineRuntimeAudioController
 
@@ -102,7 +103,7 @@ def _route_monitor_to_layer(harness: AppFlowHarness, layer_id) -> None:
             selected_take_id=None,
         )
     )
-    harness._app.processEvents()
+    harness.flush_runtime_audio_sync()
 
 
 def _contract_action(
@@ -194,9 +195,7 @@ def test_app_flow_harness_exposes_launcher_menus():
 
         assert file_menu is not None
         file_actions = [
-            action.text()
-            for action in file_menu.actions()
-            if action.isSeparator() is False
+            action.text() for action in file_menu.actions() if action.isSeparator() is False
         ]
         assert file_actions == [
             "&New Project",
@@ -208,9 +207,7 @@ def test_app_flow_harness_exposes_launcher_menus():
         ]
         assert edit_menu is not None
         edit_actions = [
-            action.text()
-            for action in edit_menu.actions()
-            if action.isSeparator() is False
+            action.text() for action in edit_menu.actions() if action.isSeparator() is False
         ]
         assert edit_actions[:2] == ["&Undo", "&Redo"]
         assert edit_actions[2:] in ([], ["Project &Settings..."])
@@ -241,6 +238,22 @@ def test_app_flow_harness_sync_with_simulated_ma3_connects_bridge():
         shutil.rmtree(temp_root, ignore_errors=True)
 
 
+def test_app_flow_harness_accepts_explicit_sync_bridge():
+    temp_root = _repo_local_temp_root()
+    bridge = SimulatedMA3Bridge()
+    harness = AppFlowHarness(
+        sync_bridge=bridge, working_dir_root=temp_root / "working-explicit-bridge"
+    )
+
+    try:
+        state = harness.enable_sync()
+        assert state.connected is True
+        assert harness.ma3_bridge is bridge
+    finally:
+        harness.shutdown()
+        shutil.rmtree(temp_root, ignore_errors=True)
+
+
 def test_app_flow_harness_sync_reconnect_applies_live_sync_guardrails():
     temp_root = _repo_local_temp_root()
     harness = AppFlowHarness(
@@ -264,7 +277,9 @@ def test_app_flow_harness_sync_reconnect_applies_live_sync_guardrails():
         )
 
         state = harness.enable_sync()
-        layer = next(layer for layer in harness.presentation().layers if layer.layer_id == layer_id)
+        layer = next(
+            layer for layer in harness.presentation().layers if layer.layer_id == layer_id
+        )
 
         assert state.connected is True
         assert layer.live_sync_state is LiveSyncState.PAUSED
@@ -327,7 +342,9 @@ def test_app_flow_harness_sync_push_transfer_updates_simulated_ma3_snapshot(monk
         remote_events = harness.ma3_bridge.list_track_events("tc1_tg2_tr4")
         remote_labels = [event.label for event in remote_events]
         assert "Cue 9" in remote_labels
-        layer = next(layer for layer in harness.presentation().layers if layer.layer_id == layer_id)
+        layer = next(
+            layer for layer in harness.presentation().layers if layer.layer_id == layer_id
+        )
         assert layer.sync_target_label == "tc1_tg2_tr4"
     finally:
         harness.shutdown()

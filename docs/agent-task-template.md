@@ -1,29 +1,39 @@
 # Agent Task Template
 
 Status: reference
-Last reviewed: 2026-04-30
+Last reviewed: 2026-05-09
 
+Use this template for one native OpenClaw/Codex disposable worker.
+It is intentionally small: the parent owns orchestration, OpenClaw owns spawn
+mechanics, and the worker owns one bounded result.
 
-Use this template when assigning work to a disposable worker or starting a
-bounded session in a separate worktree.
-For prompt phrasing and EchoZero-specific tricks, pair this with
-`docs/OPENCLAW-CODEX-PROMPTING.md`.
+## Spawn defaults
+
+- Runtime: native OpenClaw subagent
+- Mode: run
+- Cleanup: delete
+- Context: isolated unless transcript context is required
+- Light context: true
+- Agent id: explicit role agent
+- Cwd: repo or assigned worktree
 
 ## Prompt header
 
-- Role:
+- Role: `research` | `impl` | `verify` | `review`
 - Goal:
 - Why now:
-- User-visible outcome:
+- User-visible/operator-visible outcome:
 - Parent task anchor:
 - Lead-dev next step on return:
 
 ## Scope and ownership
 
+- Active lane: `EZ app` | `MA3 harness` | `Foundry` | `planning/review`
+- Excluded lanes:
 - Owned paths:
 - Forbidden paths:
 - Allowed tests or proof lanes:
-- Lane/worktree:
+- Worktree/cwd:
 
 ## Context package
 
@@ -33,12 +43,15 @@ For prompt phrasing and EchoZero-specific tricks, pair this with
 - Canonical surface to use:
 - Non-canonical surfaces to avoid:
 
-## Locked rules
+## Execution contract
 
-- Truth-model constraints:
-- Sync/timeline/UI constraints:
-- Cleanup boundaries:
-- Stop and report if:
+- Stay inside owned paths.
+- Do not widen scope into opportunistic cleanup.
+- Do not revert unrelated work.
+- Do not create a sidecar agent/orchestration framework.
+- Stop and report if scope crosses owned paths, conflicts with existing edits,
+  or needs operator judgment.
+- Report residual risk explicitly.
 
 ## Proof lane
 
@@ -46,32 +59,24 @@ For prompt phrasing and EchoZero-specific tricks, pair this with
 - Secondary proof command:
 - Perf/hardware/manual proof required:
 
-## Execution contract
-
-- Why this assignment is delegated:
-- Stay inside owned paths:
-- Do not widen scope into opportunistic cleanup:
-- Do not revert unrelated work:
-- Report residual risk explicitly:
-
 ## Acceptance criteria
 
 - Behavior that must be true:
 - Regression that must stay false:
 - Deliverables expected:
 
-## Reporting contract
+## Required final payload
 
-- Files changed:
-- Commands run:
-- Pass/fail result:
-- Parent task anchor restated:
-- Strongest failure signal if broken:
-- Residual risks/blockers:
-- Spawn/session proof:
-- Closeout state:
+Return exactly these fields:
 
-## Optional role add-ons
+- `status`: `success` or `blocked`
+- `changed_files`:
+- `tests_run`:
+- `summary`:
+- `blocker`:
+- `residual_risk`:
+
+## Role add-ons
 
 ### `research`
 

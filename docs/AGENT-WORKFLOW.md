@@ -1,335 +1,192 @@
 # EchoZero Agent Workflow
 
 Status: reference
-Last reviewed: 2026-04-30
+Last reviewed: 2026-05-09
 
+This document is the only repo-level workflow for spawning disposable agent work.
+It exists because the old spawning guidance had accumulated too many overlapping
+queue, heartbeat, and TaskFlow patterns. That made it easy to lose status or
+mistake a completed process for accepted work.
 
-This document defines the default operating model for agent-driven work in
-EchoZero.
-It exists so orchestration, delegation, proof, and cleanup stay consistent
-across sessions.
-It connects `AGENTS.md`, `docs/WORKER-ROLES.md`, `docs/DEV-LANES.md`, and
-`docs/TESTING.md` into one practical workflow.
+Pair this with [docs/OPENCLAW-CODEX-PROMPTING.md](OPENCLAW-CODEX-PROMPTING.md)
+for prompt phrasing and [docs/agent-task-template.md](agent-task-template.md)
+for the handoff shape.
 
-Prompt construction for OpenClaw/Codex work is standardized in
-[docs/OPENCLAW-CODEX-PROMPTING.md](OPENCLAW-CODEX-PROMPTING.md).
+## Dispatch v2
 
-## Purpose
+Default path for non-trivial EchoZero work:
 
-EchoZero uses an orchestrator-first workflow.
+1. `lead-dev` owns the parent lane and final acceptance.
+2. `lead-dev` names one active objective and the excluded lanes.
+3. `lead-dev` spawns one bounded native OpenClaw subagent when delegation is
+   useful.
+4. The subagent runs one role: `research`, `impl`, `verify`, or `review`.
+5. The subagent returns one final payload.
+6. `lead-dev` verifies the payload, runs or inspects proof as needed, and reports
+   accepted/blocked/follow-up status.
 
-Default stance:
+Do not build a sidecar agent framework in this repo. The spawning substrate is
+OpenClaw; EchoZero owns only the scope, prompt, proof, and acceptance contract.
 
-- `lead-dev` owns broad picture, decomposition, architecture, integration, and final acceptance.
-- Disposable agents own bounded exploration, implementation, verification, and review tasks.
-- Parallelism is allowed only when ownership and proof lanes are explicit first.
+## Native OpenClaw Spawn Contract
 
-This is the default mode for non-trivial work in this repo.
+Use native OpenClaw subagents for disposable workers.
 
-## Operating Model
+Required defaults:
 
-### `lead-dev` responsibilities
+- `runtime`: native subagent
+- `mode`: `run`
+- `cleanup`: `delete`
+- `lightContext`: `true`
+- `cwd`: the repo or lane worktree the worker owns
+- `agentId`: the specific role agent, never an implicit default
+- `context`: isolated by default; use forked context only when the transcript is
+  required for correctness
 
-`lead-dev` is the conductor, not the bulk line-by-line worker.
+Do not use ACP for EchoZero dispatch unless the operator explicitly asks for ACP
+or the task is testing the ACP path.
 
-It must:
+Do not use TaskFlow for ordinary one-shot implementation, research, verification,
+or review. TaskFlow is only for durable queues that must survive resets, waits,
+approvals, or multi-step detached orchestration.
 
-- read the canonical docs and preserve first principles
-- decompose work into bounded assignments
-- choose the correct proof lane before edits begin
-- assign explicit file/lane ownership
-- keep the parent lane anchored to the current task and next integration step
-- integrate outputs from disposable agents
-- reject work that violates truth-model, sync, FEEL, or app-boundary rules
-- close agents and sessions that are no longer needed
-
-### Disposable agent responsibilities
-
-Disposable agents do one bounded job well, then exit.
-
-Typical roles:
-
-- `research`: trace code/docs/tests for one narrow question
-- `impl`: implement a bounded change in an assigned file cluster
-- `verify`: run the narrowest proof lane and report evidence
-- `review`: audit for bugs, regressions, drift, and missing tests
-
-Do not use disposable agents as long-lived project owners.
+After a spawn succeeds, do not poll in a loop. Record the child session id,
+report the spawn proof, then wait for the completion event. If the worker is
+abnormally quiet or the completion payload is malformed, the parent must say so
+and verify directly from repo state before reporting success.
 
 ## When To Spawn
 
-Spawn agents by default for non-trivial work that benefits from bounded parallelism.
+Spawn when a bounded worker reduces risk or saves meaningful time.
 
-Good reasons to spawn:
+Good reasons:
 
-- one task can be split into disjoint file clusters
-- a narrow codebase question can be explored independently
-- verification can run in parallel with implementation
-- a focused review can happen after implementation without blocking orchestration
+- the task can be isolated to one file cluster or lane
+- research can happen without edits
+- verification can run after a patch without changing scope
+- review can independently audit a completed change
 
 Do not spawn when:
 
-- the task is tiny
-- the very next blocking step is faster to do directly
-- ownership boundaries are unclear
-- multiple agents would collide in the same file cluster
+- the next step is tiny and faster in the parent
+- the spawning path itself is under repair
+- file ownership is unclear
+- workers would write overlapping paths
+- the task requires immediate operator judgment before safe edits
 
-## Assignment Contract
+## Parent-Lane Rules
 
-Every delegated task must specify:
+`lead-dev` is the conductor, not a passive relay.
 
-- goal
-- why now / user-visible outcome
+It must always keep:
+
+- one active objective
+- one named lane: `EZ app`, `MA3 harness`, `Foundry`, or `planning/review`
+- explicitly excluded lanes
+- a visible queue state when work is running
+- final acceptance authority
+
+Cross-lane discoveries become queued follow-up work unless the operator changes
+the active objective.
+
+## Worker Assignment Contract
+
+Every delegated prompt must include:
+
+- role: `research`, `impl`, `verify`, or `review`
+- goal and why it matters now
 - parent task anchor
-- next parent-side step on return
 - owned paths
 - forbidden paths
 - canonical docs to read first
 - canonical surface to use
-- proof lane
+- proof lane before edits begin
 - stop/report conditions
-- expected output
-- residual-risk reporting requirement
+- final reporting contract
 
-Use [docs/agent-task-template.md](agent-task-template.md)
-for the assignment format and
-[docs/OPENCLAW-CODEX-PROMPTING.md](OPENCLAW-CODEX-PROMPTING.md)
-for the phrasing and prompt-shape rules.
+Minimum final payload:
 
-## Prompt Construction
+- `status`: `success` or `blocked`
+- `changed_files`
+- `tests_run`
+- `summary`
+- `blocker`
+- `residual_risk`
 
-Every good EchoZero worker prompt should make these explicit before work starts:
+A worker completion without that payload is unresolved until `lead-dev` verifies
+state directly or reruns the worker with a corrected assignment.
 
-- role: `research`, `impl`, `verify`, or `review`
-- exact outcome and why it matters now
-- parent task anchor and next parent-side step on return
-- owned paths and forbidden paths
-- smallest useful doc/code context package
-- canonical truth or automation surface
-- primary and secondary proof commands
-- stop conditions for conflicts, missing dependencies, or rule ambiguity
-- reporting contract, including residual risks
+## Spawn Proof
 
-For OpenClaw or app automation work, prompts should also state:
+If `lead-dev` says work was delegated, it must show proof after the spawn call
+succeeds.
 
-- use the app-owned automation bridge and `packages/ui_automation/**`
-- prefer semantic actions and stable target ids before pointer fallbacks
-- do not treat demo or simulated GUI helpers as the canonical control surface
+Minimum visible proof:
 
-## Ownership Rules
+- worker/session id
+- role
+- mode
+- ownership
+- status
 
-Follow [docs/WORKER-ROLES.md](WORKER-ROLES.md)
-and [docs/DEV-LANES.md](DEV-LANES.md).
+Do not claim a worker was spawned before the spawn succeeds.
+If no worker was spawned, say so explicitly.
 
-Default lane ownership:
+## Queue State
 
-- EZ lane: `echozero/application/**`, `echozero/ui/**`, `tests/application/**`, `tests/ui/**`
-- Foundry lane: `echozero/foundry/**`, `tests/foundry/**`
-- Shared zone: `echozero/inference_eval/**`, `tests/inference_eval/**`, `tests/processors/test_pytorch_audio_classify_preflight.py`
-
-Rules:
-
-- Parallelize by file cluster or lane, not by vague specialization.
-- Do not assign overlapping write ownership.
-- Shared-zone changes require explicit integration review.
-- `lead-dev` keeps final ownership even when all implementation is delegated.
-
-## Proof Rules
-
-No agent task is done without evidence.
-
-Use the smallest lane that proves the claim first, then expand only if needed.
-
-Typical proof surfaces:
-
-- targeted pytest slices
-- `python -m echozero.testing.run --lane appflow`
-- `python -m echozero.testing.run --lane appflow-sync`
-- `python -m echozero.testing.run --lane appflow-osc`
-- `python -m echozero.testing.run --lane appflow-protocol`
-- `python -m echozero.testing.run --lane gui-lane-b`
-- perf guardrails for hot timeline paths
-- packaging/smoke flows for release-affecting changes
-
-Every delegated result must report:
-
-- commands run
-- files or feature area covered
-- pass/fail result
-- strongest failure signal if broken
-- residual risks or untested surfaces
-
-## Proof Of Spawn
-
-If `lead-dev` claims agents were spawned or dispatched, it must provide explicit proof.
-
-Visible spawn feedback is the default behavior during active development.
-
-Before or as an agent spawn is initiated, `lead-dev` should send a short notice stating:
-
-- that an agent is being spawned
-- the role
-- the bounded ownership or task
-
-Use this format after any real delegation:
-
-- `spawned`: agent/session id
-- `role`: `research`, `impl`, `verify`, `review`, or session type
-- `ownership`: file cluster or bounded scope
-- `status`: `active`, `waiting`, `completed`, or `closed`
-
-Do not say an agent was spawned until the spawn call has succeeded.
-If no agent was spawned, say `0`.
-
-Every real delegation should also preserve task identity in the parent lane.
-
-Minimum anchor:
+Use a compact queue snapshot when work is active:
 
 - `current task`: short label plus desired end state
-- `why active`: why this task matters now
-- `delegated work`: active agent ids and bounded ownership
-- `lead-dev next step`: what the parent lane will do when agents return
-
-When an agent returns, `lead-dev` should provide at least a short summary of:
-
-- what the agent concluded or produced
-- whether the result was accepted, still in review, or blocked
-- the current task anchor if the parent lane could lose context without it
-
-When an agent is closed, `lead-dev` should report closeout when it is contextually relevant.
-
-The default visible harness during development is:
-
-1. pre-spawn notice
-2. spawn proof block
-3. return summary
-4. closeout proof when relevant
-
-## Status Reporting
-
-When parallel work is active or coordination risk is rising, report status in this compact form:
-
-`active agents / waiting / blocked / open sessions / risk level`
-
-Example:
-
-`2 / 1 / 0 / 3 / medium`
-
-Use short follow-up notes only when there is something actionable or abnormal.
-
-The compact status line is not enough by itself when the parent lane could lose
-context.
-`lead-dev` should keep a visible queue snapshot beside it whenever delegated
-work is active.
-
-Minimum queue snapshot fields:
-
-- `current task`: top-level task label or operator-visible outcome
 - `state`: `queued`, `running`, `blocked`, `review`, or `done`
-- `workers`: active agent/session ids when present
-- `next`: the next parent-side action after worker return
+- `workers`: active session ids and bounded ownership
+- `next`: parent-side action after completion
 
-If there is only one task, the queue snapshot can collapse to a single line.
-If the channel gets interrupted or `lead-dev` loses context, restate the latest
-queue snapshot before spawning more agents or changing scope.
+Prefer at most two parallel writer workers. Never run overlapping writers on the
+same file cluster. Reader/research/review workers may run in parallel when they
+are independent and read-only.
 
-For long-running delegated work, visible status heartbeats are required.
+## Completion Gate
 
-Default timer rules:
+Delegated work is not done until `lead-dev` can state:
 
-- if one or more agents are still active, send a short status heartbeat every `60` seconds
-- each heartbeat should restate the current top-level task label before or beside agent detail
-- each heartbeat should name the active agents and the bounded task each one owns
-- keep the heartbeat compact unless there is a blocker or a material result
+- the assigned objective
+- the owned paths or bounded scope
+- the worker final payload or direct parent-side substitute evidence
+- the tests/proof that passed or failed
+- whether the result is accepted, blocked, or queued for retry/follow-up
 
-Default heartbeat content:
+Silence is not success. A process exit is not success. A malformed completion
+event is not success.
 
-- compact status line
-- active agent id or nickname
-- owned task or file cluster
-- whether the agent is making progress, waiting on proof, or blocked
+## Stuck Or Malformed Worker Recovery
 
-Example:
+If a worker is quiet, off-scope, or returns a malformed payload:
 
-- `task`: `PB-40` playback remediation acceptance path
-- `2 / 0 / 0 / 2 / medium`
-- `James`: `PB-40`, `PB-42` layer-header playback control split
-- `Ampere`: `PB-41` inspector/object-info separation
-- `next`: integrate accepted patch and run appflow proof
-
-If the work is especially noisy or the channel needs less chatter, `lead-dev` may widen the heartbeat interval, but it should stay explicit.
-Default escalated interval ceiling is `120` seconds.
-
-Stuck-agent rule:
-
-- if an agent has not returned, emitted a usable progress update, or shown observable forward motion within `300` seconds, `lead-dev` must explicitly question whether it is stuck
-- do not leave a long-running agent silent past the stuck threshold without comment
-- after the threshold is crossed, `lead-dev` should do one or more of:
-  - wait once with intent and report the result
-  - send a redirect or clarification
-  - re-scope the task
-  - close and replace the agent
-  - report that the agent is still legitimately running and why
-
-The purpose of the heartbeat and stuck threshold is operator trust.
-Long-running orchestration should stay visible, bounded, and explainable.
+1. Mark the worker result unresolved.
+2. Inspect the repo diff and relevant tests directly if safe.
+3. If the scope is still valid, rerun a corrected worker assignment or continue
+   in the parent.
+4. If the worker crossed ownership boundaries, stop and ask or split a new
+   bounded task.
+5. Report the strongest known evidence instead of guessing.
 
 ## Session Cleanup
 
-Orphaned sessions are a failure mode.
+Disposable workers should not become project owners.
 
 Rules:
 
-- close disposable agents after their output is integrated or rejected
-- do not leave completed workers open without a reason
-- prefer short-lived agents over indefinite background sessions
-- keep recurring audits silent unless there is a finding worth escalation
-- periodically check for orphaned subagents and excessive session buildup
-
-If an agent remains open, `lead-dev` should be able to answer:
-
-- why it is still open
-- what it owns
-- what would allow it to be closed
-
-## Review Standard
-
-EchoZero uses audit-heavy development.
-
-Every meaningful change should be examined through multiple lenses:
-
-- canonical docs
-- actual code path
-- proof/test surface
-- product/operator intent
-
-Review agents should focus especially on:
-
-- main/take truth leakage
-- stale-state regressions
-- MA3 sync boundary violations
-- widget-only logic bypassing application contracts
-- FEEL drift and scattered magic numbers
-
-## Preferred Flow
-
-For most non-trivial work, use this sequence:
-
-1. `lead-dev` reads context and decomposes the task.
-2. `research` agent traces the relevant code/docs/tests.
-3. `impl` agent edits one bounded slice.
-4. `verify` agent runs the narrowest proof lane.
-5. `review` agent audits findings and residual risk.
-6. `lead-dev` integrates, verifies final fit, closes agents, and reports outcome.
-
-Not every task needs every role.
-Small tasks may collapse several roles back into `lead-dev`.
+- use short-lived run-mode workers
+- clean up completed sessions unless there is a specific reason to keep them
+- do not leave open workers without a named owner/scope
+- parent lane keeps the integration decision
 
 ## Non-Negotiables
 
-- App-facing work is not accepted without app-path proof.
+- App-facing work needs app-path proof.
 - Main remains truth; takes remain subordinate.
 - MA3 sync remains main-only.
 - FEEL owns UI tuning constants.
 - Generated/runtime artifacts do not belong in git.
-- Do not introduce speculative abstractions or sidecar frameworks when a small local doc or module is enough.
+- Do not introduce speculative agent frameworks when native OpenClaw dispatch is
+  the right substrate.

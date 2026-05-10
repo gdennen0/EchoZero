@@ -8,18 +8,13 @@ import re
 import sys
 from pathlib import Path
 
-
 REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from echozero.application.settings import build_default_app_settings_service  # noqa: E402
-from echozero.infrastructure.osc import OscUdpSendTransport  # noqa: E402
-from echozero.infrastructure.sync.ma3_osc import MA3OSCBridge  # noqa: E402
+from MA3.dev.ma3_harness_common import build_bridge, resolve_target  # noqa: E402
 
-DEFAULT_LIVE_PLUGIN_ROOT = Path(
-    "/Users/march/MALightingTechnology/gma3_library/datapools/plugins"
-)
+DEFAULT_LIVE_PLUGIN_ROOT = Path("/Users/march/MALightingTechnology/gma3_library/datapools/plugins")
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -48,19 +43,6 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Only print MA3-reported health. Do not fail on local-vs-MA3 mismatches.",
     )
     return parser
-
-
-def _resolve_target(args: argparse.Namespace) -> tuple[str, int, str, Path]:
-    service = build_default_app_settings_service(path=args.settings_path)
-    runtime_config = service.resolve_ma3_osc_runtime_config()
-    host = str(args.ma3_host or runtime_config.send.host or "").strip()
-    if not host:
-        raise SystemExit("MA3 host is not configured. Set app settings or pass --ma3-host.")
-    port = args.ma3_port if args.ma3_port is not None else runtime_config.send.port
-    if port is None or int(port) < 1:
-        raise SystemExit("MA3 command port is not configured. Set app settings or pass --ma3-port.")
-    command_path = str(args.command_path or runtime_config.send.path or "/cmd").strip() or "/cmd"
-    return host, int(port), command_path, service.store_path
 
 
 def _extract_marker(path: Path, pattern: str) -> str | None:
@@ -123,7 +105,12 @@ def _expected_local_markers(expected_root: Path) -> dict[str, str | None]:
 
 def main(argv: list[str] | None = None) -> int:
     args = _build_parser().parse_args(argv)
-    ma3_host, ma3_port, command_path, settings_path = _resolve_target(args)
+    ma3_host, ma3_port, command_path, settings_path = resolve_target(
+        ma3_host=args.ma3_host,
+        ma3_port=args.ma3_port,
+        command_path=args.command_path,
+        settings_path=args.settings_path,
+    )
     expected_root = _resolve_expected_root(args.expected_root)
     expected = _expected_local_markers(expected_root)
 
@@ -133,12 +120,14 @@ def main(argv: list[str] | None = None) -> int:
     )
     print(f"EXPECTED_ROOT {expected_root}", flush=True)
 
-    transport = OscUdpSendTransport(ma3_host, ma3_port, path=command_path)
-    bridge = MA3OSCBridge(
+    bridge, _target = build_bridge(
+        ma3_host=ma3_host,
+        ma3_port=ma3_port,
+        command_path=command_path,
+        settings_path=args.settings_path,
         listen_host=str(args.listen_host or "0.0.0.0"),
         listen_port=int(args.listen_port),
-        response_timeout=max(0.2, float(args.timeout)),
-        command_transport=transport,
+        timeout=float(args.timeout),
     )
     try:
         try:

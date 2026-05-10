@@ -11,7 +11,6 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Final
 
-
 _TIMECODE_RE: Final[re.Pattern[str]] = re.compile(
     r"^\s*(\d{2}):([0-5]\d):([0-5]\d)([:;\.])(\d{2})\s*$"
 )
@@ -24,6 +23,27 @@ class TimecodeDisplayPolicy(str, Enum):
 
     SMPTE = "smpte"
     CLOCK = "clock"
+
+
+class TimecodeMode(str, Enum):
+    """Authority used for the current playback timecode readout."""
+
+    INTERNAL_GENERATED = "internal_generated"
+    EXTERNAL_MTC = "external_mtc"
+
+
+@dataclass(frozen=True, slots=True)
+class GeneratedTimecodeSnapshot:
+    """One generated timecode position derived from playback time or samples."""
+
+    elapsed_seconds: float
+    sample_position: int
+    frame_index: int
+    label: str
+    mode: TimecodeMode = TimecodeMode.INTERNAL_GENERATED
+    is_locked: bool = True
+    drift_ppm: float | None = None
+    drift_ms: float | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -47,7 +67,9 @@ class TimebaseSpec:
         if self.start_frame_offset < 0:
             raise ValueError("TimebaseSpec start_frame_offset must be >= 0")
         if self.drop_frame and (self.fps_numerator, self.fps_denominator) not in _DF_FPS_RATIOS:
-            raise ValueError("TimebaseSpec drop_frame requires an SMPTE-compatible drop-frame rate")
+            raise ValueError(
+                "TimebaseSpec drop_frame requires an SMPTE-compatible drop-frame rate"
+            )
         if self.drop_frame and self.nominal_fps not in {30, 60}:
             raise ValueError("TimebaseSpec drop_frame requires nominal_fps of 30 or 60")
 
@@ -108,9 +130,7 @@ class TimebaseSpec:
                 start_frame_offset=start_frame_offset,
                 display_policy=display_policy,
             )
-        raise ValueError(
-            f"Unsupported timebase fps={resolved_rate}. Supported: 24, 25, 29.97, 30"
-        )
+        raise ValueError(f"Unsupported timebase fps={resolved_rate}. Supported: 24, 25, 29.97, 30")
 
 
 @dataclass(frozen=True, slots=True)
@@ -189,9 +209,7 @@ class TimecodeCodec:
         if self.timebase.drop_frame:
             frame_number -= self._dropped_frame_count(timecode.hours, timecode.minutes)
         if frame_number < self.timebase.start_frame_offset:
-            raise ValueError(
-                "frames_from_timecode resolved frame precedes start_frame_offset"
-            )
+            raise ValueError("frames_from_timecode resolved frame precedes start_frame_offset")
         return frame_number - self.timebase.start_frame_offset
 
     def parse_timecode(self, value: str) -> SmpteTimecode:
@@ -312,6 +330,62 @@ class TimecodeCodec:
         return 2 if self.timebase.nominal_fps == 30 else 4
 
 
+@dataclass(frozen=True, slots=True)
+class PlaybackTimecodeAuthority:
+    """Generate display-ready timecode from the playback timing authority."""
+
+    timebase: TimebaseSpec
+    sample_rate: int
+    mode: TimecodeMode = TimecodeMode.INTERNAL_GENERATED
+
+    def __post_init__(self) -> None:
+        if self.sample_rate < 1:
+            raise ValueError("PlaybackTimecodeAuthority sample_rate must be >= 1")
+
+    @property
+    def codec(self) -> TimecodeCodec:
+        """Return the SMPTE codec for this authority."""
+
+        return TimecodeCodec(self.timebase)
+
+    def position_from_seconds(self, seconds: float) -> GeneratedTimecodeSnapshot:
+        """Generate one timecode position from elapsed playback seconds."""
+
+        clamped = max(0.0, float(seconds))
+        sample_position = int(round(clamped * float(self.sample_rate)))
+        frame_index = self.codec.seconds_to_frames(clamped)
+        return self._snapshot(clamped, sample_position, frame_index)
+
+    def position_from_samples(self, sample_position: int) -> GeneratedTimecodeSnapshot:
+        """Generate one timecode position from an engine sample position."""
+
+        clamped_samples = max(0, int(sample_position))
+        frame_index = self.codec.samples_to_frames(clamped_samples, self.sample_rate)
+        seconds = float(clamped_samples) / float(self.sample_rate)
+        return self._snapshot(seconds, clamped_samples, frame_index)
+
+    def _snapshot(
+        self,
+        elapsed_seconds: float,
+        sample_position: int,
+        frame_index: int,
+    ) -> GeneratedTimecodeSnapshot:
+        if self.timebase.display_policy is TimecodeDisplayPolicy.CLOCK:
+            label = format_clock_label(elapsed_seconds)
+        else:
+            label = self.codec.format_timecode_from_frames(frame_index)
+        return GeneratedTimecodeSnapshot(
+            elapsed_seconds=max(0.0, float(elapsed_seconds)),
+            sample_position=max(0, int(sample_position)),
+            frame_index=max(0, int(frame_index)),
+            label=label,
+            mode=self.mode,
+            is_locked=self.mode is TimecodeMode.INTERNAL_GENERATED,
+            drift_ppm=None,
+            drift_ms=None,
+        )
+
+
 def format_clock_label(seconds: float) -> str:
     """Format a MM:SS.ss readout for non-SMPTE UI contexts."""
 
@@ -322,9 +396,12 @@ def format_clock_label(seconds: float) -> str:
 
 
 __all__ = [
+    "GeneratedTimecodeSnapshot",
+    "PlaybackTimecodeAuthority",
     "SmpteTimecode",
     "TimebaseSpec",
     "TimecodeCodec",
     "TimecodeDisplayPolicy",
+    "TimecodeMode",
     "format_clock_label",
 ]

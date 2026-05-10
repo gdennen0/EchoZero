@@ -78,7 +78,9 @@ class FoundryApp:
         self.eval = EvalService(self._eval_repo)
         self.artifacts = ArtifactService(root, artifact_repository=self._artifact_repo)
         self.reviews = ReviewSessionService(root, repository=self._review_repo)
-        self.runtime_bundles = RuntimeBundleInstallService(root, artifact_repository=self._artifact_repo)
+        self.runtime_bundles = RuntimeBundleInstallService(
+            root, artifact_repository=self._artifact_repo
+        )
         self.runs = TrainRunService(root, eval_service=self.eval, artifact_service=self.artifacts)
         self.review_extraction = ReviewExtractionService(root, dataset_service=self.datasets)
         self.training_orchestrator = TrainingOrchestrator(root, run_service=self.runs)
@@ -289,8 +291,12 @@ class FoundryApp:
         name: str,
         epochs: int = 4,
         scope: str = "local.default",
+        refresh_version_id: str | None = None,
+        refresh_state: LibrarySampleState = LibrarySampleState.APPROVED,
     ) -> TrainRun:
         """Create and start one train run from approved sample-library records."""
+        if refresh_version_id is not None:
+            self.record_sample_library_version(refresh_version_id, state=refresh_state)
         return self.continuous_training.kickoff_run(name=name, epochs=epochs, scope=scope)
 
     def list_sample_library_samples(self) -> list[SampleLibraryRecord]:

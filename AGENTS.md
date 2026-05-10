@@ -1,7 +1,7 @@
 # EchoZero Agent Guide
 
 Status: active
-Last verified: 2026-04-30
+Last verified: 2026-05-09
 
 
 Use this file as the minimal startup contract for coding agents in this repo.
@@ -44,7 +44,18 @@ If this file conflicts with code or a canonical doc, code and the canonical doc 
 - Timeline or UI changes need application and UI contract coverage; run perf guardrails for hot-path work.
 - Release-affecting changes need packaging and smoke consideration.
 - Parallel worker use must stay bounded and follow `docs/WORKER-ROLES.md`.
-- Long-running delegated work must emit status heartbeats and stuck-agent escalation per `docs/AGENT-WORKFLOW.md`.
+- Disposable agent spawning must follow Dispatch v2 in `docs/AGENT-WORKFLOW.md`.
+
+## Delegation Guardrail
+
+- Keep one explicit active objective in the parent lane at all times.
+- Every objective must name exactly one lane: `EZ app`, `MA3 harness`, `Foundry`, or `planning/review`.
+- Every scope line must also name excluded lanes. Cross-lane issues become queued follow-up work, not an automatic context switch.
+- Use native OpenClaw subagents for disposable work: explicit role agent, run mode, isolated context by default, cleanup after completion.
+- Do not use ACP or TaskFlow for ordinary one-shot EchoZero workers unless the operator explicitly asks or durable orchestration is required.
+- Do not spawn or continue delegated work without a scope line that names the active objective and excluded lanes.
+- Silence, process exit, or malformed completion payload is not success.
+- Delegated work is not complete until the parent has a final payload or direct substitute evidence with `status`, `changed_files`, `tests_run`, `summary`, `blocker`, and `residual_risk`.
 
 ## Human-Path Demo Rule
 

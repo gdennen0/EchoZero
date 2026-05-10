@@ -107,11 +107,20 @@ Kick off a run directly from approved library samples:
 python -m echozero.foundry.cli --root . train-sample-library "Local Drum Library" --epochs 4
 ```
 
+Refresh the library from one reviewed dataset version and immediately train in one step:
+
+```powershell
+python -m echozero.foundry.cli --root . train-sample-library "Local Drum Library" --epochs 4 --refresh-version-id DATASET_VERSION_ID
+```
+
 The command prints JSON containing:
 
 - `run_id`
 - `dataset_version_id`
 - `status`
+- `refresh_version_id`
+- `refresh_state`
+- `refreshed_sample_count`
 - `eval_report_ids`
 - `artifact_ids`
 - `exports_dir`

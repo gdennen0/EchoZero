@@ -21,6 +21,7 @@ from echozero.application.playback.models import (
     PlaybackState,
     PlaybackTimingSnapshot,
 )
+from echozero.application.playback.timecode import PlaybackTimecodeAuthority, TimebaseSpec
 from echozero.application.playback.tracks import (
     PlaybackMixPlan,
     PlaybackTrack,
@@ -32,7 +33,6 @@ from echozero.application.shared.enums import PlaybackStatus
 from echozero.audio.engine import AudioEngine
 from echozero.audio.layer import AudioTrack
 from echozero.audio.file_cache import load_audio_file
-
 
 _SOUNDDEVICE_BACKEND = "sounddevice"
 
@@ -61,6 +61,7 @@ class PlaybackController:
         preview_engine: AudioEngine | None = None,
         preview_engine_factory: Callable[[], AudioEngine] | None = None,
         audio_loader: Callable[[str | Path], tuple[np.ndarray, int]] = _load_runtime_audio,
+        timebase: TimebaseSpec | None = None,
     ) -> None:
         self._engine = engine or (
             engine_factory() if engine_factory is not None else AudioEngine()
@@ -96,6 +97,7 @@ class PlaybackController:
         self._last_ipc_command = ""
         self._rt_last_apply_latency_ms = 0.0
         self._rt_last_seek_apply_latency_ms = 0.0
+        self._timebase = timebase or TimebaseSpec.from_legacy_fps(30)
 
     @property
     def engine(self) -> AudioEngine:
@@ -182,6 +184,14 @@ class PlaybackController:
         if snapshot_time is None:
             snapshot_time = float(self._engine.audible_time_seconds)
             snapshot_monotonic = None
+        sample_position = int(
+            round(max(0.0, float(snapshot_time)) * float(self._engine.sample_rate))
+        )
+        timecode = PlaybackTimecodeAuthority(
+            self._timebase,
+            sample_rate=max(1, int(self._engine.sample_rate)),
+        ).position_from_samples(sample_position)
+        lock_state = "locked" if timecode.is_locked else "unlocked"
         return PlaybackTimingSnapshot(
             audible_time_seconds=max(0.0, float(snapshot_time)),
             clock_time_seconds=max(0.0, clock_time),
@@ -189,6 +199,14 @@ class PlaybackController:
                 max(0.0, float(snapshot_monotonic)) if snapshot_monotonic is not None else None
             ),
             is_playing=is_playing,
+            sample_position=sample_position,
+            frame_index=timecode.frame_index,
+            timecode_label=timecode.label,
+            display_label=timecode.label,
+            timecode_mode=str(timecode.mode.value),
+            timecode_lock_state=lock_state,
+            drift_ppm=timecode.drift_ppm,
+            drift_ms=timecode.drift_ms,
         )
 
     def is_playing(self) -> bool:
@@ -305,7 +323,15 @@ class PlaybackController:
                     self._engine.prime_output_buffers_using_stream_callback
                 ),
                 last_transition=self._last_transition,
+                transition_state=self._transition_state(),
                 last_track_sync_reason=self._last_track_sync_reason,
+                ramp_samples_remaining=int(self._engine.ramp_samples_remaining),
+                last_discontinuity_reason=self._engine.last_discontinuity_reason,
+                last_ramp_reason=self._engine.last_ramp_reason,
+                timecode_mode="internal_generated",
+                timecode_lock_state="locked",
+                drift_ppm=None,
+                drift_ms=None,
                 structural_rebuild_count=self._structural_rebuild_count,
                 coalesced_edit_count=self._coalesced_edit_count,
                 last_structural_rebuild_ms=self._last_structural_rebuild_ms,
@@ -318,6 +344,15 @@ class PlaybackController:
                 rt_last_seek_apply_latency_ms=self._rt_last_seek_apply_latency_ms,
             ),
         )
+
+    def _transition_state(self) -> str:
+        if self._preview_active:
+            return "preview"
+        if self._engine.transport.is_playing:
+            return "playing"
+        if str(self._last_transition) == "pause":
+            return "paused"
+        return "stopped"
 
     def _with_resolved_output_channels(
         self,
@@ -577,7 +612,9 @@ class PlaybackController:
 
         existing_tracks = list(self._engine.tracks)
         existing_ids = [str(track.id) for track in existing_tracks]
-        desired_ids = [self._engine_track_id(mix_plan, playback_track) for playback_track in mix_plan.tracks]
+        desired_ids = [
+            self._engine_track_id(mix_plan, playback_track) for playback_track in mix_plan.tracks
+        ]
         if len(existing_ids) != len(desired_ids) or set(existing_ids) != set(desired_ids):
             return True
 

@@ -4,25 +4,22 @@ This document captures the discovered structure of grandMA3 timecodes through sy
 
 ## Hierarchy
 
-**CORRECTED STRUCTURE** (as of latest discovery):
+**CORRECTED STRUCTURE** (latest live terminal proof):
 
 ```
-DataPool().Timecodes
-  └── [timecode_no] - Timecode Track
-      └── [track_group_no] - Track Group
-          └── :Children() - Array of children
-              └── [0] - "Marker" (SKIP THIS)
-              └── [1+] - Track
-                  └── :Children() - TimeRanges
-                      └── [time_range_index] - TimeRange
-                          └── :Children() - SubTracks
-                              └── [subtrack_index] - CmdSubTrack or FaderSubTrack
-                                  └── :Children() - Actual Events
-                                      └── [event_index] - CmdEvent or FaderEvent
+DataPool()[14]
+  └── [timecode_no] - Timecode
+      └── [track_group_no] - TrackGroup
+          └── :Children() ordered child 1 = MarkerTrack
+          └── :Children() ordered child 2 = Track
+              └── [1] - TimeRange
+                  └── [1] - CmdSubTrack or FaderSubTrack
+                      └── [1..N] - CmdEvent or FaderEvent
 ```
 
 **Important**: 
-- Track Group's `Children()` array has "Marker" at index 0. Always skip index 0 and start from index 1.
+- `TrackGroup:Children()` is **1-based in the live terminal**. The first ordered child is `MarkerTrack`, the second is the first real `Track`.
+- `:Dump()` child labels are not always the same as direct bracket indices. Example: the dump may label Marker as `#0000`, but the reachable handle is `[1]`.
 - **Tracks contain TimeRanges**, not event layers directly
 - **TimeRanges contain SubTracks** (CmdSubTrack for commands, FaderSubTrack for faders)
 - **SubTracks contain the actual Events** (CmdEvent or FaderEvent)
@@ -69,21 +66,21 @@ local children = track_group:Children()
 -- children[1] is first actual child
 ```
 
-**Critical**: Track Group's `Children()` has "Marker" at index 0. Always skip it!
+**Critical**: the first ordered child is the marker track. Skip ordered child `1`
+when you want the first user track.
 
 ### Level 4: Layer/Child (after skipping Marker)
 
 ```lua
 -- Get track group children
 local children = track_group:Children()
--- Skip index 0 (Marker)
-local layer = children[1]  -- First actual layer
+local marker = children[1]
+local track = children[2]  -- First actual user track
 
 -- Or iterate (skipping Marker)
 for i = 1, #children do
     local child = children[i]
-    -- Skip if name is "Marker"
-    if child.name ~= "Marker" then
+    if child:GetClass() ~= "MarkerTrack" then
         -- Process child
     end
 end
@@ -92,35 +89,36 @@ end
 ### Level 5: Event Layer
 
 ```lua
--- Get layer's children (event layers, not events!)
-local event_layers = layer:Children()
-local event_layer = event_layers[1]  -- First event layer
+-- Get track children (time ranges, not events)
+local time_ranges = track:Children()
+local time_range = time_ranges[1]
 
 -- Full path example
 local tc = DataPool().Timecodes[101]
 local track_group = tc[1]
 local children = track_group:Children()
-local layer = children[1]  -- Skip index 0 Marker
-local event_layers = layer:Children()
-local event_layer = event_layers[1]
+local track = children[2]  -- child 1 is MarkerTrack
+local time_ranges = track:Children()
+local time_range = time_ranges[1]
 ```
 
 ### Level 6: Actual Event
 
 ```lua
--- Get event layer's children (actual events)
-local events = event_layer:Children()
-local event = events[1]  -- First actual event
+-- Get time range's children (subtracks)
+local subtracks = time_range:Children()
+local cmd_subtrack = subtracks[1]
+local events = cmd_subtrack:Children()
+local event = events[1]
 
 -- Full path example
 local tc = DataPool().Timecodes[101]
 local track_group = tc[1]
 local children = track_group:Children()
-local layer = children[1]  -- Skip index 0 Marker
-local event_layers = layer:Children()
-local event_layer = event_layers[1]
-local events = event_layer:Children()
-local event = events[1]  -- Actual event!
+local track = children[2]
+local time_range = track:Children()[1]
+local cmd_subtrack = time_range:Children()[1]
+local event = cmd_subtrack:Children()[1]
 ```
 
 ## Exploration Results
@@ -254,4 +252,3 @@ end
 3. Test different timecode numbers
 4. Explore event properties (time, command, etc.)
 5. Create helper functions for common operations
-

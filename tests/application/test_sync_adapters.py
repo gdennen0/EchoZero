@@ -9,6 +9,15 @@ from echozero.application.timeline.models import Event
 from echozero.application.transport.models import TransportState
 from echozero.testing.ma3 import SimulatedMA3Bridge
 
+_SUPPORTED_PRESET_TYPES = (
+    (1, "Dimmer"),
+    (2, "Position"),
+    (4, "Color"),
+    (5, "Beam"),
+    (6, "Focus"),
+    (22, "Optical"),
+)
+
 
 class _Bridge:
     def __init__(self):
@@ -269,7 +278,11 @@ def test_ma3_sync_adapter_assigns_creates_and_prepares_track_sequences():
     tracks = service.list_push_track_options()
 
     assert created["name"] == "Lead Next"
-    assert any(track["sequence_no"] == created["number"] for track in tracks if track["coord"] == "tc1_tg2_tr4")
+    assert any(
+        track["sequence_no"] == created["number"]
+        for track in tracks
+        if track["coord"] == "tc1_tg2_tr4"
+    )
 
 
 def test_ma3_sync_adapter_creates_sequence_in_current_song_range():
@@ -316,6 +329,161 @@ def test_ma3_sync_adapter_creates_timecode_track_group_and_track():
     assert (2, "Song B") in [(timecode["number"], timecode["name"]) for timecode in timecodes]
     assert [(group["number"], group["name"]) for group in groups] == [(1, "FX")]
     assert [track["coord"] for track in tracks] == ["tc2_tg1_tr1"]
+
+
+@pytest.mark.parametrize(("preset_type_no", "preset_label"), _SUPPORTED_PRESET_TYPES)
+def test_ma3_sync_adapter_creates_static_preset_for_each_supported_type(
+    preset_type_no: int,
+    preset_label: str,
+):
+    bridge = SimulatedMA3Bridge()
+    service = MA3SyncAdapter(bridge)
+    preset_no = 100 + preset_type_no
+    preset_name = f"{preset_label} Base"
+
+    created = service.create_static_preset(
+        preset_type_no=preset_type_no,
+        preset_no=preset_no,
+        store_mode="Global",
+        preset_name=preset_name,
+        selection_command="Fixture 1 Thru 4",
+        value_command=f"At Preset {preset_type_no}.1",
+    )
+
+    assert created == {
+        "preset_type": preset_type_no,
+        "number": preset_no,
+        "name": preset_name,
+        "store_mode": "Global",
+        "kind": "static",
+        "step_count": 1,
+    }
+
+
+@pytest.mark.parametrize(("preset_type_no", "preset_label"), _SUPPORTED_PRESET_TYPES)
+def test_ma3_sync_adapter_creates_phaser_preset_for_each_supported_type(
+    preset_type_no: int,
+    preset_label: str,
+):
+    bridge = SimulatedMA3Bridge()
+    service = MA3SyncAdapter(bridge)
+    preset_no = 200 + preset_type_no
+    preset_name = f"{preset_label} Chase"
+
+    created = service.create_phaser_preset(
+        preset_type_no=preset_type_no,
+        preset_no=preset_no,
+        store_mode="Global",
+        preset_name=preset_name,
+        selection_command="Fixture 1 Thru 4",
+        step_preset_refs=[
+            f"{preset_type_no}.1",
+            f"{preset_type_no}.2",
+            f"{preset_type_no}.3",
+        ],
+        speed_bpm=120.0,
+    )
+
+    assert created == {
+        "preset_type": preset_type_no,
+        "number": preset_no,
+        "name": preset_name,
+        "store_mode": "Global",
+        "kind": "phaser",
+        "step_count": 3,
+    }
+
+
+def test_ma3_sync_adapter_creates_pool_21_phaser_with_mixed_preset_types():
+    bridge = SimulatedMA3Bridge()
+    service = MA3SyncAdapter(bridge)
+
+    created = service.create_phaser_preset(
+        preset_type_no=21,
+        preset_no=221,
+        store_mode="Selective",
+        preset_name="Mixed Type Phaser",
+        selection_command="Fixture 1 Thru 4",
+        step_preset_refs=[
+            ["1.1", "4.1"],
+            ["2.1", "6.1"],
+            ["5.1", "22.1"],
+        ],
+        speed_bpm=96.0,
+    )
+
+    assert created == {
+        "preset_type": 21,
+        "number": 221,
+        "name": "Mixed Type Phaser",
+        "store_mode": "Selective",
+        "kind": "phaser",
+        "step_count": 3,
+    }
+
+
+def test_ma3_sync_adapter_edits_static_phaser_and_recipe_presets():
+    bridge = SimulatedMA3Bridge()
+    service = MA3SyncAdapter(bridge)
+
+    service.create_static_preset(
+        preset_type_no=4,
+        preset_no=104,
+        store_mode="Global",
+        preset_name="Old Red",
+        selection_command="Fixture 1 Thru 4",
+        value_command="At Preset 4.1",
+    )
+    updated_static = service.edit_static_preset(
+        preset_type_no=4,
+        preset_no=104,
+        store_mode="Global",
+        preset_name="New Blue",
+        selection_command="Fixture 5 Thru 8",
+        value_command="At Preset 4.2",
+    )
+    updated_phaser = service.edit_phaser_preset(
+        preset_type_no=4,
+        preset_no=105,
+        store_mode="Global",
+        preset_name="Wide Chase",
+        selection_command="Fixture 1 Thru 4",
+        step_preset_refs=["4.1", "4.3"],
+        speed_bpm=90.0,
+    )
+    updated_recipe = service.edit_recipe_preset(
+        preset_type_no=4,
+        preset_no=106,
+        store_mode="Selective",
+        preset_name="Updated Recipe",
+        selection_command="Fixture 9 Thru 12",
+        source_preset_ref="4.9",
+    )
+
+    assert updated_static == {
+        "preset_type": 4,
+        "number": 104,
+        "name": "New Blue",
+        "store_mode": "Global",
+        "kind": "static",
+        "step_count": 1,
+    }
+    assert updated_phaser == {
+        "preset_type": 4,
+        "number": 105,
+        "name": "Wide Chase",
+        "store_mode": "Global",
+        "kind": "phaser",
+        "step_count": 2,
+    }
+    assert updated_recipe == {
+        "preset_type": 4,
+        "number": 106,
+        "name": "Updated Recipe",
+        "store_mode": "Selective",
+        "kind": "recipe",
+        "step_count": 1,
+    }
 
 
 def test_ma3_sync_adapter_reloads_plugins_through_console_command_capability():
@@ -369,8 +537,8 @@ class _PrefixedCueRefBridge(_Bridge):
                 "name": "Q11A Verse",
                 "time": 1.25,
                 "cueNo": 11,
-        }
-    ]
+            }
+        ]
 
 
 def test_ma3_sync_adapter_infers_cue_ref_from_prefixed_label_when_bridge_omits_explicit_field():

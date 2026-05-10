@@ -125,6 +125,18 @@ Objects that support `HookObjectChange()`:
 
 ### Access Pattern
 
+Live terminal proof shows the richer path is:
+
+```lua
+DataPool()[14][timecode_no]           -- Timecode
+  [track_group_no]                    -- TrackGroup
+  :Children()[1]                      -- MarkerTrack
+  :Children()[2]                      -- first real Track
+  [1]                                 -- first TimeRange
+  [1]                                 -- first CmdSubTrack or FaderSubTrack
+  [1]                                 -- first CmdEvent or FaderEvent
+```
+
 ```lua
 -- Timecode pool
 local timecodes = DataPool().Timecodes
@@ -132,8 +144,16 @@ local timecodes = DataPool().Timecodes
 -- Specific timecode track
 local tc = DataPool().Timecodes[101]
 
--- Specific cue in timecode
-local cue = DataPool().Timecodes[101][1]
+-- Track group
+local track_group = tc[1]
+
+-- First real track through ordered children
+local track = track_group:Children()[2]
+
+-- Time hierarchy below the track
+local time_range = track[1]
+local subtrack = time_range[1]
+local event = subtrack[1]
 ```
 
 ### Timecode Object Properties
@@ -147,16 +167,13 @@ tc.index      -- Timecode index
 tc:Children() -- Get cues in this timecode
 ```
 
-### Timecode Cue Properties
+### Timecode Descendant Classes
 
-```lua
-local cue = DataPool().Timecodes[101][1]
-
-cue.name      -- Cue name
-cue.no        -- Cue number
-cue.index     -- Cue index
--- Additional timecode-specific properties
-```
+- `TrackGroup` contains ordered children including a system `MarkerTrack`
+- `Track` contains `TimeRange`
+- `TimeRange` contains `CmdSubTrack` and/or `FaderSubTrack`
+- `CmdSubTrack` contains `CmdEvent`
+- `FaderSubTrack` contains `FaderEvent`
 
 ## Sequence Structure
 
@@ -272,4 +289,3 @@ end
 - [MA3 Lua API Documentation](https://help.malighting.com/grandMA3/)
 - [HookObjectChange Reference](https://help.malighting.com/grandMA3/2.0/HTML/lua_objectfree_hookobjectchange.html)
 - EchoZero MA3 Integration: `docs/MA3_INTEGRATION.md`
-

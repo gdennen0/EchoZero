@@ -49,3 +49,21 @@ def test_continuous_training_service_kicks_off_run_from_library_samples(tmp_path
     assert app.list_runs()[0].id == run.id
     assert len(app.list_artifacts_for_run(run.id)) == 1
     assert len(app.list_eval_reports_for_run(run.id)) == 1
+
+
+def test_foundry_app_can_refresh_library_from_version_before_kickoff(tmp_path: Path):
+    samples = tmp_path / "samples"
+    write_percussion_dataset(samples)
+
+    app = FoundryApp(tmp_path)
+    dataset = app.datasets.create_dataset("Library Source")
+    version = app.datasets.ingest_from_folder(dataset.id, samples)
+
+    run = app.kickoff_sample_library_run(
+        name="Local Drums",
+        epochs=1,
+        refresh_version_id=version.id,
+    )
+
+    assert run.status.value == "completed"
+    assert app.summarize_sample_library()["approved_count"] == len(version.samples)

@@ -131,6 +131,16 @@ Require the result to include:
 
 For review tasks, require findings first with file/line evidence.
 
+## Native Dispatch Defaults
+
+For EchoZero disposable work, use native OpenClaw subagents backed by the configured Codex role agents.
+Keep the dispatch layer boring: `mode=run`, explicit `agentId`, repo/worktree `cwd`, `cleanup=delete`, `lightContext=true`, and isolated context unless the transcript is required for correctness.
+Do not use ACP unless the operator explicitly asks for ACP or the task is testing that path.
+Do not wrap one-shot work in TaskFlow; reserve durable orchestration for jobs that must survive resets, waits, approvals, or multi-step detached state.
+
+After the spawn succeeds, record the child session id, show spawn proof, and wait for the completion event instead of polling in a loop.
+A malformed or incomplete worker payload is not success; verify directly or rerun a corrected assignment.
+
 ## High-Value Prompt Clauses
 
 These short clauses consistently improve OpenClaw/Codex output in EchoZero.
@@ -161,12 +171,13 @@ These short clauses consistently improve OpenClaw/Codex output in EchoZero.
 - `Findings first; summary second.`
 - `Include severity and file references.`
 
-### Use when the task is long-running or delegated across sessions
+### Use when the task is delegated across sessions
 
 - `Parent task anchor:` `<short task label + desired end state>.`
-- `Emit visible status heartbeats every 60 seconds while active.`
-- `Restate the parent task anchor in spawn proof, heartbeat, and return summary.`
-- `If blocked or silent for 300 seconds, treat it as stuck and report.`
+- `Active lane:` `EZ app`, `MA3 harness`, `Foundry`, or `planning/review`.
+- `Excluded lanes:` `<lanes this worker must not enter>`.
+- `Return exactly: status, changed_files, tests_run, summary, blocker, residual_risk.`
+- `If blocked, quiet, or unable to produce the required payload, stop and report instead of guessing.`
 
 ## Prompt Shapes By Role
 

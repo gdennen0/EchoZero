@@ -5,13 +5,14 @@ Connects process lifecycle, IPC envelope behavior, and diagnostics metadata to r
 
 from __future__ import annotations
 
+from dataclasses import replace
 from types import SimpleNamespace
 
 import pytest
-from dataclasses import replace
 
+from echozero.application.playback.models import PlaybackTimingSnapshot
 from echozero.application.playback.process_client import ProcessPlaybackClient
-from echozero.application.playback.process_shared import PlaybackIpcError
+from echozero.application.playback.process_shared import PlaybackIpcError, encode_timing_snapshot
 from echozero.application.shared.ids import LayerId
 from echozero.ui.qt.timeline.demo_app import build_demo_app
 
@@ -25,7 +26,9 @@ def process_runtime_audio() -> ProcessPlaybackClient:
         client.shutdown()
 
 
-def test_process_runtime_audio_health_and_version(process_runtime_audio: ProcessPlaybackClient) -> None:
+def test_process_runtime_audio_health_and_version(
+    process_runtime_audio: ProcessPlaybackClient,
+) -> None:
     health = process_runtime_audio.health()
 
     assert bool(health.get("ok", False)) is True
@@ -81,6 +84,58 @@ def test_process_runtime_audio_snapshot_state_uses_request_payload_authoritative
     assert state_updated.active_layer_id == updated.selected_layer_id
 
 
+def test_process_client_transport_ipc_updates_timing_snapshots(monkeypatch) -> None:
+    client = ProcessPlaybackClient.__new__(ProcessPlaybackClient)
+    client._shutdown = False
+    commands: list[tuple[str, dict[str, object]]] = []
+    state = {"playing": False, "seconds": 0.0}
+
+    def _fake_command(operation: str, params: dict[str, object]) -> dict[str, object]:
+        commands.append((operation, dict(params)))
+        if operation == "play":
+            state["playing"] = True
+            return {}
+        if operation == "pause":
+            state["playing"] = False
+            return {}
+        if operation == "seek":
+            state["seconds"] = float(params["position_seconds"])
+            return {"position_seconds": state["seconds"]}
+        if operation == "timing_snapshot":
+            snapshot = PlaybackTimingSnapshot(
+                audible_time_seconds=float(state["seconds"]),
+                clock_time_seconds=float(state["seconds"]),
+                snapshot_monotonic_seconds=10.0,
+                is_playing=bool(state["playing"]),
+                sample_position=24000,
+                frame_index=15,
+                timecode_label="00:00:00:15",
+                display_label="00:00:00:15",
+            )
+            return {"value": encode_timing_snapshot(snapshot)}
+        return {}
+
+    monkeypatch.setattr(client, "_command", _fake_command)
+
+    client.play()
+    client.seek(0.5)
+    playing_snapshot = client.timing_snapshot()
+    client.pause()
+    paused_snapshot = client.timing_snapshot()
+
+    assert [operation for operation, _ in commands] == [
+        "play",
+        "seek",
+        "timing_snapshot",
+        "pause",
+        "timing_snapshot",
+    ]
+    assert playing_snapshot.is_playing is True
+    assert paused_snapshot.is_playing is False
+    assert playing_snapshot.audible_time_seconds == 0.5
+    assert playing_snapshot.display_label == "00:00:00:15"
+
+
 def test_process_runtime_audio_shutdown_is_idempotent() -> None:
     client = ProcessPlaybackClient()
     client.shutdown()
@@ -99,7 +154,9 @@ def test_process_runtime_audio_spawn_passes_token_as_equals_assignment(monkeypat
         captured["stderr"] = stderr
         return SimpleNamespace()
 
-    monkeypatch.setattr("echozero.application.playback.process_client.subprocess.Popen", _fake_popen)
+    monkeypatch.setattr(
+        "echozero.application.playback.process_client.subprocess.Popen", _fake_popen
+    )
 
     client = ProcessPlaybackClient.__new__(ProcessPlaybackClient)
     client._host = "127.0.0.1"

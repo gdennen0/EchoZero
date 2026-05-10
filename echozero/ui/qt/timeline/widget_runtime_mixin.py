@@ -357,7 +357,7 @@ class TimelineWidgetRuntimeMixin:
             self._record_runtime_audio_sync_decision(delta)
             return
         if delta.change_kind is PlaybackChangeKind.STRUCTURE:
-            if bool(presentation.is_playing):
+            if bool(presentation.is_playing) and self._runtime_sync_payload is not None:
                 self._queue_structural_runtime_sync(presentation)
             else:
                 self._sync_runtime_audio_structure(
@@ -376,7 +376,9 @@ class TimelineWidgetRuntimeMixin:
         pending_exists = self._runtime_structural_sync_pending_presentation is not None
         self._runtime_structural_sync_pending_presentation = presentation
         if pending_exists and self._runtime_audio is not None:
-            record_coalesced = getattr(self._runtime_audio, "record_coalesced_structural_edits", None)
+            record_coalesced = getattr(
+                self._runtime_audio, "record_coalesced_structural_edits", None
+            )
             if callable(record_coalesced):
                 record_coalesced(1)
         timer = getattr(self, "_runtime_structural_sync_timer", None)
@@ -743,7 +745,7 @@ class TimelineWidgetRuntimeMixin:
                 updated,
                 playhead=runtime_time,
                 is_playing=runtime_playing,
-                current_time_label=_format_time_label(runtime_time),
+                current_time_label=self._runtime_time_label(runtime_time),
             )
             self._sync_runtime_audio_for_intent(
                 intent,
@@ -859,7 +861,9 @@ class TimelineWidgetRuntimeMixin:
 
     def _on_runtime_tick(self: _TimelineWidgetRuntimeHost) -> None:
         operation_id = str(self.presentation.manual_push_flow.operation_id or "").strip()
-        operation_status = str(self.presentation.manual_push_flow.operation_status or "").strip().lower()
+        operation_status = (
+            str(self.presentation.manual_push_flow.operation_status or "").strip().lower()
+        )
         if operation_id and operation_status == "running":
             self._dispatch(PollMA3PushOperation(operation_id=operation_id))
 
@@ -901,15 +905,13 @@ class TimelineWidgetRuntimeMixin:
                 )
                 self.set_presentation(updated)
 
-        if (
-            self._runtime_mix_sync_pending_presentation is not None
-            and not bool(self.presentation.is_playing)
+        if self._runtime_mix_sync_pending_presentation is not None and not bool(
+            self.presentation.is_playing
         ):
             self._flush_pending_mix_runtime_sync()
 
-        if (
-            self._runtime_structural_sync_pending_presentation is not None
-            and not bool(self.presentation.is_playing)
+        if self._runtime_structural_sync_pending_presentation is not None and not bool(
+            self.presentation.is_playing
         ):
             self._flush_pending_structural_runtime_sync(reason="idle-tick")
 
@@ -919,7 +921,7 @@ class TimelineWidgetRuntimeMixin:
 
         current_time, playing = self._sample_runtime_playhead()
         current_time = self._stabilize_runtime_playhead(current_time, playing=playing)
-        current_label = _format_time_label(current_time)
+        current_label = self._runtime_time_label(current_time)
         if (
             abs(current_time - self.presentation.playhead) < 0.001
             and playing == self.presentation.is_playing
@@ -1001,6 +1003,12 @@ class TimelineWidgetRuntimeMixin:
             return base_time
         elapsed = max(0.0, time.monotonic() - float(snapshot.snapshot_monotonic_seconds))
         return max(0.0, min(float(snapshot.clock_time_seconds), base_time + elapsed))
+
+    def _runtime_time_label(self: _TimelineWidgetRuntimeHost, seconds: float) -> str:
+        snapshot = self._runtime_timing_snapshot
+        if snapshot is not None and str(snapshot.display_label or "").strip():
+            return str(snapshot.display_label)
+        return _format_time_label(seconds)
 
     def _stabilize_runtime_playhead(
         self: _TimelineWidgetRuntimeHost,

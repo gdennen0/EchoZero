@@ -19,6 +19,7 @@ from echozero.application.sync.service import SyncService
 from echozero.application.transport.models import TransportState
 from echozero.infrastructure.sync.ma3_adapter import (
     event_snapshot_payload,
+    preset_snapshot_payload,
     sequence_cue_snapshot_payload,
     sequence_range_snapshot_payload,
     sequence_snapshot_payload,
@@ -116,6 +117,76 @@ class MA3SyncBridge(Protocol):
         timecode_no: int,
         track_group_no: int,
         preferred_name: str | None = None,
+    ) -> object: ...
+
+    def create_static_preset(
+        self,
+        *,
+        preset_type_no: int,
+        preset_no: int,
+        store_mode: str,
+        preset_name: str,
+        selection_command: str,
+        value_command: str,
+    ) -> object: ...
+
+    def create_phaser_preset(
+        self,
+        *,
+        preset_type_no: int,
+        preset_no: int,
+        store_mode: str,
+        preset_name: str,
+        selection_command: str,
+        step_preset_refs: list[list[str]] | list[str] | tuple[list[str], ...] | tuple[str, ...],
+        speed_bpm: float | None = None,
+    ) -> object: ...
+
+    def create_recipe_preset(
+        self,
+        *,
+        preset_type_no: int,
+        preset_no: int,
+        store_mode: str,
+        preset_name: str,
+        selection_command: str,
+        source_preset_ref: str,
+        selection_mode: str = "Strict",
+    ) -> object: ...
+
+    def edit_static_preset(
+        self,
+        *,
+        preset_type_no: int,
+        preset_no: int,
+        store_mode: str,
+        preset_name: str,
+        selection_command: str,
+        value_command: str,
+    ) -> object: ...
+
+    def edit_phaser_preset(
+        self,
+        *,
+        preset_type_no: int,
+        preset_no: int,
+        store_mode: str,
+        preset_name: str,
+        selection_command: str,
+        step_preset_refs: list[list[str]] | list[str] | tuple[list[str], ...] | tuple[str, ...],
+        speed_bpm: float | None = None,
+    ) -> object: ...
+
+    def edit_recipe_preset(
+        self,
+        *,
+        preset_type_no: int,
+        preset_no: int,
+        store_mode: str,
+        preset_name: str,
+        selection_command: str,
+        source_preset_ref: str,
+        selection_mode: str = "Strict",
     ) -> object: ...
 
     def prepare_track_for_events(self, *, target_track_coord: str) -> None: ...
@@ -242,6 +313,128 @@ class _BridgeProtocolClient(MA3ProtocolClient):
             preferred_name=preferred_name,
         )
 
+    def create_static_preset(
+        self,
+        *,
+        preset_type_no: int,
+        preset_no: int,
+        store_mode: str,
+        preset_name: str,
+        selection_command: str,
+        value_command: str,
+    ) -> object:
+        return self._bridge.create_static_preset(
+            preset_type_no=preset_type_no,
+            preset_no=preset_no,
+            store_mode=store_mode,
+            preset_name=preset_name,
+            selection_command=selection_command,
+            value_command=value_command,
+        )
+
+    def create_phaser_preset(
+        self,
+        *,
+        preset_type_no: int,
+        preset_no: int,
+        store_mode: str,
+        preset_name: str,
+        selection_command: str,
+        step_preset_refs: list[list[str]] | list[str] | tuple[list[str], ...] | tuple[str, ...],
+        speed_bpm: float | None = None,
+    ) -> object:
+        return self._bridge.create_phaser_preset(
+            preset_type_no=preset_type_no,
+            preset_no=preset_no,
+            store_mode=store_mode,
+            preset_name=preset_name,
+            selection_command=selection_command,
+            step_preset_refs=step_preset_refs,
+            speed_bpm=speed_bpm,
+        )
+
+    def create_recipe_preset(
+        self,
+        *,
+        preset_type_no: int,
+        preset_no: int,
+        store_mode: str,
+        preset_name: str,
+        selection_command: str,
+        source_preset_ref: str,
+        selection_mode: str = "Strict",
+    ) -> object:
+        return self._bridge.create_recipe_preset(
+            preset_type_no=preset_type_no,
+            preset_no=preset_no,
+            store_mode=store_mode,
+            preset_name=preset_name,
+            selection_command=selection_command,
+            source_preset_ref=source_preset_ref,
+            selection_mode=selection_mode,
+        )
+
+    def edit_static_preset(
+        self,
+        *,
+        preset_type_no: int,
+        preset_no: int,
+        store_mode: str,
+        preset_name: str,
+        selection_command: str,
+        value_command: str,
+    ) -> object:
+        return self._bridge.edit_static_preset(
+            preset_type_no=preset_type_no,
+            preset_no=preset_no,
+            store_mode=store_mode,
+            preset_name=preset_name,
+            selection_command=selection_command,
+            value_command=value_command,
+        )
+
+    def edit_phaser_preset(
+        self,
+        *,
+        preset_type_no: int,
+        preset_no: int,
+        store_mode: str,
+        preset_name: str,
+        selection_command: str,
+        step_preset_refs: list[list[str]] | list[str] | tuple[list[str], ...] | tuple[str, ...],
+        speed_bpm: float | None = None,
+    ) -> object:
+        return self._bridge.edit_phaser_preset(
+            preset_type_no=preset_type_no,
+            preset_no=preset_no,
+            store_mode=store_mode,
+            preset_name=preset_name,
+            selection_command=selection_command,
+            step_preset_refs=step_preset_refs,
+            speed_bpm=speed_bpm,
+        )
+
+    def edit_recipe_preset(
+        self,
+        *,
+        preset_type_no: int,
+        preset_no: int,
+        store_mode: str,
+        preset_name: str,
+        selection_command: str,
+        source_preset_ref: str,
+        selection_mode: str = "Strict",
+    ) -> object:
+        return self._bridge.edit_recipe_preset(
+            preset_type_no=preset_type_no,
+            preset_no=preset_no,
+            store_mode=store_mode,
+            preset_name=preset_name,
+            selection_command=selection_command,
+            source_preset_ref=source_preset_ref,
+            selection_mode=selection_mode,
+        )
+
     def prepare_track_for_events(self, *, target_track_coord: str) -> None:
         self._bridge.prepare_track_for_events(target_track_coord=target_track_coord)
 
@@ -314,6 +507,30 @@ class InMemorySyncService(SyncService):
 
         shifted = max(0.0, transport.playhead + (self._state.offset_ms / 1000.0))
         return replace(transport, playhead=shifted)
+
+    def create_static_preset(self, **kwargs) -> dict[str, object]:
+        del kwargs
+        raise NotImplementedError("In-memory sync service does not support preset authoring")
+
+    def create_phaser_preset(self, **kwargs) -> dict[str, object]:
+        del kwargs
+        raise NotImplementedError("In-memory sync service does not support preset authoring")
+
+    def create_recipe_preset(self, **kwargs) -> dict[str, object]:
+        del kwargs
+        raise NotImplementedError("In-memory sync service does not support preset authoring")
+
+    def edit_static_preset(self, **kwargs) -> dict[str, object]:
+        del kwargs
+        raise NotImplementedError("In-memory sync service does not support preset authoring")
+
+    def edit_phaser_preset(self, **kwargs) -> dict[str, object]:
+        del kwargs
+        raise NotImplementedError("In-memory sync service does not support preset authoring")
+
+    def edit_recipe_preset(self, **kwargs) -> dict[str, object]:
+        del kwargs
+        raise NotImplementedError("In-memory sync service does not support preset authoring")
 
 
 class MA3SyncAdapter(SyncService):
@@ -450,7 +667,11 @@ class MA3SyncAdapter(SyncService):
         target_track_coord: str,
         sequence_no: int,
     ) -> None:
-        self._call(self._client.assign_track_sequence, target_track_coord=target_track_coord, sequence_no=sequence_no)
+        self._call(
+            self._client.assign_track_sequence,
+            target_track_coord=target_track_coord,
+            sequence_no=sequence_no,
+        )
         self._catalog.refresh_tracks_scope(target_track_coord=target_track_coord)
 
     def create_sequence_next_available(
@@ -458,7 +679,9 @@ class MA3SyncAdapter(SyncService):
         *,
         preferred_name: str | None = None,
     ) -> dict[str, object]:
-        raw = self._call(self._client.create_sequence_next_available, preferred_name=preferred_name)
+        raw = self._call(
+            self._client.create_sequence_next_available, preferred_name=preferred_name
+        )
         self._catalog.list_sequences(refresh=True)
         return sequence_snapshot_payload(raw)
 
@@ -495,7 +718,9 @@ class MA3SyncAdapter(SyncService):
         *,
         preferred_name: str | None = None,
     ) -> dict[str, object]:
-        raw = self._call(self._client.create_timecode_next_available, preferred_name=preferred_name)
+        raw = self._call(
+            self._client.create_timecode_next_available, preferred_name=preferred_name
+        )
         self._catalog.list_timecodes(refresh=True)
         return timecode_snapshot_payload(raw)
 
@@ -533,6 +758,140 @@ class MA3SyncAdapter(SyncService):
             track_group_no=track_group_no,
         )
         return created
+
+    def create_static_preset(
+        self,
+        *,
+        preset_type_no: int,
+        preset_no: int,
+        store_mode: str,
+        preset_name: str,
+        selection_command: str,
+        value_command: str,
+    ) -> dict[str, object]:
+        raw = self._call(
+            self._client.create_static_preset,
+            preset_type_no=preset_type_no,
+            preset_no=preset_no,
+            store_mode=store_mode,
+            preset_name=preset_name,
+            selection_command=selection_command,
+            value_command=value_command,
+        )
+        return preset_snapshot_payload(raw)
+
+    def create_phaser_preset(
+        self,
+        *,
+        preset_type_no: int,
+        preset_no: int,
+        store_mode: str,
+        preset_name: str,
+        selection_command: str,
+        step_preset_refs: list[list[str]] | list[str] | tuple[list[str], ...] | tuple[str, ...],
+        speed_bpm: float | None = None,
+    ) -> dict[str, object]:
+        raw = self._call(
+            self._client.create_phaser_preset,
+            preset_type_no=preset_type_no,
+            preset_no=preset_no,
+            store_mode=store_mode,
+            preset_name=preset_name,
+            selection_command=selection_command,
+            step_preset_refs=step_preset_refs,
+            speed_bpm=speed_bpm,
+        )
+        return preset_snapshot_payload(raw)
+
+    def create_recipe_preset(
+        self,
+        *,
+        preset_type_no: int,
+        preset_no: int,
+        store_mode: str,
+        preset_name: str,
+        selection_command: str,
+        source_preset_ref: str,
+        selection_mode: str = "Strict",
+    ) -> dict[str, object]:
+        raw = self._call(
+            self._client.create_recipe_preset,
+            preset_type_no=preset_type_no,
+            preset_no=preset_no,
+            store_mode=store_mode,
+            preset_name=preset_name,
+            selection_command=selection_command,
+            source_preset_ref=source_preset_ref,
+            selection_mode=selection_mode,
+        )
+        return preset_snapshot_payload(raw)
+
+    def edit_static_preset(
+        self,
+        *,
+        preset_type_no: int,
+        preset_no: int,
+        store_mode: str,
+        preset_name: str,
+        selection_command: str,
+        value_command: str,
+    ) -> dict[str, object]:
+        raw = self._call(
+            self._client.edit_static_preset,
+            preset_type_no=preset_type_no,
+            preset_no=preset_no,
+            store_mode=store_mode,
+            preset_name=preset_name,
+            selection_command=selection_command,
+            value_command=value_command,
+        )
+        return preset_snapshot_payload(raw)
+
+    def edit_phaser_preset(
+        self,
+        *,
+        preset_type_no: int,
+        preset_no: int,
+        store_mode: str,
+        preset_name: str,
+        selection_command: str,
+        step_preset_refs: list[list[str]] | list[str] | tuple[list[str], ...] | tuple[str, ...],
+        speed_bpm: float | None = None,
+    ) -> dict[str, object]:
+        raw = self._call(
+            self._client.edit_phaser_preset,
+            preset_type_no=preset_type_no,
+            preset_no=preset_no,
+            store_mode=store_mode,
+            preset_name=preset_name,
+            selection_command=selection_command,
+            step_preset_refs=step_preset_refs,
+            speed_bpm=speed_bpm,
+        )
+        return preset_snapshot_payload(raw)
+
+    def edit_recipe_preset(
+        self,
+        *,
+        preset_type_no: int,
+        preset_no: int,
+        store_mode: str,
+        preset_name: str,
+        selection_command: str,
+        source_preset_ref: str,
+        selection_mode: str = "Strict",
+    ) -> dict[str, object]:
+        raw = self._call(
+            self._client.edit_recipe_preset,
+            preset_type_no=preset_type_no,
+            preset_no=preset_no,
+            store_mode=store_mode,
+            preset_name=preset_name,
+            selection_command=selection_command,
+            source_preset_ref=source_preset_ref,
+            selection_mode=selection_mode,
+        )
+        return preset_snapshot_payload(raw)
 
     def prepare_track_for_events(self, *, target_track_coord: str) -> None:
         self._call(self._client.prepare_track_for_events, target_track_coord=target_track_coord)

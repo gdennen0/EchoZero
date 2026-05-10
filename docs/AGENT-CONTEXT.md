@@ -238,6 +238,24 @@ MA3 knowledge worth preserving for agents:
 - current repo rule is still main-only sync
 - if you change sync behavior, keep the UI thin and the app-layer contract explicit
 
+## Active Cleanup Sequence
+
+Execution snapshot saved 2026-05-08 for the current canonical cleanup pass:
+
+1. add or confirm targeted proof around the current canonical path
+2. split `echozero/application/presentation/inspector_contract.py` first
+3. split `echozero/application/timeline/object_action_settings_service.py`
+4. split `echozero/ui/qt/app_shell.py` while keeping the runtime-controller facade stable
+5. split `echozero/application/timeline/orchestrator.py` last as a controlled extraction
+6. tighten type clarity and canonical-vs-support-only file boundaries after the splits
+7. finish each pass with the real proof lane, starting with targeted pytest slices and then `python -m echozero.testing.run --lane appflow` when the touched surface warrants it
+
+Ordering rule:
+
+- start with lower-coupling presentation/application seams
+- clean the app-shell composition root before the deepest truth-mutation file
+- do not treat the orchestrator split as a rewrite
+
 ## 2026-04-19 Milestone Snapshot
 
 As of main commit `2c9caba`, the following product slices are live and should be

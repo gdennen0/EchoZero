@@ -261,10 +261,192 @@ def _format_get_sequences_command(
     return f"EZ.GetSequences({', '.join(args)})"
 
 
+def format_get_datapool_objects_command(
+    *,
+    path: str | None = None,
+    request_id: int | None = None,
+) -> str:
+    args: list[str] = []
+    if path is not None or request_id is not None:
+        args.append(_format_lua_optional_string(path))
+    if request_id is not None:
+        args.append(str(int(request_id)))
+    return f"EZ.GetDataPoolObjects({', '.join(args)})" if args else "EZ.GetDataPoolObjects()"
+
+
+def format_describe_datapool_object_command(
+    *,
+    path: str | None = None,
+    request_id: int | None = None,
+) -> str:
+    args: list[str] = []
+    if path is not None or request_id is not None:
+        args.append(_format_lua_optional_string(path))
+    if request_id is not None:
+        args.append(str(int(request_id)))
+    return (
+        f"EZ.DescribeDataPoolObject({', '.join(args)})" if args else "EZ.DescribeDataPoolObject()"
+    )
+
+
+def format_list_presets_command(
+    *,
+    preset_type_no: int,
+    request_id: int | None = None,
+) -> str:
+    args = [str(int(preset_type_no))]
+    if request_id is not None:
+        args.append(str(int(request_id)))
+    return f"EZ.ListPresets({', '.join(args)})"
+
+
+def format_describe_preset_command(
+    *,
+    preset_type_no: int,
+    preset_no: int,
+    request_id: int | None = None,
+) -> str:
+    args = [str(int(preset_type_no)), str(int(preset_no))]
+    if request_id is not None:
+        args.append(str(int(request_id)))
+    return f"EZ.DescribePreset({', '.join(args)})"
+
+
+def format_preview_replace_preset_when_group_command(
+    *,
+    preset_type_no: int,
+    source_preset_ref: str,
+    dest_preset_ref: str,
+    group_filter_csv: str,
+    sequence_numbers_csv: str,
+    request_id: int | None = None,
+) -> str:
+    args = [
+        str(int(preset_type_no)),
+        _format_lua_string(source_preset_ref),
+        _format_lua_string(dest_preset_ref),
+        _format_lua_string(group_filter_csv),
+        _format_lua_string(sequence_numbers_csv),
+    ]
+    if request_id is not None:
+        args.append(str(int(request_id)))
+    return f"EZ.PreviewReplacePresetWhenGroup({', '.join(args)})"
+
+
+def format_replace_preset_when_group_command(
+    *,
+    preset_type_no: int,
+    source_preset_ref: str,
+    dest_preset_ref: str,
+    group_filter_csv: str,
+    sequence_numbers_csv: str,
+    request_id: int | None = None,
+) -> str:
+    args = [
+        str(int(preset_type_no)),
+        _format_lua_string(source_preset_ref),
+        _format_lua_string(dest_preset_ref),
+        _format_lua_string(group_filter_csv),
+        _format_lua_string(sequence_numbers_csv),
+    ]
+    if request_id is not None:
+        args.append(str(int(request_id)))
+    return f"EZ.ReplacePresetWhenGroup({', '.join(args)})"
+
+
+def format_analyze_cue_recipe_state_command(
+    *,
+    sequence_no: int,
+    cue_no: str,
+    request_id: int | None = None,
+) -> str:
+    args = [
+        str(int(sequence_no)),
+        _format_lua_string(cue_no),
+    ]
+    if request_id is not None:
+        args.append(str(int(request_id)))
+    return f"EZ.AnalyzeCueRecipeState({', '.join(args)})"
+
+
+def format_preview_recipe_cue_only_command(
+    *,
+    sequence_no: int,
+    source_cue_no: str,
+    target_cue_no: str,
+    request_id: int | None = None,
+) -> str:
+    args = [
+        str(int(sequence_no)),
+        _format_lua_string(source_cue_no),
+        _format_lua_string(target_cue_no),
+    ]
+    if request_id is not None:
+        args.append(str(int(request_id)))
+    return f"EZ.PreviewRecipeCueOnly({', '.join(args)})"
+
+
+def format_apply_recipe_cue_only_command(
+    *,
+    sequence_no: int,
+    source_cue_no: str,
+    target_cue_no: str,
+    request_id: int | None = None,
+) -> str:
+    args = [
+        str(int(sequence_no)),
+        _format_lua_string(source_cue_no),
+        _format_lua_string(target_cue_no),
+    ]
+    if request_id is not None:
+        args.append(str(int(request_id)))
+    return f"EZ.ApplyRecipeCueOnly({', '.join(args)})"
+
+
+def format_copy_cue_with_status_command(
+    *,
+    sequence_no: int,
+    source_cue_no: str,
+    dest_cue_no: str,
+    request_id: int | None = None,
+) -> str:
+    args = [
+        str(int(sequence_no)),
+        _format_lua_string(source_cue_no),
+        _format_lua_string(dest_cue_no),
+    ]
+    if request_id is not None:
+        args.append(str(int(request_id)))
+    return f"EZ.CopyCueWithStatus({', '.join(args)})"
+
+
+def format_preview_copy_cue_with_status_command(
+    *,
+    sequence_no: int,
+    source_cue_no: str,
+    dest_cue_no: str,
+    request_id: int | None = None,
+) -> str:
+    args = [
+        str(int(sequence_no)),
+        _format_lua_string(source_cue_no),
+        _format_lua_string(dest_cue_no),
+    ]
+    if request_id is not None:
+        args.append(str(int(request_id)))
+    return f"EZ.PreviewCopyCueWithStatus({', '.join(args)})"
+
+
 def _format_lua_optional_int(value: int | None) -> str:
     if value is None:
         return "nil"
     return str(int(value))
+
+
+def _format_lua_optional_string(value: str | None) -> str:
+    if value is None:
+        return "nil"
+    return _format_lua_string(value)
 
 
 def _format_lua_number(value: float) -> str:
