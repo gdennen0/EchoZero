@@ -121,6 +121,43 @@ class LayerRecord:
     provenance: dict[str, Any] = field(default_factory=dict)
 
 
+@dataclass(frozen=True)
+class TimelineObjectRecord:
+    """Persisted logical object whose content is independent of timeline rows."""
+
+    id: str
+    song_version_id: str
+    name: str
+    object_kind: str
+    main_content_id: str
+    created_at: datetime
+
+
+@dataclass(frozen=True)
+class ObjectContentRecord:
+    """Persisted object content revision used as main truth or a candidate payload."""
+
+    id: str
+    object_id: str
+    revision_id: str
+    content_kind: str
+    payload: dict[str, Any]
+    source_ref: dict[str, Any] | None
+    analysis_build: dict[str, Any] | None
+    created_at: datetime
+
+
+@dataclass(frozen=True)
+class ObjectCandidateRecord:
+    """Persisted non-main candidate content for one timeline object."""
+
+    id: str
+    object_id: str
+    content_id: str
+    label: str
+    created_at: datetime
+
+
 # ---------------------------------------------------------------------------
 # Pipeline config (persistent pipeline configuration per song)
 # ---------------------------------------------------------------------------

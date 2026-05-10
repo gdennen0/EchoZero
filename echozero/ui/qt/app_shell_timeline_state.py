@@ -127,6 +127,9 @@ def _event_preview_source_ref(
     layer: LayerPresentation,
     take: TakeLanePresentation | None,
 ) -> str | None:
+    source_content_ref = take.source_content_ref if take is not None else layer.source_content_ref
+    if source_content_ref is not None and source_content_ref.locator:
+        return source_content_ref.locator
     direct_source_ref = (
         (
             take.playback_source_ref
@@ -145,6 +148,8 @@ def _event_preview_source_ref(
     for candidate in presentation.layers:
         if str(candidate.layer_id) != str(source_layer_id):
             continue
+        if candidate.source_content_ref is not None and candidate.source_content_ref.locator:
+            return candidate.source_content_ref.locator
         return candidate.playback_source_ref or candidate.source_audio_path
     return None
 

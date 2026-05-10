@@ -1,8 +1,10 @@
 from tests.ui.app_shell_runtime_flow_support import (
     test_app_shell_runtime_add_song_from_path_updates_presentation,
     test_app_shell_runtime_add_song_version_copies_configs_and_switches_versions,
+    test_app_shell_runtime_delete_persisted_layer_removes_object_content_truth,
     test_app_shell_runtime_exposes_transfer_surface_actions,
     test_app_shell_runtime_import_song_creates_default_pipeline_configs,
+    test_app_shell_runtime_import_smpte_audio_refreshes_object_content_after_reopen,
     test_app_shell_runtime_open_project_failure_keeps_current_project_live,
     test_app_shell_runtime_open_project_replaces_live_project_state,
     test_app_shell_runtime_move_song_and_reorder_songs_update_setlist_order,

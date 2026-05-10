@@ -5,6 +5,11 @@ All repositories take a sqlite3.Connection and return domain/entity types.
 """
 
 from echozero.persistence.repositories.layer import LayerRepository
+from echozero.persistence.repositories.object_content import (
+    ObjectCandidateRepository,
+    ObjectContentRepository,
+    TimelineObjectRepository,
+)
 from echozero.persistence.repositories.pipeline_config import PipelineConfigRepository
 from echozero.persistence.repositories.project import ProjectRepository
 from echozero.persistence.repositories.song import SongRepository, SongVersionRepository
@@ -19,6 +24,9 @@ __all__ = [
     "SongVersionRepository",
     "LayerRepository",
     "TakeRepository",
+    "TimelineObjectRepository",
+    "ObjectContentRepository",
+    "ObjectCandidateRepository",
     "PipelineConfigRepository",
     "SongDefaultPipelineConfigRepository",
 ]

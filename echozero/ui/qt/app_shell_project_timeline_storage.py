@@ -14,10 +14,13 @@ from echozero.application.shared.enums import LayerKind
 from echozero.application.shared.ids import (
     EventId,
     LayerId,
+    ObjectContentId,
+    ObjectRevisionId,
     SectionCueId,
     SongVersionId,
     TakeId,
     TimelineId,
+    TimelineObjectId,
 )
 from echozero.application.timeline.models import (
     CueMetadata,
@@ -29,6 +32,10 @@ from echozero.application.timeline.models import (
     LayerSyncState,
     SectionCue,
     Take,
+)
+from echozero.application.timeline.object_content_persistence import (
+    load_layer_object_content,
+    source_ref_from_payload,
 )
 from echozero.domain.types import AudioData
 from echozero.domain.types import Event as DomainEvent
@@ -114,13 +121,29 @@ def build_storage_layer(
     takes = project_storage.takes.list_by_layer(layer_record.id)
     if not takes:
         return None, AudioPresentationFields(), {}
+    object_record, content_records = load_layer_object_content(
+        project_storage,
+        layer_record_id=layer_record.id,
+    )
     main_take = next((take for take in takes if take.is_main), takes[0])
+    main_content = content_records.get(object_record.main_content_id)
+    if main_content is None:
+        raise RuntimeError(
+            f"Missing main object content {object_record.main_content_id!r} "
+            f"for layer {layer_record.id!r}."
+        )
     main_kind = resolve_storage_layer_kind(layer_record, main_take)
     main_audio = audio_presentation_fields(project_storage, main_take)
     take_audio: dict[TakeId, AudioPresentationFields] = {}
     timeline_takes: list[Take] = []
     for take in takes:
         take_id = TakeId(str(take.id))
+        take_content = content_records.get(f"content_{take.id}")
+        if take_content is None:
+            raise RuntimeError(
+                f"Missing object content row for take {take.id!r} "
+                f"on layer {layer_record.id!r}."
+            )
         timeline_takes.append(
             Take(
                 id=take_id,
@@ -128,6 +151,10 @@ def build_storage_layer(
                 name=take.label,
                 events=events_from_take(take),
                 source_ref=source_ref(take.source),
+                object_id=TimelineObjectId(take_content.object_id),
+                content_id=ObjectContentId(take_content.id),
+                revision_id=ObjectRevisionId(take_content.revision_id),
+                source_content_ref=source_ref_from_payload(take_content.source_ref),
             )
         )
         take_audio[take_id] = audio_presentation_fields(project_storage, take)
@@ -142,6 +169,10 @@ def build_storage_layer(
         name=layer_record.name.title(),
         kind=main_kind,
         order_index=int(layer_record.order) + 1,
+        object_id=TimelineObjectId(object_record.id),
+        main_content_id=ObjectContentId(object_record.main_content_id),
+        main_revision_id=ObjectRevisionId(main_content.revision_id),
+        source_content_ref=source_ref_from_payload(main_content.source_ref),
         takes=timeline_takes,
         playback=replace(
             Layer(

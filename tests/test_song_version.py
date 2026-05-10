@@ -16,6 +16,7 @@ from typing import Any
 import pytest
 
 from echozero.domain.types import AudioData
+from echozero.errors import PersistenceError
 from echozero.persistence.audio import AudioImportOptions, AudioMetadata
 from echozero.persistence.entities import (
     LayerRecord,
@@ -25,6 +26,7 @@ from echozero.persistence.entities import (
     SongVersionRecord,
 )
 from echozero.persistence.session import ProjectStorage
+from echozero.persistence.schema import apply_manual_object_content_update, set_schema_version
 from echozero.takes import Take
 
 # ---------------------------------------------------------------------------
@@ -728,6 +730,65 @@ class TestAddSongVersion:
         assert version_b.ma3_timecode_pool_no == 2
         session.close()
 
+    def test_import_song_creates_imported_song_object_content(self, tmp_path: Path) -> None:
+        session = _create_session(tmp_path)
+        audio = _create_audio_file(tmp_path, "object-content.wav")
+
+        _song, version = session.import_song(
+            "Object Content Song",
+            audio,
+            scan_fn=_mock_scan,
+            default_templates=[],
+        )
+
+        object_id = f"object_song_{version.id}"
+        content_id = f"content_song_audio_{version.id}"
+        object_record = session.timeline_objects.get(object_id)
+        content_record = session.object_contents.get(content_id)
+        assert object_record is not None
+        assert content_record is not None
+        assert object_record.main_content_id == content_id
+        assert content_record.object_id == object_id
+        assert content_record.revision_id == f"revision_song_audio_{version.audio_hash}"
+        assert content_record.payload["audio_file"] == version.audio_file
+        session.close()
+
+    def test_pre_v10_runtime_open_fails_loud(self, tmp_path: Path) -> None:
+        session = _create_session(tmp_path)
+        working_dir = session.working_dir
+        set_schema_version(session.db, 9)
+        session.db.commit()
+        session.close()
+
+        with pytest.raises(PersistenceError, match="runtime open requires v10"):
+            ProjectStorage.open_db(working_dir)
+
+    def test_manual_object_content_update_backfills_imported_song_rows(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        session = _create_session(tmp_path)
+        audio = _create_audio_file(tmp_path, "manual-update.wav")
+        _song, version = session.import_song(
+            "Manual Update Song",
+            audio,
+            scan_fn=_mock_scan,
+            default_templates=[],
+        )
+        session.db.execute("DELETE FROM timeline_objects")
+        set_schema_version(session.db, 9)
+        session.db.commit()
+
+        apply_manual_object_content_update(session.db)
+
+        object_record = session.timeline_objects.get(f"object_song_{version.id}")
+        content_record = session.object_contents.get(f"content_song_audio_{version.id}")
+        assert object_record is not None
+        assert content_record is not None
+        assert object_record.main_content_id == content_record.id
+        assert content_record.payload["audio_file"] == version.audio_file
+        session.close()
+
     def test_new_version_does_not_copy_layers_by_default(self, tmp_path: Path) -> None:
         session = _create_session(tmp_path)
         audio1 = _create_audio_file(tmp_path, "v1.wav")
@@ -774,6 +835,17 @@ class TestAddSongVersion:
         copied_parent_takes = session.takes.list_by_layer(copied_by_name["Drums"].id)
         assert [take.label for take in copied_parent_takes] == ["Main", "Alt"]
         assert [take.is_main for take in copied_parent_takes] == [True, False]
+        copied_object = session.timeline_objects.get(f"object_{copied_by_name['Drums'].id}")
+        assert copied_object is not None
+        assert copied_object.main_content_id == f"content_{copied_parent_takes[0].id}"
+        copied_contents = session.object_contents.list_by_object(copied_object.id)
+        assert {content.id for content in copied_contents} == {
+            f"content_{take.id}" for take in copied_parent_takes
+        }
+        copied_candidates = session.object_candidates.list_by_object(copied_object.id)
+        assert [candidate.content_id for candidate in copied_candidates] == [
+            f"content_{copied_parent_takes[1].id}"
+        ]
         session.close()
 
     def test_can_transfer_selected_layers_to_new_version(self, tmp_path: Path) -> None:

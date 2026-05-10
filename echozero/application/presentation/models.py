@@ -7,13 +7,17 @@ from echozero.application.shared.enums import FollowMode, LayerKind, PlaybackMod
 from echozero.application.shared.ids import (
     EventId,
     LayerId,
+    ObjectContentId,
+    ObjectRevisionId,
     SectionCueId,
     TakeId,
     TimelineId,
+    TimelineObjectId,
 )
 from echozero.application.shared.ranges import TimeRange
 from echozero.application.sync.models import LiveSyncState
 from echozero.application.timeline.models import EventRef
+from echozero.application.timeline.object_content import SourceRef
 
 
 @dataclass(slots=True)
@@ -70,6 +74,10 @@ class TakeLanePresentation:
     source_audio_path: str | None = None
     playback_source_ref: str | None = None
     actions: list[TakeActionPresentation] = field(default_factory=list)
+    object_id: TimelineObjectId | None = None
+    content_id: ObjectContentId | None = None
+    revision_id: ObjectRevisionId | None = None
+    source_content_ref: SourceRef | None = None
 
 
 @dataclass(slots=True)
@@ -469,6 +477,10 @@ class LayerPresentation:
     playback_source_ref: str | None = None
     status: LayerStatusPresentation = field(default_factory=LayerStatusPresentation)
     sync_target_channel_no: int | None = None
+    object_id: TimelineObjectId | None = None
+    main_content_id: ObjectContentId | None = None
+    main_revision_id: ObjectRevisionId | None = None
+    source_content_ref: SourceRef | None = None
 
     def __post_init__(self) -> None:
         if not self.header_controls:

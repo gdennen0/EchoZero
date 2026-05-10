@@ -729,12 +729,12 @@ def _canonical_import_pipeline_action_ids(
 def _resolve_import_source_audio_layer_id(shell: ProjectLifecycleShell) -> object | None:
     presentation = shell.presentation()
     for layer in presentation.layers:
-        if str(layer.layer_id) == "source_audio":
+        if str(layer.object_id or "").startswith("object_song_"):
             return layer.layer_id
     for layer in presentation.layers:
         if layer.kind is LayerKind.AUDIO:
             return layer.layer_id
-    return "source_audio"
+    return None
 
 
 def _run_song_import_pipeline_actions(

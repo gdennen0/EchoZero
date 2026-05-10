@@ -11,7 +11,7 @@ from dataclasses import replace as dataclass_replace
 from datetime import datetime, timezone
 from pathlib import Path
 from threading import RLock
-from typing import Protocol, cast
+from typing import Any, Protocol, cast
 
 from echozero.persistence.dirty import DirtyTracker
 from echozero.persistence.entities import (
@@ -24,11 +24,13 @@ from echozero.persistence.entities import (
 )
 from echozero.persistence.repositories import (
     LayerRepository,
+    ObjectContentRepository,
     PipelineConfigRepository,
     SongDefaultPipelineConfigRepository,
     SongRepository,
     SongVersionRepository,
     TakeRepository,
+    TimelineObjectRepository,
 )
 
 
@@ -56,6 +58,12 @@ class _ProjectStorageVersioningHost(Protocol):
 
     @property
     def takes(self) -> TakeRepository: ...
+
+    @property
+    def timeline_objects(self) -> TimelineObjectRepository: ...
+
+    @property
+    def object_contents(self) -> ObjectContentRepository: ...
 
     def _check_closed(self) -> None: ...
 
@@ -131,6 +139,7 @@ class ProjectStorageVersioningMixin:
             ma3_timecode_pool_no=ma3_timecode_pool_no,
         )
         host.song_versions.create(version)
+        self._create_imported_song_object(version)
         if prepared_source.ltc_artifact_path is not None:
             self._create_import_timecode_layer(
                 song_version_id=version.id,
@@ -138,6 +147,44 @@ class ProjectStorageVersioningMixin:
                 scan_fn=scan_fn,
             )
         return version
+
+    def _create_imported_song_object(self, version: SongVersionRecord) -> None:
+        """Persist the imported song audio as the source object for a song version."""
+
+        host = cast(_ProjectStorageVersioningHost, self)
+        from echozero.application.timeline.object_content_persistence import (
+            imported_song_content_id,
+            imported_song_object_id,
+            imported_song_revision_id,
+        )
+        from echozero.persistence.entities import ObjectContentRecord, TimelineObjectRecord
+
+        now = datetime.now(timezone.utc)
+        object_id = imported_song_object_id(version.id)
+        content_id = imported_song_content_id(version.id)
+        revision_id = imported_song_revision_id(version.audio_hash)
+        host.timeline_objects.create(
+            TimelineObjectRecord(
+                id=object_id,
+                song_version_id=version.id,
+                name="Imported Song",
+                object_kind="audio_clip",
+                main_content_id=content_id,
+                created_at=now,
+            )
+        )
+        host.object_contents.create(
+            ObjectContentRecord(
+                id=content_id,
+                object_id=object_id,
+                revision_id=revision_id,
+                content_kind="audio_clip",
+                payload={"audio_file": version.audio_file},
+                source_ref=None,
+                analysis_build=None,
+                created_at=now,
+            )
+        )
 
     def _create_import_timecode_layer(
         self,
@@ -150,6 +197,9 @@ class ProjectStorageVersioningMixin:
 
         host = cast(_ProjectStorageVersioningHost, self)
         from echozero.domain.types import AudioData
+        from echozero.application.timeline.object_content_persistence import (
+            sync_layer_object_content,
+        )
         from echozero.persistence.audio import scan_audio_metadata
         from echozero.takes import Take
 
@@ -181,24 +231,30 @@ class ProjectStorageVersioningMixin:
                 provenance={},
             )
         )
-        host.takes.create(
-            layer_id,
-            Take(
-                id=uuid.uuid4().hex,
-                label="Main",
-                data=AudioData(
-                    sample_rate=int(metadata.sample_rate),
-                    duration=float(metadata.duration_seconds),
-                    file_path=self._relative_project_audio_path(ltc_artifact_path),
-                    channel_count=max(1, int(metadata.channel_count)),
-                ),
-                origin="user",
-                source=None,
-                created_at=now,
-                is_main=True,
-                is_archived=False,
-                notes="",
+        take = Take(
+            id=uuid.uuid4().hex,
+            label="Main",
+            data=AudioData(
+                sample_rate=int(metadata.sample_rate),
+                duration=float(metadata.duration_seconds),
+                file_path=self._relative_project_audio_path(ltc_artifact_path),
+                channel_count=max(1, int(metadata.channel_count)),
             ),
+            origin="user",
+            source=None,
+            created_at=now,
+            is_main=True,
+            is_archived=False,
+            notes="",
+        )
+        host.takes.create(layer_id, take)
+        sync_layer_object_content(
+            cast(Any, self),
+            song_version_id=song_version_id,
+            layer_id=layer_id,
+            layer_name="Timecode",
+            content_kind="audio_clip",
+            takes=[take],
         )
 
     def _relative_project_audio_path(self, path: Path) -> str:
@@ -332,17 +388,18 @@ class ProjectStorageVersioningMixin:
         source_layer_id: str,
         target_layer_id: str,
         created_at: datetime,
-    ) -> None:
+    ) -> list[Any]:
         host = cast(_ProjectStorageVersioningHost, self)
+        copied_takes: list[Any] = []
         for source_take in host.takes.list_by_layer(source_layer_id):
-            host.takes.create(
-                target_layer_id,
-                dataclass_replace(
-                    source_take,
-                    id=uuid.uuid4().hex,
-                    created_at=created_at,
-                ),
+            copied_take = dataclass_replace(
+                source_take,
+                id=uuid.uuid4().hex,
+                created_at=created_at,
             )
+            host.takes.create(target_layer_id, copied_take)
+            copied_takes.append(copied_take)
+        return copied_takes
 
     def _copy_version_layers(
         self,
@@ -352,6 +409,10 @@ class ProjectStorageVersioningMixin:
         layer_ids_to_transfer: list[str] | None,
     ) -> list[str]:
         host = cast(_ProjectStorageVersioningHost, self)
+        from echozero.application.timeline.object_content_persistence import (
+            sync_layer_object_content,
+        )
+
         source_layers = host.layers.list_by_version(source_song_version_id)
         selected_source_layers = self._selected_source_layers_for_transfer(
             source_layers,
@@ -392,10 +453,18 @@ class ProjectStorageVersioningMixin:
                 provenance=dict(source_layer.provenance),
             )
             host.layers.create(copied_layer)
-            self._copy_layer_takes(
+            copied_takes = self._copy_layer_takes(
                 source_layer_id=source_layer.id,
                 target_layer_id=new_layer_id,
                 created_at=now,
+            )
+            sync_layer_object_content(
+                cast(Any, self),
+                song_version_id=target_song_version_id,
+                layer_id=new_layer_id,
+                layer_name=source_layer.name,
+                content_kind=_object_content_kind_for_layer_record(source_layer),
+                takes=copied_takes,
             )
             copied_layer_ids.append(new_layer_id)
         return copied_layer_ids
@@ -599,6 +668,20 @@ def _adjacent_version_id(versions: list[SongVersionRecord], deleted_version_id: 
     if deleted_index < len(remaining_versions):
         return remaining_versions[deleted_index].id
     return remaining_versions[-1].id
+
+
+def _object_content_kind_for_layer_record(layer: LayerRecord) -> str:
+    state_flags = layer.state_flags or {}
+    manual_kind = str(state_flags.get("manual_kind") or "").strip()
+    if manual_kind == "audio":
+        return "audio_clip"
+    if manual_kind == "section":
+        return "section_cue_set"
+    source_pipeline = layer.source_pipeline or {}
+    output_name = str(source_pipeline.get("output_name") or "").lower()
+    if "stem" in output_name or layer.layer_type == "audio":
+        return "generated_audio"
+    return "event_set"
 
 
 __all__ = ["ProjectStorageVersioningMixin"]

@@ -352,7 +352,7 @@ class PlaybackTrackBuilder:
         resolve_audio: bool,
         playback_output_channels: int,
     ) -> PlaybackTrack | None:
-        source_audio_path = getattr(layer, "source_audio_path", None)
+        source_audio_path = self._audio_source_ref(layer)
         if source_audio_path and not self._is_event_like_layer(layer):
             return PlaybackTrack(
                 track_id=str(getattr(layer, "layer_id")),
@@ -382,7 +382,7 @@ class PlaybackTrackBuilder:
                 playback_output_channels=playback_output_channels,
             ),
             muted=bool(getattr(layer, "muted", False)),
-            playback_source_ref=str(getattr(layer, "playback_source_ref")),
+            playback_source_ref=self._event_source_ref(layer),
             events=list(getattr(layer, "events")),
             resolve_audio=resolve_audio,
         )
@@ -397,7 +397,7 @@ class PlaybackTrackBuilder:
     ) -> PlaybackTrack | None:
         layer_id = str(getattr(layer, "layer_id"))
         take_id = str(getattr(take, "take_id"))
-        source_audio_path = getattr(take, "source_audio_path", None)
+        source_audio_path = self._audio_source_ref(take)
         if source_audio_path and not self._is_event_like_layer(layer):
             return PlaybackTrack(
                 track_id=f"{layer_id}:{take_id}",
@@ -427,7 +427,7 @@ class PlaybackTrackBuilder:
                 playback_output_channels=playback_output_channels,
             ),
             muted=bool(getattr(layer, "muted", False)),
-            playback_source_ref=str(getattr(take, "playback_source_ref")),
+            playback_source_ref=self._event_source_ref(take, fallback_layer=layer),
             events=list(getattr(take, "events")),
             resolve_audio=resolve_audio,
         )
@@ -492,7 +492,7 @@ class PlaybackTrackBuilder:
     @staticmethod
     def _layer_has_playable_source(layer: object) -> bool:
         has_continuous_source = bool(
-            getattr(layer, "source_audio_path", None)
+            PlaybackTrackBuilder._audio_source_ref(layer)
             and not PlaybackTrackBuilder._is_event_like_layer(layer)
         )
         return bool(
@@ -510,8 +510,35 @@ class PlaybackTrackBuilder:
             is_event_like_layer_kind(getattr(layer, "kind", None))
             and getattr(layer, "playback_enabled", False)
             and getattr(layer, "playback_mode", None) == PlaybackMode.EVENT_SLICE
-            and getattr(layer, "playback_source_ref", None)
+            and PlaybackTrackBuilder._event_source_ref(layer)
         )
+
+    @staticmethod
+    def _audio_source_ref(item: object) -> str | None:
+        source_audio_path = getattr(item, "source_audio_path", None)
+        if source_audio_path:
+            return str(source_audio_path)
+        source_content_ref = getattr(item, "source_content_ref", None)
+        locator = getattr(source_content_ref, "locator", None)
+        if locator:
+            return str(locator)
+        return None
+
+    @staticmethod
+    def _event_source_ref(item: object, *, fallback_layer: object | None = None) -> str:
+        source_content_ref = getattr(item, "source_content_ref", None)
+        locator = getattr(source_content_ref, "locator", None)
+        if locator:
+            return str(locator)
+        playback_source_ref = getattr(item, "playback_source_ref", None)
+        if playback_source_ref:
+            return str(playback_source_ref)
+        source_audio_path = getattr(item, "source_audio_path", None)
+        if source_audio_path:
+            return str(source_audio_path)
+        if fallback_layer is not None:
+            return PlaybackTrackBuilder._event_source_ref(fallback_layer)
+        return ""
 
     @staticmethod
     def _render_event_track_buffer(

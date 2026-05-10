@@ -8,8 +8,13 @@ from __future__ import annotations
 
 import sqlite3
 from collections.abc import Callable
+from datetime import datetime, timezone
+import json
 
-SCHEMA_VERSION = 9
+from echozero.errors import PersistenceError
+
+SCHEMA_VERSION = 10
+OBJECT_CONTENT_SCHEMA_VERSION = 10
 
 _DDL = """\
 CREATE TABLE IF NOT EXISTS _meta (
@@ -82,6 +87,34 @@ CREATE TABLE IF NOT EXISTS takes (
     notes TEXT DEFAULT ''
 );
 
+CREATE TABLE IF NOT EXISTS timeline_objects (
+    id TEXT PRIMARY KEY,
+    song_version_id TEXT NOT NULL REFERENCES song_versions(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    object_kind TEXT NOT NULL,
+    main_content_id TEXT NOT NULL REFERENCES object_contents(id) DEFERRABLE INITIALLY DEFERRED,
+    created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS object_contents (
+    id TEXT PRIMARY KEY,
+    object_id TEXT NOT NULL REFERENCES timeline_objects(id) ON DELETE CASCADE,
+    revision_id TEXT NOT NULL,
+    content_kind TEXT NOT NULL,
+    payload_json TEXT NOT NULL DEFAULT '{}',
+    source_ref_json TEXT,
+    analysis_build_json TEXT,
+    created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS object_candidates (
+    id TEXT PRIMARY KEY,
+    object_id TEXT NOT NULL REFERENCES timeline_objects(id) ON DELETE CASCADE,
+    content_id TEXT NOT NULL REFERENCES object_contents(id) ON DELETE CASCADE,
+    label TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS pipeline_configs (
     id TEXT PRIMARY KEY,
     song_version_id TEXT NOT NULL REFERENCES song_versions(id) ON DELETE CASCADE,
@@ -99,6 +132,9 @@ CREATE INDEX IF NOT EXISTS idx_songs_project ON songs(project_id);
 CREATE INDEX IF NOT EXISTS idx_versions_song ON song_versions(song_id);
 CREATE INDEX IF NOT EXISTS idx_layers_version ON layers(song_version_id);
 CREATE INDEX IF NOT EXISTS idx_takes_layer ON takes(layer_id);
+CREATE INDEX IF NOT EXISTS idx_timeline_objects_version ON timeline_objects(song_version_id);
+CREATE INDEX IF NOT EXISTS idx_object_contents_object ON object_contents(object_id);
+CREATE INDEX IF NOT EXISTS idx_object_candidates_object ON object_candidates(object_id);
 CREATE INDEX IF NOT EXISTS idx_configs_version ON pipeline_configs(song_version_id);
 CREATE INDEX IF NOT EXISTS idx_configs_template ON pipeline_configs(template_id);
 
@@ -261,6 +297,39 @@ def _migrate_v8_to_v9(conn: sqlite3.Connection) -> None:
     conn.execute("DROP TABLE IF EXISTS timeline_regions")
 
 
+def _migrate_v9_to_v10(conn: sqlite3.Connection) -> None:
+    conn.executescript("""\
+        CREATE TABLE IF NOT EXISTS timeline_objects (
+            id TEXT PRIMARY KEY,
+            song_version_id TEXT NOT NULL REFERENCES song_versions(id) ON DELETE CASCADE,
+            name TEXT NOT NULL,
+            object_kind TEXT NOT NULL,
+            main_content_id TEXT NOT NULL REFERENCES object_contents(id) DEFERRABLE INITIALLY DEFERRED,
+            created_at TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS object_contents (
+            id TEXT PRIMARY KEY,
+            object_id TEXT NOT NULL REFERENCES timeline_objects(id) ON DELETE CASCADE,
+            revision_id TEXT NOT NULL,
+            content_kind TEXT NOT NULL,
+            payload_json TEXT NOT NULL DEFAULT '{}',
+            source_ref_json TEXT,
+            analysis_build_json TEXT,
+            created_at TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS object_candidates (
+            id TEXT PRIMARY KEY,
+            object_id TEXT NOT NULL REFERENCES timeline_objects(id) ON DELETE CASCADE,
+            content_id TEXT NOT NULL REFERENCES object_contents(id) ON DELETE CASCADE,
+            label TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_timeline_objects_version ON timeline_objects(song_version_id);
+        CREATE INDEX IF NOT EXISTS idx_object_contents_object ON object_contents(object_id);
+        CREATE INDEX IF NOT EXISTS idx_object_candidates_object ON object_candidates(object_id);
+    """)
+
+
 _MIGRATIONS: dict[int, Callable[[sqlite3.Connection], None]] = {
     2: _migrate_v1_to_v2,
     3: _migrate_v2_to_v3,
@@ -285,17 +354,227 @@ _MIGRATIONS: dict[int, Callable[[sqlite3.Connection], None]] = {
     7: _migrate_v6_to_v7,
     8: _migrate_v7_to_v8,
     9: _migrate_v8_to_v9,
+    10: _migrate_v9_to_v10,
 }
 
 
 def apply_migrations(conn: sqlite3.Connection) -> None:
+    """Apply runtime-safe migrations, failing loudly for pre-object/content projects."""
+
     current = get_schema_version(conn)
+    if 0 < current < OBJECT_CONTENT_SCHEMA_VERSION:
+        raise PersistenceError(
+            "Unsupported EchoZero project schema "
+            f"v{current}; runtime open requires v{OBJECT_CONTENT_SCHEMA_VERSION}. "
+            "Run the manual object/content project updater before opening this project."
+        )
+    _apply_migrations(conn, allow_pre_object_content_upgrade=False)
+
+
+def apply_manual_object_content_update(conn: sqlite3.Connection) -> None:
+    """Run explicit legacy project conversion outside the runtime open path."""
+
+    _apply_migrations(conn, allow_pre_object_content_upgrade=True)
+    _backfill_object_content_rows(conn)
+    conn.commit()
+
+
+def _apply_migrations(
+    conn: sqlite3.Connection,
+    *,
+    allow_pre_object_content_upgrade: bool,
+) -> None:
+    current = get_schema_version(conn)
+    if (
+        0 < current < OBJECT_CONTENT_SCHEMA_VERSION
+        and not allow_pre_object_content_upgrade
+    ):
+        raise PersistenceError(
+            "Unsupported EchoZero project schema "
+            f"v{current}; runtime open requires v{OBJECT_CONTENT_SCHEMA_VERSION}."
+        )
     for target in range(current + 1, SCHEMA_VERSION + 1):
         migrate_fn = _MIGRATIONS.get(target)
         if migrate_fn is not None:
             migrate_fn(conn)
         set_schema_version(conn, target)
     conn.commit()
+
+
+def _backfill_object_content_rows(conn: sqlite3.Connection) -> None:
+    versions = conn.execute(
+        "SELECT id, audio_file, audio_hash FROM song_versions ORDER BY created_at"
+    ).fetchall()
+    now = datetime.now(timezone.utc).isoformat()
+    for version in versions:
+        object_id = f"object_song_{version['id']}"
+        content_id = f"content_song_audio_{version['id']}"
+        conn.execute(
+            "INSERT OR IGNORE INTO timeline_objects "
+            "(id, song_version_id, name, object_kind, main_content_id, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (
+                object_id,
+                version["id"],
+                "Imported Song",
+                "audio_clip",
+                content_id,
+                now,
+            ),
+        )
+        conn.execute(
+            "INSERT OR IGNORE INTO object_contents "
+            "(id, object_id, revision_id, content_kind, payload_json, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (
+                content_id,
+                object_id,
+                f"revision_song_audio_{version['audio_hash']}",
+                "audio_clip",
+                json.dumps({"audio_file": version["audio_file"]}),
+                now,
+            ),
+        )
+
+    layers = conn.execute(
+        "SELECT id, song_version_id, name, layer_type, source_pipeline, "
+        "state_flags_json, created_at FROM layers ORDER BY song_version_id, \"order\""
+    ).fetchall()
+    for layer in layers:
+        takes = conn.execute(
+            "SELECT id, label, is_main, source_json, data_json, created_at "
+            "FROM takes WHERE layer_id = ? ORDER BY created_at",
+            (layer["id"],),
+        ).fetchall()
+        if not takes:
+            continue
+        main_take = next((take for take in takes if int(take["is_main"]) == 1), takes[0])
+        object_id = f"object_{layer['id']}"
+        conn.execute(
+            "INSERT OR IGNORE INTO timeline_objects "
+            "(id, song_version_id, name, object_kind, main_content_id, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (
+                object_id,
+                layer["song_version_id"],
+                layer["name"],
+                _object_kind_for_legacy_layer(layer),
+                f"content_{main_take['id']}",
+                layer["created_at"],
+            ),
+        )
+        for take in takes:
+            conn.execute(
+                "INSERT OR IGNORE INTO object_contents "
+                "(id, object_id, revision_id, content_kind, payload_json, "
+                "source_ref_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (
+                    f"content_{take['id']}",
+                    object_id,
+                    f"revision_{take['id']}",
+                    _object_kind_for_legacy_layer(layer),
+                    json.dumps(_payload_for_legacy_take(take)),
+                    _source_ref_json_for_legacy_take(conn, layer, take),
+                    take["created_at"],
+                ),
+            )
+            if int(take["is_main"]) != 1:
+                conn.execute(
+                    "INSERT OR IGNORE INTO object_candidates "
+                    "(id, object_id, content_id, label, created_at) VALUES (?, ?, ?, ?, ?)",
+                    (
+                        f"candidate_{take['id']}",
+                        object_id,
+                        f"content_{take['id']}",
+                        take["label"],
+                        take["created_at"],
+                    ),
+                )
+
+
+def _object_kind_for_legacy_layer(row: sqlite3.Row) -> str:
+    state_flags = json.loads(row["state_flags_json"] or "{}")
+    manual_kind = str(state_flags.get("manual_kind") or "").strip()
+    if manual_kind == "audio":
+        return "audio_clip"
+    if manual_kind == "section":
+        return "section_cue_set"
+    source_pipeline = json.loads(row["source_pipeline"] or "{}")
+    output_name = str(source_pipeline.get("output_name") or "").lower()
+    if "stem" in output_name or row["layer_type"] == "audio":
+        return "generated_audio"
+    return "event_set"
+
+
+def _payload_for_legacy_take(row: sqlite3.Row) -> dict[str, object]:
+    payload: dict[str, object] = {"take_id": row["id"]}
+    data = json.loads(row["data_json"] or "{}")
+    if data.get("type") == "AudioData" and data.get("file_path"):
+        payload["audio_file"] = data["file_path"]
+    elif data.get("type") == "EventData":
+        layers = data.get("layers") or []
+        payload["event_layer_count"] = len(layers)
+        payload["event_count"] = sum(len(layer.get("events") or []) for layer in layers)
+    return payload
+
+
+def _source_ref_json_for_legacy_take(
+    conn: sqlite3.Connection,
+    layer: sqlite3.Row,
+    take: sqlite3.Row,
+) -> str | None:
+    source = json.loads(take["source_json"] or "{}")
+    settings = source.get("settings_snapshot") or {}
+    source_audio_path = str(settings.get("source_audio_path") or "").strip()
+    if not source_audio_path:
+        return None
+    source_content = _find_audio_content_for_legacy_locator(
+        conn,
+        song_version_id=layer["song_version_id"],
+        locator=source_audio_path,
+    )
+    if source_content is None:
+        raise PersistenceError(
+            "Cannot backfill object/content rows because a take source audio path "
+            f"does not resolve to persisted content: {source_audio_path}"
+        )
+    return json.dumps(
+        {
+            "object_id": source_content["object_id"],
+            "content_id": source_content["id"],
+            "revision_id": source_content["revision_id"],
+            "role": "audio_source",
+            "locator": source_audio_path,
+        }
+    )
+
+
+def _find_audio_content_for_legacy_locator(
+    conn: sqlite3.Connection,
+    *,
+    song_version_id: str,
+    locator: str,
+) -> sqlite3.Row | None:
+    rows = conn.execute(
+        "SELECT c.id, c.object_id, c.revision_id, c.payload_json "
+        "FROM object_contents c JOIN timeline_objects o ON o.id = c.object_id "
+        "WHERE o.song_version_id = ?",
+        (song_version_id,),
+    ).fetchall()
+    requested = _legacy_path_tokens(locator)
+    for row in rows:
+        payload = json.loads(row["payload_json"] or "{}")
+        audio_file = payload.get("audio_file")
+        if audio_file and requested & _legacy_path_tokens(str(audio_file)):
+            return row
+    return None
+
+
+def _legacy_path_tokens(value: str) -> set[str]:
+    text = str(value or "").strip()
+    if not text:
+        return set()
+    return {text, text.replace("\\", "/"), text.rsplit("/", 1)[-1].rsplit("\\", 1)[-1]}
 
 
 def init_db(conn: sqlite3.Connection) -> None:

@@ -176,10 +176,11 @@ def _track_identity_from_layer(
     payload: PlaybackSyncPayload,
     layer,
 ) -> _SyncTrackIdentity | None:
-    if layer.source_audio_path and layer.kind is not LayerKind.EVENT:
+    source_audio_path = _audio_source_ref(layer)
+    if source_audio_path and layer.kind is not LayerKind.EVENT:
         return _SyncTrackIdentity(
             track_id=str(layer.layer_id),
-            source_key=f"audio:{layer.source_audio_path}",
+            source_key=f"audio:{source_audio_path}",
             gain_db=float(layer.gain_db),
             muted=bool(layer.muted),
             output_bus=sanitize_output_bus_for_channels(
@@ -195,7 +196,7 @@ def _track_identity_from_layer(
         gain_db=float(layer.gain_db),
         muted=bool(layer.muted),
         output_bus=layer.output_bus,
-        playback_source_ref=str(layer.playback_source_ref or ""),
+        playback_source_ref=_event_source_ref(layer),
         events=layer.events,
     )
 
@@ -207,10 +208,11 @@ def _track_identity_from_take(
 ) -> _SyncTrackIdentity | None:
     layer_id = str(layer.layer_id)
     take_id = str(take.take_id)
-    if take.source_audio_path and layer.kind is not LayerKind.EVENT:
+    source_audio_path = _audio_source_ref(take)
+    if source_audio_path and layer.kind is not LayerKind.EVENT:
         return _SyncTrackIdentity(
             track_id=f"{layer_id}:{take_id}",
-            source_key=f"audio:{take.source_audio_path}",
+            source_key=f"audio:{source_audio_path}",
             gain_db=float(layer.gain_db),
             muted=bool(layer.muted),
             output_bus=sanitize_output_bus_for_channels(
@@ -226,7 +228,7 @@ def _track_identity_from_take(
         gain_db=float(layer.gain_db),
         muted=bool(layer.muted),
         output_bus=layer.output_bus,
-        playback_source_ref=str(take.playback_source_ref or ""),
+        playback_source_ref=_event_source_ref(take, fallback_layer=layer),
         events=take.events,
     )
 
@@ -255,7 +257,7 @@ def _event_track_identity(
 
 
 def _layer_has_playable_source(layer) -> bool:
-    has_continuous_source = bool(layer.source_audio_path and layer.kind is not LayerKind.EVENT)
+    has_continuous_source = bool(_audio_source_ref(layer) and layer.kind is not LayerKind.EVENT)
     return bool(has_continuous_source or _is_event_track_source(layer))
 
 
@@ -264,5 +266,32 @@ def _is_event_track_source(layer) -> bool:
         layer.kind is LayerKind.EVENT
         and bool(layer.playback_enabled)
         and layer.playback_mode == PlaybackMode.EVENT_SLICE
-        and bool(layer.playback_source_ref)
+        and bool(_event_source_ref(layer))
     )
+
+
+def _audio_source_ref(item) -> str | None:
+    source_audio_path = getattr(item, "source_audio_path", None)
+    if source_audio_path:
+        return str(source_audio_path)
+    source_content_ref = getattr(item, "source_content_ref", None)
+    locator = getattr(source_content_ref, "locator", None)
+    if locator:
+        return str(locator)
+    return None
+
+
+def _event_source_ref(item, *, fallback_layer=None) -> str:
+    source_content_ref = getattr(item, "source_content_ref", None)
+    locator = getattr(source_content_ref, "locator", None)
+    if locator:
+        return str(locator)
+    playback_source_ref = getattr(item, "playback_source_ref", None)
+    if playback_source_ref:
+        return str(playback_source_ref)
+    source_audio_path = getattr(item, "source_audio_path", None)
+    if source_audio_path:
+        return str(source_audio_path)
+    if fallback_layer is not None:
+        return _event_source_ref(fallback_layer)
+    return ""

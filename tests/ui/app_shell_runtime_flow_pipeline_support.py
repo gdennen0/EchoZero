@@ -5,6 +5,35 @@ Connects the compatibility wrapper to the bounded pipeline support slice.
 
 from tests.ui.app_shell_runtime_flow_shared_support import *  # noqa: F401,F403
 
+
+def _assert_presentation_object_refs_resolve(runtime, presentation) -> None:
+    for layer in presentation.layers:
+        if layer.object_id is not None:
+            object_record = runtime.project_storage.timeline_objects.get(str(layer.object_id))
+            assert object_record is not None
+            assert object_record.main_content_id == str(layer.main_content_id)
+        if layer.main_content_id is not None:
+            content_record = runtime.project_storage.object_contents.get(str(layer.main_content_id))
+            assert content_record is not None
+            assert content_record.revision_id == str(layer.main_revision_id)
+            if layer.source_content_ref is not None:
+                source_content = runtime.project_storage.object_contents.get(
+                    str(layer.source_content_ref.content_id)
+                )
+                assert source_content is not None
+        for take in layer.takes:
+            if take.content_id is not None:
+                take_content = runtime.project_storage.object_contents.get(str(take.content_id))
+                assert take_content is not None
+                assert take_content.object_id == str(take.object_id)
+                assert take_content.revision_id == str(take.revision_id)
+            if take.source_content_ref is not None:
+                source_content = runtime.project_storage.object_contents.get(
+                    str(take.source_content_ref.content_id)
+                )
+                assert source_content is not None
+
+
 def test_app_shell_runtime_extract_stems_persists_audio_layers_and_takes():
     temp_root = _repo_local_temp_root()
     runtime = build_app_shell(
@@ -31,6 +60,22 @@ def test_app_shell_runtime_extract_stems_persists_audio_layers_and_takes():
             assert layer.main_take_id is not None
             assert layer.source_audio_path
             assert layer.status.source_label.startswith("stem_separation")
+            assert layer.source_content_ref is not None
+            source_content = runtime.project_storage.object_contents.get(
+                str(layer.source_content_ref.content_id)
+            )
+            assert source_content is not None
+            assert source_content.object_id == str(layer.source_content_ref.object_id)
+            assert source_content.revision_id == str(layer.source_content_ref.revision_id)
+
+            layer_object = runtime.project_storage.timeline_objects.get(str(layer.object_id))
+            assert layer_object is not None
+            assert layer_object.main_content_id == str(layer.main_content_id)
+            main_content = runtime.project_storage.object_contents.get(
+                str(layer.main_content_id)
+            )
+            assert main_content is not None
+            assert main_content.source_ref == layer.source_content_ref.to_dict()
     finally:
         runtime.shutdown()
         shutil.rmtree(temp_root, ignore_errors=True)
@@ -177,12 +222,19 @@ def test_app_shell_runtime_delete_take_persists_numbered_take_labels_on_reload()
         after_delete = runtime.presentation()
         deleted_drums = next(layer for layer in after_delete.layers if layer.title == "Drums")
         assert deleted_drums.takes == []
+        drums_object = runtime.project_storage.timeline_objects.get(str(deleted_drums.object_id))
+        assert drums_object is not None
+        drums_contents = runtime.project_storage.object_contents.list_by_object(drums_object.id)
+        assert [content.id for content in drums_contents] == [str(deleted_drums.main_content_id)]
+        assert runtime.project_storage.object_candidates.list_by_object(drums_object.id) == []
 
         runtime.save_project_as(save_path)
         runtime.open_project(save_path)
 
         reloaded_drums = next(layer for layer in runtime.presentation().layers if layer.title == "Drums")
         assert reloaded_drums.takes == []
+        assert runtime.project_storage.object_contents.get(str(reloaded_drums.main_content_id)) is not None
+        _assert_presentation_object_refs_resolve(runtime, runtime.presentation())
     finally:
         runtime.shutdown()
         shutil.rmtree(temp_root, ignore_errors=True)
@@ -236,6 +288,10 @@ def test_app_shell_runtime_add_selection_to_main_persists_after_reload():
 
         after_action = next(layer for layer in runtime.presentation().layers if layer.title == "Onsets")
         assert len(after_action.events) == len(onsets_first.events) + 1
+        onsets_object = runtime.project_storage.timeline_objects.get(str(after_action.object_id))
+        assert onsets_object is not None
+        assert onsets_object.main_content_id == str(after_action.main_content_id)
+        assert runtime.project_storage.object_contents.get(str(after_action.main_content_id)) is not None
 
         runtime.save_project_as(save_path)
         runtime.open_project(save_path)
@@ -346,12 +402,23 @@ def test_app_shell_runtime_extract_song_drum_events_from_source_audio(monkeypatc
         titles = {layer.title for layer in event_layers}
         assert "Kick" in titles
         assert "Snare" in titles
-        assert all(layer.status.source_layer_id == "source_audio" for layer in event_layers)
-        assert all(layer.source_audio_path for layer in event_layers)
+        source_layer = next(layer for layer in presentation.layers if layer.object_id and str(layer.object_id).startswith("object_song_"))
+        assert all(layer.status.source_layer_id == str(source_layer.layer_id) for layer in event_layers)
+        assert all(layer.source_content_ref is not None for layer in event_layers)
         assert all(
-            Path(str(layer.source_audio_path)).name == "drums.wav"
+            Path(str(layer.source_content_ref.locator)).name == "drums.wav"
             for layer in event_layers
+            if layer.source_content_ref is not None
         )
+        for layer in event_layers:
+            source_ref = layer.source_content_ref
+            assert source_ref is not None
+            source_content = runtime.project_storage.object_contents.get(
+                str(source_ref.content_id)
+            )
+            assert source_content is not None
+            assert source_content.object_id == str(source_ref.object_id)
+            assert source_content.revision_id == str(source_ref.revision_id)
         detect_calls = {
             (block_id, Path(audio_path).name) for block_id, audio_path in detect_executor.calls
         }
@@ -429,10 +496,15 @@ def test_app_shell_runtime_extract_song_drum_events_adds_selected_stem_layers(mo
 
         bass_layer = next(layer for layer in audio_layers if layer.title == "Bass")
         vocals_layer = next(layer for layer in audio_layers if layer.title == "Vocals")
+        source_layer = next(
+            layer
+            for layer in presentation.layers
+            if layer.object_id and str(layer.object_id).startswith("object_song_")
+        )
         assert Path(str(bass_layer.source_audio_path)).name == "bass.wav"
         assert Path(str(vocals_layer.source_audio_path)).name == "vocals.wav"
-        assert bass_layer.status.source_layer_id == "source_audio"
-        assert vocals_layer.status.source_layer_id == "source_audio"
+        assert bass_layer.status.source_layer_id == str(source_layer.layer_id)
+        assert vocals_layer.status.source_layer_id == str(source_layer.layer_id)
 
         event_layers = [layer for layer in presentation.layers if layer.kind.name == "EVENT"]
         event_titles = {layer.title for layer in event_layers}
@@ -465,8 +537,12 @@ def test_app_shell_runtime_extract_song_drum_events_source_audio_survives_save_a
 
         event_layers = [layer for layer in runtime.presentation().layers if layer.kind.name == "EVENT"]
         assert event_layers
-        assert all(layer.source_audio_path for layer in event_layers)
-        assert all(Path(str(layer.source_audio_path)).exists() for layer in event_layers)
+        assert all(layer.source_content_ref is not None for layer in event_layers)
+        assert all(
+            Path(str(layer.source_content_ref.locator)).exists()
+            for layer in event_layers
+            if layer.source_content_ref is not None
+        )
     finally:
         runtime.shutdown()
         shutil.rmtree(temp_root, ignore_errors=True)
@@ -1027,18 +1103,22 @@ def test_app_shell_runtime_extract_song_sections_persists_section_layer():
         section_layer = next(layer for layer in presentation.layers if layer.title == "Sections")
         assert section_layer.kind is LayerKind.SECTION
         assert [event.label for event in section_layer.events] == ["Intro", "Chorus"]
-        assert section_layer.status.source_layer_id == "source_audio"
-        assert section_layer.source_audio_path
-        assert Path(str(section_layer.source_audio_path)).name == "section-source.wav"
+        source_layer = next(
+            layer
+            for layer in presentation.layers
+            if layer.object_id and str(layer.object_id).startswith("object_song_")
+        )
+        assert section_layer.status.source_layer_id == str(source_layer.layer_id)
+        assert section_layer.source_content_ref is not None
+        assert Path(str(section_layer.source_content_ref.locator)).exists()
         assert presentation.section_cues
         assert presentation.section_cues[0].cue_ref == "intro_01"
         rerun_presentation = runtime.extract_song_sections(section_layer.layer_id)
         rerun_section_layer = next(layer for layer in rerun_presentation.layers if layer.title == "Sections")
         assert rerun_section_layer.kind is LayerKind.SECTION
-        assert [Path(path).name for path in captured_audio_paths] == [
-            "section-source.wav",
-            "section-source.wav",
-        ]
+        assert len(captured_audio_paths) == 2
+        assert all(Path(path).exists() for path in captured_audio_paths)
+        assert captured_audio_paths[0] == captured_audio_paths[1]
     finally:
         runtime.shutdown()
         shutil.rmtree(temp_root, ignore_errors=True)

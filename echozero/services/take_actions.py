@@ -14,10 +14,16 @@ from echozero.services.dependencies import (
     capture_main_lineage,
     mark_dependents_stale_on_upstream_main_change,
 )
+from echozero.application.timeline.object_content_persistence import (
+    object_id_for_layer,
+    sync_layer_object_content,
+)
 from echozero.takes import Take
 
 
-def promote_take_to_main(session: ProjectStorage, *, layer_id: str, take_id: str) -> tuple[LayerRecord, list[LayerRecord]]:
+def promote_take_to_main(
+    session: ProjectStorage, *, layer_id: str, take_id: str
+) -> tuple[LayerRecord, list[LayerRecord]]:
     """Promote a take to main and mark direct dependents stale if the main changed.
 
     Returns:
@@ -26,13 +32,13 @@ def promote_take_to_main(session: ProjectStorage, *, layer_id: str, take_id: str
     """
     layer = session.layers.get(layer_id)
     if layer is None:
-        raise ValueError(f'Layer not found: {layer_id}')
+        raise ValueError(f"Layer not found: {layer_id}")
 
     takes = session.takes.list_by_layer(layer_id)
     previous_main = next((t for t in takes if t.is_main), None)
     target = next((t for t in takes if t.id == take_id), None)
     if target is None:
-        raise ValueError(f'Take not found: {take_id}')
+        raise ValueError(f"Take not found: {take_id}")
 
     if previous_main is not None and previous_main.id == target.id:
         return layer, session.layers.list_by_version(layer.song_version_id)
@@ -48,6 +54,17 @@ def promote_take_to_main(session: ProjectStorage, *, layer_id: str, take_id: str
 
     updated_parent = capture_main_lineage(layer, new_main)
     session.layers.update(updated_parent)
+    object_record = session.timeline_objects.get(object_id_for_layer(layer.id))
+    sync_layer_object_content(
+        session,
+        song_version_id=updated_parent.song_version_id,
+        layer_id=updated_parent.id,
+        layer_name=updated_parent.name,
+        content_kind=(
+            object_record.object_kind if object_record is not None else updated_parent.layer_type
+        ),
+        takes=session.takes.list_by_layer(layer_id),
+    )
 
     all_layers = session.layers.list_by_version(layer.song_version_id)
     stale_updated = mark_dependents_stale_on_upstream_main_change(

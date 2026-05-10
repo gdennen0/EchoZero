@@ -10,10 +10,13 @@ from dataclasses import replace
 from echozero.application.shared.enums import LayerKind
 from echozero.application.shared.ids import (
     LayerId,
+    ObjectContentId,
+    ObjectRevisionId,
     SongId,
     SongVersionId,
     TakeId,
     TimelineId,
+    TimelineObjectId,
 )
 from echozero.application.timeline.models import (
     Layer,
@@ -21,6 +24,12 @@ from echozero.application.timeline.models import (
     Take,
     Timeline,
     derive_section_cues_from_layers,
+)
+from echozero.application.timeline.object_content_persistence import (
+    imported_song_content_id,
+    imported_song_object_id,
+    imported_song_revision_id,
+    require_source_ref,
 )
 from echozero.persistence.session import ProjectStorage
 from echozero.ui.qt.app_shell_project_timeline_overlay import (
@@ -98,7 +107,18 @@ def build_project_native_baseline_timeline(
     timeline_id = TimelineId(f"timeline_{project.id}")
     source_audio_path = resolve_project_audio_path(project_storage, version.audio_file)
     waveform_key = ensure_registered_waveform(f"song-{version.id}", source_audio_path)
-    source_layer_id = LayerId("source_audio")
+    source_ref = require_source_ref(
+        project_storage,
+        object_id=imported_song_object_id(version.id),
+        content_id=imported_song_content_id(version.id),
+        revision_id=imported_song_revision_id(version.audio_hash),
+        role="imported_song_audio",
+        locator=str(source_audio_path),
+    )
+    source_object_id = source_ref.object_id
+    source_content_id = source_ref.content_id
+    source_revision_id = source_ref.revision_id
+    source_layer_id = LayerId(f"layer_song_{version.id}")
     source_take_id = TakeId(f"take_source_{version.id}")
     layers: list[Layer] = [
         Layer(
@@ -107,12 +127,18 @@ def build_project_native_baseline_timeline(
             name=active_song.title,
             kind=LayerKind.AUDIO,
             order_index=0,
+            object_id=source_object_id,
+            main_content_id=source_content_id,
+            main_revision_id=source_revision_id,
             takes=[
                 Take(
                     id=source_take_id,
                     layer_id=source_layer_id,
                     name="Main",
                     source_ref="Imported track",
+                    object_id=source_object_id,
+                    content_id=source_content_id,
+                    revision_id=source_revision_id,
                 )
             ],
             playback=replace(

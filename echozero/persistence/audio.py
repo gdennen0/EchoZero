@@ -109,10 +109,15 @@ def prepare_audio_for_import(
 
     ltc_channel = resolved_options.ltc_channel_override
     if ltc_channel is None:
-        ltc_channel = detect_ltc_channel(
-            source_path,
-            mode=resolved_options.ltc_detection_mode,
-        )
+        try:
+            ltc_channel = detect_ltc_channel(
+                source_path,
+                mode=resolved_options.ltc_detection_mode,
+            )
+        except TypeError as exc:
+            if "mode" not in str(exc):
+                raise
+            ltc_channel = detect_ltc_channel(source_path)
     if ltc_channel is None:
         return PreparedAudioSource(source_path=source_path)
 

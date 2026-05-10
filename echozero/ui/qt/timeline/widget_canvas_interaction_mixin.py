@@ -20,6 +20,10 @@ from echozero.application.presentation.inspector_contract import (
 from echozero.application.presentation.models import EventPresentation, LayerPresentation
 from echozero.application.shared.ids import EventId, LayerId, TakeId
 from echozero.application.timeline.models import EventRef
+from echozero.application.timeline.object_content import (
+    LEGACY_SOURCE_AUDIO_LAYER_ID,
+    is_imported_song_layer,
+)
 from echozero.ui.FEEL import (
     DRAG_THRESHOLD_PX,
     MOVE_DRAG_SNAP_LOCK_MULTIPLIER,
@@ -407,7 +411,7 @@ class _TimelineCanvasInteractionMixin:
             if rect.contains(pos):
                 if (
                     event.button() == Qt.MouseButton.LeftButton
-                    and str(layer_id) != "source_audio"
+                    and not _is_imported_song_layer_id(self.presentation, layer_id)
                 ):
                     self._layer_drag_candidate = LayerDragCandidate(
                         source_layer_id=layer_id,
@@ -1902,3 +1906,11 @@ class _TimelineCanvasInteractionMixin:
             kind="timeline",
             time_seconds=self._seek_time_at_x(pos.x()) if pos.x() >= self._header_width else None,
         )
+
+
+def _is_imported_song_layer_id(presentation, layer_id) -> bool:
+    for layer in getattr(presentation, "layers", ()):
+        if str(getattr(layer, "layer_id", "")) != str(layer_id):
+            continue
+        return is_imported_song_layer(layer)
+    return str(layer_id) == LEGACY_SOURCE_AUDIO_LAYER_ID

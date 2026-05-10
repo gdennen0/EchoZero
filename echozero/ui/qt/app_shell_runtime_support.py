@@ -17,6 +17,10 @@ from echozero.application.timeline.object_actions import ObjectActionService
 from echozero.application.timeline.operation_progress_service import (
     OperationProgressService,
 )
+from echozero.application.timeline.object_content import (
+    LEGACY_SOURCE_AUDIO_LAYER_ID,
+    is_imported_song_layer,
+)
 from echozero.infrastructure.osc import OscUdpSendTransport
 from echozero.persistence.session import ProjectStorage
 from echozero.services.orchestrator import Orchestrator
@@ -124,8 +128,8 @@ def build_object_action_services(shell: _RuntimeControllerLike) -> None:
 
 
 def select_active_source_layer(shell: _RuntimeControllerLike) -> None:
-    source_layer_id = LayerId("source_audio")
-    if not any(layer.id == source_layer_id for layer in shell._app.timeline.layers):
+    source_layer_id = _active_source_layer_id(shell)
+    if source_layer_id is None:
         return
     timeline = shell._app.timeline
     timeline.selection.selected_layer_id = source_layer_id
@@ -306,10 +310,24 @@ def apply_ma3_osc_runtime_config(shell: _RuntimeControllerLike) -> bool:
 
 
 def require_layer(shell: _RuntimeControllerLike, layer_id: LayerId) -> LayerPresentation:
+    if str(layer_id) == LEGACY_SOURCE_AUDIO_LAYER_ID:
+        resolved = _active_source_layer_id(shell)
+        if resolved is not None:
+            layer_id = resolved
     for layer in shell.presentation().layers:
         if layer.layer_id == layer_id:
             return layer
     raise ValueError(f"Unknown layer_id: {layer_id}")
+
+
+def _active_source_layer_id(shell: _RuntimeControllerLike) -> LayerId | None:
+    for layer in shell._app.timeline.layers:
+        if is_imported_song_layer(layer):
+            return layer.id
+    for layer in shell._app.timeline.layers:
+        if layer.kind.value == "audio" and layer.order_index == 0:
+            return layer.id
+    return None
 
 
 def shutdown(shell: _RuntimeControllerLike) -> None:

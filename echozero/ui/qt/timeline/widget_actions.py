@@ -1113,19 +1113,19 @@ class TimelineWidgetActionRouter(
     ) -> LayerId | None:
         presentation = self._get_presentation()
         for layer in presentation.layers:
-            if str(layer.layer_id).strip() == "source_audio":
+            if str(getattr(layer, "object_id", "") or "").startswith("object_song_"):
                 return cast(LayerId, layer.layer_id)
         for layer in presentation.layers:
             if layer.kind is LayerKind.AUDIO:
                 return cast(LayerId, layer.layer_id)
         runtime_presentation = runtime.presentation()
         for layer in runtime_presentation.layers:
-            if str(layer.layer_id).strip() == "source_audio":
+            if str(getattr(layer, "object_id", "") or "").startswith("object_song_"):
                 return cast(LayerId, layer.layer_id)
         for layer in runtime_presentation.layers:
             if layer.kind is LayerKind.AUDIO:
                 return cast(LayerId, layer.layer_id)
-        return cast(LayerId, "source_audio")
+        return None
 
     def _configured_import_pipeline_actions(
         self,

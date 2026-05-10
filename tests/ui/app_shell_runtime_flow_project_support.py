@@ -5,9 +5,11 @@ Connects the compatibility wrapper to the bounded project support slice.
 
 import echozero.ui.qt.app_shell_project_lifecycle as project_lifecycle
 from echozero.application.timeline.ma3_push_intents import SetLayerMA3Route
+from echozero.application.timeline.object_content_persistence import object_id_for_layer
 from echozero.persistence.audio import AudioMetadata, PreparedAudioSource, compute_audio_hash
 
 from tests.ui.app_shell_runtime_flow_shared_support import *  # noqa: F401,F403
+
 
 def test_app_shell_runtime_new_save_open_reopen_flow():
     temp_root = _repo_local_temp_root()
@@ -101,9 +103,7 @@ def test_app_shell_runtime_persists_take_lane_expansion_state_across_save_and_op
         audio = write_test_wav(temp_root / "fixtures" / "lane-state.wav")
         runtime.add_song_from_path("Lane State Song", audio)
         runtime.add_layer(LayerKind.EVENT, "Lane Manual")
-        layer = next(
-            lane for lane in runtime.presentation().layers if lane.title == "Lane Manual"
-        )
+        layer = next(lane for lane in runtime.presentation().layers if lane.title == "Lane Manual")
         layer_id = layer.layer_id
 
         assert layer.is_expanded is False
@@ -206,7 +206,9 @@ def test_app_shell_runtime_persists_layer_ma3_route_across_save_and_open():
         audio = write_test_wav(temp_root / "fixtures" / "ma3-route-state.wav")
         runtime.add_song_from_path("MA3 Route Song", audio)
         runtime.add_layer(LayerKind.EVENT, "Route Me")
-        route_layer = next(layer for layer in runtime.presentation().layers if layer.title == "Route Me")
+        route_layer = next(
+            layer for layer in runtime.presentation().layers if layer.title == "Route Me"
+        )
 
         runtime.dispatch(
             SetLayerMA3Route(
@@ -215,15 +217,49 @@ def test_app_shell_runtime_persists_layer_ma3_route_across_save_and_open():
             )
         )
         routed = next(
-            layer for layer in runtime.presentation().layers if layer.layer_id == route_layer.layer_id
+            layer
+            for layer in runtime.presentation().layers
+            if layer.layer_id == route_layer.layer_id
         )
         assert routed.sync_target_label == "tc1_tg2_tr7"
 
         runtime.save_project_as(save_path)
         runtime.open_project(save_path)
 
-        reloaded = next(layer for layer in runtime.presentation().layers if layer.title == "Route Me")
+        reloaded = next(
+            layer for layer in runtime.presentation().layers if layer.title == "Route Me"
+        )
         assert reloaded.sync_target_label == "tc1_tg2_tr7"
+    finally:
+        runtime.shutdown()
+        shutil.rmtree(temp_root, ignore_errors=True)
+
+
+def test_app_shell_runtime_delete_persisted_layer_removes_object_content_truth():
+    temp_root = _repo_local_temp_root()
+    runtime = build_app_shell(
+        working_dir_root=temp_root / "working",
+        initial_project_name="Delete Layer Object Truth",
+    )
+
+    try:
+        audio = write_test_wav(temp_root / "fixtures" / "delete-layer.wav")
+        runtime.add_song_from_path("Delete Layer Song", audio)
+        runtime.add_layer(LayerKind.AUDIO, "Layer To Delete")
+        layer = next(
+            layer for layer in runtime.presentation().layers if layer.title == "Layer To Delete"
+        )
+        object_id = object_id_for_layer(layer.layer_id)
+
+        assert runtime.project_storage.timeline_objects.get(object_id) is not None
+        assert runtime.project_storage.object_contents.list_by_object(object_id)
+
+        runtime.delete_layer(str(layer.layer_id))
+
+        assert runtime.project_storage.layers.get(str(layer.layer_id)) is None
+        assert runtime.project_storage.timeline_objects.get(object_id) is None
+        assert runtime.project_storage.object_contents.list_by_object(object_id) == []
+        assert runtime.project_storage.object_candidates.list_by_object(object_id) == []
     finally:
         runtime.shutdown()
         shutil.rmtree(temp_root, ignore_errors=True)
@@ -277,9 +313,7 @@ def test_app_shell_runtime_import_smpte_audio_to_layer_uses_extracted_ltc_when_a
         printed_dual_track = Path(
             write_test_wav(temp_root / "fixtures" / "printed-dual-track.wav")
         )
-        extracted_ltc = Path(
-            write_test_wav(temp_root / "fixtures" / "extracted-ltc.wav")
-        )
+        extracted_ltc = Path(write_test_wav(temp_root / "fixtures" / "extracted-ltc.wav"))
 
         scanned_paths: list[Path] = []
         cleanup_calls: list[PreparedAudioSource] = []
@@ -356,9 +390,7 @@ def test_app_shell_runtime_import_smpte_audio_to_layer_uses_source_when_ltc_not_
             layer for layer in runtime.presentation().layers if layer.title == "SMPTE Layer"
         )
 
-        smpte_source = Path(
-            write_test_wav(temp_root / "fixtures" / "standalone-smpte.wav")
-        )
+        smpte_source = Path(write_test_wav(temp_root / "fixtures" / "standalone-smpte.wav"))
         scanned_paths: list[Path] = []
 
         def _fake_prepare(
@@ -395,6 +427,87 @@ def test_app_shell_runtime_import_smpte_audio_to_layer_uses_source_when_ltc_not_
         assert isinstance(persisted_take.data, AudioData)
         assert Path(str(persisted_take.data.file_path)).name == f"{expected_hash_prefix}.wav"
         assert scanned_paths == [smpte_source.resolve()]
+    finally:
+        runtime.shutdown()
+        shutil.rmtree(temp_root, ignore_errors=True)
+
+
+def test_app_shell_runtime_import_smpte_audio_refreshes_object_content_after_reopen(
+    monkeypatch,
+):
+    temp_root = _repo_local_temp_root()
+    save_path = temp_root / "smpte-object-content.ez"
+    runtime = build_app_shell(
+        working_dir_root=temp_root / "working",
+        initial_project_name="SMPTE Object Content",
+    )
+
+    try:
+        source_song = write_test_wav(temp_root / "fixtures" / "smpte-object-song.wav")
+        runtime.add_song_from_path("SMPTE Object Song", source_song)
+        runtime.add_layer(LayerKind.AUDIO, "SMPTE Layer")
+        smpte_layer = next(
+            layer for layer in runtime.presentation().layers if layer.title == "SMPTE Layer"
+        )
+
+        smpte_source = Path(write_test_wav(temp_root / "fixtures" / "fresh-smpte.wav"))
+
+        def _fake_prepare(
+            source_path: Path,
+            working_dir: Path,
+            *,
+            options=None,
+            scan_fn=None,
+        ) -> PreparedAudioSource:
+            del working_dir, options, scan_fn
+            return PreparedAudioSource(source_path=source_path)
+
+        def _fake_scan(path: Path, scan_fn=None) -> AudioMetadata:
+            del path, scan_fn
+            return AudioMetadata(duration_seconds=12.0, sample_rate=48000, channel_count=1)
+
+        monkeypatch.setattr(
+            "echozero.ui.qt.app_shell_editing_mixin.prepare_audio_for_import",
+            _fake_prepare,
+        )
+        monkeypatch.setattr(
+            "echozero.ui.qt.app_shell_editing_mixin.scan_audio_metadata",
+            _fake_scan,
+        )
+
+        updated = runtime.import_smpte_audio_to_layer(
+            str(smpte_layer.layer_id),
+            str(smpte_source),
+        )
+        updated_layer = next(
+            layer for layer in updated.layers if layer.layer_id == smpte_layer.layer_id
+        )
+        expected_hash_prefix = compute_audio_hash(smpte_source)[:16]
+        live_content = runtime.project_storage.object_contents.get(
+            str(updated_layer.main_content_id)
+        )
+        assert live_content is not None
+        assert Path(str(live_content.payload["audio_file"])).name == f"{expected_hash_prefix}.wav"
+        assert live_content.source_ref is None
+
+        runtime.save_project_as(save_path)
+        runtime.open_project(save_path)
+
+        reopened_layer = next(
+            layer
+            for layer in runtime.presentation().layers
+            if layer.layer_id == smpte_layer.layer_id
+        )
+        reopened_content = runtime.project_storage.object_contents.get(
+            str(reopened_layer.main_content_id)
+        )
+        assert reopened_content is not None
+        assert (
+            Path(str(reopened_content.payload["audio_file"])).name == f"{expected_hash_prefix}.wav"
+        )
+        assert reopened_content.source_ref is None
+        assert reopened_layer.source_audio_path is not None
+        assert reopened_layer.source_audio_path.endswith(f"{expected_hash_prefix}.wav")
     finally:
         runtime.shutdown()
         shutil.rmtree(temp_root, ignore_errors=True)
@@ -565,7 +678,6 @@ def test_app_shell_runtime_add_song_from_path_updates_presentation():
     finally:
         runtime.shutdown()
         shutil.rmtree(temp_root, ignore_errors=True)
-
 
 
 def test_app_shell_runtime_import_song_creates_default_pipeline_configs():
@@ -895,7 +1007,9 @@ def test_app_shell_runtime_delete_song_switches_to_neighbor_and_clears_empty_pro
         assert runtime.session.active_song_id is None
         assert runtime.session.active_song_version_id is None
         assert emptied.layers == []
-        assert runtime.project_storage.songs.list_by_project(runtime.project_storage.project.id) == []
+        assert (
+            runtime.project_storage.songs.list_by_project(runtime.project_storage.project.id) == []
+        )
     finally:
         runtime.shutdown()
         shutil.rmtree(temp_root, ignore_errors=True)
@@ -964,10 +1078,18 @@ def test_app_shell_runtime_move_song_and_reorder_songs_update_setlist_order():
         song_3_id = str(runtime.session.active_song_id)
 
         moved = runtime.move_song(song_3_id, steps=-2)
-        assert [song.song_id for song in moved.available_songs] == [song_3_id, song_1_id, song_2_id]
+        assert [song.song_id for song in moved.available_songs] == [
+            song_3_id,
+            song_1_id,
+            song_2_id,
+        ]
 
         reordered = runtime.reorder_songs([song_2_id, song_3_id, song_1_id])
-        assert [song.song_id for song in reordered.available_songs] == [song_2_id, song_3_id, song_1_id]
+        assert [song.song_id for song in reordered.available_songs] == [
+            song_2_id,
+            song_3_id,
+            song_1_id,
+        ]
     finally:
         runtime.shutdown()
         shutil.rmtree(temp_root, ignore_errors=True)
@@ -1201,7 +1323,6 @@ def test_app_shell_runtime_refresh_repairs_missing_selection_to_baseline_layer()
     finally:
         runtime.shutdown()
         shutil.rmtree(temp_root, ignore_errors=True)
-
 
 
 __all__ = [name for name in globals() if name.startswith("test_")]

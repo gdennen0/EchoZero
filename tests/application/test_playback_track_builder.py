@@ -7,7 +7,9 @@ from types import SimpleNamespace
 import numpy as np
 
 from echozero.application.playback.tracks import PlaybackTrackBuilder
+from echozero.application.shared.ids import ObjectContentId, ObjectRevisionId, TimelineObjectId
 from echozero.application.shared.enums import PlaybackMode
+from echozero.application.timeline.object_content import SourceRef
 
 
 def _presentation(*, output_bus: str | None, playback_output_channels: int) -> object:
@@ -112,6 +114,50 @@ def test_playback_track_builder_uses_event_slice_mode_for_event_layers() -> None
 
     assert len(plan.tracks) == 1
     assert plan.tracks[0].source_key.startswith("event:")
+
+
+def test_playback_track_builder_uses_object_source_ref_without_legacy_audio_path() -> None:
+    observed_paths: list[str] = []
+
+    def _load_audio(path: str):
+        observed_paths.append(path)
+        return np.array([0.25, -0.25], dtype=np.float32), 44100
+
+    builder = PlaybackTrackBuilder(_load_audio)
+    presentation = SimpleNamespace(
+        layers=[
+            SimpleNamespace(
+                layer_id="layer_event",
+                title="Kick",
+                kind="event",
+                source_audio_path=None,
+                source_content_ref=SourceRef(
+                    object_id=TimelineObjectId("object_song_version"),
+                    content_id=ObjectContentId("content_song_audio_version"),
+                    revision_id=ObjectRevisionId("revision_song_audio_hash"),
+                    role="imported_song_audio",
+                    locator="song.wav",
+                ),
+                playback_enabled=True,
+                playback_mode=PlaybackMode.EVENT_SLICE,
+                playback_source_ref=None,
+                events=[SimpleNamespace(start=0.0, muted=False, badges=())],
+                output_bus=None,
+                muted=False,
+                soloed=False,
+                takes=[],
+            )
+        ],
+        selected_layer_id="layer_event",
+        selected_take_id=None,
+        playback_output_channels=2,
+    )
+
+    plan = builder.build_track_plan(presentation)
+
+    assert len(plan.tracks) == 1
+    assert plan.tracks[0].source_key.startswith("event:")
+    assert observed_paths == ["song.wav"]
 
 
 def test_playback_track_builder_event_slice_overlap_scales_to_prevent_hard_clip() -> None:

@@ -22,6 +22,7 @@ from echozero.application.shared.enums import LayerKind
 from echozero.application.shared.ids import EventId, LayerId, TakeId
 from echozero.application.sync.models import LiveSyncState
 from echozero.application.timeline.event_batch_scope import event_batch_scope_from_params
+from echozero.application.timeline.object_content import is_imported_song_layer
 from echozero.application.timeline.intents import (
     ClearLayerLiveSyncPauseReason,
     DuplicateSelectedEvents,
@@ -1477,7 +1478,7 @@ class TimelineWidgetContractActionMixin:
         return [
             (str(layer.layer_id), layer.title.strip() or f"Layer {index + 1}")
             for index, layer in enumerate(presentation.layers)
-            if str(layer.layer_id) != "source_audio"
+            if not _is_imported_song_layer(layer)
         ]
 
     def _prompt_selected_transfer_layer_ids(
@@ -1770,3 +1771,7 @@ class TimelineWidgetContractActionMixin:
             return float(text)
         except ValueError as exc:
             raise ValueError("MA3 push offset must be numeric.") from exc
+
+
+def _is_imported_song_layer(layer: object) -> bool:
+    return is_imported_song_layer(layer)
