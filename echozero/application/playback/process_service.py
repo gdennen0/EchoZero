@@ -24,7 +24,10 @@ from echozero.application.playback.process_shared import (
 )
 from echozero.application.playback.process_events_hub import PlaybackEventsHub
 from echozero.application.playback.runtime import PlaybackController
-from echozero.application.playback.sync_projection import PlaybackSyncPayload, RuntimeSyncProjection
+from echozero.application.playback.sync_projection import (
+    PlaybackSyncPayload,
+    RuntimeSyncProjection,
+)
 from echozero.application.settings import AudioOutputRuntimeConfig
 from echozero.audio.engine import AudioEngine
 from echozero.errors import InfrastructureError
@@ -87,6 +90,7 @@ class PlaybackProcessService:
         self._last_glitch_change_monotonic = time.perf_counter()
         self._adaptive_profile_suspend_until_monotonic = 0.0
         self._device_reinit_count = 0
+        self._last_device_reinit_reason = ""
         self._rt_event_queue: deque[dict[str, object]] = deque(maxlen=2048)
 
         self._controller = self._build_controller()
@@ -96,7 +100,9 @@ class PlaybackProcessService:
 
     def run(self) -> int:
         self._events_hub.start()
-        self._publish_event("service-started", {"pid": self.pid, "ws_url": self._events_hub.ws_url})
+        self._publish_event(
+            "service-started", {"pid": self.pid, "ws_url": self._events_hub.ws_url}
+        )
         try:
             while not self._shutdown_requested:
                 self._http_server.handle_request()
@@ -232,8 +238,7 @@ class PlaybackProcessService:
             )
             if was_playing:
                 self._adaptive_profile_suspend_until_monotonic = (
-                    time.perf_counter()
-                    + self._ADAPTIVE_PROFILE_SUSPEND_AFTER_RUNNING_SEEK_SECONDS
+                    time.perf_counter() + self._ADAPTIVE_PROFILE_SUSPEND_AFTER_RUNNING_SEEK_SECONDS
                 )
             return {"position_seconds": position}
 
@@ -259,7 +264,9 @@ class PlaybackProcessService:
             generation = int(params.get("generation", 0) or 0)
             self._latest_projection = projection
             self._controller.sync_structure_state(projection)
-            resolved_generation = int(getattr(self._controller, "_latest_requested_generation", 0) or 0)
+            resolved_generation = int(
+                getattr(self._controller, "_latest_requested_generation", 0) or 0
+            )
             if generation <= 0:
                 generation = resolved_generation
             self._telemetry.structural_generation = int(resolved_generation)
@@ -279,7 +286,9 @@ class PlaybackProcessService:
         if operation == "enqueue_seek":
             target_samples = int(params.get("target_samples", 0) or 0)
             seek_id = str(params.get("seek_id", "") or "")
-            position_seconds = float(target_samples) / float(max(1, self._controller.engine.sample_rate))
+            position_seconds = float(target_samples) / float(
+                max(1, self._controller.engine.sample_rate)
+            )
             self._controller.seek(position_seconds)
             self._push_rt_event(
                 "seek-enqueued",
@@ -343,7 +352,9 @@ class PlaybackProcessService:
         if operation == "presentation_signature":
             projection = self._require_projection(params)
             return {
-                "value": [list(item) for item in self._controller.presentation_signature(projection)]
+                "value": [
+                    list(item) for item in self._controller.presentation_signature(projection)
+                ]
             }
 
         if operation == "snapshot_state":
@@ -385,9 +396,12 @@ class PlaybackProcessService:
         diagnostics.ipc_rtt_ms = float(self._telemetry.ipc_rtt_ms)
         diagnostics.last_ipc_error = self._telemetry.last_ipc_error
         diagnostics.latency_profile = self._telemetry.latency_profile
-        diagnostics.latency_profile_switch_count = int(self._telemetry.latency_profile_switch_count)
+        diagnostics.latency_profile_switch_count = int(
+            self._telemetry.latency_profile_switch_count
+        )
         diagnostics.last_latency_profile_reason = self._telemetry.last_latency_profile_reason
         diagnostics.device_reinit_count = int(self._device_reinit_count)
+        diagnostics.last_device_reinit_reason = self._last_device_reinit_reason
         diagnostics.rt_command_queue_depth = int(len(self._rt_event_queue))
 
     def _tick(self) -> None:
@@ -447,15 +461,14 @@ class PlaybackProcessService:
             burst_total >= self._GLITCH_STEP_UP_THRESHOLD
             and self._profile_index < len(self._LATENCY_PROFILE_SPECS) - 1
         ):
-            self._switch_latency_profile(self._profile_index + 1, reason="auto-up-glitch-threshold")
+            self._switch_latency_profile(
+                self._profile_index + 1, reason="auto-up-glitch-threshold"
+            )
             self._glitch_burst_events.clear()
             return
 
         stable_for_seconds = now - self._last_glitch_change_monotonic
-        if (
-            stable_for_seconds >= self._GLITCH_STEP_DOWN_STABLE_SECONDS
-            and self._profile_index > 0
-        ):
+        if stable_for_seconds >= self._GLITCH_STEP_DOWN_STABLE_SECONDS and self._profile_index > 0:
             self._switch_latency_profile(self._profile_index - 1, reason="auto-down-stable-window")
 
     def _switch_latency_profile(self, next_index: int, *, reason: str) -> None:
@@ -471,7 +484,9 @@ class PlaybackProcessService:
                 "latency-profile-switch-deferred",
                 {
                     "current_profile": self._telemetry.latency_profile,
-                    "pending_profile": self._LATENCY_PROFILE_SPECS[self._pending_profile_index].name,
+                    "pending_profile": self._LATENCY_PROFILE_SPECS[
+                        self._pending_profile_index
+                    ].name,
                     "reason": reason,
                 },
             )
@@ -485,6 +500,8 @@ class PlaybackProcessService:
         was_playing = bool(self._controller.is_playing())
         self._controller.shutdown()
         self._controller = self._build_controller()
+        self._device_reinit_count += 1
+        self._last_device_reinit_reason = "latency-profile-change"
         if projection is not None:
             self._controller.sync_structure_state(projection)
             if current_time > 0.0:
@@ -629,6 +646,7 @@ class PlaybackProcessService:
 
     def _reconfigure_device(self, device_spec: dict[str, object]) -> None:
         current = self._base_audio_config or AudioOutputRuntimeConfig()
+        reason = self._classify_device_reconfigure_reason(device_spec)
         self._base_audio_config = AudioOutputRuntimeConfig(
             output_device=device_spec.get("output_device", current.output_device),
             sample_rate=(
@@ -660,11 +678,30 @@ class PlaybackProcessService:
         self._controller.shutdown()
         self._controller = self._build_controller()
         self._device_reinit_count += 1
+        self._last_device_reinit_reason = reason
         if projection is not None:
             self._controller.sync_structure_state(projection)
             if current_time > 0.0:
                 self._controller.seek(current_time)
             if was_playing:
                 self._controller.play()
+
+    @staticmethod
+    def _classify_device_reconfigure_reason(device_spec: dict[str, object]) -> str:
+        if "output_device" in device_spec:
+            return "device-change"
+        if any(
+            key in device_spec
+            for key in (
+                "sample_rate",
+                "channels",
+                "stream_latency",
+                "stream_blocksize",
+                "prime_output_buffers_using_stream_callback",
+            )
+        ):
+            return "settings-change"
+        return "device-refresh"
+
 
 __all__ = ["PlaybackProcessService"]

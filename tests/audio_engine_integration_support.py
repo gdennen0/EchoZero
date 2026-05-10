@@ -5,6 +5,7 @@ Connects the compatibility wrapper to the bounded integration slice.
 
 from tests.audio_engine_shared_support import *  # noqa: F401,F403
 
+
 class TestAudioEngine:
     def test_create_engine(self) -> None:
         engine = AudioEngine(stream_factory=fake_stream_factory)
@@ -58,7 +59,9 @@ class TestAudioEngine:
         assert sample_rate == 96000
         assert channels == 2
 
-    def test_resolve_output_defaults_auto_prefers_device_default_when_supported(self, monkeypatch) -> None:
+    def test_resolve_output_defaults_auto_prefers_device_default_when_supported(
+        self, monkeypatch
+    ) -> None:
         checked_rates: list[int] = []
 
         class _FakeSoundDevice:
@@ -89,7 +92,9 @@ class TestAudioEngine:
         assert channels == 2
         assert checked_rates[0] == 48000
 
-    def test_resolve_output_defaults_auto_falls_back_when_default_is_unsupported(self, monkeypatch) -> None:
+    def test_resolve_output_defaults_auto_falls_back_when_default_is_unsupported(
+        self, monkeypatch
+    ) -> None:
         checked_rates: list[int] = []
 
         class _FakeSoundDevice:
@@ -260,6 +265,80 @@ class TestAudioEngine:
         )
 
         assert config.channels == 2
+        assert config.requested_channels == 4
+        assert config.device_max_output_channels == 2
+        assert config.resolved_output_device == 1
+        assert config.channel_resolution_reason == "clamped-to-device-max:4->2"
+
+    def test_sounddevice_backend_resolve_output_config_reports_device_identity(self) -> None:
+        from echozero.audio.sounddevice_backend import SounddeviceBackend
+
+        class _FakeSoundDevice:
+            default = type("_Default", (), {"device": [0, 3]})()
+
+            @staticmethod
+            def query_devices(index):
+                assert index == 3
+                return {
+                    "name": "Studio Interface",
+                    "default_samplerate": 48000.0,
+                    "max_output_channels": 4,
+                }
+
+            @staticmethod
+            def check_output_settings(*, device, channels, dtype, samplerate):
+                assert device == 3
+                assert channels == 4
+                assert dtype == "float32"
+                assert int(samplerate) == 48000
+
+        backend = SounddeviceBackend(sounddevice_module=_FakeSoundDevice())
+        config = backend.resolve_output_config(
+            sample_rate=None,
+            channels=None,
+            buffer_size=256,
+            output_device=None,
+            stream_blocksize=None,
+            stream_latency=None,
+            prime_output_buffers_using_stream_callback=True,
+        )
+
+        assert config.sample_rate == 48000
+        assert config.channels == 4
+        assert config.output_device is None
+        assert config.resolved_output_device == 3
+        assert config.resolved_output_device_name == "Studio Interface"
+        assert config.hardware_resolution_reason == "system-default"
+
+    def test_sounddevice_backend_resolve_output_config_keeps_requested_fallback_on_query_failure(
+        self,
+    ) -> None:
+        from echozero.audio.sounddevice_backend import SounddeviceBackend
+
+        class _FakeSoundDevice:
+            default = type("_Default", (), {"device": [0, 1]})()
+
+            @staticmethod
+            def query_devices(index):
+                raise RuntimeError(f"missing device {index}")
+
+        backend = SounddeviceBackend(sounddevice_module=_FakeSoundDevice())
+        config = backend.resolve_output_config(
+            sample_rate=96000,
+            channels=6,
+            buffer_size=256,
+            output_device=99,
+            stream_blocksize=None,
+            stream_latency=None,
+            prime_output_buffers_using_stream_callback=True,
+        )
+
+        assert config.sample_rate == 96000
+        assert config.channels == 6
+        assert config.resolved_output_device == 99
+        assert config.hardware_resolution_reason == "fallback-query-failed"
+        assert config.sample_rate_resolution_reason == "requested"
+        assert config.channel_resolution_reason == "requested"
 
     def test_resolve_stream_defaults_keeps_aggressive_injected_stream_behavior(self) -> None:
         blocksize, latency, prime_output = _resolve_stream_defaults(
@@ -405,7 +484,9 @@ class TestAudioEngine:
         assert np.all(np.isfinite(outdata))
         assert np.max(np.abs(outdata)) > 0.0
 
-    def test_callback_zeros_and_counts_glitch_when_frame_count_exceeds_scratch_capacity(self) -> None:
+    def test_callback_zeros_and_counts_glitch_when_frame_count_exceeds_scratch_capacity(
+        self,
+    ) -> None:
         engine = AudioEngine(stream_factory=fake_stream_factory)
         engine.add_layer("l1", _sine(80000), 44100)
         engine.play()
@@ -658,7 +739,7 @@ class TestCrossfade:
     def test_equal_power_curves_sum_to_one(self) -> None:
         """Equal-power: fade_out² + fade_in² ≈ 1.0 at every point."""
         fade_out, fade_in = build_equal_power_curves(256)
-        power_sum = fade_out ** 2 + fade_in ** 2
+        power_sum = fade_out**2 + fade_in**2
         np.testing.assert_array_almost_equal(power_sum, np.ones(256, dtype=np.float32), decimal=5)
 
     def test_fade_out_starts_at_one(self) -> None:
@@ -673,8 +754,8 @@ class TestCrossfade:
         """Applying crossfade blends tail and head smoothly."""
         xfade = CrossfadeBuffer(crossfade_samples=64)
         output = np.zeros(256, dtype=np.float32)
-        tail = np.ones(64, dtype=np.float32)    # outgoing: constant 1.0
-        head = np.zeros(64, dtype=np.float32)    # incoming: constant 0.0
+        tail = np.ones(64, dtype=np.float32)  # outgoing: constant 1.0
+        head = np.zeros(64, dtype=np.float32)  # incoming: constant 0.0
 
         xfade.apply(output, tail, head, xfade_start=96, xfade_len=64)
 
@@ -725,7 +806,9 @@ class TestCrossfade:
 
     def test_engine_loop_crossfade_no_click(self) -> None:
         """Engine callback produces smooth output at loop boundary (no hard discontinuity)."""
-        engine = AudioEngine(sample_rate=44100, buffer_size=512, stream_factory=fake_stream_factory)
+        engine = AudioEngine(
+            sample_rate=44100, buffer_size=512, stream_factory=fake_stream_factory
+        )
 
         # Create a ramp signal: 0 → 1 over 2000 samples.
         # At the loop boundary (sample 1000), the signal value is 0.5.
@@ -758,7 +841,6 @@ class TestCrossfade:
 # ===========================================================================
 # BATCH 1 FIX TESTS
 # ===========================================================================
-
 
 
 __all__ = [name for name in globals() if name.startswith("Test")]

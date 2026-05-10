@@ -223,6 +223,24 @@ class AudioEngine:
         return self._output_device
 
     @property
+    def output_config(self) -> AudioOutputConfig:
+        """Return the resolved hardware and stream config for diagnostics."""
+
+        return self._output_config
+
+    @property
+    def resolved_output_device(self) -> int | str | None:
+        """Return the concrete backend output device selected for this engine."""
+
+        return self._output_config.resolved_output_device
+
+    @property
+    def resolved_output_device_name(self) -> str | None:
+        """Return the backend-reported output device name when available."""
+
+        return self._output_config.resolved_output_device_name
+
+    @property
     def stream_latency(self) -> str | float | None:
         return self._stream_latency
 

@@ -7,6 +7,7 @@ import threading
 
 from tests.ui.runtime_audio_shared_support import *  # noqa: F401,F403
 
+
 def test_runtime_controller_updates_mix_state_while_playing():
     presentation = _audio_presentation()
     engine = AudioEngine(stream_factory=_fake_stream_factory)
@@ -196,7 +197,10 @@ def test_runtime_controller_mix_sync_never_triggers_structural_decode_reload():
         state = controller.snapshot_state(changed)
         assert state.diagnostics.structural_rebuild_count >= 2
         assert state.diagnostics.last_structural_rebuild_ms >= 0.0
-        assert state.diagnostics.max_structural_rebuild_ms >= state.diagnostics.last_structural_rebuild_ms
+        assert (
+            state.diagnostics.max_structural_rebuild_ms
+            >= state.diagnostics.last_structural_rebuild_ms
+        )
     finally:
         controller.shutdown()
 
@@ -345,6 +349,96 @@ def test_runtime_controller_routes_song_and_timecode_layers_to_separate_output_p
         "song_layer",
         "timecode_layer",
     }
+    controller.shutdown()
+
+
+def test_runtime_controller_reconfigure_device_rebuilds_and_restores_playback_state():
+    presentation = _audio_presentation()
+    engines = [
+        AudioEngine(sample_rate=44100, channels=2, stream_factory=_fake_stream_factory),
+        AudioEngine(sample_rate=48000, channels=2, stream_factory=_fake_stream_factory),
+    ]
+
+    controller = TimelineRuntimeAudioController(
+        engine_factory=lambda: engines.pop(0),
+        audio_loader=lambda _path: (np.ones(44100, dtype=np.float32), 44100),
+    )
+    controller.build_for_presentation(presentation)
+    controller.play()
+    controller.seek(1.25)
+
+    result = controller.reconfigure_device(
+        device_spec={"output_device": "next", "sample_rate": 48000},
+    )
+    state = controller.snapshot_state(presentation)
+
+    assert result["reason"] == "device-change"
+    assert result["device_reinit_count"] == 1
+    assert controller.engine.sample_rate == 48000
+    assert controller.is_playing() is True
+    assert controller.current_time_seconds() == pytest.approx(1.25)
+    assert state.diagnostics.device_reinit_count == 1
+    assert state.diagnostics.last_device_reinit_reason == "device-change"
+    controller.shutdown()
+
+
+def test_runtime_controller_recomputes_routing_after_device_channel_changes():
+    base = build_demo_app().presentation()
+    song_layer = LayerPresentation(
+        layer_id=LayerId("song_layer"),
+        title="Song",
+        kind=LayerKind.AUDIO,
+        source_audio_path="song.wav",
+    )
+    timecode_layer = LayerPresentation(
+        layer_id=LayerId("timecode_layer"),
+        title="Timecode",
+        kind=LayerKind.AUDIO,
+        source_audio_path="ltc.wav",
+        output_bus="outputs_3_4",
+    )
+    presentation = replace(
+        base,
+        layers=[song_layer, timecode_layer],
+        selected_layer_id=song_layer.layer_id,
+    )
+    engines = [
+        AudioEngine(sample_rate=44100, channels=4, stream_factory=_fake_stream_factory),
+        AudioEngine(sample_rate=44100, channels=2, stream_factory=_fake_stream_factory),
+        AudioEngine(sample_rate=44100, channels=4, stream_factory=_fake_stream_factory),
+    ]
+
+    def _loader(path: str):
+        if path == "song.wav":
+            return np.array([0.25, -0.25], dtype=np.float32), 44100
+        if path == "ltc.wav":
+            return np.array([0.75, -0.75], dtype=np.float32), 44100
+        raise AssertionError(path)
+
+    controller = TimelineRuntimeAudioController(
+        engine_factory=lambda: engines.pop(0),
+        audio_loader=_loader,
+    )
+    controller.build_for_presentation(presentation)
+    wide_mix = controller.engine.mixer.read_mix(0, 2, channels=4)
+
+    controller.reconfigure_device(device_spec={"channels": 2})
+    narrow_mix = controller.engine.mixer.read_mix(0, 2, channels=2)
+    narrow_state = controller.snapshot_state(presentation)
+
+    controller.reconfigure_device(device_spec={"channels": 4})
+    restored_mix = controller.engine.mixer.read_mix(0, 2, channels=4)
+
+    np.testing.assert_array_equal(
+        wide_mix[:, 2:4],
+        np.array([[0.75, 0.75], [-0.75, -0.75]], dtype=np.float32),
+    )
+    np.testing.assert_array_equal(
+        narrow_mix,
+        np.array([[0.25, 0.25], [-0.25, -0.25]], dtype=np.float32),
+    )
+    assert "routes-exceed-hardware" in narrow_state.diagnostics.route_resolution_summary
+    np.testing.assert_array_equal(restored_mix, wide_mix)
     controller.shutdown()
 
 
@@ -592,9 +686,7 @@ def test_runtime_controller_preview_clip_plays_sliced_audio_on_preview_engine():
     assert played is True
     preview_layer = getattr(engine, "_overlay_buffer", None)
     assert preview_layer is not None
-    np.testing.assert_array_equal(
-        preview_layer, np.array([2.0, 3.0, 4.0, 5.0], dtype=np.float32)
-    )
+    np.testing.assert_array_equal(preview_layer, np.array([2.0, 3.0, 4.0, 5.0], dtype=np.float32))
     assert engine.overlay_active is True
     controller.shutdown()
 
@@ -1199,7 +1291,9 @@ def test_runtime_controller_structural_sync_latest_wins_and_drops_stale(monkeypa
             assert release_first.wait(timeout=2.0)
         return original_prepare(presentation)
 
-    monkeypatch.setattr(controller, "_prepare_structure_track_plan_async", _prepare_with_first_block)
+    monkeypatch.setattr(
+        controller, "_prepare_structure_track_plan_async", _prepare_with_first_block
+    )
 
     controller.sync_structure_state(changed_v1)
     assert first_started.wait(timeout=1.0) is True
@@ -1478,7 +1572,6 @@ def test_runtime_controller_drain_after_shutdown_never_applies_completed_results
         outcome in {"cancelled", "failed", "stale-dropped", "applied"}
         for outcome in controller._generation_terminal_outcomes.values()
     )
-
 
 
 __all__ = [name for name in globals() if name.startswith("test_")]

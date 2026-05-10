@@ -29,9 +29,18 @@ class PlaybackDiagnostics:
     glitch_count: int = 0
     last_audio_status: str | None = None
     output_device: str | None = None
+    resolved_output_device: str | None = None
+    output_device_name: str | None = None
     stream_latency: str | float | None = None
     stream_blocksize: int = 0
     prime_output_buffers_using_stream_callback: bool = True
+    requested_output_sample_rate: int | None = None
+    requested_output_channels: int | None = None
+    device_max_output_channels: int = 0
+    hardware_resolution_reason: str = ""
+    sample_rate_resolution_reason: str = ""
+    channel_resolution_reason: str = ""
+    route_resolution_summary: str = ""
     last_transition: str = ""
     transition_state: str = "stopped"
     last_track_sync_reason: str = ""
@@ -61,6 +70,7 @@ class PlaybackDiagnostics:
     rt_last_apply_latency_ms: float = 0.0
     rt_last_seek_apply_latency_ms: float = 0.0
     device_reinit_count: int = 0
+    last_device_reinit_reason: str = ""
 
 
 @dataclass(slots=True)
