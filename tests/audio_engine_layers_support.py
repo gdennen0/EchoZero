@@ -371,7 +371,7 @@ class TestMixer:
         assert float(np.max(third)) < float(np.max(second))
 
         settled = mixer.read_mix(96, 32)
-        assert float(np.max(np.abs(settled))) <= 1e-3
+        assert float(np.max(np.abs(settled[2:]))) <= 1e-3
 
     def test_solo_logic_plays_only_soloed(self) -> None:
         buf1 = _sine(1000, freq=440)

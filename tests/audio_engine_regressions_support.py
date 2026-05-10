@@ -446,13 +446,15 @@ class TestBatch2Fixes:
         np.clip(expected, -1.0, 1.0, out=expected)
         np.testing.assert_array_almost_equal(out, expected)
 
-        # Solo one layer — only that plays
+        # Solo one layer — only that plays after the short gain-smoothing ramp settles.
         mixer.set_solo("l2", True)
+        _ = mixer.read_mix(0, 1024)
         out = mixer.read_mix(0, 256)
         np.testing.assert_array_almost_equal(out, buf2[:256])
 
-        # Unsolo — all play again
+        # Unsolo — all play again after the short gain-smoothing ramp settles.
         mixer.unsolo_all()
+        _ = mixer.read_mix(0, 1024)
         out = mixer.read_mix(0, 256)
         np.testing.assert_array_almost_equal(out, expected)
 

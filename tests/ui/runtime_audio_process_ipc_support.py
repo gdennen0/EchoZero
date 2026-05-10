@@ -10,9 +10,20 @@ from types import SimpleNamespace
 
 import pytest
 
-from echozero.application.playback.models import PlaybackTimingSnapshot
+from echozero.application.playback.models import (
+    PlaybackDiagnostics,
+    PlaybackState,
+    PlaybackTimingSnapshot,
+)
 from echozero.application.playback.process_client import ProcessPlaybackClient
-from echozero.application.playback.process_shared import PlaybackIpcError, encode_timing_snapshot
+from echozero.application.playback.process_service import PlaybackProcessService
+from echozero.application.playback.process_shared import (
+    PlaybackIpcError,
+    decode_playback_state,
+    encode_playback_state,
+    encode_timing_snapshot,
+)
+from echozero.application.settings import AudioOutputRuntimeConfig
 from echozero.application.shared.ids import LayerId
 from echozero.ui.qt.timeline.demo_app import build_demo_app
 
@@ -134,6 +145,154 @@ def test_process_client_transport_ipc_updates_timing_snapshots(monkeypatch) -> N
     assert paused_snapshot.is_playing is False
     assert playing_snapshot.audible_time_seconds == 0.5
     assert playing_snapshot.display_label == "00:00:00:15"
+
+
+def test_process_client_reconfigure_device_serializes_hardware_settings(monkeypatch) -> None:
+    client = ProcessPlaybackClient.__new__(ProcessPlaybackClient)
+    client._shutdown = False
+    commands: list[tuple[str, dict[str, object]]] = []
+
+    def _fake_command(operation: str, params: dict[str, object]) -> dict[str, object]:
+        commands.append((operation, dict(params)))
+        return {"latency_profile": "balanced", "device_reinit_count": 2}
+
+    monkeypatch.setattr(client, "_command", _fake_command)
+
+    response = client.reconfigure_device(
+        device_spec={
+            "output_device": "Scarlett 4i4",
+            "sample_rate": 48000,
+            "channels": 4,
+            "stream_latency": "high",
+            "stream_blocksize": 512,
+            "prime_output_buffers_using_stream_callback": False,
+        },
+        profile="balanced",
+    )
+
+    assert response == {"latency_profile": "balanced", "device_reinit_count": 2}
+    assert commands == [
+        (
+            "reconfigure_device",
+            {
+                "device_spec": {
+                    "output_device": "Scarlett 4i4",
+                    "sample_rate": 48000,
+                    "channels": 4,
+                    "stream_latency": "high",
+                    "stream_blocksize": 512,
+                    "prime_output_buffers_using_stream_callback": False,
+                },
+                "profile": "balanced",
+            },
+        )
+    ]
+
+
+def test_playback_state_ipc_round_trips_device_reinit_diagnostics() -> None:
+    state = PlaybackState(
+        output_sample_rate=48000,
+        output_channels=4,
+        diagnostics=PlaybackDiagnostics(
+            output_device="Scarlett 4i4",
+            stream_latency="high",
+            stream_blocksize=512,
+            device_reinit_count=3,
+        ),
+    )
+
+    restored = decode_playback_state(encode_playback_state(state))
+
+    assert restored.output_sample_rate == 48000
+    assert restored.output_channels == 4
+    assert restored.diagnostics.output_device == "Scarlett 4i4"
+    assert restored.diagnostics.stream_latency == "high"
+    assert restored.diagnostics.stream_blocksize == 512
+    assert restored.diagnostics.device_reinit_count == 3
+
+
+def test_process_service_reconfigure_device_restores_projection_time_and_play_state(
+    monkeypatch,
+) -> None:
+    projection = object()
+    rebuilt_controllers: list[_FakeDeviceReconfigureController] = []
+
+    service = PlaybackProcessService.__new__(PlaybackProcessService)
+    service._base_audio_config = AudioOutputRuntimeConfig(
+        output_device="old-device",
+        sample_rate=44100,
+        channels=2,
+        stream_latency="low",
+        stream_blocksize=128,
+        prime_output_buffers_using_stream_callback=True,
+    )
+    service._latest_projection = projection
+    old_controller = _FakeDeviceReconfigureController(seconds=12.5, playing=True)
+    service._controller = old_controller
+    service._device_reinit_count = 0
+
+    def _build_controller(self):
+        controller = _FakeDeviceReconfigureController(seconds=0.0, playing=False)
+        rebuilt_controllers.append(controller)
+        return controller
+
+    monkeypatch.setattr(PlaybackProcessService, "_build_controller", _build_controller)
+
+    service._reconfigure_device(
+        {
+            "output_device": "new-device",
+            "sample_rate": 48000,
+            "channels": 4,
+            "stream_latency": "high",
+            "stream_blocksize": 512,
+            "prime_output_buffers_using_stream_callback": False,
+        }
+    )
+
+    rebuilt = rebuilt_controllers[0]
+    assert old_controller.shutdown_called is True
+    assert service._controller is rebuilt
+    assert service._device_reinit_count == 1
+    assert service._base_audio_config == AudioOutputRuntimeConfig(
+        output_device="new-device",
+        sample_rate=48000,
+        channels=4,
+        stream_latency="high",
+        stream_blocksize=512,
+        prime_output_buffers_using_stream_callback=False,
+    )
+    assert service._controller.synced_projection is projection
+    assert service._controller.seek_seconds == 12.5
+    assert service._controller.play_called is True
+
+
+class _FakeDeviceReconfigureController:
+    def __init__(self, *, seconds: float, playing: bool) -> None:
+        self._seconds = float(seconds)
+        self._playing = bool(playing)
+        self.shutdown_called = False
+        self.synced_projection = None
+        self.seek_seconds: float | None = None
+        self.play_called = False
+
+    def current_time_seconds(self) -> float:
+        return self._seconds
+
+    def is_playing(self) -> bool:
+        return self._playing
+
+    def shutdown(self) -> None:
+        self.shutdown_called = True
+
+    def sync_structure_state(self, projection) -> None:
+        self.synced_projection = projection
+
+    def seek(self, position_seconds: float) -> None:
+        self.seek_seconds = float(position_seconds)
+
+    def play(self) -> None:
+        self.play_called = True
+        self._playing = True
 
 
 def test_process_runtime_audio_shutdown_is_idempotent() -> None:

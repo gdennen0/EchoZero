@@ -843,7 +843,7 @@ def test_runtime_controller_mute_and_solo_controls_update_effective_mix_without_
         ],
     )
     controller.apply_mix_state(muted_bed)
-    _ = engine.mixer.read_mix(int(0.5 * 44100), 32)
+    _ = engine.mixer.read_mix(int(0.5 * 44100), 1024)
     mixed_bed_muted = engine.mixer.read_mix(int(0.5 * 44100), 32)
 
     soloed_kick = replace(
@@ -854,22 +854,22 @@ def test_runtime_controller_mute_and_solo_controls_update_effective_mix_without_
         ],
     )
     controller.apply_mix_state(soloed_kick)
-    _ = engine.mixer.read_mix(int(0.5 * 44100), 32)
+    _ = engine.mixer.read_mix(int(0.5 * 44100), 1024)
     mixed_kick_solo = engine.mixer.read_mix(int(0.5 * 44100), 32)
 
     assert controller._last_track_sync_reason == "mix-state-applied"
     np.testing.assert_allclose(
-        mixed_default[-2:],
+        mixed_default[:2],
         np.array([1.0, 0.75], dtype=np.float32),
         atol=1e-4,
     )
     np.testing.assert_allclose(
-        mixed_bed_muted[-2:],
+        mixed_bed_muted[:2],
         np.array([1.0, 0.5], dtype=np.float32),
         atol=1e-4,
     )
     np.testing.assert_allclose(
-        mixed_kick_solo[-2:],
+        mixed_kick_solo[:2],
         np.array([1.0, 0.5], dtype=np.float32),
         atol=1e-4,
     )

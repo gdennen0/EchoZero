@@ -388,8 +388,11 @@ class TestAudioEngine:
             None,
         )
 
-        np.testing.assert_array_equal(outdata[:, 0], np.ones(256, dtype=np.float32))
-        np.testing.assert_array_equal(outdata[:, 1], -np.ones(256, dtype=np.float32))
+        expected_fade = np.linspace(0.0, 1.0, 64, dtype=np.float32)
+        np.testing.assert_allclose(outdata[:64, 0], expected_fade, atol=1e-6)
+        np.testing.assert_allclose(outdata[:64, 1], -expected_fade, atol=1e-6)
+        np.testing.assert_array_equal(outdata[64:, 0], np.ones(192, dtype=np.float32))
+        np.testing.assert_array_equal(outdata[64:, 1], -np.ones(192, dtype=np.float32))
 
     def test_callback_handles_large_variable_frame_sizes_with_preallocated_scratch(self) -> None:
         engine = AudioEngine(stream_factory=fake_stream_factory)

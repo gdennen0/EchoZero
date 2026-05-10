@@ -6,6 +6,7 @@ from tests.ui.app_shell_runtime_flow_support import (
     test_app_shell_runtime_add_song_after_draft_layer_keeps_draft_above_source,
     test_app_shell_runtime_add_song_from_path_defers_runtime_audio_build_until_playback,
     test_app_shell_runtime_add_song_syncs_backend_playback_state_metadata,
+    test_app_shell_runtime_apply_audio_output_config_reconfigures_runtime_audio_controller,
     test_app_shell_runtime_canonical_build_starts_with_native_empty_timeline_state,
     test_app_shell_runtime_play_dispatch_rebuilds_runtime_audio,
 )

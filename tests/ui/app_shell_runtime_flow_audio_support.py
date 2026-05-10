@@ -45,7 +45,7 @@ def test_app_shell_runtime_add_song_from_path_defers_runtime_audio_build_until_p
         shutil.rmtree(temp_root, ignore_errors=True)
 
 
-def test_app_shell_runtime_apply_audio_output_config_rebuilds_runtime_audio_controller():
+def test_app_shell_runtime_apply_audio_output_config_reconfigures_runtime_audio_controller():
     temp_root = _repo_local_temp_root()
     runtime = build_app_shell(working_dir_root=temp_root / "working")
 
@@ -65,19 +65,20 @@ def test_app_shell_runtime_apply_audio_output_config_rebuilds_runtime_audio_cont
             )
         )
 
-        rebuilt_runtime_audio = runtime.runtime_audio
+        reconfigured_runtime_audio = runtime.runtime_audio
 
-        assert rebuilt_runtime_audio is not None
-        assert rebuilt_runtime_audio is not original_runtime_audio
-        assert isinstance(rebuilt_runtime_audio, ProcessPlaybackClient)
-        health = rebuilt_runtime_audio.health()
+        assert reconfigured_runtime_audio is not None
+        assert reconfigured_runtime_audio is original_runtime_audio
+        assert isinstance(reconfigured_runtime_audio, ProcessPlaybackClient)
+        health = reconfigured_runtime_audio.health()
         assert bool(health.get("ok", False))
-        snapshot = rebuilt_runtime_audio.snapshot_state(runtime.presentation())
+        snapshot = reconfigured_runtime_audio.snapshot_state(runtime.presentation())
         assert snapshot.output_sample_rate == 48000
         assert snapshot.output_channels == 2
         assert snapshot.diagnostics.audio_process_connected is True
         assert snapshot.diagnostics.audio_process_pid is not None
-        assert snapshot.diagnostics.latency_profile == "ultra_low"
+        assert snapshot.diagnostics.latency_profile == "low"
+        assert snapshot.diagnostics.device_reinit_count == 1
     finally:
         runtime.shutdown()
         shutil.rmtree(temp_root, ignore_errors=True)
