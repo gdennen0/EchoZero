@@ -47,6 +47,10 @@ from echozero.application.timeline.intents import (
 )
 from echozero.application.timeline.ma3_push_intents import SetLayerMA3Route
 from echozero.application.timeline.models import Layer, derive_section_cues_from_layers
+from echozero.application.timeline.object_content_persistence import (
+    object_id_for_layer,
+    sync_layer_object_content,
+)
 from echozero.domain.types import AudioData
 from echozero.persistence.audio import (
     AudioImportOptions,
@@ -109,12 +113,21 @@ _DIRTYING_INTENT_TYPES = (
 )
 
 
+def _object_content_kind_for_layer(layer: Layer) -> str:
+    if layer.kind.value == "audio":
+        return "audio_clip"
+    if layer.kind.value == "section":
+        return "section_cue_set"
+    return "event_set"
+
+
 class AppShellEditingShell(Protocol):
     _app: TimelineApplication
     _is_dirty: bool
 
     @property
     def session(self) -> Session: ...
+
     project_storage: ProjectStorage
 
     def presentation(self) -> TimelinePresentation: ...
@@ -136,7 +149,9 @@ class AppShellEditingShell(Protocol):
 
     def _sync_storage_backed_layers(self, layer_ids: list[LayerId]) -> None: ...
 
-    def _sync_runtime_audio_from_presentation(self, presentation: TimelinePresentation) -> None: ...
+    def _sync_runtime_audio_from_presentation(
+        self, presentation: TimelinePresentation
+    ) -> None: ...
 
     def _refresh_from_storage(
         self,
@@ -152,8 +167,12 @@ class AppShellEditingMixin:
     ) -> TimelinePresentation:
         active_song_version_id = self.session.active_song_version_id
         if active_song_version_id is None:
-            raise ValueError("Select a song version before creating a SMPTE layer from import split.")
-        ltc_artifact_path = self._resolve_import_split_ltc_artifact_path(str(active_song_version_id))
+            raise ValueError(
+                "Select a song version before creating a SMPTE layer from import split."
+            )
+        ltc_artifact_path = self._resolve_import_split_ltc_artifact_path(
+            str(active_song_version_id)
+        )
         if ltc_artifact_path is None:
             raise ValueError(
                 "No retained split LTC artifact was found for the active song version."
@@ -225,9 +244,7 @@ class AppShellEditingMixin:
             if candidate_override in {"left", "right"}:
                 normalized_override = candidate_override
             elif candidate_override:
-                raise ValueError(
-                    f"Unsupported LTC channel override '{ltc_channel_override}'."
-                )
+                raise ValueError(f"Unsupported LTC channel override '{ltc_channel_override}'.")
 
         def _perform_import_smpte_audio() -> TimelinePresentation:
             active_song_id = self.session.active_song_id
@@ -282,7 +299,9 @@ class AppShellEditingMixin:
 
             with self.project_storage.transaction():
                 takes = self.project_storage.takes.list_by_layer(str(target_layer_id))
-                main_take = next((take for take in takes if take.is_main), takes[0] if takes else None)
+                main_take = next(
+                    (take for take in takes if take.is_main), takes[0] if takes else None
+                )
                 if main_take is None:
                     self.project_storage.takes.create(
                         str(target_layer_id),
@@ -304,6 +323,14 @@ class AppShellEditingMixin:
                             is_main=True,
                         )
                     )
+                sync_layer_object_content(
+                    self.project_storage,
+                    song_version_id=str(active_song_version_id),
+                    layer_id=str(target_layer_id),
+                    layer_name=target_layer.name,
+                    content_kind=_object_content_kind_for_layer(target_layer),
+                    takes=self.project_storage.takes.list_by_layer(str(target_layer_id)),
+                )
                 self.project_storage.dirty_tracker.mark_dirty(str(active_song_version_id))
 
             self._refresh_from_storage(
@@ -372,13 +399,16 @@ class AppShellEditingMixin:
             ]
 
             selected_layer_ids = [
-                layer_id for layer_id in dict.fromkeys(timeline.selection.selected_layer_ids)
+                layer_id
+                for layer_id in dict.fromkeys(timeline.selection.selected_layer_ids)
                 if layer_id != target_layer_id
             ]
             selected_layer_id = timeline.selection.selected_layer_id
             if selected_layer_id == target_layer_id:
-                selected_layer_id = selected_layer_ids[0] if selected_layer_ids else (
-                    timeline.layers[0].id if timeline.layers else None
+                selected_layer_id = (
+                    selected_layer_ids[0]
+                    if selected_layer_ids
+                    else (timeline.layers[0].id if timeline.layers else None)
                 )
             timeline.selection.selected_layer_id = selected_layer_id
             if selected_layer_id is not None and selected_layer_id not in selected_layer_ids:
@@ -396,6 +426,11 @@ class AppShellEditingMixin:
                     for take in target_layer.takes:
                         self.project_storage.takes.delete(str(take.id))
                     self.project_storage.layers.delete(str(target_layer_id))
+                    object_record = self.project_storage.timeline_objects.get(
+                        object_id_for_layer(target_layer_id)
+                    )
+                    if object_record is not None:
+                        self.project_storage.timeline_objects.delete(object_record.id)
                     self.project_storage.dirty_tracker.mark_dirty(str(active_version_id))
 
             self._sync_runtime_audio_from_presentation(self.presentation())
