@@ -24,6 +24,7 @@ from echozero.application.presentation.models import (
 )
 from echozero.application.shared.enums import LayerKind
 from echozero.application.shared.layer_kinds import is_event_like_layer_kind
+from echozero.application.timeline.object_content import is_imported_song_layer
 from echozero.application.timeline.event_batch_scope import (
     EventBatchScope,
     event_batch_scope_params,
@@ -329,7 +330,7 @@ def shared_context_sections(
                 label="Delete Layer",
                 group="layer",
                 params={"layer_id": layer.layer_id},
-                enabled=layer.layer_id != "source_audio",
+                enabled=not _is_imported_song_layer(layer),
             ),
         ]
         layer_expand_action = layer_expand_toggle_action(layer)
@@ -854,3 +855,7 @@ def _output_bus_name(output_bus: str) -> str:
             return f"Outputs {start_channel}-{end_channel}"
         return f"Outputs {start_channel}/{end_channel}"
     return output_bus
+
+
+def _is_imported_song_layer(layer: LayerPresentation) -> bool:
+    return is_imported_song_layer(layer)

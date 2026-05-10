@@ -31,12 +31,15 @@ from echozero.persistence.entities import (
 )
 from echozero.persistence.repositories import (
     LayerRepository,
+    ObjectCandidateRepository,
+    ObjectContentRepository,
     PipelineConfigRepository,
     ProjectRepository,
     SongDefaultPipelineConfigRepository,
     SongRepository,
     SongVersionRepository,
     TakeRepository,
+    TimelineObjectRepository,
 )
 from echozero.persistence.schema import init_db
 from echozero.persistence.session_runtime_mixin import ProjectStorageRuntimeMixin
@@ -387,6 +390,24 @@ class ProjectStorage(ProjectStorageVersioningMixin, ProjectStorageRuntimeMixin):
         """Access the take repository."""
         self._check_closed()
         return TakeRepository(self.db)
+
+    @property
+    def timeline_objects(self) -> TimelineObjectRepository:
+        """Access timeline object records."""
+        self._check_closed()
+        return TimelineObjectRepository(self.db)
+
+    @property
+    def object_contents(self) -> ObjectContentRepository:
+        """Access object content records."""
+        self._check_closed()
+        return ObjectContentRepository(self.db)
+
+    @property
+    def object_candidates(self) -> ObjectCandidateRepository:
+        """Access object candidate records."""
+        self._check_closed()
+        return ObjectCandidateRepository(self.db)
 
     @property
     def pipeline_configs(self) -> PipelineConfigRepository:

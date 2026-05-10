@@ -13,6 +13,7 @@ from echozero.application.session.models import ManualPullEventOption, ManualPul
 from echozero.application.shared.enums import LayerKind
 from echozero.application.shared.ids import EventId, LayerId, TakeId
 from echozero.application.timeline.models import Event, Layer, Take, Timeline
+from echozero.application.timeline.object_content import is_imported_song_layer
 from echozero.application.timeline.orchestrator_transfer_lookup_mixin import (
     _PULL_TARGET_CREATE_NEW_LAYER_ID,
     _PULL_TARGET_CREATE_NEW_LAYER_PER_SOURCE_TRACK_ID,
@@ -278,7 +279,7 @@ class TimelineOrchestratorManualPullImportMixin:
 
     @staticmethod
     def _manual_pull_section_insert_order_index(timeline: Timeline) -> int:
-        source_present = any(layer.id == LayerId("source_audio") for layer in timeline.layers)
+        source_present = any(is_imported_song_layer(layer) for layer in timeline.layers)
         return 1 if source_present else 0
 
     @staticmethod

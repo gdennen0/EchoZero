@@ -13,6 +13,11 @@ from echozero.application.shared.layer_kinds import is_event_like_layer_kind
 from echozero.application.shared.ids import LayerId
 from echozero.application.timeline.app import TimelineApplication
 from echozero.application.timeline.models import Layer
+from echozero.application.timeline.object_content import is_imported_song_layer
+from echozero.application.timeline.object_content_persistence import (
+    object_id_for_layer,
+    sync_layer_object_content,
+)
 from echozero.domain.types import EventData
 from echozero.persistence.session import ProjectStorage
 from echozero.takes import Take as PersistedTake
@@ -70,6 +75,14 @@ def persist_manual_layer(
     )
     shell.project_storage.layers.create(record)
     shell.project_storage.takes.create(record.id, take)
+    sync_layer_object_content(
+        shell.project_storage,
+        song_version_id=song_version_id,
+        layer_id=record.id,
+        layer_name=layer.name,
+        content_kind=_object_content_kind_for_runtime_layer(layer),
+        takes=[take],
+    )
 
 
 def materialize_draft_layers(shell: StorageSyncShell, *, song_version_id: str) -> None:
@@ -127,7 +140,7 @@ def sync_storage_backed_timeline(shell: StorageSyncShell) -> None:
     runtime_layers = [
         layer
         for layer in shell._app.timeline.layers
-        if layer.id != LayerId("source_audio")
+        if not is_imported_song_layer(layer)
         and (is_event_like_layer_kind(layer.kind) or str(layer.id) in existing_records)
     ]
     runtime_layer_ids = {str(layer.id) for layer in runtime_layers}
@@ -168,6 +181,7 @@ def sync_storage_backed_layers(
     runtime_layer_by_id = {
         str(layer.id): layer
         for layer in shell._app.timeline.layers
+        if not is_imported_song_layer(layer)
     }
     runtime_layers = [
         runtime_layer_by_id[layer_id]
@@ -207,6 +221,11 @@ def _sync_runtime_layers(
     for record in existing_records.values():
         if record.layer_type == "manual" and record.id not in runtime_layer_ids:
             shell.project_storage.layers.delete(record.id)
+            object_record = shell.project_storage.timeline_objects.get(
+                object_id_for_layer(record.id)
+            )
+            if object_record is not None:
+                shell.project_storage.timeline_objects.delete(object_record.id)
 
     for layer in runtime_layers:
         existing = existing_records.get(str(layer.id))
@@ -220,6 +239,14 @@ def _sync_runtime_layers(
         else:
             shell.project_storage.layers.update(runtime_layer_record(layer, existing=existing))
         sync_runtime_take_records(shell, layer)
+        sync_layer_object_content(
+            shell.project_storage,
+            song_version_id=song_version_id,
+            layer_id=str(layer.id),
+            layer_name=layer.name,
+            content_kind=_object_content_kind_for_runtime_layer(layer),
+            takes=shell.project_storage.takes.list_by_layer(str(layer.id)),
+        )
 
 
 def _sync_empty_main_take(
@@ -252,3 +279,11 @@ def _sync_empty_main_take(
     for take_id, take in existing_takes.items():
         if not take.is_main:
             shell.project_storage.takes.delete(take_id)
+
+
+def _object_content_kind_for_runtime_layer(layer: Layer) -> str:
+    if layer.kind.value == "audio":
+        return "audio_clip"
+    if layer.kind.value == "section":
+        return "section_cue_set"
+    return "event_set"

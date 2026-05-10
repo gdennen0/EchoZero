@@ -1311,12 +1311,16 @@ def _resolve_source_audio_path(
                 return take.source_audio_path
             if take.playback_source_ref:
                 return take.playback_source_ref
+    if layer.source_content_ref is not None and layer.source_content_ref.locator:
+        return layer.source_content_ref.locator
     if layer.source_audio_path:
         return layer.source_audio_path
     if layer.playback_source_ref:
         return layer.playback_source_ref
     for candidate in presentation.layers:
-        if str(candidate.layer_id) == "source_audio":
+        if str(getattr(candidate, "object_id", "") or "").startswith("object_song_"):
+            if candidate.source_content_ref is not None and candidate.source_content_ref.locator:
+                return candidate.source_content_ref.locator
             if candidate.source_audio_path:
                 return candidate.source_audio_path
             if candidate.playback_source_ref:

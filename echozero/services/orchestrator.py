@@ -22,6 +22,10 @@ from echozero.domain.types import AudioData, Event as DomainEvent, EventData, La
 from echozero.application.progress import OperationProgressUpdate
 from echozero.errors import ValidationError
 from echozero.execution import BlockExecutor, ExecutionEngine, GraphPlanner
+from echozero.application.timeline.object_content_persistence import (
+    persist_generated_audio_content,
+    persist_take_object_content,
+)
 from echozero.persistence.entities import LayerRecord, PipelineConfigRecord
 from echozero.persistence.session import ProjectStorage
 from echozero.pipelines.pipeline import Pipeline
@@ -369,14 +373,9 @@ class Orchestrator:
             knob_values=knob_values,
         )
 
+        output_items: list[tuple[Any, Any, str, OutputMapping | None, str | None]] = []
         for pipeline_output in pipeline.outputs:
             name = pipeline_output.name
-            if (
-                selected_extract_song_stems is not None
-                and name in self._extract_song_drum_stem_output_names()
-                and name not in selected_extract_song_stems
-            ):
-                continue
             port_ref = pipeline_output.port_ref
             data = self._resolve_output(port_ref, raw_outputs)
             if data is None:
@@ -398,15 +397,56 @@ class Orchestrator:
                 )
                 continue
 
-            label = mapping.label if mapping and mapping.label else ""
-            extra_params = mapping.params if mapping else {}
-            block = pipeline.graph.blocks.get(port_ref.block_id)
-            block_type = block.block_type if block else ""
             source_audio_path = self._resolve_connected_audio_input_path(
                 pipeline=pipeline,
                 raw_outputs=raw_outputs,
                 block_id=port_ref.block_id,
             )
+            if (
+                selected_extract_song_stems is not None
+                and name in self._extract_song_drum_stem_output_names()
+                and name not in selected_extract_song_stems
+            ):
+                if isinstance(data, AudioData):
+                    persist_generated_audio_content(
+                        session,
+                        song_version_id=song_version_id,
+                        output_name=name,
+                        audio_file=str(data.file_path),
+                        analysis_build_id=self._analysis_build_id(
+                            pipeline_config_id,
+                            execution_id,
+                        ),
+                        source_audio_path=source_audio_path,
+                        analysis_build=build_analysis_build(
+                            pipeline_id=pipeline_id,
+                            pipeline_config_id=pipeline_config_id,
+                            block_id=port_ref.block_id,
+                            block_type=(
+                                pipeline.graph.blocks[port_ref.block_id].block_type
+                                if port_ref.block_id in pipeline.graph.blocks
+                                else ""
+                            ),
+                            output_name=name,
+                            data_type="audio",
+                            execution_id=execution_id,
+                            build_id=analysis_build_id,
+                            generated_at=generated_at,
+                        ),
+                        created_at=generated_at,
+                    )
+                continue
+            output_items.append((pipeline_output, data, target, mapping, source_audio_path))
+
+        output_items.sort(key=lambda item: 0 if isinstance(item[1], AudioData) else 1)
+
+        for pipeline_output, data, target, mapping, source_audio_path in output_items:
+            name = pipeline_output.name
+            port_ref = pipeline_output.port_ref
+            label = mapping.label if mapping and mapping.label else ""
+            extra_params = mapping.params if mapping else {}
+            block = pipeline.graph.blocks.get(port_ref.block_id)
+            block_type = block.block_type if block else ""
 
             handler = self._persistence_handlers.get(target)
             if handler is None:
@@ -819,6 +859,17 @@ class Orchestrator:
                 is_main=is_main,
             )
             session.takes.create(layer_record_id, take)
+            self._persist_object_content_for_take(
+                session=session,
+                song_version_id=song_version_id,
+                layer_record_id=layer_record_id,
+                layer_name=layer_name,
+                take=take,
+                content_kind="event_set",
+                source_audio_path=source_audio_path,
+                analysis_build=analysis_build.to_dict(),
+                is_main=is_main,
+            )
             take_ids.append(take.id)
             self._enforce_take_limit(session, layer_record_id)
 
@@ -932,9 +983,45 @@ class Orchestrator:
             is_main=is_main,
         )
         session.takes.create(layer_record_id, take)
+        self._persist_object_content_for_take(
+            session=session,
+            song_version_id=song_version_id,
+            layer_record_id=layer_record_id,
+            layer_name=layer_name,
+            take=take,
+            content_kind="generated_audio",
+            source_audio_path=source_audio_path,
+            analysis_build=analysis_build.to_dict(),
+            is_main=is_main,
+        )
         take_ids.append(take.id)
         self._enforce_take_limit(session, layer_record_id)
         return layer_ids, take_ids
+
+    def _persist_object_content_for_take(
+        self,
+        *,
+        session: ProjectStorage,
+        song_version_id: str,
+        layer_record_id: str,
+        layer_name: str,
+        take: Take,
+        content_kind: str,
+        source_audio_path: str | None,
+        analysis_build: dict[str, Any],
+        is_main: bool,
+    ) -> None:
+        persist_take_object_content(
+            session,
+            song_version_id=song_version_id,
+            layer_record_id=layer_record_id,
+            layer_name=layer_name,
+            take=take,
+            content_kind=content_kind,
+            source_audio_path=source_audio_path,
+            analysis_build=analysis_build,
+            is_main=is_main,
+        )
 
     def _enforce_take_limit(self, session: ProjectStorage, layer_record_id: str) -> None:
         if self._max_takes_per_layer <= 0:

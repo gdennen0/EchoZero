@@ -11,16 +11,20 @@ from echozero.application.shared.cue_numbers import (
 from echozero.application.shared.ids import (
     EventId,
     LayerId,
+    ObjectContentId,
+    ObjectRevisionId,
     SectionCueId,
     SongVersionId,
     TakeId,
     TimelineId,
+    TimelineObjectId,
 )
 from echozero.application.shared.enums import LayerKind
 from echozero.application.shared.ranges import TimeRange
 from echozero.application.mixer.models import LayerMixerState
 from echozero.application.playback.models import LayerPlaybackState
 from echozero.application.sync.models import LiveSyncState, coerce_live_sync_state
+from echozero.application.timeline.object_content import SourceRef
 
 
 @dataclass(slots=True)
@@ -373,6 +377,10 @@ class Take:
     source_ref: str | None = None
     available: bool = True
     is_comped: bool = False
+    object_id: TimelineObjectId | None = None
+    content_id: ObjectContentId | None = None
+    revision_id: ObjectRevisionId | None = None
+    source_content_ref: SourceRef | None = None
 
 
 @dataclass(slots=True)
@@ -389,6 +397,10 @@ class Layer:
     status: LayerStatus = field(default_factory=LayerStatus)
     provenance: LayerProvenance = field(default_factory=LayerProvenance)
     presentation_hints: LayerPresentationHints = field(default_factory=LayerPresentationHints)
+    object_id: TimelineObjectId | None = None
+    main_content_id: ObjectContentId | None = None
+    main_revision_id: ObjectRevisionId | None = None
+    source_content_ref: SourceRef | None = None
 
 
 @dataclass(slots=True)

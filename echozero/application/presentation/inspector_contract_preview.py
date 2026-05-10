@@ -55,6 +55,15 @@ def event_preview_params(
     )
     return {
         "layer_id": layer.layer_id,
+        "object_id": layer.object_id,
+        "content_id": take.content_id if take is not None else layer.main_content_id,
+        "revision_id": take.revision_id if take is not None else layer.main_revision_id,
+        "source_content_ref": (
+            source_content_ref.to_dict()
+            if (source_content_ref := (take.source_content_ref if take is not None else layer.source_content_ref))
+            is not None
+            else None
+        ),
         "take_id": take.take_id if take is not None else layer.main_take_id,
         "event_id": event.event_id,
         "source_ref": source_ref,
@@ -72,6 +81,9 @@ def event_preview_source_audio_path(
     layer: LayerPresentation,
     take: TakeLanePresentation | None,
 ) -> str | None:
+    source_content_ref = take.source_content_ref if take is not None else layer.source_content_ref
+    if source_content_ref is not None and source_content_ref.locator:
+        return source_content_ref.locator
     if take is not None:
         if take.source_audio_path:
             return take.source_audio_path
@@ -116,6 +128,9 @@ def preview_audio_source_ref(
     layer: LayerPresentation,
     take: TakeLanePresentation | None,
 ) -> str | None:
+    source_content_ref = take.source_content_ref if take is not None else layer.source_content_ref
+    if source_content_ref is not None and source_content_ref.locator:
+        return source_content_ref.locator
     if take is not None:
         return (
             take.playback_source_ref

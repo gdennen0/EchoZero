@@ -20,6 +20,7 @@ from echozero.application.timeline.models import (
     Timeline,
     cue_number_from_ref,
 )
+from echozero.application.timeline.object_content import is_imported_song_layer
 from echozero.application.timeline.orchestrator_selection_state_mixin import (
     TimelineOrchestratorSelectionStateMixin,
 )
@@ -403,7 +404,7 @@ class TimelineOrchestratorEventEditMixin(TimelineOrchestratorSelectionStateMixin
             index += 1
 
     def _create_section_layer(self, timeline: Timeline) -> Layer:
-        source_present = any(layer.id == LayerId("source_audio") for layer in timeline.layers)
+        source_present = any(is_imported_song_layer(layer) for layer in timeline.layers)
         insert_order = 1 if source_present else 0
         for layer in timeline.layers:
             if int(layer.order_index) >= insert_order:
@@ -651,7 +652,8 @@ class TimelineOrchestratorEventEditMixin(TimelineOrchestratorSelectionStateMixin
         target_after_layer_id: LayerId | None,
         insert_at_start: bool,
     ) -> None:
-        if str(source_layer_id) == "source_audio":
+        source_layer = next((layer for layer in timeline.layers if layer.id == source_layer_id), None)
+        if source_layer is not None and is_imported_song_layer(source_layer):
             return
 
         ordered_layers = sorted(timeline.layers, key=lambda layer: layer.order_index)

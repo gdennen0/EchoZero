@@ -354,9 +354,6 @@ class AppShellEditingMixin:
         target_layer_id = LayerId(layer_id)
 
         def _perform_delete_layer() -> TimelinePresentation:
-            if target_layer_id == LayerId("source_audio"):
-                raise ValueError("Cannot delete source audio layer.")
-
             timeline = self._app.timeline
             target_layer = next(
                 (layer for layer in timeline.layers if layer.id == target_layer_id),
@@ -364,6 +361,8 @@ class AppShellEditingMixin:
             )
             if target_layer is None:
                 raise ValueError(f"Layer not found: {layer_id}")
+            if str(target_layer.object_id or "").startswith("object_song_"):
+                raise ValueError("Cannot delete source audio object.")
 
             timeline.layers = [layer for layer in timeline.layers if layer.id != target_layer_id]
             timeline.section_cues = derive_section_cues_from_layers(timeline.layers)

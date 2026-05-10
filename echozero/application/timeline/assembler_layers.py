@@ -64,6 +64,10 @@ def assemble_layer(
     layer_selected = _is_layer_selected(layer.id, state)
     return LayerPresentation(
         layer_id=layer.id,
+        object_id=layer.object_id,
+        main_content_id=layer.main_content_id,
+        main_revision_id=layer.main_revision_id,
+        source_content_ref=layer.source_content_ref,
         main_take_id=primary_take.id if primary_take is not None else None,
         title=layer.name,
         subtitle="",
@@ -151,6 +155,10 @@ def _assemble_take_rows(
         TakeLanePresentation(
             take_id=take.id,
             name=take.name,
+            object_id=take.object_id,
+            content_id=take.content_id,
+            revision_id=take.revision_id,
+            source_content_ref=take.source_content_ref,
             is_main=False,
             kind=layer.kind,
             is_selected=layer_selected and take.id == state.selected_take_id,

@@ -187,6 +187,10 @@ class ObjectActionExecutionService(
                     object_type=object_type,
                 )
             )
+            if layer_id is not None:
+                layer = self._require_layer(layer_id)
+                layer_id = layer.layer_id
+                resolved_params = {**resolved_params, "layer_id": layer_id}
             config = self._require_object_action_config(
                 pipeline_template_id,
                 scope=persist_scope or "version",

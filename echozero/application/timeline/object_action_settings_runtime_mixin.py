@@ -14,6 +14,7 @@ from echozero.application.shared.enums import LayerKind
 from echozero.application.timeline.object_action_model_picker_options import (
     build_runtime_model_picker_options,
 )
+from echozero.application.timeline.object_content import is_imported_song_object_id
 from echozero.application.timeline.object_actions.descriptors import ActionDescriptor, workflow_descriptor_for_action
 from echozero.application.timeline.object_actions.settings import (
     ObjectActionSettingField,
@@ -227,7 +228,7 @@ def has_prior_outputs_for_action(
         layer.status.pipeline_id == pipeline_template_id
         and (
             str(layer.status.source_layer_id) == str(source_layer_id)
-            or str(source_layer_id) == "source_audio"
+            or _is_imported_song_audio_layer(layer)
         )
         for layer in shell.presentation().layers
     )
@@ -488,7 +489,7 @@ def _bindings_for_song_audio_pipeline_action(
 ) -> dict[str, object]:
     if layer.kind is not LayerKind.AUDIO:
         raise ValueError(f"{action_name} requires an audio layer, got {layer.kind.name.lower()}.")
-    if str(layer.layer_id) != "source_audio":
+    if not _is_imported_song_audio_layer(layer):
         raise NotImplementedError(
             f"{action_name} currently runs only from the imported song layer. "
             "Derived-audio reruns are deferred until arbitrary-layer pipeline input is wired."
@@ -509,10 +510,7 @@ def _resolve_source_song_audio_layer(
     ]
     if not audio_layers:
         return None
-    direct_source = next(
-        (candidate for candidate in audio_layers if str(candidate.layer_id).strip() == "source_audio"),
-        None,
-    )
+    direct_source = next((candidate for candidate in audio_layers if _is_imported_song_audio_layer(candidate)), None)
     if direct_source is not None:
         return direct_source
     canonical_song_layer = next(
@@ -603,3 +601,17 @@ def _validate_stem_derived_audio_layer(layer: LayerPresentation, *, action_name:
             f"{action_name} currently runs only from stem-derived audio layers. "
             "Select a drums, bass, vocals, or other stem layer produced by stem separation."
         )
+
+
+def _is_imported_song_audio_layer(layer: LayerPresentation) -> bool:
+    if layer.kind is not LayerKind.AUDIO:
+        return False
+    if is_imported_song_object_id(layer.object_id):
+        return True
+    return (
+        layer.status is None
+        or (
+            not str(layer.status.source_layer_id or "").strip()
+            and not str(layer.status.pipeline_id or "").strip()
+        )
+    )
