@@ -2,7 +2,14 @@ from __future__ import annotations
 
 import pytest
 
-from echozero.foundry.services import BaselineTrainer, CnnTrainer, CrnnTrainer, TrainerBackendFactory
+pytest.importorskip("torch")
+
+from echozero.foundry.services import (
+    BaselineTrainer,
+    CnnTrainer,
+    CrnnTrainer,
+    TrainerBackendFactory,
+)
 
 
 class _FakeBackend:
@@ -22,7 +29,15 @@ def test_resolve_defaults_to_legacy_backend(tmp_path):
         {
             "schema": "foundry.train_run_spec.v1",
             "classificationMode": "multiclass",
-            "data": {"datasetVersionId": "dsv_x", "sampleRate": 22050, "maxLength": 22050, "nFft": 2048, "hopLength": 512, "nMels": 128, "fmax": 8000},
+            "data": {
+                "datasetVersionId": "dsv_x",
+                "sampleRate": 22050,
+                "maxLength": 22050,
+                "nFft": 2048,
+                "hopLength": 512,
+                "nMels": 128,
+                "fmax": 8000,
+            },
             "training": {"epochs": 1, "batchSize": 1, "learningRate": 0.01},
         },
         legacy_backend=legacy,
@@ -59,7 +74,10 @@ def test_resolve_supports_registered_custom_backend(tmp_path):
     factory = TrainerBackendFactory()
     legacy = BaselineTrainer(tmp_path)
 
-    factory.register("custom_runtime", lambda run_spec, legacy_backend: _FakeBackend(str(run_spec.get("schema"))))
+    factory.register(
+        "custom_runtime",
+        lambda run_spec, legacy_backend: _FakeBackend(str(run_spec.get("schema"))),
+    )
 
     resolved = factory.resolve(
         {

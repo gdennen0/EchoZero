@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Any, Callable
+from typing import TYPE_CHECKING, Any, Callable
 
 import numpy as np
 
@@ -17,14 +17,47 @@ from echozero.errors import ExecutionError, ValidationError
 from echozero.execution import ExecutionContext
 from echozero.progress import ProgressReport
 from echozero.result import Result, err, ok
-from echozero.runtime_models.loader import (
-    LoadedRuntimeModel,
-    build_model_artifact_reference,
-    build_feature_tensor,
-    load_runtime_model,
-    predict_probabilities,
-    resolve_device,
-)
+
+if TYPE_CHECKING:
+    from echozero.runtime_models.loader import LoadedRuntimeModel
+
+
+def resolve_device(device: str) -> str:
+    """Resolve the requested runtime device using the optional ML runtime."""
+    from echozero.runtime_models.loader import resolve_device as _resolve_device
+
+    return str(_resolve_device(device))
+
+
+def load_runtime_model(model_path: str | Path, *, device: str) -> "LoadedRuntimeModel":
+    """Load a runtime model using the optional ML runtime."""
+    from echozero.runtime_models.loader import load_runtime_model as _load_runtime_model
+
+    return _load_runtime_model(model_path, device=device)
+
+
+def build_model_artifact_reference(runtime_model: "LoadedRuntimeModel") -> dict[str, object]:
+    """Build artifact metadata using the optional ML runtime."""
+    from echozero.runtime_models.loader import (
+        build_model_artifact_reference as _build_model_artifact_reference,
+    )
+
+    return dict(_build_model_artifact_reference(runtime_model))
+
+
+def build_feature_tensor(**kwargs: object) -> np.ndarray:
+    """Build an inference tensor using the optional ML runtime."""
+    from echozero.runtime_models.loader import build_feature_tensor as _build_feature_tensor
+
+    return _build_feature_tensor(**kwargs)
+
+
+def predict_probabilities(runtime_model: "LoadedRuntimeModel", feature: np.ndarray) -> np.ndarray:
+    """Run one model prediction using the optional ML runtime."""
+    from echozero.runtime_models.loader import predict_probabilities as _predict_probabilities
+
+    return _predict_probabilities(runtime_model, feature)
+
 
 _DEFAULT_MIN_EVENT_PEAK = 1e-3
 _DEFAULT_MIN_EVENT_RMS = 2e-4
@@ -91,9 +124,7 @@ def _default_binary_classify(
         import librosa
         import soundfile as sf
     except ImportError as exc:
-        raise ExecutionError(
-            "Binary drum classification requires librosa and soundfile."
-        ) from exc
+        raise ExecutionError("Binary drum classification requires librosa and soundfile.") from exc
 
     if not inputs:
         return {}
@@ -132,10 +163,7 @@ def _default_binary_classify(
                 sample_rate=runtime_model.sample_rate,
                 max_length=runtime_model.max_length,
             )
-            if (
-                event_peak < assignment.min_event_peak
-                and event_rms < assignment.min_event_rms
-            ):
+            if event_peak < assignment.min_event_peak and event_rms < assignment.min_event_rms:
                 continue
             feature = build_feature_tensor(
                 audio=audio,
@@ -201,9 +229,7 @@ class BinaryDrumClassifyProcessor:
         assignment_mode = str(settings.get("assignment_mode", "independent")).strip().lower()
         if assignment_mode not in _VALID_ASSIGNMENT_MODES:
             return err(
-                ValidationError(
-                    "assignment_mode must be one of: independent, exclusive_max"
-                )
+                ValidationError("assignment_mode must be one of: independent, exclusive_max")
             )
         winner_margin = float(settings.get("winner_margin", 0.0))
         if winner_margin < 0.0 or winner_margin > 1.0:
@@ -269,9 +295,7 @@ class BinaryDrumClassifyProcessor:
             return err(exc)
         except Exception as exc:
             return err(
-                ExecutionError(
-                    f"Binary drum classification failed: {type(exc).__name__}: {exc}"
-                )
+                ExecutionError(f"Binary drum classification failed: {type(exc).__name__}: {exc}")
             )
 
         context.progress_bus.publish(
@@ -287,8 +311,7 @@ class BinaryDrumClassifyProcessor:
         for label in ("kick", "snare"):
             scored_events = classified.get(label, [])
             ordered_events = tuple(
-                event
-                for event, _score in sorted(scored_events, key=lambda item: item[0].time)
+                event for event, _score in sorted(scored_events, key=lambda item: item[0].time)
             )
             output_layers.append(Layer(id=label, name=label, events=ordered_events))
 
@@ -335,15 +358,13 @@ def _resolve_label_inference_input(
 ) -> DrumLabelInferenceInput:
     label_audio = context.get_input(block_id, f"{label}_audio_in", AudioData) or shared_audio
     if label_audio is None or not label_audio.file_path:
-        raise ExecutionError(
-            f"Block '{block_id}' requires '{label}_audio_in' or 'audio_in'."
-        )
+        raise ExecutionError(f"Block '{block_id}' requires '{label}_audio_in' or 'audio_in'.")
 
-    label_event_data = context.get_input(block_id, f"{label}_events_in", EventData) or shared_event_data
+    label_event_data = (
+        context.get_input(block_id, f"{label}_events_in", EventData) or shared_event_data
+    )
     if label_event_data is None:
-        raise ExecutionError(
-            f"Block '{block_id}' requires '{label}_events_in' or 'events_in'."
-        )
+        raise ExecutionError(f"Block '{block_id}' requires '{label}_events_in' or 'events_in'.")
 
     block = context.graph.blocks[block_id]
     positive_threshold = _validated_probability(
@@ -435,9 +456,7 @@ def _apply_assignment_config(
         )
         for candidate in group:
             candidate_promoted = (
-                candidate is winner
-                and winner_threshold_passed
-                and winner_margin_satisfied
+                candidate is winner and winner_threshold_passed and winner_margin_satisfied
             )
             resolved[candidate.label].append(
                 (
@@ -578,7 +597,9 @@ def _resolve_group_winner(
     return winner, runner_up
 
 
-def _load_runtime_model_for_label(*, label: str, model_path: str, device: str) -> LoadedRuntimeModel:
+def _load_runtime_model_for_label(
+    *, label: str, model_path: str, device: str
+) -> LoadedRuntimeModel:
     runtime_model = load_runtime_model(model_path, device=device)
     if label not in runtime_model.classes:
         raise ValidationError(

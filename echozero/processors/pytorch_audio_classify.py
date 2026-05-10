@@ -15,13 +15,46 @@ from echozero.errors import ExecutionError, ValidationError
 from echozero.execution import ExecutionContext
 from echozero.progress import ProgressReport
 from echozero.result import Result, err, ok
-from echozero.runtime_models.loader import (
-    build_model_artifact_reference,
-    build_feature_tensor,
-    load_runtime_model,
-    predict_probabilities_batch,
-    resolve_device,
-)
+
+
+def resolve_device(device: str) -> str:
+    """Resolve the requested runtime device using the optional ML runtime."""
+    from echozero.runtime_models.loader import resolve_device as _resolve_device
+
+    return str(_resolve_device(device))
+
+
+def load_runtime_model(model_path: str | Path, *, device: str) -> object:
+    """Load a runtime model using the optional ML runtime."""
+    from echozero.runtime_models.loader import load_runtime_model as _load_runtime_model
+
+    return _load_runtime_model(model_path, device=device)
+
+
+def build_model_artifact_reference(runtime_model: object) -> dict[str, object]:
+    """Build artifact metadata using the optional ML runtime."""
+    from echozero.runtime_models.loader import (
+        build_model_artifact_reference as _build_model_artifact_reference,
+    )
+
+    return dict(_build_model_artifact_reference(runtime_model))
+
+
+def build_feature_tensor(**kwargs: object) -> object:
+    """Build an inference tensor using the optional ML runtime."""
+    from echozero.runtime_models.loader import build_feature_tensor as _build_feature_tensor
+
+    return _build_feature_tensor(**kwargs)
+
+
+def predict_probabilities_batch(runtime_model: object, batch_features: object) -> object:
+    """Run batch model prediction using the optional ML runtime."""
+    from echozero.runtime_models.loader import (
+        predict_probabilities_batch as _predict_probabilities_batch,
+    )
+
+    return _predict_probabilities_batch(runtime_model, batch_features)
+
 
 # Classifier function signature for DI
 ClassifyFn = Callable[
@@ -49,9 +82,7 @@ def _default_classify(
         import numpy as np
         import soundfile as sf
     except ImportError:
-        raise ExecutionError(
-            "PyTorch classification requires librosa and soundfile."
-        )
+        raise ExecutionError("PyTorch classification requires librosa and soundfile.")
 
     if not audio_file:
         raise ValidationError("PyTorchAudioClassify requires an audio file path.")

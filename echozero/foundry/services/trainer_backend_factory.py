@@ -4,8 +4,6 @@ from collections.abc import Callable
 from typing import Protocol
 
 from echozero.foundry.domain import DatasetVersion, TrainRun
-from echozero.foundry.services.cnn_trainer import CnnTrainer
-from echozero.foundry.services.crnn_trainer import CrnnTrainer
 
 
 class TrainerBackend(Protocol):
@@ -43,7 +41,9 @@ class TrainerBackendFactory:
         builder = self._registry.get(backend_key)
         if builder is None:
             available = ", ".join(sorted(self._registry))
-            raise ValueError(f"run_spec.training.backend must resolve to a known backend: {available}")
+            raise ValueError(
+                f"run_spec.training.backend must resolve to a known backend: {available}"
+            )
         return builder(run_spec, legacy_backend)
 
     def _resolve_backend_key(self, run_spec: dict) -> str:
@@ -64,7 +64,9 @@ class TrainerBackendFactory:
         if isinstance(training, dict) and training.get("backend") is not None:
             backend_key = str(training.get("backend")).strip().lower()
             if not backend_key:
-                raise ValueError("run_spec.training.backend must be a non-empty string when provided")
+                raise ValueError(
+                    "run_spec.training.backend must be a non-empty string when provided"
+                )
             return backend_key
 
         return model_type
@@ -80,6 +82,15 @@ class TrainerBackendFactory:
         root = getattr(legacy_backend, "_root", None)
         if root is None:
             raise ValueError("legacy backend must expose a root path for cnn backend resolution")
+        try:
+            from echozero.foundry.services.cnn_trainer import CnnTrainer
+        except ModuleNotFoundError as exc:
+            if exc.name in {"torch", "sklearn"}:
+                raise RuntimeError(
+                    "Foundry CNN training requires optional ML dependencies. "
+                    'Install them with `pip install -e ".[ml]"` before starting a CNN run.'
+                ) from exc
+            raise
         return CnnTrainer(root)
 
     @staticmethod
@@ -88,4 +99,13 @@ class TrainerBackendFactory:
         root = getattr(legacy_backend, "_root", None)
         if root is None:
             raise ValueError("legacy backend must expose a root path for crnn backend resolution")
+        try:
+            from echozero.foundry.services.crnn_trainer import CrnnTrainer
+        except ModuleNotFoundError as exc:
+            if exc.name in {"torch", "sklearn"}:
+                raise RuntimeError(
+                    "Foundry CRNN training requires optional ML dependencies. "
+                    'Install them with `pip install -e ".[ml]"` before starting a CRNN run.'
+                ) from exc
+            raise
         return CrnnTrainer(root)

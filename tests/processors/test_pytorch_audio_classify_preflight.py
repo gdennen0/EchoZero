@@ -6,21 +6,37 @@ import wave
 from pathlib import Path
 from uuid import uuid4
 
-import pytest
 import numpy as np
+import pytest
+
+pytest.importorskip("torch")
 
 from echozero.domain.enums import BlockCategory, Direction, PortType
 from echozero.domain.graph import Graph
-from echozero.domain.types import AudioData, Block, BlockSettings, Connection, Event, EventData, Layer, Port
+from echozero.domain.types import (
+    AudioData,
+    Block,
+    BlockSettings,
+    Connection,
+    Event,
+    EventData,
+    Layer,
+    Port,
+)
 from echozero.errors import ValidationError
 from echozero.execution import ExecutionContext
-from echozero.inference_eval.runtime_preflight import checkpoint_contract_fingerprint, run_runtime_preflight
-from echozero.processors.pytorch_audio_classify import PyTorchAudioClassifyProcessor, _default_classify
+from echozero.inference_eval.runtime_preflight import (
+    checkpoint_contract_fingerprint,
+    run_runtime_preflight,
+)
+from echozero.processors.pytorch_audio_classify import (
+    PyTorchAudioClassifyProcessor,
+    _default_classify,
+)
 from echozero.progress import RuntimeBus
 from echozero.result import Err
 from echozero.runtime_models import loader as runtime_loader
 from echozero.runtime_models.architectures import SimpleCnnRuntimeModel
-
 
 _TEST_TMP_ROOT = Path(__file__).resolve().parents[2] / ".processor-test-tmp"
 
@@ -119,9 +135,30 @@ def _events() -> EventData:
                 id="onsets",
                 name="Detected Onsets",
                 events=(
-                    Event(id="event_1", time=0.5, duration=0.1, classifications={}, metadata={}, origin="onset1"),
-                    Event(id="event_2", time=2.0, duration=0.1, classifications={}, metadata={}, origin="onset1"),
-                    Event(id="event_3", time=4.0, duration=0.1, classifications={}, metadata={}, origin="onset1"),
+                    Event(
+                        id="event_1",
+                        time=0.5,
+                        duration=0.1,
+                        classifications={},
+                        metadata={},
+                        origin="onset1",
+                    ),
+                    Event(
+                        id="event_2",
+                        time=2.0,
+                        duration=0.1,
+                        classifications={},
+                        metadata={},
+                        origin="onset1",
+                    ),
+                    Event(
+                        id="event_3",
+                        time=4.0,
+                        duration=0.1,
+                        classifications={},
+                        metadata={},
+                        origin="onset1",
+                    ),
                 ),
             ),
         )
@@ -291,7 +328,9 @@ def test_runtime_preflight_rejects_class_order_mismatch(local_tmp_path: Path) ->
         run_runtime_preflight(model_path, _checkpoint())
 
 
-def test_runtime_preflight_rejects_preprocessing_mismatch_against_checkpoint(local_tmp_path: Path) -> None:
+def test_runtime_preflight_rejects_preprocessing_mismatch_against_checkpoint(
+    local_tmp_path: Path,
+) -> None:
     model_path = local_tmp_path / "model.pth"
     model_path.write_bytes(b"weights")
     payload = _manifest(model_path.name)
@@ -308,7 +347,9 @@ def test_runtime_preflight_rejects_preprocessing_mismatch_against_checkpoint(loc
         run_runtime_preflight(model_path, _checkpoint())
 
 
-def test_runtime_preflight_rejects_legacy_checkpoint_missing_manifest_required_metadata(local_tmp_path: Path) -> None:
+def test_runtime_preflight_rejects_legacy_checkpoint_missing_manifest_required_metadata(
+    local_tmp_path: Path,
+) -> None:
     model_path = local_tmp_path / "model.pth"
     model_path.write_bytes(b"weights")
     legacy_checkpoint = {
@@ -331,12 +372,22 @@ def test_runtime_preflight_rejects_legacy_checkpoint_missing_manifest_required_m
         run_runtime_preflight(model_path, legacy_checkpoint)
 
     message = str(exc_info.value)
-    assert "checkpoint.classes must be present when validating against an artifact manifest" in message
-    assert "checkpoint preprocessing missing keys required for manifest verification: fmax" in message
-    assert "checkpoint classification mode must be present when validating against an artifact manifest" in message
+    assert (
+        "checkpoint.classes must be present when validating against an artifact manifest"
+        in message
+    )
+    assert (
+        "checkpoint preprocessing missing keys required for manifest verification: fmax" in message
+    )
+    assert (
+        "checkpoint classification mode must be present when validating against an artifact manifest"
+        in message
+    )
 
 
-def test_runtime_preflight_rejects_missing_shared_contract_fingerprint(local_tmp_path: Path) -> None:
+def test_runtime_preflight_rejects_missing_shared_contract_fingerprint(
+    local_tmp_path: Path,
+) -> None:
     model_path = local_tmp_path / "model.pth"
     model_path.write_bytes(b"weights")
     payload = _manifest(model_path.name)
@@ -362,7 +413,12 @@ def test_default_classify_runs_preflight_once_per_model_load(
 
     calls: list[tuple[Path, dict[str, object]]] = []
 
-    def spy_preflight(model: str | Path, loaded_checkpoint: dict[str, object], *, consumer: str = "PyTorchAudioClassify") -> None:
+    def spy_preflight(
+        model: str | Path,
+        loaded_checkpoint: dict[str, object],
+        *,
+        consumer: str = "PyTorchAudioClassify",
+    ) -> None:
         assert consumer == "PyTorchAudioClassify"
         calls.append((Path(model), loaded_checkpoint))
 
@@ -381,7 +437,10 @@ def test_default_classify_runs_preflight_once_per_model_load(
     assert calls[0][0] == model_path
     assert all(event.classifications["class"] == "snare" for event in classified)
     assert all(event.metadata["source_model"] == "model.pth" for event in classified)
-    assert all(event.metadata["model_artifact"]["schema"] == "echozero.model_artifact_ref.v1" for event in classified)
+    assert all(
+        event.metadata["model_artifact"]["schema"] == "echozero.model_artifact_ref.v1"
+        for event in classified
+    )
     assert all(
         event.metadata["model_artifact"]["artifactIdentity"]["sharedContractFingerprint"]
         == checkpoint_contract_fingerprint(_checkpoint())

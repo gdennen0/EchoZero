@@ -8,23 +8,29 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 from threading import Event
+from types import ModuleType
 from typing import Callable, cast
 
 import numpy as np
 
 from echozero.foundry.domain import DatasetSample, DatasetVersion, TrainRun
-from echozero.foundry.services.baseline_trainer_runtime import (
-    augment_features,
-    build_features,
-    compute_class_weight,
-    ensure_not_canceled,
-    evaluate_split,
-    load_audio,
-    rebalance_training_set,
-    resolve_train_samples,
-    resolve_training_options,
-    run_baseline_training,
-)
+
+
+class MissingFoundryMlDependencyError(RuntimeError):
+    """Raised when a Foundry training runtime is used without ML extras installed."""
+
+
+def _load_baseline_runtime() -> ModuleType:
+    try:
+        from echozero.foundry.services import baseline_trainer_runtime
+    except ModuleNotFoundError as exc:
+        if exc.name in {"torch", "sklearn"}:
+            raise MissingFoundryMlDependencyError(
+                "Foundry training requires optional ML dependencies. "
+                'Install them with `pip install -e ".[ml]"` before starting a training run.'
+            ) from exc
+        raise
+    return baseline_trainer_runtime
 
 
 class RunCanceledError(RuntimeError):
@@ -59,7 +65,7 @@ class BaselineTrainer:
         cancel_event: Event | None = None,
         progress_callback: Callable[[dict[str, object]], None] | None = None,
     ) -> BaselineTrainingResult:
-        payload = run_baseline_training(
+        payload = _load_baseline_runtime().run_baseline_training(
             host=self,
             run=run,
             dataset_version=dataset_version,
@@ -68,12 +74,95 @@ class BaselineTrainer:
         )
         return BaselineTrainingResult(**payload)
 
-    _resolve_training_options = staticmethod(resolve_training_options)
-    _resolve_train_samples = staticmethod(resolve_train_samples)
-    _compute_class_weight = staticmethod(compute_class_weight)
-    _rebalance_training_set = staticmethod(rebalance_training_set)
-    _augment_features = staticmethod(augment_features)
-    _evaluate_split = staticmethod(evaluate_split)
+    @staticmethod
+    def _resolve_training_options(training_spec: dict) -> dict[str, object]:
+        return cast(
+            dict[str, object], _load_baseline_runtime().resolve_training_options(training_spec)
+        )
+
+    @staticmethod
+    def _resolve_train_samples(
+        train_samples: list[DatasetSample],
+        synthetic_mix_spec: dict[str, object],
+        *,
+        rng: np.random.Generator,
+    ) -> tuple[list[DatasetSample], dict[str, int | float | bool | None]]:
+        return cast(
+            tuple[list[DatasetSample], dict[str, int | float | bool | None]],
+            _load_baseline_runtime().resolve_train_samples(
+                train_samples,
+                synthetic_mix_spec,
+                rng=rng,
+            ),
+        )
+
+    @staticmethod
+    def _compute_class_weight(
+        y: np.ndarray,
+        *,
+        classes: np.ndarray,
+        mode: str,
+    ) -> dict[int, float] | None:
+        return cast(
+            dict[int, float] | None,
+            _load_baseline_runtime().compute_class_weight(y, classes=classes, mode=mode),
+        )
+
+    @staticmethod
+    def _rebalance_training_set(
+        x: np.ndarray,
+        y: np.ndarray,
+        *,
+        class_count: int,
+        strategy: str,
+        rng: np.random.Generator,
+    ) -> tuple[np.ndarray, np.ndarray]:
+        return cast(
+            tuple[np.ndarray, np.ndarray],
+            _load_baseline_runtime().rebalance_training_set(
+                x,
+                y,
+                class_count=class_count,
+                strategy=strategy,
+                rng=rng,
+            ),
+        )
+
+    @staticmethod
+    def _augment_features(
+        x: np.ndarray,
+        y: np.ndarray,
+        *,
+        copies: int,
+        noise_std: float,
+        gain_jitter: float,
+        enabled: bool,
+        rng: np.random.Generator,
+    ) -> tuple[np.ndarray, np.ndarray]:
+        return cast(
+            tuple[np.ndarray, np.ndarray],
+            _load_baseline_runtime().augment_features(
+                x,
+                y,
+                copies=copies,
+                noise_std=noise_std,
+                gain_jitter=gain_jitter,
+                enabled=enabled,
+                rng=rng,
+            ),
+        )
+
+    @staticmethod
+    def _evaluate_split(
+        classifier: object,
+        x: np.ndarray,
+        y: np.ndarray,
+        class_names: list[str],
+    ) -> dict[str, object]:
+        return cast(
+            dict[str, object],
+            _load_baseline_runtime().evaluate_split(classifier, x, y, class_names),
+        )
 
     def _build_features(
         self,
@@ -111,11 +200,26 @@ class BaselineTrainer:
 
     @staticmethod
     def _ensure_not_canceled(cancel_event: Event | None) -> None:
-        ensure_not_canceled(cancel_event, canceled_error_cls=RunCanceledError)
+        _load_baseline_runtime().ensure_not_canceled(
+            cancel_event,
+            canceled_error_cls=RunCanceledError,
+        )
 
     @staticmethod
     def _load_audio(path: Path, *, sample_rate: int, max_length: int) -> np.ndarray:
-        return cast(np.ndarray, load_audio(path, sample_rate=sample_rate, max_length=max_length))
+        return cast(
+            np.ndarray,
+            _load_baseline_runtime().load_audio(
+                path,
+                sample_rate=sample_rate,
+                max_length=max_length,
+            ),
+        )
 
 
-__all__ = ["BaselineTrainer", "BaselineTrainingResult", "RunCanceledError"]
+__all__ = [
+    "BaselineTrainer",
+    "BaselineTrainingResult",
+    "MissingFoundryMlDependencyError",
+    "RunCanceledError",
+]

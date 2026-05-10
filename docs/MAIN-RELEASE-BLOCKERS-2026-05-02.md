@@ -1,7 +1,7 @@
 ## Main Release Blockers
 
-Status: saved note
-Captured: 2026-05-02
+Status: reference
+Last reviewed: 2026-05-02
 
 This note preserves the clean-`origin/main` release findings captured before
 the launcher import-path work resumed.
