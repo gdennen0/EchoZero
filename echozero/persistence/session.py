@@ -29,19 +29,9 @@ from echozero.persistence.entities import (
     SongRecord,
     SongVersionRecord,
 )
-from echozero.persistence.repositories import (
-    LayerRepository,
-    ObjectCandidateRepository,
-    ObjectContentRepository,
-    PipelineConfigRepository,
-    ProjectRepository,
-    SongDefaultPipelineConfigRepository,
-    SongRepository,
-    SongVersionRepository,
-    TakeRepository,
-    TimelineObjectRepository,
-)
+from echozero.persistence.repositories import ProjectRepository
 from echozero.persistence.schema import init_db
+from echozero.persistence.session_repositories_mixin import ProjectStorageRepositoriesMixin
 from echozero.persistence.session_runtime_mixin import ProjectStorageRuntimeMixin
 from echozero.persistence.session_versioning_mixin import ProjectStorageVersioningMixin
 from echozero.serialization import deserialize_graph, serialize_graph
@@ -152,7 +142,11 @@ def _working_dir_for_id(project_id: str) -> Path:
     return WORKING_DIR_ROOT / project_id
 
 
-class ProjectStorage(ProjectStorageVersioningMixin, ProjectStorageRuntimeMixin):
+class ProjectStorage(
+    ProjectStorageRepositoriesMixin,
+    ProjectStorageVersioningMixin,
+    ProjectStorageRuntimeMixin,
+):
     """Main project lifecycle manager — owns DB connection, repos, dirty tracker, autosave."""
 
     def __init__(
@@ -358,68 +352,6 @@ class ProjectStorage(ProjectStorageVersioningMixin, ProjectStorageRuntimeMixin):
         exc_tb: object,
     ) -> None:
         self.close()
-
-    # -- Repository accessors -----------------------------------------------
-
-    @property
-    def projects(self) -> ProjectRepository:
-        """Access the project repository."""
-        self._check_closed()
-        return ProjectRepository(self.db)
-
-    @property
-    def songs(self) -> SongRepository:
-        """Access the song repository."""
-        self._check_closed()
-        return SongRepository(self.db)
-
-    @property
-    def song_versions(self) -> SongVersionRepository:
-        """Access the song version repository."""
-        self._check_closed()
-        return SongVersionRepository(self.db)
-
-    @property
-    def layers(self) -> LayerRepository:
-        """Access the layer repository."""
-        self._check_closed()
-        return LayerRepository(self.db)
-
-    @property
-    def takes(self) -> TakeRepository:
-        """Access the take repository."""
-        self._check_closed()
-        return TakeRepository(self.db)
-
-    @property
-    def timeline_objects(self) -> TimelineObjectRepository:
-        """Access timeline object records."""
-        self._check_closed()
-        return TimelineObjectRepository(self.db)
-
-    @property
-    def object_contents(self) -> ObjectContentRepository:
-        """Access object content records."""
-        self._check_closed()
-        return ObjectContentRepository(self.db)
-
-    @property
-    def object_candidates(self) -> ObjectCandidateRepository:
-        """Access object candidate records."""
-        self._check_closed()
-        return ObjectCandidateRepository(self.db)
-
-    @property
-    def pipeline_configs(self) -> PipelineConfigRepository:
-        """Access the pipeline config repository."""
-        self._check_closed()
-        return PipelineConfigRepository(self.db)
-
-    @property
-    def song_default_pipeline_configs(self) -> SongDefaultPipelineConfigRepository:
-        """Access the song default pipeline config repository."""
-        self._check_closed()
-        return SongDefaultPipelineConfigRepository(self.db)
 
     # -- Graph persistence --------------------------------------------------
 
